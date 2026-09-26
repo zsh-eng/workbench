@@ -38,6 +38,7 @@ export function useFileVim({
   column,
   onNavigationReady,
   onDefinition,
+  onPosition,
 }: {
   text: string;
   identity: string;
@@ -47,7 +48,13 @@ export function useFileVim({
   column?: number;
   onNavigationReady?: (command: FileNavigationCommand | null) => void;
   onDefinition?: (name: string) => void;
+  onPosition?: (line: number, reason: "cursor") => void;
 }) {
+  const positionListener = useRef(onPosition);
+  useLayoutEffect(() => {
+    positionListener.current = onPosition;
+  }, [onPosition]);
+  const lastPosition = useRef(-1);
   const model = useMemo(() => new VimNavigation(text, identity), [text, identity]);
   const commandFile = useMemo(() => ({ identity: model.identity }), [model]);
   const visualName = `med-visual-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
@@ -135,6 +142,10 @@ export function useFileVim({
       }
       visualPainter.update(host.current, model, enabled);
       activeSearch.update(host.current, model, showSearch.current);
+      if (lastPosition.current !== model.line) {
+        lastPosition.current = model.line;
+        positionListener.current?.(model.line + 1, "cursor");
+      }
       container.dataset.vimLine = String(model.line + 1);
       container.dataset.vimColumn = String(model.column + 1);
       if (!align && !active.current) {

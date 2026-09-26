@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { EditorState, StateEffect, StateField, Transaction } from "@codemirror/state";
 import {
   EditorView,
@@ -48,11 +48,17 @@ export default function FileEditor({
   drafts,
   write,
   onClose,
+  previewControl,
+  onDocumentChange,
+  onSourcePosition,
 }: {
   draft: EditorDraft;
   drafts: EditorDrafts;
   write: FileWrite;
   onClose(): void;
+  previewControl?: ReactNode;
+  onDocumentChange?(text: string): void;
+  onSourcePosition?(line: number, reason: "cursor" | "scroll"): void;
 }) {
   const { active } = useTheme();
   const body = useRef<HTMLDivElement>(null);
@@ -61,9 +67,9 @@ export default function FileEditor({
   const [mode, setMode] = useState("NORMAL");
   const [confirm, setConfirm] = useState(false);
   const [syntaxError, setSyntaxError] = useState("");
-  const latest = useRef({ write, onClose });
+  const latest = useRef({ write, onClose, onDocumentChange, onSourcePosition });
   useLayoutEffect(() => {
-    latest.current = { write, onClose };
+    latest.current = { write, onClose, onDocumentChange, onSourcePosition };
   });
   const save = async () => {
     if (draft.saving || !draft.dirty || !draft.state) return;
@@ -121,6 +127,7 @@ export default function FileEditor({
         immediate ? 0 : 100,
       );
     };
+    let cursorMotionAt = 0;
     let firstInsert = false,
       joinChange = false;
     const extensions = [
@@ -172,6 +179,13 @@ export default function FileEditor({
       ]),
       EditorView.updateListener.of((update) => {
         drafts.update(draft, { state: update.state });
+        if (update.selectionSet || update.docChanged) {
+          cursorMotionAt = performance.now();
+          latest.current.onSourcePosition?.(
+            update.state.doc.lineAt(update.state.selection.main.head).number,
+            "cursor",
+          );
+        }
         if (update.docChanged) {
           const dirty = update.state.sliceDoc() !== draft.savedText;
           if (dirty !== draft.dirty) {
@@ -179,6 +193,7 @@ export default function FileEditor({
             drafts.notify();
           }
           schedule();
+          latest.current.onDocumentChange?.(update.state.sliceDoc());
         }
       }),
       EditorView.theme(
@@ -247,6 +262,23 @@ export default function FileEditor({
       });
       drafts.update(draft, { line: undefined });
     } else editor.scrollDOM.scrollTop = draft.scrollTop;
+    const manualScroll = () => {
+      cursorMotionAt = 0;
+    };
+    const followScroll = () => {
+      // CodeMirror scrolls after moving the cursor. Keep that cursor as the anchor;
+      // wheel, touch and scrollbar input instead follow the viewport.
+      if (performance.now() - cursorMotionAt < 200) return;
+      const block = editor.lineBlockAtHeight(editor.scrollDOM.scrollTop);
+      latest.current.onSourcePosition?.(editor.state.doc.lineAt(block.from).number, "scroll");
+    };
+    editor.scrollDOM.addEventListener("scroll", followScroll, { passive: true });
+    for (const event of ["wheel", "touchstart", "pointerdown"])
+      editor.scrollDOM.addEventListener(event, manualScroll, { passive: true });
+    latest.current.onSourcePosition?.(
+      editor.state.doc.lineAt(editor.state.selection.main.head).number,
+      "cursor",
+    );
     editor.focus();
     if (draft.insertOnOpen) {
       Vim.handleKey(cm, "i", "user");
@@ -289,6 +321,9 @@ export default function FileEditor({
         scrollTop: editor.scrollDOM.scrollTop,
       });
       view.current = null;
+      editor.scrollDOM.removeEventListener("scroll", followScroll);
+      for (const event of ["wheel", "touchstart", "pointerdown"])
+        editor.scrollDOM.removeEventListener(event, manualScroll);
       editor.destroy();
     };
   }, [draft, drafts, active]);
@@ -321,6 +356,7 @@ export default function FileEditor({
         <span className="med-editor-mode" aria-live="polite">
           {mode}
         </span>
+        {previewControl}
         <button onClick={() => void save()} disabled={!draft.dirty || draft.saving}>
           Save
         </button>

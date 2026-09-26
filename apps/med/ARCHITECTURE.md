@@ -232,3 +232,33 @@ HEAD. Git generates bounded zero-context hunks in a disposable directory; no
 checkout files are changed. Requests are cancellable and temporary files are
 removed. The browser indexes hunk spans once and paints only mounted Pierre
 number cells. Stale file views drop their markers until refresh.
+
+
+## Live Markdown preview
+
+`FullFileView` keeps the Preview preference in browser storage and lazy-loads
+`MarkdownPreview`. The source remains mounted when Preview changes. A small
+imperative bridge sends source-line positions independently of React rendering
+and Markdown parsing. Editor document changes update the bridge; a 100 ms debounce
+coalesces worker requests. A generation number rejects obsolete results.
+
+The worker uses remark-parse, remark-gfm and remark-math, then remark-rehype and
+rehype-stringify. It preserves top-level source ranges for scroll mapping and
+heading IDs for navigation. Raw HTML is disabled and link schemes are limited.
+KaTeX loads only for math, with trust disabled and expansion limits. Code fences
+use the existing Twinkleplop adapter; a bounded cache reuses colored code.
+React retains unchanged HTML blocks. Mermaid loads on demand, renders only near
+the viewport, and serializes its shared configuration with strict security.
+A bounded cache retains diagram SVGs. Closing Preview terminates its worker.
+
+Authenticated image requests accept only supported image types, bounded to 8 MiB,
+and use exact opened-document grants or registered repository access. Standalone
+images are confined to the document folder; repository images to the repository.
+Commit images come from the same Git object tree. Paths through symlinks and
+traversal outside the root are rejected. Image responses have restrictive CSP,
+no-sniff and no-store headers. Dropped source never requests local disk images.
+
+`node scripts/validate-markdown.mjs` exercises the built host and real browser,
+including rendering, Vim draft/undo, source following, persistence, image access,
+and malformed content. It records worker timing separately from whole-file-open
+latency; these boundaries are not interchangeable.

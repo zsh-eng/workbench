@@ -8,8 +8,6 @@ From the Workbench root, run `bun install --frozen-lockfile` and `bun run build:
 
 ```sh
 node /Users/admin/workbench/apps/med/dist/cli.js \
-  /Users/admin/spaced2 \
-  /Users/admin/epub-reader-demo \
   /Users/admin/workbench
 ```
 
@@ -100,11 +98,11 @@ For multiple repositories or multiple comparisons in one repository, write a man
   "title": "Update reader integration",
   "targets": [
     {
-      "repo": "/Users/admin/epub-reader-demo",
+      "repo": "/path/to/reader-repository",
       "comparison": { "kind": "range", "base": "<reader-before>", "head": "<reader-after>" }
     },
     {
-      "repo": "/Users/admin/spaced2",
+      "repo": "/path/to/other-repository",
       "comparison": { "kind": "range", "base": "<spaced-before>", "head": "<spaced-after>" }
     }
   ]
@@ -172,3 +170,27 @@ links because the browser does not supply their absolute paths.
 If the user confirms adding med guidance to AGENTS.md, include this distinction:
 provide a review link for changes and a file link for a specific current file or
 line. Use only task-relevant paths. Keep access tokens out of both links.
+
+For Markdown, **Preview** opens a live rendered pane beside the source. The
+preference persists in the browser. An `open /absolute/path/note.md --edit` link
+opens the Vim editor; the user can choose Preview without changing the URL.
+Draft text appears in the preview before it is saved. Use `:w` or **Save** to
+write it to disk. Browser reload does not retain unsaved drafts.
+
+Markdown uses GFM paragraph rules: a single newline is a soft break within a
+paragraph; a blank line starts another paragraph. Use fenced `mermaid` blocks
+for diagrams, `$…$` for inline math, and `$$` blocks for display math. Fenced
+code uses Med's syntax colors. Relative image paths resolve from the document:
+standalone files permit images in the same folder or its descendants; repository
+files permit images within that repository and use the displayed commit when
+applicable. Do not add secrets or unrelated paths to image references. Dropped
+Markdown cannot resolve local images because the browser does not supply a disk
+path; open the original file by path for that use. HTTPS images can render in
+both modes. Raw HTML is not executed.
+
+A complete sample is `apps/med/docs/examples/reading-queue.md`. To hand it off:
+
+```sh
+node /path/to/workbench/apps/med/dist/cli.js open \
+  /path/to/workbench/apps/med/docs/examples/reading-queue.md --edit
+```

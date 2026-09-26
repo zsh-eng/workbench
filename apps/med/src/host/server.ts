@@ -1,5 +1,7 @@
 import { fileChangesRequestSchema } from "../shared/file-changes";
 import { fileChanges } from "./repository/file-changes";
+import { markdownAsset } from "./markdown-assets";
+import { browseSourceSchema } from "../shared/browse";
 import { LocalFiles } from "./local-files";
 import { localPathSchema } from "../shared/local-file";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
@@ -644,6 +646,31 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               send({ repositories: await registry.remove(url.searchParams.get("id") ?? "") });
               return;
             }
+          }
+          if (url.pathname === "/api/markdown/image" && request.method === "GET") {
+            const document = z.string().min(1).max(4096).parse(url.searchParams.get("document"));
+            const href = z.string().min(1).max(4096).parse(url.searchParams.get("href"));
+            const rawSource = JSON.parse(url.searchParams.get("source") ?? "null");
+            let image;
+            if (rawSource?.kind === "local") {
+              const path = localPathSchema.parse(rawSource.path);
+              if (path !== document)
+                throw new HostError("invalid-image", "Document path does not match.", 400);
+              image = await localFiles.image(path, href, abort.signal);
+            } else {
+              const source = browseSourceSchema.parse(rawSource);
+              source.repo = await requireRepo(source.repo);
+              image = await markdownAsset(source, document, href, abort.signal);
+            }
+            response.writeHead(200, {
+              "Content-Type": image.mime,
+              "Content-Length": image.bytes.length,
+              "Cache-Control": "private, no-store",
+              "X-Content-Type-Options": "nosniff",
+              "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+            });
+            response.end(image.bytes);
+            return;
           }
           if (url.pathname === "/api/local-files/open" && request.method === "POST") {
             const input = z.object({ path: localPathSchema }).parse(await readBody(request));

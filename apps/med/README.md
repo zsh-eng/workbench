@@ -131,3 +131,14 @@ Open files outside Git with `med-diff open /absolute/path/file --line 42`, or us
 **Open standalone file** in the command palette. Drop text files for read-only
 previews. Full-file views show added, deleted, and working changes in the gutter.
 See [file workspace usage](docs/USAGE.md#standalone-files-and-dropped-previews).
+
+
+### Write with a live Markdown preview
+
+Select **Preview** beside a Markdown file to read it alongside the Vim editor.
+The rendered pane follows your cursor and scroll position, updates from unsaved
+edits, and remembers whether it is open. GFM, math, Mermaid, code colors, images,
+and a wide-screen table of contents are included. Try the
+[reading queue design note](docs/examples/reading-queue.md).
+
+![Markdown editor and preview in Graphite Light](docs/validation/markdown-preview-light.png)

@@ -1,0 +1,329 @@
+.med-markdown-shell {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.med-markdown-source {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.med-markdown-shell[data-preview="true"] > .med-markdown-source {
+  flex: 0 0 42%;
+}
+.med-markdown {
+  container-type: inline-size;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--med-border);
+  color: var(--med-text);
+  background: var(--med-canvas);
+  font-family: "Geist", sans-serif;
+  animation: med-preview-in 180ms ease-out both;
+}
+.med-md-header {
+  height: 32px;
+  min-height: 32px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 22px;
+  border-bottom: 1px solid var(--med-border);
+  color: var(--med-muted);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+.med-md-header > :last-child {
+  letter-spacing: 0;
+  opacity: 0.7;
+}
+.med-md-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.med-md-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scroll-padding-top: 40px;
+}
+.med-md-prose {
+  box-sizing: border-box;
+  max-width: 74ch;
+  margin: 0 auto;
+  padding: 38px clamp(24px, 5cqw, 64px) 45vh;
+  font-size: 15px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.med-md-prose p {
+  margin: 0 0 1.35em;
+}
+.med-md-prose :is(h1, h2, h3, h4, h5, h6) {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Geist", sans-serif;
+  line-height: 1.22;
+  letter-spacing: -0.035em;
+  font-weight: 650;
+  text-wrap: balance;
+  scroll-margin-top: 40px;
+}
+.med-md-prose h1 {
+  font-size: clamp(30px, 5cqw, 44px);
+  margin: 0 0 0.85em;
+}
+.med-md-prose h2 {
+  font-size: 26px;
+  margin: 1.9em 0 0.8em;
+  padding-top: 0.35em;
+}
+.med-md-prose h3 {
+  font-size: 20px;
+  margin: 1.6em 0 0.7em;
+}
+.med-md-prose :is(h4, h5, h6) {
+  font-size: 16px;
+  margin: 1.5em 0 0.7em;
+}
+.med-md-prose a {
+  color: var(--med-accent);
+  text-underline-offset: 4px;
+  text-decoration-thickness: 1px;
+}
+.med-md-prose a:hover {
+  text-decoration-thickness: 2px;
+}
+.med-md-prose a:not([href]) {
+  text-decoration-style: dotted;
+}
+.med-md-prose strong {
+  font-weight: 650;
+}
+.med-md-prose :is(ul, ol) {
+  padding-left: 1.5em;
+  margin: 0 0 1.4em;
+}
+.med-md-prose li {
+  margin: 0.35em 0;
+}
+.med-md-prose li p {
+  margin: 0.45em 0;
+}
+.med-md-prose .contains-task-list {
+  list-style: none;
+  padding-left: 0.2em;
+}
+.med-md-prose input[type="checkbox"] {
+  accent-color: var(--med-accent);
+  margin-right: 0.6em;
+  width: 13px;
+  min-width: 13px;
+  max-width: 13px;
+  height: 13px;
+  padding: 0;
+}
+.med-md-prose blockquote {
+  margin: 1.7em 0;
+  padding: 4px 0 4px 20px;
+  border-left: 3px solid var(--med-accent);
+  color: var(--med-muted);
+}
+.med-md-prose blockquote p:last-child {
+  margin-bottom: 0;
+}
+.med-md-prose hr {
+  border: 0;
+  border-top: 1px solid var(--med-border);
+  margin: 2.7em 0;
+}
+.med-md-prose code {
+  font-family: "Geist Mono", monospace;
+  font-size: 0.86em;
+  background: var(--med-panel);
+  border: 1px solid var(--med-border);
+  border-radius: 4px;
+  padding: 0.15em 0.35em;
+}
+.med-md-prose pre {
+  position: relative;
+  margin: 1.5em 0;
+  padding: 34px 20px 20px;
+  background: var(--med-panel);
+  border: 1px solid var(--med-border);
+  border-radius: 10px;
+  overflow: auto;
+  line-height: 1.7;
+  font-size: 13px;
+}
+.med-md-prose pre::before {
+  content: attr(data-language);
+  position: absolute;
+  top: 9px;
+  left: 20px;
+  font:
+    10px "Geist",
+    sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--med-muted);
+}
+.med-md-prose pre code {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font-size: inherit;
+}
+.med-md-prose pre[data-rendered="true"] {
+  padding: 28px 14px 14px;
+  background: transparent;
+}
+.med-md-prose pre[data-diagram-error="true"]::before {
+  content: "Mermaid · check syntax";
+}
+.med-md-diagram {
+  display: flex;
+  justify-content: center;
+}
+.med-md-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+.med-md-prose img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 1.7em auto;
+  border-radius: 8px;
+}
+.med-md-prose table {
+  display: block;
+  max-width: 100%;
+  overflow: auto;
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 1.6em 0;
+}
+.med-md-prose :is(th, td) {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--med-border);
+  text-align: left;
+}
+.med-md-prose th {
+  color: var(--med-muted);
+  font-size: 11px;
+  font-weight: 550;
+  background: var(--med-panel);
+}
+.med-md-prose tr:nth-child(even) {
+  background: color-mix(in srgb, var(--med-panel) 45%, transparent);
+}
+.med-md-prose .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 10px 0;
+  margin: 1.7em 0;
+}
+.med-md-prose .footnotes {
+  margin-top: 3em;
+  border-top: 1px solid var(--med-border);
+  font-size: 12px;
+  color: var(--med-muted);
+}
+.med-md-prose .footnotes h2 {
+  font-size: 14px;
+}
+.med-md-toc {
+  display: none;
+  flex: 0 0 166px;
+  box-sizing: border-box;
+  padding: 42px 16px 20px 0;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+.med-md-toc > span {
+  display: block;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--med-muted);
+  margin: 0 0 16px 10px;
+}
+.med-md-toc button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  white-space: normal;
+  color: var(--med-muted);
+  background: transparent;
+  border: 0;
+  border-left: 1px solid var(--med-border);
+  border-radius: 0;
+  font:
+    11px/1.6 "Geist",
+    sans-serif;
+  padding: 5px 6px;
+  cursor: pointer;
+  transition:
+    color 120ms ease-out,
+    border-color 120ms ease-out;
+}
+.med-md-toc button:hover {
+  color: var(--med-text);
+}
+.med-md-toc button[aria-current] {
+  color: var(--med-accent);
+  border-left: 2px solid var(--med-accent);
+}
+.med-md-notice {
+  padding: 18px 24px;
+  font-size: 12px;
+  color: var(--med-muted);
+}
+.med-md-empty {
+  color: var(--med-muted);
+}
+@container (min-width:760px) {
+  .med-md-toc {
+    display: block;
+  }
+}
+@media (max-width: 700px) {
+  .med-markdown-shell[data-preview="true"] {
+    flex-direction: column;
+  }
+  .med-markdown-shell[data-preview="true"] > .med-markdown-source {
+    flex: 0 0 45%;
+  }
+  .med-markdown {
+    border-left: 0;
+    border-top: 1px solid var(--med-border);
+  }
+}
+@keyframes med-preview-in {
+  from {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .med-markdown {
+    animation: none;
+  }
+  .med-md-toc button {
+    transition: none;
+  }
+}

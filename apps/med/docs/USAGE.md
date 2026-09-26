@@ -281,3 +281,39 @@ file being viewed. If live working content differs from that snapshot, markers
 show changes against HEAD instead. **Open before** and **Open after** show the
 exact commit versions. Markers are removed from stale views until refresh;
 line numbers from an older snapshot are not applied to new content.
+
+
+## Markdown preview
+
+Open a `.md`, `.markdown`, `.mdown`, or `.mkd` file and select **Preview** in
+its toolbar. The rendered pane sits beside the source, or below it in narrow
+windows. The browser remembers whether Preview is open. It works in both the
+file viewer and Vim editor, including read-only dropped Markdown.
+
+The preview follows the source cursor and source scrolling. You can also scroll
+it independently or use **On this page**, which appears when the preview has
+at least 760 pixels of width. Editing updates the preview after a short pause;
+it does not save the file. **Save** and Vim `:w` still control disk writes.
+
+Rendering includes GFM tables, task lists, strikethrough, autolinks and footnotes;
+inline and display LaTeX through KaTeX; Mermaid fences; syntax-colored code; and
+images. A single source newline stays in the same paragraph. A blank line starts
+a new paragraph; two trailing spaces or a backslash give an explicit hard break.
+Headings use the system SF Pro font on macOS; body text uses Geist with a limited
+line length. Motion follows the system reduced-motion preference.
+
+Relative images in a standalone file must be in its folder or descendants.
+Repository images resolve from the Markdown path within the same repository or
+commit. PNG, JPEG, GIF, WebP, AVIF and SVG are supported, up to 8 MiB each. Remote
+HTTP(S) images can load directly and send no referrer. Dropped files can show
+remote and embedded raster images, but cannot find relative files on disk.
+Opening an image does not grant permission to edit it. Raw HTML is omitted;
+relative document links are shown but do not open another local file.
+
+Preview is limited to 512 KiB of Markdown. Diagrams are limited to 20,000
+characters and 500 edges. Invalid diagrams retain their source and a syntax
+notice; invalid math remains visible. The source editor stays available when a
+preview cannot render.
+
+Try [the reading queue design note](examples/reading-queue.md), which includes
+paragraphs, two diagrams, equations, a local image, a table and TypeScript.

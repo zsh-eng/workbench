@@ -18,7 +18,10 @@ import {
   useState,
   useSyncExternalStore,
   type CSSProperties,
+  type ReactNode,
 } from "react";
+import { createMarkdownModel } from "../markdown/model";
+import "./MarkdownPreview.css";
 import { createEditorDrafts, type EditorDrafts } from "../data/editor-drafts";
 import { isBrowseFile, type FileRead as BrowseRead, type FileWrite } from "../../shared/local-file";
 import type { BlameLoader } from "../data/blame";
@@ -45,6 +48,8 @@ export type BeginFileSymbolPreview = () => FileSymbolPreview;
 
 export interface FullFileViewProps {
   file: BrowseRead | null;
+  previewControl?: ReactNode;
+  onSourcePosition?(line: number, reason: "cursor" | "scroll"): void;
   path?: string;
   loading: boolean;
   stale?: boolean;
@@ -88,6 +93,8 @@ const notices = {
 /** One read-only, virtualized file. Metadata responses never reach Pierre. */
 function ReadOnlyFileView({
   file,
+  previewControl,
+  onSourcePosition,
   path,
   loading,
   stale = false,
@@ -116,6 +123,14 @@ function ReadOnlyFileView({
 }: FullFileViewProps) {
   const displayPath = path ?? file?.path;
   const { active } = useTheme();
+  const sourceCursorAt = useRef(0);
+  const followCursor = useCallback(
+    (line: number) => {
+      sourceCursorAt.current = performance.now();
+      onSourcePosition?.(line, "cursor");
+    },
+    [onSourcePosition],
+  );
   const workingColor = active.appearance === "dark" ? "#7db4ff" : "#245ea8";
   const viewer = useRef<CodeViewHandle<undefined, undefined>>(null);
   const vim = useFileVim({
@@ -127,6 +142,7 @@ function ReadOnlyFileView({
     column,
     onNavigationReady,
     onDefinition,
+    onPosition: followCursor,
   });
   const [symbolHighlight, setSymbolHighlight] = useState<string | null>(null);
   const beginSymbolPreview = useCallback<BeginFileSymbolPreview>(() => {
@@ -359,6 +375,15 @@ function ReadOnlyFileView({
     <section
       {...stylex.props(styles.root)}
       aria-label="Full file"
+      onWheelCapture={() => {
+        sourceCursorAt.current = 0;
+      }}
+      onTouchStartCapture={() => {
+        sourceCursorAt.current = 0;
+      }}
+      onPointerDownCapture={() => {
+        sourceCursorAt.current = 0;
+      }}
       aria-busy={loading}
       data-full-file-kind={file?.kind}
       data-file-plain={plain}
@@ -384,6 +409,7 @@ function ReadOnlyFileView({
             </span>
           )}
           <span {...stylex.props(styles.badge)}>Read-only</span>
+          {previewControl}
           {onEdit && (
             <button {...stylex.props(ui.button)} onClick={onEdit}>
               Edit
@@ -486,7 +512,11 @@ function ReadOnlyFileView({
                 ref={viewer}
                 items={items}
                 options={options}
-                onScroll={onScrollPosition}
+                onScroll={(top) => {
+                  onScrollPosition?.(top);
+                  if (performance.now() - sourceCursorAt.current >= 200)
+                    onSourcePosition?.(Math.max(1, Math.floor((top - 16) / 20) + 1), "scroll");
+                }}
                 className={stylex.props(styles.code).className}
                 style={
                   {
@@ -719,6 +749,7 @@ const styles = stylex.create({
   },
 });
 
+const MarkdownPreview = lazy(() => import("./MarkdownPreview"));
 const EditableFile = lazy(() => import("./FileEditor"));
 const noDrafts = createEditorDrafts();
 export function FullFileView(props: FullFileViewProps) {
@@ -726,6 +757,68 @@ export function FullFileView(props: FullFileViewProps) {
   useSyncExternalStore(store.subscribe, store.getSnapshot);
   const draft = props.editor ? store.get(props.editor.key) : undefined;
   const [editError, setEditError] = useState("");
+  const markdown =
+    !props.compact &&
+    props.file?.kind === "text" &&
+    /\.(md|markdown|mdown|mkd)$/i.test(props.file.path);
+  const [preview, setPreview] = useState(() => {
+    try {
+      return localStorage.getItem("med-markdown-preview") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const sourceKey = JSON.stringify(props.file?.source) + props.file?.path;
+  // The bridge remains stable through disk saves and editor draft notifications.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const markdownModel = useMemo(() => createMarkdownModel(props.file?.text ?? ""), [sourceKey]);
+  useLayoutEffect(() => {
+    markdownModel.setText(
+      draft?.editing ? (draft.state?.sliceDoc() ?? draft.savedText) : (props.file?.text ?? ""),
+    );
+  }, [markdownModel, props.file?.text, draft, draft?.editing, preview]);
+  const showPreview = markdown && preview;
+  const followSource = useCallback(
+    (line: number, reason: "cursor" | "scroll") => markdownModel.follow(line, reason),
+    [markdownModel],
+  );
+  const previewControl = markdown ? (
+    <button
+      {...stylex.props(ui.button, ui.pressable, preview && ui.active)}
+      aria-label="Toggle Markdown preview"
+      aria-pressed={preview}
+      onClick={() => {
+        setPreview(!preview);
+        try {
+          localStorage.setItem("med-markdown-preview", String(!preview));
+        } catch {
+          /* Session preference still works. */
+        }
+      }}
+    >
+      Preview
+    </button>
+  ) : undefined;
+  const wrap = (source: ReactNode) => (
+    <div className="med-markdown-shell" data-preview={showPreview}>
+      <div className="med-markdown-source">{source}</div>
+      {showPreview && props.file && (
+        <Suspense
+          fallback={
+            <div className="med-markdown" role="status">
+              Opening preview…
+            </div>
+          }
+        >
+          <MarkdownPreview
+            key={sourceKey}
+            model={markdownModel}
+            file={draft?.editing ? draft.file : props.file}
+          />
+        </Suspense>
+      )}
+    </div>
+  );
   const canEdit =
     !!props.editor &&
     !props.compact &&
@@ -765,7 +858,7 @@ export function FullFileView(props: FullFileViewProps) {
     }
   });
   if (draft?.editing && props.editor)
-    return (
+    return wrap(
       <Suspense fallback={<div role="status">Opening editor…</div>}>
         <EditableFile
           key={props.editor.key}
@@ -773,10 +866,13 @@ export function FullFileView(props: FullFileViewProps) {
           drafts={store}
           write={props.editor.write}
           onClose={props.onRefresh}
+          previewControl={previewControl}
+          onDocumentChange={showPreview ? markdownModel.setText : undefined}
+          onSourcePosition={showPreview ? followSource : undefined}
         />
-      </Suspense>
+      </Suspense>,
     );
-  return (
+  return wrap(
     <div
       style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0 }}
       onKeyDownCapture={(event) => {
@@ -802,7 +898,12 @@ export function FullFileView(props: FullFileViewProps) {
       }}
     >
       {editError && <div role="alert">{editError}</div>}
-      <ReadOnlyFileView {...props} onEdit={canEdit ? () => begin() : undefined} />
-    </div>
+      <ReadOnlyFileView
+        {...props}
+        previewControl={previewControl}
+        onSourcePosition={showPreview ? followSource : undefined}
+        onEdit={canEdit ? () => begin() : undefined}
+      />
+    </div>,
   );
 }

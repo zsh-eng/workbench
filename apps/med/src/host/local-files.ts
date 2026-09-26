@@ -1,6 +1,7 @@
 import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { realpath } from "node:fs/promises";
 import { readBrowse, writeBrowse } from "./repository/browse";
+import { markdownAsset } from "./markdown-assets";
 import { HostError } from "./runtime/errors";
 import type { BrowseRead } from "../shared/browse";
 import type { LocalRead } from "../shared/local-file";
@@ -32,6 +33,12 @@ export class LocalFiles {
     );
     if (file.kind === "text") this.opened.add(canonical);
     return this.result(canonical, file);
+  }
+  async image(path: string, href: string, signal?: AbortSignal) {
+    const canonical = await this.canonical(path);
+    if (canonical !== path || !this.opened.has(canonical))
+      throw new HostError("file-not-open", "Open this document before loading its images.", 403);
+    return markdownAsset({ kind: "worktree", repo: dirname(path) }, basename(path), href, signal);
   }
   async write(path: string, expectedIdentity: string, text: string) {
     const canonical = await this.canonical(path);

@@ -1,9 +1,21 @@
+import { createRequire } from "node:module";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import stylex from "@stylexjs/unplugin";
 import { pierreHighlighter } from "./tools/pierre-highlighter.ts";
 
 export default defineConfig({
+  // The browser export uses document.createElement; workers need the table decoder.
+  resolve: {
+    alias: {
+      "decode-named-character-reference": createRequire(import.meta.url).resolve(
+        "decode-named-character-reference",
+      ),
+      "hast-util-from-html-isomorphic": createRequire(import.meta.url).resolve(
+        "hast-util-from-html-isomorphic",
+      ),
+    },
+  },
   plugins: [pierreHighlighter(), stylex.vite({ useCSSLayers: true }), react()],
   optimizeDeps: {
     exclude: ["@pierre/diffs"],
