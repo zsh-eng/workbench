@@ -73,7 +73,8 @@ dark, diagram, math and last-heading screenshots above show the updated style.
 ### 14 px body text trial
 
 The body now uses 14 px text with the same spacing ratios: 22.75 px line
-height, 21 px paragraph gaps, and a maximum 532 px text column. Heading sizes
-remain unchanged. Build/typecheck passed. Chromium checks confirmed the sizing
+height, 21 px paragraph gaps, and a maximum 532 px text column. Headings now
+scale with the body: H1 is 26.25–38.5 px, H2 is 22.75 px, H3 is 19.25 px,
+and H4–H6 are 14 px. Heading gaps scale down as well; font weights are unchanged. Build/typecheck passed. Chromium checks confirmed the sizing
 in light and dark themes and no horizontal overflow at a 650 px viewport.
 The screenshots above retain the previous 16 px version for comparison.

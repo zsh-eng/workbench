@@ -82,21 +82,21 @@
   scroll-margin-top: 40px;
 }
 .med-md-prose h1 {
-  font-size: clamp(30px, 5cqw, 44px);
-  margin: 0 0 32px;
+  font-size: clamp(1.875em, 4.375cqw, 2.75em);
+  margin: 0 0 28px;
 }
 .med-md-prose h2 {
-  font-size: 26px;
-  margin: 56px 0 24px;
+  font-size: 1.625em;
+  margin: 49px 0 21px;
 }
 .med-md-prose h3 {
-  font-size: 22px;
-  margin: 40px 0 20px;
+  font-size: 1.375em;
+  margin: 35px 0 18px;
 }
 .med-md-prose :is(h4, h5, h6) {
-  font-size: 16px;
+  font-size: 1em;
   font-weight: 500;
-  margin: 32px 0 16px;
+  margin: 28px 0 14px;
 }
 .med-md-prose a {
   color: var(--med-accent);
