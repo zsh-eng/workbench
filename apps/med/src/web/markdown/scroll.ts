@@ -9,6 +9,7 @@ export function connectPreviewScroll(pane: HTMLElement, model: MarkdownModel) {
   let animatedTop = target;
   let previousTime = 0;
   let headingTarget: Element | null = null;
+  let followingSource = true;
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
   const cancel = () => {
     cancelAnimationFrame(frame);
@@ -56,6 +57,7 @@ export function connectPreviewScroll(pane: HTMLElement, model: MarkdownModel) {
     dirty = false;
   };
   const follow = ({ line, reason }: PreviewPosition) => {
+    followingSource = true;
     headingTarget = null;
     if (dirty) rebuild();
     if (!anchors.length) return;
@@ -81,6 +83,7 @@ export function connectPreviewScroll(pane: HTMLElement, model: MarkdownModel) {
   const headingTop = (element: Element) =>
     pane.scrollTop + element.getBoundingClientRect().top - pane.getBoundingClientRect().top - 40;
   const stopForInput = () => {
+    followingSource = false;
     headingTarget = null;
     cancel();
   };
@@ -88,6 +91,7 @@ export function connectPreviewScroll(pane: HTMLElement, model: MarkdownModel) {
     dirty = true;
     // Lazy images and diagrams may change height after a contents jump.
     if (headingTarget?.isConnected) move(headingTop(headingTarget));
+    else if (followingSource) follow(model.getPosition());
   });
   resize.observe(pane);
   const article = pane.querySelector("article");

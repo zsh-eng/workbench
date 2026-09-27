@@ -15,6 +15,15 @@ const highlighter = await createHighlighter();
 const codeCache = new Map<string, Element["children"]>();
 const textOf = (node: RootContent): string =>
   node.type === "text" ? node.value : "children" in node ? node.children.map(textOf).join("") : "";
+const firstSourceLine = (node: RootContent): number | undefined => {
+  if (node.position) return node.position.start.line;
+  if ("children" in node) {
+    for (const child of node.children) {
+      const line = firstSourceLine(child);
+      if (line !== undefined) return line;
+    }
+  }
+};
 type Task = { id: number; text: string; theme: AdapterTheme };
 let latest: Task | undefined;
 let running = false;
@@ -36,7 +45,7 @@ async function drain() {
       const slugs = new Map<string, number>();
       let hasMath = false;
       highlighter.loadThemeSync(task.theme);
-      async function visit(node: RootContent): Promise<void> {
+      async function visit(node: RootContent, sourceLine: number): Promise<void> {
         if (node.type !== "element") return;
         if (node.position) {
           node.properties.dataSourceLine = node.position.start.line;
@@ -60,7 +69,7 @@ async function drain() {
             id,
             text,
             level: Number(node.tagName[1]),
-            line: node.position?.start.line ?? 1,
+            line: node.position?.start.line ?? sourceLine,
           });
         }
         if (node.tagName === "a") {
@@ -129,9 +138,9 @@ async function drain() {
             }
           }
         }
-        for (const child of node.children) await visit(child);
+        for (const child of node.children) await visit(child, sourceLine);
       }
-      for (const node of tree.children) await visit(node);
+      for (const node of tree.children) await visit(node, firstSourceLine(node) ?? 1);
       if (hasMath) {
         const { default: katex } = await import("rehype-katex");
         tree = (await unified()

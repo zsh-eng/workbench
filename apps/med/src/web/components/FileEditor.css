@@ -70,14 +70,21 @@
 }
 
 /* Match the read-only Vim caret. The layer scrolls with the document, so
-   scrolling does not need to animate cursor coordinates. Insert stays native. */
-.med-editor .cm-vimCursorLayer .cm-fat-cursor {
+   scrolling does not need to animate cursor coordinates. CodeMirror draws the
+   insert caret in its selection layer; its native text caret stays hidden. */
+.med-editor .cm-vimCursorLayer .cm-fat-cursor,
+.med-editor .cm-cursorLayer:not(.cm-vimCursorLayer) .cm-cursor {
   transition:
     left 65ms ease-out,
     top 65ms ease-out;
 }
 @media (prefers-reduced-motion: reduce) {
-  .med-editor .cm-vimCursorLayer .cm-fat-cursor {
+  .med-editor .cm-vimCursorLayer .cm-fat-cursor,
+  .med-editor .cm-cursorLayer:not(.cm-vimCursorLayer) .cm-cursor {
     transition: none;
   }
+}
+
+.med-editor .cm-cursorLayer:not(.cm-vimCursorLayer) .cm-cursor {
+  border-left-width: 3px;
 }

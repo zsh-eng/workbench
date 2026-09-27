@@ -6,9 +6,19 @@ export interface PreviewPosition {
 export function createMarkdownModel(text: string) {
   let value = text;
   let position: PreviewPosition = { line: 1, reason: "cursor" };
+  const navigation = new Set<(line: number) => void>();
   const texts = new Set<() => void>();
   const positions = new Set<(position: PreviewPosition) => void>();
   return {
+    navigate(line: number) {
+      navigation.forEach((listener) => listener(line));
+    },
+    subscribeNavigation(listener: (line: number) => void) {
+      navigation.add(listener);
+      return () => {
+        navigation.delete(listener);
+      };
+    },
     getText: () => value,
     getPosition: () => position,
     subscribe(listener: () => void) {

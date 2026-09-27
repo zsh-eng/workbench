@@ -22,6 +22,7 @@ import { getFiletypeFromFileName, resolveTheme } from "@pierre/diffs";
 import { useTheme } from "../themes";
 import type { EditorDraft, EditorDrafts } from "../data/editor-drafts";
 import type { FileWrite } from "../../shared/local-file";
+import type { MarkdownModel } from "../markdown/model";
 import SyntaxWorker from "../highlighting/editor.worker?worker";
 import "./FileEditor.css";
 
@@ -51,6 +52,7 @@ export default function FileEditor({
   previewControl,
   onDocumentChange,
   onSourcePosition,
+  markdownNavigation,
 }: {
   draft: EditorDraft;
   drafts: EditorDrafts;
@@ -59,10 +61,12 @@ export default function FileEditor({
   previewControl?: ReactNode;
   onDocumentChange?(text: string): void;
   onSourcePosition?(line: number, reason: "cursor" | "scroll"): void;
+  markdownNavigation?: MarkdownModel;
 }) {
   const { active } = useTheme();
   const body = useRef<HTMLDivElement>(null);
   const discardOnUnmount = useRef(false);
+  const restoreFocus = useRef(true);
   const view = useRef<EditorView | null>(null);
   const [mode, setMode] = useState("NORMAL");
   const [confirm, setConfirm] = useState(false);
@@ -71,6 +75,24 @@ export default function FileEditor({
   useLayoutEffect(() => {
     latest.current = { write, onClose, onDocumentChange, onSourcePosition };
   });
+  useLayoutEffect(
+    () =>
+      markdownNavigation?.subscribeNavigation((line) => {
+        const editor = view.current;
+        if (!editor) return;
+        const target = editor.state.doc.line(
+          Math.max(1, Math.min(line, editor.state.doc.lines)),
+        ).from;
+        editor.dispatch({
+          selection: { anchor: target },
+          // Centering a final line can propagate the remaining scroll to ancestors.
+          effects: EditorView.scrollIntoView(target, { y: "nearest" }),
+        });
+        editor.focus();
+        latest.current.onSourcePosition?.(line, "cursor");
+      }),
+    [markdownNavigation],
+  );
   const save = async () => {
     if (draft.saving || !draft.dirty || !draft.state) return;
     const text = draft.state.sliceDoc();
@@ -284,7 +306,7 @@ export default function FileEditor({
       editor.state.doc.lineAt(editor.state.selection.main.head).number,
       "cursor",
     );
-    editor.focus();
+    if (restoreFocus.current && !document.activeElement?.closest('[role="dialog"]')) editor.focus();
     if (draft.insertOnOpen) {
       Vim.handleKey(cm, "i", "user");
       drafts.update(draft, { insertOnOpen: false });
@@ -317,6 +339,7 @@ export default function FileEditor({
       })
       .catch(() => setSyntaxError("Syntax colors unavailable; editing and saving still work."));
     return () => {
+      restoreFocus.current = editor.hasFocus;
       stopped = true;
       clearTimeout(timer);
       worker.terminate();

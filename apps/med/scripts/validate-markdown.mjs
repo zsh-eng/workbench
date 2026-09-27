@@ -157,11 +157,16 @@ try {
   );
   await page.getByRole("navigation", { name: "Table of contents" }).waitFor({ state: "visible" });
   await page.screenshot({ path: join(output, "preview-light.png") });
-  // A contents link must scroll the preview, not its overflow-hidden ancestors.
+  // Contents moves the source cursor; the preview follows without scrolling ancestors.
   const sourceTop = await page
     .locator(".med-editor")
     .evaluate((node) => node.getBoundingClientRect().top);
   await page.locator(".med-md-toc button").last().click();
+  const targetLine = source.split("\n").findIndex((line) => line.startsWith("[^retry]:")) + 1;
+  await page.waitForFunction(
+    (text) => document.querySelector(".cm-activeLine")?.textContent === text,
+    source.split("\n")[targetLine - 1],
+  );
   await page.waitForFunction(() => {
     const pane = document.querySelector(".med-md-scroll").getBoundingClientRect();
     const footnote = document.querySelector(".footnotes").getBoundingClientRect();
@@ -329,6 +334,21 @@ try {
   await page.keyboard.press("G");
   await page.waitForFunction(
     () => Number(document.querySelector(".med-md-scroll").dataset.followLine) > 100,
+  );
+  await page
+    .getByRole("navigation", { name: "Table of contents" })
+    .getByRole("button", { name: "Start with the experience", exact: true })
+    .click();
+  const headingLine =
+    source.split("\n").findIndex((line) => line === "## Start with the experience") + 1;
+  await page.waitForFunction(
+    (line) =>
+      Number(document.querySelector('[aria-label="File navigation"]').dataset.vimLine) === line,
+    headingLine,
+  );
+  await page.waitForFunction(
+    (line) => Number(document.querySelector(".med-md-scroll").dataset.followLine) === line,
+    headingLine,
   );
   results.readOnlyFollow = true;
   // Narrow panes keep the preview usable and hide the optional contents rail.

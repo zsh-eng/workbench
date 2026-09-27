@@ -20,7 +20,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { createMarkdownModel } from "../markdown/model";
+import { createMarkdownModel, type MarkdownModel } from "../markdown/model";
 import "./MarkdownPreview.css";
 import { createEditorDrafts, type EditorDrafts } from "../data/editor-drafts";
 import { isBrowseFile, type FileRead as BrowseRead, type FileWrite } from "../../shared/local-file";
@@ -50,6 +50,7 @@ export interface FullFileViewProps {
   file: BrowseRead | null;
   previewControl?: ReactNode;
   onSourcePosition?(line: number, reason: "cursor" | "scroll"): void;
+  markdownNavigation?: MarkdownModel;
   path?: string;
   loading: boolean;
   stale?: boolean;
@@ -95,6 +96,7 @@ function ReadOnlyFileView({
   file,
   previewControl,
   onSourcePosition,
+  markdownNavigation,
   path,
   loading,
   stale = false,
@@ -144,6 +146,15 @@ function ReadOnlyFileView({
     onDefinition,
     onPosition: followCursor,
   });
+  useLayoutEffect(
+    () =>
+      markdownNavigation?.subscribeNavigation((line) => {
+        vim.position.jump(line);
+        vim.pane.current?.focus({ preventScroll: true });
+        onSourcePosition?.(line, "cursor");
+      }),
+    [markdownNavigation, vim.position, vim.pane, onSourcePosition],
+  );
   const [symbolHighlight, setSymbolHighlight] = useState<string | null>(null);
   const beginSymbolPreview = useCallback<BeginFileSymbolPreview>(() => {
     const instance = viewer.current?.getInstance();
@@ -887,6 +898,7 @@ export function FullFileView(props: FullFileViewProps) {
           onClose={props.onRefresh}
           previewControl={previewControl}
           onDocumentChange={showPreview ? markdownModel.setText : undefined}
+          markdownNavigation={showPreview ? markdownModel : undefined}
           onSourcePosition={showPreview ? followSource : undefined}
         />
       </Suspense>,
@@ -920,6 +932,7 @@ export function FullFileView(props: FullFileViewProps) {
       <ReadOnlyFileView
         {...props}
         previewControl={previewControl}
+        markdownNavigation={showPreview ? markdownModel : undefined}
         onSourcePosition={showPreview ? followSource : undefined}
         onEdit={canEdit ? () => begin() : undefined}
       />
