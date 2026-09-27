@@ -49,6 +49,14 @@ callbacks to that document. Native callbacks report drag boundaries and throttle
 a second; the Reader's isolated script reports trusted clicks and keys. Automatic scroll events do not count. This also prevents annotations and extracted HTML
 from being written into the wrong saved article.
 
+## Statistics
+
+The last-seven-days article count includes a URL only when its combined reading
+intervals in that window total at least 60 seconds. Several short visits can
+qualify together. Earlier reading outside the window does not qualify it.
+Shorter totals still contribute to reading time and visit counts. This count
+measures articles read for at least a minute, not articles completed.
+
 ## Storage without scroll work
 
 The native [ReadingSessions controller](apps/arctic/Sources/ReadingSessions.swift)

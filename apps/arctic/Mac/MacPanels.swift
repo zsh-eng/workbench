@@ -317,9 +317,9 @@ struct MacStatsPanel: View {
           Spacer()
           Text("\(stats.activeDays) \(stats.activeDays == 1 ? "day" : "days")")
         }.font(.subheadline)
-        Text("Estimated time in saved articles. Idle gaps over 2 minutes are excluded.").font(
-          .caption
-        ).foregroundStyle(.secondary)
+        Text(
+          "Estimated time in saved articles. Idle gaps over 2 minutes are excluded. Articles count after 1 minute across the last 7 days."
+        ).font(.caption).foregroundStyle(.secondary)
       }
     }.padding(48).frame(maxWidth: 720)
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

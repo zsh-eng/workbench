@@ -28,10 +28,20 @@ import Foundation
     precondition(stats.days[5].date.timeIntervalSince(stats.days[4].date) == 23 * 3600)
     let article = ReadingStats(sessions: sessions, now: now, calendar: calendar, articleURL: b)
     precondition(article.weekSeconds == 120 && article.totalSeconds == 120 && article.visits == 1)
+    // Aggregate short visits within the seven-day window before applying the
+    // inclusive one-minute threshold. Older reading must not qualify an article.
+    let c = URL(string: "https://example.com/c")!
+    let threshold = ReadingStats(
+      sessions: [visit(-7, 600, a), visit(0, 59, a),
+        visit(-1, 25, b), visit(0, 35, b), visit(0, 61, c)],
+      now: now, calendar: calendar)
+    precondition(threshold.articles == 2)
+    precondition(threshold.weekSeconds == 180 && threshold.totalSeconds == 780)
+    precondition(threshold.visits == 4 && threshold.todaySeconds == 155)
     let empty = ReadingStats(sessions: [], now: now, calendar: calendar)
     precondition(empty.weekSeconds == 0 && empty.articles == 0 && empty.days.count == 7)
     print(
-      "Reading stats: calendar boundaries, DST, zero/invalid/future visits, URL scope and totals passed"
+      "Reading stats: calendar boundaries, DST, zero/invalid/future visits, URL scope, one-minute article count and totals passed"
     )
   }
 }

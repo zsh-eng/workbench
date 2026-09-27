@@ -25,7 +25,7 @@ struct ReadingStats: Sendable {
     days = (0..<7).map { Day(date: calendar.date(byAdding: .day, value: $0 - 6, to: today)!) }
     let indices = Dictionary(
       uniqueKeysWithValues: days.enumerated().map { ($0.element.date, $0.offset) })
-    var urls: Set<URL> = []
+    var secondsByArticle: [URL: TimeInterval] = [:]
     for session in sessions {
       guard session.seconds.isFinite, session.seconds > 0, session.startedAt <= now,
         articleURL == nil || session.articleURL == articleURL
@@ -35,9 +35,10 @@ struct ReadingStats: Sendable {
       days[index].seconds += session.seconds
       weekSeconds += session.seconds
       visits += 1
-      urls.insert(session.articleURL)
+      secondsByArticle[session.articleURL, default: 0] += session.seconds
     }
-    articles = urls.count
+    // Count sustained reading across visits, not brief opens or lifetime totals.
+    articles = secondsByArticle.values.filter { $0 >= 60 }.count
   }
 
   static func duration(_ seconds: TimeInterval) -> String {
