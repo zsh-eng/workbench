@@ -388,9 +388,12 @@ Atlantic homepages through the existing Unwall route. The actual publisher marks
 the shelf makes no favicon requests. [Asset sources](Design/publisher-marks.md) record provenance.
 When scrolling, labels fade and visible circles gather into the Arctic mark.
 The path follows the finger in both directions. A 12-point entry threshold
-produces one soft haptic per drag. On release, the shelf snaps fully open or
-closed; returning inside the threshold cancels the change. A committed collapse
-can continue into normal list scrolling. Reduce Motion uses a fade. Publisher and Unwall availability still
+produces one medium-strength haptic per drag. While a finger is down, the
+animation follows its position. On release, the shelf settles fully open or
+closed in 240 ms, independent of scroll velocity. Touching again pauses the
+settle; dragging takes control immediately. Momentum from deeper in the list
+switches to the same settle when it reaches the shelf. Returning inside the
+threshold cancels the change. Reduce Motion uses a 160 ms fade. Publisher and Unwall availability still
 requires a connection. A publisher shortcut starts a fresh website visit, even
 when that homepage has downloaded Reader content. In-page URL changes get their
 own history and article identity, so saving a linked article does not replace

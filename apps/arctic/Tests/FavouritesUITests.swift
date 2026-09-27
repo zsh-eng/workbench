@@ -196,6 +196,8 @@ final class FavouritesUITests: XCTestCase {
       for: NSPredicate(format: "label == %@", reduced ? "100; fade" : "100; gather"),
       evaluatedWith: state)
     waitForExpectations(timeout: 5)
+    let slowSettle = Int(state.value as? String ?? "") ?? Int.max
+    XCTAssertLessThan(slowSettle, 500, "A slow release must not inherit momentum timing")
     // A short reversal stays closed; a deliberate reversal completes the reveal.
     let shortEnd = start.withOffset(CGVector(dx: 0, dy: 12))
     start.press(
@@ -211,6 +213,18 @@ final class FavouritesUITests: XCTestCase {
       for: NSPredicate(format: "label == %@", reduced ? "0; fade" : "0; gather"),
       evaluatedWith: state)
     waitForExpectations(timeout: 5)
+    // Repeat without holding at the endpoint: velocity must not set settle time.
+    start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0)
+    expectation(
+      for: NSPredicate(format: "label == %@", reduced ? "100; fade" : "100; gather"),
+      evaluatedWith: state)
+    waitForExpectations(timeout: 5)
+    let fastSettle = Int(state.value as? String ?? "") ?? Int.max
+    XCTAssertLessThan(fastSettle, 500, "A fast release must use the same bounded settle")
+    let timing = XCTAttachment(string: "Slow release: \(slowSettle) ms; fast release: \(fastSettle) ms")
+    timing.name = reduced ? "discovery-fade-settle-timing" : "discovery-gather-settle-timing"
+    timing.lifetime = .keepAlways
+    add(timing)
     app.swipeUp()
     XCTAssertEqual(state.label, reduced ? "100; fade" : "100; gather")
     for _ in 0..<5 {

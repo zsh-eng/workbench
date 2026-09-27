@@ -1,13 +1,15 @@
 import SwiftUI
 import UIKit
 
-/// Six local layers follow the scroll offset directly. No timer, SwiftUI
-/// publication, list layout or network work occurs during the gesture.
+/// Six local layers follow the scroll offset directly. Dragging does not publish
+/// SwiftUI state or relayout the list. Release uses a bounded display-link settle.
 @MainActor final class DiscoveryMotion {
   weak var shelf: DiscoveryShelfView?
   weak var target: UIView?
   weak var surface: UIView?
-  var enabled = false
+  var enabled = false {
+    didSet { if !enabled { cancelSettle() } }
+  }
   var reduceMotion = false
   private var copies: [UIImageView] = []
   private var probe: UILabel?
@@ -16,9 +18,20 @@ import UIKit
   private var collapseDistance: CGFloat = 80
   private var dragStartedCollapsed = false
   private var signalled = false
-  private let feedback = UIImpactFeedbackGenerator(style: .soft)
+  private let feedback = UIImpactFeedbackGenerator(style: .medium)
+
+  private var displayLink: CADisplayLink?
+  private weak var settlingScroll: UIScrollView?
+  private var pendingDestination: CGFloat?
+  private var settleFrom: CGFloat = 0
+  private var settleTo: CGFloat = 0
+  private var settleStart: CFTimeInterval = 0
+  private var settleGeneration = 0
+
+  deinit { displayLink?.invalidate() }
 
   func beginDragging(_ scroll: UIScrollView) {
+    cancelSettle()
     let travel = scroll.contentOffset.y + scroll.adjustedContentInset.top
     // When catching an unfinished snap, use the nearer endpoint as the origin.
     // The commit threshold remains 12 points from that endpoint, not halfway.
@@ -27,30 +40,81 @@ import UIKit
     if enabled { feedback.prepare() }
   }
 
-  /// Change only the release destination. UIKit retains direct finger tracking
-  /// and deceleration; the shelf never runs a separate competing animation.
+  /// Finger release ends scrubbing. Stop native momentum inside the shelf;
+  /// a separate, bounded scroll settle owns the remaining 240 ms of movement.
   func endDragging(_ scroll: UIScrollView, target: UnsafeMutablePointer<CGPoint>) {
     guard enabled else { return }
     let inset = scroll.adjustedContentInset.top
-    // Short and empty lists cannot reach the hidden endpoint. Keep them open.
-    guard canCollapse(scroll) else {
-      target.pointee.y = -inset
-      return
-    }
     let current = scroll.contentOffset.y + inset
-    let projected = target.pointee.y + inset
-    guard current >= 0 else { return }
-    if current > collapseDistance {
-      // A fling from further down may enter the shelf after finger release.
-      guard projected > 0, projected < collapseDistance else { return }
-      target.pointee.y = (projected > collapseDistance - trigger ? collapseDistance : 0) - inset
+    guard current >= 0, current <= collapseDistance else { return }
+    let collapse =
+      canCollapse(scroll)
+      && (dragStartedCollapsed
+        ? current > collapseDistance - trigger : current >= trigger)
+    pendingDestination = (collapse ? collapseDistance : 0) - inset
+    target.pointee = scroll.contentOffset
+  }
+
+  func didEndDragging(_ scroll: UIScrollView) {
+    guard let destination = pendingDestination else { return }
+    queueSettle(scroll, to: destination)
+  }
+
+  private func queueSettle(_ scroll: UIScrollView, to destination: CGFloat) {
+    pendingDestination = destination
+    let generation = settleGeneration
+    // UIKit establishes its deceleration after the delegate callback returns.
+    DispatchQueue.main.async { [weak self, weak scroll] in
+      guard let self, let scroll, self.enabled, !scroll.isDragging,
+        self.settleGeneration == generation
+      else { return }
+      self.pendingDestination = nil
+      self.settlingScroll = scroll
+      self.settleFrom = scroll.contentOffset.y
+      self.settleTo = destination
+      self.settleStart = CACurrentMediaTime()
+      self.probe?.accessibilityValue = nil
+      let relay = DiscoverySettleTick(motion: self)
+      let link = CADisplayLink(target: relay, selector: #selector(DiscoverySettleTick.tick))
+      link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+      self.displayLink = link
+      scroll.setContentOffset(scroll.contentOffset, animated: false)
+      link.add(to: .main, forMode: .common)
+    }
+  }
+
+  fileprivate func tickSettle() {
+    guard enabled, let scroll = settlingScroll, scroll.window != nil else {
+      cancelSettle()
       return
     }
-    let collapse =
-      dragStartedCollapsed ? current > collapseDistance - trigger : current >= trigger
-    // A committed collapse may continue scrolling through the article list.
-    // Otherwise velocity must not override a cancelled threshold crossing.
-    target.pointee.y = (collapse ? max(collapseDistance, projected) : 0) - inset
+    // A new touch stops the motion immediately, even before pan recognition.
+    // A stationary touch pauses; a recognised drag cancels and resumes scrubbing.
+    if scroll.isTracking {
+      settleFrom = scroll.contentOffset.y
+      settleStart = CACurrentMediaTime()
+      return
+    }
+    let duration = reduceMotion ? 0.16 : 0.24
+    let elapsed = CACurrentMediaTime() - settleStart
+    let fraction = min(1, elapsed / duration)
+    let eased = 1 - pow(1 - fraction, 3)
+    scroll.setContentOffset(
+      CGPoint(x: scroll.contentOffset.x, y: settleFrom + (settleTo - settleFrom) * eased),
+      animated: false)
+    if fraction == 1 {
+      // Simulator evidence of actual settling time, not just the requested duration.
+      probe?.accessibilityValue = String(Int(elapsed * 1000))
+      cancelSettle()
+    }
+  }
+
+  func cancelSettle() {
+    settleGeneration += 1
+    pendingDestination = nil
+    displayLink?.invalidate()
+    displayLink = nil
+    settlingScroll = nil
   }
 
   private func canCollapse(_ scroll: UIScrollView) -> Bool {
@@ -98,10 +162,17 @@ import UIKit
     let distance = max(80, current.y + travel - destination.y)
     collapseDistance = distance
     let progress = min(1, travel / distance)
+    // Momentum from deeper in the list may enter the shelf after release.
+    // Take over at the boundary instead of replaying the gesture at its speed.
+    if enabled, scroll.isDecelerating, !scroll.isTracking,
+      displayLink == nil, pendingDestination == nil, travel > 0, travel < distance
+    {
+      queueSettle(scroll, to: -scroll.adjustedContentInset.top)
+    }
     if enabled, scroll.isDragging, !signalled, canCollapse(scroll) {
       let crossed = dragStartedCollapsed ? travel <= distance - trigger : travel >= trigger
       if crossed {
-        feedback.impactOccurred(intensity: 0.7)
+        feedback.impactOccurred(intensity: 1)
         signalled = true
       }
     }
@@ -309,6 +380,7 @@ final class DiscoveryShelfView: UIView {
     {
       scroll.delegate = delegate.forwarding
     }
+    motion.cancelSettle()
     scrollDelegate = nil
     verticalObservation = nil
     verticalScroll = nil
@@ -336,7 +408,7 @@ final class DiscoveryShelfView: UIView {
 }
 
 /// Preserve SwiftUI's scroll delegate and all its optional callbacks. Intercept
-/// only gesture boundaries, after forwarding, to adjust the native snap target.
+/// only gesture boundaries, after forwarding, to hand release to the fixed settle.
 @MainActor private final class DiscoveryScrollDelegate: NSObject, UIScrollViewDelegate {
   weak var forwarding: UIScrollViewDelegate?
   private let motion: DiscoveryMotion
@@ -359,6 +431,11 @@ final class DiscoveryShelfView: UIView {
     motion.beginDragging(scrollView)
   }
 
+  func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+    forwarding?.scrollViewDidEndDragging?(scrollView, willDecelerate: decelerate)
+    motion.didEndDragging(scrollView)
+  }
+
   func scrollViewWillEndDragging(
     _ scrollView: UIScrollView, withVelocity velocity: CGPoint,
     targetContentOffset: UnsafeMutablePointer<CGPoint>
@@ -367,4 +444,12 @@ final class DiscoveryShelfView: UIView {
       scrollView, withVelocity: velocity, targetContentOffset: targetContentOffset)
     motion.endDragging(scrollView, target: targetContentOffset)
   }
+}
+
+/// CADisplayLink retains its target; the relay keeps that link from retaining
+/// the library. No display link runs while the user scrubs or after settling.
+@MainActor private final class DiscoverySettleTick: NSObject {
+  weak var motion: DiscoveryMotion?
+  init(motion: DiscoveryMotion) { self.motion = motion }
+  @objc func tick() { motion?.tickSettle() }
 }
