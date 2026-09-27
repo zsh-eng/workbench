@@ -6,7 +6,8 @@ repository outside the checkout, drives production CLI/API/browser paths, then
 stops its server and removes its fixture.
 
 Checks: concurrent startup chooses one owner; registrations update a running
-host; wiki links, image embeds, and backlinks render; external edits refresh the
+host; the normal Git viewer opens commit and working diffs and refreshes after
+external file edits; wiki links, image embeds, and backlinks render; external edits refresh the
 index and UI; note search receives Cmd+K; removal preserves files; stop and
 restart retain registration. The standalone run serves embedded browser assets
 from a directory outside the checkout. No private vault text is in fixtures.

@@ -107,6 +107,39 @@ try {
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(url);
+  // Exercise the normal Git viewer through the managed host, not just saved reviews.
+  const reviewResponse = () =>
+    page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/api/review" &&
+        response.request().method() === "POST",
+    );
+  const openingReview = reviewResponse();
+  await page.goto(conn.origin);
+  assert.equal((await openingReview).status(), 200, "managed host must open working changes");
+  await page.locator('[data-review-status="ready"]').waitFor();
+  const commitReview = reviewResponse();
+  await page.getByRole("option").filter({ hasText: "initial" }).click();
+  const commitResponse = await commitReview;
+  assert.equal(commitResponse.status(), 200, "managed host must open commit diffs");
+  const commit = await commitResponse.json();
+  assert.equal(commit.files[0].path, "a.txt");
+  assert.match(commit.patch, /\+a/);
+  await page.locator('[data-review-status="ready"]').waitFor();
+  const workingReview = reviewResponse();
+  await page.getByRole("button", { name: "Working changes", exact: true }).click();
+  assert.equal((await workingReview).status(), 200);
+  await page.locator('[data-review-status="ready"]').waitFor();
+  const changedReview = page.waitForResponse(
+    async (response) =>
+      new URL(response.url()).pathname === "/api/review" &&
+      response.status() === 200 &&
+      (await response.json()).patch.includes("+watched change"),
+  );
+  await writeFile(join(repo, "a.txt"), "a\nwatched change\n");
+  await changedReview;
+  await page.locator('[data-review-status="ready"]').waitFor();
+  await page.goto(`${conn.origin}/sources`);
   await page.locator(`a[href="/vault/${added.id}"]`).click();
   await page.getByRole("button", { name: "Home.md", exact: true }).click();
   const preview = page.getByRole("button", { name: "Toggle Markdown preview", exact: true });
@@ -178,6 +211,8 @@ try {
         "concurrent-start",
         "single-owner",
         "registration",
+        "commit-diff",
+        "working-diff-watch",
         "wiki-links",
         "images",
         "backlinks",

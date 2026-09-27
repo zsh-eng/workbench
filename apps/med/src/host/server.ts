@@ -837,7 +837,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           if (url.pathname === "/api/search/status" && request.method === "GET") {
             const repo = await requireRepo(url.searchParams.get("repo"));
             send(
-              repository.git === false
+              repository.git === false && !options.service
                 ? { state: "unavailable", message: "This is a file comparison.", branches: [] }
                 : await registry.withSearch(repo, (search) => search.status()),
             );
@@ -890,6 +890,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             input.repo = await requireRepo(input.repo);
             if (
               repository.git === false &&
+              !options.service &&
               input.comparison.kind !== "patch" &&
               input.comparison.kind !== "files"
             )
@@ -898,7 +899,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 "This directory supports patch and file inputs only.",
                 422,
               );
-            if (repository.git !== false)
+            if (repository.git !== false || options.service)
               observe(
                 input.repo,
                 browseLiveSources.has(input.repo) ||

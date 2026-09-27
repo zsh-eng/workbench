@@ -98,7 +98,9 @@ bun run build:executable
 The executable includes Bun, browser assets, fonts, workers, and version-matched
 CLI guides. End users do not need the checkout, Node, or Bun. Git remains an
 external requirement for repository features. Optional Ctags/Zoekt search tools
-are separate. The current build targets the build machine; signed installers
+are separate. An existing Zoekt cache can be used by the executable. On a fresh
+machine, `--setup-search` currently requires the checkout and Go because the
+Go helper sources are not embedded. The current build targets the build machine; signed installers
 and cross-platform release downloads are not published yet.
 
 ## Private benchmarks
