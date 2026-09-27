@@ -284,32 +284,38 @@ from the prior disk snapshot. Symbol previews and command navigation use the
 active editor. Contents jumps add a single cancellable 650 ms line fade after
 the destination is mounted; reduced motion omits the animation.
 
-## Registered sources and vault index (CLI foundation)
+## Persistent service and vaults
 
-`SourceCatalogue` persists explicit `repo` and `vault` registrations in the
-local state directory. Repository identity uses its Git common directory; vault
-identity uses its canonical folder. Directory identity is checked before reuse.
-`--registered` starts the existing host with saved repositories. Vault commands
-remain separate from host access grants and browser navigation.
+`ServiceManager` owns `SourceCatalogue`, registered repositories, native vault
+watchers, and the vault indexing queue. CLI commands use the existing authenticated
+loopback host. A private exclusive lock prevents multiple managed servers from
+owning one state directory. `med web` starts a detached server only when needed;
+`med serve` runs the same owner in the foreground. Login-service installation is
+an explicit, separate operation. UI repository registration uses the same owner.
 
-A vault index stores file fingerprints and outgoing link occurrences in SQLite.
-Bun uses `bun:sqlite`; the Node CLI uses built-in `node:sqlite`. Enumeration skips
-hidden/dependency folders and symlinks. A changed note is read with a bounded,
-no-follow descriptor and checked again before its metadata replaces old links.
-Synchronous reads/parsing/SQL run in the dedicated CLI process; future host use
-must place this engine in an owned background worker. It must not run in HTTP
-request handlers. There is no live vault watcher in this phase.
+Repository identity uses its Git common directory; vault identity uses its
+canonical folder. Directory identity is checked before access. Watch events are
+debounced for 150 ms, with 60-second reconciliation. One short-lived subprocess
+runs the synchronous parser and SQLite writes. No indexing runs in HTTP handlers.
+Bun uses `bun:sqlite`; Node uses built-in `node:sqlite`. Read-only WAL connections
+serve bounded backlinks while an index update runs. The last successful index
+remains readable; status reports failures rather than deleting it.
 
-Markdown parsing retains source positions and excludes code, math, frontmatter
-and raw HTML. It does not render, highlight, load plugins, or decode images.
-A path topology change re-resolves stored links; other changes only update the
-changed note's edges. Reverse indexes serve bounded backlink queries. Cache
-version changes force a fresh parse. Records and traces never enter Git; only
-synthetic fixtures and aggregate measurements do. See [vault commands](docs/VAULTS.md)
-and [index measurements](docs/validation/VAULT_INDEX.md).
+The index stores fingerprints and outgoing link occurrences. Enumeration skips
+hidden/dependency folders and symlinks. Changed notes use bounded, no-follow reads.
+Code, math, frontmatter and raw HTML are excluded. A topology change re-resolves
+links; ordinary edits update only changed edges. Private content never enters Git.
+See [index measurements](docs/validation/VAULT_INDEX.md).
 
-CLI guides use text imports and a server-build loader. `docs vaults`, `docs agents`
-and `docs usage` print version-matched Markdown without loading files from the
-checkout or starting a host. The compiled CLI proof includes these guides; a
-complete executable distribution still needs embedded browser assets and native
-helper packaging.
+`VaultWorkspace` provides source selection, note tabs, search and backlinks. It
+uses the existing file access grants, conflict-checked writes, Vim editor and
+Markdown preview. Wiki links are transformed in the preview worker, excluding
+code and math; host resolution constrains local links and images to the selected
+vault. No Obsidian plugins execute. Browser polling refreshes index revisions;
+unsaved drafts remain in the existing editor draft store.
+
+The standalone build imports browser assets as Bun file assets, embeds offline
+guides, and compiles one executable. A compiled process respawns itself for
+`serve` and the index worker. Node builds preserve the script entrypoint. Git and
+optional Ctags/Zoekt tools remain external. Legacy explicit-path foreground hosts
+remain supported; they do not share a managed owner's profile or port.

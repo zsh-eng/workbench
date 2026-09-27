@@ -4,18 +4,23 @@ med connects an agent's changes to a local review. A review can contain comparis
 
 ## Start and connect
 
-From the Workbench root, run `bun install --frozen-lockfile` and `bun run build:med`. Then start med with the repositories you want to review:
+Build or install the Med executable, then register only repositories the user
+has selected for review:
 
 ```sh
-node /Users/admin/workbench/apps/med/dist/cli.js \
-  /Users/admin/workbench
+med add /path/to/workbench
+med add /path/to/another-repo
+med web
 ```
+
+Use `node /path/to/workbench/apps/med/dist/cli.js` in place of `med` for a built
+checkout. See `med docs vaults` for executable build and service setup.
 
 The default address is `http://127.0.0.1:4173`. An occupied port produces an error; med does not silently change the address. Use `--port` to choose another port. Keep the host running while using review links.
 
 Open the launch URL once in the browser where you will review changes. med exchanges its token for a browser cookie and removes the token from the address. Links such as `http://127.0.0.1:4173/review/r_…` then work in new tabs in that browser. A different browser must open the launch URL once too. Do not put launch tokens in agent instructions or review links.
 
-The CLI finds the running host through a private local connection file. The default state directory is `~/.local/state/med`; use `MED_STATE_DIR` or `--state-dir` to change it. The host and agent commands must use the same state directory and port. Saved reviews and comments survive restarts when that directory is retained. Re-register the repositories at startup; a saved link does not grant access to an unrelated repository.
+The CLI finds the running host through a private local connection file. The default state directory is `~/.local/state/med`; use `MED_STATE_DIR` or `--state-dir` to change it. The host and agent commands must use the same state directory and port. Saved reviews and comments survive restarts when that directory is retained. Managed registrations survive restart; a saved link does not grant access to an unrelated repository.
 
 ## Choose the correct repositories
 
@@ -149,7 +154,7 @@ When handing off code changes, provide a med review link if the user's med host 
 
 ## Limits
 
-Saved reviews are local to the machine running med. A localhost link will not open the same review on another person's computer. Registration is still session-local; saved review records and comments are persistent. Clear comments when they are no longer needed.
+Saved reviews are local to the machine running med. A localhost link will not open the same review on another person's computer. Managed source registration is persistent; saved review records and comments are persistent. Clear comments when they are no longer needed.
 
 One review can start with up to 16 targets and retain up to 128 captures in total, including other comparisons where comments were added. Capture is bounded to 500 changed files and 24 MiB of patch/source content per target. The store permits 64 MiB per saved record, 128 records, 512 MiB total saved data, and 500 comments per review. Comment export is limited to 8 MiB. It reports an error instead of truncating comments; narrow selected line ranges or remove unneeded comments before copying. A capture limit produces an error; narrow the comparison. Binary or oversized files retain diff metadata but cannot supply text context for comments. There is no automatic deletion of old saved reviews.
 
@@ -204,19 +209,17 @@ and a short ease-out; reduced-motion mode moves directly to the target.
 
 ## Saved source registration and offline guides
 
-`med-diff sources add repo /path/to/repo` persists a repository registration;
-`med-diff --registered` opens the saved repositories. Existing explicit path
-arguments and `review repos` still work. Saved registration is distinct from
-the running host's active review scope. Check `review repos` before creating a
-review; registration alone does not add access to an already-running host.
+`med add /path/to/repo` registers a repository with the running managed server,
+starting it when needed. `med web` opens the saved sources. `med list` shows
+repositories and vaults; `med review repos` remains the authority for the active
+Git review scope. Include only sources changed for the current task.
 
-Vaults use `sources add vault /path/to/vault --index` and separate `vault`
-commands. This currently provides CLI metadata/backlinks, not browser vault
-navigation. Ask the user before registering additional repositories or vaults.
-For benchmarking, use a copy outside Git and keep its content and index out of
-source control. See [vault indexing](VAULTS.md).
+`med add /path/to/vault` detects `.obsidian`; use `--type vault` for a plain
+Markdown folder. The server watches links and provides browser backlinks and
+image embeds. Ask the user before registering extra repositories or vaults.
+Do not register a private vault merely to benchmark: use a copy outside Git and
+keep its content and index out of source control. See [vault commands](VAULTS.md).
 
-Use `med-diff docs agents`, `med-diff docs usage`, or `med-diff docs vaults` for
-embedded guides that match the installed build. These commands work offline
-without a running host. Confirm the user's workflow and source scope before
-adding this guidance to their AGENTS.md.
+`med docs agents`, `med docs usage`, and `med docs vaults` print embedded guides
+without a server. Confirm the user's workflow and source scope before adding
+these instructions to their AGENTS.md. Never include launch tokens in links.

@@ -9,12 +9,16 @@ export interface Database {
   prepare(sql: string): Statement;
   close(): void;
 }
-export async function database(path: string): Promise<Database> {
+export async function database(path: string, readOnly = false): Promise<Database> {
   const moduleName = process.versions.bun ? "bun:sqlite" : "node:sqlite";
   const driver = await import(/* @vite-ignore */ moduleName);
   const db: Database = process.versions.bun
-    ? new driver.Database(path)
-    : new driver.DatabaseSync(path);
-  db.exec("PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;");
+    ? new driver.Database(path, readOnly ? { readonly: true } : { create: true, readwrite: true })
+    : new driver.DatabaseSync(path, { readOnly });
+  db.exec(
+    readOnly
+      ? "PRAGMA busy_timeout=500;"
+      : "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;",
+  );
   return db;
 }

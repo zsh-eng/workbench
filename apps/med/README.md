@@ -143,13 +143,22 @@ and a wide-screen table of contents are included. Try the
 
 ![Markdown editor and preview in Graphite Light](docs/validation/markdown-preview-light.png)
 
-### Registered sources and vault indexing
+### Repositories and Obsidian vaults
 
-Persist repositories with `med-diff sources add repo /path/to/repo`, then launch
-with `med-diff --registered`. The CLI also supports vault registration, incremental
-link indexing, image-embed metadata, and backlink queries. Vault browser mode is
-not implemented yet. See [vault commands](docs/VAULTS.md) and
-[benchmark results](docs/validation/VAULT_INDEX.md).
+```sh
+med add /path/to/repo
+med add /path/to/vault
+med web
+```
 
-Run `med-diff docs agents`, `med-diff docs vaults`, or `med-diff docs usage` for
-embedded offline guides.
+Register once. Med restores your sources and watches changes in one background
+server. Vaults support note navigation, backlinks, wiki links, image embeds, and
+the Vim editor with live Markdown preview. `med stop` stops the server.
+
+Build a self-contained executable with `bun run build:executable` from `apps/med`.
+Browser assets and offline guides are included. Git and optional search helpers
+remain separate. See [setup and vault commands](docs/VAULTS.md),
+[index measurements](docs/validation/VAULT_INDEX.md), and
+[service validation](docs/validation/SERVICE.md).
+
+Run `med docs agents`, `med docs vaults`, or `med docs usage` for offline guides.

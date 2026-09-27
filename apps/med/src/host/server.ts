@@ -45,7 +45,11 @@ import { SavedReviewStore } from "./saved-reviews";
 import { savedReviewCreateSchema } from "../shared/saved-review";
 import { getPersistentToken, publishConnection } from "./runtime/connection";
 
+import type { ServiceManager } from "./service/manager";
+
 export interface StartHostOptions {
+  service?: ServiceManager;
+  assets?: (path: string) => Promise<Uint8Array | undefined>;
   repo: string;
   fileMode?: boolean;
   repos?: readonly string[];
@@ -106,6 +110,7 @@ function json(response: ServerResponse, status: number, body: unknown) {
 export async function startHost(options: StartHostOptions): Promise<RunningHost> {
   let repository: Repository;
   try {
+    if (options.service) throw new Error("Managed sources use an explicit catalogue.");
     repository = { ...(await resolveRepository(resolve(options.repo))), git: true };
   } catch (error) {
     if (
@@ -157,7 +162,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   let closing = false;
   let port = 0;
   let expensiveRequests = 0;
-  const webRoot = options.webRoot ?? resolve(dirname(fileURLToPath(import.meta.url)), "web");
+  const embeddedAssets =
+    options.assets ?? (globalThis as { __medAssets?: StartHostOptions["assets"] }).__medAssets;
+  const webRoot =
+    options.webRoot ??
+    resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      fileURLToPath(import.meta.url).includes("/dist/assets/") ? "../web" : "web",
+    );
 
   const registry = new RepositoryRegistry(options.search, async (id, paths) => {
     for (const [abort, owners] of activeRequests) if (owners.has(id)) abort.abort();
@@ -180,6 +192,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     await registry.register(repository.path);
     for (const path of options.repos ?? []) await registry.register(path);
   }
+  await options.service?.attach(registry);
   const publish = (event: ChangeEvent) => {
     const frame = `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
     for (const [stream, path] of streams) {
@@ -246,7 +259,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     });
   };
   const session = async (repo: string, signal?: AbortSignal): Promise<Session> => {
-    if (repository.git === false)
+    if (repository.git === false && !options.service)
       return {
         protocol: 1,
         repository,
@@ -277,7 +290,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     const ownershipChecks = new Set<() => boolean>();
     activeRequests.set(abort, owners);
     const requireRepo = async (input: string | null) => {
-      if (repository.git === false) {
+      if (repository.git === false && !options.service) {
         const path = resolve(input ?? repository.path);
         if (path !== repository.path && path !== resolve(options.repo))
           throw new HostError("repository-not-allowed", "Choose the input directory.", 403);
@@ -345,7 +358,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           const eventRepo = await requireRepo(url.searchParams.get("repo"));
           if (streams.size >= 8)
             throw new HostError("too-many-streams", "Too many review event streams are open.", 503);
-          if (repository.git !== false) observe(eventRepo, watcherModes.get(eventRepo) ?? false);
+          if (registry.owner(eventRepo)) observe(eventRepo, watcherModes.get(eventRepo) ?? false);
           response.writeHead(200, {
             "content-type": "text/event-stream",
             "cache-control": "no-store",
@@ -363,8 +376,36 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           throw new HostError("busy", "The host is processing other requests. Retry shortly.", 503);
         expensiveRequests++;
         try {
+          if (
+            options.service &&
+            url.pathname.startsWith("/api/service/") &&
+            request.method === "POST"
+          ) {
+            const action = url.pathname.slice("/api/service/".length);
+            const result = await options.service.request(action, await readBody(request));
+            if (action === "read") {
+              const file = result as { path: string; vault: { id: string; path: string } };
+              send({ ...(await localFiles.open(file.path, abort.signal)), vault: file.vault });
+            } else send(result);
+            return;
+          }
+          if (options.service && url.pathname === "/api/vault/image" && request.method === "GET") {
+            const image = await options.service.image(
+              z.string().min(1).parse(url.searchParams.get("document")),
+              z.string().min(1).parse(url.searchParams.get("href")),
+              url.searchParams.get("syntax") === "markdown" ? "markdown" : "wiki",
+            );
+            response.writeHead(200, {
+              "Content-Type": image.mime,
+              "Cache-Control": "private, no-store",
+              "X-Content-Type-Options": "nosniff",
+              "Content-Security-Policy": "default-src 'none'; sandbox",
+            });
+            response.end(image.bytes);
+            return;
+          }
           if (url.pathname === "/api/reviews" && request.method === "POST") {
-            if (repository.git === false)
+            if (repository.git === false && !options.service)
               throw new HostError(
                 "git-required",
                 "Start med with Git repositories to create a review.",
@@ -619,7 +660,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           if (url.pathname === "/api/repositories") {
-            if (repository.git === false) {
+            if (repository.git === false && !options.service) {
               if (request.method === "GET") {
                 send({ repositories: [] });
                 return;
@@ -638,12 +679,30 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               const input = z
                 .object({ path: z.string().min(1).max(8192) })
                 .parse(await readBody(request));
-              await registry.register(input.path, abort.signal);
+              if (options.service)
+                await options.service.request("add", { path: input.path, kind: "repo" });
+              else await registry.register(input.path, abort.signal);
               send({ repositories: registry.snapshot() });
               return;
             }
             if (request.method === "DELETE") {
-              send({ repositories: await registry.remove(url.searchParams.get("id") ?? "") });
+              const id = url.searchParams.get("id") ?? "";
+              const entry = registry.snapshot().find((item) => item.id === id);
+              if (options.service && entry) {
+                const saved = options.service.sources
+                  .list()
+                  .find(
+                    (source) => source.kind === "repo" && registry.owner(source.path)?.id === id,
+                  );
+                if (!saved)
+                  throw new HostError(
+                    "repository-not-found",
+                    "This repository is not registered.",
+                    404,
+                  );
+                await options.service.request("remove", { source: saved.id });
+                send({ repositories: registry.snapshot() });
+              } else send({ repositories: await registry.remove(id) });
               return;
             }
           }
@@ -802,7 +861,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           }
           if (url.pathname === "/api/branches" && request.method === "GET") {
             const repo = await requireRepo(url.searchParams.get("repo"));
-            if (repository.git === false) {
+            if (repository.git === false && !options.service) {
               send([]);
               return;
             }
@@ -811,7 +870,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           if (url.pathname === "/api/history" && request.method === "GET") {
-            if (repository.git === false) {
+            if (repository.git === false && !options.service) {
               send({ commits: [], cursor: null, hasMore: false });
               return;
             }
@@ -888,6 +947,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         throw new HostError("invalid-path", "This URL path is not valid.");
       }
       const appRoute =
+        path === "/sources" ||
+        path.startsWith("/vault/") ||
         path === "/file" ||
         path.startsWith("/file/") ||
         path === "/files" ||
@@ -899,9 +960,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         throw new HostError("invalid-path", "This asset path is not valid.", 403);
       let data: Buffer;
       try {
-        const info = await stat(file);
-        if (!info.isFile() || info.size > 32 * 1024 * 1024) throw new Error("not an asset");
-        data = await readFile(file);
+        const embedded = await embeddedAssets?.(appRoute ? "/index.html" : path);
+        if (embedded) data = Buffer.from(embedded);
+        else {
+          const info = await stat(file);
+          if (!info.isFile() || info.size > 32 * 1024 * 1024) throw new Error("not an asset");
+          data = await readFile(file);
+        }
       } catch {
         if (appRoute) {
           response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -1012,6 +1077,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       streams.clear();
       await Promise.allSettled([...watchers.values()].map(async (stop) => (await stop)()));
       await Promise.allSettled(retiringWatchers);
+      await options.service?.close();
       await registry.close();
       reviews.clear();
       notes.clear();

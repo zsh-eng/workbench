@@ -1,3 +1,4 @@
+import { wikiLinks } from "./wiki";
 import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
@@ -24,7 +25,7 @@ const firstSourceLine = (node: RootContent): number | undefined => {
     }
   }
 };
-type Task = { id: number; text: string; theme: AdapterTheme };
+type Task = { id: number; text: string; theme: AdapterTheme; vault?: boolean };
 let latest: Task | undefined;
 let running = false;
 self.onmessage = (event: MessageEvent<Task>) => {
@@ -40,7 +41,9 @@ async function drain() {
       const started = performance.now();
       if (task.text.length > 512 * 1024)
         throw new Error("Markdown preview supports up to 512 KiB. The source remains available.");
-      let tree = (await parser.run(parser.parse(task.text))) as Root;
+      const markdown = parser.parse(task.text);
+      if (task.vault) wikiLinks(markdown, task.text);
+      let tree = (await parser.run(markdown)) as Root;
       const headings: MarkdownHeading[] = [];
       const slugs = new Map<string, number>();
       let hasMath = false;
@@ -78,6 +81,16 @@ async function drain() {
           if (/^(https?:|mailto:)/i.test(href)) {
             node.properties.target = "_blank";
             node.properties.rel = ["noopener", "noreferrer"];
+          } else if (task.vault && href.startsWith("med-vault:wiki:")) {
+            node.properties.dataVaultLink = decodeURIComponent(
+              href.replace(/^med-vault:wiki:/, ""),
+            );
+            node.properties.dataVaultSyntax = "wiki";
+            node.properties.href = "#";
+          } else if (task.vault && href && !/^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(href)) {
+            node.properties.dataVaultLink = href;
+            node.properties.dataVaultSyntax = "markdown";
+            node.properties.href = "#";
           } else if (href.startsWith("#"))
             node.properties.href = /^#(?:user-content-|footnote-label)/.test(href)
               ? href

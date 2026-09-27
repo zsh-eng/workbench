@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import { WorkerPoolContextProvider } from "@pierre/diffs/react";
 import PierreWorker from "@pierre/diffs/worker/worker.js?worker";
 import { initializeTheme, themeController } from "./themes";
+import { VaultWorkspace } from "./components/VaultWorkspace";
 import { LocalFiles } from "./components/LocalFiles";
 import { App } from "./App";
 import { PierreThemeSync } from "./pierre-theme";
@@ -33,9 +34,11 @@ if (!root) throw new Error("Application root is missing");
 createRoot(root).render(
   <WorkerPoolContextProvider poolOptions={poolOptions} highlighterOptions={highlighterOptions}>
     <PierreThemeSync />
-    <LocalFiles>
-      <App controller={controller} />
-    </LocalFiles>
+    <VaultWorkspace>
+      <LocalFiles>
+        <App controller={controller} />
+      </LocalFiles>
+    </VaultWorkspace>
   </WorkerPoolContextProvider>,
 );
 window.addEventListener(

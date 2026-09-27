@@ -1,5 +1,6 @@
 import { parseArgs } from "node:util";
-import { resolve } from "node:path";
+import { resolve, join } from "node:path";
+import { readFile } from "node:fs/promises";
 import { getStateDirectory } from "../host/runtime/connection";
 import { SourceCatalogue } from "../host/vault/sources";
 import { VaultIndex } from "../host/vault/index";
@@ -39,7 +40,26 @@ export async function runSourcesCommand(command: string, args: string[], print =
         (action === "backlinks" && parts.length === 3);
   if (!valid || (values.index && !(command === "sources" && action === "add" && first === "vault")))
     throw new Error(sourcesHelp);
-  const sources = await SourceCatalogue.open(getStateDirectory(values["state-dir"]));
+  const stateDir = getStateDirectory(values["state-dir"]);
+  if (process.argv[2] !== "__index-worker") {
+    let owner: number | undefined;
+    try {
+      owner = JSON.parse(await readFile(join(stateDir, "service.lock"), "utf8")).pid;
+    } catch {}
+    if (owner) {
+      let alive = true;
+      try {
+        process.kill(owner, 0);
+      } catch {
+        alive = false;
+      }
+      if (alive)
+        throw new Error(
+          "A Med server owns this state. Use med add, list, remove, or index through that server.",
+        );
+    }
+  }
+  const sources = await SourceCatalogue.open(stateDir);
   try {
     if (command === "sources") {
       if (action === "list") {

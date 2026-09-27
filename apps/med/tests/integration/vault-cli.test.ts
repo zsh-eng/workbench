@@ -140,7 +140,7 @@ it("prints embedded guides and launches only the saved repositories through the 
     (await exec(process.execPath, [cli, ...args, "--state-dir", state])).stdout;
   await run("sources", "add", "repo", repo);
   expect((await exec(process.execPath, [cli, "docs", "vaults"], { cwd: temp })).stdout).toContain(
-    "Registered sources and vault indexing",
+    "Registered sources and Obsidian vaults",
   );
   const host = spawn(
     process.execPath,

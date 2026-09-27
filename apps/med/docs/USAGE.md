@@ -4,32 +4,39 @@
 
 ## Setup
 
-Use an existing checkout of this project. Install Git and Node **22.12 or newer**; Node 24 LTS is used for validation. Supported targets are macOS and Omarchy Linux. The npm package is not published yet.
+Build from Workbench with Bun. Install dependencies at the root, then build the
+single executable from the app directory:
 
 ```sh
-npm ci
-bun run build
-node dist/cli.js /path/to/repository
+bun install
+cd apps/med
+bun run build:executable
+./dist/med add /path/to/repository
+./dist/med web
 ```
 
-The command starts a local server on port **4173** and opens a private browser URL. Use `--port` to choose another port; med reports an error if that port is occupied. Keep the terminal open. Use `Ctrl+C` to stop it.
+Put the executable on your PATH to use `med` directly. It includes the runtime,
+browser assets, fonts, workers, and offline guides. Git is required for repository
+features. Release downloads and signed installers are not published yet.
 
-```sh
-# Choose another fixed local port.
-node dist/cli.js /path/to/repository --port 4174
+`med web` starts one background server and opens the browser. Closing the terminal
+or browser does not stop it. Use `med status` and `med stop`. Sources persist in
+`~/.local/state/med`; the default port is **4173**. Use matching `--port` and
+`--state-dir` options for another profile. Med does not silently choose another
+port. `med serve` runs in the foreground. Optional macOS login startup requires
+an explicit `med service install`.
 
-# Print the URL without opening the browser.
-node dist/cli.js /path/to/repository --no-open
-```
-
-To have an agent set it up, give it this instruction:
-
-> Set up med from this checkout for macOS or Omarchy. Check Git and Node, install the project dependencies, build it, and open it against my chosen repository. Set up the optional Zoekt search helper if Go is available. Report the local URL and any missing prerequisite. Do not run code from the repository being reviewed.
+Use `med add /path/to/vault` for Obsidian, or `--type vault` for a Markdown folder.
+See [vaults, watchers and service commands](VAULTS.md). `med docs usage` prints this
+guide offline. Existing `node dist/cli.js ...` and `med-diff ...` commands remain
+available as legacy foreground modes; do not run them on a managed service's port.
 
 ### Multiple repositories
 
 ```sh
-node dist/cli.js /path/to/frontend /path/to/backend
+med add /path/to/frontend
+med add /path/to/backend
+med web
 # Development:
 bun run dev -- /path/to/frontend /path/to/backend
 ```
@@ -38,7 +45,7 @@ Use **Open branch** (`+`) to search the registered repositories' branches and wo
 
 Opening the launch URL starts with only the selected branch or worktree tab. Open additional tabs from **Open branch**. Branch tabs can belong to different repositories. Repository labels distinguish matching branch names. Each tab keeps its comparison and file navigation for the current browser session. The history, files, content search, and symbols all use that tab's repository and branch or worktree. Content search still reads committed content.
 
-Linked worktrees belong to one repository entry. Separate clones remain separate entries, even when they use the same remote. Repository registration lasts for the local server session; restart with the paths you want to use. Patch and file-pair inputs remain separate launch modes.
+Linked worktrees belong to one repository entry. Separate clones remain separate entries, even when they use the same remote. Managed service registration persists across restarts, including changes from the branch picker. Legacy foreground registration lasts for that server session. Patch and file-pair inputs remain separate launch modes.
 
 ### Saved agent reviews
 

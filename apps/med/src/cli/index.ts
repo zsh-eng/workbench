@@ -14,6 +14,25 @@ import { runOpenCommand } from "./open";
 import { reviewHelp, runReviewCommand } from "./review";
 
 async function main() {
+  if (process.argv[2] === "service") {
+    const { loginService } = await import("./login-service");
+    await loginService(process.argv.slice(3));
+    return;
+  }
+  if (process.argv[2] === "__index-worker") {
+    const { runSourcesCommand } = await import("./sources");
+    await runSourcesCommand("vault", ["index", ...process.argv.slice(3)]);
+    return;
+  }
+  if (
+    ["web", "add", "list", "remove", "index", "status", "stop", "serve"].includes(
+      process.argv[2] ?? "",
+    )
+  ) {
+    const { runServiceCommand } = await import("./service");
+    await runServiceCommand(process.argv[2]!, process.argv.slice(3));
+    return;
+  }
   if (process.argv[2] === "docs") {
     const { runDocsCommand } = await import("./docs");
     runDocsCommand(process.argv.slice(3));
@@ -48,6 +67,8 @@ async function main() {
     },
   });
   if (values.help) {
+    const { serviceHelp } = await import("./service");
+    console.log(serviceHelp + "\n\nLegacy foreground modes:");
     console.log(
       "Usage: med-diff [repository ...] [--port <port>] [--no-open]\n       med-diff --patch <path|-> [--no-open]\n       med-diff --files <old> <new> [--no-open]\n       med-diff --editor [--no-open]\n       med-diff open <file> [--line N] [--edit]\n       med-diff --setup-search\n\nOpen a local, read-only review. Use --patch - to read a patch from stdin.\nSetup search builds pinned Zoekt binaries once; it requires Go during setup only.\nDefault port: 4173. Use --state-dir <path> or MED_STATE_DIR to select saved review state.\n\n" +
         reviewHelp +
@@ -73,7 +94,7 @@ async function main() {
       }
       if (!positionals.length)
         throw new Error(
-          "No repositories registered. Use sources add repo <path>. Vault browser mode is not implemented yet.",
+          "No repositories registered. Use med add <path>, then med web to browse saved sources.",
         );
     }
     const port = values.port === undefined ? DEFAULT_PORT : Number(values.port);

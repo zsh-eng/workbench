@@ -1,74 +1,105 @@
-# Registered sources and vault indexing
+# Registered sources and Obsidian vaults
 
-Status: CLI indexing foundation. The browser Obsidian mode, live filesystem
-watcher, and full standalone application release are not implemented yet.
-No community plugins run. A vault does not need Git.
+Med runs one local server for your registered repositories and vaults. The server
+keeps watching when you close the browser. A vault does not need Git. Med does
+not run community plugins or change `.obsidian` settings.
 
-## Register sources
-
-From the Med app directory, use Bun or the built CLI:
+## Start and register
 
 ```sh
-bun src/cli/index.ts sources add repo /path/to/repository
-bun src/cli/index.ts sources add vault /path/to/vault --index
-bun src/cli/index.ts sources list
+med add /path/to/repository
+med add /path/to/vault --wait
+med web
+med list
 ```
 
-Each command prints JSON. Registration returns a stable source ID. Repository
-IDs use the canonical Git common directory; vault IDs use the canonical folder.
-These source types stay distinct even when a vault is also a Git repository.
-The CLI validates the registered directory before indexing it again.
+`add` detects a vault from its `.obsidian` directory. Use `--type vault` for a
+plain Markdown folder or a benchmark copy. Registration returns a stable ID:
+repositories use their canonical Git common directory; vaults use their canonical
+folder. Separate clones remain separate sources.
 
-Use `--state-dir /path/to/state` or `MED_STATE_DIR` for a separate setup. The
-default is `~/.local/state/med`. Keep state outside the vault. Registration and
-indexes are local SQLite files, not project files. Registering a source does
-not read every note, edit files, or automatically expose it through a running
-host. `--index` requests indexing explicitly and applies only to vaults.
+`web`, `add`, `list`, `remove`, and `index` start the server when needed. `status`
+and `stop` do not. The default port is 4173; an occupied port is an error. Use the
+same `--port` and `--state-dir` on each command for a separate setup. The default
+state directory is `~/.local/state/med`, or `MED_STATE_DIR`. Keep it outside vaults.
 
-Launch the repository viewer with saved repository registrations:
+Open a vault from the Sources page. Find a note with **Cmd+K**, follow wiki links
+or Markdown links, and use the backlinks below the note list. **Preview** shows
+rendered Markdown with image embeds. The normal Vim editor, explicit save,
+unsaved dot, and live preview are available. Registration and indexing never
+change note contents; saving an edit does.
+
+Wiki image embeds support dimensions such as `![[image.png|320]]`. Backlinks
+include source line numbers. Link indexing recognizes heading and block
+fragments, but resolution is at note level. The viewer can jump to simple ATX
+headings; full Obsidian heading/block resolution, frontmatter aliases, note
+transclusion, plugin syntax, and vault-wide text search are not included.
+Ambiguous basename matches remain unresolved.
+
+## Watching and indexing
 
 ```sh
-bun src/cli/index.ts --registered
+med index                 # Reconcile all registered vaults
+med index vault_SOURCE_ID --wait
+med status
+med remove vault_SOURCE_ID
+med stop
+med serve                 # Foreground mode for debugging or an OS service manager
 ```
 
-This selects registered repositories only. Vault browser navigation is a later
-step. Explicit repository arguments still work as before.
+The server debounces filesystem changes and queues one short-lived index process
+at a time. A 60-second reconciliation pass catches missed events and supports
+systems without a working recursive watcher. `status` reports watcher and index
+state. While an update runs, the browser can read the last completed backlinks.
+The server does not keep a worker pool alive between index jobs.
 
-## Index and inspect backlinks
+The index stores file fingerprints and link occurrences, not note bodies or
+image bytes. Code, math, HTML comments, and frontmatter are excluded. A path
+addition, rename, or removal triggers link re-resolution; ordinary edits replace
+only the changed notes' links. Hidden/dependency folders and symlinks are excluded.
+Notes over 4 MiB or invalid UTF-8 report failures and retry on the next pass.
+There is a 100,000-file catalogue limit and a 1,000-occurrence backlink display
+limit. The browser shows at most 500 matching notes; narrow the file-name search
+for larger vaults. Source paths and local indexes stay outside project files.
+
+Removal stops watching and removes registration. Original files and rebuildable
+cache remain. Stopping preserves registrations, saved reviews, and indexes.
+Restarting restores the registered scope. The older `sources` and `vault`
+commands are offline tools; stop the managed server before using them.
+
+## Optional login service
+
+On macOS, install at a stable executable path, then explicitly opt in:
 
 ```sh
-bun src/cli/index.ts vault index vault_SOURCE_ID
-bun src/cli/index.ts vault backlinks vault_SOURCE_ID 'Notes/Example.md'
+med stop
+med service install
+# Later:
+med service uninstall
 ```
 
-An index pass enumerates visible regular files and parses changed Markdown
-notes. It stores outgoing links, their source line/offset, resolved destinations,
-and embed markers. It does not store note bodies or image bytes. Backlink
-queries return up to 1,000 occurrences, with a truncation flag and the timestamp
-of the last index run. Run `vault index` after external changes; this CLI version
-does not watch the filesystem. Unindexed vaults report an error, not empty backlinks.
+Normal commands never install a login service. Installation uses a per-user
+LaunchAgent; it starts at login and restarts after an abnormal exit. `med stop`
+is a clean stop. To disable future login starts, uninstall the service. Keep the
+executable at its installed path. Other systems can run `med serve` under their
+own service manager. Logs are in the selected state directory's `service.log`.
 
-The parser recognizes wiki links, heading/block fragments, image embeds, and
-Markdown links/reference links. Code, math, HTML comments and frontmatter are
-excluded. Display labels and image dimensions do not change link destinations.
-The index resolves note-level destinations; it does not validate a heading or
-block inside the target. Ambiguous basename matches remain unresolved. Full
-Obsidian path-resolution parity, frontmatter aliases, note transclusion and
-community plugins are outside this foundation.
+## Single executable and offline docs
 
-Hidden files/folders, `node_modules`, `__pycache__`, `venv`, and symlinks are
-excluded. Notes over 4 MiB or invalid UTF-8 report failures and are retried on
-the next pass. The catalogue has a 100,000-file limit. The response includes
-failure and unresolved-link counts; unresolved links are not silently discarded.
-A path addition, rename, or removal triggers link re-resolution. Ordinary edits
-only replace the changed notes' outgoing links.
+From the Workbench checkout, install with `bun install` at the root, then:
 
 ```sh
-bun src/cli/index.ts sources remove vault_SOURCE_ID
+cd apps/med
+bun run build:executable
+./dist/med docs vaults
+./dist/med web
 ```
 
-Removal deletes only the registration. It preserves original files and the
-rebuildable cache. None of these commands modifies `.obsidian` settings.
+The executable includes Bun, browser assets, fonts, workers, and version-matched
+CLI guides. End users do not need the checkout, Node, or Bun. Git remains an
+external requirement for repository features. Optional Ctags/Zoekt search tools
+are separate. The current build targets the build machine; signed installers
+and cross-platform release downloads are not published yet.
 
 ## Private benchmarks
 

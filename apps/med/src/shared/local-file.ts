@@ -4,6 +4,7 @@ import { browseReadSchema, type BrowseRead } from "./browse";
 export const localPathSchema = z.string().min(1).max(4096);
 export const localReadSchema = browseReadSchema.omit({ source: true }).extend({
   source: z.object({ kind: z.literal("local"), path: localPathSchema }),
+  vault: z.object({ id: z.string(), path: z.string() }).optional(),
 });
 export type LocalRead = z.infer<typeof localReadSchema>;
 export type FileRead =

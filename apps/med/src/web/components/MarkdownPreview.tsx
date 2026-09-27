@@ -9,7 +9,9 @@ import { renderDiagram } from "../markdown/diagrams";
 import "katex/dist/katex.min.css";
 import "./MarkdownPreview.css";
 
-function imageUrl(raw: string, source: FileRead["source"], path: string) {
+function imageUrl(raw: string, source: FileRead["source"], path: string, vault = false) {
+  if (vault && raw.startsWith("med-vault:wiki:"))
+    return `/api/vault/image?${new URLSearchParams({ document: path, href: decodeURIComponent(raw.replace(/^med-vault:wiki:/, "")), syntax: "wiki" })}`;
   if (/^https?:\/\//i.test(raw)) {
     const url = new URL(raw);
     return url.origin !== location.origin ? url.href : undefined;
@@ -20,6 +22,8 @@ function imageUrl(raw: string, source: FileRead["source"], path: string) {
   )
     return raw;
   if (source.kind === "drop" || /^(?:[a-z][\w+.-]*:|\/)/i.test(raw)) return;
+  if (vault)
+    return `/api/vault/image?${new URLSearchParams({ document: path, href: raw, syntax: "markdown" })}`;
   return `/api/markdown/image?${new URLSearchParams({ source: JSON.stringify(source), document: path, href: raw })}`;
 }
 function DiagramBlock({ block, dark }: { block: MarkdownBlock; dark: boolean }) {
@@ -84,11 +88,13 @@ const Block = memo(
     source,
     path,
     dark,
+    vault,
   }: {
     block: MarkdownBlock;
     source: FileRead["source"];
     path: string;
     dark: boolean;
+    vault?: boolean;
   }) {
     const element = useRef<HTMLDivElement>(null);
     useEffect(() => {
@@ -99,7 +105,7 @@ const Block = memo(
         const raw = image.dataset.imageSource ?? "";
         let url: string | undefined;
         try {
-          url = imageUrl(raw, source, path);
+          url = imageUrl(raw, source, path, vault);
         } catch {
           /* Display the alt text. */
         }
@@ -148,7 +154,7 @@ const Block = memo(
         cancelled = true;
         observer.disconnect();
       };
-    }, [block.html, block.diagram, source, path, dark]);
+    }, [block.html, block.diagram, source, path, dark, vault]);
     if (block.diagram !== undefined) return <DiagramBlock block={block} dark={dark} />;
     return (
       <div
@@ -166,7 +172,8 @@ const Block = memo(
     a.block.end === b.block.end &&
     a.source === b.source &&
     a.path === b.path &&
-    a.dark === b.dark,
+    a.dark === b.dark &&
+    a.vault === b.vault,
 );
 
 export default function MarkdownPreview({ model, file }: { model: MarkdownModel; file: FileRead }) {
@@ -203,7 +210,13 @@ export default function MarkdownPreview({ model, file }: { model: MarkdownModel;
       () => {
         void resolveTheme(active.pierreTheme)
           .then((theme) => {
-            if (id === sequence.current) worker.current?.postMessage({ id, text, theme });
+            if (id === sequence.current)
+              worker.current?.postMessage({
+                id,
+                text,
+                theme,
+                vault: "vault" in file && !!file.vault,
+              });
           })
           .catch(() => setError("Preview theme could not load."));
       },
@@ -231,6 +244,17 @@ export default function MarkdownPreview({ model, file }: { model: MarkdownModel;
       const anchor = (event.target as HTMLElement).closest("a[href^='#']");
       if (!anchor) return;
       event.preventDefault();
+      if (anchor.hasAttribute("data-vault-link")) {
+        window.dispatchEvent(
+          new CustomEvent("med-vault-navigate", {
+            detail: {
+              href: anchor.getAttribute("data-vault-link"),
+              syntax: anchor.getAttribute("data-vault-syntax"),
+            },
+          }),
+        );
+        return;
+      }
       let id: string;
       try {
         id = decodeURIComponent(anchor.getAttribute("href")!.slice(1));
@@ -276,6 +300,7 @@ export default function MarkdownPreview({ model, file }: { model: MarkdownModel;
               <Block
                 key={`${index}:${active.id}`}
                 block={block}
+                vault={"vault" in file && !!file.vault}
                 source={file.source}
                 path={file.path}
                 dark={active.appearance === "dark"}

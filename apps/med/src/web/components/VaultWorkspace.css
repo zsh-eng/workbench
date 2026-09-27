@@ -1,0 +1,158 @@
+.med-vault {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--vault-bg);
+  color: var(--vault-fg);
+  font:
+    13px Geist,
+    -apple-system,
+    sans-serif;
+  min-height: 0;
+}
+.med-vault a {
+  color: inherit;
+  text-decoration: none;
+}
+.med-vault button,
+.med-vault input {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--vault-border);
+  border-radius: 6px;
+  padding: 6px 9px;
+}
+.med-vault button {
+  cursor: pointer;
+}
+.med-vault button:active {
+  transform: scale(0.97);
+}
+.med-vault > header {
+  height: 42px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--vault-border);
+}
+.med-vault > header > a:first-child {
+  font-weight: 600;
+}
+.med-vault-tabs {
+  display: flex;
+  flex: 1;
+  overflow: auto;
+  gap: 5px;
+}
+.med-vault [aria-selected="true"],
+.med-vault [aria-current="page"] {
+  background: color-mix(in srgb, var(--vault-accent) 16%, transparent);
+}
+.med-vault-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.med-vault-layout > aside {
+  width: 250px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-right: 1px solid var(--vault-border);
+  min-height: 0;
+}
+.med-vault-layout nav {
+  overflow: auto;
+  flex: 1;
+  min-height: 60px;
+}
+.med-vault-layout aside button {
+  display: block;
+  text-align: left;
+  width: 100%;
+  border: 0;
+  margin-bottom: 3px;
+}
+.med-vault small {
+  display: block;
+  opacity: 0.65;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.med-vault-layout aside section {
+  max-height: 32%;
+  overflow: auto;
+  border-top: 1px solid var(--vault-border);
+  padding-top: 8px;
+}
+.med-vault aside h2 {
+  font-size: 12px;
+  font-weight: 500;
+  margin: 4px 8px 10px;
+}
+.med-vault aside h2 span {
+  opacity: 0.6;
+  margin-left: 6px;
+}
+.med-vault-layout > main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.med-vault-empty {
+  margin: auto;
+  text-align: center;
+  opacity: 0.7;
+}
+.med-vault-empty h1,
+.med-vault-sources h1 {
+  font-size: 28px;
+  font-weight: 400;
+}
+.med-vault-sources {
+  max-width: 850px;
+  width: calc(100% - 64px);
+  margin: 48px auto;
+  overflow: auto;
+}
+.med-vault-sources > a {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  padding: 16px;
+  border: 1px solid var(--vault-border);
+  border-radius: 10px;
+  margin: 10px 0;
+  gap: 8px;
+}
+.med-vault-sources small {
+  grid-column: 1/-1;
+}
+.med-vault-sources p {
+  opacity: 0.7;
+}
+.med-vault [role="alert"] {
+  margin: 0;
+  padding: 8px 14px;
+  color: var(--vault-fg);
+  border-bottom: 1px solid var(--vault-border);
+}
+@media (max-width: 800px) {
+  .med-vault-layout > aside {
+    width: 185px;
+  }
+  .med-vault > header {
+    gap: 8px;
+  }
+  .med-vault-sources {
+    margin: 24px auto;
+  }
+}

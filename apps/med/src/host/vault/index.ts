@@ -44,6 +44,10 @@ export class VaultIndex {
     db.prepare("INSERT OR IGNORE INTO metadata VALUES ('root',?)").run(root);
     return new VaultIndex(root, db);
   }
+  static async read(root: string, path: string) {
+    const db = await database(path, true);
+    return new VaultIndex(root, db);
+  }
   close() {
     this.db.close();
   }
@@ -183,6 +187,13 @@ export class VaultIndex {
         `SELECT source,line,offset,fragment,embed FROM links WHERE target=? ORDER BY source,line LIMIT 1001`,
       )
       .all(path);
+  }
+  files() {
+    return this.db.prepare("SELECT path,markdown,size FROM files ORDER BY path").all() as {
+      path: string;
+      markdown: number;
+      size: number;
+    }[];
   }
   targets(limit = 100) {
     return this.db

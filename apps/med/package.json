@@ -10,6 +10,7 @@
     "directory": "apps/med"
   },
   "bin": {
+    "med": "dist/cli.js",
     "med-diff": "dist/cli.js"
   },
   "files": [
@@ -38,7 +39,9 @@
     "test:integration": "vitest run --project integration",
     "test:e2e": "bun run build && node scripts/validate-review-links.mjs && node scripts/validate-multi-repo.mjs",
     "test:highlighting": "vitest run --project integration tests/integration/highlighter-parity.test.ts",
-    "compare:highlighting": "bun scripts/check-highlighter-parity.ts"
+    "compare:highlighting": "bun scripts/check-highlighter-parity.ts",
+    "build:executable": "bun run build && bun scripts/build-executable.ts",
+    "test:service": "node scripts/validate-service.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.8.0",
