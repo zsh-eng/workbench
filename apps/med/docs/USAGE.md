@@ -4,7 +4,12 @@
 
 ## Setup
 
-Build from Workbench with Bun. Install dependencies at the root, then build the
+For macOS Apple Silicon, download the executable from the
+[Med release](https://github.com/zsh-eng/workbench/releases/tag/med-v0.1.0).
+See [installation](https://github.com/zsh-eng/workbench/blob/med-v0.1.0/apps/med/docs/INSTALL.md)
+for checksum verification and setup. Node, Bun, and a checkout are not required.
+
+To build from Workbench, install dependencies at the root, then build the
 single executable from the app directory:
 
 ```sh
@@ -17,7 +22,7 @@ bun run build:executable
 
 Put the executable on your PATH to use `med` directly. It includes the runtime,
 browser assets, fonts, workers, and offline guides. Git is required for repository
-features. Release downloads and signed installers are not published yet.
+features. The macOS release is not Developer ID signed or notarized.
 
 `med web` starts one background server and opens the browser. Closing the terminal
 or browser does not stop it. Use `med status` and `med stop`. Sources persist in
@@ -63,10 +68,11 @@ Set up the optional [Zoekt](https://github.com/sourcegraph/zoekt) search helper 
 
 ```sh
 node dist/cli.js --setup-search
-# After installing the package: med-diff --setup-search
+# Run from the built Workbench checkout. Requires Go.
 ```
 
-Setup needs Go. If it is missing, install it with `brew install go` on macOS or `sudo pacman -S go` on Omarchy, then repeat the command. Normal use needs only the compiled binaries, not Go. There is no Docker container, system service, or Git hook to install.
+The standalone executable reuses an existing Zoekt cache. Initial setup needs
+the Workbench checkout and Go; the Go helper sources are not embedded. If Go is missing, install it with `brew install go` on macOS or `sudo pacman -S go` on Omarchy, then repeat the command. Normal use needs only the compiled binaries, not Go. There is no Docker container, system service, or Git hook to install.
 
 Start med as usual. The first content or project-symbol search starts that repository's search service and builds its index in the background when the helper is installed. Listing repositories does not start indexing. **Content search reads committed branch content** and opens results from the exact commit shown in the picker. Unsaved, uncommitted, and untracked content is not included. The file-name picker and Files sidebar still browse the current worktree.
 
@@ -94,7 +100,7 @@ npx --yes --package ./med-diff-0.1.0.tgz med-diff /path/to/repository
 bunx --package ./med-diff-0.1.0.tgz med-diff /path/to/repository
 ```
 
-The executable uses Node, including when launched through `bunx`. The package serves compiled assets; it does not need a Vite development server.
+The legacy JavaScript CLI uses Node, including when launched through `bunx`. The package serves compiled assets; it does not need a Vite development server.
 
 ## First review
 

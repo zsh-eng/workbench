@@ -13,7 +13,13 @@ import { DEFAULT_PORT, getStateDirectory } from "../host/runtime/connection";
 import { runOpenCommand } from "./open";
 import { reviewHelp, runReviewCommand } from "./review";
 
+import { version } from "../../package.json";
+
 async function main() {
+  if (process.argv.length === 3 && ["--version", "-v"].includes(process.argv[2]!)) {
+    console.log(`med ${version}`);
+    return;
+  }
   if (process.argv[2] === "service") {
     const { loginService } = await import("./login-service");
     await loginService(process.argv.slice(3));

@@ -36,6 +36,17 @@ med runs in your browser with a local server. Working files can be edited in Vim
 
 ## Get started
 
+[Download Med for macOS Apple Silicon](https://github.com/zsh-eng/workbench/releases/tag/med-v0.1.0).
+The executable includes the runtime and offline docs. See [installation](docs/INSTALL.md)
+for checksums, setup, and optional tools. macOS 13 or newer; not notarized.
+
+```sh
+med add /path/to/repository
+med web
+```
+
+### Build from source
+
 From the Workbench root, with Bun, Git, and Node **22.12 or newer** installed:
 
 ```sh

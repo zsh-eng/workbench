@@ -105,8 +105,10 @@ CLI guides. End users do not need the checkout, Node, or Bun. Git remains an
 external requirement for repository features. Optional Ctags/Zoekt search tools
 are separate. An existing Zoekt cache can be used by the executable. On a fresh
 machine, `--setup-search` currently requires the checkout and Go because the
-Go helper sources are not embedded. The current build targets the build machine; signed installers
-and cross-platform release downloads are not published yet.
+Go helper sources are not embedded. Download the macOS Apple Silicon executable
+from the [Med release](https://github.com/zsh-eng/workbench/releases/tag/med-v0.1.0).
+See [installation](https://github.com/zsh-eng/workbench/blob/med-v0.1.0/apps/med/docs/INSTALL.md).
+This release is not Developer ID signed or notarized.
 
 ## Private benchmarks
 

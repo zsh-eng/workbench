@@ -57,9 +57,10 @@ async function completeInstall(binDir: string): Promise<boolean> {
 
 async function helperSource(): Promise<string> {
   const here = dirname(fileURLToPath(import.meta.url));
-  // Bundled CLI lives in dist/cli.js; tests and development use src/host/search.
+  // Vite splits the host into dist/assets; tests and development use src/host/search.
   for (const candidate of [
     resolve(here, "../tools/zoekt"),
+    resolve(here, "../../tools/zoekt"),
     resolve(here, "../../../tools/zoekt"),
   ]) {
     try {
@@ -71,7 +72,7 @@ async function helperSource(): Promise<string> {
     }
   }
   throw new Error(
-    "The package is missing tools/zoekt. Reinstall med-diff before setting up search.",
+    "Zoekt setup needs tools/zoekt from a Workbench checkout and Go. Run the checkout CLI with --setup-search; the standalone executable can reuse its installed cache.",
   );
 }
 
