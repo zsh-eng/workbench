@@ -18,8 +18,9 @@ export function createChangeGutter() {
     return [...(span && span.end >= line ? [span] : []), ...(edges.get(line) ?? [])];
   };
   const paint = () => {
-    for (const cell of host?.shadowRoot?.querySelectorAll<HTMLElement>("[data-column-number]") ??
-      []) {
+    for (const cell of (host?.shadowRoot ?? host)?.querySelectorAll<HTMLElement>(
+      "[data-column-number]",
+    ) ?? []) {
       const line = Number(cell.dataset.columnNumber);
       const ranges = at(line);
       const signature = JSON.stringify([changes?.label, ranges]);

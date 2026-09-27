@@ -186,6 +186,28 @@ try {
   results.contentsNavigation =
     "last heading stays inside preview; both columns still fill the window";
   await page.locator(".med-md-toc button").first().click();
+  await page.waitForFunction(
+    () => document.querySelector(".cm-activeLine")?.getAnimations().length > 0,
+  );
+  const arrival = await page.locator(".cm-activeLine").evaluate((row) => ({
+    color: getComputedStyle(row).backgroundColor,
+    duration: row.getAnimations()[0].effect.getTiming().duration,
+  }));
+  assert.equal(arrival.duration, 650);
+  await page.screenshot({ path: join(output, "heading-arrival.png") });
+  await page.waitForTimeout(700);
+  assert.notEqual(
+    await page.locator(".cm-activeLine").evaluate((row) => getComputedStyle(row).backgroundColor),
+    arrival.color,
+  );
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.locator(".med-md-toc button").first().click();
+  assert.equal(
+    await page.locator(".cm-activeLine").evaluate((row) => row.getAnimations().length),
+    0,
+  );
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  results.headingArrival = "single 650 ms destination fade; no pulse with reduced motion";
   await page.waitForTimeout(450);
   await page.locator(".cm-content").focus();
   await page.keyboard.press("Meta+Shift+v");
@@ -328,7 +350,13 @@ try {
   await page.waitForFunction(() => document.querySelector(".med-md-prose img")?.naturalWidth > 0);
   await page.screenshot({ path: join(output, "preview-dark.png") });
   results.persistedPreference = true;
-  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await page.evaluate((source) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([source], "readonly.md", { type: "text/markdown" }));
+    document.body.dispatchEvent(
+      new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }),
+    );
+  }, source);
   await page.getByRole("region", { name: "Full file", exact: true }).waitFor();
   await page.locator('[aria-label="File navigation"]').focus();
   await page.keyboard.press("G");

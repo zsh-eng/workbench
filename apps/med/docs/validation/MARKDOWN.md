@@ -94,3 +94,20 @@ search typing in viewer and editor modes, and Files/Repositories Back and Forwar
 It also measures intermediate insert-caret positions during typing. The virtual
 insert caret is 3 px wide and uses the normal caret's 65 ms ease-out transition;
 reduced motion disables that transition. Theme previews preserve input focus.
+
+
+## Always-ready editor and destination cue
+
+Writable files now open in Vim Normal mode without Edit/Done buttons. The
+insert caret is 2 px wide with fully rounded ends. Close / `:q` closes the file
+and keeps the dirty-draft confirmation; saving remains explicit. Repository
+change markers and bounded Git blame use the editor gutter.
+
+The production browser checks cover initial Normal mode, caret shape and
+intermediate motion, retained change markers, heading navigation, and one
+650 ms destination-line fade. Reduced motion produces no destination animation.
+The navigation integration suite covers Vim edits, undo/redo, save conflicts,
+discard, close/reopen, retained drafts, and fresh disk contents.
+
+Build/typecheck and lint passed. The final full-file suite passed 70 tests; the
+navigation/editing suite passed 11. Both production browser scripts passed.

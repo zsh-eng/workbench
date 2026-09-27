@@ -347,7 +347,7 @@ export function LocalFiles({ children }: { children: ReactNode }) {
               }}
               onClose={() => {
                 if (drafts.get(active.id)?.dirty || drafts.get(active.id)?.saving) {
-                  setError("Save or discard this draft with Done before closing the file.");
+                  setError("Save or discard this draft before closing the file.");
                   return;
                 }
                 setTabs((items) => items.filter((tab) => tab.id !== active.id));

@@ -146,19 +146,19 @@ Vim navigation is enabled by default. Use the command palette to disable or enab
 - `zz` / `zt` / `zb` to place the current line at the middle / top / bottom of the view. These keep the cursor column. `zt` and `zb` leave four lines of space from the edge.
 - `/` / `?` for live forward/backward file search, `n` / `N` for matches, and `*` / `#` for the word at the cursor. Lowercase queries ignore case; uppercase letters enable case-sensitive matching. The current match uses the theme accent and an underline; other matches use the search color. Enter accepts the preview. Escape cancels a preview and clears highlights; in normal mode it clears highlights while keeping the search.
 
-Browsing starts read-only. Choose **Edit** for a working-tree file, or press `i` with Vim navigation enabled. While a Vim file pane has focus, `?` searches backward; `⌘K` / `Ctrl+K` still opens commands. Palettes and text inputs keep their normal keyboard behavior. Symbol search does not require Vim mode.
+Writable files open directly in Vim Normal mode. Press `i` to insert text. Commit snapshots and dropped files remain read-only. While a Vim file pane has focus, `?` searches backward; `⌘K` / `Ctrl+K` still opens commands. Palettes and text inputs keep their normal keyboard behavior. Symbol search does not require Vim mode.
 
 ## Edit working files
 
-Choose **Edit** to open a file in Vim Normal mode. With Vim navigation enabled,
-press `i` in the read-only file pane to enter Insert mode at the current cursor.
+Eligible local and working-tree files open in Vim Normal mode. There is no
+Edit/Done toggle: navigate immediately, then press `i` to insert text.
 Use `i`, `a`, `o`, `dd`, `ciw`, visual selections, `p`, `.`, `u`, and Ctrl+R.
 Escape returns to Normal mode. `:w`, ⌘S / Ctrl+S, or **Save** writes the file.
-`:wq` saves and returns to viewing only if the save succeeds.
+`:wq` saves and closes the file only if the save succeeds.
 
 A hollow dot means saved. A filled dot means the draft differs from the last
 saved contents. Dirty tabs also show a dot. Undo after saving can make the file
-dirty again. **Done** / `:q` returns to viewing; unsaved text requires an explicit
+dirty again. **Close file** / `:q` closes the tab; unsaved text requires an explicit
 **Discard draft** or **Keep editing** choice. Saving does not stage or commit.
 
 Drafts and undo history stay in memory across tab switches and tab closes. Open
@@ -239,9 +239,9 @@ path. **⌘K / Ctrl+K** opens Files commands, including opening a path, switchin
 tabs, themes, and returning to repositories. Tabs and actions share one row.
 Browser Back and Forward restore Files after switching to repositories.
 The file does not need
-to belong to a Git repository. **Edit**, Vim commands, the saved-state dot, and
+to belong to a Git repository. Vim Normal mode, the saved-state dot, and
 conflict-checked saves work as they do for working files. Both file toolbars are
-32 px high, so entering or leaving Edit does not move the content boundary.
+32 px high. Files open ready to navigate without a mode-toggle toolbar.
 
 To start a file workspace from a directory without Git:
 
@@ -329,3 +329,8 @@ editor and viewer modes; the preview follows the source position. In-document
 anchor links stay within the preview.
 Source scrolling follows fractional line positions with continuous interpolation
 and a short ease-out; reduced-motion mode moves directly to the target.
+
+Contents navigation gives the destination source line one soft, 650 ms accent
+fade. It does not blink repeatedly or move the layout. Reduced-motion mode
+omits this cue. The insert caret is 2 px wide, fully rounded, and follows the
+normal caret's 65 ms ease-out movement.

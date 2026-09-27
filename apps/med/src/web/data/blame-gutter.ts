@@ -43,10 +43,12 @@ export function createBlameGutter(
   const failed = new Set<number>();
   const lineCount = Math.min(200_000, file?.text?.replace(/\n$/, "").split("\n").length ?? 0);
   const cells = () => [
-    ...(host?.shadowRoot?.querySelectorAll<HTMLElement>("[data-column-number]") ?? []),
+    ...((host?.shadowRoot ?? host)?.querySelectorAll<HTMLElement>("[data-column-number]") ?? []),
   ];
   const clear = () =>
-    host?.shadowRoot?.querySelectorAll("[data-med-blame]").forEach((node) => node.remove());
+    (host?.shadowRoot ?? host)
+      ?.querySelectorAll("[data-med-blame]")
+      .forEach((node) => node.remove());
   const paint = () => {
     if (!visible) {
       clear();

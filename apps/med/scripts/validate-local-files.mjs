@@ -167,14 +167,14 @@ try {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(fileLink + url.hash);
-  await page.getByRole("button", { name: "Edit", exact: true }).waitFor();
+  await page.getByRole("region", { name: "File editor", exact: true }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "Edit", exact: true }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "Done", exact: true }).count(), 0);
+  assert.equal(await page.locator(".med-editor-mode").textContent(), "NORMAL");
   assert.equal(await page.locator("#review-sidebar").count(), 0);
-  await page.waitForFunction(
-    () =>
-      document.querySelector('[aria-label="File navigation"]')?.getAttribute("data-vim-line") ===
-      "6",
+  await page.waitForFunction(() =>
+    document.querySelector(".cm-activeLine")?.textContent.startsWith("public final class"),
   );
-  await page.locator('diffs-container [data-line="1"]').waitFor();
   // Files has its own command surface even before the repository app mounts.
   assert.equal(await page.getByRole("textbox", { name: "Absolute file path" }).count(), 0);
   await page.keyboard.press("Meta+k");
@@ -189,32 +189,12 @@ try {
   await page.getByRole("button", { name: "Theme", exact: true }).click();
   await page.getByRole("combobox", { name: "Search themes" }).pressSequentially("night");
   assert.equal(await page.getByRole("combobox", { name: "Search themes" }).inputValue(), "night");
-  assert.equal(await page.locator(".med-editor").count(), 0);
+  assert.equal(await page.locator(".med-editor-mode").textContent(), "NORMAL");
   await page.keyboard.press("Escape");
-  await page.waitForFunction(
-    () =>
-      document
-        .querySelector("diffs-container")
-        ?.shadowRoot?.querySelector('[data-line="1"]')
-        ?.getBoundingClientRect().height > 0,
-  );
-  const viewTop = await page
-    .locator('diffs-container [data-line="1"]')
-    .evaluate((node) => node.getBoundingClientRect().top);
   const viewHeight = await page
-    .locator('[aria-label="Full file"] > header')
-    .evaluate((node) => node.getBoundingClientRect().height);
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
-  const editHeight = await page
     .locator(".med-editor-header")
     .evaluate((node) => node.getBoundingClientRect().height);
-  assert.equal(viewHeight, editHeight);
-  assert.equal(editHeight, 32);
-  const editTop = await page
-    .locator(".cm-line")
-    .first()
-    .evaluate((node) => node.getBoundingClientRect().top);
-  assert.ok(Math.abs(viewTop - editTop) < 1, `File content shifted: ${viewTop} → ${editTop}`);
+  assert.equal(viewHeight, 32);
   await page.getByRole("button", { name: "Theme", exact: true }).click();
   const themeInput = page.getByRole("combobox", { name: "Search themes" });
   await themeInput.fill("");
@@ -226,7 +206,8 @@ try {
   await page.keyboard.type("gg0i");
   const insertCaret = page.locator(".cm-cursorLayer:not(.cm-vimCursorLayer) .cm-cursor").first();
   await insertCaret.waitFor({ state: "attached" });
-  assert.equal(await insertCaret.evaluate((node) => getComputedStyle(node).borderLeftWidth), "3px");
+  assert.equal(await insertCaret.evaluate((node) => getComputedStyle(node).borderLeftWidth), "2px");
+  assert.equal(await insertCaret.evaluate((node) => getComputedStyle(node).borderRadius), "999px");
   const [caretFrames] = await Promise.all([
     insertCaret.evaluate(
       (node) =>
@@ -307,8 +288,7 @@ try {
   await page.goto(`${origin}/review/${review.id}`);
   await page.getByTitle("Open full file · ReadingQueue.java", { exact: true }).click();
   await page.getByRole("button", { name: "Open after", exact: true }).click();
-  const marker = (kind) =>
-    page.locator(`[data-file-pane="main"] diffs-container`).locator(`[data-med-change="${kind}"]`);
+  const marker = (kind) => page.locator(`[data-med-change="${kind}"]`);
   await marker("added").first().waitFor();
   await marker("deleted").first().waitFor();
   await page.screenshot({ path: join(output, "comparison-gutter-light.png") });
@@ -322,6 +302,12 @@ try {
   await page.goto(workingLink.href);
   await marker("working").first().waitFor();
   await marker("deleted").first().waitFor();
+  await page.getByRole("button", { name: "Toggle Git blame", exact: true }).click();
+  await page.locator(".med-editor [data-med-blame-trigger]").first().waitFor();
+  assert.ok(
+    (await page.locator(".med-editor [data-med-blame-trigger]").first().textContent()).length > 0,
+  );
+  await page.getByRole("button", { name: "Toggle Git blame", exact: true }).click();
   await page.screenshot({ path: join(output, "working-gutter-dark.png") });
   await page.evaluate(() => localStorage.setItem("med:theme:v1", "graphite-light"));
   await page.reload();
@@ -352,7 +338,7 @@ try {
     checks: [
       "Files commands and on-demand absolute path dialog",
       "theme search retains focus in viewer and editor",
-      "3 px insert caret with intermediate animation frames",
+      "2 px rounded insert caret with intermediate animation frames",
       "Files and repositories browser Back/Forward",
       "authenticated exact-file access",
       "no write before open",
@@ -360,10 +346,10 @@ try {
       "standalone stale-write conflict",
       "CLI URL escaping and coordinates",
       "standalone Vim save",
-      "equal toolbar heights",
+      "writable files start in Normal mode without Edit or Done",
       "read-only drops",
       "saved comparison and before-side markers",
-      "working markers",
+      "working markers and Git blame in the editor",
       "stale marker rejection",
     ],
     errors,

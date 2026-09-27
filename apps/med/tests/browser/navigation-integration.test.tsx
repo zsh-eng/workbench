@@ -126,7 +126,13 @@ async function mountFile(
   mount = document.createElement("div");
   document.body.append(mount);
   root = createRoot(mount);
-  const app = <App controller={controller} browseApi={createBrowseApi(fetcher, "fixture")} />;
+  const browse = createBrowseApi(fetcher, "fixture");
+  const app = (
+    <App
+      controller={controller}
+      browseApi={{ ...browse, write: onWrite ? browse.write : undefined }}
+    />
+  );
   root.render(
     syntaxSource ? (
       <WorkerPoolContextProvider
@@ -144,7 +150,11 @@ async function mountFile(
     .toBe("ready");
   await page.getByRole("treeitem", { name: /main.ts/ }).dblClick();
   await expect
-    .element(page.getByRole("textbox", { name: vim ? "File navigation" : "File content" }))
+    .element(
+      page.getByRole("textbox", {
+        name: onWrite ? "Edit main.ts" : vim ? "File navigation" : "File content",
+      }),
+    )
     .toBeVisible();
 }
 function shortcut(key: string, shiftKey = false) {
@@ -381,7 +391,6 @@ test("Vim edits, undo, retained drafts, and :w use the production file API", asy
       source = text;
     },
   );
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
   const editor = page.getByRole("textbox", { name: "Edit main.ts", exact: true });
   await expect.element(editor).toBeVisible();
   await userEvent.keyboard("wciwtotal{Escape}");
@@ -400,13 +409,10 @@ test("Vim edits, undo, retained drafts, and :w use the production file API", asy
   await userEvent.keyboard(":w{Enter}");
   await expect.poll(() => source).toBe("const total = 1;\r\n");
   await expect.element(page.getByRole("img", { name: "Saved", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Done", exact: true }).click();
-  await expect
-    .poll(
-      () =>
-        document.querySelector('[data-file-pane="main"] diffs-container')?.shadowRoot?.textContent,
-    )
-    .toContain("const total = 1;");
+  await page.getByRole("button", { name: "Close file", exact: true }).click();
+  await expect.element(editor).not.toBeInTheDocument();
+  await page.getByRole("treeitem", { name: /main.ts/ }).dblClick();
+  await expect.element(editor).toHaveTextContent("const total = 1;");
 });
 
 test("a conflicting save keeps the draft until explicit discard", async () => {
@@ -420,7 +426,6 @@ test("a conflicting save keeps the draft until explicit discard", async () => {
       source = text;
     },
   );
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
   const editor = page.getByRole("textbox", { name: "Edit main.ts", exact: true });
   await expect.element(editor).toBeVisible();
   await userEvent.keyboard("wciwdraft{Escape}");
@@ -431,22 +436,24 @@ test("a conflicting save keeps the draft until explicit discard", async () => {
     .toHaveTextContent("File changed on disk. Your draft is kept.");
   await expect.element(editor).toHaveTextContent("const draft = 1;");
   expect(source).toBe("const agent = 2;");
-  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await page.getByRole("button", { name: "Close file", exact: true }).click();
   await page.getByRole("button", { name: "Keep editing", exact: true }).click();
   await expect.element(editor).toHaveTextContent("const draft = 1;");
-  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await page.getByRole("button", { name: "Close file", exact: true }).click();
   await page.getByRole("button", { name: "Discard draft", exact: true }).click();
-  await expect
-    .poll(
-      () =>
-        document.querySelector('[data-file-pane="main"] diffs-container')?.shadowRoot?.textContent,
-    )
-    .toContain("const agent = 2;");
+  await expect.element(editor).not.toBeInTheDocument();
+  await page.getByRole("treeitem", { name: /main.ts/ }).dblClick();
+  await expect.element(editor).toHaveTextContent("const agent = 2;");
 });
 
-test("i enters editing at the read-only Vim cursor and a clean reopen uses fresh contents", async () => {
+test("files start in Normal mode and a clean reopen uses fresh contents", async () => {
   let source = "const count = 1;";
-  await mountFile(true, undefined, () => source);
+  await mountFile(
+    true,
+    undefined,
+    () => source,
+    () => {},
+  );
   await userEvent.keyboard("wi");
   const editor = page.getByRole("textbox", { name: "Edit main.ts", exact: true });
   await expect.element(editor).toBeVisible();

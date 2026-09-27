@@ -874,22 +874,23 @@ export function FullFileView(props: FullFileViewProps) {
     )
       store.open(editorKey, props.file, props.line);
   }, [store, editorKey, props.file, props.loading, props.line]);
-  const autoOpened = useRef(false);
+  const autoOpened = useRef("");
   useLayoutEffect(() => {
-    if (props.editor?.autoEdit && canEdit && !autoOpened.current) {
-      autoOpened.current = true;
+    if (canEdit && autoOpened.current !== sourceKey) {
+      autoOpened.current = sourceKey;
       begin();
     }
   });
   if (draft?.editing && props.editor)
     return wrap(
-      <Suspense fallback={<div role="status">Opening editor…</div>}>
+      <Suspense fallback={null}>
         <EditableFile
           key={props.editor.key}
           draft={draft}
           drafts={store}
           write={props.editor.write}
-          onClose={props.onRefresh}
+          onClose={() => props.onClose?.()}
+          context={props}
           previewControl={previewControl}
           onDocumentChange={showPreview ? markdownModel.setText : undefined}
           markdownNavigation={showPreview ? markdownModel : undefined}
@@ -898,37 +899,13 @@ export function FullFileView(props: FullFileViewProps) {
       </Suspense>,
     );
   return wrap(
-    <div
-      style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0 }}
-      onKeyDownCapture={(event) => {
-        if (
-          canEdit &&
-          props.vimEnabled &&
-          event.key === "i" &&
-          !event.metaKey &&
-          !event.ctrlKey &&
-          !event.altKey &&
-          (event.target as HTMLElement).closest('[aria-label="File navigation"]')
-        ) {
-          event.preventDefault();
-          event.stopPropagation();
-          const pane = (event.target as HTMLElement).closest<HTMLElement>(
-            '[aria-label="File navigation"]',
-          )!;
-          begin(true, {
-            line: Number(pane.dataset.vimLine ?? 1),
-            column: Number(pane.dataset.vimColumn ?? 1),
-          });
-        }
-      }}
-    >
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0 }}>
       {editError && <div role="alert">{editError}</div>}
       <ReadOnlyFileView
         {...props}
         previewControl={previewControl}
         markdownNavigation={showPreview ? markdownModel : undefined}
         onSourcePosition={showPreview ? followSource : undefined}
-        onEdit={canEdit ? () => begin() : undefined}
       />
     </div>,
   );

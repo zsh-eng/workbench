@@ -162,8 +162,9 @@ node /path/to/workbench/apps/med/dist/cli.js open /absolute/path/Example.java --
 ```
 
 The running host validates the file and the command prints an encoded Markdown
-link. Add `--edit` only when an editing link is useful. This does not edit the
-file or register its parent directory. The link opens live disk content; use
+link. Writable files open in Vim Normal mode; `--edit` remains compatible but is no
+longer required. Opening a link does not edit the file or register its parent
+directory. The link opens live disk content; use
 `review create` for a captured comparison. Dropped previews cannot supply disk
 links because the browser does not supply their absolute paths.
 

@@ -1,4 +1,12 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { EditorState, StateEffect, StateField, Transaction } from "@codemirror/state";
 import {
   EditorView,
@@ -6,6 +14,8 @@ import {
   drawSelection,
   keymap,
   lineNumbers,
+  gutter,
+  GutterMarker,
   highlightActiveLine,
   type DecorationSet,
 } from "@codemirror/view";
@@ -22,10 +32,28 @@ import { getFiletypeFromFileName, resolveTheme } from "@pierre/diffs";
 import { useTheme } from "../themes";
 import type { EditorDraft, EditorDrafts } from "../data/editor-drafts";
 import type { FileWrite } from "../../shared/local-file";
+import type { FullFileViewProps } from "./FullFileView";
+import { isBrowseFile } from "../../shared/local-file";
+import { createChangeGutter } from "../data/change-gutter";
+import { createBlameGutter } from "../data/blame-gutter";
+import { BlameTooltips } from "./BlameTooltips";
 import type { MarkdownModel } from "../markdown/model";
 import SyntaxWorker from "../highlighting/editor.worker?worker";
 import "./FileEditor.css";
 
+class AttributionCell extends GutterMarker {
+  constructor(readonly line: number) {
+    super();
+  }
+  eq(other: AttributionCell) {
+    return this.line === other.line;
+  }
+  toDOM() {
+    const cell = document.createElement("span");
+    cell.dataset.columnNumber = String(this.line);
+    return cell;
+  }
+}
 const setColors = StateEffect.define<DecorationSet>();
 const colors = StateField.define<DecorationSet>({
   create: () => Decoration.none,
@@ -38,8 +66,10 @@ const colors = StateField.define<DecorationSet>({
 });
 const actions = new WeakMap<
   object,
-  { save: () => void; close: () => void; saveAndClose: () => void }
+  { save: () => void; close: () => void; saveAndClose: () => void; definition: () => void }
 >();
+Vim.defineAction("medDefinition", (cm) => actions.get(cm)?.definition());
+Vim.mapCommand("gd", "action", "medDefinition", {}, { context: "normal" });
 Vim.defineEx("write", "w", (cm) => actions.get(cm)?.save());
 Vim.defineEx("quit", "q", (cm) => actions.get(cm)?.close());
 Vim.defineEx("wq", undefined, (cm) => actions.get(cm)?.saveAndClose());
@@ -53,6 +83,7 @@ export default function FileEditor({
   onDocumentChange,
   onSourcePosition,
   markdownNavigation,
+  context,
 }: {
   draft: EditorDraft;
   drafts: EditorDrafts;
@@ -62,19 +93,96 @@ export default function FileEditor({
   onDocumentChange?(text: string): void;
   onSourcePosition?(line: number, reason: "cursor" | "scroll"): void;
   markdownNavigation?: MarkdownModel;
+  context: FullFileViewProps;
 }) {
   const { active } = useTheme();
   const body = useRef<HTMLDivElement>(null);
   const discardOnUnmount = useRef(false);
   const restoreFocus = useRef(true);
   const view = useRef<EditorView | null>(null);
+  const jumpPulse = useRef<Animation | null>(null);
   const [mode, setMode] = useState("NORMAL");
   const [confirm, setConfirm] = useState(false);
   const [syntaxError, setSyntaxError] = useState("");
-  const latest = useRef({ write, onClose, onDocumentChange, onSourcePosition });
+  const latest = useRef({ write, onClose, onDocumentChange, onSourcePosition, context });
   useLayoutEffect(() => {
-    latest.current = { write, onClose, onDocumentChange, onSourcePosition };
+    latest.current = { write, onClose, onDocumentChange, onSourcePosition, context };
   });
+  const { loadChanges, stale, onNavigationReady, onSymbolPreviewReady } = context;
+  const changes = useMemo(() => createChangeGutter(), []);
+  const [localBlame, setLocalBlame] = useState(false);
+  const [blameNotice, setBlameNotice] = useState("");
+  const blameOpen = context.blameEnabled ?? localBlame;
+  const attribution = useMemo(
+    () =>
+      createBlameGutter(
+        isBrowseFile(draft.file) ? draft.file : null,
+        context.loadBlame,
+        !draft.dirty && !stale,
+        setBlameNotice,
+      ),
+    [draft.file, draft.dirty, context.loadBlame, stale],
+  );
+  const cells = useSyncExternalStore(attribution.subscribe, attribution.getSnapshot);
+  const paintGutters = useRef(() => {});
+  useLayoutEffect(() => {
+    paintGutters.current = () => {
+      if (!view.current) return;
+      changes.update(view.current.dom, "render");
+      attribution.update(view.current.dom, "render");
+    };
+    attribution.setVisible(blameOpen);
+    paintGutters.current();
+  }, [attribution, changes, blameOpen]);
+  useLayoutEffect(() => () => attribution.dispose(), [attribution]);
+  useLayoutEffect(() => {
+    changes.set(undefined);
+    if (!loadChanges || draft.dirty || stale) return;
+    const abort = new AbortController();
+    void loadChanges(draft.file, abort.signal)
+      .then((result) => {
+        if (!abort.signal.aborted && result.identity === draft.file.identity) changes.set(result);
+      })
+      .catch(() => {});
+    return () => abort.abort();
+  }, [changes, loadChanges, stale, draft.file, draft.dirty]);
+  useLayoutEffect(() => {
+    onNavigationReady?.((key, control) => {
+      const editor = view.current;
+      if (!editor) return;
+      editor.focus();
+      Vim.handleKey(getCM(editor)!, control ? `<C-${key}>` : key, "user");
+    });
+    onSymbolPreviewReady?.(() => {
+      const editor = view.current!;
+      const selection = editor.state.selection;
+      const scroll = editor.scrollDOM.scrollTop;
+      const line = editor.state.doc.lineAt(selection.main.head);
+      return {
+        origin: { line: line.number, column: selection.main.head - line.from + 1 },
+        preview(number, column) {
+          const target = editor.state.doc.line(
+            Math.max(1, Math.min(number, editor.state.doc.lines)),
+          );
+          const pos = Math.min(target.to, target.from + Math.max(0, (column ?? 1) - 1));
+          editor.dispatch({
+            selection: { anchor: pos },
+            effects: EditorView.scrollIntoView(pos, { y: "nearest" }),
+          });
+        },
+        finish(accept) {
+          if (!accept) {
+            editor.dispatch({ selection });
+            editor.scrollDOM.scrollTop = scroll;
+          }
+        },
+      };
+    });
+    return () => {
+      onNavigationReady?.(null);
+      onSymbolPreviewReady?.(null);
+    };
+  }, [onNavigationReady, onSymbolPreviewReady]);
   useLayoutEffect(
     () =>
       markdownNavigation?.subscribeNavigation((line) => {
@@ -89,6 +197,23 @@ export default function FileEditor({
           effects: EditorView.scrollIntoView(target, { y: "nearest" }),
         });
         editor.focus();
+        jumpPulse.current?.cancel();
+        editor.requestMeasure({
+          read: () => editor.dom.querySelector<HTMLElement>(".cm-activeLine"),
+          write: (row) => {
+            if (!row || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+            jumpPulse.current = row.animate(
+              [
+                {
+                  backgroundColor: "color-mix(in srgb, var(--edit-accent) 24%, var(--edit-bg))",
+                  boxShadow: "inset 2px 0 var(--edit-accent)",
+                },
+                { backgroundColor: "var(--edit-hover)", boxShadow: "inset 2px 0 transparent" },
+              ],
+              { duration: 650, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+            );
+          },
+        });
         latest.current.onSourcePosition?.(line, "cursor");
       }),
     [markdownNavigation],
@@ -178,6 +303,10 @@ export default function FileEditor({
       vim(),
       history(),
       colors,
+      gutter({
+        class: "med-editor-attribution",
+        lineMarker: (view, line) => new AttributionCell(view.state.doc.lineAt(line.from).number),
+      }),
       lineNumbers(),
       drawSelection(),
       highlightActiveLine(),
@@ -201,6 +330,11 @@ export default function FileEditor({
       ]),
       EditorView.updateListener.of((update) => {
         drafts.update(draft, { state: update.state });
+        update.view.requestMeasure({
+          key: paintGutters,
+          read: () => null,
+          write: () => paintGutters.current(),
+        });
         if (update.selectionSet || update.docChanged) {
           cursorMotionAt = performance.now();
           latest.current.onSourcePosition?.(
@@ -252,9 +386,14 @@ export default function FileEditor({
       : EditorState.create({ doc: draft.savedText, extensions });
     const editor = new EditorView({ state, parent: body.current });
     view.current = editor;
+    editor.requestMeasure({ read: () => null, write: () => paintGutters.current() });
     drafts.update(draft, { state: editor.state });
     const cm = getCM(editor)!;
     actions.set(cm, {
+      definition: () => {
+        const word = editor.state.wordAt(editor.state.selection.main.head);
+        if (word) latest.current.context.onDefinition?.(editor.state.sliceDoc(word.from, word.to));
+      },
       save: () => {
         void callbacks.current.save();
       },
@@ -339,6 +478,7 @@ export default function FileEditor({
       })
       .catch(() => setSyntaxError("Syntax colors unavailable; editing and saving still work."));
     return () => {
+      jumpPulse.current?.cancel();
       restoreFocus.current = editor.hasFocus;
       stopped = true;
       clearTimeout(timer);
@@ -360,12 +500,18 @@ export default function FileEditor({
     <section
       className="med-editor"
       aria-label="File editor"
+      data-blame={blameOpen && !draft.dirty}
       style={
         {
           "--edit-bg": active.palette.canvas,
           "--edit-fg": active.palette.text,
           "--edit-muted": active.palette.muted,
           "--edit-border": active.palette.border,
+          "--edit-accent": active.palette.accent,
+          "--edit-hover": active.palette.hover,
+          "--edit-green": active.palette.green,
+          "--edit-red": active.palette.red,
+          "--edit-working": active.appearance === "dark" ? "#7db4ff" : "#245ea8",
         } as CSSProperties
       }
     >
@@ -388,8 +534,38 @@ export default function FileEditor({
         <button onClick={() => void save()} disabled={!draft.dirty || draft.saving}>
           Save
         </button>
-        <button onClick={close} disabled={draft.saving}>
-          Done
+        {context.loadBlame && (
+          <button
+            aria-label="Toggle Git blame"
+            aria-pressed={blameOpen}
+            disabled={draft.dirty}
+            onClick={() => {
+              setLocalBlame(!blameOpen);
+              context.onBlameEnabledChange?.(!blameOpen);
+            }}
+          >
+            Blame
+          </button>
+        )}
+        {context.onOpenBefore && <button onClick={context.onOpenBefore}>Open before</button>}
+        {context.onOpenAfter && <button onClick={context.onOpenAfter}>Open after</button>}
+        {context.refreshAvailable !== false && (
+          <button
+            onClick={context.onRefresh}
+            disabled={draft.dirty || draft.saving}
+            aria-label="Refresh file"
+            title="Refresh file"
+          >
+            ↻
+          </button>
+        )}
+        <button
+          onClick={close}
+          disabled={draft.saving}
+          aria-label="Close file"
+          title="Close file (:q)"
+        >
+          ×
         </button>
       </header>
       {draft.error && (
@@ -418,7 +594,9 @@ export default function FileEditor({
           </button>
         </div>
       )}
+      {blameOpen && blameNotice && <div className="med-editor-message">{blameNotice}</div>}
       <div ref={body} className="med-editor-body" />
+      <BlameTooltips cells={cells} />
     </section>
   );
 }

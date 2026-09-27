@@ -270,3 +270,16 @@ change without restarting. Geometry is cached until preview content or size
 changes. Manual preview input cancels following until the next source movement;
 reduced-motion mode skips animation. Contents navigation uses preview-local scroll
 offsets, never `scrollIntoView`, which can scroll overflow-hidden split ancestors.
+
+### Default editable file surface
+
+Eligible local and working-tree files now enter the CodeMirror surface in Vim
+Normal mode automatically. Read-only snapshots, drops and files above the edit
+limit still use Pierre. Opening a file never writes it. Save remains explicit;
+Close and `:q` retain the unsaved-draft confirmation, while `:wq` saves then closes.
+
+The CodeMirror attribution gutter reuses the bounded change/blame painters and
+Base UI blame tooltips with light-DOM cells. Unsaved edits suppress attribution
+from the prior disk snapshot. Symbol previews and command navigation use the
+active editor. Contents jumps add a single cancellable 650 ms line fade after
+the destination is mounted; reduced motion omits the animation.
