@@ -833,13 +833,7 @@ export function FullFileView(props: FullFileViewProps) {
     >
       <div className="med-markdown-source">{source}</div>
       {showPreview && props.file && (
-        <Suspense
-          fallback={
-            <div className="med-markdown" role="status">
-              Opening preview…
-            </div>
-          }
-        >
+        <Suspense fallback={<div className="med-markdown" aria-hidden="true" />}>
           <MarkdownPreview
             key={sourceKey}
             model={markdownModel}

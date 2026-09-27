@@ -264,11 +264,6 @@ export default function MarkdownPreview({ model, file }: { model: MarkdownModel;
           {error}
         </div>
       )}
-      {!result && !error && (
-        <div role="status" className="med-md-notice">
-          Preparing preview…
-        </div>
-      )}
       <div className="med-md-layout">
         <div
           className="med-md-scroll"
