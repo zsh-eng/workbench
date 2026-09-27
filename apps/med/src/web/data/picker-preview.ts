@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
-import type { BrowseRead, BrowseSource } from "../../shared/browse";
+import type { BrowseSource } from "../../shared/browse";
+import type { FileRead } from "../../shared/local-file";
 import { browseSourceKey, type BrowseApi } from "./browse";
+
+export interface FilePreviewReader {
+  scope: string;
+  read(path: string, signal: AbortSignal): Promise<FileRead>;
+}
 
 /** Retain one response only. A new selection removes old bytes immediately. */
 export function usePickerPreview(
@@ -8,12 +14,13 @@ export function usePickerPreview(
   source: BrowseSource | null | undefined,
   path: string | undefined,
   revision: number | string,
+  reader?: FilePreviewReader,
 ) {
-  const scope = source ? browseSourceKey(source) : "";
+  const scope = reader?.scope ?? (source ? browseSourceKey(source) : "");
   const key = JSON.stringify([scope, path, revision]);
   const [state, setState] = useState<{
     key: string;
-    file: BrowseRead | null;
+    file: FileRead | null;
     error: string | null;
   }>({
     key: "",
@@ -21,18 +28,22 @@ export function usePickerPreview(
     error: null,
   });
   useEffect(() => {
-    if (!api || !scope || !path) return;
+    if ((!api && !reader) || !scope || !path) return;
     const controller = new AbortController();
-    const [kind, repo, oid] = JSON.parse(scope) as ["worktree" | "commit", string, string?];
-    const requestSource: BrowseSource =
-      kind === "commit" ? { kind, repo, oid: oid! } : { kind, repo };
-    void api
-      .read(requestSource, path, controller.signal)
+    const read = () => {
+      if (reader) return reader.read(path, controller.signal);
+      const [kind, repo, oid] = JSON.parse(scope) as ["worktree" | "commit", string, string?];
+      const requestSource: BrowseSource =
+        kind === "commit" ? { kind, repo, oid: oid! } : { kind, repo };
+      return api!.read(requestSource, path, controller.signal);
+    };
+    const load = read();
+    void load
       .then((file) => {
         if (
           !controller.signal.aborted &&
-          browseSourceKey(file.source) === scope &&
-          file.path === path
+          (reader ||
+            ("repo" in file.source && browseSourceKey(file.source) === scope && file.path === path))
         )
           setState({ key, file, error: null });
       })
@@ -45,11 +56,11 @@ export function usePickerPreview(
           });
       });
     return () => controller.abort();
-  }, [api, scope, path, revision, key]);
+  }, [api, scope, path, revision, key, reader]);
   const current = state.key === key;
   return {
     file: current ? state.file : null,
     error: current ? state.error : null,
-    loading: !!api && !!scope && !!path && !current,
+    loading: (!!api || !!reader) && !!scope && !!path && !current,
   };
 }

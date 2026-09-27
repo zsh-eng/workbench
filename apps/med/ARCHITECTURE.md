@@ -307,8 +307,13 @@ Code, math, frontmatter and raw HTML are excluded. A topology change re-resolves
 links; ordinary edits update only changed edges. Private content never enters Git.
 See [index measurements](docs/validation/VAULT_INDEX.md).
 
-`VaultWorkspace` provides source selection, note tabs, search and backlinks. It
-uses the existing file access grants, conflict-checked writes, Vim editor and
+`VaultWorkspace` uses the shared `RepositoryFiles` tree, `FileViewTabs`,
+`CommandDialog`, and `FilePicker`, with a left sidebar and collapsible backlinks.
+The picker accepts a scoped local-file preview reader without treating a vault
+as a Git worktree. Tabs have the same preview/pin/close controls as repository
+files; editing pins previews, and close actions protect dirty drafts. Unchanged
+manifests retain folder expansion and scroll position across index updates.
+It uses the existing file access grants, conflict-checked writes, Vim editor and
 Markdown preview. Wiki links are transformed in the preview worker, excluding
 code and math; host resolution constrains local links and images to the selected
 vault. No Obsidian plugins execute. Browser polling refreshes index revisions;

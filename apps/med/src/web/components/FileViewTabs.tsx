@@ -18,10 +18,12 @@ export function FileViewTabs({
   onClose,
   onPin,
   panelId = "file-view-panel",
+  showChanges = true,
 }: {
   tabs: FileViewTab[];
   active: string;
   panelId?: string;
+  showChanges?: boolean;
   onSelect(id: string): void;
   onClose(id: string): void;
   onPin(id: string): void;
@@ -41,13 +43,15 @@ export function FileViewTabs({
       {...stylex.props(styles.root)}
     >
       <Tabs.List aria-label="Open files" {...stylex.props(styles.list)}>
-        <Tabs.Tab
-          value="changes"
-          aria-controls={panelId}
-          {...stylex.props(styles.tab, active === "changes" && styles.active)}
-        >
-          Changes
-        </Tabs.Tab>
+        {showChanges && (
+          <Tabs.Tab
+            value="changes"
+            aria-controls={panelId}
+            {...stylex.props(styles.tab, active === "changes" && styles.active)}
+          >
+            Changes
+          </Tabs.Tab>
+        )}
         {tabs.map((tab, index) => (
           <div
             key={tab.id}

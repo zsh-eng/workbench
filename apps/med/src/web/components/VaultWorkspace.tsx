@@ -1,26 +1,34 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
   type ReactNode,
-  type CSSProperties,
 } from "react";
+import * as stylex from "@stylexjs/stylex";
 import { createApi } from "../data/api";
 import { z } from "zod";
 import { localReadSchema, type LocalRead } from "../../shared/local-file";
+import type { BrowseEntry } from "../../shared/browse";
 import { FullFileView } from "./FullFileView";
+import { FileViewTabs } from "./FileViewTabs";
+import { RepositoryFiles } from "./RepositoryFiles";
+import { FilePicker } from "./FilePicker";
+import { CommandDialog, type ReviewCommand } from "./Controls";
 import { createEditorDrafts } from "../data/editor-drafts";
-import { useTheme } from "../themes";
 import { ThemePicker } from "./ThemePicker";
+import { Icon } from "./Icon";
+import { ui } from "../theme.stylex";
 import "./VaultWorkspace.css";
 const api = createApi(globalThis.fetch.bind(globalThis), "");
-const request = async (action: string, body: object = {}) =>
+const request = async (action: string, body: object = {}, signal?: AbortSignal) =>
   api.json(`/api/service/${action}`, z.any(), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal,
   });
 interface Source {
   id: string;
@@ -29,6 +37,10 @@ interface Source {
   kind: "repo" | "vault";
   index?: { state: string; revision: number; error?: string };
 }
+interface VaultTab {
+  file: LocalRead;
+  pinned: boolean;
+}
 const route = () => ({
   visible: location.pathname === "/sources" || location.pathname.startsWith("/vault/"),
   id: location.pathname.startsWith("/vault/") ? decodeURIComponent(location.pathname.slice(7)) : "",
@@ -36,38 +48,113 @@ const route = () => ({
 });
 
 export function VaultWorkspace({ children }: { children: ReactNode }) {
-  const { active: theme } = useTheme();
   const [locationState, setLocationState] = useState(route);
   const [sources, setSources] = useState<Source[]>([]);
-  const [files, setFiles] = useState<{ path: string; markdown: boolean }[]>([]);
+  const [manifest, setManifest] = useState<{ id: string; entries: BrowseEntry[] }>({
+    id: "",
+    entries: [],
+  });
   const [file, setFile] = useState<LocalRead>();
-  const [tabs, setTabs] = useState<LocalRead[]>([]);
-  const [backlinks, setBacklinks] = useState<{ source: string; line: number }[]>([]);
+  const [tabs, setTabs] = useState<VaultTab[]>([]);
+  const [backlinkState, setBacklinks] = useState<{
+    key: string;
+    links: { source: string; line: number }[];
+  }>({ key: "", links: [] });
   const [error, setError] = useState("");
-  const [filter, setFilter] = useState("");
   const [themes, setThemes] = useState(false);
+  const [commandsOpen, setCommandsOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [sidebar, setSidebar] = useState(true);
+  const [sidebarWidth, setSidebarWidth] = useState(300);
+  const [refresh, setRefresh] = useState(0);
   const [line, setLine] = useState<number>();
   const [drafts] = useState(createEditorDrafts);
-  useSyncExternalStore(drafts.subscribe, drafts.getSnapshot);
-  const search = useRef<HTMLInputElement>(null);
+  const draftRevision = useSyncExternalStore(drafts.subscribe, drafts.getSnapshot);
   const generation = useRef(0);
-  const retainedTabs = useRef<LocalRead[]>([]);
+  const retainedTabs = useRef<VaultTab[]>([]);
+  const pinRequests = useRef(new Map<string, boolean>());
+  const surface = useRef<HTMLDivElement>(null);
   const source = sources.find((s) => s.id === locationState.id);
+  const entries = useMemo(
+    () => (manifest.id === locationState.id ? manifest.entries : []),
+    [manifest, locationState.id],
+  );
+  const currentFile =
+    file?.vault?.id === locationState.id && file.vault.path === locationState.file
+      ? file
+      : undefined;
+  const currentTabs = tabs.filter((tab) => tab.file.vault?.id === locationState.id);
+  const backlinks =
+    backlinkState.key === `${locationState.id}:${locationState.file}` ? backlinkState.links : [];
+  const updateTabs = useCallback((next: VaultTab[]) => {
+    retainedTabs.current = next;
+    setTabs(next);
+  }, []);
   const navigate = useCallback((url: string) => {
-    history.pushState(null, "", url);
+    if (location.pathname + location.search !== url) history.pushState(null, "", url);
     setLocationState(route());
   }, []);
   const open = useCallback(
-    (path: string, at?: number) => {
+    (path: string, at?: number, pinned = true) => {
+      const key = `${locationState.id}:${path}`;
+      pinRequests.current.set(key, pinned || pinRequests.current.get(key) === true);
+      if (pinned)
+        updateTabs(
+          retainedTabs.current.map((tab) =>
+            tab.file.vault?.id === locationState.id && tab.file.vault.path === path
+              ? { ...tab, pinned: true }
+              : tab,
+          ),
+        );
+      const cached = retainedTabs.current.find(
+        (tab) => tab.file.vault?.id === locationState.id && tab.file.vault.path === path,
+      );
+      if (cached) setFile(cached.file);
       setLine(at);
       navigate(`/vault/${locationState.id}?${new URLSearchParams({ file: path })}`);
     },
-    [locationState.id, navigate],
+    [locationState.id, navigate, updateTabs],
   );
+  const closeTabs = useCallback(
+    (paths: string[]) => {
+      if (paths.some((path) => drafts.get(path)?.dirty || drafts.get(path)?.saving)) {
+        setError("Save or discard this draft before closing the file.");
+        return;
+      }
+      const next = retainedTabs.current.filter((tab) => !paths.includes(tab.file.path));
+      updateTabs(next);
+      setError("");
+      if (currentFile && paths.includes(currentFile.path)) {
+        const target = next.filter((tab) => tab.file.vault?.id === locationState.id).at(-1);
+        if (target) open(target.file.vault!.path, undefined, target.pinned);
+        else navigate(`/vault/${locationState.id}`);
+      }
+    },
+    [drafts, currentFile, locationState.id, navigate, open, updateTabs],
+  );
+  const pin = useCallback(
+    (path: string) =>
+      updateTabs(
+        retainedTabs.current.map((tab) =>
+          tab.file.path === path ? { ...tab, pinned: true } : tab,
+        ),
+      ),
+    [updateTabs],
+  );
+  useEffect(() => {
+    const next = retainedTabs.current.map((tab) =>
+      !tab.pinned && (drafts.get(tab.file.path)?.dirty || drafts.get(tab.file.path)?.saving)
+        ? { ...tab, pinned: true }
+        : tab,
+    );
+    if (next.some((tab, index) => tab !== retainedTabs.current[index])) updateTabs(next);
+  }, [draftRevision, drafts, updateTabs]);
   useEffect(() => {
     const pop = () => {
       setLine(undefined);
       setLocationState(route());
+      setCommandsOpen(false);
+      setPickerOpen(false);
     };
     window.addEventListener("popstate", pop);
     return () => window.removeEventListener("popstate", pop);
@@ -108,89 +195,157 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
     };
   }, [locationState.visible]);
   useEffect(() => {
-    if (!locationState.id) {
-      return;
-    }
-    let cancelled = false;
-    request("files", { id: locationState.id })
+    if (!locationState.id) return;
+    const abort = new AbortController();
+    request("files", { id: locationState.id }, abort.signal)
       .then((result) => {
-        if (!cancelled) setFiles(result.files);
+        if (!abort.signal.aborted)
+          setManifest((previous) => {
+            // A content-only index update must not reset folder expansion or tree scroll.
+            if (
+              previous.id === locationState.id &&
+              previous.entries.length === result.files.length &&
+              previous.entries.every((entry, index) => entry.path === result.files[index].path)
+            )
+              return previous;
+            return {
+              id: locationState.id,
+              entries: result.files.map((item: { path: string }) => ({
+                path: item.path,
+                kind: "file" as const,
+              })),
+            };
+          });
       })
       .catch((e) => {
-        if (!cancelled) setError(String(e));
+        if (!abort.signal.aborted) setError(String(e));
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [locationState.id, source?.index?.revision]);
+    return () => abort.abort();
+  }, [locationState.id, source?.index?.revision, refresh]);
   useEffect(() => {
     const current = ++generation.current;
-    if (!locationState.id || !locationState.file) {
-      return;
-    }
-    request("read", { id: locationState.id, path: locationState.file })
+    if (!locationState.id || !locationState.file) return;
+    const abort = new AbortController();
+    request("read", { id: locationState.id, path: locationState.file }, abort.signal)
       .then((value) => {
-        if (current !== generation.current) return;
+        if (current !== generation.current || abort.signal.aborted) return;
         const read = localReadSchema.parse(value);
-        const next = [...retainedTabs.current.filter((f) => f.path !== read.path), read];
-        if (next.length > 24 || next.reduce((sum, f) => sum + f.size, 0) > 32 * 1024 * 1024)
+        const key = `${locationState.id}:${locationState.file}`;
+        const pinned = pinRequests.current.get(key) ?? true;
+        pinRequests.current.delete(key);
+        const prior = retainedTabs.current.find((tab) => tab.file.path === read.path);
+        const next = prior
+          ? retainedTabs.current.map((tab) => (tab === prior ? { ...tab, file: read } : tab))
+          : [
+              ...retainedTabs.current.filter(
+                (tab) =>
+                  tab.file.vault?.id !== locationState.id ||
+                  tab.pinned ||
+                  drafts.get(tab.file.path)?.dirty ||
+                  drafts.get(tab.file.path)?.saving,
+              ),
+              { file: read, pinned },
+            ];
+        if (
+          next.length > 24 ||
+          next.reduce((sum, tab) => sum + tab.file.size, 0) > 32 * 1024 * 1024
+        )
           throw new Error("Close a note before opening more (24 files / 32 MiB limit).");
         setError("");
         setFile(read);
-        retainedTabs.current = next;
-        setTabs(next);
+        updateTabs(next);
       })
       .catch((e) => {
-        if (current === generation.current) setError(String(e));
+        if (current === generation.current && !abort.signal.aborted) setError(String(e));
       });
-  }, [locationState.id, locationState.file, source?.index?.revision]);
+    return () => abort.abort();
+  }, [locationState.id, locationState.file, source?.index?.revision, refresh, drafts, updateTabs]);
   useEffect(() => {
     if (!locationState.id || !locationState.file) return;
-    let cancelled = false;
-    request("backlinks", { id: locationState.id, path: locationState.file })
+    const abort = new AbortController();
+    request("backlinks", { id: locationState.id, path: locationState.file }, abort.signal)
       .then((result) => {
-        if (!cancelled) setBacklinks(result.backlinks);
+        if (!abort.signal.aborted)
+          setBacklinks({
+            key: `${locationState.id}:${locationState.file}`,
+            links: result.backlinks,
+          });
       })
       .catch((e) => {
-        if (!cancelled) setError(String(e));
+        if (!abort.signal.aborted) setError(String(e));
       });
-    return () => {
-      cancelled = true;
-    };
+    return () => abort.abort();
   }, [locationState.id, locationState.file, source?.index?.revision]);
   useEffect(() => {
     if (!locationState.visible) return;
+    let active = true;
     const key = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        search.current?.focus();
+      if (event.isComposing || event.repeat) return;
+      if ((event.metaKey || event.ctrlKey) && !event.altKey) {
+        const key = event.key.toLowerCase();
+        if (key === "k") {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          setThemes(false);
+          if (event.shiftKey && locationState.id) {
+            setCommandsOpen(false);
+            setPickerOpen((value) => !value);
+          } else {
+            setPickerOpen(false);
+            setCommandsOpen((value) => !value);
+          }
+        } else if (key === "b" && event.shiftKey && locationState.id) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          setSidebar((value) => !value);
+        }
+      } else if (
+        event.altKey &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !document.querySelector('[role="dialog"]')
+      ) {
+        if (event.code === "KeyW" && currentFile) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          closeTabs(
+            event.shiftKey
+              ? retainedTabs.current
+                  .filter((tab) => tab.file.vault?.id === locationState.id)
+                  .map((tab) => tab.file.path)
+              : [currentFile.path],
+          );
+        } else if (event.code === "KeyP" && currentFile) {
+          event.preventDefault();
+          pin(currentFile.path);
+        }
       }
     };
-    let active = true;
     const follow = (event: Event) => {
       const detail = (event as CustomEvent<{ href: string; syntax: string }>).detail;
       request("resolve", { id: locationState.id, path: locationState.file, ...detail })
-        .then((target) => {
+        .then(async (target) => {
           if (!active) return;
+          let at: number | undefined;
           if (target.fragment) {
-            request("read", { id: locationState.id, path: target.path })
-              .then((read) => {
-                if (!active) return;
-                const lines = String(read.text ?? "").split("\n");
-                const heading = lines.findIndex(
-                  (text) =>
-                    text
-                      .replace(/^#{1,6}\s+/, "")
-                      .trim()
-                      .toLowerCase() === decodeURIComponent(target.fragment).toLowerCase(),
-                );
-                open(target.path, heading >= 0 ? heading + 1 : undefined);
-              })
-              .catch((e) => setError(String(e)));
-          } else open(target.path);
+            const read = await request("read", { id: locationState.id, path: target.path });
+            const heading = String(read.text ?? "")
+              .split("\n")
+              .findIndex(
+                (text) =>
+                  /^#{1,6}\s+/.test(text) &&
+                  text
+                    .replace(/^#{1,6}\s+/, "")
+                    .trim()
+                    .toLowerCase() === decodeURIComponent(target.fragment).toLowerCase(),
+              );
+            if (heading >= 0) at = heading + 1;
+          }
+          if (active) open(target.path, at);
         })
-        .catch((e) => setError(String(e)));
+        .catch((e) => {
+          if (active) setError(String(e));
+        });
     };
     window.addEventListener("keydown", key, true);
     window.addEventListener("med-vault-navigate", follow);
@@ -199,55 +354,123 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
       window.removeEventListener("keydown", key, true);
       window.removeEventListener("med-vault-navigate", follow);
     };
-  }, [locationState.visible, locationState.id, locationState.file, open]);
-  if (!locationState.visible) return <>{children}</>;
-  const visible = files.filter(
-    (f) => f.markdown && f.path.toLowerCase().includes(filter.toLowerCase()),
+  }, [
+    locationState.visible,
+    locationState.id,
+    locationState.file,
+    currentFile,
+    open,
+    closeTabs,
+    pin,
+  ]);
+  const previewReader = useMemo(
+    () => ({
+      scope: `vault:${locationState.id}`,
+      async read(path: string, signal: AbortSignal) {
+        return localReadSchema.parse(await request("read", { id: locationState.id, path }, signal));
+      },
+    }),
+    [locationState.id],
   );
+  const refreshFiles = () => {
+    setRefresh((value) => value + 1);
+    void request("index", { source: locationState.id }).catch((e) => setError(String(e)));
+  };
+  const commands: ReviewCommand[] = [
+    {
+      id: "find-file",
+      label: "Find file in this workspace",
+      shortcut: "⌘⇧K",
+      disabled: !locationState.id,
+      managesFocus: true,
+      run: () => setPickerOpen(true),
+    },
+    {
+      id: "browse-files",
+      label: sidebar ? "Hide files sidebar" : "Show files sidebar",
+      shortcut: "⌘⇧B",
+      disabled: !locationState.id,
+      run: () => setSidebar((value) => !value),
+    },
+    { id: "theme", label: "Change color theme", managesFocus: true, run: () => setThemes(true) },
+    {
+      id: "preview",
+      label: "Toggle Markdown preview",
+      shortcut: "⌘⇧V",
+      disabled: !currentFile || !/\.(md|markdown|mdown|mkd)$/i.test(currentFile.path),
+      run: () =>
+        surface.current
+          ?.querySelector<HTMLButtonElement>('[aria-label="Toggle Markdown preview"]')
+          ?.click(),
+    },
+    {
+      id: "close-file",
+      label: "Close current file",
+      shortcut: "⌥ W",
+      disabled: !currentFile,
+      run: () => currentFile && closeTabs([currentFile.path]),
+    },
+    {
+      id: "close-files",
+      label: "Close all files in this workspace",
+      shortcut: "⌥ ⇧ W",
+      disabled: !currentTabs.length,
+      run: () => closeTabs(currentTabs.map((tab) => tab.file.path)),
+    },
+    {
+      id: "close-others",
+      label: "Close other files in this workspace",
+      disabled: !currentFile || currentTabs.length < 2,
+      run: () =>
+        closeTabs(
+          currentTabs
+            .filter((tab) => tab.file.path !== currentFile?.path)
+            .map((tab) => tab.file.path),
+        ),
+    },
+    {
+      id: "pin-file",
+      label: "Keep current preview tab open",
+      shortcut: "⌥ P",
+      disabled:
+        !currentFile || !!currentTabs.find((tab) => tab.file.path === currentFile.path)?.pinned,
+      run: () => currentFile && pin(currentFile.path),
+    },
+    {
+      id: "copy-link",
+      label: "Copy link to current file",
+      disabled: !currentFile,
+      run: () => {
+        void navigator.clipboard
+          .writeText(location.href)
+          .catch(() => setError("Could not copy the link."));
+      },
+    },
+    { id: "refresh", label: "Refresh files", disabled: !locationState.id, run: refreshFiles },
+    { id: "sources", label: "Open registered sources", run: () => navigate("/sources") },
+    {
+      id: "repositories",
+      label: "Go to repositories",
+      run: () => {
+        location.assign("/");
+      },
+    },
+    {
+      id: "local-files",
+      label: "Open standalone files",
+      run: () => {
+        location.assign("/files");
+      },
+    },
+  ];
+  if (!locationState.visible) return <>{children}</>;
   return (
-    <div
-      className="med-vault"
-      data-standalone-files
-      style={
-        {
-          "--vault-bg": theme.palette.canvas,
-          "--vault-fg": theme.palette.text,
-          "--vault-border": theme.palette.border,
-          "--vault-accent": theme.palette.accent,
-        } as CSSProperties
-      }
-    >
-      <header>
-        <a
-          href="/sources"
-          onClick={(e) => {
-            e.preventDefault();
-            navigate("/sources");
-          }}
-        >
-          med
-        </a>
-        <span>{source?.name ?? "Sources"}</span>
-        <div className="med-vault-tabs" role="tablist" aria-label="Vault files">
-          {tabs
-            .filter((t) => t.vault?.id === locationState.id)
-            .map((tab) => (
-              <button
-                key={tab.path}
-                role="tab"
-                aria-selected={file?.path === tab.path}
-                onClick={() => open(tab.vault!.path)}
-              >
-                {drafts.get(tab.path)?.dirty ? "● " : ""}
-                {tab.path.split("/").at(-1)}
-              </button>
-            ))}
-        </div>
-        <button onClick={() => setThemes(true)}>Theme</button>
-        <a href="/files">Files</a>
-        <a href="/">Repositories</a>
-      </header>
-      {error && <p role="alert">{error}</p>}
+    <div className="med-vault" data-standalone-files>
+      {error && (
+        <p className="med-vault-notice" role="alert">
+          {error}
+        </p>
+      )}
       {!locationState.id ? (
         <main className="med-vault-sources">
           <h1>Your sources</h1>
@@ -270,100 +493,192 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
               <small>{s.path}</small>
             </a>
           ))}
+          <button {...stylex.props(ui.button)} onClick={() => setCommandsOpen(true)}>
+            Commands <span>⌘K</span>
+          </button>
         </main>
       ) : (
         <div className="med-vault-layout">
-          <aside aria-label="Vault navigation">
-            <input
-              ref={search}
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              aria-label="Find vault note"
-              placeholder="Find note · ⌘K"
+          <aside
+            className="med-vault-sidebar"
+            aria-label="Workspace files"
+            hidden={!sidebar}
+            style={{ width: sidebarWidth }}
+          >
+            <RepositoryFiles
+              key={locationState.id}
+              label="Vault files"
+              entries={entries}
+              loading={false}
+              error={null}
+              truncated={false}
+              sourceLabel={source?.name ?? "Vault"}
+              selectedPath={locationState.file || null}
+              onPreview={(path) => open(path, undefined, false)}
+              onPin={(path) => open(path)}
+              onRefresh={refreshFiles}
+              onClose={() => setSidebar(false)}
             />
-            <nav aria-label="Vault notes">
-              {visible.slice(0, 500).map((item) => (
-                <button
-                  key={item.path}
-                  aria-current={locationState.file === item.path ? "page" : undefined}
-                  onClick={() => open(item.path)}
-                  title={item.path}
-                >
-                  {item.path.split("/").at(-1)}
-                  <small>
-                    {item.path.includes("/") ? item.path.slice(0, item.path.lastIndexOf("/")) : ""}
-                  </small>
-                </button>
-              ))}
-            </nav>
-            {visible.length > 500 && <small>Refine the search to see more notes.</small>}
-            <section aria-label="Backlinks">
-              <h2>
-                Backlinks <span>{backlinks.length}</span>
-              </h2>
-              {source?.index?.error && <small>{source.index.error}</small>}
-              {backlinks.map((link, i) => (
-                <button key={i} onClick={() => open(link.source, link.line)}>
-                  {link.source.split("/").at(-1)}
-                  <small>Line {link.line}</small>
-                </button>
-              ))}
-            </section>
-          </aside>
-          <main>
-            {file &&
-            file.vault?.id === locationState.id &&
-            file.vault.path === locationState.file ? (
-              <FullFileView
-                key={file.path}
-                file={file}
-                loading={false}
-                error={null}
-                vimEnabled
-                line={line}
-                sourceLabel={source?.name ?? "Vault"}
-                onClose={() => {
-                  const next = retainedTabs.current.filter((t) => t.path !== file.path);
-                  retainedTabs.current = next;
-                  setTabs(next);
-                  const target = next.find((t) => t.vault?.id === locationState.id);
-                  if (target) open(target.vault!.path);
-                  else navigate(`/vault/${locationState.id}`);
-                }}
-                refreshAvailable
-                onRefresh={() => {
-                  request("read", { id: locationState.id, path: locationState.file })
-                    .then((v) => setFile(localReadSchema.parse(v)))
-                    .catch((e) => setError(String(e)));
-                }}
-                editor={{
-                  drafts,
-                  key: file.path,
-                  write: async (current, text) => {
-                    const next = await api.json("/api/local-files/write", localReadSchema, {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        path: current.path,
-                        expectedIdentity: current.identity,
-                        text,
-                      }),
-                    });
-                    const result = { ...next, vault: file.vault };
-                    setFile(result);
-                    return result;
-                  },
-                }}
-              />
-            ) : (
-              <div className="med-vault-empty">
-                <h1>{source?.name ?? "Vault"}</h1>
-                <p>Choose a note or press ⌘K to find one.</p>
-              </div>
+            {locationState.file && (
+              <details className="med-vault-backlinks" open>
+                <summary>
+                  Backlinks <span>{backlinks.length}</span>
+                </summary>
+                <section aria-label="Backlinks">
+                  {source?.index?.error && <p>{source.index.error}</p>}
+                  {backlinks.map((link, i) => (
+                    <button
+                      key={`${link.source}:${link.line}:${i}`}
+                      {...stylex.props(ui.button)}
+                      onClick={() => open(link.source, link.line)}
+                      title={link.source}
+                    >
+                      <Icon name="file" size={13} />
+                      <span>{link.source}</span>
+                      <small>:{link.line}</small>
+                    </button>
+                  ))}
+                </section>
+              </details>
             )}
+          </aside>
+          {sidebar && (
+            <div
+              className="med-vault-resizer"
+              role="separator"
+              aria-label="Resize files sidebar"
+              aria-orientation="vertical"
+              aria-valuemin={200}
+              aria-valuemax={520}
+              aria-valuenow={sidebarWidth}
+              tabIndex={0}
+              onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
+              onPointerMove={(e) => {
+                if (e.currentTarget.hasPointerCapture(e.pointerId))
+                  setSidebarWidth(Math.max(200, Math.min(520, e.clientX)));
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                  e.preventDefault();
+                  setSidebarWidth((value) =>
+                    Math.max(200, Math.min(520, value + (e.key === "ArrowLeft" ? -16 : 16))),
+                  );
+                }
+              }}
+            />
+          )}
+          <main className="med-vault-main">
+            <div className="med-vault-tabbar">
+              <FileViewTabs
+                showChanges={false}
+                tabs={currentTabs.map((tab) => ({
+                  id: tab.file.path,
+                  path: tab.file.vault!.path,
+                  pinned: tab.pinned,
+                  dirty: drafts.get(tab.file.path)?.dirty,
+                }))}
+                active={currentFile?.path ?? ""}
+                panelId="vault-file-panel"
+                onSelect={(id) => {
+                  const tab = currentTabs.find((t) => t.file.path === id);
+                  if (tab) open(tab.file.vault!.path, undefined, tab.pinned);
+                }}
+                onPin={pin}
+                onClose={(id) => closeTabs([id])}
+              />
+              <div className="med-vault-actions">
+                <button
+                  {...stylex.props(ui.button, ui.iconButton)}
+                  title="Toggle files sidebar (⌘⇧B)"
+                  aria-label="Toggle files sidebar"
+                  onClick={() => setSidebar((value) => !value)}
+                >
+                  <Icon name="panelLeft" size={14} />
+                </button>
+                <button
+                  {...stylex.props(ui.button, ui.iconButton)}
+                  title="Commands (⌘K)"
+                  aria-label="Open command palette"
+                  onClick={() => setCommandsOpen(true)}
+                >
+                  <Icon name="search" size={14} />
+                </button>
+              </div>
+            </div>
+            <div
+              id="vault-file-panel"
+              ref={surface}
+              className="med-vault-surface"
+              role="tabpanel"
+              aria-label={currentFile ? `File ${locationState.file}` : "Files"}
+            >
+              {currentFile ? (
+                <FullFileView
+                  key={currentFile.path}
+                  file={currentFile}
+                  loading={false}
+                  error={null}
+                  vimEnabled
+                  line={line}
+                  sourceLabel={source?.name ?? "Vault"}
+                  onClose={() => closeTabs([currentFile.path])}
+                  refreshAvailable
+                  onRefresh={() => setRefresh((value) => value + 1)}
+                  editor={{
+                    drafts,
+                    key: currentFile.path,
+                    write: async (current, text) => {
+                      const next = await api.json("/api/local-files/write", localReadSchema, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          path: current.path,
+                          expectedIdentity: current.identity,
+                          text,
+                        }),
+                      });
+                      const result = { ...next, vault: currentFile.vault };
+                      setError("");
+                      // Saving an inactive file must not replace the selected editor.
+                      if (route().id === result.vault?.id && route().file === result.vault?.path)
+                        setFile(result);
+                      updateTabs(
+                        retainedTabs.current.map((tab) =>
+                          tab.file.path === result.path
+                            ? { ...tab, file: result, pinned: true }
+                            : tab,
+                        ),
+                      );
+                      return result;
+                    },
+                  }}
+                />
+              ) : (
+                <div className="med-vault-empty">
+                  <p>Choose a file or press ⌘⇧K to find one.</p>
+                  <button {...stylex.props(ui.button)} onClick={() => setCommandsOpen(true)}>
+                    Open command palette · ⌘K
+                  </button>
+                </div>
+              )}
+            </div>
           </main>
         </div>
       )}
+      <CommandDialog open={commandsOpen} onOpenChange={setCommandsOpen} commands={commands} />
+      <FilePicker
+        key={locationState.id}
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        entries={entries}
+        loading={false}
+        error={null}
+        sourceLabel={source?.name ?? "Vault"}
+        onOpen={(path, at) => open(path, at)}
+        previewReader={previewReader}
+        sourceRevision={source?.index?.revision ?? 0}
+        openPaths={currentTabs.map((tab) => tab.file.vault!.path)}
+      />
       <ThemePicker open={themes} onOpenChange={setThemes} />
     </div>
   );

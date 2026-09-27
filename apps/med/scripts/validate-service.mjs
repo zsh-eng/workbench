@@ -37,6 +37,9 @@ let browser;
 try {
   await mkdir(join(vault, ".obsidian"), { recursive: true });
   await mkdir(join(vault, "Assets"));
+  await mkdir(join(vault, "Notes"));
+  await writeFile(join(vault, "Notes", "Nested.md"), "# Nested note\n\nA note inside a folder.\n");
+  await writeFile(join(vault, "Notes", "Other.md"), "# Other note\n");
   await writeFile(
     join(vault, "Home.md"),
     "# Home\n\nA small vault for the service check.\n\n[[Target|Open target]]\n\n![[pixel.png|120]]\n\n`[[Not a link]]`\n",
@@ -141,7 +144,18 @@ try {
   await page.locator('[data-review-status="ready"]').waitFor();
   await page.goto(`${conn.origin}/sources`);
   await page.locator(`a[href="/vault/${added.id}"]`).click();
-  await page.getByRole("button", { name: "Home.md", exact: true }).click();
+  const tree = page.getByRole("complementary", { name: "Vault files", exact: true });
+  await tree.getByRole("treeitem", { name: "Nested.md", exact: true }).click();
+  await page.getByRole("tab", { name: "Nested.md", exact: true }).waitFor();
+  await tree.getByRole("treeitem", { name: "Other.md", exact: true }).click();
+  await page.getByRole("tab", { name: "Other.md", exact: true }).waitFor();
+  assert.equal(await page.getByRole("tab", { name: "Nested.md", exact: true }).count(), 0);
+  await tree.getByRole("treeitem", { name: "Other.md", exact: true }).dblclick();
+  await tree.getByRole("treeitem", { name: "Home.md", exact: true }).dblclick();
+  await page.getByRole("tab", { name: "Home.md", exact: true }).waitFor();
+  assert.equal(await page.getByRole("tab", { name: "Other.md", exact: true }).count(), 1);
+  await page.getByRole("button", { name: "Close Notes/Other.md", exact: true }).click();
+  assert.equal(await page.getByRole("tab", { name: "Other.md", exact: true }).count(), 0);
   const preview = page.getByRole("button", { name: "Toggle Markdown preview", exact: true });
   await preview.waitFor();
   if ((await preview.getAttribute("aria-pressed")) !== "true") await preview.click();
@@ -161,18 +175,45 @@ try {
     .click();
   await page.locator(".med-markdown h1").filter({ hasText: "Home" }).waitFor();
   await page.keyboard.press("Meta+k");
-  assert.equal(
-    await page
-      .getByRole("textbox", { name: "Find vault note" })
-      .evaluate((el) => el === document.activeElement),
-    true,
+  await page
+    .getByRole("dialog")
+    .getByRole("combobox", { name: "Search commands" })
+    .fill("Find file");
+  await page.getByRole("option").filter({ hasText: "Find file in this workspace" }).click();
+  await page.getByRole("combobox", { name: "Find file", exact: true }).fill("Nested");
+  await page
+    .getByLabel("File preview", { exact: true })
+    .getByText("Nested note", { exact: false })
+    .waitFor();
+  await page.keyboard.press("Enter");
+  await page.getByRole("tab", { name: "Nested.md", exact: true }).waitFor();
+  await page.locator(".cm-content").focus();
+  await page.keyboard.type("gg0iDraft from Med\n");
+  await page.keyboard.press("Escape");
+  await page
+    .getByRole("tab", { name: /Nested.md/ })
+    .getByLabel("Unsaved changes", { exact: true })
+    .waitFor();
+  await page.getByRole("button", { name: "Close Notes/Nested.md", exact: true }).click();
+  await page.getByRole("alert").filter({ hasText: "Save or discard" }).waitFor();
+  await tree.getByRole("treeitem", { name: "Target.md", exact: true }).click();
+  await page.getByRole("tab", { name: /Nested.md/ }).click();
+  assert.match(await page.locator(".cm-content").innerText(), /Draft from Med/);
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await until(async () =>
+    (await readFile(join(vault, "Notes", "Nested.md"), "utf8")).startsWith("Draft from Med\n"),
   );
-  await page.getByRole("textbox", { name: "Find vault note" }).fill("Target");
-  assert.equal(
-    await page.getByRole("navigation", { name: "Vault notes" }).getByRole("button").count(),
-    1,
-  );
-  await page.getByRole("textbox", { name: "Find vault note" }).fill("");
+  await page.getByRole("img", { name: "Saved", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Close Notes/Nested.md", exact: true }).click();
+  await page.keyboard.press("Meta+Shift+b");
+  assert.equal(await tree.isVisible(), false);
+  await page.keyboard.press("Meta+Shift+b");
+  await tree.waitFor();
+  await page.keyboard.press("Meta+Shift+k");
+  await page.getByRole("combobox", { name: "Find file", exact: true }).fill("Target");
+  await page.keyboard.press("Enter");
+  await page.getByRole("tab", { name: "Target.md", exact: true }).waitFor();
+  assert.equal(await page.getByRole("tab", { name: "Changes", exact: true }).count(), 0);
   const revision = (await api("status")).sources.find((s) => s.id === added.id).index.revision;
   await writeFile(join(vault, "Home.md"), "# Home\n\nNo outgoing links now.\n");
   await until(async () => {
@@ -180,7 +221,7 @@ try {
     return s.index.state === "ready" && s.index.revision > revision;
   });
   assert.equal((await api("backlinks", { id: added.id, path: "Target.md" })).backlinks.length, 0);
-  await page.getByRole("button", { name: "Target.md", exact: true }).first().click();
+  await page.getByRole("tab", { name: "Target.md", exact: true }).click();
   await page.locator(".med-markdown h1").filter({ hasText: "Target" }).waitFor();
   await until(() =>
     page
@@ -218,6 +259,11 @@ try {
         "backlinks",
         "watch-update",
         "commands",
+        "file-tree",
+        "preview-and-pinned-tabs",
+        "file-picker-preview",
+        "sidebar-toggle",
+        "dirty-tab-preservation-and-save",
         "remove-preserves-files",
         "stop",
         "restart",

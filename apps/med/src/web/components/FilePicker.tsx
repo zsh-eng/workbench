@@ -8,7 +8,7 @@ import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
 import { FullFileView } from "./FullFileView";
 import { browseSourceKey, type BrowseApi } from "../data/browse";
-import { usePickerPreview } from "../data/picker-preview";
+import { usePickerPreview, type FilePreviewReader } from "../data/picker-preview";
 import type { BrowseSearch } from "../../shared/inspect";
 
 export interface FilePickerProps {
@@ -22,6 +22,7 @@ export interface FilePickerProps {
   source?: BrowseSource | null;
   api?: BrowseApi;
   sourceRevision?: number | string;
+  previewReader?: FilePreviewReader;
   openPaths?: string[];
   recentPaths?: string[];
   initialMode?: "files" | "content";
@@ -123,6 +124,7 @@ function PickerSessionView({
   source,
   api,
   sourceRevision = 0,
+  previewReader,
   openPaths = emptyPaths,
   recentPaths = emptyPaths,
   initialMode = "files",
@@ -163,6 +165,7 @@ function PickerSessionView({
         source,
         api,
         sourceRevision,
+        previewReader,
         openPaths,
         recentPaths,
         mode,
@@ -187,6 +190,7 @@ function PickerContents({
   source,
   api,
   sourceRevision = 0,
+  previewReader,
   openPaths = emptyPaths,
   recentPaths = emptyPaths,
   mode,
@@ -261,6 +265,7 @@ function PickerContents({
     previewSource,
     selectedResult?.path,
     `${sourceRevision}:${refresh}`,
+    previewReader,
   );
   const busy =
     mode === "files" ? loading : !!query.trim() && search.key !== searchKey && !!api?.search;
@@ -458,7 +463,7 @@ function PickerContents({
                   </>
                 )}
               </div>
-              {api && source && (
+              {((api && source) || previewReader) && (
                 <div {...stylex.props(styles.preview)} aria-label="File preview">
                   {selectedResult ? (
                     <FullFileView

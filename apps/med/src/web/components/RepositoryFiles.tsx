@@ -16,8 +16,9 @@ export interface RepositoryFilesProps {
   onPreview(path: string): void;
   onPin(path: string): void;
   onPrefetch?(path: string): void;
-  ignored: boolean;
-  onIgnoredChange(value: boolean): void;
+  ignored?: boolean;
+  onIgnoredChange?(value: boolean): void;
+  label?: string;
   onRefresh(): void;
   onClose(): void;
 }
@@ -95,7 +96,7 @@ export function RepositoryFiles(props: RepositoryFilesProps) {
       onPin(path);
   }
   return (
-    <aside {...stylex.props(styles.panel)} aria-label="Repository files">
+    <aside {...stylex.props(styles.panel)} aria-label={props.label ?? "Repository files"}>
       <div {...stylex.props(styles.heading)}>
         <span>Files</span>
         <span {...stylex.props(ui.grow)} />
@@ -117,14 +118,16 @@ export function RepositoryFiles(props: RepositoryFilesProps) {
       <div {...stylex.props(styles.source)} title={sourceLabel}>
         {sourceLabel}
       </div>
-      <label {...stylex.props(styles.ignored)}>
-        <input
-          type="checkbox"
-          checked={ignored}
-          onChange={(event) => onIgnoredChange(event.target.checked)}
-        />
-        Show ignored files
-      </label>
+      {onIgnoredChange && (
+        <label {...stylex.props(styles.ignored)}>
+          <input
+            type="checkbox"
+            checked={ignored}
+            onChange={(event) => onIgnoredChange(event.target.checked)}
+          />
+          Show ignored files
+        </label>
+      )}
       {loading && (
         <p role="status" {...stylex.props(styles.message)}>
           Loading files…

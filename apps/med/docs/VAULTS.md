@@ -23,8 +23,13 @@ and `stop` do not. The default port is 4173; an occupied port is an error. Use t
 same `--port` and `--state-dir` on each command for a separate setup. The default
 state directory is `~/.local/state/med`, or `MED_STATE_DIR`. Keep it outside vaults.
 
-Open a vault from the Sources page. Find a note with **Cmd+K**, follow wiki links
-or Markdown links, and use the backlinks below the note list. **Preview** shows
+Open a vault from the Sources page. The left file tree and top file tabs use the
+same controls as repository browsing. Click to preview; double-click to keep a
+tab open. Edited files stay open, and dirty tabs cannot be closed without saving
+or discarding. **Cmd+K** opens the normal command palette; **Cmd+Shift+K** finds a
+file with a preview. **Cmd+Shift+B** toggles the sidebar. Use Ctrl instead of Cmd
+on Windows/Linux. Follow wiki or Markdown links, and use the collapsible backlinks
+below the file tree. **Preview** shows
 rendered Markdown with image embeds. The normal Vim editor, explicit save,
 unsaved dot, and live preview are available. Registration and indexing never
 change note contents; saving an edit does.
@@ -59,8 +64,8 @@ addition, rename, or removal triggers link re-resolution; ordinary edits replace
 only the changed notes' links. Hidden/dependency folders and symlinks are excluded.
 Notes over 4 MiB or invalid UTF-8 report failures and retry on the next pass.
 There is a 100,000-file catalogue limit and a 1,000-occurrence backlink display
-limit. The browser shows at most 500 matching notes; narrow the file-name search
-for larger vaults. Source paths and local indexes stay outside project files.
+limit. The virtualized tree shows the file hierarchy, including attachments.
+The file picker shows the best 50 matches; narrow its query for larger vaults. Source paths and local indexes stay outside project files.
 
 Removal stops watching and removes registration. Original files and rebuildable
 cache remain. Stopping preserves registrations, saved reviews, and indexes.
