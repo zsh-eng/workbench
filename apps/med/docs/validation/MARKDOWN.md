@@ -57,7 +57,7 @@ a 684 px article column at a 1440 px viewport, 18 px body text, 28 px line heigh
 and 24 px paragraph gaps. Its first two full lines contain 78 and 74 characters.
 The title uses weight 450 and the section heading uses weight 400.
 
-Med adapts these proportions to the split pane: 16 px body text, 26 px line
+The initial adaptation used 16 px body text, 26 px line
 height, 24 px paragraph gaps, and a maximum 608 px text column. Page padding
 is outside that limit. The sample paragraph fits 84 and 81 characters on its
 first two full lines; the count varies with the text and available pane width.
@@ -69,3 +69,11 @@ Build/typecheck and the production Markdown browser check passed. The check
 includes live editing, diagrams, contents navigation, smooth scroll following,
 reduced motion, saved preview preference, and the narrow layout. The light,
 dark, diagram, math and last-heading screenshots above show the updated style.
+
+### 14 px body text trial
+
+The body now uses 14 px text with the same spacing ratios: 22.75 px line
+height, 21 px paragraph gaps, and a maximum 532 px text column. Heading sizes
+remain unchanged. Build/typecheck passed. Chromium checks confirmed the sizing
+in light and dark themes and no horizontal overflow at a 650 px viewport.
+The screenshots above retain the previous 16 px version for comparison.
