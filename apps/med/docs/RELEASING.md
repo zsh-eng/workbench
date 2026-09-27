@@ -12,6 +12,7 @@ From `apps/med`:
 bun scripts/release-macos.ts /tmp/med-release
 MED_EXECUTABLE=/tmp/med-release/med-v0.1.0-macos-arm64/med node scripts/validate-service.mjs
 MED_EXECUTABLE=/tmp/med-release/med-v0.1.0-macos-arm64/med node scripts/validate-markdown-links.mjs
+MED_EXECUTABLE=/tmp/med-release/med-v0.1.0-macos-arm64/med node scripts/validate-review-links.mjs
 ```
 
 The script checks types, builds the UI, compiles the executable, checks its
@@ -19,8 +20,7 @@ version and embedded docs, collects dependency notices, and writes the tarball,
 build metadata, and SHA-256 checksum. It refuses a dirty checkout or an existing
 staging directory. The service test starts the executable outside the checkout,
 uses temporary repositories and a synthetic vault, and closes its own processes.
-Also run `bun run lint`, `node scripts/validate-markdown.mjs`, and the saved-review
-browser check (`node scripts/validate-review-links.mjs`) before publication.
+Also run `bun run lint` and `node scripts/validate-markdown.mjs` before publication.
 
 Inspect the archive and `BUILD.json`. Verify `codesign --verify med` and the
 minimum macOS version with `otool -l med`. The initial build uses Bun's ad-hoc

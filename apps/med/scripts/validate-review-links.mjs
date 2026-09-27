@@ -3,10 +3,13 @@ import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { chromium } from "playwright";
 
-// Use the built CLI and browser against isolated local repositories and state.
+// Use the built CLI or standalone executable with isolated repositories and state.
+const executable = process.env.MED_EXECUTABLE;
+const command = executable ? resolve(executable) : process.execPath;
+const cliArgs = executable ? [] : ["dist/cli.js"];
 const directory = await realpath(await mkdtemp(join(tmpdir(), "med-review-links-")));
 const stateDir = join(directory, "state");
 const git = (cwd, ...args) =>
@@ -35,8 +38,8 @@ async function stopHost() {
 }
 async function launch(port = 0) {
   host = spawn(
-    process.execPath,
-    ["dist/cli.js", ...repositories, "--no-open", "--port", String(port), "--state-dir", stateDir],
+    command,
+    [...cliArgs, ...repositories, "--no-open", "--port", String(port), "--state-dir", stateDir],
     {
       stdio: ["ignore", "pipe", "pipe"],
       env: {
@@ -121,16 +124,8 @@ try {
   );
   const runCli = (...args) =>
     execFileSync(
-      process.execPath,
-      [
-        "dist/cli.js",
-        "review",
-        ...args,
-        "--state-dir",
-        stateDir,
-        "--port",
-        String(connection.port),
-      ],
+      command,
+      [...cliArgs, "review", ...args, "--state-dir", stateDir, "--port", String(connection.port)],
       { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
     ).trim();
   const catalogue = JSON.parse(runCli("repos"));
