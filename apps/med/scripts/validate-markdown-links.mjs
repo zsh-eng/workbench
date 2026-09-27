@@ -83,6 +83,35 @@ try {
     await page.getByRole("link", { name: "Samples", exact: true }).waitFor();
   };
   await showPreview();
+  await page.keyboard.press("Meta+Shift+b");
+  const filesSidebar = page.getByRole("complementary", { name: "Workspace files", exact: true });
+  await filesSidebar.waitFor();
+  const sidebarBox = await filesSidebar.boundingBox();
+  const mainBox = await page
+    .getByRole("main", { name: "Continuous review", exact: true })
+    .boundingBox();
+  assert.ok(
+    sidebarBox.x + sidebarBox.width <= mainBox.x + 1,
+    "File sidebar must stay left of the main view",
+  );
+  await filesSidebar.getByRole("button", { name: "Refresh files", exact: true }).focus();
+  await page.keyboard.press("Meta+Shift+v");
+  assert.equal(await page.locator(".med-markdown").count(), 0);
+  await page.keyboard.press("Meta+Shift+v");
+  await page.getByRole("link", { name: "Samples", exact: true }).waitFor();
+  await page.getByRole("tab", { name: "note.md", exact: true }).focus();
+  await page.keyboard.press("Meta+Shift+v");
+  assert.equal(await page.locator(".med-markdown").count(), 0);
+  await page.keyboard.press("Meta+Shift+v");
+  await page.keyboard.press("Meta+k");
+  const commandInput = page.getByRole("combobox", { name: "Search commands", exact: true });
+  await commandInput.fill("theme");
+  await page.keyboard.press("Meta+Shift+v");
+  assert.equal(await page.locator(".med-markdown").count(), 0);
+  await page.keyboard.press("Control+Shift+v");
+  await page.locator(".med-md-prose h1").waitFor();
+  assert.equal(await commandInput.inputValue(), "theme");
+  await page.keyboard.press("Escape");
   assert.equal(
     await page.getByRole("link", { name: "External", exact: true }).getAttribute("href"),
     "https://example.com/",
@@ -138,6 +167,10 @@ try {
   const doc = join(repo, "docs", "note.md");
   await page.goto(`${origin}/file${doc.split("/").map(encodeURIComponent).join("/")}`);
   await showPreview();
+  await page.getByRole("tab", { name: "note.md", exact: true }).focus();
+  await page.keyboard.press("Meta+Shift+v");
+  assert.equal(await page.locator(".med-markdown").count(), 0);
+  await page.keyboard.press("Meta+Shift+v");
   await page.getByRole("link", { name: "Samples", exact: true }).click();
   await page.getByRole("tab", { name: "samples data.json", exact: true }).waitFor();
   assert.match(await page.locator(".cm-content").innerText(), /working/);
@@ -152,6 +185,8 @@ try {
       passed: true,
       standalone: !!binary,
       checks: [
+        "left-file-sidebar",
+        "preview-shortcut-from-tree-tabs-and-palette",
         "working-file-links",
         "commit-source-preserved",
         "standalone-file-tabs",

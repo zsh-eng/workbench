@@ -101,7 +101,7 @@ The executable uses Node, including when launched through `bunx`. The package se
 1. Select a commit in the left history panel, or select working changes. Commit diffs compare with the first parent; merge commits are labeled accordingly.
 2. Select a changed path to move to it in the diff stream. Double-click the path to open its current file in the selected worktree.
 3. Use the top branch tabs or `+` to select another branch. A branch with a worktree opens that directory; a branch without one opens committed content.
-4. Use the file picker or right Files sidebar to open unchanged files. A preview does not replace your current review until you open it.
+4. Use the file picker or left Files sidebar to open unchanged files. A preview does not replace your current review until you open it.
 5. Toggle blame in a full file to show author and commit details beside the line numbers. Visible lines preload in the background after a file opens. Toggling blame reuses this cache. Hover a label for 250 ms to see the date and commit message; move to nearby labels for immediate updates. Open the command palette to change theme or find other actions.
 
 Drag the gutter **+** across lines to start a note for the whole range. You can also drag over line numbers, or click the first number and Shift-click the last number on the same diff side, then click **Add note**. The saved comment keeps the full range.
@@ -116,7 +116,7 @@ Shift-click another commit to select an inclusive range. The comparison runs fro
 | Symbols in current file           | `⌘O`         | `Ctrl+O`                  |
 | Symbols in project commits        | `⌘⇧O`        | `Ctrl+Shift+O`            |
 | Search file contents              | `⌘⇧F`        | `Ctrl+Shift+F`            |
-| Toggle left / right sidebar       | `⌘B` / `⌘⇧B` | `Ctrl+B` / `Ctrl+Shift+B` |
+| Toggle history / files sidebar       | `⌘B` / `⌘⇧B` | `Ctrl+B` / `Ctrl+Shift+B` |
 | Resume search                     | `⌥R`         | `Alt+R`                   |
 | Keep preview tab                  | `⌥P`         | `Alt+P`                   |
 | Toggle gutter blame               | `⌥B`         | `Alt+B`                   |
@@ -330,7 +330,7 @@ Try [the reading queue design note](examples/reading-queue.md), which includes
 paragraphs, two diagrams, equations, a local image, a table and TypeScript.
 
 Toggle Markdown Preview with **Cmd+Shift+V** on macOS or **Ctrl+Shift+V** on
-Windows/Linux while focus is in the file or preview pane. The toolbar button
+Windows/Linux from anywhere in the app while a Markdown file is active. The toolbar button
 shows the shortcut on hover. Contents links move the source cursor in both
 editor and viewer modes; the preview follows the source position. In-document
 anchor links stay within the preview.

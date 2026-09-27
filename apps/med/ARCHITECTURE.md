@@ -2,7 +2,7 @@
 
 Status: integrated implementation, 19 September 2026. The user approved implementation after the source audit and added commit-history navigation, live themes, and branch/worktree tabs. See [baseline performance](docs/validation/RESULTS.md) and [UI validation](docs/validation/UI_UPDATE.md) for measurements and limits.
 
-Read-only full-file browsing now uses a right sidebar and center file tabs beside a permanent Changes tab. Its source is independent of the selected diff: attached worktrees always provide current files, while unattached branches provide an exact commit tree. Authenticated, bounded list/read endpoints share the existing host and watcher. See [file browsing](docs/FILE_BROWSING.md) for contracts, data flow, limits, and remaining scope, and [browsing validation](docs/validation/FILE_BROWSING.md) for measured results.
+Read-only full-file browsing now uses a left file sidebar and center file tabs beside a permanent Changes tab. Its source is independent of the selected diff: attached worktrees always provide current files, while unattached branches provide an exact commit tree. Authenticated, bounded list/read endpoints share the existing host and watcher. See [file browsing](docs/FILE_BROWSING.md) for contracts, data flow, limits, and remaining scope, and [browsing validation](docs/validation/FILE_BROWSING.md) for measured results.
 
 ## Product and layout
 
@@ -331,3 +331,8 @@ browser route, and repository paths cannot escape their source root. The review
 workspace supplies the displayed file's `BrowseSource`, preserving commit IDs;
 standalone files use their existing local open path. Vault resolution remains
 scoped to its catalogue. Dropped previews do not receive a file-opening callback.
+
+The Markdown preview shortcut is captured at window level. The visible main
+file's preview button owns the action, so focus in tabs, sidebars or palettes
+does not block it. Hidden retained workspaces and compact picker previews do
+not respond. Repeated keydown events do not toggle the view again.

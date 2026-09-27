@@ -1670,6 +1670,26 @@ export function App({
             }}
           />
         )}
+        {browseSource && (
+          <aside
+            {...stylex.props(styles.filesSidebar, !filesVisible && styles.hiddenSurface)}
+            aria-label="Workspace files"
+            hidden={!filesVisible}
+          >
+            <RepositoryFiles
+              key={JSON.stringify([sourceKey(browseSource), repositoryFiles.ignored])}
+              {...repositoryFiles}
+              sourceLabel={sourceLabel}
+              selectedPath={activeFile?.path ?? selectedFile?.path ?? null}
+              onPrefetch={prefetchFile}
+              onPreview={(path) => openWorkingFile(path, false)}
+              onPin={(path) => openWorkingFile(path, true)}
+              onIgnoredChange={repositoryFiles.setIgnored}
+              onRefresh={repositoryFiles.refresh}
+              onClose={() => setFilesVisible(false)}
+            />
+          </aside>
+        )}
         <main {...stylex.props(styles.main)} aria-label="Continuous review">
           {fileLinkError && <div role="alert">{fileLinkError}</div>}
           {!!browseSource && (
@@ -2209,26 +2229,6 @@ export function App({
             )}
           </div>
         </main>
-        {browseSource && (
-          <aside
-            {...stylex.props(styles.filesSidebar, !filesVisible && styles.hiddenSurface)}
-            aria-label="Workspace files"
-            hidden={!filesVisible}
-          >
-            <RepositoryFiles
-              key={JSON.stringify([sourceKey(browseSource), repositoryFiles.ignored])}
-              {...repositoryFiles}
-              sourceLabel={sourceLabel}
-              selectedPath={activeFile?.path ?? selectedFile?.path ?? null}
-              onPrefetch={prefetchFile}
-              onPreview={(path) => openWorkingFile(path, false)}
-              onPin={(path) => openWorkingFile(path, true)}
-              onIgnoredChange={repositoryFiles.setIgnored}
-              onRefresh={repositoryFiles.refresh}
-              onClose={() => setFilesVisible(false)}
-            />
-          </aside>
-        )}
       </div>
       <footer {...stylex.props(styles.statusbar)}>
         <span {...stylex.props(styles.statusDot)} />
@@ -2374,9 +2374,9 @@ const styles = stylex.create({
     minWidth: 200,
     flexShrink: 0,
     display: "flex",
-    borderLeftWidth: 1,
-    borderLeftStyle: "solid",
-    borderLeftColor: tokens.border,
+    borderRightWidth: 1,
+    borderRightStyle: "solid",
+    borderRightColor: tokens.border,
   },
   sidebar: {
     display: "flex",

@@ -802,9 +802,36 @@ export function FullFileView(props: FullFileViewProps) {
       /* Session preference still works. */
     }
   };
+  const previewButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!markdown) return;
+    const shortcut = (event: KeyboardEvent) => {
+      if (
+        !(event.metaKey || event.ctrlKey) ||
+        !event.shiftKey ||
+        event.altKey ||
+        event.isComposing ||
+        event.key.toLowerCase() !== "v"
+      )
+        return;
+      const button = previewButton.current;
+      // Retained workspaces stay mounted. Only the visible main file owns this shortcut.
+      const visible = [
+        ...document.querySelectorAll<HTMLButtonElement>("[data-markdown-preview-toggle]"),
+      ].find((candidate) => candidate.getClientRects().length > 0);
+      if (!button || visible !== button) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (!event.repeat) button.click();
+    };
+    window.addEventListener("keydown", shortcut, true);
+    return () => window.removeEventListener("keydown", shortcut, true);
+  }, [markdown]);
   const previewControl = markdown ? (
     <button
       {...stylex.props(ui.button, ui.pressable, preview && ui.active)}
+      ref={previewButton}
+      data-markdown-preview-toggle
       aria-label="Toggle Markdown preview"
       aria-pressed={preview}
       title="Toggle Markdown preview (⌘⇧V / Ctrl+Shift+V)"
@@ -815,23 +842,7 @@ export function FullFileView(props: FullFileViewProps) {
     </button>
   ) : undefined;
   const wrap = (source: ReactNode) => (
-    <div
-      className="med-markdown-shell"
-      data-preview={showPreview}
-      onKeyDownCapture={(event) => {
-        if (
-          markdown &&
-          (event.metaKey || event.ctrlKey) &&
-          event.shiftKey &&
-          !event.altKey &&
-          event.key.toLowerCase() === "v"
-        ) {
-          event.preventDefault();
-          event.stopPropagation();
-          if (!event.repeat) togglePreview();
-        }
-      }}
-    >
+    <div className="med-markdown-shell" data-preview={showPreview}>
       <div className="med-markdown-source">{source}</div>
       {showPreview && props.file && (
         <Suspense fallback={<div className="med-markdown" aria-hidden="true" />}>

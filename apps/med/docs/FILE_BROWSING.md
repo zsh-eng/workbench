@@ -6,17 +6,16 @@ File browsing is read-only and stays in the review workspace. It uses the existi
 
 ```text
 ┌ main ●             feature/auth ●             release           ┐
-├──────────────┬───────────────────────────────┬───────────────────┤
-│ History      │ Changes │ session.ts ×        │ Files             │
-│              ├───────────────────────────────┤ Working files     │
-│ Changes      │                               │                   │
-│ session.ts   │ Diff stream or full file      │ src/              │
-│ token.ts     │                               │   session.ts      │
-│              │                               │   token.ts        │
-└──────────────┴───────────────────────────────┴───────────────────┘
+├──────────────┬───────────────────┬───────────────────────────────┤
+│ History      │ Files             │ Changes │ session.ts ×        │
+│              │ Working files     ├───────────────────────────────┤
+│ Changes      │ src/              │                               │
+│ session.ts   │   session.ts      │ Diff stream or full file      │
+│ token.ts     │   token.ts        │                               │
+└──────────────┴───────────────────┴───────────────────────────────┘
 ```
 
-- The right Files sidebar starts closed. Use Command–Shift–B or the command guide (`?`) to open it. On narrow windows, opening one sidebar closes the other.
+- The left Files sidebar starts closed. Use Command–Shift–B or the command guide (`?`) to open it. On narrow windows, opening one sidebar closes the other.
 - The permanent Changes tab keeps the continuous diff view and its scroll position while a file is open.
 - A single click in Files opens a reusable preview tab. A double-click, or Enter on a selected file, keeps that tab open. Opening another preview replaces only the previous unpinned preview.
 - A single click in Changes reveals its diff. A double-click opens the current file from the selected workspace. The view menu also provides an explicit open-file action.
