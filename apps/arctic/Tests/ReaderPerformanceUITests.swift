@@ -17,6 +17,7 @@ final class ReaderPerformanceUITests: XCTestCase {
     app.launch()
     let shortcut = app.buttons["publisher-www.ft.com"]
     XCTAssertTrue(shortcut.waitForExistence(timeout: 10), app.debugDescription)
+    revealPublishersIfNeeded(app, shortcut: shortcut)
     shortcut.tap()
     XCTAssertTrue(app.webViews.staticTexts["Publisher homepage"].waitForExistence(timeout: 10))
     app.webViews.buttons["Read publisher article"].tap()
@@ -31,6 +32,7 @@ final class ReaderPerformanceUITests: XCTestCase {
     XCTAssertEqual(bookmark.value as? String, "Not saved")
     // Leave directly from the extracted article: the shortcut starts at home.
     app.navigationBars.buttons.element(boundBy: 0).tap()
+    revealPublishersIfNeeded(app, shortcut: shortcut)
     shortcut.tap()
     XCTAssertTrue(app.webViews.staticTexts["Publisher homepage"].waitForExistence(timeout: 10))
     XCTAssertEqual(app.buttons["reader-toggle"].label, "Reader")
@@ -42,6 +44,7 @@ final class ReaderPerformanceUITests: XCTestCase {
     XCTAssertTrue(app.webViews.staticTexts["Publisher homepage"].waitForExistence(timeout: 10))
     XCTAssertEqual(app.buttons["reader-toggle"].label, "Reader")
     app.navigationBars.buttons.element(boundBy: 0).tap()
+    revealPublishersIfNeeded(app, shortcut: shortcut)
     shortcut.tap()
     XCTAssertTrue(app.webViews.staticTexts["Publisher homepage"].waitForExistence(timeout: 10))
     XCTAssertEqual(app.buttons["reader-toggle"].label, "Reader")
@@ -50,17 +53,30 @@ final class ReaderPerformanceUITests: XCTestCase {
     bookmark.tap()
     bookmark.tap()
     app.navigationBars.buttons.element(boundBy: 0).tap()
+    revealPublishersIfNeeded(app, shortcut: shortcut)
     shortcut.tap()
     XCTAssertTrue(app.webViews.staticTexts["Publisher homepage"].waitForExistence(timeout: 10))
     XCTAssertEqual(app.buttons["reader-toggle"].label, "Reader")
     app.terminate()
     app.launchArguments = ["-ui-testing", "-disable-preloading"]
     app.launch()
+    revealPublishersIfNeeded(app, shortcut: shortcut)
     shortcut.tap()
     XCTAssertTrue(app.webViews.staticTexts["Publisher homepage"].waitForExistence(timeout: 10))
     XCTAssertEqual(app.buttons["reader-toggle"].label, "Reader")
     XCTAssertFalse(app.buttons["browser-back"].isEnabled)
     capture(app, "publisher-home-after-unsaved-reader-and-relaunch")
+  }
+
+  @MainActor private func revealPublishersIfNeeded(_ app: XCUIApplication, shortcut: XCUIElement) {
+    if app.staticTexts["discovery-collapse"].label.hasPrefix("100;") {
+      let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+      start.press(forDuration: 0.05,
+        thenDragTo: start.withOffset(CGVector(dx: 0, dy: 200)),
+        withVelocity: .slow, thenHoldForDuration: 0.2)
+      expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: shortcut)
+      waitForExpectations(timeout: 5)
+    }
   }
 
   @MainActor func testFailedWebsiteRetriesWithoutRestart() {

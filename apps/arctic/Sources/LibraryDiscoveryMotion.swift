@@ -14,8 +14,11 @@ import UIKit
   private var copies: [UIImageView] = []
   private var probe: UILabel?
 
-  private let trigger: CGFloat = 12
-  private var collapseDistance: CGFloat = 80
+  private let trigger: CGFloat = 44
+  private let shelfHeight: CGFloat = 98
+  private var isOpen = false
+  private var openInset: CGFloat = 0
+  private var changingInset = false
   private var dragStartedCollapsed = false
   private var signalled = false
   private let feedback = UIImpactFeedbackGenerator(style: .medium)
@@ -30,29 +33,70 @@ import UIKit
 
   deinit { displayLink?.invalidate() }
 
+  func bind(_ scroll: UIScrollView) {
+    openInset = scroll.contentInset.top
+    isOpen = false
+    changingInset = true
+    let offset = scroll.contentOffset
+    scroll.contentInset.top = openInset - shelfHeight
+    scroll.contentOffset = CGPoint(x: offset.x, y: offset.y + shelfHeight)
+    scroll.alwaysBounceVertical = true
+    changingInset = false
+    // SwiftUI applies its initial scroll anchor after attaching the native view.
+    // Apply the resting position after that layout, before user interaction.
+    DispatchQueue.main.async { [weak self, weak scroll] in
+      guard let self, let scroll, self.shelf?.verticalScroll === scroll,
+        !scroll.isTracking, !scroll.isDragging
+      else { return }
+      scroll.setContentOffset(
+        CGPoint(x: offset.x, y: offset.y + self.shelfHeight), animated: false)
+      self.update()
+    }
+  }
+
+  func unbind(_ scroll: UIScrollView) {
+    cancelSettle()
+    changingInset = true
+    let offset = scroll.contentOffset
+    scroll.contentInset.top = openInset
+    scroll.contentOffset = CGPoint(x: offset.x, y: offset.y - (isOpen ? 0 : shelfHeight))
+    changingInset = false
+  }
+
   func beginDragging(_ scroll: UIScrollView) {
     cancelSettle()
-    let travel = scroll.contentOffset.y + scroll.adjustedContentInset.top
-    // When catching an unfinished snap, use the nearer endpoint as the origin.
-    // The commit threshold remains 12 points from that endpoint, not halfway.
-    dragStartedCollapsed = travel >= collapseDistance * 0.5
+    dragStartedCollapsed = !isOpen
     signalled = false
     if enabled { feedback.prepare() }
   }
 
-  /// Finger release ends scrubbing. Stop native momentum inside the shelf;
-  /// a separate, bounded scroll settle owns the remaining 240 ms of movement.
+  /// Only the finger can commit a reveal. Native overscroll or deceleration
+  /// cannot change the resting inset or open the publisher controls.
   func endDragging(_ scroll: UIScrollView, target: UnsafeMutablePointer<CGPoint>) {
     guard enabled else { return }
-    let inset = scroll.adjustedContentInset.top
-    let current = scroll.contentOffset.y + inset
-    guard current >= 0, current <= collapseDistance else { return }
-    let collapse =
-      canCollapse(scroll)
-      && (dragStartedCollapsed
-        ? current > collapseDistance - trigger : current >= trigger)
-    pendingDestination = (collapse ? collapseDistance : 0) - inset
-    target.pointee = scroll.contentOffset
+    let travel = scroll.contentOffset.y + scroll.adjustedContentInset.top
+    if !isOpen {
+      guard travel < 0 else { return }
+      if -travel >= trigger { setOpen(true, scroll: scroll) }
+      pendingDestination = -scroll.adjustedContentInset.top
+      target.pointee = scroll.contentOffset
+    } else {
+      if travel > 12 { setOpen(false, scroll: scroll) }
+      // Preserve normal scrolling once the shelf is already offscreen.
+      if travel < shelfHeight {
+        pendingDestination = -scroll.adjustedContentInset.top
+        target.pointee = scroll.contentOffset
+      }
+    }
+  }
+
+  private func setOpen(_ value: Bool, scroll: UIScrollView) {
+    changingInset = true
+    let offset = scroll.contentOffset
+    isOpen = value
+    scroll.contentInset.top = openInset - (value ? 0 : shelfHeight)
+    scroll.contentOffset = offset
+    changingInset = false
   }
 
   func didEndDragging(_ scroll: UIScrollView) {
@@ -117,11 +161,6 @@ import UIKit
     settlingScroll = nil
   }
 
-  private func canCollapse(_ scroll: UIScrollView) -> Bool {
-    scroll.contentSize.height - scroll.bounds.height
-      + scroll.adjustedContentInset.top + scroll.adjustedContentInset.bottom >= collapseDistance
-  }
-
   func attach(_ view: UIView) {
     surface = view
     for copy in copies { copy.removeFromSuperview() }
@@ -154,23 +193,19 @@ import UIKit
       for copy in copies { copy.alpha = 0 }
       return
     }
-    let travel = max(0, scroll.contentOffset.y + scroll.adjustedContentInset.top)
+    guard !changingInset else { return }
+    let offset = scroll.contentOffset.y + scroll.adjustedContentInset.top
+    let travel = max(0, offset + (isOpen ? 0 : shelfHeight))
     let destination = target.convert(
       CGPoint(x: target.bounds.midX, y: target.bounds.midY), to: surface)
     let first = shelf.icons[0]
     let current = first.convert(CGPoint(x: 29, y: 29), to: surface)
-    let distance = max(80, current.y + travel - destination.y)
-    collapseDistance = distance
-    let progress = min(1, travel / distance)
-    // Momentum from deeper in the list may enter the shelf after release.
-    // Take over at the boundary instead of replaying the gesture at its speed.
-    if enabled, scroll.isDecelerating, !scroll.isTracking,
-      displayLink == nil, pendingDestination == nil, travel > 0, travel < distance
-    {
-      queueSettle(scroll, to: -scroll.adjustedContentInset.top)
-    }
-    if enabled, scroll.isDragging, !signalled, canCollapse(scroll) {
-      let crossed = dragStartedCollapsed ? travel <= distance - trigger : travel >= trigger
+    let distance = shelfHeight
+    // Keep all reveal layers hidden during a momentum bounce.
+    let canReveal = isOpen || scroll.isDragging || displayLink != nil || pendingDestination != nil
+    let progress = canReveal ? min(1, travel / distance) : 1
+    if enabled, scroll.isDragging, !signalled {
+      let crossed = dragStartedCollapsed ? -offset >= trigger : offset >= 12
       if crossed {
         feedback.impactOccurred(intensity: 1)
         signalled = true
@@ -380,7 +415,7 @@ final class DiscoveryShelfView: UIView {
     {
       scroll.delegate = delegate.forwarding
     }
-    motion.cancelSettle()
+    if let scroll = verticalScroll { motion.unbind(scroll) }
     scrollDelegate = nil
     verticalObservation = nil
     verticalScroll = nil
@@ -393,6 +428,7 @@ final class DiscoveryShelfView: UIView {
         guard verticalScroll !== scroll else { return }
         unbindScrollView()
         verticalScroll = scroll
+        motion.bind(scroll)
         let delegate = DiscoveryScrollDelegate(motion: motion, forwarding: scroll.delegate)
         scrollDelegate = delegate
         scroll.delegate = delegate

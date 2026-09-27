@@ -410,3 +410,25 @@ image / square sharing. Native export proofs were inspected, including the FT
 mark and the marker strokes. The local board checked all 68 export dimensions,
 selection and photo eligibility, with no 390px horizontal overflow. Swift format
 checks and signed iOS Release build passed. No device FPS or installation claim.
+
+## Pull to reveal news (2026-09-27)
+
+The Saved library starts with the publisher shelf hidden. Its 98-point height
+sits above the resting scroll range, using a native scroll inset. A deliberate
+finger pull reveals the existing layers. At 44 points of actual overscroll,
+a full-intensity medium impact signals that release will open the shelf. Release
+before that threshold closes it. The finger can reverse before release.
+
+Scrolling up more than 12 points from the open shelf closes it. Momentum can
+return to the top but cannot reveal news. A 240 ms display-link settle completes
+short releases; Reduce Motion uses 160 ms and fades. No per-frame SwiftUI state
+or list layout is added. The existing publisher buttons remain the hit targets.
+
+Simulator gesture checks cover initial hidden state, shallow pull cancellation,
+committed reveal, closing, momentum return, Reduce Motion and an empty library.
+Physical haptic feel and ProMotion frame rate still need device review.
+
+Validation: all five affected simulator UI tests passed on the final code.
+A frame-position assertion checks that the first article moves up by exactly
+98 points when news is hidden. Hidden/open screenshots were reviewed. Weekly
+favourites and the publisher save/unsave/homepage/relaunch flow also passed.

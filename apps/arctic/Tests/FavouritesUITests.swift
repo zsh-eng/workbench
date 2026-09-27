@@ -122,6 +122,7 @@ final class FavouritesUITests: XCTestCase {
     XCTAssertTrue(card.waitForExistence(timeout: 10))
     card.press(forDuration: 1)
     app.buttons["favourite-article"].tap()
+    revealDiscovery(app)
     app.buttons["weekly-favourites"].tap()
     XCTAssertTrue(app.staticTexts["1 favourite · Monday to Sunday"].waitForExistence(timeout: 5))
     let picker = app.segmentedControls["weekly-collection"]
@@ -140,6 +141,7 @@ final class FavouritesUITests: XCTestCase {
     app.launchArguments = ["-ui-testing", "-articles-offline", "-images-offline"]
     app.launch()
     XCTAssertTrue(app.buttons["weekly-favourites"].waitForExistence(timeout: 10))
+    revealDiscovery(app)
     app.buttons["weekly-favourites"].tap()
     XCTAssertTrue(app.staticTexts["1 favourite · Monday to Sunday"].waitForExistence(timeout: 5))
     app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'weekly-article-' ")).firstMatch.tap()
@@ -157,7 +159,8 @@ final class FavouritesUITests: XCTestCase {
     app.launch()
     let state = app.staticTexts["discovery-collapse"]
     XCTAssertTrue(state.waitForExistence(timeout: 10))
-    app.swipeUp()
+    XCTAssertEqual(state.label, "100; gather")
+    revealDiscovery(app)
     expectation(for: NSPredicate(format: "label == '0; gather'"), evaluatedWith: state)
     waitForExpectations(timeout: 5)
     XCTAssertTrue(app.buttons["weekly-favourites"].isHittable)
@@ -179,64 +182,52 @@ final class FavouritesUITests: XCTestCase {
     XCTAssertTrue(shelf.waitForExistence(timeout: 10))
     let state = app.staticTexts["discovery-collapse"]
     XCTAssertTrue(state.waitForExistence(timeout: 5))
-    XCTAssertEqual(state.label, reduced ? "0; fade" : "0; gather")
-    let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.70))
-    let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.64))
-    // Under-threshold movement returns to the expanded endpoint.
-    start.press(
-      forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -12)),
+    let hidden = reduced ? "100; fade" : "100; gather"
+    let visible = reduced ? "0; fade" : "0; gather"
+    XCTAssertEqual(state.label, hidden)
+    let firstCard = app.buttons["article-import-999"]
+    let hiddenCardY = firstCard.frame.minY
+    let initial = XCTAttachment(screenshot: app.screenshot())
+    initial.name = "news-hidden-at-launch"; initial.lifetime = .keepAlways; add(initial)
+    let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55))
+    start.press(forDuration: 0.05,
+      thenDragTo: start.withOffset(CGVector(dx: 0, dy: 35)),
       withVelocity: .slow, thenHoldForDuration: 0.2)
-    expectation(
-      for: NSPredicate(format: "label == %@", reduced ? "0; fade" : "0; gather"),
-      evaluatedWith: state)
+    expectation(for: NSPredicate(format: "label == %@", hidden), evaluatedWith: state)
     waitForExpectations(timeout: 5)
-    start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.2)
-    // Releasing beyond the entry threshold must complete the gathering.
-    expectation(
-      for: NSPredicate(format: "label == %@", reduced ? "100; fade" : "100; gather"),
-      evaluatedWith: state)
+    revealDiscovery(app)
+    expectation(for: NSPredicate(format: "label == %@", visible), evaluatedWith: state)
     waitForExpectations(timeout: 5)
-    let slowSettle = Int(state.value as? String ?? "") ?? Int.max
-    XCTAssertLessThan(slowSettle, 500, "A slow release must not inherit momentum timing")
-    // A short reversal stays closed; a deliberate reversal completes the reveal.
-    let shortEnd = start.withOffset(CGVector(dx: 0, dy: 12))
-    start.press(
-      forDuration: 0.05, thenDragTo: shortEnd, withVelocity: .slow, thenHoldForDuration: 0.2)
-    expectation(
-      for: NSPredicate(format: "label == %@", reduced ? "100; fade" : "100; gather"),
-      evaluatedWith: state)
-    waitForExpectations(timeout: 5)
-    let revealEnd = start.withOffset(CGVector(dx: 0, dy: 50))
-    start.press(
-      forDuration: 0.05, thenDragTo: revealEnd, withVelocity: .slow, thenHoldForDuration: 0.2)
-    expectation(
-      for: NSPredicate(format: "label == %@", reduced ? "0; fade" : "0; gather"),
-      evaluatedWith: state)
-    waitForExpectations(timeout: 5)
-    // Repeat without holding at the endpoint: velocity must not set settle time.
-    start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0)
-    expectation(
-      for: NSPredicate(format: "label == %@", reduced ? "100; fade" : "100; gather"),
-      evaluatedWith: state)
-    waitForExpectations(timeout: 5)
-    let fastSettle = Int(state.value as? String ?? "") ?? Int.max
-    XCTAssertLessThan(fastSettle, 500, "A fast release must use the same bounded settle")
-    let timing = XCTAttachment(string: "Slow release: \(slowSettle) ms; fast release: \(fastSettle) ms")
-    timing.name = reduced ? "discovery-fade-settle-timing" : "discovery-gather-settle-timing"
-    timing.lifetime = .keepAlways
-    add(timing)
-    app.swipeUp()
-    XCTAssertEqual(state.label, reduced ? "100; fade" : "100; gather")
-    for _ in 0..<5 {
-      if state.label.hasPrefix("0;") { break }
-      app.swipeDown()
-    }
-    XCTAssertEqual(state.label, reduced ? "0; fade" : "0; gather")
     XCTAssertTrue(shelf.isHittable)
-    let restored = XCTAttachment(screenshot: app.screenshot())
-    restored.name = "discovery-restored"
-    restored.lifetime = .keepAlways
-    add(restored)
+    XCTAssertEqual(firstCard.frame.minY - hiddenCardY, 98, accuracy: 2,
+      "Hidden news must release its space to articles")
+    start.press(forDuration: 0.05,
+      thenDragTo: start.withOffset(CGVector(dx: 0, dy: -15)),
+      withVelocity: .slow, thenHoldForDuration: 0.2)
+    expectation(for: NSPredicate(format: "label == %@", visible), evaluatedWith: state)
+    waitForExpectations(timeout: 5)
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = "deliberate-pull-reveals-news"; shot.lifetime = .keepAlways; add(shot)
+    start.press(forDuration: 0.05,
+      thenDragTo: start.withOffset(CGVector(dx: 0, dy: -55)),
+      withVelocity: .slow, thenHoldForDuration: 0.2)
+    expectation(for: NSPredicate(format: "label == %@", hidden), evaluatedWith: state)
+    waitForExpectations(timeout: 5)
+    app.swipeUp()
+    // Return from below with momentum. It must not open the hidden shelf.
+    app.swipeDown()
+    expectation(for: NSPredicate(format: "label == %@", hidden), evaluatedWith: state)
+    waitForExpectations(timeout: 5)
+  }
+
+  @MainActor private func revealDiscovery(_ app: XCUIApplication) {
+    let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+    start.press(forDuration: 0.05,
+      thenDragTo: start.withOffset(CGVector(dx: 0, dy: 200)),
+      withVelocity: .slow, thenHoldForDuration: 0.2)
+    let state = app.staticTexts["discovery-collapse"]
+    expectation(for: NSPredicate(format: "label BEGINSWITH '0;'"), evaluatedWith: state)
+    waitForExpectations(timeout: 5)
   }
 
   @MainActor private func launchFixtures() -> XCUIApplication {
