@@ -99,6 +99,7 @@ struct PassageStorySheet: View {
   private var waitingForImage: Bool { usesImage && articleImage == nil }
 
   @State private var export: StoryExport?
+  @State private var copied = false
   @State private var rendering = false
   @State private var error: String?
 
@@ -191,6 +192,22 @@ struct PassageStorySheet: View {
           }.padding(.vertical, 2)
         }.scrollIndicators(.hidden).fixedSize(horizontal: false, vertical: true)
           .accessibilityIdentifier("story-styles")
+        HStack(spacing: 12) {
+          Button {
+            UIPasteboard.general.string = story.text
+            copied = true
+          } label: {
+            Label(copied ? "Copied" : "Copy text", systemImage: copied ? "checkmark" : "doc.on.doc")
+              .frame(maxWidth: .infinity, minHeight: 44)
+          }.accessibilityIdentifier("story-copy-text")
+          Button {
+            export = StoryExport(items: [story.text + "\n\n" + story.url.absoluteString])
+          } label: {
+            Label("Text + link", systemImage: "square.and.arrow.up")
+              .frame(maxWidth: .infinity, minHeight: 44)
+          }.accessibilityLabel("Share text and link")
+            .accessibilityIdentifier("story-share-text")
+        }.font(.subheadline.weight(.medium)).buttonStyle(.bordered).buttonBorderShape(.capsule)
         Button {
           render(pages)
         } label: {
@@ -227,7 +244,7 @@ struct PassageStorySheet: View {
           }
         #endif
       }
-      .sheet(item: $export) { item in StoryActivity(image: item.image) }
+      .sheet(item: $export) { item in StoryActivity(items: item.items) }
       .alert(
         "Could not create image",
         isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })
@@ -258,7 +275,7 @@ struct PassageStorySheet: View {
       let renderer = ImageRenderer(content: content)
       renderer.scale = 3
       if let image = renderer.uiImage {
-        export = StoryExport(image: image)
+        export = StoryExport(items: [image])
       } else {
         error = "Please try again."
       }
@@ -269,12 +286,12 @@ struct PassageStorySheet: View {
 
 private struct StoryExport: Identifiable {
   let id = UUID()
-  let image: UIImage
+  let items: [Any]
 }
 private struct StoryActivity: UIViewControllerRepresentable {
-  let image: UIImage
+  let items: [Any]
   func makeUIViewController(context: Context) -> UIActivityViewController {
-    UIActivityViewController(activityItems: [image], applicationActivities: nil)
+    UIActivityViewController(activityItems: items, applicationActivities: nil)
   }
   func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }

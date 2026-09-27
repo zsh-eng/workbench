@@ -116,6 +116,61 @@ final class AnnotationUITests: XCTestCase {
     XCTAssertTrue(app.staticTexts["No notes yet"].waitForExistence(timeout: 5))
   }
 
+  @MainActor func testPassageCopyPreservesText() { checkPassageTextSharing(includeLink: false) }
+  @MainActor func testPassageShareIncludesTextAndSourceLink() { checkPassageTextSharing(includeLink: true) }
+
+  @MainActor private func checkPassageTextSharing(includeLink: Bool) {
+    let app = openFixture()
+    selectPassage(in: app)
+    tapSelectionAction("Highlight", in: app)
+    app.buttons["highlight-share"].tap()
+    let preview = app.otherElements["story-preview"]
+    XCTAssertTrue(preview.waitForExistence(timeout: 5))
+    let quote = preview.label
+    if includeLink {
+      app.buttons["story-share-text"].tap()
+      XCTAssertTrue(app.cells["Copy"].waitForExistence(timeout: 5))
+      app.cells["Copy"].tap()
+    } else {
+      app.buttons["story-copy-text"].tap()
+      XCTAssertEqual(app.buttons["story-copy-text"].label, "Copied")
+    }
+    app.buttons["Done"].tap()
+    app.buttons["highlight-note"].tap()
+    let input = messageInput(in: app)
+    XCTAssertTrue(input.waitForExistence(timeout: 5))
+    input.press(forDuration: 1.1)
+    tapSelectionAction("Paste", in: app)
+    XCTAssertEqual(input.value as? String,
+      quote + (includeLink ? "\n\nhttps://fixture.example/unicode" : ""))
+  }
+
+  @MainActor func testMultilineHighlightNoteLight() { checkMultilineHighlightNote(dark: false) }
+  @MainActor func testMultilineHighlightNoteDark() { checkMultilineHighlightNote(dark: true) }
+
+  @MainActor private func checkMultilineHighlightNote(dark: Bool) {
+    let app = openFixture(dark: dark)
+    app.webViews.staticTexts[paragraph].firstMatch.tap()
+    selectPassage(in: app)
+    tapSelectionAction("Highlight", in: app)
+    app.buttons["highlight-note"].tap()
+    let input = messageInput(in: app)
+    XCTAssertTrue(input.waitForExistence(timeout: 5))
+    let bar = app.descendants(matching: .any).matching(identifier: "note-input-bar").firstMatch
+    let singleHeight = bar.frame.height
+    let note = "First line of a thought.\nSecond line, still readable.\nThird line at the edge.\nFourth line, ready to keep."
+    input.typeText(note)
+    XCTAssertEqual(input.value as? String, note)
+    XCTAssertGreaterThan(bar.frame.height, singleHeight + 40)
+    XCTAssertTrue(app.buttons["note-send"].isHittable)
+    XCTAssertLessThanOrEqual(bar.frame.maxY, app.keyboards.firstMatch.frame.minY + 2)
+    capture(app, dark ? "multiline-highlight-note-dark" : "multiline-highlight-note-light")
+    app.buttons["note-send"].tap()
+    XCTAssertTrue(app.buttons["reader-notes"].waitForExistence(timeout: 5))
+    app.buttons["reader-notes"].tap()
+    XCTAssertTrue(app.staticTexts[note].waitForExistence(timeout: 5))
+  }
+
   @MainActor func testSelectedHighlightOpensPassageSharer() {
     let app = openFixture(dark: true)
     app.webViews.staticTexts[paragraph].firstMatch.tap()
@@ -132,6 +187,9 @@ final class AnnotationUITests: XCTestCase {
     XCTAssertFalse(preview.label.isEmpty)
     XCTAssertTrue(app.buttons["story-export"].isEnabled)
     capture(app, "selected-highlight-passage-sharer")
+    app.buttons["story-export"].tap()
+    XCTAssertTrue(app.cells["Copy"].waitForExistence(timeout: 10))
+    app.cells["Copy"].tap()
     app.buttons["Done"].tap()
     expectValue("1 passage", on: app.buttons["reader-notes"])
     XCTAssertTrue(app.webViews.staticTexts[paragraph].firstMatch.exists)

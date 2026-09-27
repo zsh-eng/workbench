@@ -33,6 +33,15 @@ extension View {
     }
   }
 
+  @ViewBuilder func readerGlass(cornerRadius: CGFloat) -> some View {
+    let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+    if #available(iOS 26.0, *) {
+      self.glassEffect(.regular.interactive(), in: shape)
+    } else {
+      self.background(.regularMaterial, in: shape)
+    }
+  }
+
   @ViewBuilder func readerGlass() -> some View {
     if #available(iOS 26.0, *) {
       self.glassEffect(.regular.interactive(), in: .capsule)

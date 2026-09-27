@@ -193,7 +193,7 @@ struct LibraryAnnotations: View {
         .accessibilityLabel(annotation.quote == nil ? "Open article" : "Show in article")
         .accessibilityIdentifier("library-passage-open-" + annotation.id.uuidString)
         Menu {
-          Button("Share as image", systemImage: "square.and.arrow.up") {
+          Button("Share passage", systemImage: "square.and.arrow.up") {
             sharing = PassageStory(
               annotation: annotation, title: title,
               imageURL: articles.first { $0.url == annotation.articleURL }?.imageURL)

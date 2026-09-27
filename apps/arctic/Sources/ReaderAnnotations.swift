@@ -137,7 +137,7 @@ struct ReaderAnnotations: View {
         }
         Spacer()
         Menu {
-          Button("Share as image", systemImage: "square.and.arrow.up") {
+          Button("Share passage", systemImage: "square.and.arrow.up") {
             sharing = PassageStory(
               annotation: annotation, title: browser.readerView.title ?? browser.webView.title,
               imageURL: browser.previewImageURL)
@@ -322,7 +322,7 @@ private struct NoteMessageInput: View {
         .transition(.opacity)
       }
     }
-    .font(.body).frame(minHeight: 54).readerGlass()
+    .font(.body).frame(minHeight: 54).readerGlass(cornerRadius: 27)
     .accessibilityElement(children: .contain).accessibilityIdentifier("note-input-bar")
     .animation(.easeOut(duration: reduceMotion ? 0.1 : 0.15), value: hasText)
     .onAppear { focused = autofocus }

@@ -403,15 +403,23 @@ the homepage's Reader content.
 time zone, including archived favourites. **All favourites** also includes
 older favourites without a recorded date; Arctic does not invent dates for them.
 
-Tap **Share passage** in the selected-highlight toolbar, or select **Share as image**
-in a highlight/note menu. Twelve poster templates—
+Tap **Share passage** in the selected-highlight toolbar, or select **Share passage**
+in a highlight/note menu. **Copy text** copies the full passage unchanged.
+**Text + link** opens the native share sheet with the full passage and its source
+URL in one text item. These actions remain available when an image cannot fit
+or is still loading. **Share image** exports the selected poster card.
+
+The note input uses fixed 27-point corners as it grows to five lines, keeping
+the text clear of the curved edges and the send button at the bottom.
+
+Twelve poster templates—
 Newsprint, Bookleaf, Biblioteca, Theatre, Xuan, Modern, Jade, Swiss, Sumi, Hanji, Offset and Seoul—
 combine live typography with local paper, ink and collage textures. Each keeps
 only a small theme-coloured Arctic mark. Short opening sentences can become
 larger display type. Stories prefer one image: longer quotes reduce type down
 to a readable limit. Square defaults to pages, with an explicit One image /
 Pages control for either format. A quote that cannot fit shows a message and
-disables export; it never silently cuts off the passage.
+disables image export; it never silently cuts off the passage.
 The picker shows actual miniature compositions. Preview and export share a
 360 × 640 Story or 360 × 360 Square canvas; exports are 1080 × 1920 or
 1080 × 1080. Biblioteca, Modern, Swiss, Offset and Newsprint offer an Article image toggle
