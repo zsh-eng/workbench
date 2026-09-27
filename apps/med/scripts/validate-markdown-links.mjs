@@ -91,8 +91,8 @@ try {
     .getByRole("main", { name: "Continuous review", exact: true })
     .boundingBox();
   assert.ok(
-    sidebarBox.x + sidebarBox.width <= mainBox.x + 1,
-    "File sidebar must stay left of the main view",
+    mainBox.x + mainBox.width <= sidebarBox.x + 1,
+    "File sidebar must stay right of the main view",
   );
   await filesSidebar.getByRole("button", { name: "Refresh files", exact: true }).focus();
   await page.keyboard.press("Meta+Shift+v");
@@ -185,7 +185,7 @@ try {
       passed: true,
       standalone: !!binary,
       checks: [
-        "left-file-sidebar",
+        "right-file-sidebar",
         "preview-shortcut-from-tree-tabs-and-palette",
         "working-file-links",
         "commit-source-preserved",

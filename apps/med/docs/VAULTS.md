@@ -23,7 +23,7 @@ and `stop` do not. The default port is 4173; an occupied port is an error. Use t
 same `--port` and `--state-dir` on each command for a separate setup. The default
 state directory is `~/.local/state/med`, or `MED_STATE_DIR`. Keep it outside vaults.
 
-Open a vault from the Sources page. The left file tree and top file tabs use the
+Open a vault from the Sources page. The right file tree and top file tabs use the
 same controls as repository browsing. Click to preview; double-click to keep a
 tab open. Edited files stay open, and dirty tabs cannot be closed without saving
 or discarding. **Cmd+K** opens the normal command palette; **Cmd+Shift+K** finds a

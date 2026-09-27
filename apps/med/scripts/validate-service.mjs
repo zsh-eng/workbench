@@ -145,6 +145,17 @@ try {
   await page.goto(`${conn.origin}/sources`);
   await page.locator(`a[href="/vault/${added.id}"]`).click();
   const tree = page.getByRole("complementary", { name: "Vault files", exact: true });
+  const sidebarBox = await page
+    .getByRole("complementary", { name: "Workspace files", exact: true })
+    .boundingBox();
+  const mainBox = await page.locator(".med-vault-main").boundingBox();
+  assert.ok(mainBox.x + mainBox.width <= sidebarBox.x + 1, "Vault files stay on the right");
+  const resizer = page.getByRole("separator", { name: "Resize files sidebar", exact: true });
+  await resizer.focus();
+  await page.keyboard.press("ArrowLeft");
+  assert.equal(Number(await resizer.getAttribute("aria-valuenow")), sidebarBox.width + 16);
+  await page.keyboard.press("ArrowRight");
+  assert.equal(Number(await resizer.getAttribute("aria-valuenow")), sidebarBox.width);
   await tree.getByRole("treeitem", { name: "Nested.md", exact: true }).click();
   await page.getByRole("tab", { name: "Nested.md", exact: true }).waitFor();
   await tree.getByRole("treeitem", { name: "Other.md", exact: true }).click();

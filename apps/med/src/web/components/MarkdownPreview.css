@@ -28,23 +28,6 @@
   font-family: "Geist", sans-serif;
   animation: med-preview-in 180ms ease-out both;
 }
-.med-md-header {
-  height: 32px;
-  min-height: 32px;
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 22px;
-  border-bottom: 1px solid var(--med-border);
-  color: var(--med-muted);
-  font-size: 10px;
-  letter-spacing: 0.08em;
-}
-.med-md-header > :last-child {
-  letter-spacing: 0;
-  opacity: 0.7;
-}
 .med-md-layout {
   display: flex;
   flex: 1;

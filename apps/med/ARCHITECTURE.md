@@ -2,7 +2,7 @@
 
 Status: integrated implementation, 19 September 2026. The user approved implementation after the source audit and added commit-history navigation, live themes, and branch/worktree tabs. See [baseline performance](docs/validation/RESULTS.md) and [UI validation](docs/validation/UI_UPDATE.md) for measurements and limits.
 
-Read-only full-file browsing now uses a left file sidebar and center file tabs beside a permanent Changes tab. Its source is independent of the selected diff: attached worktrees always provide current files, while unattached branches provide an exact commit tree. Authenticated, bounded list/read endpoints share the existing host and watcher. See [file browsing](docs/FILE_BROWSING.md) for contracts, data flow, limits, and remaining scope, and [browsing validation](docs/validation/FILE_BROWSING.md) for measured results.
+Read-only full-file browsing now uses a right file sidebar and center file tabs beside a permanent Changes tab. Its source is independent of the selected diff: attached worktrees always provide current files, while unattached branches provide an exact commit tree. Authenticated, bounded list/read endpoints share the existing host and watcher. See [file browsing](docs/FILE_BROWSING.md) for contracts, data flow, limits, and remaining scope, and [browsing validation](docs/validation/FILE_BROWSING.md) for measured results.
 
 ## Product and layout
 
@@ -308,7 +308,7 @@ links; ordinary edits update only changed edges. Private content never enters Gi
 See [index measurements](docs/validation/VAULT_INDEX.md).
 
 `VaultWorkspace` uses the shared `RepositoryFiles` tree, `FileViewTabs`,
-`CommandDialog`, and `FilePicker`, with a left sidebar and collapsible backlinks.
+`CommandDialog`, and `FilePicker`, with a right sidebar and collapsible backlinks.
 The picker accepts a scoped local-file preview reader without treating a vault
 as a Git worktree. Tabs have the same preview/pin/close controls as repository
 files; editing pins previews, and close actions protect dirty drafts. Unchanged

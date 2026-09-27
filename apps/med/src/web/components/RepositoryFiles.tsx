@@ -181,7 +181,6 @@ export function RepositoryFiles(props: RepositoryFilesProps) {
           File list limit reached. Some files are not shown.
         </p>
       )}
-      <div {...stylex.props(styles.footer)}>Click to preview · Double-click to keep</div>
     </aside>
   );
 }
@@ -229,12 +228,4 @@ const styles = stylex.create({
   },
   tree: { flex: "1", minHeight: 0, width: "100%", overflow: "hidden" },
   message: { fontSize: 12, lineHeight: 1.6, color: tokens.muted, paddingInline: 14 },
-  footer: {
-    padding: 12,
-    fontSize: 10,
-    color: tokens.faint,
-    borderTopWidth: 1,
-    borderTopStyle: "solid",
-    borderTopColor: tokens.border,
-  },
 });

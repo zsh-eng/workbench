@@ -59,7 +59,6 @@ export function ThemePicker({ open, onOpenChange }: ThemePickerProps) {
           >
             <div {...stylex.props(styles.heading)}>
               <Dialog.Title {...stylex.props(styles.title)}>Theme</Dialog.Title>
-              <span {...stylex.props(styles.preview)}>Live preview</span>
               <Dialog.Close
                 {...stylex.props(ui.button, styles.close)}
                 aria-label="Close theme picker"
@@ -155,15 +154,17 @@ const styles = stylex.create({
   },
   heading: { display: "flex", alignItems: "center", gap: 10, paddingTop: 10, paddingInline: 16 },
   title: { fontSize: 13, fontWeight: 600, margin: 0 },
-  preview: { color: tokens.muted, fontSize: 11 },
   close: { marginLeft: "auto", fontSize: 10, minHeight: 24 },
   description: {
-    color: tokens.muted,
-    fontSize: 11,
-    lineHeight: 1.5,
-    marginTop: 4,
-    marginBottom: 0,
-    paddingInline: 16,
+    position: "absolute",
+    width: 1,
+    height: 1,
+    padding: 0,
+    margin: -1,
+    overflow: "hidden",
+    clipPath: "inset(50%)",
+    whiteSpace: "nowrap",
+    borderWidth: 0,
   },
   search: { padding: 12 },
   input: { backgroundColor: tokens.canvas, fontSize: 13, paddingBlock: 9 },

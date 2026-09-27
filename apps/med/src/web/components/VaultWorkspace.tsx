@@ -499,74 +499,6 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
         </main>
       ) : (
         <div className="med-vault-layout">
-          <aside
-            className="med-vault-sidebar"
-            aria-label="Workspace files"
-            hidden={!sidebar}
-            style={{ width: sidebarWidth }}
-          >
-            <RepositoryFiles
-              key={locationState.id}
-              label="Vault files"
-              entries={entries}
-              loading={false}
-              error={null}
-              truncated={false}
-              sourceLabel={source?.name ?? "Vault"}
-              selectedPath={locationState.file || null}
-              onPreview={(path) => open(path, undefined, false)}
-              onPin={(path) => open(path)}
-              onRefresh={refreshFiles}
-              onClose={() => setSidebar(false)}
-            />
-            {locationState.file && (
-              <details className="med-vault-backlinks" open>
-                <summary>
-                  Backlinks <span>{backlinks.length}</span>
-                </summary>
-                <section aria-label="Backlinks">
-                  {source?.index?.error && <p>{source.index.error}</p>}
-                  {backlinks.map((link, i) => (
-                    <button
-                      key={`${link.source}:${link.line}:${i}`}
-                      {...stylex.props(ui.button)}
-                      onClick={() => open(link.source, link.line)}
-                      title={link.source}
-                    >
-                      <Icon name="file" size={13} />
-                      <span>{link.source}</span>
-                      <small>:{link.line}</small>
-                    </button>
-                  ))}
-                </section>
-              </details>
-            )}
-          </aside>
-          {sidebar && (
-            <div
-              className="med-vault-resizer"
-              role="separator"
-              aria-label="Resize files sidebar"
-              aria-orientation="vertical"
-              aria-valuemin={200}
-              aria-valuemax={520}
-              aria-valuenow={sidebarWidth}
-              tabIndex={0}
-              onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
-              onPointerMove={(e) => {
-                if (e.currentTarget.hasPointerCapture(e.pointerId))
-                  setSidebarWidth(Math.max(200, Math.min(520, e.clientX)));
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-                  e.preventDefault();
-                  setSidebarWidth((value) =>
-                    Math.max(200, Math.min(520, value + (e.key === "ArrowLeft" ? -16 : 16))),
-                  );
-                }
-              }}
-            />
-          )}
           <main className="med-vault-main">
             <div className="med-vault-tabbar">
               <FileViewTabs
@@ -593,7 +525,7 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
                   aria-label="Toggle files sidebar"
                   onClick={() => setSidebar((value) => !value)}
                 >
-                  <Icon name="panelLeft" size={14} />
+                  <Icon name="panelLeft" size={14} style={{ transform: "scaleX(-1)" }} />
                 </button>
                 <button
                   {...stylex.props(ui.button, ui.iconButton)}
@@ -655,14 +587,89 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
                 />
               ) : (
                 <div className="med-vault-empty">
-                  <p>Choose a file or press ⌘⇧K to find one.</p>
-                  <button {...stylex.props(ui.button)} onClick={() => setCommandsOpen(true)}>
-                    Open command palette · ⌘K
+                  <button {...stylex.props(ui.button)} onClick={() => setPickerOpen(true)}>
+                    Find file… <span>⌘⇧K</span>
                   </button>
                 </div>
               )}
             </div>
           </main>
+          {sidebar && (
+            <div
+              className="med-vault-resizer"
+              role="separator"
+              aria-label="Resize files sidebar"
+              aria-orientation="vertical"
+              aria-valuemin={200}
+              aria-valuemax={520}
+              aria-valuenow={sidebarWidth}
+              tabIndex={0}
+              onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
+              onPointerMove={(e) => {
+                if (e.currentTarget.hasPointerCapture(e.pointerId))
+                  setSidebarWidth(
+                    Math.max(
+                      200,
+                      Math.min(
+                        520,
+                        e.currentTarget.parentElement!.getBoundingClientRect().right - e.clientX,
+                      ),
+                    ),
+                  );
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                  e.preventDefault();
+                  setSidebarWidth((value) =>
+                    Math.max(200, Math.min(520, value + (e.key === "ArrowLeft" ? 16 : -16))),
+                  );
+                }
+              }}
+            />
+          )}
+          <aside
+            className="med-vault-sidebar"
+            aria-label="Workspace files"
+            hidden={!sidebar}
+            style={{ width: sidebarWidth }}
+          >
+            <RepositoryFiles
+              key={locationState.id}
+              label="Vault files"
+              entries={entries}
+              loading={false}
+              error={null}
+              truncated={false}
+              sourceLabel={source?.name ?? "Vault"}
+              selectedPath={locationState.file || null}
+              onPreview={(path) => open(path, undefined, false)}
+              onPin={(path) => open(path)}
+              onRefresh={refreshFiles}
+              onClose={() => setSidebar(false)}
+            />
+            {locationState.file && (
+              <details className="med-vault-backlinks" open>
+                <summary>
+                  Backlinks <span>{backlinks.length}</span>
+                </summary>
+                <section aria-label="Backlinks">
+                  {source?.index?.error && <p>{source.index.error}</p>}
+                  {backlinks.map((link, i) => (
+                    <button
+                      key={`${link.source}:${link.line}:${i}`}
+                      {...stylex.props(ui.button)}
+                      onClick={() => open(link.source, link.line)}
+                      title={link.source}
+                    >
+                      <Icon name="file" size={13} />
+                      <span>{link.source}</span>
+                      <small>:{link.line}</small>
+                    </button>
+                  ))}
+                </section>
+              </details>
+            )}
+          </aside>
         </div>
       )}
       <CommandDialog open={commandsOpen} onOpenChange={setCommandsOpen} commands={commands} />

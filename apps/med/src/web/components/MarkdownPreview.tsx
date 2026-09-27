@@ -300,10 +300,6 @@ export default function MarkdownPreview({
   };
   return (
     <section className="med-markdown" aria-label="Markdown preview">
-      <header className="med-md-header">
-        <span>PREVIEW</span>
-        <span>Markdown · live</span>
-      </header>
       {error && (
         <div role="alert" className="med-md-notice">
           {error}

@@ -6,6 +6,8 @@ import {
   type ReactNode,
   type CSSProperties,
 } from "react";
+import * as stylex from "@stylexjs/stylex";
+import { ui } from "../theme.stylex";
 import { Dialog } from "@base-ui/react/dialog";
 import { CommandDialog } from "./Controls";
 import { FullFileView } from "./FullFileView";
@@ -385,9 +387,10 @@ export function LocalFiles({ children }: { children: ReactNode }) {
             />
           ) : (
             <div className="med-local-empty">
-              <h1>Open a file</h1>
-              <p>Use Open file… or ⌘O / Ctrl+O to enter an absolute path.</p>
-              <p>Or drop a text file here for a read-only preview.</p>
+              <button {...stylex.props(ui.button)} onClick={() => setOpening(true)}>
+                Open file… <span>⌘O</span>
+              </button>
+              <p>Drop a text file to preview it.</p>
             </div>
           )}
           <CommandDialog

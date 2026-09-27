@@ -1670,26 +1670,6 @@ export function App({
             }}
           />
         )}
-        {browseSource && (
-          <aside
-            {...stylex.props(styles.filesSidebar, !filesVisible && styles.hiddenSurface)}
-            aria-label="Workspace files"
-            hidden={!filesVisible}
-          >
-            <RepositoryFiles
-              key={JSON.stringify([sourceKey(browseSource), repositoryFiles.ignored])}
-              {...repositoryFiles}
-              sourceLabel={sourceLabel}
-              selectedPath={activeFile?.path ?? selectedFile?.path ?? null}
-              onPrefetch={prefetchFile}
-              onPreview={(path) => openWorkingFile(path, false)}
-              onPin={(path) => openWorkingFile(path, true)}
-              onIgnoredChange={repositoryFiles.setIgnored}
-              onRefresh={repositoryFiles.refresh}
-              onClose={() => setFilesVisible(false)}
-            />
-          </aside>
-        )}
         <main {...stylex.props(styles.main)} aria-label="Continuous review">
           {fileLinkError && <div role="alert">{fileLinkError}</div>}
           {!!browseSource && (
@@ -2169,8 +2149,8 @@ export function App({
                   ) : (
                     <p {...stylex.props(styles.emptyDescription)}>
                       {state.comparison.kind === "working"
-                        ? "Your working tree is clean. Select a commit from history to review its changes."
-                        : "This comparison contains no changed text files."}
+                        ? "Working tree clean."
+                        : "No changed text files."}
                     </p>
                   )}
                 </div>
@@ -2229,6 +2209,26 @@ export function App({
             )}
           </div>
         </main>
+        {browseSource && (
+          <aside
+            {...stylex.props(styles.filesSidebar, !filesVisible && styles.hiddenSurface)}
+            aria-label="Workspace files"
+            hidden={!filesVisible}
+          >
+            <RepositoryFiles
+              key={JSON.stringify([sourceKey(browseSource), repositoryFiles.ignored])}
+              {...repositoryFiles}
+              sourceLabel={sourceLabel}
+              selectedPath={activeFile?.path ?? selectedFile?.path ?? null}
+              onPrefetch={prefetchFile}
+              onPreview={(path) => openWorkingFile(path, false)}
+              onPin={(path) => openWorkingFile(path, true)}
+              onIgnoredChange={repositoryFiles.setIgnored}
+              onRefresh={repositoryFiles.refresh}
+              onClose={() => setFilesVisible(false)}
+            />
+          </aside>
+        )}
       </div>
       <footer {...stylex.props(styles.statusbar)}>
         <span {...stylex.props(styles.statusDot)} />
@@ -2374,9 +2374,9 @@ const styles = stylex.create({
     minWidth: 200,
     flexShrink: 0,
     display: "flex",
-    borderRightWidth: 1,
-    borderRightStyle: "solid",
-    borderRightColor: tokens.border,
+    borderLeftWidth: 1,
+    borderLeftStyle: "solid",
+    borderLeftColor: tokens.border,
   },
   sidebar: {
     display: "flex",
