@@ -16,15 +16,16 @@ MED_EXECUTABLE=/tmp/med-release/med-v0.1.0-macos-arm64/med node scripts/validate
 ```
 
 The script checks types, builds the UI, compiles the executable, checks its
-version and embedded docs, collects dependency notices, and writes the tarball,
+version and embedded docs, applies and verifies an ad-hoc signature, collects
+dependency notices, and writes the tarball,
 build metadata, and SHA-256 checksum. It refuses a dirty checkout or an existing
 staging directory. The service test starts the executable outside the checkout,
 uses temporary repositories and a synthetic vault, and closes its own processes.
 Also run `bun run lint` and `node scripts/validate-markdown.mjs` before publication.
 
 Inspect the archive and `BUILD.json`. Verify `codesign --verify med` and the
-minimum macOS version with `otool -l med`. The initial build uses Bun's ad-hoc
-signature; it is not Developer ID signed or notarized. Do not describe it as such.
+minimum macOS version with `otool -l med`. The script replaces Bun's linker signature
+after compilation with a verified ad-hoc signature. It is not Developer ID signed or notarized. Do not describe it as such.
 
 Publish only when authorized. Use Med-specific tags (`med-v0.1.0`) because this
 repository also releases other apps. Tag the exact `BUILD.json` commit, push the

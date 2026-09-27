@@ -26,6 +26,9 @@ execFileSync(process.execPath, ["scripts/build-executable.ts", join(stage, "med"
   cwd: app,
   stdio: "inherit",
 });
+// Bun appends compiled assets after linking. Replace the stale linker signature.
+run("codesign", ["--force", "--sign", "-", join(stage, "med")]);
+run("codesign", ["--verify", "--strict", join(stage, "med")]);
 if (run(join(stage, "med"), ["--version"]) !== `med ${version}`)
   throw new Error("Executable version does not match package.json.");
 for (const guide of ["usage", "agents", "vaults"])
