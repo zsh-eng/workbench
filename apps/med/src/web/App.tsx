@@ -2192,6 +2192,9 @@ export function App({
                 onSymbolPreviewReady={onSymbolPreviewReady}
                 onRefresh={() => void fileWorkspace.refresh()}
                 onClose={() => fileWorkspace.close(activeFile.id)}
+                onOpenFile={(path, line) =>
+                  fileWorkspace.open(path, true, line, activeFile.source, activeFile.sourceLabel)
+                }
                 onOpenBefore={
                   activeDiffFile && /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(state.review?.base ?? "")
                     ? () => openVersion(activeDiffFile.path, "old")

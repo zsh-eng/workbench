@@ -25,7 +25,7 @@ const firstSourceLine = (node: RootContent): number | undefined => {
     }
   }
 };
-type Task = { id: number; text: string; theme: AdapterTheme; vault?: boolean };
+type Task = { id: number; text: string; theme: AdapterTheme; vault?: boolean; fileLinks?: boolean };
 let latest: Task | undefined;
 let running = false;
 self.onmessage = (event: MessageEvent<Task>) => {
@@ -90,6 +90,9 @@ async function drain() {
           } else if (task.vault && href && !/^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(href)) {
             node.properties.dataVaultLink = href;
             node.properties.dataVaultSyntax = "markdown";
+            node.properties.href = "#";
+          } else if (task.fileLinks && href && !/^(?:[a-z][a-z\d+.-]*:|\/|#)/i.test(href)) {
+            node.properties.dataFileLink = href;
             node.properties.href = "#";
           } else if (href.startsWith("#"))
             node.properties.href = /^#(?:user-content-|footnote-label)/.test(href)

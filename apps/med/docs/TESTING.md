@@ -61,3 +61,8 @@ for the larger corpus, exact mismatch reports, and production UI benchmarks.
 production file viewer. Add `--profile` to write Chrome performance traces.
 See [file-opening measurements](validation/FILE_OPENING.md) for phase definitions,
 before/after results, and comparison of retained builds.
+
+`bun run test:markdown-links` exercises relative-link clicks through the built
+CLI, Markdown worker, browser, and file APIs: working and historical repository
+files, standalone tabs, URL encoding, parent paths, missing targets, and root
+boundaries. Vault relative links are covered by `bun run test:service`.

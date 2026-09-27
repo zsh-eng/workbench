@@ -42,7 +42,7 @@ try {
   await writeFile(join(vault, "Notes", "Other.md"), "# Other note\n");
   await writeFile(
     join(vault, "Home.md"),
-    "# Home\n\nA small vault for the service check.\n\n[[Target|Open target]]\n\n![[pixel.png|120]]\n\n`[[Not a link]]`\n",
+    "# Home\n\nA small vault for the service check.\n\n[[Target|Open target]]\n\n[Relative note](Notes/Nested.md)\n\n![[pixel.png|120]]\n\n`[[Not a link]]`\n",
   );
   await writeFile(join(vault, "Target.md"), "# Target\n\nThis is the linked note.\n");
   await writeFile(
@@ -164,6 +164,9 @@ try {
   await until(() =>
     page.locator(".med-markdown img").evaluate((img) => img.complete && img.naturalWidth === 1),
   );
+  await page.getByRole("link", { name: "Relative note", exact: true }).click();
+  await page.getByRole("tab", { name: "Nested.md", exact: true }).waitFor();
+  await page.getByRole("tab", { name: "Home.md", exact: true }).click();
   await page.getByRole("link", { name: "Open target", exact: true }).click();
   await page
     .getByRole("region", { name: "Backlinks" })

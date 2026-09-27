@@ -8,6 +8,7 @@ import RenderWorker from "../markdown/render.worker?worker";
 import { renderDiagram } from "../markdown/diagrams";
 import "katex/dist/katex.min.css";
 import "./MarkdownPreview.css";
+import { relativeFileLink } from "../markdown/file-link";
 
 function imageUrl(raw: string, source: FileRead["source"], path: string, vault = false) {
   if (vault && raw.startsWith("med-vault:wiki:"))
@@ -176,7 +177,16 @@ const Block = memo(
     a.vault === b.vault,
 );
 
-export default function MarkdownPreview({ model, file }: { model: MarkdownModel; file: FileRead }) {
+export default function MarkdownPreview({
+  model,
+  file,
+  onOpenFile,
+}: {
+  model: MarkdownModel;
+  file: FileRead;
+  onOpenFile?(path: string, line?: number): void;
+}) {
+  const canOpenFiles = !!onOpenFile;
   const { active } = useTheme();
   const text = useSyncExternalStore(model.subscribe, model.getText);
   const [result, setResult] = useState<MarkdownResult>();
@@ -216,6 +226,7 @@ export default function MarkdownPreview({ model, file }: { model: MarkdownModel;
                 text,
                 theme,
                 vault: "vault" in file && !!file.vault,
+                fileLinks: canOpenFiles,
               });
           })
           .catch(() => setError("Preview theme could not load."));
@@ -225,7 +236,7 @@ export default function MarkdownPreview({ model, file }: { model: MarkdownModel;
     return () => clearTimeout(timer);
     // A result must not schedule another parse. Only source or theme changes do.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [text, active.pierreTheme]);
+  }, [text, active.pierreTheme, canOpenFiles]);
 
   useLayoutEffect(() => {
     const pane = scroller.current;
@@ -244,6 +255,16 @@ export default function MarkdownPreview({ model, file }: { model: MarkdownModel;
       const anchor = (event.target as HTMLElement).closest("a[href^='#']");
       if (!anchor) return;
       event.preventDefault();
+      const relative = anchor.getAttribute("data-file-link");
+      if (relative && onOpenFile) {
+        try {
+          const target = relativeFileLink(file.path, relative);
+          onOpenFile(target.path, target.line);
+        } catch (cause) {
+          setError(cause instanceof Error ? cause.message : "Could not open this link.");
+        }
+        return;
+      }
       if (anchor.hasAttribute("data-vault-link")) {
         window.dispatchEvent(
           new CustomEvent("med-vault-navigate", {
@@ -266,7 +287,7 @@ export default function MarkdownPreview({ model, file }: { model: MarkdownModel;
     };
     pane.addEventListener("click", followLink);
     return () => pane.removeEventListener("click", followLink);
-  }, []);
+  }, [file.path, onOpenFile]);
   const updateHeading = () => {
     const pane = scroller.current;
     if (!pane || !result) return;

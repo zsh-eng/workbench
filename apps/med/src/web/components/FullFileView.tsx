@@ -75,6 +75,7 @@ export interface FullFileViewProps {
   onClose?(): void;
   onOpenBefore?(): void;
   onOpenAfter?(): void;
+  onOpenFile?(path: string, line?: number): void;
   onEdit?(): void;
   editor?: {
     drafts: EditorDrafts;
@@ -837,6 +838,7 @@ export function FullFileView(props: FullFileViewProps) {
           <MarkdownPreview
             key={sourceKey}
             model={markdownModel}
+            onOpenFile={props.onOpenFile}
             file={draft?.editing ? draft.file : props.file}
           />
         </Suspense>

@@ -324,3 +324,10 @@ guides, and compiles one executable. A compiled process respawns itself for
 `serve` and the index worker. Node builds preserve the script entrypoint. Git and
 optional Ctags/Zoekt tools remain external. Legacy explicit-path foreground hosts
 remain supported; they do not share a managed owner's profile or port.
+
+Relative Markdown file links are tagged by the render worker and handled by the
+preview's file-opening callback. Resolution uses the document path, not the
+browser route, and repository paths cannot escape their source root. The review
+workspace supplies the displayed file's `BrowseSource`, preserving commit IDs;
+standalone files use their existing local open path. Vault resolution remains
+scoped to its catalogue. Dropped previews do not receive a file-opening callback.

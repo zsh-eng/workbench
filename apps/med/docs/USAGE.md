@@ -341,3 +341,15 @@ Contents navigation gives the destination source line one soft, 650 ms accent
 fade. It does not blink repeatedly or move the layout. Reduced-motion mode
 omits this cue. The insert caret is 2 px wide, fully rounded, and follows the
 normal caret's 65 ms ease-out movement.
+
+### Links in Markdown preview
+
+Click a relative file link to open it in a file tab. Paths resolve from the
+displayed Markdown file's folder, including `../` and URL-encoded filenames.
+Repository links stay in the same worktree or exact commit as the source file.
+Standalone file links use the local file workspace; vault links use the vault
+tabs. `#L42` suffixes select a line in repository and standalone files.
+
+Same-page heading links keep their preview navigation. Web and mail links keep
+their external behavior. Dropped previews have no disk location, so relative
+file links are unavailable there. Missing files use the normal file-open error.

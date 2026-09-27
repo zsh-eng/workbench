@@ -339,6 +339,13 @@ export function LocalFiles({ children }: { children: ReactNode }) {
               column={active.column}
               vimEnabled
               refreshAvailable={active.file.source.kind !== "drop"}
+              onOpenFile={
+                active.file.source.kind === "local"
+                  ? (path, line) => {
+                      void open(path, line);
+                    }
+                  : undefined
+              }
               sourceLabel={
                 active.file.source.kind === "drop" ? "Dropped file · preview only" : "Local file"
               }
