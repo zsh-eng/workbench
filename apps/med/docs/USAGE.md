@@ -317,3 +317,9 @@ preview cannot render.
 
 Try [the reading queue design note](examples/reading-queue.md), which includes
 paragraphs, two diagrams, equations, a local image, a table and TypeScript.
+
+Toggle Markdown Preview with **Cmd+Shift+V** on macOS or **Ctrl+Shift+V** on
+Windows/Linux while focus is in the file or preview pane. The toolbar button
+shows the shortcut on hover. Contents and heading links scroll only the preview.
+Source scrolling follows fractional line positions with continuous interpolation
+and a short ease-out; reduced-motion mode moves directly to the target.

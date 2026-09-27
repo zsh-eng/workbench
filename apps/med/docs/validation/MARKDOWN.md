@@ -30,3 +30,21 @@ Review the [raw results](markdown-results.json), then the screenshots:
 - [Dark preview](markdown-preview-dark.png)
 - [Mermaid and code](markdown-diagram-light.png)
 - [Math and table](markdown-math-light.png)
+
+
+## Contents navigation and scroll motion follow-up
+
+The final contents link reproduced the gap on the previous build: both columns
+moved up by 272 px inside the overflow-hidden split container, although the
+window itself stayed at scroll position zero. Preview-local offsets now leave
+the split container at zero and both columns fill the window. The target remains
+visible after lazy diagrams resize. Excess `45vh` end padding is now 48 px.
+
+The production browser check covers Cmd+Shift+V / Ctrl+Shift+V, the last heading,
+column bounds, fractional source scrolling, monotonic animated movement, and
+reduced motion. A 5 px source scroll advanced the mapping by 0.25 of a line.
+The captured scroll had 15 distinct positions across 25 sampled frames.
+This verifies intermediate motion rather than claiming a fixed frame rate.
+
+[Results and frame samples](markdown-scroll-results.json) ·
+[Last contents link without the gap](markdown-last-heading.png).

@@ -157,6 +157,37 @@ try {
   );
   await page.getByRole("navigation", { name: "Table of contents" }).waitFor({ state: "visible" });
   await page.screenshot({ path: join(output, "preview-light.png") });
+  // A contents link must scroll the preview, not its overflow-hidden ancestors.
+  const sourceTop = await page
+    .locator(".med-editor")
+    .evaluate((node) => node.getBoundingClientRect().top);
+  await page.locator(".med-md-toc button").last().click();
+  await page.waitForFunction(() => {
+    const pane = document.querySelector(".med-md-scroll").getBoundingClientRect();
+    const footnote = document.querySelector(".footnotes").getBoundingClientRect();
+    return footnote.top >= pane.top && footnote.bottom <= pane.bottom;
+  });
+  await page.waitForTimeout(350);
+  const layout = await page.evaluate(() => ({
+    sourceTop: document.querySelector(".med-editor").getBoundingClientRect().top,
+    previewBottom: document.querySelector(".med-markdown").getBoundingClientRect().bottom,
+    shellScroll: document.querySelector(".med-markdown-shell").scrollTop,
+    viewport: innerHeight,
+  }));
+  assert.equal(layout.sourceTop, sourceTop);
+  assert.equal(layout.shellScroll, 0);
+  assert.equal(layout.previewBottom, layout.viewport);
+  await page.screenshot({ path: join(output, "last-heading.png") });
+  results.contentsNavigation =
+    "last heading stays inside preview; both columns still fill the window";
+  await page.locator(".med-md-toc button").first().click();
+  await page.waitForTimeout(450);
+  await page.locator(".cm-content").focus();
+  await page.keyboard.press("Meta+Shift+v");
+  assert.equal(await page.locator(".med-markdown").count(), 0);
+  await page.keyboard.press("Control+Shift+v");
+  await page.locator(".med-md-prose h1").waitFor();
+  results.previewShortcut = "Cmd+Shift+V and Ctrl+Shift+V toggle the preview from the editor";
   results.rendering = "GFM tables, tasks, soft breaks, syntax colors, KaTeX, local image, headings";
   const content = page.locator(".cm-content");
   const line = (needle) => source.slice(0, source.indexOf(needle)).split("\n").length;
@@ -230,6 +261,52 @@ try {
       })),
     ),
   );
+  const fractionalBefore = Number(
+    await page.locator(".med-md-scroll").getAttribute("data-follow-line"),
+  );
+  await page.locator(".cm-scroller").evaluate((node) => {
+    node.scrollTop += 5;
+  });
+  await page.waitForTimeout(350);
+  const fractionalAfter = Number(
+    await page.locator(".med-md-scroll").getAttribute("data-follow-line"),
+  );
+  assert.ok(Math.abs(fractionalAfter - fractionalBefore - 0.25) < 0.01);
+  const frames = await page.evaluate(async () => {
+    const source = document.querySelector(".cm-scroller"),
+      preview = document.querySelector(".med-md-scroll");
+    const samples = [preview.scrollTop];
+    source.scrollTop += 160;
+    for (let i = 0; i < 24; i++) {
+      await new Promise(requestAnimationFrame);
+      samples.push(preview.scrollTop);
+    }
+    return samples;
+  });
+  assert.ok(new Set(frames).size > 4, "Scrolling must pass through intermediate positions");
+  assert.ok(frames.at(-1) > frames[0]);
+  assert.ok(
+    frames.every((value, index) => !index || value >= frames[index - 1] - 1),
+    "Following must not reverse or bounce",
+  );
+  results.scrollMotion = {
+    fractionalLineDelta: fractionalAfter - fractionalBefore,
+    intermediatePositions: new Set(frames).size,
+    frames,
+  };
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const reducedFrames = await page.evaluate(async () => {
+    document.querySelector(".cm-scroller").scrollTop += 100;
+    const samples = [];
+    for (let i = 0; i < 5; i++) {
+      await new Promise(requestAnimationFrame);
+      samples.push(document.querySelector(".med-md-scroll").scrollTop);
+    }
+    return samples;
+  });
+  assert.ok(new Set(reducedFrames.slice(1)).size <= 1, "Reduced motion must settle without easing");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  results.reducedMotion = true;
   results.scrollFollow = true;
   await page.getByRole("button", { name: "Toggle Markdown preview" }).click();
   assert.equal(await page.locator(".med-markdown").count(), 0);

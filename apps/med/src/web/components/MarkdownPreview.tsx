@@ -2,12 +2,8 @@ import { memo, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStor
 import { resolveTheme } from "@pierre/diffs";
 import type { FileRead } from "../../shared/local-file";
 import { useTheme } from "../themes";
-import type {
-  MarkdownModel,
-  MarkdownBlock,
-  MarkdownResult,
-  PreviewPosition,
-} from "../markdown/model";
+import type { MarkdownModel, MarkdownBlock, MarkdownResult } from "../markdown/model";
+import { connectPreviewScroll } from "../markdown/scroll";
 import RenderWorker from "../markdown/render.worker?worker";
 import { renderDiagram } from "../markdown/diagrams";
 import "katex/dist/katex.min.css";
@@ -180,6 +176,7 @@ export default function MarkdownPreview({ model, file }: { model: MarkdownModel;
   const [error, setError] = useState("");
   const [heading, setHeading] = useState("");
   const scroller = useRef<HTMLDivElement>(null);
+  const scrollController = useRef<ReturnType<typeof connectPreviewScroll> | null>(null);
   const worker = useRef<Worker | null>(null);
   const sequence = useRef(0);
   useEffect(() => {
@@ -220,38 +217,11 @@ export default function MarkdownPreview({ model, file }: { model: MarkdownModel;
   useLayoutEffect(() => {
     const pane = scroller.current;
     if (!pane || !result) return;
-    let frame = 0;
-    const follow = ({ line, reason }: PreviewPosition) => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        const blocks = [...pane.querySelectorAll<HTMLElement>("[data-block-line]")];
-        const block =
-          blocks.findLast((item) => Number(item.dataset.blockLine) <= line) ?? blocks[0];
-        if (!block) return;
-        const start = Number(block.dataset.blockLine),
-          end = Number(block.dataset.blockEnd);
-        const ratio = Math.max(0, Math.min(1, (line - start) / Math.max(1, end - start + 1)));
-        const bounds = pane.getBoundingClientRect(),
-          rect = block.getBoundingClientRect();
-        const y = rect.top - bounds.top + Math.min(rect.height, ratio * rect.height);
-        pane.dataset.followLine = String(line);
-        if (reason === "scroll" || y < 48 || y > bounds.height * 0.8) {
-          const top = pane.scrollTop + y - (reason === "scroll" ? 40 : bounds.height * 0.3);
-          pane.scrollTo({
-            top,
-            behavior:
-              reason === "cursor" && !matchMedia("(prefers-reduced-motion: reduce)").matches
-                ? "smooth"
-                : "instant",
-          });
-        }
-      });
-    };
-    const unsubscribe = model.subscribePosition(follow);
-    follow(model.getPosition());
+    const controller = connectPreviewScroll(pane, model);
+    scrollController.current = controller;
     return () => {
-      cancelAnimationFrame(frame);
-      unsubscribe();
+      controller.dispose();
+      scrollController.current = null;
     };
   }, [model, result]);
   useEffect(() => {
@@ -267,10 +237,8 @@ export default function MarkdownPreview({ model, file }: { model: MarkdownModel;
       } catch {
         return;
       }
-      pane.querySelector(`#${CSS.escape(id)}`)?.scrollIntoView({
-        behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
-        block: "start",
-      });
+      const target = pane.querySelector(`#${CSS.escape(id)}`);
+      if (target) scrollController.current?.reveal(target);
     };
     pane.addEventListener("click", followLink);
     return () => pane.removeEventListener("click", followLink);
@@ -332,12 +300,8 @@ export default function MarkdownPreview({ model, file }: { model: MarkdownModel;
                 aria-current={heading === h.id ? "location" : undefined}
                 style={{ paddingLeft: 10 + (h.level - 1) * 10 }}
                 onClick={() => {
-                  scroller.current?.querySelector(`#${CSS.escape(h.id)}`)?.scrollIntoView({
-                    behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
-                      ? "instant"
-                      : "smooth",
-                    block: "start",
-                  });
+                  const target = scroller.current?.querySelector(`#${CSS.escape(h.id)}`);
+                  if (target) scrollController.current?.reveal(target);
                   setHeading(h.id);
                 }}
               >

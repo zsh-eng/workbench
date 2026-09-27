@@ -515,7 +515,7 @@ function ReadOnlyFileView({
                 onScroll={(top) => {
                   onScrollPosition?.(top);
                   if (performance.now() - sourceCursorAt.current >= 200)
-                    onSourcePosition?.(Math.max(1, Math.floor((top - 16) / 20) + 1), "scroll");
+                    onSourcePosition?.(Math.max(1, (top - 16) / 20 + 1), "scroll");
                 }}
                 className={stylex.props(styles.code).className}
                 style={
@@ -782,25 +782,44 @@ export function FullFileView(props: FullFileViewProps) {
     (line: number, reason: "cursor" | "scroll") => markdownModel.follow(line, reason),
     [markdownModel],
   );
+  const togglePreview = () => {
+    setPreview(!preview);
+    try {
+      localStorage.setItem("med-markdown-preview", String(!preview));
+    } catch {
+      /* Session preference still works. */
+    }
+  };
   const previewControl = markdown ? (
     <button
       {...stylex.props(ui.button, ui.pressable, preview && ui.active)}
       aria-label="Toggle Markdown preview"
       aria-pressed={preview}
-      onClick={() => {
-        setPreview(!preview);
-        try {
-          localStorage.setItem("med-markdown-preview", String(!preview));
-        } catch {
-          /* Session preference still works. */
-        }
-      }}
+      title="Toggle Markdown preview (⌘⇧V / Ctrl+Shift+V)"
+      aria-keyshortcuts="Meta+Shift+V Control+Shift+V"
+      onClick={togglePreview}
     >
       Preview
     </button>
   ) : undefined;
   const wrap = (source: ReactNode) => (
-    <div className="med-markdown-shell" data-preview={showPreview}>
+    <div
+      className="med-markdown-shell"
+      data-preview={showPreview}
+      onKeyDownCapture={(event) => {
+        if (
+          markdown &&
+          (event.metaKey || event.ctrlKey) &&
+          event.shiftKey &&
+          !event.altKey &&
+          event.key.toLowerCase() === "v"
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (!event.repeat) togglePreview();
+        }
+      }}
+    >
       <div className="med-markdown-source">{source}</div>
       {showPreview && props.file && (
         <Suspense

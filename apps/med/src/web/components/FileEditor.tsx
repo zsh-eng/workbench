@@ -269,8 +269,13 @@ export default function FileEditor({
       // CodeMirror scrolls after moving the cursor. Keep that cursor as the anchor;
       // wheel, touch and scrollbar input instead follow the viewport.
       if (performance.now() - cursorMotionAt < 200) return;
-      const block = editor.lineBlockAtHeight(editor.scrollDOM.scrollTop);
-      latest.current.onSourcePosition?.(editor.state.doc.lineAt(block.from).number, "scroll");
+      const height = editor.scrollDOM.getBoundingClientRect().top - editor.documentTop;
+      const block = editor.lineBlockAtHeight(height);
+      const fraction = Math.max(0, Math.min(1, (height - block.top) / Math.max(1, block.height)));
+      latest.current.onSourcePosition?.(
+        editor.state.doc.lineAt(block.from).number + fraction,
+        "scroll",
+      );
     };
     editor.scrollDOM.addEventListener("scroll", followScroll, { passive: true });
     for (const event of ["wheel", "touchstart", "pointerdown"])

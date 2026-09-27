@@ -262,3 +262,11 @@ no-sniff and no-store headers. Dropped source never requests local disk images.
 including rendering, Vim draft/undo, source following, persistence, image access,
 and malformed content. It records worker timing separately from whole-file-open
 latency; these boundaries are not interchangeable.
+
+Preview scroll mapping retains fractional source-line coordinates and interpolates
+between block-start anchors, including blank lines and paragraph margins.
+`markdown/scroll.ts` owns one frame-rate-independent animation whose target can
+change without restarting. Geometry is cached until preview content or size
+changes. Manual preview input cancels following until the next source movement;
+reduced-motion mode skips animation. Contents navigation uses preview-local scroll
+offsets, never `scrollIntoView`, which can scroll overflow-hidden split ancestors.

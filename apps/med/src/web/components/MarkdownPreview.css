@@ -62,7 +62,7 @@
   box-sizing: border-box;
   max-width: 74ch;
   margin: 0 auto;
-  padding: 38px clamp(24px, 5cqw, 64px) 45vh;
+  padding: 38px clamp(24px, 5cqw, 64px) 48px;
   font-size: 15px;
   line-height: 1.8;
   overflow-wrap: anywhere;

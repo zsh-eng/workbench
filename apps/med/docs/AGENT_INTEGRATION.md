@@ -194,3 +194,9 @@ A complete sample is `apps/med/docs/examples/reading-queue.md`. To hand it off:
 node /path/to/workbench/apps/med/dist/cli.js open \
   /path/to/workbench/apps/med/docs/examples/reading-queue.md --edit
 ```
+
+Toggle Markdown Preview with **Cmd+Shift+V** on macOS or **Ctrl+Shift+V** on
+Windows/Linux while focus is in the file or preview pane. The toolbar button
+shows the shortcut on hover. Contents and heading links scroll only the preview.
+Source scrolling follows fractional line positions with continuous interpolation
+and a short ease-out; reduced-motion mode moves directly to the target.
