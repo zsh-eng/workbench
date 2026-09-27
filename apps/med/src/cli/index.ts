@@ -14,6 +14,16 @@ import { runOpenCommand } from "./open";
 import { reviewHelp, runReviewCommand } from "./review";
 
 async function main() {
+  if (process.argv[2] === "docs") {
+    const { runDocsCommand } = await import("./docs");
+    runDocsCommand(process.argv.slice(3));
+    return;
+  }
+  if (process.argv[2] === "sources" || process.argv[2] === "vault") {
+    const { runSourcesCommand } = await import("./sources");
+    await runSourcesCommand(process.argv[2], process.argv.slice(3));
+    return;
+  }
   if (process.argv[2] === "open") {
     await runOpenCommand(process.argv.slice(3));
     return;
@@ -33,13 +43,15 @@ async function main() {
       patch: { type: "string" },
       files: { type: "boolean" },
       editor: { type: "boolean" },
+      registered: { type: "boolean" },
       "setup-search": { type: "boolean" },
     },
   });
   if (values.help) {
     console.log(
       "Usage: med-diff [repository ...] [--port <port>] [--no-open]\n       med-diff --patch <path|-> [--no-open]\n       med-diff --files <old> <new> [--no-open]\n       med-diff --editor [--no-open]\n       med-diff open <file> [--line N] [--edit]\n       med-diff --setup-search\n\nOpen a local, read-only review. Use --patch - to read a patch from stdin.\nSetup search builds pinned Zoekt binaries once; it requires Go during setup only.\nDefault port: 4173. Use --state-dir <path> or MED_STATE_DIR to select saved review state.\n\n" +
-        reviewHelp,
+        reviewHelp +
+        "\n\nRegister folders: med-diff sources --help\nOpen saved repositories: med-diff --registered\nOffline guides: med-diff docs",
     );
   } else if (values["setup-search"]) {
     console.log("Setting up pinned Zoekt search tools…");
@@ -48,6 +60,22 @@ async function main() {
     const ctags = await discoverCtags();
     console.log(ctags ? `Symbol extraction ready: ${ctags.path}` : ctagsSetupMessage);
   } else {
+    if (values.registered) {
+      if (positionals.length || values.editor || values.patch || values.files)
+        throw new Error("Use --registered without repository paths or other opening modes.");
+      const { SourceCatalogue } = await import("../host/vault/sources");
+      const saved = await SourceCatalogue.open(getStateDirectory(values["state-dir"]));
+      try {
+        for (const source of saved.list().filter((source) => source.kind === "repo"))
+          positionals.push((await saved.require(source.id, "repo")).path);
+      } finally {
+        saved.close();
+      }
+      if (!positionals.length)
+        throw new Error(
+          "No repositories registered. Use sources add repo <path>. Vault browser mode is not implemented yet.",
+        );
+    }
     const port = values.port === undefined ? DEFAULT_PORT : Number(values.port);
     if (port !== undefined && (!Number.isInteger(port) || port < 0 || port > 65535))
       throw new Error("Port must be between 0 and 65535.");

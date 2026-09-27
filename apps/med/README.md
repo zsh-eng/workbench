@@ -142,3 +142,14 @@ and a wide-screen table of contents are included. Try the
 [reading queue design note](docs/examples/reading-queue.md).
 
 ![Markdown editor and preview in Graphite Light](docs/validation/markdown-preview-light.png)
+
+### Registered sources and vault indexing
+
+Persist repositories with `med-diff sources add repo /path/to/repo`, then launch
+with `med-diff --registered`. The CLI also supports vault registration, incremental
+link indexing, image-embed metadata, and backlink queries. Vault browser mode is
+not implemented yet. See [vault commands](docs/VAULTS.md) and
+[benchmark results](docs/validation/VAULT_INDEX.md).
+
+Run `med-diff docs agents`, `med-diff docs vaults`, or `med-diff docs usage` for
+embedded offline guides.

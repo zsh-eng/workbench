@@ -201,3 +201,22 @@ Windows/Linux while focus is in the file or preview pane. The toolbar button
 shows the shortcut on hover. Contents and heading links scroll only the preview.
 Source scrolling follows fractional line positions with continuous interpolation
 and a short ease-out; reduced-motion mode moves directly to the target.
+
+## Saved source registration and offline guides
+
+`med-diff sources add repo /path/to/repo` persists a repository registration;
+`med-diff --registered` opens the saved repositories. Existing explicit path
+arguments and `review repos` still work. Saved registration is distinct from
+the running host's active review scope. Check `review repos` before creating a
+review; registration alone does not add access to an already-running host.
+
+Vaults use `sources add vault /path/to/vault --index` and separate `vault`
+commands. This currently provides CLI metadata/backlinks, not browser vault
+navigation. Ask the user before registering additional repositories or vaults.
+For benchmarking, use a copy outside Git and keep its content and index out of
+source control. See [vault indexing](VAULTS.md).
+
+Use `med-diff docs agents`, `med-diff docs usage`, or `med-diff docs vaults` for
+embedded guides that match the installed build. These commands work offline
+without a running host. Confirm the user's workflow and source scope before
+adding this guidance to their AGENTS.md.

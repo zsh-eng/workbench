@@ -283,3 +283,33 @@ Base UI blame tooltips with light-DOM cells. Unsaved edits suppress attribution
 from the prior disk snapshot. Symbol previews and command navigation use the
 active editor. Contents jumps add a single cancellable 650 ms line fade after
 the destination is mounted; reduced motion omits the animation.
+
+## Registered sources and vault index (CLI foundation)
+
+`SourceCatalogue` persists explicit `repo` and `vault` registrations in the
+local state directory. Repository identity uses its Git common directory; vault
+identity uses its canonical folder. Directory identity is checked before reuse.
+`--registered` starts the existing host with saved repositories. Vault commands
+remain separate from host access grants and browser navigation.
+
+A vault index stores file fingerprints and outgoing link occurrences in SQLite.
+Bun uses `bun:sqlite`; the Node CLI uses built-in `node:sqlite`. Enumeration skips
+hidden/dependency folders and symlinks. A changed note is read with a bounded,
+no-follow descriptor and checked again before its metadata replaces old links.
+Synchronous reads/parsing/SQL run in the dedicated CLI process; future host use
+must place this engine in an owned background worker. It must not run in HTTP
+request handlers. There is no live vault watcher in this phase.
+
+Markdown parsing retains source positions and excludes code, math, frontmatter
+and raw HTML. It does not render, highlight, load plugins, or decode images.
+A path topology change re-resolves stored links; other changes only update the
+changed note's edges. Reverse indexes serve bounded backlink queries. Cache
+version changes force a fresh parse. Records and traces never enter Git; only
+synthetic fixtures and aggregate measurements do. See [vault commands](docs/VAULTS.md)
+and [index measurements](docs/validation/VAULT_INDEX.md).
+
+CLI guides use text imports and a server-build loader. `docs vaults`, `docs agents`
+and `docs usage` print version-matched Markdown without loading files from the
+checkout or starting a host. The compiled CLI proof includes these guides; a
+complete executable distribution still needs embedded browser assets and native
+helper packaging.
