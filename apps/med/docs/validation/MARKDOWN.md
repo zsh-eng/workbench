@@ -48,3 +48,24 @@ This verifies intermediate motion rather than claiming a fixed frame rate.
 
 [Results and frame samples](markdown-scroll-results.json) ·
 [Last contents link without the gap](markdown-last-heading.png).
+
+
+## Typography follow-up
+
+The [Vercel article](https://vercel.com/blog/ai-gateway-jev-model-launch) uses
+a 684 px article column at a 1440 px viewport, 18 px body text, 28 px line height,
+and 24 px paragraph gaps. Its first two full lines contain 78 and 74 characters.
+The title uses weight 450 and the section heading uses weight 400.
+
+Med adapts these proportions to the split pane: 16 px body text, 26 px line
+height, 24 px paragraph gaps, and a maximum 608 px text column. Page padding
+is outside that limit. The sample paragraph fits 84 and 81 characters on its
+first two full lines; the count varies with the text and available pane width.
+H1–H3 use regular weight 400; explicit Markdown emphasis uses weight 600.
+Section headings have more space above than below. SF Pro headings and Geist
+body text remain in use.
+
+Build/typecheck and the production Markdown browser check passed. The check
+includes live editing, diagrams, contents navigation, smooth scroll following,
+reduced motion, saved preview preference, and the narrow layout. The light,
+dark, diagram, math and last-heading screenshots above show the updated style.

@@ -60,40 +60,43 @@
 }
 .med-md-prose {
   box-sizing: border-box;
-  max-width: 74ch;
+  --med-md-gutter: clamp(24px, 4cqw, 48px);
+  /* Keep the reading measure independent of the surrounding page padding. */
+  width: 100%;
+  max-width: calc(38em + 2 * var(--med-md-gutter));
   margin: 0 auto;
-  padding: 38px clamp(24px, 5cqw, 64px) 48px;
-  font-size: 15px;
-  line-height: 1.8;
+  padding: 38px var(--med-md-gutter) 48px;
+  font-size: 16px;
+  line-height: 1.625;
   overflow-wrap: anywhere;
 }
 .med-md-prose p {
-  margin: 0 0 1.35em;
+  margin: 0 0 1.5em;
 }
 .med-md-prose :is(h1, h2, h3, h4, h5, h6) {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Geist", sans-serif;
   line-height: 1.22;
   letter-spacing: -0.035em;
-  font-weight: 650;
+  font-weight: 400;
   text-wrap: balance;
   scroll-margin-top: 40px;
 }
 .med-md-prose h1 {
   font-size: clamp(30px, 5cqw, 44px);
-  margin: 0 0 0.85em;
+  margin: 0 0 32px;
 }
 .med-md-prose h2 {
   font-size: 26px;
-  margin: 1.9em 0 0.8em;
-  padding-top: 0.35em;
+  margin: 56px 0 24px;
 }
 .med-md-prose h3 {
-  font-size: 20px;
-  margin: 1.6em 0 0.7em;
+  font-size: 22px;
+  margin: 40px 0 20px;
 }
 .med-md-prose :is(h4, h5, h6) {
   font-size: 16px;
-  margin: 1.5em 0 0.7em;
+  font-weight: 500;
+  margin: 32px 0 16px;
 }
 .med-md-prose a {
   color: var(--med-accent);
@@ -107,7 +110,7 @@
   text-decoration-style: dotted;
 }
 .med-md-prose strong {
-  font-weight: 650;
+  font-weight: 600;
 }
 .med-md-prose :is(ul, ol) {
   padding-left: 1.5em;
