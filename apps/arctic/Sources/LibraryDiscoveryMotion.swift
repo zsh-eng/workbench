@@ -12,6 +12,52 @@ import UIKit
   private var copies: [UIImageView] = []
   private var probe: UILabel?
 
+  private let trigger: CGFloat = 12
+  private var collapseDistance: CGFloat = 80
+  private var dragStartedCollapsed = false
+  private var signalled = false
+  private let feedback = UIImpactFeedbackGenerator(style: .soft)
+
+  func beginDragging(_ scroll: UIScrollView) {
+    let travel = scroll.contentOffset.y + scroll.adjustedContentInset.top
+    // When catching an unfinished snap, use the nearer endpoint as the origin.
+    // The commit threshold remains 12 points from that endpoint, not halfway.
+    dragStartedCollapsed = travel >= collapseDistance * 0.5
+    signalled = false
+    if enabled { feedback.prepare() }
+  }
+
+  /// Change only the release destination. UIKit retains direct finger tracking
+  /// and deceleration; the shelf never runs a separate competing animation.
+  func endDragging(_ scroll: UIScrollView, target: UnsafeMutablePointer<CGPoint>) {
+    guard enabled else { return }
+    let inset = scroll.adjustedContentInset.top
+    // Short and empty lists cannot reach the hidden endpoint. Keep them open.
+    guard canCollapse(scroll) else {
+      target.pointee.y = -inset
+      return
+    }
+    let current = scroll.contentOffset.y + inset
+    let projected = target.pointee.y + inset
+    guard current >= 0 else { return }
+    if current > collapseDistance {
+      // A fling from further down may enter the shelf after finger release.
+      guard projected > 0, projected < collapseDistance else { return }
+      target.pointee.y = (projected > collapseDistance - trigger ? collapseDistance : 0) - inset
+      return
+    }
+    let collapse =
+      dragStartedCollapsed ? current > collapseDistance - trigger : current >= trigger
+    // A committed collapse may continue scrolling through the article list.
+    // Otherwise velocity must not override a cancelled threshold crossing.
+    target.pointee.y = (collapse ? max(collapseDistance, projected) : 0) - inset
+  }
+
+  private func canCollapse(_ scroll: UIScrollView) -> Bool {
+    scroll.contentSize.height - scroll.bounds.height
+      + scroll.adjustedContentInset.top + scroll.adjustedContentInset.bottom >= collapseDistance
+  }
+
   func attach(_ view: UIView) {
     surface = view
     for copy in copies { copy.removeFromSuperview() }
@@ -50,7 +96,15 @@ import UIKit
     let first = shelf.icons[0]
     let current = first.convert(CGPoint(x: 29, y: 29), to: surface)
     let distance = max(80, current.y + travel - destination.y)
+    collapseDistance = distance
     let progress = min(1, travel / distance)
+    if enabled, scroll.isDragging, !signalled, canCollapse(scroll) {
+      let crossed = dragStartedCollapsed ? travel <= distance - trigger : travel >= trigger
+      if crossed {
+        feedback.impactOccurred(intensity: 0.7)
+        signalled = true
+      }
+    }
     let active = enabled && !shelf.isHidden
     CATransaction.begin()
     CATransaction.setDisableActions(true)
@@ -150,6 +204,7 @@ final class DiscoveryShelfView: UIView {
   weak var verticalScroll: UIScrollView?
   private var verticalObservation: NSKeyValueObservation?
   private var horizontalObservation: NSKeyValueObservation?
+  private var scrollDelegate: DiscoveryScrollDelegate?
   private let motion: DiscoveryMotion
   var open: (URL) -> Void = { _ in }
   var weekly: () -> Void = {}
@@ -242,19 +297,34 @@ final class DiscoveryShelfView: UIView {
   override func didMoveToWindow() {
     super.didMoveToWindow()
     if window == nil {
-      verticalObservation = nil
-      verticalScroll = nil
+      unbindScrollView()
     } else {
       bindScrollView()
     }
     motion.update()
   }
+  private func unbindScrollView() {
+    if let scroll = verticalScroll, let delegate = scrollDelegate,
+      scroll.delegate === delegate
+    {
+      scroll.delegate = delegate.forwarding
+    }
+    scrollDelegate = nil
+    verticalObservation = nil
+    verticalScroll = nil
+  }
+
   private func bindScrollView() {
     var ancestor = superview
     while let view = ancestor {
       if let scroll = view as? UIScrollView {
         guard verticalScroll !== scroll else { return }
+        unbindScrollView()
         verticalScroll = scroll
+        let delegate = DiscoveryScrollDelegate(motion: motion, forwarding: scroll.delegate)
+        scrollDelegate = delegate
+        scroll.delegate = delegate
+        if scroll.isDragging { motion.beginDragging(scroll) }
         verticalObservation = scroll.observe(\.contentOffset) { [weak self] _, _ in
           self?.motion.update()
         }
@@ -262,5 +332,39 @@ final class DiscoveryShelfView: UIView {
       }
       ancestor = view.superview
     }
+  }
+}
+
+/// Preserve SwiftUI's scroll delegate and all its optional callbacks. Intercept
+/// only gesture boundaries, after forwarding, to adjust the native snap target.
+@MainActor private final class DiscoveryScrollDelegate: NSObject, UIScrollViewDelegate {
+  weak var forwarding: UIScrollViewDelegate?
+  private let motion: DiscoveryMotion
+
+  init(motion: DiscoveryMotion, forwarding: UIScrollViewDelegate?) {
+    self.motion = motion
+    self.forwarding = forwarding
+  }
+
+  override func responds(to selector: Selector!) -> Bool {
+    super.responds(to: selector) || (forwarding?.responds(to: selector) ?? false)
+  }
+
+  override func forwardingTarget(for selector: Selector!) -> Any? {
+    forwarding?.responds(to: selector) == true ? forwarding : super.forwardingTarget(for: selector)
+  }
+
+  func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+    forwarding?.scrollViewWillBeginDragging?(scrollView)
+    motion.beginDragging(scrollView)
+  }
+
+  func scrollViewWillEndDragging(
+    _ scrollView: UIScrollView, withVelocity velocity: CGPoint,
+    targetContentOffset: UnsafeMutablePointer<CGPoint>
+  ) {
+    forwarding?.scrollViewWillEndDragging?(
+      scrollView, withVelocity: velocity, targetContentOffset: targetContentOffset)
+    motion.endDragging(scrollView, target: targetContentOffset)
   }
 }

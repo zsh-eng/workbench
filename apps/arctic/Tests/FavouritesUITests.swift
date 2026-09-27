@@ -151,13 +151,28 @@ final class FavouritesUITests: XCTestCase {
     checkDiscoveryMotion(reduced: false)
   }
 
+  @MainActor func testEmptyDiscoveryDoesNotRestPartlyCollapsed() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-ui-testing", "-reset-store", "-reset-appearance", "-articles-offline"]
+    app.launch()
+    let state = app.staticTexts["discovery-collapse"]
+    XCTAssertTrue(state.waitForExistence(timeout: 10))
+    app.swipeUp()
+    expectation(for: NSPredicate(format: "label == '0; gather'"), evaluatedWith: state)
+    waitForExpectations(timeout: 5)
+    XCTAssertTrue(app.buttons["weekly-favourites"].isHittable)
+  }
+
   @MainActor func testDiscoveryReduceMotionUsesFade() {
     checkDiscoveryMotion(reduced: true)
   }
 
   @MainActor private func checkDiscoveryMotion(reduced: Bool) {
     let app = XCUIApplication()
-    app.launchArguments = ["-ui-testing", "-reset-store", "-reset-appearance", "-seed-long-list", "-articles-offline", "-images-offline", "-disable-preloading", "-dark-ui"]
+    app.launchArguments = [
+      "-ui-testing", "-reset-store", "-reset-appearance", "-seed-long-list", "-articles-offline",
+      "-images-offline", "-disable-preloading", "-dark-ui",
+    ]
     if reduced { app.launchArguments.append("-reduce-motion") }
     app.launch()
     let shelf = app.buttons["weekly-favourites"]
@@ -167,13 +182,35 @@ final class FavouritesUITests: XCTestCase {
     XCTAssertEqual(state.label, reduced ? "0; fade" : "0; gather")
     let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.70))
     let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.64))
+    // Under-threshold movement returns to the expanded endpoint.
+    start.press(
+      forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -12)),
+      withVelocity: .slow, thenHoldForDuration: 0.2)
+    expectation(
+      for: NSPredicate(format: "label == %@", reduced ? "0; fade" : "0; gather"),
+      evaluatedWith: state)
+    waitForExpectations(timeout: 5)
     start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.2)
-    let progress = Int(state.label.split(separator: ";").first ?? "") ?? 0
-    XCTAssertGreaterThan(progress, 0)
-    XCTAssertLessThan(progress, 100)
-    let middle = XCTAttachment(screenshot: app.screenshot())
-    middle.name = reduced ? "discovery-fade-midpoint" : "discovery-gather-midpoint"
-    middle.lifetime = .keepAlways; add(middle)
+    // Releasing beyond the entry threshold must complete the gathering.
+    expectation(
+      for: NSPredicate(format: "label == %@", reduced ? "100; fade" : "100; gather"),
+      evaluatedWith: state)
+    waitForExpectations(timeout: 5)
+    // A short reversal stays closed; a deliberate reversal completes the reveal.
+    let shortEnd = start.withOffset(CGVector(dx: 0, dy: 12))
+    start.press(
+      forDuration: 0.05, thenDragTo: shortEnd, withVelocity: .slow, thenHoldForDuration: 0.2)
+    expectation(
+      for: NSPredicate(format: "label == %@", reduced ? "100; fade" : "100; gather"),
+      evaluatedWith: state)
+    waitForExpectations(timeout: 5)
+    let revealEnd = start.withOffset(CGVector(dx: 0, dy: 50))
+    start.press(
+      forDuration: 0.05, thenDragTo: revealEnd, withVelocity: .slow, thenHoldForDuration: 0.2)
+    expectation(
+      for: NSPredicate(format: "label == %@", reduced ? "0; fade" : "0; gather"),
+      evaluatedWith: state)
+    waitForExpectations(timeout: 5)
     app.swipeUp()
     XCTAssertEqual(state.label, reduced ? "100; fade" : "100; gather")
     for _ in 0..<5 {
@@ -183,7 +220,9 @@ final class FavouritesUITests: XCTestCase {
     XCTAssertEqual(state.label, reduced ? "0; fade" : "0; gather")
     XCTAssertTrue(shelf.isHittable)
     let restored = XCTAttachment(screenshot: app.screenshot())
-    restored.name = "discovery-restored"; restored.lifetime = .keepAlways; add(restored)
+    restored.name = "discovery-restored"
+    restored.lifetime = .keepAlways
+    add(restored)
   }
 
   @MainActor private func launchFixtures() -> XCUIApplication {
