@@ -6,6 +6,8 @@ import {
   type ReactNode,
   type CSSProperties,
 } from "react";
+import { Dialog } from "@base-ui/react/dialog";
+import { CommandDialog } from "./Controls";
 import { FullFileView } from "./FullFileView";
 import { ThemePicker } from "./ThemePicker";
 import { createEditorDrafts } from "../data/editor-drafts";
@@ -32,6 +34,10 @@ export function LocalFiles({ children }: { children: ReactNode }) {
   const [reviewMounted, setReviewMounted] = useState(() => !initialStandalone());
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [selected, setSelected] = useState("");
+  const [commands, setCommands] = useState(false);
+  const [opening, setOpening] = useState(false);
+  const pathInput = useRef<HTMLInputElement>(null);
+  const repositoryUrl = useRef(initialStandalone() ? "/" : location.pathname + location.search);
   const [path, setPath] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -54,7 +60,22 @@ export function LocalFiles({ children }: { children: ReactNode }) {
     setSelected(tab.id);
     setVisible(true);
   };
-  const open = async (path: string, line?: number, column?: number, edit = false) => {
+  const navigate = (url: string) => {
+    if (location.pathname + location.search !== url) history.pushState(null, "", url);
+  };
+  const fileUrl = (path: string) => `/file${path.split("/").map(encodeURIComponent).join("/")}`;
+  const repositories = () => {
+    navigate(repositoryUrl.current);
+    setReviewMounted(true);
+    setVisible(false);
+  };
+  const open = async (
+    path: string,
+    line?: number,
+    column?: number,
+    edit = false,
+    updateUrl = true,
+  ) => {
     const id = ++sequence.current;
     setLoading(true);
     setError("");
@@ -63,6 +84,8 @@ export function LocalFiles({ children }: { children: ReactNode }) {
       if (id !== sequence.current) return;
       add({ id: file.path, file, line, column, edit });
       setPath("");
+      setOpening(false);
+      if (updateUrl) navigate(fileUrl(file.path));
     } catch (error) {
       if (id === sequence.current) setError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -70,24 +93,52 @@ export function LocalFiles({ children }: { children: ReactNode }) {
     }
   };
   useEffect(() => {
-    if (location.pathname.startsWith("/file/")) {
+    const restoreRoute = () => {
+      ++sequence.current;
+      setLoading(false);
+      const standalone = initialStandalone();
+      setVisible(standalone);
+      setCommands(false);
+      setOpening(false);
+      setThemes(false);
+      if (!standalone) {
+        ++sequence.current;
+        setLoading(false);
+        repositoryUrl.current = location.pathname + location.search;
+        setReviewMounted(true);
+        return;
+      }
+      if (!location.pathname.startsWith("/file/")) return;
       try {
+        const path = decodeURIComponent(location.pathname.slice(5));
+        const existing = currentTabs.current.find((tab) => tab.id === path);
+        if (existing) {
+          setSelected(existing.id);
+          return;
+        }
         const params = new URLSearchParams(location.search);
         const coordinate = (name: string) => {
           const value = Number(params.get(name));
           return Number.isSafeInteger(value) && value > 0 ? value : undefined;
         };
         void open(
-          decodeURIComponent(location.pathname.slice(5)),
+          path,
           coordinate("line"),
           coordinate("column"),
           params.get("edit") === "1",
+          false,
         );
       } catch {
-        queueMicrotask(() => setError("This file link is not valid."));
+        setError("This file link is not valid.");
       }
-    }
-    const show = () => setVisible(true);
+    };
+    restoreRoute();
+    const show = () => {
+      if (!initialStandalone()) repositoryUrl.current = location.pathname + location.search;
+      navigate("/files");
+      setVisible(true);
+      setOpening(true);
+    };
     const beforeUnload = (event: BeforeUnloadEvent) => {
       if (drafts.hasDirty()) {
         event.preventDefault();
@@ -110,6 +161,8 @@ export function LocalFiles({ children }: { children: ReactNode }) {
       setLoading(false);
       setDragging(false);
       setError("");
+      if (!initialStandalone()) repositoryUrl.current = location.pathname + location.search;
+      navigate("/files");
       setVisible(true);
       const files = [...event.dataTransfer.files];
       if (!files.length) {
@@ -152,6 +205,7 @@ export function LocalFiles({ children }: { children: ReactNode }) {
         }
       }
     };
+    window.addEventListener("popstate", restoreRoute);
     window.addEventListener("med-open-file", show);
     window.addEventListener("beforeunload", beforeUnload);
     window.addEventListener("dragover", over);
@@ -162,6 +216,7 @@ export function LocalFiles({ children }: { children: ReactNode }) {
       // oxlint-disable-next-line react-hooks/exhaustive-deps
       ++sequence.current;
       clearTimeout(copiedTimer.current);
+      window.removeEventListener("popstate", restoreRoute);
       window.removeEventListener("med-open-file", show);
       window.removeEventListener("beforeunload", beforeUnload);
       window.removeEventListener("dragover", over);
@@ -169,10 +224,33 @@ export function LocalFiles({ children }: { children: ReactNode }) {
       window.removeEventListener("drop", drop);
     };
   }, [drafts]);
+  useEffect(() => {
+    if (!visible) return;
+    const shortcuts = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || event.isComposing)
+        return;
+      const key = event.key.toLowerCase();
+      if (key !== "k" && key !== "o") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      setThemes(false);
+      if (key === "k") {
+        setOpening(false);
+        setCommands((value) => !value);
+      } else {
+        setCommands(false);
+        setOpening(true);
+      }
+    };
+    window.addEventListener("keydown", shortcuts, true);
+    return () => window.removeEventListener("keydown", shortcuts, true);
+  }, [visible]);
   return (
     <>
       {reviewMounted && (
-        <div style={{ height: "100%", display: visible ? "none" : undefined }}>{children}</div>
+        <div inert={visible} style={{ height: "100%", display: visible ? "none" : undefined }}>
+          {children}
+        </div>
       )}
       {visible && (
         <div
@@ -191,33 +269,6 @@ export function LocalFiles({ children }: { children: ReactNode }) {
             } as CSSProperties
           }
         >
-          <div className="med-local-toolbar">
-            <strong>med</strong>
-            <span className="med-local-label">Files</span>
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                void open(path);
-              }}
-            >
-              <input
-                aria-label="Absolute file path"
-                placeholder="Open a file by absolute path…"
-                value={path}
-                onChange={(event) => setPath(event.target.value)}
-              />
-              <button disabled={!path.trim() || loading}>Open file</button>
-            </form>
-            <button onClick={() => setThemes(true)}>Theme</button>
-            <button
-              onClick={() => {
-                setReviewMounted(true);
-                setVisible(false);
-              }}
-            >
-              Repositories
-            </button>
-          </div>
           {error && (
             <div className="med-local-notice" role="alert">
               {error}
@@ -228,7 +279,8 @@ export function LocalFiles({ children }: { children: ReactNode }) {
               Opening file…
             </div>
           )}
-          {tabs.length > 0 && (
+          <div className="med-local-toolbar">
+            <strong>med</strong>
             <div className="med-local-tabs" role="tablist" aria-label="Open files">
               {tabs.map((tab) => (
                 <button
@@ -238,6 +290,7 @@ export function LocalFiles({ children }: { children: ReactNode }) {
                   onClick={() => {
                     setSelected(tab.id);
                     setCopied(false);
+                    navigate(tab.file.source.kind === "local" ? fileUrl(tab.file.path) : "/files");
                   }}
                   title={tab.file.path}
                 >
@@ -245,30 +298,37 @@ export function LocalFiles({ children }: { children: ReactNode }) {
                   {tab.file.path.split("/").at(-1)}
                 </button>
               ))}
-              <span className="med-local-grow" />
-              {active?.file.source.kind === "local" && (
-                <button
-                  onClick={() => {
-                    const url = new URL(
-                      `/file${active.file.path.split("/").map(encodeURIComponent).join("/")}`,
-                      location.origin,
-                    );
-                    if (active.line) url.searchParams.set("line", String(active.line));
-                    void navigator.clipboard
-                      .writeText(url.href)
-                      .then(() => {
-                        setCopied(true);
-                        clearTimeout(copiedTimer.current);
-                        copiedTimer.current = setTimeout(() => setCopied(false), 1400);
-                      })
-                      .catch(() => setError("Could not copy the link."));
-                  }}
-                >
-                  {copied ? "✓ Copied" : "Copy link"}
-                </button>
-              )}
             </div>
-          )}
+            <button onClick={() => setOpening(true)} title="Open file (⌘O / Ctrl+O)">
+              Open file…
+            </button>
+            <button onClick={() => setCommands(true)} title="Commands (⌘K / Ctrl+K)">
+              Commands
+            </button>
+            <button onClick={() => setThemes(true)}>Theme</button>
+            <button onClick={repositories}>Repositories</button>
+            {active?.file.source.kind === "local" && (
+              <button
+                onClick={() => {
+                  const url = new URL(
+                    `/file${active.file.path.split("/").map(encodeURIComponent).join("/")}`,
+                    location.origin,
+                  );
+                  if (active.line) url.searchParams.set("line", String(active.line));
+                  void navigator.clipboard
+                    .writeText(url.href)
+                    .then(() => {
+                      setCopied(true);
+                      clearTimeout(copiedTimer.current);
+                      copiedTimer.current = setTimeout(() => setCopied(false), 1400);
+                    })
+                    .catch(() => setError("Could not copy the link."));
+                }}
+              >
+                {copied ? "✓ Copied" : "Copy link"}
+              </button>
+            )}
+          </div>
           {active ? (
             <FullFileView
               key={active.id}
@@ -319,10 +379,68 @@ export function LocalFiles({ children }: { children: ReactNode }) {
           ) : (
             <div className="med-local-empty">
               <h1>Open a file</h1>
-              <p>Paste a file path above to view or edit it.</p>
+              <p>Use Open file… or ⌘O / Ctrl+O to enter an absolute path.</p>
               <p>Or drop a text file here for a read-only preview.</p>
             </div>
           )}
+          <CommandDialog
+            open={commands}
+            onOpenChange={setCommands}
+            commands={[
+              {
+                id: "open",
+                label: "Open file by absolute path",
+                shortcut: "⌘ O",
+                managesFocus: true,
+                run: () => setOpening(true),
+              },
+              {
+                id: "theme",
+                label: "Change color theme",
+                managesFocus: true,
+                run: () => setThemes(true),
+              },
+              { id: "repositories", label: "Go to repositories", run: repositories },
+              ...tabs.map((tab) => ({
+                id: tab.id,
+                label: `Switch to ${tab.file.path}`,
+                run: () => {
+                  setSelected(tab.id);
+                  navigate(tab.file.source.kind === "local" ? fileUrl(tab.file.path) : "/files");
+                },
+              })),
+            ]}
+          />
+          <Dialog.Root open={opening} onOpenChange={setOpening}>
+            <Dialog.Portal>
+              <Dialog.Backdrop className="med-local-backdrop" />
+              <Dialog.Popup className="med-local-dialog" initialFocus={pathInput}>
+                <Dialog.Title>Open file</Dialog.Title>
+                <Dialog.Description>
+                  Enter an absolute path to view or edit a local file.
+                </Dialog.Description>
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void open(path);
+                  }}
+                >
+                  <input
+                    ref={pathInput}
+                    aria-label="Absolute file path"
+                    placeholder="/path/to/file"
+                    value={path}
+                    onChange={(event) => setPath(event.target.value)}
+                  />
+                  {error && <p role="alert">{error}</p>}
+                  <div className="med-local-dialog-actions">
+                    <Dialog.Close>Cancel</Dialog.Close>
+                    <button disabled={!path.trim() || loading}>Open file</button>
+                  </div>
+                </form>
+              </Dialog.Popup>
+            </Dialog.Portal>
+          </Dialog.Root>
           <ThemePicker open={themes} onOpenChange={setThemes} />
         </div>
       )}

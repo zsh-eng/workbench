@@ -803,7 +803,7 @@ export function App({
   }, []);
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
-      if ((event.target as HTMLElement | null)?.closest?.("[data-standalone-files]")) return;
+      if (document.querySelector("[data-standalone-files]")) return;
       const editing = event
         .composedPath()
         .some(

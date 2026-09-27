@@ -175,6 +175,29 @@ try {
       "6",
   );
   await page.locator('diffs-container [data-line="1"]').waitFor();
+  // Files has its own command surface even before the repository app mounts.
+  assert.equal(await page.getByRole("textbox", { name: "Absolute file path" }).count(), 0);
+  await page.keyboard.press("Meta+k");
+  await page.getByRole("combobox", { name: "Search commands" }).fill("absolute path");
+  await page.keyboard.press("Enter");
+  await page.getByRole("textbox", { name: "Absolute file path" }).waitFor();
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Control+o");
+  await page.getByRole("textbox", { name: "Absolute file path" }).fill(loose);
+  await page.getByRole("dialog").getByRole("button", { name: "Open file", exact: true }).click();
+  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await page.getByRole("button", { name: "Theme", exact: true }).click();
+  await page.getByRole("combobox", { name: "Search themes" }).pressSequentially("night");
+  assert.equal(await page.getByRole("combobox", { name: "Search themes" }).inputValue(), "night");
+  assert.equal(await page.locator(".med-editor").count(), 0);
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector("diffs-container")
+        ?.shadowRoot?.querySelector('[data-line="1"]')
+        ?.getBoundingClientRect().height > 0,
+  );
   const viewTop = await page
     .locator('diffs-container [data-line="1"]')
     .evaluate((node) => node.getBoundingClientRect().top);
@@ -192,7 +215,40 @@ try {
     .first()
     .evaluate((node) => node.getBoundingClientRect().top);
   assert.ok(Math.abs(viewTop - editTop) < 1, `File content shifted: ${viewTop} → ${editTop}`);
+  await page.getByRole("button", { name: "Theme", exact: true }).click();
+  const themeInput = page.getByRole("combobox", { name: "Search themes" });
+  await themeInput.fill("");
+  await themeInput.pressSequentially("light");
+  assert.equal(await themeInput.inputValue(), "light");
+  assert.equal(await themeInput.evaluate((node) => node === document.activeElement), true);
+  await page.keyboard.press("Escape");
+  await page.locator(".cm-content").focus();
   await page.keyboard.type("gg0i");
+  const insertCaret = page.locator(".cm-cursorLayer:not(.cm-vimCursorLayer) .cm-cursor").first();
+  await insertCaret.waitFor({ state: "attached" });
+  assert.equal(await insertCaret.evaluate((node) => getComputedStyle(node).borderLeftWidth), "3px");
+  const [caretFrames] = await Promise.all([
+    insertCaret.evaluate(
+      (node) =>
+        new Promise((resolve) => {
+          const frames = [];
+          const start = performance.now();
+          const sample = () => {
+            frames.push(node.getBoundingClientRect().left);
+            if (performance.now() - start < 180) requestAnimationFrame(sample);
+            else resolve(frames);
+          };
+          requestAnimationFrame(sample);
+        }),
+    ),
+    page.keyboard.type("x"),
+  ]);
+  assert.ok(
+    new Set(caretFrames.map((x) => Math.round(x * 10))).size > 2,
+    `Insert caret must animate: ${caretFrames}`,
+  );
+  await page.keyboard.press("Escape");
+  await page.keyboard.type("ugg0i");
   await page.keyboard.type("// Edited in med\n");
   await page.keyboard.press("Escape");
   await page.keyboard.type(":w");
@@ -282,6 +338,11 @@ try {
   await page.getByText("Dropped file · preview only", { exact: true }).waitFor();
   await page.getByRole("button", { name: "Repositories", exact: true }).click();
   await marker("working").first().waitFor();
+  await page.goBack();
+  await page.getByRole("region", { name: "Standalone files" }).waitFor();
+  await page.getByText("Dropped file · preview only", { exact: true }).waitFor();
+  await page.goForward();
+  await marker("working").first().waitFor();
   assert.deepEqual(errors, []);
   const report = {
     toolbarHeight: viewHeight,
@@ -289,6 +350,10 @@ try {
     workingMarkers: liveMarkers,
     renderedAddedLines: afterCount,
     checks: [
+      "Files commands and on-demand absolute path dialog",
+      "theme search retains focus in viewer and editor",
+      "3 px insert caret with intermediate animation frames",
+      "Files and repositories browser Back/Forward",
       "authenticated exact-file access",
       "no write before open",
       "no directory or symlink editing",

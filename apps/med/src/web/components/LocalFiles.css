@@ -17,25 +17,9 @@
   display: flex;
   gap: 12px;
   align-items: center;
-  padding: 10px 16px;
+  padding: 6px 12px;
+  min-height: 28px;
   border-bottom: 1px solid var(--local-border);
-}
-.med-local-label {
-  color: var(--local-muted);
-}
-.med-local-toolbar form {
-  display: flex;
-  gap: 8px;
-  flex: 1;
-}
-.med-local input {
-  min-width: 80px;
-  width: 100%;
-  background: var(--local-panel);
-  border: 1px solid var(--local-border);
-  border-radius: 6px;
-  padding: 6px 10px;
-  color: inherit;
 }
 .med-local button {
   background: transparent;
@@ -56,16 +40,14 @@
 .med-local-tabs {
   display: flex;
   gap: 4px;
-  padding: 6px 12px;
+  flex: 1;
+  min-width: 0;
   overflow-x: auto;
-  border-bottom: 1px solid var(--local-border);
+  align-items: center;
 }
 .med-local-tabs [aria-selected="true"] {
   background: var(--local-panel);
   border-color: var(--local-accent);
-}
-.med-local-grow {
-  flex: 1;
 }
 .med-local-empty {
   margin: auto;
@@ -91,4 +73,59 @@
   place-items: center;
   pointer-events: none;
   font-size: 24px;
+}
+
+.med-local-backdrop {
+  position: fixed;
+  inset: 0;
+  background: #0006;
+  z-index: 50;
+}
+.med-local-dialog {
+  position: fixed;
+  top: 18vh;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(520px, calc(100vw - 48px));
+  box-sizing: border-box;
+  padding: 24px;
+  z-index: 51;
+  background: var(--med-panel);
+  color: var(--med-text);
+  border: 1px solid var(--med-border);
+  border-radius: 12px;
+  font:
+    14px/1.5 "Geist",
+    sans-serif;
+}
+.med-local-dialog h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 500;
+}
+.med-local-dialog p {
+  color: var(--med-muted);
+}
+.med-local-dialog input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px;
+  background: var(--med-canvas);
+  color: inherit;
+  border: 1px solid var(--med-border);
+  border-radius: 6px;
+}
+.med-local-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+.med-local-dialog button {
+  padding: 6px 12px;
+  background: var(--med-canvas);
+  color: inherit;
+  border: 1px solid var(--med-border);
+  border-radius: 6px;
+  cursor: pointer;
 }

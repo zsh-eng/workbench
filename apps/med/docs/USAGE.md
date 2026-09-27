@@ -234,7 +234,11 @@ Symbol and navigation validation: [Ctags and Zoekt benchmarks](validation/SYMBOL
 ## Standalone files and dropped previews
 
 Open **Open standalone file** from the command palette, or visit `/files` on the
-running host. Paste an absolute file path to open a tab. The file does not need
+running host. Use **Open file…** or **⌘O / Ctrl+O** in Files to enter an absolute
+path. **⌘K / Ctrl+K** opens Files commands, including opening a path, switching
+tabs, themes, and returning to repositories. Tabs and actions share one row.
+Browser Back and Forward restore Files after switching to repositories.
+The file does not need
 to belong to a Git repository. **Edit**, Vim commands, the saved-state dot, and
 conflict-checked saves work as they do for working files. Both file toolbars are
 32 px high, so entering or leaving Edit does not move the content boundary.
@@ -320,6 +324,8 @@ paragraphs, two diagrams, equations, a local image, a table and TypeScript.
 
 Toggle Markdown Preview with **Cmd+Shift+V** on macOS or **Ctrl+Shift+V** on
 Windows/Linux while focus is in the file or preview pane. The toolbar button
-shows the shortcut on hover. Contents and heading links scroll only the preview.
+shows the shortcut on hover. Contents links move the source cursor in both
+editor and viewer modes; the preview follows the source position. In-document
+anchor links stay within the preview.
 Source scrolling follows fractional line positions with continuous interpolation
 and a short ease-out; reduced-motion mode moves directly to the target.

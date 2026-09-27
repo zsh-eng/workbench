@@ -78,3 +78,19 @@ scale with the body: H1 is 26.25–38.5 px, H2 is 22.75 px, H3 is 19.25 px,
 and H4–H6 are 14 px. Heading gaps scale down as well; font weights are unchanged. Build/typecheck passed. Chromium checks confirmed the sizing
 in light and dark themes and no horizontal overflow at a 650 px viewport.
 The screenshots above retain the previous 16 px version for comparison.
+
+
+## Source navigation and Files controls
+
+Contents links now move the source cursor, in both editor and read-only modes.
+The preview follows that position. Generated footnote headings use the source
+footnote location rather than line 1. End-of-file jumps use nearest-edge source
+scrolling, so CodeMirror cannot scroll the split container to center the last line.
+The production Markdown check verifies the active source line, preview position,
+unchanged column bounds, and read-only Vim position.
+
+The standalone file browser check covers Cmd+K, Ctrl+O, path submission, theme
+search typing in viewer and editor modes, and Files/Repositories Back and Forward.
+It also measures intermediate insert-caret positions during typing. The virtual
+insert caret is 3 px wide and uses the normal caret's 65 ms ease-out transition;
+reduced motion disables that transition. Theme previews preserve input focus.
