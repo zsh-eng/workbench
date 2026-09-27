@@ -432,3 +432,18 @@ Validation: all five affected simulator UI tests passed on the final code.
 A frame-position assertion checks that the first article moves up by exactly
 98 points when news is hidden. Hidden/open screenshots were reviewed. Weekly
 favourites and the publisher save/unsave/homepage/relaunch flow also passed.
+
+### Scroll ownership correction
+
+The news shelf now sits outside the lazy article stack. Recycling an article row
+must not detach the scroll observer or rewrite the library inset. The observer
+listens to the existing pan recognizer; it no longer replaces SwiftUI's scroll
+delegate. Normal drags and momentum remain under the native scroll view's owner.
+Only release within the news reveal range requests a bounded settle.
+
+A separate UI regression traverses a 1,000-article library in both directions
+and repeats scrolling after opening news. The original device lock-up did not
+reproduce in that simulator test; physical-device confirmation remains required.
+
+Validation: the long-list scrolling, reveal/return, Reduce Motion and empty
+library UI checks passed. The signed iOS Release build also passed.

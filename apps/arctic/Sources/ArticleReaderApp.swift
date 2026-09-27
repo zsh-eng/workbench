@@ -679,7 +679,12 @@ struct LibraryView: View {
                   }.padding(.top, headerHeight + topInset + 16)
                 }
               } else {
-                ScrollView { library(in: item) }
+                ScrollView {
+                  VStack(spacing: 0) {
+                    if item == .saved { discoveryShelf.padding(.bottom, 18) }
+                    library(in: item)
+                  }
+                }
                   .modifier(
                     LibraryScrollActivity {
                       if folder == item && !searching { isLibraryScrolling = $0 }
@@ -757,7 +762,6 @@ struct LibraryView: View {
   private func library(in item: ArticleFolder) -> some View {
     let compact = item == .history || item == .archive
     return LazyVStack(alignment: .leading, spacing: compact ? 0 : 18) {
-      if item == .saved { discoveryShelf.padding(.horizontal, -16) }
       ForEach(matches(in: item)) { article in
         articleButton(article) {
           if compact {

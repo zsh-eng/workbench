@@ -149,6 +149,29 @@ final class FavouritesUITests: XCTestCase {
     XCTAssertTrue(app.webViews.staticTexts["“Slow down,” she said — café, naïve, 日本語. Keep every character intact."].firstMatch.waitForExistence(timeout: 10))
   }
 
+  @MainActor func testNewsDoesNotTrapLibraryScrolling() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-ui-testing", "-reset-store", "-reset-appearance",
+      "-seed-long-list", "-articles-offline", "-images-offline", "-disable-preloading"]
+    app.launch()
+    let first = app.buttons["article-import-999"]
+    XCTAssertTrue(first.waitForExistence(timeout: 10))
+    let initialY = first.frame.minY
+    let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+    let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+    start.press(forDuration: 0.05, thenDragTo: end,
+      withVelocity: .slow, thenHoldForDuration: 0.2)
+    XCTAssertTrue(!first.exists || first.frame.minY < initialY - 150,
+      "The list must follow an ordinary upward drag")
+    for _ in 0..<4 { app.swipeUp() }
+    XCTAssertFalse(first.isHittable, "Repeated swipes must move beyond the first article")
+    for _ in 0..<7 { app.swipeDown() }
+    XCTAssertTrue(first.isHittable, "The library must scroll back to its first article")
+    revealDiscovery(app)
+    for _ in 0..<4 { app.swipeUp() }
+    XCTAssertFalse(first.isHittable, "The list must scroll normally after news was opened")
+  }
+
   @MainActor func testDiscoveryGatherReversesWithScroll() {
     checkDiscoveryMotion(reduced: false)
   }

@@ -72,20 +72,18 @@ import UIKit
 
   /// Only the finger can commit a reveal. Native overscroll or deceleration
   /// cannot change the resting inset or open the publisher controls.
-  func endDragging(_ scroll: UIScrollView, target: UnsafeMutablePointer<CGPoint>) {
+  func endDragging(_ scroll: UIScrollView, cancelled: Bool = false) {
     guard enabled else { return }
     let travel = scroll.contentOffset.y + scroll.adjustedContentInset.top
     if !isOpen {
       guard travel < 0 else { return }
-      if -travel >= trigger { setOpen(true, scroll: scroll) }
+      if !cancelled, -travel >= trigger { setOpen(true, scroll: scroll) }
       pendingDestination = -scroll.adjustedContentInset.top
-      target.pointee = scroll.contentOffset
     } else {
       if travel > 12 { setOpen(false, scroll: scroll) }
       // Preserve normal scrolling once the shelf is already offscreen.
       if travel < shelfHeight {
         pendingDestination = -scroll.adjustedContentInset.top
-        target.pointee = scroll.contentOffset
       }
     }
   }
@@ -310,7 +308,6 @@ final class DiscoveryShelfView: UIView {
   weak var verticalScroll: UIScrollView?
   private var verticalObservation: NSKeyValueObservation?
   private var horizontalObservation: NSKeyValueObservation?
-  private var scrollDelegate: DiscoveryScrollDelegate?
   private let motion: DiscoveryMotion
   var open: (URL) -> Void = { _ in }
   var weekly: () -> Void = {}
@@ -410,15 +407,25 @@ final class DiscoveryShelfView: UIView {
     motion.update()
   }
   private func unbindScrollView() {
-    if let scroll = verticalScroll, let delegate = scrollDelegate,
-      scroll.delegate === delegate
-    {
-      scroll.delegate = delegate.forwarding
-    }
+    verticalScroll?.panGestureRecognizer.removeTarget(self, action: #selector(scrollGesture(_:)))
     if let scroll = verticalScroll { motion.unbind(scroll) }
-    scrollDelegate = nil
     verticalObservation = nil
     verticalScroll = nil
+  }
+
+  // Observe the existing recognizer without replacing SwiftUI's delegate or
+  // competing with its pan recognizer. Ordinary scrolling stays entirely native.
+  @objc private func scrollGesture(_ pan: UIPanGestureRecognizer) {
+    guard let scroll = verticalScroll else { return }
+    switch pan.state {
+    case .began:
+      motion.beginDragging(scroll)
+    case .ended, .cancelled:
+      motion.endDragging(scroll, cancelled: pan.state == .cancelled)
+      motion.didEndDragging(scroll)
+    default:
+      break
+    }
   }
 
   private func bindScrollView() {
@@ -429,9 +436,7 @@ final class DiscoveryShelfView: UIView {
         unbindScrollView()
         verticalScroll = scroll
         motion.bind(scroll)
-        let delegate = DiscoveryScrollDelegate(motion: motion, forwarding: scroll.delegate)
-        scrollDelegate = delegate
-        scroll.delegate = delegate
+        scroll.panGestureRecognizer.addTarget(self, action: #selector(scrollGesture(_:)))
         if scroll.isDragging { motion.beginDragging(scroll) }
         verticalObservation = scroll.observe(\.contentOffset) { [weak self] _, _ in
           self?.motion.update()
@@ -440,45 +445,6 @@ final class DiscoveryShelfView: UIView {
       }
       ancestor = view.superview
     }
-  }
-}
-
-/// Preserve SwiftUI's scroll delegate and all its optional callbacks. Intercept
-/// only gesture boundaries, after forwarding, to hand release to the fixed settle.
-@MainActor private final class DiscoveryScrollDelegate: NSObject, UIScrollViewDelegate {
-  weak var forwarding: UIScrollViewDelegate?
-  private let motion: DiscoveryMotion
-
-  init(motion: DiscoveryMotion, forwarding: UIScrollViewDelegate?) {
-    self.motion = motion
-    self.forwarding = forwarding
-  }
-
-  override func responds(to selector: Selector!) -> Bool {
-    super.responds(to: selector) || (forwarding?.responds(to: selector) ?? false)
-  }
-
-  override func forwardingTarget(for selector: Selector!) -> Any? {
-    forwarding?.responds(to: selector) == true ? forwarding : super.forwardingTarget(for: selector)
-  }
-
-  func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
-    forwarding?.scrollViewWillBeginDragging?(scrollView)
-    motion.beginDragging(scrollView)
-  }
-
-  func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-    forwarding?.scrollViewDidEndDragging?(scrollView, willDecelerate: decelerate)
-    motion.didEndDragging(scrollView)
-  }
-
-  func scrollViewWillEndDragging(
-    _ scrollView: UIScrollView, withVelocity velocity: CGPoint,
-    targetContentOffset: UnsafeMutablePointer<CGPoint>
-  ) {
-    forwarding?.scrollViewWillEndDragging?(
-      scrollView, withVelocity: velocity, targetContentOffset: targetContentOffset)
-    motion.endDragging(scrollView, target: targetContentOffset)
   }
 }
 
