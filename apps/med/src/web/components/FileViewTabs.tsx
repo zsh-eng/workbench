@@ -1,3 +1,4 @@
+import { ActionTooltip } from "./ToolButton";
 import * as stylex from "@stylexjs/stylex";
 import { Tabs } from "@base-ui/react/tabs";
 import { distinctLabels } from "../data/tab-labels";
@@ -47,7 +48,11 @@ export function FileViewTabs({
           <Tabs.Tab
             value="changes"
             aria-controls={panelId}
-            {...stylex.props(styles.tab, active === "changes" && styles.active)}
+            {...stylex.props(
+              styles.tab,
+              active === "changes" && styles.active,
+              active === "changes" && styles.selectedItem,
+            )}
           >
             Changes
           </Tabs.Tab>
@@ -57,41 +62,48 @@ export function FileViewTabs({
             key={tab.id}
             {...stylex.props(styles.item, active === tab.id && styles.selectedItem)}
           >
-            <Tabs.Tab
-              value={tab.id}
-              aria-controls={panelId}
-              title={`${tab.path}${tab.sourceLabel ? ` · ${tab.sourceLabel}` : ""}${tab.pinned ? "" : " · Preview (double-click to keep open)"}`}
-              onDoubleClick={() => onPin(tab.id)}
-              {...stylex.props(
-                styles.tab,
-                !tab.pinned && styles.preview,
-                active === tab.id && styles.active,
-              )}
+            <ActionTooltip
+              label={`${tab.path}${tab.sourceLabel ? ` · ${tab.sourceLabel}` : ""}${tab.pinned ? "" : " · Preview (double-click to keep open)"}`}
             >
-              <Icon name="file" size={13} />
-              <span {...stylex.props(styles.name)}>{labels[index]}</span>
-              {tab.dirty && (
-                <span
-                  aria-label="Unsaved changes"
-                  title="Unsaved changes"
-                  style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: "50%",
-                    background: "currentColor",
-                    flexShrink: 0,
-                  }}
-                />
-              )}
-            </Tabs.Tab>
-            <button
-              {...stylex.props(ui.button, styles.close)}
-              aria-label={`Close ${tab.path}`}
-              title={`Close ${tab.path}`}
-              onClick={() => onClose(tab.id)}
+              <Tabs.Tab
+                value={tab.id}
+                aria-controls={panelId}
+                onDoubleClick={() => onPin(tab.id)}
+                {...stylex.props(
+                  styles.tab,
+                  !tab.pinned && styles.preview,
+                  active === tab.id && styles.active,
+                )}
+              >
+                <Icon name="file" size={13} />
+                <span {...stylex.props(styles.name)}>{labels[index]}</span>
+                {tab.dirty && (
+                  <span
+                    aria-label="Unsaved changes"
+                    title="Unsaved changes"
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: "50%",
+                      background: "currentColor",
+                      flexShrink: 0,
+                    }}
+                  />
+                )}
+              </Tabs.Tab>
+            </ActionTooltip>
+            <ActionTooltip
+              label={`Close ${tab.path}`}
+              shortcut={active === tab.id ? "⌥ W" : undefined}
             >
-              <Icon name="close" size={12} />
-            </button>
+              <button
+                {...stylex.props(ui.button, styles.close)}
+                aria-label={`Close ${tab.path}`}
+                onClick={() => onClose(tab.id)}
+              >
+                <Icon name="close" size={12} />
+              </button>
+            </ActionTooltip>
           </div>
         ))}
       </Tabs.List>
@@ -107,22 +119,29 @@ const styles = stylex.create({
     borderBottomStyle: "solid",
     borderBottomColor: tokens.border,
   },
-  list: { display: "flex", overflowX: "auto", scrollbarWidth: "thin", minHeight: 28 },
+  list: {
+    display: "flex",
+    alignItems: "center",
+    gap: 2,
+    paddingBlock: 2,
+    paddingInline: 4,
+    overflowX: "auto",
+    scrollbarWidth: "thin",
+    minHeight: 32,
+  },
   item: {
     display: "flex",
     alignItems: "center",
     flexShrink: 0,
-    borderRightWidth: 1,
-    borderRightStyle: "solid",
-    borderRightColor: tokens.border,
+    borderRadius: 7,
   },
-  selectedItem: { backgroundColor: tokens.canvas },
+  selectedItem: { backgroundColor: tokens.canvas, boxShadow: `inset 0 -2px ${tokens.accent}` },
   tab: {
     display: "flex",
     alignItems: "center",
     gap: 6,
     borderWidth: 0,
-    borderRadius: 0,
+    borderRadius: 6,
     backgroundColor: { default: "transparent", ":hover": tokens.hover },
     color: tokens.muted,
     paddingBlock: 4,
@@ -135,7 +154,7 @@ const styles = stylex.create({
     outlineOffset: -2,
     whiteSpace: "nowrap",
   },
-  active: { color: tokens.text, backgroundColor: tokens.canvas },
+  active: { color: tokens.text, backgroundColor: "transparent" },
   preview: { fontStyle: "italic" },
   name: { maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" },
   close: { width: 22, minHeight: 22, paddingInline: 3, marginRight: 6 },

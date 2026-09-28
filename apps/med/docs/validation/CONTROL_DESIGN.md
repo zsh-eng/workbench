@@ -41,3 +41,40 @@ browser and server. `MED_VISUAL_OUTPUT` changes the screenshot directory.
 `MED_EXECUTABLE=/path/to/previous/med MED_VISUAL_BASELINE=1` captures the baseline.
 The existing `validate-editor-interactions.mjs` checks editor selection, clipboard,
 shortcuts, and blame through the production application.
+
+## Additional UI audit
+
+Close-ups of the branch picker, comparison menu, push dialog, comment composer,
+saved comments, repository sidebar, and file tabs exposed these inconsistencies:
+
+- An unlayered font reset overrode StyleX component fonts. Push controls rendered
+  at 16 px instead of their declared 12 px. Move the reset into the base cascade
+  layer so each component controls its typography.
+- File tabs used square dividers. Use compact rounded tabs and a continuous
+  selected underline. Branch and file controls now use shared tooltips. Show the
+  close shortcut only for the active file, which is the shortcut's target.
+- The branch picker had a text refresh control and no visible Escape hint. Use
+  the shared refresh button and Escape keycap.
+- The file sidebar header was 37 px tall. Match the editor's 32 px header and use
+  shared utility controls. Keep the sidebar on the right.
+- The comment composer used a plain-text shortcut hint. Use the shared keycaps
+  and show the current platform's shortcut.
+
+Command palette rows remain text-only. These changes preserve selection, editor
+shortcuts, comment behavior, and the existing light and dark themes.
+
+The following captures use the same fixture content and 2x viewport settings.
+Temporary paths and commit IDs differ between runs.
+
+| Element | Before | After |
+| --- | --- | --- |
+| File tabs | ![Before](ui-audit/before-file-tabs.png) | ![After](ui-audit/after-file-tabs.png) |
+| Branch picker | ![Before](ui-audit/before-branches.png) | ![After](ui-audit/after-branches.png) |
+| Push dialog | ![Before](ui-audit/before-push.png) | ![After](ui-audit/after-push.png) |
+| Comment composer | ![Before](ui-audit/before-comment.png) | ![After](ui-audit/after-comment.png) |
+| File sidebar | ![Before](ui-audit/before-sidebar.png) | ![After](ui-audit/after-sidebar.png) |
+
+Validation: build and lint passed. The production-browser visual controls check
+now covers computed control typography, text-only command rows, and file-tab
+closure with shortcut tooltips. Multi-repository, saved-review, and editor
+interaction scripts also passed. Test browsers and fixture hosts were closed.

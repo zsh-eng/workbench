@@ -87,6 +87,18 @@ try {
     clip: { x: 0, y: 0, width: 1280, height: 215 },
   });
   if (phase === "after") {
+    await page.getByRole("button", { name: "Push", exact: true }).click();
+    const pushDialog = page.getByRole("dialog");
+    await pushDialog.waitFor();
+    assert.equal(
+      await pushDialog
+        .getByRole("button", { name: "Cancel", exact: true })
+        .evaluate((e) => getComputedStyle(e).fontSize),
+      "12px",
+      "The global font reset must not override compact control typography",
+    );
+    await page.keyboard.press("Escape");
+    await pushDialog.waitFor({ state: "hidden" });
     await page.getByRole("button", { name: "View options", exact: true }).click();
     await page.getByRole("menuitem", { name: /Find in diffs/ }).waitFor();
     await page.keyboard.press("Escape");
@@ -101,6 +113,11 @@ try {
   await page.waitForTimeout(250);
   await page.getByRole("dialog").screenshot({ path: out + "/" + phase + "-palette.png" });
   if (phase === "after") {
+    assert.equal(
+      await page.getByRole("option").locator("svg").count(),
+      0,
+      "Command rows stay text-only",
+    );
     const search = page.getByRole("combobox", { name: "Search commands", exact: true });
     assert.equal(await search.evaluate((e) => document.activeElement === e), true);
     await search.fill("color theme");
@@ -173,7 +190,26 @@ try {
     path: out + "/" + phase + "-light-toolbar.png",
     clip: { x: 620, y: 0, width: 660, height: 132 },
   });
-  if (phase === "after") assert.deepEqual(errors, []);
+  if (phase === "after") {
+    await page.goto(
+      new URL(url).origin + "/file?" + new URLSearchParams({ repo, path: "README.md" }),
+    );
+    await page.locator(".cm-content").waitFor();
+    const files = page.getByRole("tablist", { name: "Open files" });
+    const fileTab = files.getByRole("tab", { name: /README/ });
+    assert.equal(await fileTab.getAttribute("aria-selected"), "true");
+    const close = files.getByRole("button", { name: "Close README.md", exact: true });
+    await close.hover();
+    await page.getByRole("tooltip").waitFor();
+    assert.equal(await page.getByRole("tooltip").locator("kbd").count(), 2);
+    await close.click();
+    await fileTab.waitFor({ state: "hidden" });
+    assert.equal(
+      await files.getByRole("tab", { name: "Changes", exact: true }).getAttribute("aria-selected"),
+      "true",
+    );
+    assert.deepEqual(errors, []);
+  }
   console.log(out + " " + phase + " screenshots captured");
 } finally {
   await browser?.close();

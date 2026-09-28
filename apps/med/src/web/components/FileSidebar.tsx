@@ -196,7 +196,7 @@ const styles = stylex.create({
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: tokens.border,
-    borderRadius: 4,
+    borderRadius: 7,
     color: tokens.faint,
   },
   input: {

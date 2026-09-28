@@ -21,10 +21,13 @@ body,
 * {
   box-sizing: border-box;
 }
-button,
-input,
-textarea {
-  font: inherit;
+/* StyleX's base layer: inherited defaults must not override component fonts. */
+@layer priority1 {
+  button,
+  input,
+  textarea {
+    font: inherit;
+  }
 }
 button:disabled {
   cursor: default;

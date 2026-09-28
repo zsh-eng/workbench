@@ -1,3 +1,5 @@
+import { ToolButton } from "./ToolButton";
+import { ShortcutKeys } from "./ShortcutKeys";
 import * as stylex from "@stylexjs/stylex";
 import { Dialog } from "@base-ui/react/dialog";
 import { useEffect, useId, useRef, useState } from "react";
@@ -101,13 +103,16 @@ export function BranchPicker({
         >
           <div {...stylex.props(styles.heading)}>
             <Dialog.Title {...stylex.props(styles.title)}>Open branch</Dialog.Title>
-            <button
-              {...stylex.props(ui.button)}
+            <span {...stylex.props(ui.grow)} />
+            <ToolButton
+              label="Refresh branches"
+              icon="refresh"
               disabled={pending}
               onClick={() => void manage(onRefresh)}
-            >
-              Refresh
-            </button>
+            />
+            <Dialog.Close aria-label="Close branch picker" {...stylex.props(ui.button)}>
+              <ShortcutKeys value="Esc" />
+            </Dialog.Close>
           </div>
           <Dialog.Description {...stylex.props(styles.hidden)}>
             Choose a branch or worktree from your repositories.

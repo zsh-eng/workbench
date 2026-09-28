@@ -63,6 +63,7 @@ const styles = stylex.create({
     alignItems: "center",
     gap: 12,
     maxWidth: "min(320px, 90vw)",
+    overflowWrap: "anywhere",
     paddingBlock: 7,
     paddingInline: 10,
     borderRadius: 9,

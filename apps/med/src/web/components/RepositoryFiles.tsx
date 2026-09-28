@@ -1,10 +1,10 @@
+import { ToolButton } from "./ToolButton";
 import * as stylex from "@stylexjs/stylex";
 import { prepareFileTreeInput } from "@pierre/trees";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
 import type { BrowseEntry } from "../../shared/browse";
 import { tokens, ui } from "../theme.stylex";
-import { Icon } from "./Icon";
 
 export interface RepositoryFilesProps {
   entries: BrowseEntry[];
@@ -100,20 +100,8 @@ export function RepositoryFiles(props: RepositoryFilesProps) {
       <div {...stylex.props(styles.heading)}>
         <span>Files</span>
         <span {...stylex.props(ui.grow)} />
-        <button
-          {...stylex.props(ui.button, ui.iconButton)}
-          onClick={onRefresh}
-          aria-label="Refresh files"
-        >
-          <Icon name="refresh" size={13} />
-        </button>
-        <button
-          {...stylex.props(ui.button, ui.iconButton)}
-          onClick={onClose}
-          aria-label="Close files sidebar"
-        >
-          <Icon name="close" size={13} />
-        </button>
+        <ToolButton label="Refresh files" icon="refresh" onClick={onRefresh} />
+        <ToolButton label="Close files sidebar" icon="close" onClick={onClose} />
       </div>
       <div {...stylex.props(styles.source)} title={sourceLabel}>
         {sourceLabel}
@@ -198,8 +186,8 @@ const styles = stylex.create({
     overflow: "hidden",
   },
   heading: {
-    height: 37,
-    minHeight: 37,
+    height: 32,
+    minHeight: 32,
     display: "flex",
     alignItems: "center",
     gap: 3,

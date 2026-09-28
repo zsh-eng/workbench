@@ -1,3 +1,4 @@
+import { ShortcutKeys } from "./ShortcutKeys";
 import * as stylex from "@stylexjs/stylex";
 import { useEffect, useRef, useState } from "react";
 import type { Note, NoteInput, NoteMutation } from "../../shared/protocol";
@@ -113,7 +114,7 @@ function CommentEditor({
         </p>
       )}
       <div {...stylex.props(styles.actions)}>
-        <span {...stylex.props(styles.hint)}>⌘ / Ctrl Enter</span>
+        <ShortcutKeys value={/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘ ↵" : "Ctrl ↵"} />
         <span {...stylex.props(ui.grow)} />
         <button
           type="button"

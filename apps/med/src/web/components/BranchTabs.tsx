@@ -1,3 +1,4 @@
+import { ActionTooltip, ToolButton } from "./ToolButton";
 import * as stylex from "@stylexjs/stylex";
 import { Tabs } from "@base-ui/react/tabs";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -109,56 +110,53 @@ export function BranchTabs({
         <Tabs.List aria-label="Branches and worktrees" {...stylex.props(styles.list)}>
           {visible.map((entry) => (
             <div key={entry.key} {...stylex.props(styles.tabGroup)}>
-              <Tabs.Tab
-                value={entry.key}
-                aria-label={labelFor(entry)}
-                aria-controls="review-workspace"
-                onKeyDown={(event) => {
-                  if (event.key === "Delete" || event.key === "Backspace") {
-                    event.preventDefault();
-                    close(entry);
-                  }
-                }}
-                title={
+              <ActionTooltip
+                label={
                   entry.path
                     ? `${entry.label}\nWorktree: ${entry.path}`
                     : `${entry.label}\nCommit ${entry.head.slice(0, 7)} · no worktree`
                 }
-                {...stylex.props(styles.tab, entry.key === active && styles.active)}
               >
-                <Icon name="branch" size={14} />
-                <span {...stylex.props(styles.name)}>{labelFor(entry)}</span>
-                {entry.path && (
-                  <span
-                    aria-label="Existing worktree"
-                    title="Existing worktree"
-                    {...stylex.props(styles.dot)}
-                  />
-                )}
-              </Tabs.Tab>
-              <button
-                type="button"
-                disabled={visible.length <= 1}
-                tabIndex={-1}
-                aria-label={`Close ${labelFor(entry)}`}
-                title={`Close ${labelFor(entry)}`}
-                onClick={() => close(entry)}
-                {...stylex.props(styles.close)}
-              >
-                <Icon name="close" size={11} />
-              </button>
+                <Tabs.Tab
+                  value={entry.key}
+                  aria-label={labelFor(entry)}
+                  aria-controls="review-workspace"
+                  onKeyDown={(event) => {
+                    if (event.key === "Delete" || event.key === "Backspace") {
+                      event.preventDefault();
+                      close(entry);
+                    }
+                  }}
+                  {...stylex.props(styles.tab, entry.key === active && styles.active)}
+                >
+                  <Icon name="branch" size={14} />
+                  <span {...stylex.props(styles.name)}>{labelFor(entry)}</span>
+                  {entry.path && (
+                    <span
+                      aria-label="Existing worktree"
+                      title="Existing worktree"
+                      {...stylex.props(styles.dot)}
+                    />
+                  )}
+                </Tabs.Tab>
+              </ActionTooltip>
+              <ActionTooltip label={`Close ${labelFor(entry)}`}>
+                <button
+                  type="button"
+                  disabled={visible.length <= 1}
+                  tabIndex={-1}
+                  aria-label={`Close ${labelFor(entry)}`}
+                  onClick={() => close(entry)}
+                  {...stylex.props(styles.close)}
+                >
+                  <Icon name="close" size={11} />
+                </button>
+              </ActionTooltip>
             </div>
           ))}
         </Tabs.List>
       </Tabs.Root>
-      <button
-        {...stylex.props(ui.button, ui.iconButton)}
-        aria-label="Open branch"
-        title="Open branch"
-        onClick={() => onPickerOpenChange(true)}
-      >
-        <Icon name="plus" size={15} />
-      </button>
+      <ToolButton label="Open branch" icon="plus" onClick={() => onPickerOpenChange(true)} />
       {error && (
         <span role="status" {...stylex.props(ui.faint)} title={error}>
           Branches unavailable
