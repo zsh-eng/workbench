@@ -177,12 +177,17 @@ struct DiscoveryHeader: View {
 }
 
 struct NativeDiscoveryShelf: UIViewRepresentable {
+  @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+  @Environment(\.articleReduceMotion) private var appReduceMotion
   let open: (URL) -> Void
   let weekly: () -> Void
   func makeUIView(context: Context) -> DiscoveryShelfView {
-    DiscoveryShelfView()
+    let view = DiscoveryShelfView()
+    view.reduceMotion = systemReduceMotion || appReduceMotion
+    return view
   }
   func updateUIView(_ view: DiscoveryShelfView, context: Context) {
+    view.reduceMotion = systemReduceMotion || appReduceMotion
     view.open = open
     view.weekly = weekly
     view.updatePalette()
@@ -196,9 +201,13 @@ final class DiscoveryShelfView: UIView {
   var buttons: [UIButton] = []
   var open: (URL) -> Void = { _ in }
   var weekly: () -> Void = {}
+  var reduceMotion = false
+  private var entrance: [UIViewPropertyAnimator] = []
 
   init() {
     super.init(frame: .zero)
+    backgroundColor = .clear
+    scroller.backgroundColor = .clear
     scroller.showsHorizontalScrollIndicator = false
     scroller.alwaysBounceHorizontal = true
     scroller.contentInsetAdjustmentBehavior = .never
@@ -244,6 +253,35 @@ final class DiscoveryShelfView: UIView {
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    for animator in entrance { animator.stopAnimation(true) }
+    entrance.removeAll()
+    for icon in icons {
+      icon.transform = .identity
+      icon.alpha = 1
+    }
+    for label in labels { label.alpha = 1 }
+    guard window != nil, !reduceMotion else { return }
+    // Animate only the six bubble surfaces. The list, tabs and hit targets never
+    // participate, and removal cancels all delayed starts during rapid toggles.
+    for index in icons.indices {
+      let icon = icons[index]
+      let label = labels[index]
+      icon.transform = CGAffineTransform(translationX: -CGFloat(min(index, 4)) * 3, y: -6)
+        .scaledBy(x: 0.72, y: 0.72)
+      icon.alpha = 0
+      label.alpha = 0
+      let animator = UIViewPropertyAnimator(duration: 0.32, dampingRatio: 0.78) {
+        icon.transform = .identity
+        icon.alpha = 1
+        label.alpha = 1
+      }
+      entrance.append(animator)
+      animator.startAnimation(afterDelay: Double(min(index, 4)) * 0.025)
+    }
+  }
+
   // The official FT avatar places the letters 24px above the canvas centre.
   // Normalize the artwork once so both the shelf and its compact header mark are centred.
   private static let centeredFT: UIImage? = {
@@ -270,7 +308,9 @@ final class DiscoveryShelfView: UIView {
     scroller.contentSize = CGSize(width: CGFloat(buttons.count) * 86 + 22, height: bounds.height)
     for index in buttons.indices {
       buttons[index].frame = CGRect(x: 16 + CGFloat(index) * 86, y: 0, width: 68, height: 88)
-      icons[index].frame = CGRect(x: 5, y: 4, width: 58, height: 58)
+      // Frame is undefined while a view is transformed by its entrance spring.
+      icons[index].bounds = CGRect(x: 0, y: 0, width: 58, height: 58)
+      icons[index].center = CGPoint(x: 34, y: 33)
       labels[index].frame = CGRect(x: 0, y: 70, width: 68, height: 18)
     }
   }

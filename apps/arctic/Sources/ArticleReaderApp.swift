@@ -698,7 +698,7 @@ struct LibraryView: View {
       VStack(spacing: 0) {
         // News is outside the pager. Opening it changes the available viewport,
         // not any page's scroll offset or content inset.
-        Color.clear.frame(height: discoveryAvailable && discoveryMotion.isExpanded ? 110 : 0)
+        Color.clear.frame(height: discoveryAvailable && discoveryMotion.isExpanded ? 128 : 0)
         ZStack(alignment: .top) {
           LibraryPager(pages: folderItems, selection: $folder, reduceMotion: reduceMotion) { item in
             GeometryReader { geometry in
@@ -737,7 +737,11 @@ struct LibraryView: View {
           }
           .ignoresSafeArea(.container, edges: .bottom)
           LibraryScrollEdge()
-            .frame(height: topInset + headerHeight + 28)
+            // Expanded news owns the area above the tabs. Keep the list's fade
+            // below that safe-area space, rather than painting behind the panel.
+            .frame(height: headerHeight + 28 + (discoveryMotion.isExpanded ? 0 : topInset))
+            .clipped()
+            .padding(.top, discoveryMotion.isExpanded ? topInset : 0)
             .frame(maxHeight: .infinity, alignment: .top)
           DiscoveryPullChrome(motion: discoveryMotion) {
             libraryHeader
@@ -762,9 +766,13 @@ struct LibraryView: View {
         if discoveryAvailable && discoveryMotion.isExpanded {
           DiscoveryPullChrome(motion: discoveryMotion) {
             discoveryShelf
+              .padding(.vertical, 6)
+              .readerGlass(cornerRadius: 30)
+              .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
+              .padding(.horizontal, 12)
               .padding(.top, topInset + 8)
           }
-            .transition(reduceMotion || appReduceMotion ? .opacity : .opacity.combined(with: .offset(y: -8)))
+            .transition(reduceMotion || appReduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.94, anchor: .top)))
             .zIndex(1)
         }
       }

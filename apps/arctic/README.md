@@ -401,10 +401,15 @@ the mark and name shift right to make room for the circles. Tap the header or pu
 down at the top by 44 points to open the row; the pull gives one medium haptic.
 A small pull uses the native bounce and stays closed. An upward drag, another tap,
 or leaving Saved closes it. News lives outside the article pager: opening it moves
-the tabs and pager down together by 110 points without changing a page's scroll
+the tabs and pager down together by 128 points without changing a page's scroll
 position. The tabs and news follow the list's native top bounce through a read-only
 scroll observation. Only those small header views observe per-frame changes.
-A 240 ms transition handles opening/closing; Reduce Motion fades the news and changes
+The news row owns a floating glass panel with a gap above the tabs; neither the
+panel nor its horizontal scroller shares the article pager's background or gestures.
+Bubbles fan out with short staggered springs, while the panel scales/fades. Their
+fixed hit targets and the article list do not take part in those springs. Removing
+the row cancels pending animation starts. A 240 ms transition handles the layout;
+Reduce Motion skips the bubble springs, fades the news and changes
 the brand position immediately. There are no flying icon copies, scroll-inset
 changes, or display-link writes to scroll offsets. Publisher availability
 requires a connection. A publisher shortcut starts a fresh website visit, even

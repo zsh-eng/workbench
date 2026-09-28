@@ -230,21 +230,33 @@ final class FavouritesUITests: XCTestCase {
     header.tap()
     XCTAssertTrue(shelf.waitForExistence(timeout: 5))
     XCTAssertEqual(header.value as? String, "Expanded")
-    XCTAssertEqual(first.frame.minY - originalY, 110, accuracy: 2)
-    XCTAssertEqual(tabs.frame.minY - originalTabsY, 110, accuracy: 2)
+    XCTAssertEqual(first.frame.minY - originalY, 128, accuracy: 2)
+    XCTAssertEqual(tabs.frame.minY - originalTabsY, 128, accuracy: 2)
     XCTAssertLessThan(shelf.frame.maxY, tabs.frame.minY)
     XCTAssertLessThan(tabs.frame.maxY, first.frame.minY)
     XCTAssertGreaterThan(compactX - brand.frame.midX, 15)
     XCTAssertTrue(app.buttons["publisher-www.ft.com"].isHittable)
+    let news = app.buttons["publisher-www.ft.com"]
+    news.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.05,
+      thenDragTo: news.coordinate(withNormalizedOffset: CGVector(dx: -2, dy: 0.5)))
+    XCTAssertTrue(app.buttons["publisher-www.theatlantic.com"].isHittable)
+    XCTAssertEqual(first.frame.minY - originalY, 128, accuracy: 2)
+    XCTAssertEqual(header.value as? String, "Expanded")
+    // Reset the shelf for the screenshot without touching the article pager.
+    app.buttons["publisher-www.theatlantic.com"].swipeRight()
     let shot = XCTAttachment(screenshot: app.screenshot())
     shot.name = reduced ? "news-tray-dark" : "news-tray-light"
     shot.lifetime = .keepAlways; add(shot)
     // Repeated taps always finish in one of the two usable states.
     header.tap(); header.tap(); header.tap()
     XCTAssertFalse(shelf.exists)
+    // The removed shelf is no longer accessible before the layout spring has
+    // necessarily finished. Assert the settled card position, not that frame.
+    expectation(for: NSPredicate { _, _ in abs(first.frame.minY - originalY) <= 2 }, evaluatedWith: first)
+    waitForExpectations(timeout: 3)
     XCTAssertEqual(first.frame.minY, originalY, accuracy: 2)
     revealDiscovery(app)
-    XCTAssertEqual(first.frame.minY - originalY, 110, accuracy: 2)
+    XCTAssertEqual(first.frame.minY - originalY, 128, accuracy: 2)
     app.swipeUp()
     XCTAssertFalse(shelf.exists)
     XCTAssertEqual(header.value as? String, "Collapsed")
