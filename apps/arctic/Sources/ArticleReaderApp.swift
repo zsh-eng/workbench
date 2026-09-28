@@ -118,6 +118,7 @@ struct LibraryView: View {
   @State private var showingArticleReplay = false
   @State private var editingTags: SavedArticle?
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.articleReduceMotion) private var appReduceMotion
   @State private var query = ""
   @State private var searching = false
   @State private var isLibraryScrolling = false
@@ -142,6 +143,13 @@ struct LibraryView: View {
   private let navigationBarHeight: CGFloat = 44
 
   private var matches: [SavedArticle] { matches(in: folder, query: query) }
+
+  private var discoveryAvailable: Bool {
+    selected == nil && !searching && !selecting && folder == .saved
+      && !showingAnnotations && !showingWeeklyFavourites && !showingReadingStats
+      && !showingOnboarding && !showingArticleReplay && !showingTaggingSettings
+      && !choosingImport && editingTags == nil
+  }
 
   private func matches(in folder: ArticleFolder, query: String = "") -> [SavedArticle] {
     projection.rows(
@@ -174,9 +182,11 @@ struct LibraryView: View {
           }
         }
     }
-    .overlay {
-      DiscoveryFlightSurface(motion: discoveryMotion, enabled: selected == nil && !searching && folder == .saved && !showingAnnotations && !showingWeeklyFavourites)
-        .allowsHitTesting(false)
+    .onChange(of: discoveryAvailable, initial: true) { _, available in
+      discoveryMotion.setEnabled(available)
+    }
+    .onChange(of: reduceMotion || appReduceMotion, initial: true) { _, reduced in
+      discoveryMotion.reduceMotion = reduced
     }
     .overlay(alignment: .top) { navigationControls.accessibilityHidden(showingAnnotations) }
     .overlay(alignment: .bottomLeading) {
@@ -263,6 +273,7 @@ struct LibraryView: View {
     }
     .task(id: scenePhase) {
       guard scenePhase == .active else {
+        discoveryMotion.close()
         isLibraryScrolling = false
         store.setLibraryScrolling(false)
         store.flushPendingWrites()
@@ -496,11 +507,7 @@ struct LibraryView: View {
       .accessibilityHidden(searching)
     }
     .overlay {
-      HStack(spacing: 6) {
-        ArcticMark().frame(width: 22, height: 22)
-          .background(DiscoveryTarget(motion: discoveryMotion))
-        Text("Arctic").font(.system(.headline, design: .rounded, weight: .semibold))
-      }.allowsHitTesting(false)
+      DiscoveryHeader(motion: discoveryMotion, available: discoveryAvailable)
     }
     .padding(.horizontal, 16)
   }
@@ -695,7 +702,7 @@ struct LibraryView: View {
               if matches(in: item).isEmpty {
                 ScrollView {
                   VStack(spacing: 0) {
-                    if item == .saved { discoveryShelf }
+                    if item == .saved { DiscoveryScrollObserver(motion: discoveryMotion).frame(height: 0) }
                     LibraryEmptyState(folder: item, favouritesOnly: filtersFavourites(in: item))
                       .frame(minHeight: max(0, viewport.size.height - headerHeight - topInset - 110))
                   }.padding(.top, headerHeight + topInset + 16)
@@ -703,7 +710,7 @@ struct LibraryView: View {
               } else {
                 ScrollView {
                   VStack(spacing: 0) {
-                    if item == .saved { discoveryShelf.padding(.bottom, 18) }
+                    if item == .saved { DiscoveryScrollObserver(motion: discoveryMotion).frame(height: 0) }
                     library(in: item)
                   }
                 }
@@ -718,7 +725,9 @@ struct LibraryView: View {
                     .bottom, max(0, geometry.size.height - viewport.size.height),
                     for: .scrollContent)
               }
-            }.accessibilityHidden(searching || showingAnnotations || folder != item)
+            }
+            .scrollBounceBehavior(.always, axes: .vertical)
+            .accessibilityHidden(searching || showingAnnotations || folder != item)
           }
           .accessibilityIdentifier("library-page-" + item.identifier)
         }
@@ -733,6 +742,16 @@ struct LibraryView: View {
             headerHeight = $0
           }
           .padding(.top, topInset + 8)
+        if discoveryAvailable && discoveryMotion.isExpanded {
+          discoveryShelf
+            .padding(.vertical, 12)
+            .readerGlass(cornerRadius: 26)
+            .shadow(color: .black.opacity(0.12), radius: 16, y: 8)
+            .padding(.horizontal, 12)
+            .padding(.top, topInset + headerHeight + 16)
+            .transition(reduceMotion || appReduceMotion ? .opacity : .opacity.combined(with: .offset(y: -8)))
+            .zIndex(1)
+        }
       }
       .onGeometryChange(for: CGRect.self) { geometry in
         let frame = geometry.frame(in: .global)
@@ -775,10 +794,14 @@ struct LibraryView: View {
   }
 
   private var discoveryShelf: some View {
-    LibraryDiscovery(motion: discoveryMotion) { url in
+    LibraryDiscovery { url in
+      discoveryMotion.close()
       // A publisher shortcut is a website destination, never a cached Reader article.
       selected = browsers.open(url, store: store, preferWebsite: true)
-    } weekly: { showingWeeklyFavourites = true }
+    } weekly: {
+      discoveryMotion.close()
+      showingWeeklyFavourites = true
+    }
   }
 
   private func library(in item: ArticleFolder) -> some View {

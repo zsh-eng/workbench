@@ -140,7 +140,7 @@ final class FavouritesUITests: XCTestCase {
     app.terminate()
     app.launchArguments = ["-ui-testing", "-articles-offline", "-images-offline"]
     app.launch()
-    XCTAssertTrue(app.buttons["weekly-favourites"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["toggle-news"].waitForExistence(timeout: 10))
     revealDiscovery(app)
     app.buttons["weekly-favourites"].tap()
     XCTAssertTrue(app.staticTexts["1 favourite · Monday to Sunday"].waitForExistence(timeout: 5))
@@ -172,24 +172,25 @@ final class FavouritesUITests: XCTestCase {
     XCTAssertFalse(first.isHittable, "The list must scroll normally after news was opened")
   }
 
-  @MainActor func testDiscoveryGatherReversesWithScroll() {
+  @MainActor func testNewsHeaderTogglesWithoutMovingLibrary() {
     checkDiscoveryMotion(reduced: false)
   }
 
-  @MainActor func testEmptyDiscoveryDoesNotRestPartlyCollapsed() {
+  @MainActor func testEmptyNewsOpensWithNativePull() {
     let app = XCUIApplication()
     app.launchArguments = ["-ui-testing", "-reset-store", "-reset-appearance", "-articles-offline"]
     app.launch()
-    let state = app.staticTexts["discovery-collapse"]
-    XCTAssertTrue(state.waitForExistence(timeout: 10))
-    XCTAssertEqual(state.label, "100; gather")
+    let header = app.buttons["toggle-news"]
+    XCTAssertTrue(header.waitForExistence(timeout: 10))
+    XCTAssertEqual(header.value as? String, "Collapsed")
     revealDiscovery(app)
-    expectation(for: NSPredicate(format: "label == '0; gather'"), evaluatedWith: state)
-    waitForExpectations(timeout: 5)
+    XCTAssertEqual(header.value as? String, "Expanded")
     XCTAssertTrue(app.buttons["weekly-favourites"].isHittable)
+    header.tap()
+    XCTAssertFalse(app.buttons["weekly-favourites"].exists)
   }
 
-  @MainActor func testDiscoveryReduceMotionUsesFade() {
+  @MainActor func testNewsHeaderWithReduceMotion() {
     checkDiscoveryMotion(reduced: true)
   }
 
@@ -197,60 +198,68 @@ final class FavouritesUITests: XCTestCase {
     let app = XCUIApplication()
     app.launchArguments = [
       "-ui-testing", "-reset-store", "-reset-appearance", "-seed-long-list", "-articles-offline",
-      "-images-offline", "-disable-preloading", "-dark-ui",
+      "-images-offline", "-disable-preloading",
     ]
-    if reduced { app.launchArguments.append("-reduce-motion") }
+    if reduced { app.launchArguments += ["-reduce-motion", "-dark-ui"] }
     app.launch()
+    let header = app.buttons["toggle-news"]
+    XCTAssertTrue(header.waitForExistence(timeout: 10))
     let shelf = app.buttons["weekly-favourites"]
-    XCTAssertTrue(shelf.waitForExistence(timeout: 10))
-    let state = app.staticTexts["discovery-collapse"]
-    XCTAssertTrue(state.waitForExistence(timeout: 5))
-    let hidden = reduced ? "100; fade" : "100; gather"
-    let visible = reduced ? "0; fade" : "0; gather"
-    XCTAssertEqual(state.label, hidden)
-    let firstCard = app.buttons["article-import-999"]
-    let hiddenCardY = firstCard.frame.minY
+    XCTAssertFalse(shelf.exists)
+    XCTAssertEqual(header.value as? String, "Collapsed")
+    let first = app.buttons["article-import-999"]
+    XCTAssertTrue(first.waitForExistence(timeout: 10))
+    let originalY = first.frame.minY
+    let brand = app.staticTexts["library-brand-title"]
+    let compactX = brand.frame.midX
     let initial = XCTAttachment(screenshot: app.screenshot())
-    initial.name = "news-hidden-at-launch"; initial.lifetime = .keepAlways; add(initial)
-    let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55))
+    initial.name = reduced ? "news-compact-dark" : "news-compact-light"
+    initial.lifetime = .keepAlways; add(initial)
+
+    // A small overdrag returns through UIKit's normal bounce, without opening.
+    let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
     start.press(forDuration: 0.05,
       thenDragTo: start.withOffset(CGVector(dx: 0, dy: 35)),
       withVelocity: .slow, thenHoldForDuration: 0.2)
-    expectation(for: NSPredicate(format: "label == %@", hidden), evaluatedWith: state)
-    waitForExpectations(timeout: 5)
-    revealDiscovery(app)
-    expectation(for: NSPredicate(format: "label == %@", visible), evaluatedWith: state)
-    waitForExpectations(timeout: 5)
-    XCTAssertTrue(shelf.isHittable)
-    XCTAssertEqual(firstCard.frame.minY - hiddenCardY, 98, accuracy: 2,
-      "Hidden news must release its space to articles")
-    start.press(forDuration: 0.05,
-      thenDragTo: start.withOffset(CGVector(dx: 0, dy: -15)),
-      withVelocity: .slow, thenHoldForDuration: 0.2)
-    expectation(for: NSPredicate(format: "label == %@", visible), evaluatedWith: state)
-    waitForExpectations(timeout: 5)
+    XCTAssertEqual(header.value as? String, "Collapsed")
+    XCTAssertEqual(first.frame.minY, originalY, accuracy: 2)
+
+    // Tap is an accessible alternative to pull; it must not move the article.
+    header.tap()
+    XCTAssertTrue(shelf.waitForExistence(timeout: 5))
+    XCTAssertEqual(header.value as? String, "Expanded")
+    XCTAssertEqual(first.frame.minY, originalY, accuracy: 2)
+    XCTAssertGreaterThan(compactX - brand.frame.midX, 15)
+    XCTAssertTrue(app.buttons["publisher-www.ft.com"].isHittable)
     let shot = XCTAttachment(screenshot: app.screenshot())
-    shot.name = "deliberate-pull-reveals-news"; shot.lifetime = .keepAlways; add(shot)
-    start.press(forDuration: 0.05,
-      thenDragTo: start.withOffset(CGVector(dx: 0, dy: -55)),
-      withVelocity: .slow, thenHoldForDuration: 0.2)
-    expectation(for: NSPredicate(format: "label == %@", hidden), evaluatedWith: state)
-    waitForExpectations(timeout: 5)
+    shot.name = reduced ? "news-tray-dark" : "news-tray-light"
+    shot.lifetime = .keepAlways; add(shot)
+    // Repeated taps always finish in one of the two usable states.
+    header.tap(); header.tap(); header.tap()
+    XCTAssertFalse(shelf.exists)
+    XCTAssertEqual(first.frame.minY, originalY, accuracy: 2)
+    revealDiscovery(app)
+    XCTAssertEqual(first.frame.minY, originalY, accuracy: 2)
     app.swipeUp()
-    // Return from below with momentum. It must not open the hidden shelf.
+    XCTAssertFalse(shelf.exists)
+    XCTAssertEqual(header.value as? String, "Collapsed")
+    // Returning from below with momentum must not reopen the tray.
     app.swipeDown()
-    expectation(for: NSPredicate(format: "label == %@", hidden), evaluatedWith: state)
-    waitForExpectations(timeout: 5)
+    XCTAssertFalse(shelf.exists)
+    openFolder("folder-history", in: app)
+    XCTAssertFalse(shelf.exists)
+    openFolder("folder-saved", in: app)
+    XCTAssertEqual(header.value as? String, "Collapsed")
+    header.tap()
+    XCTAssertTrue(shelf.waitForExistence(timeout: 5))
   }
 
   @MainActor private func revealDiscovery(_ app: XCUIApplication) {
-    let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+    let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55))
     start.press(forDuration: 0.05,
       thenDragTo: start.withOffset(CGVector(dx: 0, dy: 200)),
       withVelocity: .slow, thenHoldForDuration: 0.2)
-    let state = app.staticTexts["discovery-collapse"]
-    expectation(for: NSPredicate(format: "label BEGINSWITH '0;'"), evaluatedWith: state)
-    waitForExpectations(timeout: 5)
+    XCTAssertTrue(app.buttons["weekly-favourites"].waitForExistence(timeout: 5))
   }
 
   @MainActor private func launchFixtures() -> XCUIApplication {
@@ -265,11 +274,15 @@ final class FavouritesUITests: XCTestCase {
 
   @MainActor private func openFolder(_ identifier: String, in app: XCUIApplication) {
     let button = app.buttons[identifier]
-    let strip = app.scrollViews.containing(.button, identifier: "folder-saved").firstMatch
+    let strip = app.scrollViews["library-folders"]
     XCTAssertTrue(strip.waitForExistence(timeout: 5))
     for _ in 0..<5 {
       if button.exists && button.isHittable { break }
-      strip.swipeLeft()
+      if identifier == "folder-saved" || (button.exists && button.frame.midX < strip.frame.minX) {
+        strip.swipeRight()
+      } else {
+        strip.swipeLeft()
+      }
     }
     XCTAssertTrue(button.isHittable, "Folder should be visible: \(identifier)")
     button.tap()

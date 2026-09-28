@@ -1,297 +1,159 @@
 import SwiftUI
 import UIKit
 
-/// Six local layers follow the scroll offset directly. Dragging does not publish
-/// SwiftUI state or relayout the list. Release uses a bounded display-link settle.
-@MainActor final class DiscoveryMotion {
-  weak var shelf: DiscoveryShelfView?
-  weak var target: UIView?
-  weak var surface: UIView?
-  var enabled = false {
-    didSet { if !enabled { cancelSettle() } }
-  }
-  var reduceMotion = false
-  private var copies: [UIImageView] = []
-  private var probe: UILabel?
-
+/// Two stable states. UIKit owns every scroll offset, inset and momentum curve.
+/// Only a deliberate drag or a header tap changes the floating news tray.
+@MainActor @Observable final class DiscoveryMotion {
+  private(set) var isExpanded = false
+  @ObservationIgnored var enabled = false
+  @ObservationIgnored var reduceMotion = false
+  @ObservationIgnored private var startedAtTop = false
+  @ObservationIgnored private var startedExpanded = false
+  @ObservationIgnored private var signalled = false
+  @ObservationIgnored private let feedback = UIImpactFeedbackGenerator(style: .medium)
   private let trigger: CGFloat = 44
-  private let shelfHeight: CGFloat = 98
-  private var isOpen = false
-  private var openInset: CGFloat = 0
-  private var changingInset = false
-  private var dragStartedCollapsed = false
-  private var signalled = false
-  private let feedback = UIImpactFeedbackGenerator(style: .medium)
 
-  private var displayLink: CADisplayLink?
-  private weak var settlingScroll: UIScrollView?
-  private var pendingDestination: CGFloat?
-  private var settleFrom: CGFloat = 0
-  private var settleTo: CGFloat = 0
-  private var settleStart: CFTimeInterval = 0
-  private var settleGeneration = 0
-
-  deinit { displayLink?.invalidate() }
-
-  func bind(_ scroll: UIScrollView) {
-    openInset = scroll.contentInset.top
-    isOpen = false
-    changingInset = true
-    let offset = scroll.contentOffset
-    scroll.contentInset.top = openInset - shelfHeight
-    scroll.contentOffset = CGPoint(x: offset.x, y: offset.y + shelfHeight)
-    scroll.alwaysBounceVertical = true
-    changingInset = false
-    // SwiftUI applies its initial scroll anchor after attaching the native view.
-    // Apply the resting position after that layout, before user interaction.
-    DispatchQueue.main.async { [weak self, weak scroll] in
-      guard let self, let scroll, self.shelf?.verticalScroll === scroll,
-        !scroll.isTracking, !scroll.isDragging
-      else { return }
-      scroll.setContentOffset(
-        CGPoint(x: offset.x, y: offset.y + self.shelfHeight), animated: false)
-      self.update()
-    }
+  func setEnabled(_ value: Bool) {
+    enabled = value
+    if !value { isExpanded = false }
   }
 
-  func unbind(_ scroll: UIScrollView) {
-    cancelSettle()
-    changingInset = true
-    let offset = scroll.contentOffset
-    scroll.contentInset.top = openInset
-    scroll.contentOffset = CGPoint(x: offset.x, y: offset.y - (isOpen ? 0 : shelfHeight))
-    changingInset = false
-  }
-
-  func beginDragging(_ scroll: UIScrollView) {
-    cancelSettle()
-    dragStartedCollapsed = !isOpen
-    signalled = false
-    if enabled { feedback.prepare() }
-  }
-
-  /// Only the finger can commit a reveal. Native overscroll or deceleration
-  /// cannot change the resting inset or open the publisher controls.
-  func endDragging(_ scroll: UIScrollView, cancelled: Bool = false) {
+  func toggle() {
     guard enabled else { return }
-    let travel = scroll.contentOffset.y + scroll.adjustedContentInset.top
-    if !isOpen {
-      guard travel < 0 else { return }
-      if !cancelled, -travel >= trigger { setOpen(true, scroll: scroll) }
-      pendingDestination = -scroll.adjustedContentInset.top
-    } else {
-      if travel > 12 { setOpen(false, scroll: scroll) }
-      // Preserve normal scrolling once the shelf is already offscreen.
-      if travel < shelfHeight {
-        pendingDestination = -scroll.adjustedContentInset.top
-      }
+    setExpanded(!isExpanded)
+  }
+
+  func close() { setExpanded(false) }
+
+  private func setExpanded(_ value: Bool) {
+    guard isExpanded != value else { return }
+    withAnimation(reduceMotion ? .easeOut(duration: 0.12) : .smooth(duration: 0.24)) {
+      isExpanded = value
     }
   }
 
-  private func setOpen(_ value: Bool, scroll: UIScrollView) {
-    changingInset = true
-    let offset = scroll.contentOffset
-    isOpen = value
-    scroll.contentInset.top = openInset - (value ? 0 : shelfHeight)
-    scroll.contentOffset = offset
-    changingInset = false
-  }
-
-  func didEndDragging(_ scroll: UIScrollView) {
-    guard let destination = pendingDestination else { return }
-    queueSettle(scroll, to: destination)
-  }
-
-  private func queueSettle(_ scroll: UIScrollView, to destination: CGFloat) {
-    pendingDestination = destination
-    let generation = settleGeneration
-    // UIKit establishes its deceleration after the delegate callback returns.
-    DispatchQueue.main.async { [weak self, weak scroll] in
-      guard let self, let scroll, self.enabled, !scroll.isDragging,
-        self.settleGeneration == generation
-      else { return }
-      self.pendingDestination = nil
-      self.settlingScroll = scroll
-      self.settleFrom = scroll.contentOffset.y
-      self.settleTo = destination
-      self.settleStart = CACurrentMediaTime()
-      self.probe?.accessibilityValue = nil
-      let relay = DiscoverySettleTick(motion: self)
-      let link = CADisplayLink(target: relay, selector: #selector(DiscoverySettleTick.tick))
-      link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
-      self.displayLink = link
-      scroll.setContentOffset(scroll.contentOffset, animated: false)
-      link.add(to: .main, forMode: .common)
-    }
-  }
-
-  fileprivate func tickSettle() {
-    guard enabled, let scroll = settlingScroll, scroll.window != nil else {
-      cancelSettle()
-      return
-    }
-    // A new touch stops the motion immediately, even before pan recognition.
-    // A stationary touch pauses; a recognised drag cancels and resumes scrubbing.
-    if scroll.isTracking {
-      settleFrom = scroll.contentOffset.y
-      settleStart = CACurrentMediaTime()
-      return
-    }
-    let duration = reduceMotion ? 0.16 : 0.24
-    let elapsed = CACurrentMediaTime() - settleStart
-    let fraction = min(1, elapsed / duration)
-    let eased = 1 - pow(1 - fraction, 3)
-    scroll.setContentOffset(
-      CGPoint(x: scroll.contentOffset.x, y: settleFrom + (settleTo - settleFrom) * eased),
-      animated: false)
-    if fraction == 1 {
-      // Simulator evidence of actual settling time, not just the requested duration.
-      probe?.accessibilityValue = String(Int(elapsed * 1000))
-      cancelSettle()
-    }
-  }
-
-  func cancelSettle() {
-    settleGeneration += 1
-    pendingDestination = nil
-    displayLink?.invalidate()
-    displayLink = nil
-    settlingScroll = nil
-  }
-
-  func attach(_ view: UIView) {
-    surface = view
-    for copy in copies { copy.removeFromSuperview() }
-    copies = (0...ArcticPublisher.all.count).map { _ in
-      let copy = UIImageView()
-      copy.contentMode = .scaleAspectFill
-      copy.clipsToBounds = true
-      copy.isUserInteractionEnabled = false
-      copy.bounds = CGRect(x: 0, y: 0, width: 58, height: 58)
-      copy.layer.cornerRadius = 29
-      view.addSubview(copy)
-      return copy
-    }
-    if TestMode.enabled {
-      probe?.removeFromSuperview()
-      let label = UILabel(frame: CGRect(x: 0, y: 0, width: 90, height: 10))
-      label.font = .systemFont(ofSize: 6)
-      label.accessibilityIdentifier = "discovery-collapse"
-      label.isUserInteractionEnabled = false
-      view.addSubview(label)
-      probe = label
-    }
-    update()
-  }
-
-  func update() {
-    guard let shelf, let surface, let target, shelf.window === surface.window,
-      target.window === surface.window, let scroll = shelf.verticalScroll
-    else {
-      for copy in copies { copy.alpha = 0 }
-      return
-    }
-    guard !changingInset else { return }
+  func handle(_ pan: UIPanGestureRecognizer, in scroll: UIScrollView) {
+    guard enabled else { return }
     let offset = scroll.contentOffset.y + scroll.adjustedContentInset.top
-    let travel = max(0, offset + (isOpen ? 0 : shelfHeight))
-    let destination = target.convert(
-      CGPoint(x: target.bounds.midX, y: target.bounds.midY), to: surface)
-    let first = shelf.icons[0]
-    let current = first.convert(CGPoint(x: 29, y: 29), to: surface)
-    let distance = shelfHeight
-    // Keep all reveal layers hidden during a momentum bounce.
-    let canReveal = isOpen || scroll.isDragging || displayLink != nil || pendingDestination != nil
-    let progress = canReveal ? min(1, travel / distance) : 1
-    if enabled, scroll.isDragging, !signalled {
-      let crossed = dragStartedCollapsed ? -offset >= trigger : offset >= 12
-      if crossed {
+    let translation = pan.translation(in: scroll).y
+    switch pan.state {
+    case .began:
+      startedAtTop = offset <= 1
+      startedExpanded = isExpanded
+      signalled = false
+      feedback.prepare()
+    case .changed:
+      if startedExpanded, translation < -12, !signalled {
+        feedback.impactOccurred(intensity: 1)
+        signalled = true
+        close()
+      } else if !startedExpanded, startedAtTop, -offset >= trigger, !signalled {
         feedback.impactOccurred(intensity: 1)
         signalled = true
       }
+    case .ended:
+      if !startedExpanded, startedAtTop, -offset >= trigger {
+        setExpanded(true)
+      }
+    case .cancelled, .failed:
+      signalled = false
+    default:
+      break
     }
-    let active = enabled && !shelf.isHidden
-    CATransaction.begin()
-    CATransaction.setDisableActions(true)
-    for (index, icon) in shelf.icons.enumerated() {
-      let copy = copies[index]
-      copy.image = icon.image
-      copy.contentMode = icon.contentMode
-      copy.backgroundColor = icon.backgroundColor
-      let rect = icon.convert(icon.bounds, to: surface)
-      let visibleWidth = rect.intersection(
-        shelf.scroller.convert(shelf.scroller.bounds, to: surface)
-      ).width
-      let flying = active && !reduceMotion && progress > 0 && progress < 1 && visibleWidth > 30
-      // The real controls retain their layout. Only visual layers move.
-      icon.alpha = active ? (reduceMotion ? max(0, 1 - progress * 2) : (progress == 0 ? 1 : 0)) : 1
-      shelf.labels[index].alpha = active ? max(0, 1 - progress * 4) : 1
-      shelf.buttons[index].isUserInteractionEnabled = !active || progress < 0.12
-      copy.alpha = flying ? min(1, (1 - progress) / 0.28) : 0
-      guard flying else { continue }
-      let gather = min(1, progress / 0.72)
-      let eased = gather * gather * (3 - 2 * gather)
-      let fan = CGFloat(index - 2) * 4 * sin(progress * .pi)
-      let x = rect.midX + (destination.x - rect.midX) * eased + fan
-      let y = current.y + travel + (destination.y - current.y - travel) * progress
-      copy.center = CGPoint(x: x, y: y)
-      copy.transform = CGAffineTransform(scaleX: 1 - 0.62 * progress, y: 1 - 0.62 * progress)
-    }
-    if TestMode.enabled {
-      probe?.text =
-        enabled ? "\(Int(progress * 100)); \(reduceMotion ? "fade" : "gather")" : "inactive"
-    }
-    CATransaction.commit()
   }
 }
 
-struct DiscoveryFlightSurface: UIViewRepresentable {
+/// Observe the native pan without replacing its delegate or touching scroll state.
+struct DiscoveryScrollObserver: UIViewRepresentable {
   let motion: DiscoveryMotion
-  let enabled: Bool
-  @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
-  @Environment(\.articleReduceMotion) private var appReduceMotion
-
-  func makeUIView(context: Context) -> UIView {
-    let view = UIView()
-    view.isUserInteractionEnabled = false
-    motion.attach(view)
-    return view
-  }
-  func updateUIView(_ view: UIView, context: Context) {
-    motion.enabled = enabled
-    motion.reduceMotion = systemReduceMotion || appReduceMotion
-    motion.update()
-  }
+  func makeUIView(context: Context) -> DiscoveryScrollProbe { DiscoveryScrollProbe(motion: motion) }
+  func updateUIView(_ view: DiscoveryScrollProbe, context: Context) { view.bind() }
+  static func dismantleUIView(_ view: DiscoveryScrollProbe, coordinator: ()) { view.unbind() }
 }
 
-struct DiscoveryTarget: UIViewRepresentable {
-  let motion: DiscoveryMotion
-  func makeUIView(context: Context) -> DiscoveryTargetView {
-    let view = DiscoveryTargetView()
-    view.motion = motion
-    motion.target = view
-    return view
+final class DiscoveryScrollProbe: UIView {
+  private let motion: DiscoveryMotion
+  private weak var scroll: UIScrollView?
+  init(motion: DiscoveryMotion) {
+    self.motion = motion
+    super.init(frame: .zero)
+    isUserInteractionEnabled = false
+    isAccessibilityElement = false
   }
-  func updateUIView(_ view: DiscoveryTargetView, context: Context) { motion.target = view }
-}
-
-final class DiscoveryTargetView: UIView {
-  weak var motion: DiscoveryMotion?
+  required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
   override func layoutSubviews() {
     super.layoutSubviews()
-    motion?.update()
+    bind()
   }
   override func didMoveToWindow() {
     super.didMoveToWindow()
-    motion?.update()
+    if window == nil { unbind() } else { bind() }
+  }
+  func bind() {
+    guard window != nil else { return }
+    var ancestor = superview
+    while let view = ancestor {
+      if let candidate = view as? UIScrollView {
+        guard scroll !== candidate else { return }
+        unbind()
+        scroll = candidate
+        candidate.panGestureRecognizer.addTarget(self, action: #selector(drag(_:)))
+        return
+      }
+      ancestor = view.superview
+    }
+  }
+  func unbind() {
+    scroll?.panGestureRecognizer.removeTarget(self, action: #selector(drag(_:)))
+    scroll = nil
+  }
+  @objc private func drag(_ pan: UIPanGestureRecognizer) {
+    guard let scroll else { return }
+    motion.handle(pan, in: scroll)
+  }
+}
+
+struct DiscoveryHeader: View {
+  let motion: DiscoveryMotion
+  let available: Bool
+
+  var body: some View {
+    Button(action: motion.toggle) {
+      HStack(spacing: 0) {
+        ZStack(alignment: .leading) {
+          ForEach(Array(ArcticPublisher.all.prefix(3).enumerated()), id: \.element.id) {
+            index, publisher in
+            if let image = DiscoveryShelfView.publisherImage(publisher.asset) {
+              Image(uiImage: image).resizable().scaledToFill()
+                .frame(width: 24, height: 24).clipShape(Circle())
+                .overlay(Circle().stroke(ReaderTheme.background, lineWidth: 2))
+                .offset(x: CGFloat(index) * 11).zIndex(Double(3 - index))
+            }
+          }
+        }
+        .frame(width: 46, height: 26, alignment: .leading)
+        .frame(width: available && !motion.isExpanded ? 54 : 0, alignment: .leading)
+        .clipped().opacity(available && !motion.isExpanded ? 1 : 0)
+        ArcticMark().frame(width: 22, height: 22)
+        Text("Arctic").font(.system(.headline, design: .rounded, weight: .semibold))
+          .padding(.leading, 6).lineLimit(1).minimumScaleFactor(0.8)
+          .accessibilityIdentifier("library-brand-title")
+      }.frame(height: 44).contentShape(Rectangle())
+    }
+    .buttonStyle(.plain).disabled(!available)
+    .accessibilityLabel(available ? "News" : "Arctic")
+    .accessibilityValue(motion.isExpanded ? "Expanded" : "Collapsed")
+    .accessibilityHint(available ? "Show or hide news sites and this week's favourites" : "")
+    .accessibilityIdentifier("toggle-news")
+    .transaction { if motion.reduceMotion { $0.animation = nil } }
   }
 }
 
 struct NativeDiscoveryShelf: UIViewRepresentable {
-  let motion: DiscoveryMotion
   let open: (URL) -> Void
   let weekly: () -> Void
   func makeUIView(context: Context) -> DiscoveryShelfView {
-    DiscoveryShelfView(motion: motion)
+    DiscoveryShelfView()
   }
   func updateUIView(_ view: DiscoveryShelfView, context: Context) {
     view.open = open
@@ -305,17 +167,11 @@ final class DiscoveryShelfView: UIView {
   var icons: [UIImageView] = []
   var labels: [UILabel] = []
   var buttons: [UIButton] = []
-  weak var verticalScroll: UIScrollView?
-  private var verticalObservation: NSKeyValueObservation?
-  private var horizontalObservation: NSKeyValueObservation?
-  private let motion: DiscoveryMotion
   var open: (URL) -> Void = { _ in }
   var weekly: () -> Void = {}
 
-  init(motion: DiscoveryMotion) {
-    self.motion = motion
+  init() {
     super.init(frame: .zero)
-    motion.shelf = self
     scroller.showsHorizontalScrollIndicator = false
     scroller.alwaysBounceHorizontal = true
     scroller.contentInsetAdjustmentBehavior = .never
@@ -357,15 +213,12 @@ final class DiscoveryShelfView: UIView {
       labels.append(label)
       buttons.append(button)
     }
-    horizontalObservation = scroller.observe(\.contentOffset) { [weak self] _, _ in
-      self?.motion.update()
-    }
     updatePalette()
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
   // The official FT avatar places the letters 24px above the canvas centre.
-  // Normalize the artwork once so both the shelf and its flying copy are centred.
+  // Normalize the artwork once so both the shelf and its compact header mark are centred.
   private static let centeredFT: UIImage? = {
     guard let original = UIImage(named: "PublisherFT") else { return nil }
     let format = UIGraphicsImageRendererFormat()
@@ -383,7 +236,6 @@ final class DiscoveryShelfView: UIView {
     icons[0].tintColor = UIColor(ArcticBrand.accent)
     icons[0].backgroundColor = UIColor(ArcticBrand.accent).withAlphaComponent(0.1)
     for label in labels { label.textColor = .label }
-    motion.update()
   }
   override func layoutSubviews() {
     super.layoutSubviews()
@@ -394,64 +246,5 @@ final class DiscoveryShelfView: UIView {
       icons[index].frame = CGRect(x: 5, y: 4, width: 58, height: 58)
       labels[index].frame = CGRect(x: 0, y: 70, width: 68, height: 18)
     }
-    bindScrollView()
-    motion.update()
   }
-  override func didMoveToWindow() {
-    super.didMoveToWindow()
-    if window == nil {
-      unbindScrollView()
-    } else {
-      bindScrollView()
-    }
-    motion.update()
-  }
-  private func unbindScrollView() {
-    verticalScroll?.panGestureRecognizer.removeTarget(self, action: #selector(scrollGesture(_:)))
-    if let scroll = verticalScroll { motion.unbind(scroll) }
-    verticalObservation = nil
-    verticalScroll = nil
-  }
-
-  // Observe the existing recognizer without replacing SwiftUI's delegate or
-  // competing with its pan recognizer. Ordinary scrolling stays entirely native.
-  @objc private func scrollGesture(_ pan: UIPanGestureRecognizer) {
-    guard let scroll = verticalScroll else { return }
-    switch pan.state {
-    case .began:
-      motion.beginDragging(scroll)
-    case .ended, .cancelled:
-      motion.endDragging(scroll, cancelled: pan.state == .cancelled)
-      motion.didEndDragging(scroll)
-    default:
-      break
-    }
-  }
-
-  private func bindScrollView() {
-    var ancestor = superview
-    while let view = ancestor {
-      if let scroll = view as? UIScrollView {
-        guard verticalScroll !== scroll else { return }
-        unbindScrollView()
-        verticalScroll = scroll
-        motion.bind(scroll)
-        scroll.panGestureRecognizer.addTarget(self, action: #selector(scrollGesture(_:)))
-        if scroll.isDragging { motion.beginDragging(scroll) }
-        verticalObservation = scroll.observe(\.contentOffset) { [weak self] _, _ in
-          self?.motion.update()
-        }
-        return
-      }
-      ancestor = view.superview
-    }
-  }
-}
-
-/// CADisplayLink retains its target; the relay keeps that link from retaining
-/// the library. No display link runs while the user scrubs or after settling.
-@MainActor private final class DiscoverySettleTick: NSObject {
-  weak var motion: DiscoveryMotion?
-  init(motion: DiscoveryMotion) { self.motion = motion }
-  @objc func tick() { motion?.tickSettle() }
 }

@@ -21,12 +21,11 @@ struct ArcticPublisher: Identifiable {
 }
 
 struct LibraryDiscovery: View {
-  let motion: DiscoveryMotion
   let open: (URL) -> Void
   let weekly: () -> Void
 
   var body: some View {
-    NativeDiscoveryShelf(motion: motion, open: open, weekly: weekly)
+    NativeDiscoveryShelf(open: open, weekly: weekly)
       .frame(height: 98)
   }
 }
