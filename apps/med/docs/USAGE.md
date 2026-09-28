@@ -166,6 +166,15 @@ Writable files open directly in Vim Normal mode. Press `i` to insert text. Commi
 Eligible local and working-tree files open in Vim Normal mode. There is no
 Edit/Done toggle: navigate immediately, then press `i` to insert text.
 Use `i`, `a`, `o`, `dd`, `ciw`, visual selections, `p`, `.`, `u`, and Ctrl+R.
+Vim Visual selections and mouse selections use the same visible selection colour.
+Default yanks (`y`, `yiw`, `yy`) also copy to the system clipboard. Named and
+black-hole registers retain their Vim behavior. ⌘⇧F / Ctrl+Shift+F searches the
+selected text in the repository; ⌘⇧K / Ctrl+Shift+K opens the file picker in both
+Normal and Insert modes. App shortcuts take precedence over Vim bindings.
+
+Git blame keeps its gutter width while editing. Attribution is hidden while the
+draft is unsaved or the disk contents have changed, and updates after saving.
+
 Escape returns to Normal mode. `:w`, ⌘S / Ctrl+S, or **Save** writes the file.
 `:wq` saves and closes the file only if the save succeeds.
 
@@ -194,7 +203,7 @@ path and repository-relative file path:
 http://127.0.0.1:4173/file?repo=%2Fpath%2Fto%2Frepo&path=src%2Fexample.ts&edit=1
 ```
 
-Omit `edit=1` to open the read-only viewer. The browser must already be authorized
+`edit=1` is optional; writable files open in Vim Normal mode. The browser must already be authorized
 with the host's launch URL, as for saved review links. A file link opens live
 working content; it does not freeze a review or register another repository.
 

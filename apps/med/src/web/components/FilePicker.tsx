@@ -26,6 +26,7 @@ export interface FilePickerProps {
   openPaths?: string[];
   recentPaths?: string[];
   initialMode?: "files" | "content";
+  initialQuery?: string;
   resume?: boolean;
 }
 
@@ -128,6 +129,7 @@ function PickerSessionView({
   openPaths = emptyPaths,
   recentPaths = emptyPaths,
   initialMode = "files",
+  initialQuery,
   scope,
   sessions,
   onModeChange,
@@ -137,6 +139,7 @@ function PickerSessionView({
   onModeChange(mode: PickerMode): void;
 }) {
   const [mode, setMode] = useState<PickerMode>(initialMode);
+  const [selectionQuery, setSelectionQuery] = useState(initialQuery);
   useEffect(() => onModeChange(initialMode), [initialMode, onModeChange]);
   const sessionKey = `${scope}:${mode}`;
   const session = useMemo(() => {
@@ -169,7 +172,9 @@ function PickerSessionView({
         openPaths,
         recentPaths,
         mode,
+        initialQuery: selectionQuery,
         setMode: (next: PickerMode) => {
+          setSelectionQuery(undefined);
           setMode(next);
           onModeChange(next);
         },
@@ -196,6 +201,7 @@ function PickerContents({
   mode,
   setMode,
   session,
+  initialQuery,
   onSave,
 }: FilePickerProps & {
   mode: PickerMode;
@@ -203,9 +209,9 @@ function PickerContents({
   session: PickerSession;
   onSave(patch: Partial<PickerSession>): void;
 }) {
-  const [query, setQuery] = useState(session.query);
-  const [selected, setSelected] = useState(session.selected);
-  const [restoreId, setRestoreId] = useState(session.selected);
+  const [query, setQuery] = useState(initialQuery ?? session.query);
+  const [selected, setSelected] = useState(initialQuery === undefined ? session.selected : null);
+  const [restoreId, setRestoreId] = useState(initialQuery === undefined ? session.selected : null);
   const [refresh, setRefresh] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const sourceKey = source ? browseSourceKey(source) : "";

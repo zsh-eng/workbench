@@ -61,6 +61,7 @@ export interface FullFileViewProps {
   vimEnabled?: boolean;
   onSymbolPreviewReady?(begin: BeginFileSymbolPreview | null): void;
   onNavigationReady?(command: FileNavigationCommand | null): void;
+  onSelectionReaderReady?(read: (() => string) | null): void;
   onDefinition?(name: string): void;
   highlightQuery?: string;
   compact?: boolean;
@@ -107,6 +108,7 @@ function ReadOnlyFileView({
   column,
   vimEnabled = false,
   onNavigationReady,
+  onSelectionReaderReady,
   onDefinition,
   onSymbolPreviewReady,
   highlightQuery = "",
@@ -147,6 +149,11 @@ function ReadOnlyFileView({
     onDefinition,
     onPosition: followCursor,
   });
+  useLayoutEffect(() => {
+    if (compact) return;
+    onSelectionReaderReady?.(vim.selectedText);
+    return () => onSelectionReaderReady?.(null);
+  }, [compact, onSelectionReaderReady, vim.selectedText]);
   useLayoutEffect(
     () =>
       markdownNavigation?.subscribeNavigation((line) => {

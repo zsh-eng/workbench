@@ -280,7 +280,9 @@ Close and `:q` retain the unsaved-draft confirmation, while `:wq` saves then clo
 
 The CodeMirror attribution gutter reuses the bounded change/blame painters and
 Base UI blame tooltips with light-DOM cells. Unsaved edits suppress attribution
-from the prior disk snapshot. Symbol previews and command navigation use the
+from the prior disk snapshot without collapsing the gutter. Saved responses update
+the file workspace identity; watcher invalidation compares the current disk identity
+without replacing editor content, so own saves and unrelated edits do not make it stale. Symbol previews and command navigation use the
 active editor. Contents jumps add a single cancellable 650 ms line fade after
 the destination is mounted; reduced motion omits the animation.
 
@@ -336,3 +338,9 @@ The Markdown preview shortcut is captured at window level. The visible main
 file's preview button owns the action, so focus in tabs, sidebars or palettes
 does not block it. Hidden retained workspaces and compact picker previews do
 not respond. Repeated keydown events do not toggle the view again.
+
+App shortcut handlers run in capture phase before CodeMirror Vim. Content search
+reads the active file selection through a reader callback (including Pierre's
+virtual Visual selection). CodeMirror selections paint below text, so the active
+line background must remain translucent. Default yanks mirror Vim register 0 to
+the clipboard in the input task; named registers are left unchanged.

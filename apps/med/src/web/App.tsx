@@ -86,6 +86,11 @@ export function App({
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [filesVisible, setFilesVisible] = useState(false);
   const [filePickerOpen, setFilePickerOpen] = useState(false);
+  const [pickerQuery, setPickerQuery] = useState<string | undefined>();
+  const fileSelection = useRef<(() => string) | null>(null);
+  const onSelectionReaderReady = useCallback((read: (() => string) | null) => {
+    fileSelection.current = read;
+  }, []);
   const [pickerMode, setPickerMode] = useState<"files" | "content">("files");
   const [pickerResume, setPickerResume] = useState(false);
   const [commandsOpen, setCommandsOpen] = useState(false);
@@ -199,8 +204,8 @@ export function App({
   );
   useEffect(() => {
     prefetch.invalidate();
-    fileWorkspace.invalidate();
-  }, [fileWorkspace, prefetch, state.sourceRevision]);
+    fileWorkspace.invalidate(rawBrowseApi.read);
+  }, [fileWorkspace, prefetch, rawBrowseApi, state.sourceRevision]);
   const prefetchFile = useCallback(
     (path: string) => {
       if (browseSource)
@@ -286,15 +291,19 @@ export function App({
   }, []);
   const openFilePicker = useCallback(() => {
     setPickerMode("files");
+    setPickerQuery(undefined);
     setPickerResume(false);
     setFilePickerOpen(true);
   }, []);
   const openContentSearch = useCallback(() => {
+    const selected = fileSelection.current?.() || window.getSelection()?.toString() || "";
+    setPickerQuery(selected || undefined);
     setPickerMode("content");
     setPickerResume(false);
     setFilePickerOpen(true);
   }, []);
   const resumeFilePicker = useCallback(() => {
+    setPickerQuery(undefined);
     setPickerResume(true);
     setFilePickerOpen(true);
   }, []);
@@ -829,6 +838,7 @@ export function App({
         !event.altKey
       ) {
         event.preventDefault();
+        event.stopPropagation();
         setHelpOpen(true);
         return;
       }
@@ -836,6 +846,7 @@ export function App({
         const key = event.code || `Key${event.key.toUpperCase()}`;
         if (["KeyW", "KeyO", "KeyP", "KeyB", "KeyR"].includes(key)) {
           event.preventDefault();
+          event.stopPropagation();
           if (event.repeat) return;
           if (key === "KeyW") {
             if (event.shiftKey) fileWorkspace.closeAll();
@@ -852,6 +863,7 @@ export function App({
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
         if (event.shiftKey && !browseSource) return;
         event.preventDefault();
+        event.stopPropagation();
         if (event.repeat) return;
         if (event.shiftKey) toggleFilesSidebar();
         else toggleReviewSidebar();
@@ -861,6 +873,7 @@ export function App({
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "o") {
         if (event.shiftKey ? !browseSource : !activeFile || fileState.file?.kind !== "text") return;
         event.preventDefault();
+        event.stopPropagation();
         if (!event.repeat) openSymbols(event.shiftKey ? "project" : "file");
         return;
       }
@@ -871,6 +884,7 @@ export function App({
         browseSource
       ) {
         event.preventDefault();
+        event.stopPropagation();
         setCommandsOpen(false);
         openContentSearch();
         return;
@@ -878,6 +892,7 @@ export function App({
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         if (event.shiftKey && !browseSource) return;
         event.preventDefault();
+        event.stopPropagation();
         if (event.repeat) return;
         if (event.shiftKey) {
           setCommandsOpen(false);
@@ -890,11 +905,13 @@ export function App({
         if (fileState.active !== "changes") {
           if (fileState.file?.kind === "text") {
             event.preventDefault();
+            event.stopPropagation();
             fileNavigation.current?.("/");
           }
           return;
         }
         event.preventDefault();
+        event.stopPropagation();
         openFind();
         return;
       }
@@ -909,18 +926,23 @@ export function App({
         return;
       if (event.key === "/") {
         event.preventDefault();
+        event.stopPropagation();
         openFind();
       } else if (event.key === "]") {
         event.preventDefault();
+        event.stopPropagation();
         navigateHunk(1);
       } else if (event.key === "[") {
         event.preventDefault();
+        event.stopPropagation();
         navigateHunk(-1);
       } else if (event.key === "n" && find) {
         event.preventDefault();
+        event.stopPropagation();
         jumpHit(findIndex + 1);
       } else if (event.key === "N" && find) {
         event.preventDefault();
+        event.stopPropagation();
         jumpHit(findIndex - 1);
       } else if (event.key === "c") startNote();
       else if (event.key === "Escape") {
@@ -929,8 +951,8 @@ export function App({
         setSelection(null);
       }
     };
-    window.addEventListener("keydown", keydown);
-    return () => window.removeEventListener("keydown", keydown);
+    window.addEventListener("keydown", keydown, true);
+    return () => window.removeEventListener("keydown", keydown, true);
   }, [
     symbolPickerOpen,
     openSymbols,
@@ -1565,6 +1587,7 @@ export function App({
           .map((tab) => tab.path)}
         recentPaths={fileState.recentPaths}
         initialMode={pickerMode}
+        initialQuery={pickerQuery}
         resume={pickerResume}
         onOpen={(path, line, source) =>
           fileWorkspace.open(
@@ -2163,9 +2186,16 @@ export function App({
                     ? {
                         drafts: editorDrafts,
                         key: JSON.stringify([activeFile.source, activeFile.path]),
-                        write: (file, text) => {
+                        write: async (file, text) => {
                           if (file.source.kind !== "worktree") throw new Error("Read-only source");
-                          return browseApi.write!(file.source, file.path, file.identity, text);
+                          const saved = await browseApi.write!(
+                            file.source,
+                            file.path,
+                            file.identity,
+                            text,
+                          );
+                          fileWorkspace.acceptWrite(saved);
+                          return saved;
                         },
                         autoEdit:
                           location.pathname === "/file" &&
@@ -2188,6 +2218,7 @@ export function App({
                 column={activeFile.column}
                 vimEnabled={vimEnabled}
                 onNavigationReady={onNavigationReady}
+                onSelectionReaderReady={onSelectionReaderReady}
                 onDefinition={goToDefinition}
                 onSymbolPreviewReady={onSymbolPreviewReady}
                 onRefresh={() => void fileWorkspace.refresh()}

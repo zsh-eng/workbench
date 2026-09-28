@@ -104,11 +104,13 @@ export default function FileEditor({
   const [mode, setMode] = useState("NORMAL");
   const [confirm, setConfirm] = useState(false);
   const [syntaxError, setSyntaxError] = useState("");
+  const [clipboardError, setClipboardError] = useState("");
   const latest = useRef({ write, onClose, onDocumentChange, onSourcePosition, context });
   useLayoutEffect(() => {
     latest.current = { write, onClose, onDocumentChange, onSourcePosition, context };
   });
-  const { loadChanges, stale, onNavigationReady, onSymbolPreviewReady } = context;
+  const { loadChanges, stale, onNavigationReady, onSymbolPreviewReady, onSelectionReaderReady } =
+    context;
   const changes = useMemo(() => createChangeGutter(), []);
   const [localBlame, setLocalBlame] = useState(false);
   const [blameNotice, setBlameNotice] = useState("");
@@ -147,6 +149,12 @@ export default function FileEditor({
     return () => abort.abort();
   }, [changes, loadChanges, stale, draft.file, draft.dirty]);
   useLayoutEffect(() => {
+    onSelectionReaderReady?.(() => {
+      const state = view.current?.state;
+      return state
+        ? state.selection.ranges.map(({ from, to }) => state.sliceDoc(from, to)).join("\n")
+        : "";
+    });
     onNavigationReady?.((key, control) => {
       const editor = view.current;
       if (!editor) return;
@@ -179,10 +187,11 @@ export default function FileEditor({
       };
     });
     return () => {
+      onSelectionReaderReady?.(null);
       onNavigationReady?.(null);
       onSymbolPreviewReady?.(null);
     };
-  }, [onNavigationReady, onSymbolPreviewReady]);
+  }, [onNavigationReady, onSymbolPreviewReady, onSelectionReaderReady]);
   useLayoutEffect(
     () =>
       markdownNavigation?.subscribeNavigation((line) => {
@@ -370,7 +379,11 @@ export default function FileEditor({
             color: active.palette.muted,
             border: "none",
           },
-          ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: active.palette.hover },
+          // The selection layer sits beneath text. An opaque active row hides it.
+          ".cm-activeLine": {
+            backgroundColor: `color-mix(in srgb, ${active.palette.accent} 8%, transparent)`,
+          },
+          ".cm-activeLineGutter": { backgroundColor: active.palette.hover },
           ".cm-cursor, .cm-dropCursor": { borderLeftColor: active.palette.text },
           ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
             backgroundColor: active.palette.selected,
@@ -403,6 +416,26 @@ export default function FileEditor({
           if (!draft.dirty && !draft.error) callbacks.current.close();
         });
       },
+    });
+    // Vim signals before executing the operator. Observe its completed yank in
+    // the same input task; register 0 changes even when yanking identical text.
+    cm.on("vim-command-done", () => {
+      const before = Vim.getRegisterController().registers["0"];
+      queueMicrotask(() => {
+        const yank = Vim.getRegisterController().registers["0"];
+        if (stopped || !yank || yank === before) return;
+        void navigator.clipboard.writeText(yank.toString()).then(
+          () => {
+            if (!stopped) setClipboardError("");
+          },
+          () => {
+            if (!stopped)
+              setClipboardError(
+                "Cannot copy to the clipboard. The text is still in the Vim register.",
+              );
+          },
+        );
+      });
     });
     // Reattaching a document starts a new Vim Normal-mode session.
     // oxlint-disable-next-line react/set-state-in-effect
@@ -500,7 +533,7 @@ export default function FileEditor({
     <section
       className="med-editor"
       aria-label="File editor"
-      data-blame={blameOpen && !draft.dirty}
+      data-blame={blameOpen}
       style={
         {
           "--edit-bg": active.palette.canvas,
@@ -538,7 +571,7 @@ export default function FileEditor({
           <button
             aria-label="Toggle Git blame"
             aria-pressed={blameOpen}
-            disabled={draft.dirty}
+            title={draft.dirty ? "Blame updates after saving" : "Toggle Git blame"}
             onClick={() => {
               setLocalBlame(!blameOpen);
               context.onBlameEnabledChange?.(!blameOpen);
@@ -571,6 +604,11 @@ export default function FileEditor({
       {draft.error && (
         <div role="alert" className="med-editor-message">
           {draft.error}
+        </div>
+      )}
+      {clipboardError && (
+        <div role="alert" className="med-editor-message">
+          {clipboardError}
         </div>
       )}
       {syntaxError && (

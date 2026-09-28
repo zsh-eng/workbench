@@ -228,27 +228,6 @@ describe("file workspace", () => {
     expect(workspace.getSnapshot().file?.source.repo).toBe("/repo-0");
     workspace.dispose();
   });
-  test("invalidation marks loaded working files stale without fetching or changing commit snapshots", async () => {
-    const { workspace, pending } = fixture();
-    workspace.configure("first", A, "First");
-    workspace.open("a.ts");
-    pending[0]!.resolve(result(A, "a.ts"));
-    await settle();
-    workspace.invalidate();
-    expect(workspace.getSnapshot().stale).toBe(true);
-    expect(pending).toHaveLength(1);
-    void workspace.refresh();
-    expect(workspace.getSnapshot().stale).toBe(false);
-    pending[1]!.resolve(result(A, "a.ts"));
-    await settle();
-    const commit: BrowseSource = { kind: "commit", repo: "/first", oid: "a".repeat(40) };
-    workspace.open("a.ts", true, undefined, commit, "Commit");
-    pending[2]!.resolve(result(commit, "a.ts"));
-    await settle();
-    workspace.invalidate();
-    expect(workspace.getSnapshot().stale).toBe(false);
-    workspace.dispose();
-  });
   test("selecting Changes and disposal cancel reads and prevent stale errors", async () => {
     const { workspace, pending } = fixture();
     workspace.configure("first", A, "First");

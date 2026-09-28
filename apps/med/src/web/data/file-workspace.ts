@@ -49,6 +49,7 @@ export function createFileWorkspace(api: BrowseApi) {
   };
   let abort: AbortController | undefined;
   let generation = 0;
+  let staleCheck: AbortController | undefined;
   let disposed = false;
   const publish = (change: Partial<FileWorkspaceSnapshot>) => {
     if (disposed) return;
@@ -68,6 +69,7 @@ export function createFileWorkspace(api: BrowseApi) {
   const cancel = () => {
     ++generation;
     abort?.abort();
+    staleCheck?.abort();
   };
   async function load() {
     cancel();
@@ -236,9 +238,33 @@ export function createFileWorkspace(api: BrowseApi) {
         });
       }
     },
-    invalidate() {
+    acceptWrite(file: BrowseRead) {
+      const current = snapshot.file;
+      if (current?.path === file.path && sourceKey(current.source) === sourceKey(file.source)) {
+        staleCheck?.abort();
+        publish({ file, stale: false });
+      }
+    },
+    invalidate(readCurrent: BrowseApi["read"] = api.read) {
       const tab = snapshot.tabs.find((item) => item.id === snapshot.active);
-      if (tab?.source.kind === "worktree" && snapshot.file) publish({ stale: true });
+      const file = snapshot.file;
+      if (tab?.source.kind !== "worktree" || !file) return;
+      staleCheck?.abort();
+      const check = new AbortController();
+      staleCheck = check;
+      const current = generation;
+      // Watch events also follow our own saves and edits to unrelated files.
+      // Compare identities without replacing the editor's document or selection.
+      void readCurrent(tab.source, tab.path, check.signal).then(
+        (disk) => {
+          if (!check.signal.aborted && current === generation && snapshot.file === file)
+            publish({ stale: disk.identity !== file.identity });
+        },
+        () => {
+          if (!check.signal.aborted && current === generation && snapshot.file === file)
+            publish({ stale: true });
+        },
+      );
     },
     refresh: load,
     dispose() {

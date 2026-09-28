@@ -535,7 +535,9 @@ export function useFileVim({
     }),
     [model, paint, cancelCopies],
   );
+  const selectedText = useCallback(() => model.selectedText(), [model]);
   return {
+    selectedText,
     activeSearchName,
     visualName,
     visualMode,
