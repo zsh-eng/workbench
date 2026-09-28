@@ -78,6 +78,29 @@ try {
   );
   const editor = page.locator(".cm-content[contenteditable=true]");
   await editor.waitFor();
+  const fileUrl = `${new URL(launch).origin}/file?${new URLSearchParams({ repo, path: "sample.ts" })}`;
+  const tabs = page.getByRole("tablist", { name: "Open files" });
+  for (const insert of [false, true]) {
+    await editor.focus();
+    if (insert) await page.keyboard.type("i");
+    await page.keyboard.press("Alt+KeyW");
+    await tabs.getByRole("tab", { name: /sample.ts/ }).waitFor({ state: "hidden", timeout: 3000 });
+    assert.equal(
+      await tabs.getByRole("tab", { name: "Changes", exact: true }).getAttribute("aria-selected"),
+      "true",
+    );
+    await page.goto(fileUrl);
+    await editor.waitFor();
+  }
+  // A picker owns its input; Option+W must not close the file behind it.
+  await page.keyboard.press("Meta+Shift+k");
+  const picker = page.getByRole("combobox", { name: "Find file", exact: true });
+  await picker.waitFor();
+  await picker.focus();
+  await page.keyboard.press("Alt+KeyW");
+  await page.keyboard.press("Escape");
+  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  assert.equal(await tabs.getByRole("tab", { name: /sample.ts/ }).count(), 1);
   await editor.click();
   await page.keyboard.type("gg0wviw");
   await page.waitForTimeout(250);
@@ -201,6 +224,31 @@ try {
   await writeFile(join(repo, "sample.ts"), "// external edit\n" + text);
   await until(async () => (await labels.count()) === 0);
   assert.equal((await gutter.boundingBox()).width, width);
+  // Standalone files use the same shortcut and keep dirty drafts open.
+  const localUrl = `${new URL(launch).origin}/file${repo}/sample.ts`;
+  for (const insert of [false, true]) {
+    await page.goto(localUrl);
+    await editor.waitFor();
+    await editor.focus();
+    if (insert) await page.keyboard.type("i");
+    await page.keyboard.press("Alt+KeyW");
+    await editor.waitFor({ state: "hidden" });
+    assert.equal(
+      await page.getByRole("region", { name: "Standalone files" }).getByRole("tab").count(),
+      0,
+    );
+  }
+  await page.goto(localUrl);
+  await editor.waitFor();
+  await editor.focus();
+  await page.keyboard.type("iunsaved");
+  await page.keyboard.press("Alt+KeyW");
+  await page.getByRole("alert").filter({ hasText: "Save or discard" }).waitFor();
+  assert.match(await editor.innerText(), /unsaved/);
+  await page.keyboard.press("Escape");
+  await page.keyboard.type("u");
+  await page.keyboard.press("Alt+KeyW");
+  await editor.waitFor({ state: "hidden" });
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify({
@@ -213,6 +261,8 @@ try {
         "default-yank-clipboard",
         "named-and-black-hole-registers",
         "app-shortcuts-normal-and-insert",
+        "option-w-editor-repository-and-standalone",
+        "option-w-picker-and-dirty-draft-protection",
         "blame-edit-undo-save-watch",
       ],
     }),

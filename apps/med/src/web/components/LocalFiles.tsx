@@ -1,5 +1,6 @@
 import { ToolButton } from "./ToolButton";
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -54,6 +55,21 @@ export function LocalFiles({ children }: { children: ReactNode }) {
   const currentTabs = useRef(tabs);
   currentTabs.current = tabs;
   const copiedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const close = useCallback(
+    (id: string) => {
+      const draft = drafts.get(id);
+      if (draft?.dirty || draft?.saving) {
+        setError("Save or discard this draft before closing the file.");
+        return;
+      }
+      const next = currentTabs.current.filter((tab) => tab.id !== id);
+      currentTabs.current = next;
+      setTabs(next);
+      setSelected((selected) => (selected === id ? (next[0]?.id ?? "") : selected));
+      setError("");
+    },
+    [drafts],
+  );
   const add = (tab: Tab) => {
     const next = [...currentTabs.current.filter((item) => item.id !== tab.id), tab];
     if (next.length > 24 || next.reduce((sum, item) => sum + item.file.size, 0) > 32 * 1024 * 1024)
@@ -230,6 +246,21 @@ export function LocalFiles({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!visible) return;
     const shortcuts = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing) return;
+      if (
+        event.altKey &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.shiftKey &&
+        event.code === "KeyW" &&
+        active &&
+        !document.querySelector('[role="dialog"]')
+      ) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (!event.repeat) close(active.id);
+        return;
+      }
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || event.isComposing)
         return;
       const key = event.key.toLowerCase();
@@ -247,7 +278,7 @@ export function LocalFiles({ children }: { children: ReactNode }) {
     };
     window.addEventListener("keydown", shortcuts, true);
     return () => window.removeEventListener("keydown", shortcuts, true);
-  }, [visible]);
+  }, [visible, active, close]);
   return (
     <>
       {reviewMounted && (
@@ -361,14 +392,7 @@ export function LocalFiles({ children }: { children: ReactNode }) {
               onRefresh={() => {
                 if (active.file.source.kind === "local") void open(active.file.path);
               }}
-              onClose={() => {
-                if (drafts.get(active.id)?.dirty || drafts.get(active.id)?.saving) {
-                  setError("Save or discard this draft before closing the file.");
-                  return;
-                }
-                setTabs((items) => items.filter((tab) => tab.id !== active.id));
-                setSelected(tabs.find((tab) => tab.id !== active.id)?.id ?? "");
-              }}
+              onClose={() => close(active.id)}
               editor={
                 active.file.source.kind === "local"
                   ? {
@@ -410,6 +434,13 @@ export function LocalFiles({ children }: { children: ReactNode }) {
                 label: "Open file by absolute path",
                 shortcut: "⌘ O",
                 run: () => setOpening(true),
+              },
+              {
+                id: "close",
+                label: "Close current file",
+                shortcut: "⌥ W",
+                disabled: !active,
+                run: () => active && close(active.id),
               },
               {
                 id: "theme",

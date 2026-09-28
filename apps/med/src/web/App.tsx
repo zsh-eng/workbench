@@ -856,8 +856,21 @@ export function App({
         setHelpOpen(true);
         return;
       }
-      if (event.altKey && !event.metaKey && !event.ctrlKey && !editing && !modal) {
-        const key = event.code || `Key${event.key.toUpperCase()}`;
+      const optionKey = event.code || `Key${event.key.toUpperCase()}`;
+      const closeFromEditor =
+        optionKey === "KeyW" &&
+        event
+          .composedPath()
+          .some((node) => node instanceof HTMLElement && node.classList.contains("cm-content"));
+      if (
+        event.altKey &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        (!editing || closeFromEditor) &&
+        !modal &&
+        !document.querySelector('[role="dialog"]')
+      ) {
+        const key = optionKey;
         if (["KeyW", "KeyO", "KeyP", "KeyB", "KeyR"].includes(key)) {
           event.preventDefault();
           event.stopPropagation();
