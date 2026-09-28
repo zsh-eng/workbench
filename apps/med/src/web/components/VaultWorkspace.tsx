@@ -388,7 +388,6 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
     },
     {
       id: "browse-files",
-      icon: "folder" as const,
       label: sidebar ? "Hide files sidebar" : "Show files sidebar",
       shortcut: "⌘⇧B",
       disabled: !locationState.id,
@@ -397,7 +396,6 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
     {
       id: "theme",
       managesFocus: true,
-      icon: "theme" as const,
       label: "Change color theme",
       run: () => setThemes(true),
     },
@@ -413,7 +411,6 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
     },
     {
       id: "close-file",
-      icon: "close" as const,
       label: "Close current file",
       shortcut: "⌥ W",
       disabled: !currentFile,
@@ -421,7 +418,6 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
     },
     {
       id: "close-files",
-      icon: "close" as const,
       label: "Close all files in this workspace",
       shortcut: "⌥ ⇧ W",
       disabled: !currentTabs.length,
@@ -429,7 +425,6 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
     },
     {
       id: "close-others",
-      icon: "close" as const,
       label: "Close other files in this workspace",
       disabled: !currentFile || currentTabs.length < 2,
       run: () =>
@@ -459,7 +454,6 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
     },
     {
       id: "refresh",
-      icon: "refresh" as const,
       label: "Refresh files",
       disabled: !locationState.id,
       run: refreshFiles,
@@ -467,7 +461,6 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
     { id: "sources", label: "Open registered sources", run: () => navigate("/sources") },
     {
       id: "repositories",
-      icon: "gitBranch" as const,
       label: "Go to repositories",
       run: () => {
         location.assign("/");

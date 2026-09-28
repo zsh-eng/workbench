@@ -13,7 +13,7 @@ its themes, typography, layout, and file preview.
   hints use the same `kbd` component in palettes, menus, and tooltips.
 - Keep focus indicators and accessible names on icon buttons. A toggle has a
   pressed state. Press animation respects reduced motion.
-- Common commands come first; unavailable commands remain searchable below them.
+- Command rows use text and shortcut keycaps without icons. Common commands come first; unavailable commands remain searchable below them.
   Long labels truncate instead of displacing shortcuts.
 
 ## Close-ups

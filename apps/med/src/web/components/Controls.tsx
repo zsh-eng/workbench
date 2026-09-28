@@ -7,7 +7,7 @@ import { Dialog } from "@base-ui/react/dialog";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ShortcutKeys } from "./ShortcutKeys";
 export { ShortcutKeys } from "./ShortcutKeys";
-import { Icon, type IconName } from "./Icon";
+import { Icon } from "./Icon";
 import { tokens, ui } from "../theme.stylex";
 
 export interface Choice {
@@ -16,7 +16,6 @@ export interface Choice {
   description?: string;
 }
 export interface ReviewCommand {
-  icon?: IconName;
   managesFocus?: boolean;
   id: string;
   label: string;
@@ -252,10 +251,7 @@ export function CommandDialog({
                   command.disabled && styles.disabled,
                 )}
               >
-                <span {...stylex.props(styles.commandLabel)}>
-                  <Icon name={command.icon ?? "command"} size={15} />
-                  <span {...stylex.props(styles.commandText)}>{command.label}</span>
-                </span>
+                <span {...stylex.props(styles.commandText)}>{command.label}</span>
                 <ShortcutKeys value={command.shortcut} />
               </button>
             ))}
@@ -337,13 +333,12 @@ const styles = stylex.create({
     textAlign: "left",
     borderRadius: 8,
   },
-  commandText: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  commandLabel: {
+  commandText: {
     flex: "1",
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
     minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   },
   commandFooter: {
     display: "flex",

@@ -407,7 +407,6 @@ export function LocalFiles({ children }: { children: ReactNode }) {
               {
                 id: "open",
                 managesFocus: true,
-                icon: "plus" as const,
                 label: "Open file by absolute path",
                 shortcut: "⌘ O",
                 run: () => setOpening(true),
@@ -415,13 +414,11 @@ export function LocalFiles({ children }: { children: ReactNode }) {
               {
                 id: "theme",
                 managesFocus: true,
-                icon: "theme" as const,
                 label: "Change color theme",
                 run: () => setThemes(true),
               },
               {
                 id: "repositories",
-                icon: "gitBranch" as const,
                 label: "Go to repositories",
                 run: repositories,
               },

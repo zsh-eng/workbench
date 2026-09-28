@@ -1148,26 +1148,22 @@ export function App({
     {
       id: "open-branch",
       managesFocus: true,
-      icon: "gitBranch" as const,
       label: "Open branch or worktree",
       disabled: !gitAvailable,
       run: () => setBranchPickerOpen(true),
     },
     {
       id: "wrap",
-      icon: "wrap" as const,
       label: wrap ? "Disable line wrapping in diffs" : "Wrap lines in diffs",
       run: () => setWrap((value) => !value),
     },
     {
       id: "show-notes",
-      icon: "note" as const,
       label: showNotes ? "Hide review notes" : "Show review notes",
       run: () => setShowNotes((value) => !value),
     },
     {
       id: "refresh-file",
-      icon: "refresh" as const,
       label: "Refresh current file",
       disabled: !activeFile,
       run: () => void fileWorkspace.refresh(),
@@ -1203,7 +1199,6 @@ export function App({
     {
       id: "commands",
       managesFocus: true,
-      icon: "command" as const,
       label: "Open command palette",
       shortcut: "⌘ K",
       run: () => setCommandsOpen(true),
@@ -1217,7 +1212,6 @@ export function App({
     },
     {
       id: "close-file",
-      icon: "close" as const,
       label: "Close current file",
       shortcut: "⌥ W",
       disabled: !activeFile,
@@ -1225,7 +1219,6 @@ export function App({
     },
     {
       id: "close-files",
-      icon: "close" as const,
       label: "Close all files in this workspace",
       shortcut: "⌥ ⇧ W",
       disabled: !fileState.tabs.length,
@@ -1233,7 +1226,6 @@ export function App({
     },
     {
       id: "close-others",
-      icon: "close" as const,
       label: "Close other files in this workspace",
       shortcut: "⌥ ⇧ O",
       disabled: !activeFile || fileState.tabs.length < 2,
@@ -1248,13 +1240,11 @@ export function App({
     },
     {
       id: "changes",
-      icon: "gitBranch" as const,
       label: "Return to Changes",
       run: () => fileWorkspace.select("changes"),
     },
     {
       id: "blame",
-      icon: "history" as const,
       label: blameEnabled ? "Hide Git blame" : "Show Git blame in the gutter",
       shortcut: "⌥ B",
       disabled: !activeFile || fileState.file?.kind !== "text",
@@ -1263,7 +1253,6 @@ export function App({
     {
       id: "content-search",
       managesFocus: true,
-      icon: "search" as const,
       label: "Search workspace file contents",
       shortcut: "⌘ ⇧ F",
       disabled: !browseSource,
@@ -1282,14 +1271,12 @@ export function App({
           {
             id: "open-file",
             managesFocus: true,
-            icon: "file" as const,
             label: "Find file in this workspace",
             shortcut: "⌘⇧K",
             run: openFilePicker,
           },
           {
             id: "browse-files",
-            icon: "folder" as const,
             label: filesVisible ? "Hide files sidebar" : "Show files sidebar",
             shortcut: "⌘⇧B",
             run: toggleFilesSidebar,
@@ -1316,7 +1303,6 @@ export function App({
     },
     {
       id: "find",
-      icon: "search" as const,
       label: "Find in diff contents",
       shortcut: "⌘ F",
       run: () => {
@@ -1334,20 +1320,17 @@ export function App({
     },
     {
       id: "layout",
-      icon: "split" as const,
       label: `Use ${mode === "split" ? "unified" : "split"} diff layout`,
       run: () => setMode(mode === "split" ? "unified" : "split"),
     },
     {
       id: "theme",
       managesFocus: true,
-      icon: "theme" as const,
       label: "Change color theme",
       run: () => setThemePickerOpen(true),
     },
     {
       id: "refresh",
-      icon: "refresh" as const,
       label: "Refresh current review and history",
       run: () => void controller.refresh(),
     },
@@ -1357,7 +1340,6 @@ export function App({
             ? [
                 {
                   id: "working",
-                  icon: "edit" as const,
                   label: "Review working changes",
                   run: () => void controller.selectComparison({ kind: "working" as const }),
                 },
@@ -1365,7 +1347,6 @@ export function App({
             : []),
           {
             id: "range",
-            icon: "gitBranch" as const,
             label: "Compare branches or revisions",
             run: () => setRangeOpen(true),
           },
@@ -1373,7 +1354,6 @@ export function App({
       : []),
     {
       id: "sidebar",
-      icon: "panelLeft" as const,
       label: sidebarVisible ? "Hide sidebar" : "Show sidebar",
       shortcut: "⌘ B",
       run: toggleReviewSidebar,
@@ -1381,13 +1361,11 @@ export function App({
     {
       id: "open-local-file",
       managesFocus: true,
-      icon: "plus" as const,
       label: "Open standalone file",
       run: () => window.dispatchEvent(new Event("med-open-file")),
     },
     {
       id: "note",
-      icon: "note" as const,
       label: "Add note to selected lines",
       shortcut: "C",
       run: startNote,
