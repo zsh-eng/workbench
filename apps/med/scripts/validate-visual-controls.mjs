@@ -199,9 +199,6 @@ try {
     const fileTab = files.getByRole("tab", { name: /README/ });
     assert.equal(await fileTab.getAttribute("aria-selected"), "true");
     const close = files.getByRole("button", { name: "Close README.md", exact: true });
-    await close.hover();
-    await page.getByRole("tooltip").waitFor();
-    assert.equal(await page.getByRole("tooltip").locator("kbd").count(), 2);
     await close.click();
     await fileTab.waitFor({ state: "hidden" });
     assert.equal(

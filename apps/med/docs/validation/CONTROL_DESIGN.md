@@ -50,9 +50,9 @@ saved comments, repository sidebar, and file tabs exposed these inconsistencies:
 - An unlayered font reset overrode StyleX component fonts. Push controls rendered
   at 16 px instead of their declared 12 px. Move the reset into the base cascade
   layer so each component controls its typography.
-- File tabs used square dividers. Use compact rounded tabs and a continuous
-  selected underline. Branch and file controls now use shared tooltips. Show the
-  close shortcut only for the active file, which is the shortcut's target.
+- Branch controls now use shared tooltips. The file-tab redesign was reverted
+  after user review. File tabs retain their original compact rectangular layout,
+  dividers, and native tooltips.
 - The branch picker had a text refresh control and no visible Escape hint. Use
   the shared refresh button and Escape keycap.
 - The file sidebar header was 37 px tall. Match the editor's 32 px header and use
@@ -68,7 +68,7 @@ Temporary paths and commit IDs differ between runs.
 
 | Element | Before | After |
 | --- | --- | --- |
-| File tabs | ![Before](ui-audit/before-file-tabs.png) | ![After](ui-audit/after-file-tabs.png) |
+| File tabs (redesign reverted) | ![Restored design](ui-audit/before-file-tabs.png) | ![Rejected design](ui-audit/after-file-tabs.png) |
 | Branch picker | ![Before](ui-audit/before-branches.png) | ![After](ui-audit/after-branches.png) |
 | Push dialog | ![Before](ui-audit/before-push.png) | ![After](ui-audit/after-push.png) |
 | Comment composer | ![Before](ui-audit/before-comment.png) | ![After](ui-audit/after-comment.png) |
@@ -76,5 +76,5 @@ Temporary paths and commit IDs differ between runs.
 
 Validation: build and lint passed. The production-browser visual controls check
 now covers computed control typography, text-only command rows, and file-tab
-closure with shortcut tooltips. Multi-repository, saved-review, and editor
+closure. Multi-repository, saved-review, and editor
 interaction scripts also passed. Test browsers and fixture hosts were closed.
