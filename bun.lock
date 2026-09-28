@@ -22,7 +22,7 @@
     },
     "apps/med": {
       "name": "@workbench/med",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "bin": {
         "med-diff": "dist/cli.js",
       },
