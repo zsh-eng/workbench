@@ -1,4 +1,4 @@
-import { SyncStatus, SyncBoundary } from "@/components/sync-status";
+import { SyncBoundary } from "@/components/sync-status";
 import CommandBar from "@/components/nav/command-bar";
 import NavBar from "@/components/nav/nav-bar.tsx";
 import { SpacedIcon } from "@/components/nav/spaced-icon";
@@ -66,7 +66,6 @@ export default function App() {
           <SpacedIcon />
           <NavBar />
           <SessionExpiredBanner />
-          <SyncStatus />
           <SyncBoundary>
             <Routes>
               <Route path="/" element={<ReviewRoute />} />

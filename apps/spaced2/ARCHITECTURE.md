@@ -26,6 +26,11 @@ sync uploads the outbox and downloads remote records. The generic shared
 package handles HLC conflict ordering and the protocol. Spaced's record adapter
 validates domain payloads. Deck membership is a last-write-wins boolean.
 
+The app sync engine retries in the background every 30 seconds while online,
+and on connectivity or visibility changes. Transient failures do not show a
+retry banner. Initial restore keeps its progress message until bootstrap finishes;
+session expiry still asks the user to sign in.
+
 Network requests hold only the cross-tab network-sync lock. Local writes and
 incoming transactions use a separate short lock. The app's sync state bridge
 merges clocks when it publishes cursor progress, preserving clocks advanced
