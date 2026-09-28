@@ -1,3 +1,4 @@
+import { Tooltip } from "@base-ui/react/tooltip";
 import { createRoot } from "react-dom/client";
 import { WorkerPoolContextProvider } from "@pierre/diffs/react";
 import PierreWorker from "@pierre/diffs/worker/worker.js?worker";
@@ -33,12 +34,14 @@ const root = document.getElementById("root");
 if (!root) throw new Error("Application root is missing");
 createRoot(root).render(
   <WorkerPoolContextProvider poolOptions={poolOptions} highlighterOptions={highlighterOptions}>
-    <PierreThemeSync />
-    <VaultWorkspace>
-      <LocalFiles>
-        <App controller={controller} />
-      </LocalFiles>
-    </VaultWorkspace>
+    <Tooltip.Provider delay={400} closeDelay={80} timeout={500}>
+      <PierreThemeSync />
+      <VaultWorkspace>
+        <LocalFiles>
+          <App controller={controller} />
+        </LocalFiles>
+      </VaultWorkspace>
+    </Tooltip.Provider>
   </WorkerPoolContextProvider>,
 );
 window.addEventListener(

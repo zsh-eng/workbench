@@ -1,3 +1,4 @@
+import { ShortcutKeys } from "./ShortcutKeys";
 import { focusPaletteInput } from "../data/palette-focus";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
@@ -361,7 +362,7 @@ function PickerContents({
                 aria-label="Close file picker"
                 {...stylex.props(ui.button, styles.close)}
               >
-                <kbd {...stylex.props(styles.kbd)}>Esc</kbd>
+                <ShortcutKeys value="Esc" />
               </Dialog.Close>
             </div>
             <Dialog.Description {...stylex.props(styles.hidden)}>
@@ -507,10 +508,8 @@ function PickerContents({
               <p {...stylex.props(styles.searchNotice)}>{currentSearch.index.message}</p>
             )}
             <div {...stylex.props(styles.footer)}>
-              <span>
-                <kbd {...stylex.props(styles.kbd)}>↑</kbd>
-                <kbd {...stylex.props(styles.kbd)}>↓</kbd> select ·{" "}
-                <kbd {...stylex.props(styles.kbd)}>Enter</kbd> open
+              <span {...stylex.props(ui.row)}>
+                <ShortcutKeys value="↑ ↓" /> Select <ShortcutKeys value="↵" /> Open
               </span>
               <span>
                 {mode === "files"
@@ -539,10 +538,10 @@ const styles = stylex.create({
     maxHeight: "80vh",
     display: "flex",
     flexDirection: "column",
-    backgroundColor: tokens.raised,
+    backgroundColor: tokens.panel,
     color: tokens.text,
     fontFamily: tokens.ui,
-    borderRadius: 9,
+    borderRadius: 16,
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: tokens.border,
@@ -567,7 +566,8 @@ const styles = stylex.create({
     display: "flex",
     alignItems: "center",
     gap: 10,
-    padding: 14,
+    paddingBlock: 11,
+    paddingInline: 14,
     color: tokens.muted,
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
@@ -588,10 +588,10 @@ const styles = stylex.create({
     display: "flex",
     alignItems: "center",
     gap: 9,
-    paddingBlock: 8,
+    paddingBlock: 7,
     paddingInline: 10,
     fontSize: 12,
-    borderRadius: 4,
+    borderRadius: 8,
     cursor: "default",
     outline: "none",
   },
@@ -618,7 +618,7 @@ const styles = stylex.create({
     display: "flex",
     justifyContent: "space-between",
     gap: 12,
-    paddingBlock: 10,
+    paddingBlock: 8,
     paddingInline: 14,
     fontSize: 10,
     color: tokens.faint,

@@ -1,3 +1,4 @@
+import { ToolButton } from "./ToolButton";
 import {
   useLayoutEffect,
   useMemo,
@@ -564,42 +565,43 @@ export default function FileEditor({
           {mode}
         </span>
         {previewControl}
-        <button onClick={() => void save()} disabled={!draft.dirty || draft.saving}>
-          Save
-        </button>
+        <ToolButton
+          label="Save"
+          icon="save"
+          shortcut="⌘ S"
+          onClick={() => void save()}
+          disabled={!draft.dirty || draft.saving}
+        />
         {context.loadBlame && (
-          <button
+          <ToolButton
+            label={draft.dirty ? "Blame updates after saving" : "Toggle Git blame"}
             aria-label="Toggle Git blame"
+            icon="history"
+            active={blameOpen}
             aria-pressed={blameOpen}
-            title={draft.dirty ? "Blame updates after saving" : "Toggle Git blame"}
             onClick={() => {
               setLocalBlame(!blameOpen);
               context.onBlameEnabledChange?.(!blameOpen);
             }}
-          >
-            Blame
-          </button>
+          />
         )}
         {context.onOpenBefore && <button onClick={context.onOpenBefore}>Open before</button>}
         {context.onOpenAfter && <button onClick={context.onOpenAfter}>Open after</button>}
         {context.refreshAvailable !== false && (
-          <button
+          <ToolButton
+            label="Refresh file"
+            icon="refresh"
             onClick={context.onRefresh}
             disabled={draft.dirty || draft.saving}
-            aria-label="Refresh file"
-            title="Refresh file"
-          >
-            ↻
-          </button>
+          />
         )}
-        <button
+        <ToolButton
+          label="Close file"
+          shortcut=":q"
+          icon="close"
           onClick={close}
           disabled={draft.saving}
-          aria-label="Close file"
-          title="Close file (:q)"
-        >
-          ×
-        </button>
+        />
       </header>
       {draft.error && (
         <div role="alert" className="med-editor-message">

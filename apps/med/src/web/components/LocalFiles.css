@@ -15,9 +15,9 @@
 }
 .med-local-toolbar {
   display: flex;
-  gap: 12px;
+  gap: 4px;
   align-items: center;
-  padding: 6px 12px;
+  padding: 4px 8px;
   min-height: 28px;
   border-bottom: 1px solid var(--local-border);
 }
@@ -47,7 +47,8 @@
 }
 .med-local-tabs [aria-selected="true"] {
   background: var(--local-panel);
-  border-color: var(--local-accent);
+  border-color: transparent;
+  box-shadow: inset 0 -2px var(--local-accent);
 }
 .med-local-empty {
   margin: auto;
@@ -124,4 +125,32 @@
   border: 1px solid var(--med-border);
   border-radius: 6px;
   cursor: pointer;
+}
+
+.med-local-toolbar > strong {
+  margin-inline: 4px 12px;
+  font-weight: 600;
+  font-size: 12px;
+}
+.med-local .med-local-toolbar [data-med-tool-button] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  color: var(--local-muted);
+  background: transparent;
+}
+.med-local .med-local-toolbar [data-med-tool-button]:hover {
+  background: var(--local-panel);
+  color: var(--local-fg);
+}
+.med-local .med-local-tabs [role="tab"] {
+  border-color: transparent;
+  border-radius: 6px;
+  padding: 5px 10px;
 }

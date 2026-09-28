@@ -1,3 +1,4 @@
+import { ShortcutKeys } from "./ShortcutKeys";
 import { focusPaletteInput } from "../data/palette-focus";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
@@ -255,7 +256,7 @@ function SymbolPickerContents({
                 </div>
               )}
               <Dialog.Close aria-label="Close symbol picker" {...stylex.props(ui.button)}>
-                <kbd {...stylex.props(styles.kbd)}>Esc</kbd>
+                <ShortcutKeys value="Esc" />
               </Dialog.Close>
             </div>
             <Dialog.Description {...stylex.props(styles.hidden)}>
@@ -437,10 +438,10 @@ const styles = stylex.create({
     maxHeight: "80vh",
     display: "flex",
     flexDirection: "column",
-    backgroundColor: tokens.raised,
+    backgroundColor: tokens.panel,
     color: tokens.text,
     fontFamily: tokens.ui,
-    borderRadius: 9,
+    borderRadius: 16,
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: tokens.border,
@@ -464,7 +465,8 @@ const styles = stylex.create({
     display: "flex",
     alignItems: "center",
     gap: 10,
-    padding: 14,
+    paddingBlock: 11,
+    paddingInline: 14,
     color: tokens.muted,
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
@@ -485,10 +487,10 @@ const styles = stylex.create({
     display: "flex",
     alignItems: "center",
     gap: 9,
-    paddingBlock: 8,
+    paddingBlock: 7,
     paddingInline: 10,
     fontSize: 12,
-    borderRadius: 4,
+    borderRadius: 8,
     cursor: "default",
     outline: "none",
   },
@@ -514,7 +516,7 @@ const styles = stylex.create({
     display: "flex",
     justifyContent: "space-between",
     gap: 12,
-    paddingBlock: 10,
+    paddingBlock: 8,
     paddingInline: 14,
     fontSize: 10,
     color: tokens.faint,

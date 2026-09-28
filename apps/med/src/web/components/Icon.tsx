@@ -77,9 +77,23 @@ export type IconName =
   | "plus"
   | "edit"
   | "trash"
-  | "reply";
+  | "reply"
+  | "save"
+  | "preview";
 
 const icons: Record<IconName, ReactNode> = {
+  save: (
+    <>
+      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12l4 4v12a2 2 0 0 1-2 2Z" />
+      <path d="M7 3v6h10V3M7 21v-8h10v8" />
+    </>
+  ),
+  preview: (
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="3" />
+      <path d="M12 3v18M15 8h3M15 12h3M15 16h2" />
+    </>
+  ),
   branch: (
     <>
       {" "}

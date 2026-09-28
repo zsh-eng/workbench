@@ -1,3 +1,4 @@
+import { ActionTooltip, ToolButton } from "./components/ToolButton";
 import * as stylex from "@stylexjs/stylex";
 import {
   CodeView,
@@ -60,6 +61,19 @@ type Selection = {
   };
 };
 const emptyNotes: Note[] = [];
+const commonCommands = [
+  "open-file",
+  "content-search",
+  "open-branch",
+  "open-local-file",
+  "theme",
+  "layout",
+  "sidebar",
+];
+const commandRank = (id: string) => {
+  const rank = commonCommands.indexOf(id);
+  return rank < 0 ? commonCommands.length : rank;
+};
 
 function readPreference<T extends string>(key: string, fallback: T, values: readonly T[]): T {
   try {
@@ -1112,6 +1126,7 @@ export function App({
     })),
     {
       id: "file-symbols",
+      managesFocus: true,
       label: "Search symbols in current file",
       shortcut: "⌘ O",
       disabled: !activeFile || fileState.file?.kind !== "text",
@@ -1119,6 +1134,7 @@ export function App({
     },
     {
       id: "project-symbols",
+      managesFocus: true,
       label: "Search symbols in project commits",
       shortcut: "⌘ ⇧ O",
       disabled: !browseSource,
@@ -1131,22 +1147,27 @@ export function App({
     },
     {
       id: "open-branch",
+      managesFocus: true,
+      icon: "gitBranch" as const,
       label: "Open branch or worktree",
       disabled: !gitAvailable,
       run: () => setBranchPickerOpen(true),
     },
     {
       id: "wrap",
+      icon: "wrap" as const,
       label: wrap ? "Disable line wrapping in diffs" : "Wrap lines in diffs",
       run: () => setWrap((value) => !value),
     },
     {
       id: "show-notes",
+      icon: "note" as const,
       label: showNotes ? "Hide review notes" : "Show review notes",
       run: () => setShowNotes((value) => !value),
     },
     {
       id: "refresh-file",
+      icon: "refresh" as const,
       label: "Refresh current file",
       disabled: !activeFile,
       run: () => void fileWorkspace.refresh(),
@@ -1181,18 +1202,22 @@ export function App({
     },
     {
       id: "commands",
+      managesFocus: true,
+      icon: "command" as const,
       label: "Open command palette",
       shortcut: "⌘ K",
       run: () => setCommandsOpen(true),
     },
     {
       id: "help",
+      managesFocus: true,
       label: "Show all shortcuts and commands",
       shortcut: "?",
       run: () => setHelpOpen(true),
     },
     {
       id: "close-file",
+      icon: "close" as const,
       label: "Close current file",
       shortcut: "⌥ W",
       disabled: !activeFile,
@@ -1200,6 +1225,7 @@ export function App({
     },
     {
       id: "close-files",
+      icon: "close" as const,
       label: "Close all files in this workspace",
       shortcut: "⌥ ⇧ W",
       disabled: !fileState.tabs.length,
@@ -1207,6 +1233,7 @@ export function App({
     },
     {
       id: "close-others",
+      icon: "close" as const,
       label: "Close other files in this workspace",
       shortcut: "⌥ ⇧ O",
       disabled: !activeFile || fileState.tabs.length < 2,
@@ -1219,9 +1246,15 @@ export function App({
       disabled: !activeFile || activeFile.pinned,
       run: () => activeFile && fileWorkspace.pin(activeFile.id),
     },
-    { id: "changes", label: "Return to Changes", run: () => fileWorkspace.select("changes") },
+    {
+      id: "changes",
+      icon: "gitBranch" as const,
+      label: "Return to Changes",
+      run: () => fileWorkspace.select("changes"),
+    },
     {
       id: "blame",
+      icon: "history" as const,
       label: blameEnabled ? "Hide Git blame" : "Show Git blame in the gutter",
       shortcut: "⌥ B",
       disabled: !activeFile || fileState.file?.kind !== "text",
@@ -1229,6 +1262,8 @@ export function App({
     },
     {
       id: "content-search",
+      managesFocus: true,
+      icon: "search" as const,
       label: "Search workspace file contents",
       shortcut: "⌘ ⇧ F",
       disabled: !browseSource,
@@ -1236,6 +1271,7 @@ export function App({
     },
     {
       id: "resume-picker",
+      managesFocus: true,
       label: "Resume last file search",
       shortcut: "⌥ R",
       disabled: !browseSource,
@@ -1245,12 +1281,15 @@ export function App({
       ? [
           {
             id: "open-file",
+            managesFocus: true,
+            icon: "file" as const,
             label: "Find file in this workspace",
             shortcut: "⌘⇧K",
             run: openFilePicker,
           },
           {
             id: "browse-files",
+            icon: "folder" as const,
             label: filesVisible ? "Hide files sidebar" : "Show files sidebar",
             shortcut: "⌘⇧B",
             run: toggleFilesSidebar,
@@ -1277,6 +1316,7 @@ export function App({
     },
     {
       id: "find",
+      icon: "search" as const,
       label: "Find in diff contents",
       shortcut: "⌘ F",
       run: () => {
@@ -1294,16 +1334,20 @@ export function App({
     },
     {
       id: "layout",
+      icon: "split" as const,
       label: `Use ${mode === "split" ? "unified" : "split"} diff layout`,
       run: () => setMode(mode === "split" ? "unified" : "split"),
     },
     {
       id: "theme",
+      managesFocus: true,
+      icon: "theme" as const,
       label: "Change color theme",
       run: () => setThemePickerOpen(true),
     },
     {
       id: "refresh",
+      icon: "refresh" as const,
       label: "Refresh current review and history",
       run: () => void controller.refresh(),
     },
@@ -1313,26 +1357,41 @@ export function App({
             ? [
                 {
                   id: "working",
+                  icon: "edit" as const,
                   label: "Review working changes",
                   run: () => void controller.selectComparison({ kind: "working" as const }),
                 },
               ]
             : []),
-          { id: "range", label: "Compare branches or revisions", run: () => setRangeOpen(true) },
+          {
+            id: "range",
+            icon: "gitBranch" as const,
+            label: "Compare branches or revisions",
+            run: () => setRangeOpen(true),
+          },
         ]
       : []),
     {
       id: "sidebar",
+      icon: "panelLeft" as const,
       label: sidebarVisible ? "Hide sidebar" : "Show sidebar",
       shortcut: "⌘ B",
       run: toggleReviewSidebar,
     },
     {
       id: "open-local-file",
+      managesFocus: true,
+      icon: "plus" as const,
       label: "Open standalone file",
       run: () => window.dispatchEvent(new Event("med-open-file")),
     },
-    { id: "note", label: "Add note to selected lines", shortcut: "C", run: startNote },
+    {
+      id: "note",
+      icon: "note" as const,
+      label: "Add note to selected lines",
+      shortcut: "C",
+      run: startNote,
+    },
   ];
   const comparisonValue = state.comparison.kind;
   const comparisonChoices = [
@@ -1768,40 +1827,39 @@ export function App({
                 )}
                 <span {...stylex.props(ui.grow)} />
                 <div {...stylex.props(styles.modeGroup)}>
-                  <button
-                    {...stylex.props(ui.button, mode === "split" && ui.active)}
+                  <ToolButton
+                    label="Split"
+                    icon="split"
+                    active={mode === "split"}
                     aria-pressed={mode === "split"}
                     onClick={() => setMode("split")}
-                  >
-                    <Icon name="split" size={13} />
-                    Split
-                  </button>
-                  <button
-                    {...stylex.props(ui.button, mode === "unified" && ui.active)}
+                  />
+                  <ToolButton
+                    label="Unified"
+                    icon="unified"
+                    active={mode === "unified"}
                     aria-pressed={mode === "unified"}
                     onClick={() => setMode("unified")}
-                  >
-                    <Icon name="unified" size={13} />
-                    Unified
-                  </button>
+                  />
                 </div>
-                <button
-                  {...stylex.props(ui.button, ui.iconButton, wrap && ui.active)}
-                  aria-label="Wrap lines"
+                <ToolButton
+                  label="Wrap lines"
+                  icon="wrap"
+                  active={wrap}
                   aria-pressed={wrap}
                   onClick={() => setWrap(!wrap)}
-                >
-                  <Icon name="wrap" size={14} />
-                </button>
-                <button
-                  {...stylex.props(ui.button, showNotes && ui.active)}
-                  aria-label="Toggle notes"
-                  aria-pressed={showNotes}
-                  onClick={() => setShowNotes(!showNotes)}
-                >
-                  <Icon name="note" size={13} />
-                  {notes.length || ""}
-                </button>
+                />
+                <ActionTooltip label="Toggle comments">
+                  <button
+                    {...stylex.props(ui.button, showNotes && ui.active)}
+                    aria-label="Toggle notes"
+                    aria-pressed={showNotes}
+                    onClick={() => setShowNotes(!showNotes)}
+                  >
+                    <Icon name="note" size={13} />
+                    {notes.length || ""}
+                  </button>
+                </ActionTooltip>
                 <ActionMenu
                   actions={[
                     ...(selectedFile && browseSource
@@ -1829,14 +1887,12 @@ export function App({
                     { label: "Refresh review", onClick: () => void controller.refresh() },
                   ]}
                 />
-                <button
-                  {...stylex.props(ui.button, ui.iconButton)}
-                  aria-label="Refresh review"
+                <ToolButton
+                  label="Refresh review"
+                  icon="refresh"
                   disabled={state.status === "loading"}
                   onClick={() => void controller.refresh()}
-                >
-                  <Icon name="refresh" size={14} />
-                </button>
+                />
               </div>
               {rangeOpen && (
                 <form
@@ -2311,16 +2367,21 @@ export function App({
                 : "fresh"}
           </span>
         )}
-        <button
-          {...stylex.props(ui.button, styles.helpButton)}
-          onClick={() => setHelpOpen(true)}
-          title="Shortcuts and commands (?)"
-          aria-label="Shortcuts and commands"
-        >
-          <kbd>?</kbd>
-        </button>
+        <ActionTooltip label="Shortcuts and commands" shortcut="?">
+          <button
+            {...stylex.props(ui.button, styles.helpButton)}
+            onClick={() => setHelpOpen(true)}
+            aria-label="Shortcuts and commands"
+          >
+            <kbd>?</kbd>
+          </button>
+        </ActionTooltip>
       </footer>
-      <CommandDialog open={commandsOpen} onOpenChange={setCommandsOpen} commands={commands} />
+      <CommandDialog
+        open={commandsOpen}
+        onOpenChange={setCommandsOpen}
+        commands={[...commands].sort((a, b) => commandRank(a.id) - commandRank(b.id))}
+      />
       <CommandDialog
         title="Shortcuts & commands"
         searchLabel="Search shortcuts and commands"

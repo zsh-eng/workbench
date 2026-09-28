@@ -1,3 +1,5 @@
+import { Icon } from "./Icon";
+import { ShortcutKeys } from "./ShortcutKeys";
 import { focusPaletteInput } from "../data/palette-focus";
 import { useEffect, useRef, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
@@ -63,19 +65,20 @@ export function ThemePicker({ open, onOpenChange }: ThemePickerProps) {
                 {...stylex.props(ui.button, styles.close)}
                 aria-label="Close theme picker"
               >
-                Esc
+                <ShortcutKeys value="Esc" />
               </Dialog.Close>
             </div>
             <Dialog.Description {...stylex.props(styles.description)}>
               Preview with ↑ ↓. Press Enter to save. Escape restores your theme.
             </Dialog.Description>
             <div {...stylex.props(styles.search)}>
+              <Icon name="search" size={16} />
               <Combobox.Input
                 ref={inputRef}
                 onFocus={(event) => event.currentTarget.select()}
                 aria-label="Search themes"
                 placeholder="Search themes…"
-                {...stylex.props(ui.input, styles.input)}
+                {...stylex.props(styles.input)}
               />
             </div>
             <Combobox.Empty>
@@ -143,7 +146,7 @@ const styles = stylex.create({
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: tokens.border,
-    borderRadius: 9,
+    borderRadius: 16,
     backgroundColor: tokens.panel,
     color: tokens.text,
     boxShadow: tokens.shadow,
@@ -166,22 +169,41 @@ const styles = stylex.create({
     whiteSpace: "nowrap",
     borderWidth: 0,
   },
-  search: { padding: 12 },
-  input: { backgroundColor: tokens.canvas, fontSize: 13, paddingBlock: 9 },
+  search: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    paddingBlock: 12,
+    paddingInline: 16,
+    color: tokens.muted,
+    borderBottomWidth: 1,
+    borderBottomStyle: "solid",
+    borderBottomColor: tokens.border,
+  },
+  input: {
+    flex: "1",
+    minWidth: 0,
+    backgroundColor: "transparent",
+    borderWidth: 0,
+    outline: "none",
+    color: tokens.text,
+    fontFamily: tokens.ui,
+    fontSize: 14,
+  },
   list: {
     maxHeight: "min(360px, 45vh)",
     overflowY: "auto",
     paddingInline: 6,
-    paddingBottom: 6,
+    paddingBlock: 6,
     outline: "none",
   },
   item: {
     display: "flex",
     alignItems: "center",
     gap: 12,
-    minHeight: 38,
+    minHeight: 34,
     paddingInline: 10,
-    borderRadius: 5,
+    borderRadius: 8,
     color: tokens.text,
     cursor: "default",
     outline: "none",
@@ -205,7 +227,7 @@ const styles = stylex.create({
     borderTopWidth: 1,
     borderTopStyle: "solid",
     borderTopColor: tokens.border,
-    paddingBlock: 10,
+    paddingBlock: 8,
     paddingInline: 16,
     color: tokens.muted,
     fontSize: 10,

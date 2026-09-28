@@ -1,3 +1,4 @@
+import { ActionTooltip, ToolButton } from "./ToolButton";
 import {
   useCallback,
   useEffect,
@@ -387,12 +388,19 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
     },
     {
       id: "browse-files",
+      icon: "folder" as const,
       label: sidebar ? "Hide files sidebar" : "Show files sidebar",
       shortcut: "⌘⇧B",
       disabled: !locationState.id,
       run: () => setSidebar((value) => !value),
     },
-    { id: "theme", label: "Change color theme", managesFocus: true, run: () => setThemes(true) },
+    {
+      id: "theme",
+      managesFocus: true,
+      icon: "theme" as const,
+      label: "Change color theme",
+      run: () => setThemes(true),
+    },
     {
       id: "preview",
       label: "Toggle Markdown preview",
@@ -405,6 +413,7 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
     },
     {
       id: "close-file",
+      icon: "close" as const,
       label: "Close current file",
       shortcut: "⌥ W",
       disabled: !currentFile,
@@ -412,6 +421,7 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
     },
     {
       id: "close-files",
+      icon: "close" as const,
       label: "Close all files in this workspace",
       shortcut: "⌥ ⇧ W",
       disabled: !currentTabs.length,
@@ -419,6 +429,7 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
     },
     {
       id: "close-others",
+      icon: "close" as const,
       label: "Close other files in this workspace",
       disabled: !currentFile || currentTabs.length < 2,
       run: () =>
@@ -446,10 +457,17 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
           .catch(() => setError("Could not copy the link."));
       },
     },
-    { id: "refresh", label: "Refresh files", disabled: !locationState.id, run: refreshFiles },
+    {
+      id: "refresh",
+      icon: "refresh" as const,
+      label: "Refresh files",
+      disabled: !locationState.id,
+      run: refreshFiles,
+    },
     { id: "sources", label: "Open registered sources", run: () => navigate("/sources") },
     {
       id: "repositories",
+      icon: "gitBranch" as const,
       label: "Go to repositories",
       run: () => {
         location.assign("/");
@@ -519,22 +537,21 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
                 onClose={(id) => closeTabs([id])}
               />
               <div className="med-vault-actions">
-                <button
-                  {...stylex.props(ui.button, ui.iconButton)}
-                  title="Toggle files sidebar (⌘⇧B)"
-                  aria-label="Toggle files sidebar"
-                  onClick={() => setSidebar((value) => !value)}
-                >
-                  <Icon name="panelLeft" size={14} style={{ transform: "scaleX(-1)" }} />
-                </button>
-                <button
-                  {...stylex.props(ui.button, ui.iconButton)}
-                  title="Commands (⌘K)"
-                  aria-label="Open command palette"
+                <ActionTooltip label="Toggle files sidebar" shortcut="⌘ ⇧ B">
+                  <button
+                    {...stylex.props(ui.button, ui.iconButton)}
+                    aria-label="Toggle files sidebar"
+                    onClick={() => setSidebar((value) => !value)}
+                  >
+                    <Icon name="panelLeft" size={14} style={{ transform: "scaleX(-1)" }} />
+                  </button>
+                </ActionTooltip>
+                <ToolButton
+                  label="Open command palette"
+                  shortcut="⌘ K"
+                  icon="command"
                   onClick={() => setCommandsOpen(true)}
-                >
-                  <Icon name="search" size={14} />
-                </button>
+                />
               </div>
             </div>
             <div

@@ -1,3 +1,4 @@
+import { ToolButton } from "./ToolButton";
 import {
   useEffect,
   useRef,
@@ -301,16 +302,24 @@ export function LocalFiles({ children }: { children: ReactNode }) {
                 </button>
               ))}
             </div>
-            <button onClick={() => setOpening(true)} title="Open file (⌘O / Ctrl+O)">
-              Open file…
-            </button>
-            <button onClick={() => setCommands(true)} title="Commands (⌘K / Ctrl+K)">
-              Commands
-            </button>
-            <button onClick={() => setThemes(true)}>Theme</button>
-            <button onClick={repositories}>Repositories</button>
+            <ToolButton
+              label="Open file"
+              icon="plus"
+              shortcut="⌘ O"
+              onClick={() => setOpening(true)}
+            />
+            <ToolButton
+              label="Commands"
+              icon="command"
+              shortcut="⌘ K"
+              onClick={() => setCommands(true)}
+            />
+            <ToolButton label="Theme" icon="theme" onClick={() => setThemes(true)} />
+            <ToolButton label="Repositories" icon="gitBranch" onClick={repositories} />
             {active?.file.source.kind === "local" && (
-              <button
+              <ToolButton
+                label="Copy link"
+                icon={copied ? "check" : "copy"}
                 onClick={() => {
                   const url = new URL(
                     `/file${active.file.path.split("/").map(encodeURIComponent).join("/")}`,
@@ -326,9 +335,7 @@ export function LocalFiles({ children }: { children: ReactNode }) {
                     })
                     .catch(() => setError("Could not copy the link."));
                 }}
-              >
-                {copied ? "✓ Copied" : "Copy link"}
-              </button>
+              />
             )}
           </div>
           {active ? (
@@ -399,18 +406,25 @@ export function LocalFiles({ children }: { children: ReactNode }) {
             commands={[
               {
                 id: "open",
+                managesFocus: true,
+                icon: "plus" as const,
                 label: "Open file by absolute path",
                 shortcut: "⌘ O",
-                managesFocus: true,
                 run: () => setOpening(true),
               },
               {
                 id: "theme",
-                label: "Change color theme",
                 managesFocus: true,
+                icon: "theme" as const,
+                label: "Change color theme",
                 run: () => setThemes(true),
               },
-              { id: "repositories", label: "Go to repositories", run: repositories },
+              {
+                id: "repositories",
+                icon: "gitBranch" as const,
+                label: "Go to repositories",
+                run: repositories,
+              },
               ...tabs.map((tab) => ({
                 id: tab.id,
                 label: `Switch to ${tab.file.path}`,

@@ -1,3 +1,4 @@
+import { ToolButton } from "./ToolButton";
 import * as stylex from "@stylexjs/stylex";
 import {
   CodeView,
@@ -435,17 +436,15 @@ function ReadOnlyFileView({
             </button>
           )}
           {loadBlame && (
-            <button
-              {...stylex.props(ui.button)}
-              aria-label="Toggle Git blame"
+            <ToolButton
+              label="Toggle Git blame"
+              icon="history"
+              shortcut="⌥ B"
+              active={blameOpen}
               aria-pressed={blameOpen}
               disabled={file?.kind !== "text" || loading}
-              title="Git blame (⌥B)"
               onClick={() => setBlameOpen(!blameOpen)}
-            >
-              <Icon name="history" size={14} />
-              Blame
-            </button>
+            />
           )}
           {onOpenBefore && (
             <button {...stylex.props(ui.button)} onClick={onOpenBefore}>
@@ -458,26 +457,14 @@ function ReadOnlyFileView({
             </button>
           )}
           {refreshAvailable && (
-            <button
-              {...stylex.props(ui.button, ui.iconButton)}
-              aria-label="Refresh file"
-              title="Refresh file"
+            <ToolButton
+              label="Refresh file"
+              icon="refresh"
               disabled={loading}
               onClick={onRefresh}
-            >
-              <Icon name="refresh" size={14} />
-            </button>
+            />
           )}
-          {onClose && (
-            <button
-              {...stylex.props(ui.button, ui.iconButton)}
-              aria-label="Close file"
-              title="Close file"
-              onClick={onClose}
-            >
-              <Icon name="close" size={14} />
-            </button>
-          )}
+          {onClose && <ToolButton label="Close file" icon="close" onClick={onClose} />}
         </header>
       )}
       {stale && !loading && (
@@ -835,18 +822,17 @@ export function FullFileView(props: FullFileViewProps) {
     return () => window.removeEventListener("keydown", shortcut, true);
   }, [markdown]);
   const previewControl = markdown ? (
-    <button
-      {...stylex.props(ui.button, ui.pressable, preview && ui.active)}
+    <ToolButton
       ref={previewButton}
       data-markdown-preview-toggle
-      aria-label="Toggle Markdown preview"
+      label="Toggle Markdown preview"
+      shortcut="⌘ ⇧ V"
+      icon="preview"
+      active={preview}
       aria-pressed={preview}
-      title="Toggle Markdown preview (⌘⇧V / Ctrl+Shift+V)"
       aria-keyshortcuts="Meta+Shift+V Control+Shift+V"
       onClick={togglePreview}
-    >
-      Preview
-    </button>
+    />
   ) : undefined;
   const wrap = (source: ReactNode) => (
     <div className="med-markdown-shell" data-preview={showPreview}>

@@ -10,8 +10,8 @@
 .med-editor-header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 12px;
+  gap: 4px;
+  padding: 0 8px;
   height: 32px;
   min-height: 32px;
   flex-shrink: 0;
@@ -65,6 +65,8 @@
 }
 .med-editor-mode {
   min-width: 48px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
   color: var(--edit-muted);
   font-size: 10px;
 }
@@ -151,4 +153,26 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.med-editor .med-editor-header [data-med-tool-button] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  color: var(--edit-muted);
+  background: transparent;
+}
+.med-editor .med-editor-header [data-med-tool-button]:hover {
+  background: var(--edit-hover);
+  color: var(--edit-fg);
+}
+.med-editor .med-editor-header [data-med-tool-button][aria-pressed="true"] {
+  color: var(--edit-accent);
+  background: color-mix(in srgb, var(--edit-accent) 12%, transparent);
 }
