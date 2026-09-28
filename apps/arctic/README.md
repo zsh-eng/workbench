@@ -3,6 +3,10 @@
 The native Mac workspace has its own [Mac guide](Mac/README.md) and
 `ArcticMac.xcodeproj`. The iPhone app and share extension use the project below.
 
+The [sync design](SYNC_DESIGN.md) covers the proposed iPhone/Mac architecture,
+account isolation, conflict rules, file transfer and staged local migration.
+It is a proposal; live sync and the storage migration remain inactive.
+
 Open `ArticleReader.xcodeproj`, select the **ArticleReader** scheme and an iPhone
 simulator, then Run. Requires Xcode 26+ and iOS 17+. For a physical iPhone, select
 the same signing team for **ArticleReader** and **ArticleShare**, then register/
