@@ -72,6 +72,7 @@ struct LibraryPreloadDriver: View {
   let searching: Bool
   let isLibraryScrolling: Bool
   let clipboardURL: URL?
+  var resumeURL: URL? = nil
   let enabled: Bool
   @Environment(\.scenePhase) private var scenePhase
   @State private var keyboardIsMoving = false
@@ -169,11 +170,18 @@ struct LibraryPreloadDriver: View {
   // WebView initialization was visible in the physical first-keyboard trace.
   // Keep image/metadata preheating active, but give the keyboard the UI budget.
   private var browserPreloadURLs: [URL] {
-    guard !isLibraryScrolling, !keyboardIsMoving else { return [] }
+    guard enabled, scenePhase == .active, !isLibraryScrolling, !keyboardIsMoving else { return [] }
     // Local documents can warm offline. Uncached publisher pages create script,
     // media and redirect work that competes with launch and visible thumbnails.
     // Open is the explicit intent that starts those websites.
-    return preloadURLs.filter { store.downloadedFile(for: $0) != nil }
+    var urls = preloadURLs.filter { store.downloadedFile(for: $0) != nil }
+    // Warm the resume prompt's local document even when its card is offscreen.
+    // This does not enqueue a publisher request or metadata refresh.
+    if let resumeURL, !searching, store.downloadedFile(for: resumeURL) != nil {
+      urls.removeAll { $0 == resumeURL }
+      urls.insert(resumeURL, at: 0)
+    }
+    return Array(urls.prefix(10))
   }
 
   private var imagePrefetchRequests: [ThumbnailRequest] {

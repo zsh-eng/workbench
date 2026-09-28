@@ -4,6 +4,7 @@ import Foundation
 /// Small device-local checkpoints, separate from the article metadata index.
 /// Only a settled Reader gesture or leaving Reader writes a checkpoint.
 struct ReaderPosition: Codable {
+  static let didChange = Notification.Name("reader-position-changed")
   var index: Int
   var anchor: String
   var fraction: Double
@@ -27,7 +28,10 @@ struct ReaderPosition: Codable {
     guard let position = try? JSONDecoder().decode(Self.self, from: data),
       position.progress.isFinite, position.fraction.isFinite
     else { return }
-    UserDefaults.standard.set(data, forKey: key(url))
+    let defaults = UserDefaults.standard
+    guard defaults.data(forKey: key(url)) != data else { return }
+    defaults.set(data, forKey: key(url))
+    NotificationCenter.default.post(name: didChange, object: url)
   }
 
   static let script = try! String(

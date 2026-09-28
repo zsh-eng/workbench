@@ -16,6 +16,11 @@ enable `group.com.zsheng.ArticleReader` in App Groups for both targets. Both use
 - **Sort and filter → Article replay** opens a taller, automatically looping native share/tag/save scene for An Alien Mind. It uses bundled artwork and a measured Jev result, makes no network calls, and does not save to the library. Close it with the top-right cross; Reduce Motion shows its completed state.
 - First launch offers three optional setup pages: Share, paste permission, and Jev automatic tagging. Replay them from **Sort and filter → Getting started**.
 - Copy an HTTP(S) link and enter Arctic. Choose **Save** or **Open** in the clipboard banner above Search. Already-saved links offer only Open.
+- **Continue reading** appears in that same space for the most recent saved,
+  unarchived article with a Reader checkpoint between 1% and 95%. Continue restores
+  its Reader position, including offline. A copied link takes priority. Dismissal
+  survives relaunch until the next visit to that article. The prompt stays
+  hidden during search and selection; it does not fetch article metadata.
 - Cards use an inset Open Graph image, a source badge at the upper left, and a
   material caption at the bottom. A one-line title can include one subtitle line;
   longer titles use at most two balanced lines with an ellipsis and no subtitle. Links without images use a compact

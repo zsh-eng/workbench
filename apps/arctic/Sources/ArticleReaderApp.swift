@@ -8,6 +8,7 @@ struct ArticleReaderApp: App {
   init() {
     #if DEBUG
       if TestMode.enabled && ProcessInfo.processInfo.arguments.contains("-reset-store") {
+        UserDefaults.standard.removeObject(forKey: "test-continue-reading-dismissed")
         for key in UserDefaults.standard.dictionaryRepresentation().keys
         where key.hasPrefix("reader-position.") {
           UserDefaults.standard.removeObject(forKey: key)
@@ -100,6 +101,7 @@ struct LibraryView: View {
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.colorScheme) private var systemScheme
   @State private var clipboard = ClipboardSuggestion()
+  @State private var continuation = ContinueReadingSuggestion()
   #if DEBUG
     @State private var testSharing = false
   #endif
@@ -183,6 +185,7 @@ struct LibraryView: View {
         folder: folder, query: query, sort: sort, favouritesOnly: filtersFavourites(in: folder),
         searching: searching,
         isLibraryScrolling: isLibraryScrolling, clipboardURL: clipboard.url,
+        resumeURL: clipboard.url == nil && !selecting ? continuation.article?.url : nil,
         enabled: selected == nil && !showingOnboarding && !showingArticleReplay
           && !showingTaggingSettings
           && !showingAnnotations && !showingReadingStats && !showingWeeklyFavourites && !choosingImport && editingTags == nil
@@ -275,6 +278,7 @@ struct LibraryView: View {
       }
       store.importSharedLinks()
       store.resumeTagging()
+      if selected == nil { continuation.refresh(from: store) }
       await clipboard.check()
     }
     .onChange(of: store.allTags) { _, tags in
@@ -291,7 +295,17 @@ struct LibraryView: View {
       store.setLibraryScrolling(scrolling)
     }
     .onChange(of: selected != nil) { _, readerOpen in
-      if readerOpen { isLibraryScrolling = false }
+      if readerOpen {
+        isLibraryScrolling = false
+      } else {
+        continuation.refresh(from: store)
+      }
+    }
+    .onReceive(NotificationCenter.default.publisher(for: ReaderPosition.didChange)) { _ in
+      if selected == nil { continuation.refresh(from: store) }
+    }
+    .onChange(of: store.libraryRevision) { _, _ in
+      continuation.reconcile(with: store.articles)
     }
     .onDisappear { store.setLibraryScrolling(false) }
     .onReceive(
@@ -640,6 +654,14 @@ struct LibraryView: View {
             clipboard.dismiss()
           } dismiss: {
             clipboard.dismiss()
+          }
+        } else if let article = continuation.article, !searching, !selecting {
+          ContinueReadingBanner(article: article, progress: continuation.progress) {
+            let browser = browsers.open(article.url, store: store)
+            browser.showReader()
+            selected = browser
+          } dismiss: {
+            continuation.dismiss()
           }
         }
       }

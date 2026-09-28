@@ -691,12 +691,21 @@ final class ArticleReaderUITests: XCTestCase {
     app.buttons["reader-toggle"].tap()
     XCTAssertEqual(heading.frame.minY, y, accuracy: 16)
     app.navigationBars.buttons.element(boundBy: 0).tap()
+    XCTAssertTrue(app.buttons["continue-reading-open"].waitForExistence(timeout: 5))
+    capture(app, "continue-reading-banner")
     app.terminate()
-    app.launchArguments = ["-ui-testing", "-articles-offline", "-images-offline"]
-    app.launchEnvironment = [:]
+    app.launchArguments = ["-ui-testing", "-articles-offline", "-images-offline", "-test-clipboard"]
+    app.launchEnvironment["TEST_CLIPBOARD"] = "https://fixture.example/next"
     app.launch()
-    app.buttons["article-story"].tap()
-    showReader(app)
+    XCTAssertTrue(app.buttons["open-copied-link"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.buttons["continue-reading-open"].exists)
+    app.buttons["dismiss-copied-link"].tap()
+    XCTAssertFalse(app.buttons["open-copied-link"].exists, app.debugDescription)
+    let resume = app.buttons["continue-reading-open"]
+    XCTAssertTrue(resume.waitForExistence(timeout: 5))
+    XCTAssertLessThan(resume.frame.maxY, app.searchFields.firstMatch.frame.minY)
+    resume.tap()
+    XCTAssertTrue(app.buttons["Website"].waitForExistence(timeout: 10))
     let restored = expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: heading)
     wait(for: [restored], timeout: 10)
     XCTAssertEqual(heading.frame.minY, y, accuracy: 16)
@@ -710,7 +719,11 @@ final class ArticleReaderUITests: XCTestCase {
     let endGap = archive.frame.minY - last.frame.maxY
     app.navigationBars.buttons.element(boundBy: 0).tap()
     app.terminate()
+    app.launchArguments = ["-ui-testing", "-articles-offline", "-images-offline"]
+    app.launchEnvironment = [:]
     app.launch()
+    XCTAssertTrue(app.buttons["article-story"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.buttons["continue-reading-open"].exists)
     app.buttons["article-story"].tap()
     showReader(app)
     let atEnd = expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: last)
@@ -721,6 +734,43 @@ final class ArticleReaderUITests: XCTestCase {
     XCTAssertGreaterThan(controls.frame.minY, last.frame.maxY)
     XCTAssertEqual(controls.frame.minY - last.frame.maxY, endGap, accuracy: 16)
     capture(app, "reader-position-end-restored")
+  }
+
+  @MainActor func testContinueReadingDismissalSurvivesRelaunch() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-ui-testing", "-reset-store", "-reset-appearance", "-dark-ui"]
+    app.launch()
+    add("https://fixture.example/story", to: app)
+    XCTAssertFalse(app.buttons["continue-reading-open"].exists)
+    app.buttons["article-story"].tap()
+    showReader(app)
+    app.webViews.firstMatch.swipeUp(velocity: .slow)
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    let dismiss = app.buttons["continue-reading-dismiss"]
+    XCTAssertTrue(dismiss.waitForExistence(timeout: 5))
+    capture(app, "continue-reading-dark")
+    dismiss.tap()
+    XCTAssertFalse(dismiss.exists, app.debugDescription)
+    app.terminate()
+    app.launchArguments = ["-ui-testing", "-articles-offline", "-images-offline", "-dark-ui"]
+    app.launch()
+    XCTAssertTrue(app.buttons["article-story"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.buttons["continue-reading-open"].exists)
+    app.buttons["article-story"].tap()
+    showReader(app)
+    // A new settled position makes this article eligible again.
+    let web = app.webViews.firstMatch
+    let start = web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
+    let end = web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+    start.press(forDuration: 0.1, thenDragTo: end)
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    let resume = app.buttons["continue-reading-open"]
+    XCTAssertTrue(resume.waitForExistence(timeout: 5))
+    resume.tap()
+    app.buttons["reader-save"].tap()
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    XCTAssertTrue(app.buttons["folder-saved"].waitForExistence(timeout: 5))
+    XCTAssertFalse(resume.exists)
   }
 
   @MainActor func testReaderCopyShareAndNativeFind() {
