@@ -172,7 +172,7 @@ final class FavouritesUITests: XCTestCase {
     XCTAssertFalse(first.isHittable, "The list must scroll normally after news was opened")
   }
 
-  @MainActor func testNewsHeaderTogglesWithoutMovingLibrary() {
+  @MainActor func testNewsSitsAboveTabsWithoutChangingScrollPosition() {
     checkDiscoveryMotion(reduced: false)
   }
 
@@ -210,6 +210,8 @@ final class FavouritesUITests: XCTestCase {
     let first = app.buttons["article-import-999"]
     XCTAssertTrue(first.waitForExistence(timeout: 10))
     let originalY = first.frame.minY
+    let tabs = app.scrollViews["library-folders"]
+    let originalTabsY = tabs.frame.minY
     let brand = app.staticTexts["library-brand-title"]
     let compactX = brand.frame.midX
     let initial = XCTAttachment(screenshot: app.screenshot())
@@ -224,11 +226,14 @@ final class FavouritesUITests: XCTestCase {
     XCTAssertEqual(header.value as? String, "Collapsed")
     XCTAssertEqual(first.frame.minY, originalY, accuracy: 2)
 
-    // Tap is an accessible alternative to pull; it must not move the article.
+    // Opening news moves the tabs and pager together, preserving their gap.
     header.tap()
     XCTAssertTrue(shelf.waitForExistence(timeout: 5))
     XCTAssertEqual(header.value as? String, "Expanded")
-    XCTAssertEqual(first.frame.minY, originalY, accuracy: 2)
+    XCTAssertEqual(first.frame.minY - originalY, 110, accuracy: 2)
+    XCTAssertEqual(tabs.frame.minY - originalTabsY, 110, accuracy: 2)
+    XCTAssertLessThan(shelf.frame.maxY, tabs.frame.minY)
+    XCTAssertLessThan(tabs.frame.maxY, first.frame.minY)
     XCTAssertGreaterThan(compactX - brand.frame.midX, 15)
     XCTAssertTrue(app.buttons["publisher-www.ft.com"].isHittable)
     let shot = XCTAttachment(screenshot: app.screenshot())
@@ -239,7 +244,7 @@ final class FavouritesUITests: XCTestCase {
     XCTAssertFalse(shelf.exists)
     XCTAssertEqual(first.frame.minY, originalY, accuracy: 2)
     revealDiscovery(app)
-    XCTAssertEqual(first.frame.minY, originalY, accuracy: 2)
+    XCTAssertEqual(first.frame.minY - originalY, 110, accuracy: 2)
     app.swipeUp()
     XCTAssertFalse(shelf.exists)
     XCTAssertEqual(header.value as? String, "Collapsed")
@@ -252,6 +257,13 @@ final class FavouritesUITests: XCTestCase {
     XCTAssertEqual(header.value as? String, "Collapsed")
     header.tap()
     XCTAssertTrue(shelf.waitForExistence(timeout: 5))
+    // Paging begins below the separate news row, without its horizontal scroller
+    // competing for the same touch.
+    let swipeStart = app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.65))
+    swipeStart.press(forDuration: 0.05,
+      thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.65)))
+    XCTAssertFalse(shelf.exists)
+    XCTAssertTrue(app.staticTexts["Worth keeping close."].waitForExistence(timeout: 5))
   }
 
   @MainActor private func revealDiscovery(_ app: XCUIApplication) {

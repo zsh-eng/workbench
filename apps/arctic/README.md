@@ -396,14 +396,17 @@ The Saved shelf opens NY Times, Financial Times, Economist, New Yorker and
 Atlantic homepages through the existing Unwall route. The actual publisher marks are bundled assets;
 the shelf makes no favicon requests. [Asset sources](Design/publisher-marks.md) record provenance.
 News has two states: three small overlapping publisher circles beside the Arctic
-mark/name, or a floating publisher tray below the folders. In the compact state,
+mark/name, or a publisher row above the folder tabs. In the compact state,
 the mark and name shift right to make room for the circles. Tap the header or pull
-down at the top by 44 points to open the tray; the pull gives one medium haptic.
+down at the top by 44 points to open the row; the pull gives one medium haptic.
 A small pull uses the native bounce and stays closed. An upward drag, another tap,
-or leaving Saved closes it. The tray overlays articles without changing their
-positions. A 240 ms transition handles the header and tray; Reduce Motion fades the
-tray and changes the header position immediately. There are no flying icon copies,
-scroll-inset changes, or display-link writes to scroll offsets. Publisher availability
+or leaving Saved closes it. News lives outside the article pager: opening it moves
+the tabs and pager down together by 110 points without changing a page's scroll
+position. The tabs and news follow the list's native top bounce through a read-only
+scroll observation. Only those small header views observe per-frame changes.
+A 240 ms transition handles opening/closing; Reduce Motion fades the news and changes
+the brand position immediately. There are no flying icon copies, scroll-inset
+changes, or display-link writes to scroll offsets. Publisher availability
 requires a connection. A publisher shortcut starts a fresh website visit, even
 when that homepage has downloaded Reader content. In-page URL changes get their
 own history and article identity, so saving a linked article does not replace

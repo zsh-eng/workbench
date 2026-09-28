@@ -695,71 +695,78 @@ struct LibraryView: View {
     GeometryReader { viewport in
       // Capture the inset before extending this scrolling surface under the
       // status area. Only the first row and folder controls keep that inset.
-      ZStack(alignment: .top) {
-        LibraryPager(pages: folderItems, selection: $folder, reduceMotion: reduceMotion) { item in
-          GeometryReader { geometry in
-            Group {
-              if matches(in: item).isEmpty {
-                ScrollView {
-                  VStack(spacing: 0) {
-                    if item == .saved { DiscoveryScrollObserver(motion: discoveryMotion).frame(height: 0) }
-                    LibraryEmptyState(folder: item, favouritesOnly: filtersFavourites(in: item))
-                      .frame(minHeight: max(0, viewport.size.height - headerHeight - topInset - 110))
-                  }.padding(.top, headerHeight + topInset + 16)
-                }
-              } else {
-                ScrollView {
-                  VStack(spacing: 0) {
-                    if item == .saved { DiscoveryScrollObserver(motion: discoveryMotion).frame(height: 0) }
-                    library(in: item)
+      VStack(spacing: 0) {
+        // News is outside the pager. Opening it changes the available viewport,
+        // not any page's scroll offset or content inset.
+        Color.clear.frame(height: discoveryAvailable && discoveryMotion.isExpanded ? 110 : 0)
+        ZStack(alignment: .top) {
+          LibraryPager(pages: folderItems, selection: $folder, reduceMotion: reduceMotion) { item in
+            GeometryReader { geometry in
+              Group {
+                if matches(in: item).isEmpty {
+                  ScrollView {
+                    VStack(spacing: 0) {
+                      if item == .saved { DiscoveryScrollObserver(motion: discoveryMotion).frame(height: 0) }
+                      LibraryEmptyState(folder: item, favouritesOnly: filtersFavourites(in: item))
+                        .frame(minHeight: max(0, viewport.size.height - headerHeight - topInset - 110))
+                    }.padding(.top, headerHeight + topInset + 16)
                   }
-                }
-                  .modifier(
-                    LibraryScrollActivity {
-                      if folder == item && !searching { isLibraryScrolling = $0 }
+                } else {
+                  ScrollView {
+                    VStack(spacing: 0) {
+                      if item == .saved { DiscoveryScrollObserver(motion: discoveryMotion).frame(height: 0) }
+                      library(in: item)
                     }
-                  )
-                  .contentMargins(.top, topInset + headerHeight + 16, for: .scrollContent)
-                  .contentMargins(.top, topInset + headerHeight, for: .scrollIndicators)
-                  .contentMargins(
-                    .bottom, max(0, geometry.size.height - viewport.size.height),
-                    for: .scrollContent)
+                  }
+                    .modifier(
+                      LibraryScrollActivity {
+                        if folder == item && !searching { isLibraryScrolling = $0 }
+                      }
+                    )
+                    .contentMargins(.top, topInset + headerHeight + 16, for: .scrollContent)
+                    .contentMargins(.top, topInset + headerHeight, for: .scrollIndicators)
+                    .contentMargins(
+                      .bottom, max(0, geometry.size.height - viewport.size.height),
+                      for: .scrollContent)
+                }
               }
+              .scrollBounceBehavior(.always, axes: .vertical)
+              .accessibilityHidden(searching || showingAnnotations || folder != item)
             }
-            .scrollBounceBehavior(.always, axes: .vertical)
-            .accessibilityHidden(searching || showingAnnotations || folder != item)
+            .accessibilityIdentifier("library-page-" + item.identifier)
           }
-          .accessibilityIdentifier("library-page-" + item.identifier)
+          .ignoresSafeArea(.container, edges: .bottom)
+          LibraryScrollEdge()
+            .frame(height: topInset + headerHeight + 28)
+            .frame(maxHeight: .infinity, alignment: .top)
+          DiscoveryPullChrome(motion: discoveryMotion) {
+            libraryHeader
+              .onGeometryChange(for: CGFloat.self) {
+                $0.size.height
+              } action: {
+                headerHeight = $0
+              }
+              .padding(.top, topInset + 8)
+          }
         }
-        .ignoresSafeArea(.container, edges: .bottom)
-        LibraryScrollEdge()
-          .frame(height: topInset + headerHeight + 28)
-          .frame(maxHeight: .infinity, alignment: .top)
-        libraryHeader
-          .onGeometryChange(for: CGFloat.self) {
-            $0.size.height
-          } action: {
-            headerHeight = $0
-          }
-          .padding(.top, topInset + 8)
+        .onGeometryChange(for: CGRect.self) { geometry in
+          let frame = geometry.frame(in: .global)
+          return CGRect(
+            x: frame.minX, y: frame.minY + topInset + headerHeight + 8,
+            width: frame.width, height: max(0, frame.height - topInset - headerHeight - 8))
+        } action: {
+          viewportVisibility.libraryBounds = $0
+        }
+      }
+      .overlay(alignment: .top) {
         if discoveryAvailable && discoveryMotion.isExpanded {
-          discoveryShelf
-            .padding(.vertical, 12)
-            .readerGlass(cornerRadius: 26)
-            .shadow(color: .black.opacity(0.12), radius: 16, y: 8)
-            .padding(.horizontal, 12)
-            .padding(.top, topInset + headerHeight + 16)
+          DiscoveryPullChrome(motion: discoveryMotion) {
+            discoveryShelf
+              .padding(.top, topInset + 8)
+          }
             .transition(reduceMotion || appReduceMotion ? .opacity : .opacity.combined(with: .offset(y: -8)))
             .zIndex(1)
         }
-      }
-      .onGeometryChange(for: CGRect.self) { geometry in
-        let frame = geometry.frame(in: .global)
-        return CGRect(
-          x: frame.minX, y: frame.minY + topInset + headerHeight + 8,
-          width: frame.width, height: max(0, frame.height - topInset - headerHeight - 8))
-      } action: {
-        viewportVisibility.libraryBounds = $0
       }
     }
   }

@@ -2,9 +2,10 @@ import SwiftUI
 import UIKit
 
 /// Two stable states. UIKit owns every scroll offset, inset and momentum curve.
-/// Only a deliberate drag or a header tap changes the floating news tray.
+/// Only a deliberate drag or a header tap changes the news row above the tabs.
 @MainActor @Observable final class DiscoveryMotion {
   private(set) var isExpanded = false
+  private(set) var pullDistance: CGFloat = 0
   @ObservationIgnored var enabled = false
   @ObservationIgnored var reduceMotion = false
   @ObservationIgnored private var startedAtTop = false
@@ -15,7 +16,15 @@ import UIKit
 
   func setEnabled(_ value: Bool) {
     enabled = value
-    if !value { isExpanded = false }
+    if !value {
+      isExpanded = false
+      pullDistance = 0
+    }
+  }
+
+  func followBounce(_ scroll: UIScrollView) {
+    let distance = enabled ? max(0, -(scroll.contentOffset.y + scroll.adjustedContentInset.top)) : 0
+    if pullDistance != distance { pullDistance = distance }
   }
 
   func toggle() {
@@ -74,6 +83,7 @@ struct DiscoveryScrollObserver: UIViewRepresentable {
 final class DiscoveryScrollProbe: UIView {
   private let motion: DiscoveryMotion
   private weak var scroll: UIScrollView?
+  private var observation: NSKeyValueObservation?
   init(motion: DiscoveryMotion) {
     self.motion = motion
     super.init(frame: .zero)
@@ -98,6 +108,10 @@ final class DiscoveryScrollProbe: UIView {
         unbind()
         scroll = candidate
         candidate.panGestureRecognizer.addTarget(self, action: #selector(drag(_:)))
+        observation = candidate.observe(\.contentOffset) { [weak self] scroll, _ in
+          // UIKit changes this scroll view on the main thread.
+          MainActor.assumeIsolated { self?.motion.followBounce(scroll) }
+        }
         return
       }
       ancestor = view.superview
@@ -105,11 +119,24 @@ final class DiscoveryScrollProbe: UIView {
   }
   func unbind() {
     scroll?.panGestureRecognizer.removeTarget(self, action: #selector(drag(_:)))
+    observation = nil
     scroll = nil
   }
   @objc private func drag(_ pan: UIPanGestureRecognizer) {
     guard let scroll else { return }
     motion.handle(pan, in: scroll)
+  }
+}
+
+/// Only the small header surfaces observe per-frame bounce. The article pager
+/// and its rows do not subscribe to these updates.
+struct DiscoveryPullChrome<Content: View>: View {
+  let motion: DiscoveryMotion
+  @ViewBuilder var content: () -> Content
+
+  var body: some View {
+    content().offset(y: motion.pullDistance)
+      .animation(nil, value: motion.pullDistance)
   }
 }
 
