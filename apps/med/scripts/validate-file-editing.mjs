@@ -225,9 +225,10 @@ try {
   }
   await cdp.send("IO.close", { handle: stream });
   await writeFile(join(output, "typing.trace.json"), trace);
-  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await page.getByRole("button", { name: "Close file", exact: true }).click();
   await page.getByRole("button", { name: "Discard draft", exact: true }).click();
-  await page.getByRole("button", { name: "Edit", exact: true }).waitFor();
+  await page.getByRole("tab", { name: "Changes", exact: true }).waitFor();
+  assert.equal(await page.getByRole("tab", { name: /http2.ts/ }).count(), 0);
   assert.deepEqual(errors, []);
   const sorted = [...frames].sort((a, b) => a - b);
   const report = {
@@ -258,7 +259,10 @@ try {
   await writeFile(join(output, "results.json"), JSON.stringify(report, null, 2) + "\n");
   console.log(JSON.stringify(report));
 } catch (error) {
-  if (page) { console.error((await page.locator("body").innerText()).slice(0, 6000)); await page.screenshot({ path: join(output, "failure.png") }); }
+  if (page) {
+    console.error((await page.locator("body").innerText()).slice(0, 6000));
+    await page.screenshot({ path: join(output, "failure.png") });
+  }
   throw error;
 } finally {
   await browser?.close();
