@@ -1,17 +1,17 @@
 # Install med on macOS
 
-Med v0.1.2 supports Apple Silicon (M1 or newer), macOS 13 or newer.
-Download `med-v0.1.2-macos-arm64.tar.gz` and `SHA256SUMS` from the
-[GitHub release](https://github.com/zsh-eng/workbench/releases/tag/med-v0.1.2).
+Med v0.1.3 supports Apple Silicon (M1 or newer), macOS 13 or newer.
+Download `med-v0.1.3-macos-arm64.tar.gz` and `SHA256SUMS` from the
+[GitHub release](https://github.com/zsh-eng/workbench/releases/tag/med-v0.1.3).
 Intel Macs are not included in this release.
 
 In the download directory:
 
 ```sh
 shasum -a 256 -c SHA256SUMS
-tar -xzf med-v0.1.2-macos-arm64.tar.gz
+tar -xzf med-v0.1.3-macos-arm64.tar.gz
 mkdir -p ~/.local/bin
-install -m 755 med-v0.1.2-macos-arm64/med ~/.local/bin/med
+install -m 755 med-v0.1.3-macos-arm64/med ~/.local/bin/med
 ~/.local/bin/med --version
 ```
 
@@ -56,7 +56,7 @@ then run `med web`. Your sources and saved reviews stay in the state directory.
 To start at login, opt in with `med service install` after installing at a stable
 path. Remove that setting with `med service uninstall`.
 
-Build source: [Workbench / Med](https://github.com/zsh-eng/workbench/tree/med-v0.1.2/apps/med).
+Build source: [Workbench / Med](https://github.com/zsh-eng/workbench/tree/med-v0.1.3/apps/med).
 `BUILD.json` records the exact source commit and Bun runtime version. Build steps
 are in `docs/RELEASING.md` in the checkout. Bun and its runtime dependencies'
 notices and source references are in `licenses/upstream/BUN-LICENSE.md`.

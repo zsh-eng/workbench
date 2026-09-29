@@ -1,6 +1,6 @@
 {
   "name": "@workbench/med",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "Local continuous diff review with commit history",
   "license": "MIT",
