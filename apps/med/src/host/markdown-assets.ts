@@ -1,19 +1,10 @@
+import { mediaType } from "../shared/media";
 import { constants } from "node:fs";
 import { lstat, open, realpath } from "node:fs/promises";
-import { dirname, extname, isAbsolute, posix, relative, resolve } from "node:path";
+import { dirname, isAbsolute, posix, relative, resolve } from "node:path";
 import type { BrowseSource } from "../shared/browse";
 import { HostError } from "./runtime/errors";
 import { git } from "./runtime/process";
-const MAX_BYTES = 8 * 1024 * 1024;
-const types: Record<string, string> = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-  ".avif": "image/avif",
-  ".svg": "image/svg+xml",
-};
 const invalid = () =>
   new HostError(
     "invalid-image",
@@ -26,6 +17,7 @@ export async function markdownAsset(
   document: string,
   href: string,
   signal?: AbortSignal,
+  maxBytes = 8 * 1024 * 1024,
 ) {
   if (
     !href ||
@@ -49,8 +41,9 @@ export async function markdownAsset(
     path.split("/").some((p) => p.toLowerCase() === ".git")
   )
     throw invalid();
-  const mime = types[extname(path).toLowerCase()];
-  if (!mime) throw invalid();
+  const media = mediaType(path);
+  if (media?.kind !== "image") throw invalid();
+  const mime = media.mime;
   signal?.throwIfAborted();
   let bytes: Buffer;
   if (source.kind === "commit") {
@@ -62,8 +55,8 @@ export async function markdownAsset(
       )
     ).toString("utf8");
     const match = /^(100[0-7]{3}) blob ([0-9a-f]+)\s+(\d+)\t/.exec(entry);
-    if (!match || Number(match[3]) > MAX_BYTES) throw invalid();
-    bytes = await git(source.repo, ["cat-file", "blob", match[2]], { signal, maxBytes: MAX_BYTES });
+    if (!match || Number(match[3]) > maxBytes) throw invalid();
+    bytes = await git(source.repo, ["cat-file", "blob", match[2]], { signal, maxBytes: maxBytes });
   } else {
     const root = await realpath(source.repo);
     const target = resolve(root, path);
@@ -76,7 +69,7 @@ export async function markdownAsset(
     )
       throw invalid();
     const info = await lstat(target);
-    if (!info.isFile() || info.size > MAX_BYTES) throw invalid();
+    if (!info.isFile() || info.size > maxBytes) throw invalid();
     const handle = await open(
       target,
       constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,

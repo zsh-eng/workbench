@@ -234,7 +234,7 @@ The UI uses React, [Pierre Diffs and Trees](https://pierre.computer/), Base UI, 
 
 Syntax highlighting uses Twinkleplop. This build includes JavaScript/JSX, TypeScript/TSX, CSS, HTML, JSON/JSONC, Markdown, YAML, TOML, Bash, Go, Python, Rust, SQL, Svelte, diff, INI, HTTP, dotenv, and shell-session grammars. Markdown code fences use the matching installed grammar. C, C++, Zig, and other missing grammars display as plain text; files, diffs, selection, and comments still work. Syntax colours can differ from Shiki because semantic token kinds do not contain full TextMate scope stacks.
 
-Binary files and files with unsupported encodings show metadata only. Text above 8 MiB, 200,000 lines, or 250,000 characters on one line is not rendered. Large supported text uses plain rendering. File manifests stop at 50,000 entries. Missing files are shown as missing; historical content is not silently substituted. See [file browsing](FILE_BROWSING.md) for details.
+Images render in compact before/after diff cards. The file viewer also plays browser-supported videos. Other binary files and files with unsupported encodings show metadata only. Text above 8 MiB, 200,000 lines, or 250,000 characters on one line is not rendered. Large supported text uses plain rendering. File manifests stop at 50,000 entries. Missing files are shown as missing; historical content is not silently substituted. See [file browsing](FILE_BROWSING.md) for details.
 
 History follows the selected worktree's HEAD ancestry. Shallow clones can lack the parent needed for a comparison. Blame has the same history limit and is unavailable for files without history or files that require Git content conversion.
 
@@ -287,12 +287,31 @@ Paths are URL-encoded; the CLI handles spaces, Unicode, `#`, and other character
 Opening one file grants host access to that exact file, not its parent directory.
 The host retains at most 256 standalone file grants until restart.
 
-Drop text files anywhere in med to open read-only previews. Dropped bytes stay in
-the browser. They have no Edit or Save control, disk path, or agent link. Drop up
-to 12 files / 24 MiB at once; the workspace holds at most 24 files / 32 MiB.
-Individual previews remain limited to 8 MiB of UTF-8 text; editing is limited to
-1 MiB. Binary files and folders are not supported by drop previews. Use the path
-field to edit a file on disk. Drafts and drop previews do not survive page reload.
+Drop text, image, or video files anywhere in med for read-only previews. Dropped
+files stay in the browser and have no disk-write control or agent link. Drop up
+to 12 files at once; the workspace holds at most 24 tabs. Text is limited to
+8 MiB per file, 24 MiB per drop, and 32 MiB retained. Media uses browser file
+URLs and does not enter the retained text budget. Use **Open file** to edit a
+file on disk. Drafts and dropped previews do not survive page reload.
+
+## Images and videos
+
+Image diffs show **Before** and **After** in cards under 240 px tall. Click the
+header to collapse a card; click its filename to open the file viewer. Images
+load near the visible area. The viewer fits images to its pane; **1:1** switches
+to actual size. SVG, PNG, JPEG, WebP, AVIF, GIF, APNG, BMP, and ICO use the
+browser's image decoder. TIFF, HEIC/HEIF, and JPEG XL depend on browser support.
+
+The file viewer uses native video controls for play, pause, seeking, volume,
+playback speed where available, and fullscreen. MP4/M4V, WebM, MOV, OGV, and MKV
+are passed to the browser; actual playback depends on its installed codecs.
+Unsupported or corrupt media gets an inline message. Med does not transcode.
+
+Image files are limited to 32 MiB and videos to 4 GiB. Video bytes stream on
+demand with byte-range requests, not through the text or syntax pipeline.
+New saved reviews freeze image bytes within their existing 24 MiB per-target
+capture budget. Older saved reviews may lack images; create a new review to
+capture them. Videos are viewable files, not captured video comparisons.
 
 ## Full-file change markers
 

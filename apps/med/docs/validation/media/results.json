@@ -1,0 +1,24 @@
+{
+  "largeFile": {
+    "bytes": 536870912,
+    "metadataBytes": 402,
+    "metadataMs": 23.76324999999997,
+    "rangeBytes": 65536,
+    "rangeMs": 11.978707999999983,
+    "rssDeltaBytes": 1736704
+  },
+  "checks": [
+    "compact-before-after",
+    "lazy-images-and-offscreen-release",
+    "commit-rename-delete",
+    "frozen-saved-images",
+    "png-jpeg-webp-avif-svg",
+    "native-video-play-and-seek",
+    "git-video-range",
+    "512-MiB-bounded-range",
+    "authentication-and-file-grants",
+    "symlink-rejection",
+    "SVG-script-isolation",
+    "browser-only-drops"
+  ]
+}

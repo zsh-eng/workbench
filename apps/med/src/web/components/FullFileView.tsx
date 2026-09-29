@@ -1,3 +1,4 @@
+import { MediaFileView } from "./MediaView";
 import { ToolButton } from "./ToolButton";
 import * as stylex from "@stylexjs/stylex";
 import {
@@ -88,6 +89,8 @@ export interface FullFileViewProps {
 }
 
 const notices = {
+  image: "Image preview unavailable.",
+  video: "Video preview unavailable.",
   binary: "Binary file — content preview is not available.",
   missing: "This file does not exist in this source.",
   "too-large": "This file exceeds the preview size limit.",
@@ -887,6 +890,8 @@ export function FullFileView(props: FullFileViewProps) {
       begin();
     }
   });
+  if (props.file?.media && !props.loading)
+    return <MediaFileView key={props.file.identity} {...props} file={props.file} />;
   if (draft?.editing && props.editor)
     return wrap(
       <Suspense fallback={null}>

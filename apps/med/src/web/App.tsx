@@ -1,3 +1,5 @@
+import { DiffImages } from "./components/MediaView";
+import { mediaType } from "../shared/media";
 import { ActionTooltip, ToolButton } from "./components/ToolButton";
 import * as stylex from "@stylexjs/stylex";
 import {
@@ -537,7 +539,7 @@ export function App({
   }
   const items = useMemo<CodeViewItem<Annotation>[]>(() => {
     return files.flatMap((file) => {
-      if (!file.metadata) return [];
+      if (!file.metadata || mediaType(file.path)?.kind === "image") return [];
       const annotations: DiffLineAnnotation<Annotation>[] = showNotes
         ? notes
             .filter(
@@ -1466,7 +1468,7 @@ export function App({
         "");
   const added = state.review?.files.reduce((sum, file) => sum + file.additions, 0) ?? 0;
   const deleted = state.review?.files.reduce((sum, file) => sum + file.deletions, 0) ?? 0;
-  const skipped = files.filter((file) => !file.metadata);
+  const skipped = files.filter((file) => !file.metadata || mediaType(file.path)?.kind === "image");
   const orphaned = notes.filter(
     (note) =>
       !note.parentId &&
@@ -1482,31 +1484,59 @@ export function App({
       {skipped.map((file) => (
         <div
           key={file.id}
-          {...stylex.props(styles.skippedRow)}
+          {...stylex.props(mediaType(file.path)?.kind !== "image" && styles.skippedRow)}
           data-metadata-file={file.path}
           ref={(node) => {
             if (node) metadataRows.current.set(file.id, node);
             else metadataRows.current.delete(file.id);
           }}
         >
-          <Icon name="file" size={13} />
-          <button
-            role="link"
-            {...stylex.props(styles.fileLink)}
-            onPointerEnter={() => prefetchFile(file.path)}
-            onFocus={() => prefetchFile(file.path)}
-            onClick={(event) => openWorkingFile(file.path, true, event.metaKey || event.ctrlKey)}
-          >
-            {file.path}
-          </button>
-          <span {...stylex.props(ui.grow)} />
-          <span {...stylex.props(ui.muted)}>
-            {file.info.binary
-              ? "Binary file"
-              : file.info.tooLarge
-                ? "File exceeds preview limit"
-                : "Metadata-only change"}
-          </span>
+          {mediaType(file.path)?.kind === "image" && state.review ? (
+            <DiffImages
+              path={file.path}
+              previousPath={file.info.previousPath}
+              status={file.info.status}
+              reviewId={state.review.id}
+              saved={
+                state.savedView && state.savedReview && state.savedTargetId
+                  ? { id: state.savedReview.id, target: state.savedTargetId }
+                  : undefined
+              }
+              collapsed={collapsed.has(file.id)}
+              onToggle={() =>
+                setCollapsed((current) => {
+                  const next = new Set(current);
+                  if (next.has(file.id)) next.delete(file.id);
+                  else next.add(file.id);
+                  return next;
+                })
+              }
+              onOpen={() => openWorkingFile(file.path)}
+            />
+          ) : (
+            <>
+              <Icon name="file" size={13} />
+              <button
+                role="link"
+                {...stylex.props(styles.fileLink)}
+                onPointerEnter={() => prefetchFile(file.path)}
+                onFocus={() => prefetchFile(file.path)}
+                onClick={(event) =>
+                  openWorkingFile(file.path, true, event.metaKey || event.ctrlKey)
+                }
+              >
+                {file.path}
+              </button>
+              <span {...stylex.props(ui.grow)} />
+              <span {...stylex.props(ui.muted)}>
+                {file.info.binary
+                  ? "Binary file"
+                  : file.info.tooLarge
+                    ? "File exceeds preview limit"
+                    : "Metadata-only change"}
+              </span>
+            </>
+          )}
         </div>
       ))}
     </div>
@@ -2204,6 +2234,8 @@ export function App({
                     )
                   }
                 />
+              ) : skipped.length && state.status !== "loading" && !state.error ? (
+                <div style={{ overflow: "auto", height: "100%" }}>{renderMetadataRows()}</div>
               ) : state.status !== "loading" && !state.error ? (
                 <div {...stylex.props(styles.emptyState)}>
                   <Icon name={skipped.length ? "file" : "check"} size={30} />
@@ -2314,9 +2346,13 @@ export function App({
           {activeFile
             ? editorDrafts.get(JSON.stringify([activeFile.source, activeFile.path]))?.editing
               ? "Editing file · Vim"
-              : vimEnabled
-                ? "Read-only file · Vim"
-                : "Read-only file"
+              : fileState.file?.media
+                ? fileState.file.kind === "video"
+                  ? "Video"
+                  : "Image"
+                : vimEnabled
+                  ? "Read-only file · Vim"
+                  : "Read-only file"
             : state.comparison.kind === "patch"
               ? "Patch review"
               : state.comparison.kind === "files"

@@ -33,9 +33,10 @@ export const browseReadRequestSchema = z.object({
 export const browseReadSchema = z.object({
   source: browseSourceSchema,
   path: z.string(),
-  kind: z.enum(["text", "binary", "missing", "too-large", "unsupported"]),
+  kind: z.enum(["text", "image", "video", "binary", "missing", "too-large", "unsupported"]),
   size: z.number().nonnegative(),
   identity: z.string(),
+  media: z.object({ mime: z.string(), kind: z.enum(["image", "video"]) }).optional(),
   text: z.string().optional(),
   plain: z.boolean().optional(),
   truncated: z.boolean().optional(),

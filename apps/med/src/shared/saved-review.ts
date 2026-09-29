@@ -47,6 +47,7 @@ export const savedFeedbackSchema = z.object({
 });
 export type SavedFeedback = z.infer<typeof savedFeedbackSchema>;
 export interface CapturedReviewTarget {
+  images?: { path: string; side: "old" | "new"; mime: string; data: string }[];
   repositoryId: string;
   repo: string;
   branch: string | null;

@@ -1,3 +1,5 @@
+import { serveMedia, mediaHeaders } from "./media";
+import { mediaType } from "../shared/media";
 import { fileChangesRequestSchema } from "../shared/file-changes";
 import { fileChanges } from "./repository/file-changes";
 import { markdownAsset } from "./markdown-assets";
@@ -317,6 +319,41 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           403,
         );
     };
+    const captureImages = async (review: Awaited<ReturnType<typeof reviews.load>>) => {
+      const images: { path: string; side: "old" | "new"; mime: string; data: string }[] = [];
+      let bytes = Buffer.byteLength(review.patch);
+      for (const file of review.files) {
+        if (mediaType(file.path)?.kind !== "image") continue;
+        for (const side of ["old", "new"] as const) {
+          if ((side === "old" && file.status === "A") || (side === "new" && file.status === "D"))
+            continue;
+          try {
+            const image = await reviews.image(review.id, file.path, side, abort.signal);
+            bytes += image.bytes.length;
+            if (bytes > 24 * 1024 * 1024)
+              throw new HostError(
+                "saved-review-too-large",
+                "Captured media exceeds 24 MiB. Narrow this review.",
+                413,
+              );
+            images.push({
+              path: file.path,
+              side,
+              mime: image.mime,
+              data: image.bytes.toString("base64"),
+            });
+          } catch (error) {
+            if (
+              error instanceof HostError &&
+              ["image-unavailable", "unsupported-media"].includes(error.code)
+            )
+              continue;
+            throw error;
+          }
+        }
+      }
+      return images;
+    };
     const send = (body: unknown) => {
       assertRequestAccess();
       json(response, 200, body);
@@ -430,8 +467,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                       413,
                     );
                   const sources = [];
-                  let sourceBytes = Buffer.byteLength(review.patch);
+                  const images = await captureImages(review);
+                  let sourceBytes =
+                    Buffer.byteLength(review.patch) +
+                    images.reduce((sum, image) => sum + Buffer.byteLength(image.data, "base64"), 0);
                   for (const file of review.files) {
+                    if (mediaType(file.path)?.kind === "image") continue;
                     if (file.binary || file.tooLarge) continue;
                     try {
                       const source = await reviews.sources(review.id, file.path, abort.signal);
@@ -467,6 +508,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                     branch: info.branch === "Detached HEAD" ? null : info.branch,
                     review,
                     sources,
+                    images,
                   };
                 },
                 assertRequestAccess,
@@ -538,8 +580,15 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                         413,
                       );
                     const sources = [];
-                    let bytes = Buffer.byteLength(review.patch);
+                    const images = await captureImages(review);
+                    let bytes =
+                      Buffer.byteLength(review.patch) +
+                      images.reduce(
+                        (sum, image) => sum + Buffer.byteLength(image.data, "base64"),
+                        0,
+                      );
                     for (const file of review.files) {
+                      if (mediaType(file.path)?.kind === "image") continue;
                       if (file.binary || file.tooLarge) continue;
                       let source;
                       try {
@@ -570,6 +619,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                       branch: info.branch === "Detached HEAD" ? null : info.branch,
                       review,
                       sources,
+                      images,
                     };
                   },
             );
@@ -705,6 +755,66 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               } else send({ repositories: await registry.remove(id) });
               return;
             }
+          }
+          if (url.pathname === "/api/media" && ["GET", "HEAD"].includes(request.method ?? "")) {
+            const path = z.string().min(1).max(4096).parse(url.searchParams.get("path"));
+            const raw = JSON.parse(url.searchParams.get("source") ?? "null");
+            let source,
+              mediaPath = path;
+            if (raw?.kind === "local") {
+              if (raw.path !== path)
+                throw new HostError("invalid-path", "File path does not match.", 400);
+              const resolved = await localFiles.mediaSource(path);
+              source = resolved.source;
+              mediaPath = resolved.path;
+            } else {
+              source = browseSourceSchema.parse(raw);
+              source.repo = await requireRepo(source.repo);
+            }
+            assertRequestAccess();
+            await serveMedia(
+              response,
+              source,
+              mediaPath,
+              url.searchParams.get("identity"),
+              request.headers.range,
+              request.method === "HEAD",
+              abort.signal,
+              assertRequestAccess,
+            );
+            return;
+          }
+          if (url.pathname === "/api/review-image" && request.method === "GET") {
+            const path = z.string().min(1).max(4096).parse(url.searchParams.get("path"));
+            const side = z.enum(["old", "new"]).parse(url.searchParams.get("side"));
+            let image;
+            const saved = url.searchParams.get("saved");
+            if (saved) {
+              const targetId = url.searchParams.get("target") ?? "";
+              const savedImage = await savedReviews.image(saved, targetId, path, side);
+              const family = registry
+                .snapshot()
+                .find((item) => item.id === savedImage.repositoryId);
+              if (!family)
+                throw new HostError(
+                  "repository-unavailable",
+                  "Register this review's repository to view its images.",
+                  409,
+                );
+              await requireRepo(family.path);
+              image = savedImage;
+            } else {
+              const reviewId = await requireReview(url.searchParams.get("reviewId") ?? "");
+              image = await reviews.image(reviewId, path, side, abort.signal);
+            }
+            assertRequestAccess();
+            response.writeHead(200, {
+              ...mediaHeaders,
+              "Content-Type": image.mime,
+              "Content-Length": image.bytes.length,
+            });
+            response.end(image.bytes);
+            return;
           }
           if (url.pathname === "/api/markdown/image" && request.method === "GET") {
             const document = z.string().min(1).max(4096).parse(url.searchParams.get("document"));
@@ -985,7 +1095,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         "x-content-type-options": "nosniff",
         "referrer-policy": "no-referrer",
         "content-security-policy":
-          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src 'self'; img-src 'self' data:; font-src 'self' data:; frame-ancestors 'none'; base-uri 'none'",
+          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; frame-ancestors 'none'; base-uri 'none'",
       });
       response.end(request.method === "HEAD" ? undefined : data);
     })()

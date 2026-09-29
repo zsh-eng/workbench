@@ -48,7 +48,8 @@ The picker searches only the active workspace's file manifest. It uses filename-
 
 | Input                                                                        | Current behavior                                       |
 | ---------------------------------------------------------------------------- | ------------------------------------------------------ |
-| Recognized binary content                                                    | Metadata only; no content renderer                     |
+| Browser-supported image / video | Rendered image / native video player; 32 MiB / 4 GiB limits |
+| Other recognized binary content | Metadata only; no content renderer |
 | Invalid UTF-8                                                                | Unsupported-encoding message; no content renderer      |
 | Symlink, submodule, or unsupported filesystem object                         | Metadata only; no traversal into another source        |
 | Text above 8 MiB                                                             | Metadata only                                          |

@@ -31,8 +31,14 @@ export class LocalFiles {
       basename(canonical),
       signal,
     );
-    if (file.kind === "text") this.opened.add(canonical);
+    if (["text", "image", "video"].includes(file.kind)) this.opened.add(canonical);
     return this.result(canonical, file);
+  }
+  async mediaSource(path: string) {
+    const canonical = await this.canonical(path);
+    if (canonical !== path || !this.opened.has(canonical))
+      throw new HostError("file-not-open", "Open this file before loading its media.", 403);
+    return { source: { kind: "worktree" as const, repo: dirname(path) }, path: basename(path) };
   }
   async image(path: string, href: string, signal?: AbortSignal) {
     const canonical = await this.canonical(path);

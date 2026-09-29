@@ -1,3 +1,4 @@
+import { mediaType, MAX_IMAGE_BYTES, MAX_VIDEO_BYTES } from "../../shared/media";
 import { ToolButton } from "./ToolButton";
 import {
   useCallback,
@@ -54,6 +55,13 @@ export function LocalFiles({ children }: { children: ReactNode }) {
   const sequence = useRef(0);
   const currentTabs = useRef(tabs);
   currentTabs.current = tabs;
+  const dropUrls = useRef(new Set<string>());
+  useEffect(
+    () => () => {
+      for (const url of dropUrls.current) URL.revokeObjectURL(url);
+    },
+    [],
+  );
   const copiedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const close = useCallback(
     (id: string) => {
@@ -61,6 +69,11 @@ export function LocalFiles({ children }: { children: ReactNode }) {
       if (draft?.dirty || draft?.saving) {
         setError("Save or discard this draft before closing the file.");
         return;
+      }
+      const old = currentTabs.current.find((tab) => tab.id === id);
+      if (old?.file.source.kind === "drop" && old.file.media) {
+        URL.revokeObjectURL(old.file.identity);
+        dropUrls.current.delete(old.file.identity);
       }
       const next = currentTabs.current.filter((tab) => tab.id !== id);
       currentTabs.current = next;
@@ -72,7 +85,10 @@ export function LocalFiles({ children }: { children: ReactNode }) {
   );
   const add = (tab: Tab) => {
     const next = [...currentTabs.current.filter((item) => item.id !== tab.id), tab];
-    if (next.length > 24 || next.reduce((sum, item) => sum + item.file.size, 0) > 32 * 1024 * 1024)
+    if (
+      next.length > 24 ||
+      next.reduce((sum, item) => sum + (item.file.media ? 0 : item.file.size), 0) > 32 * 1024 * 1024
+    )
       throw new Error("Close a file before opening more (24 files / 32 MiB limit).");
     currentTabs.current = next;
     setTabs((items) => [...items.filter((item) => item.id !== tab.id), tab]);
@@ -188,12 +204,40 @@ export function LocalFiles({ children }: { children: ReactNode }) {
         setError("Drop files, not folders.");
         return;
       }
-      if (files.length > 12 || files.reduce((sum, file) => sum + file.size, 0) > 24 * 1024 * 1024) {
-        setError("Drop up to 12 files and 24 MiB at a time.");
+      if (
+        files.length > 12 ||
+        files.reduce((sum, file) => sum + (mediaType(file.name) ? 0 : file.size), 0) >
+          24 * 1024 * 1024
+      ) {
+        setError("Drop up to 12 files (24 MiB of text).");
         return;
       }
       for (const file of files) {
         try {
+          const media = mediaType(file.name);
+          if (media) {
+            if (file.size > (media.kind === "image" ? MAX_IMAGE_BYTES : MAX_VIDEO_BYTES))
+              throw new Error(`${file.name}: exceeds the media preview limit.`);
+            const url = URL.createObjectURL(file);
+            try {
+              add({
+                id: crypto.randomUUID(),
+                file: {
+                  source: { kind: "drop", id: url },
+                  path: file.name,
+                  kind: media.kind,
+                  media,
+                  identity: url,
+                  size: file.size,
+                },
+              });
+              dropUrls.current.add(url);
+            } catch (error) {
+              URL.revokeObjectURL(url);
+              throw error;
+            }
+            continue;
+          }
           if (file.size > 8 * 1024 * 1024)
             throw new Error(`${file.name}: exceeds the 8 MiB preview limit.`);
           const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
@@ -421,7 +465,7 @@ export function LocalFiles({ children }: { children: ReactNode }) {
               <button {...stylex.props(ui.button)} onClick={() => setOpening(true)}>
                 Open file… <span>⌘O</span>
               </button>
-              <p>Drop a text file to preview it.</p>
+              <p>Drop a file to preview it.</p>
             </div>
           )}
           <CommandDialog

@@ -1,0 +1,140 @@
+.med-media-file {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--media-text);
+  background: var(--media-bg);
+}
+.med-media-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  height: 32px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--media-border);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.med-media-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.med-media-detail {
+  color: var(--media-muted);
+  font-size: 11px;
+}
+.med-media-fit,
+.med-media-collapse,
+.med-media-path {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+.med-media-fit {
+  min-height: 28px;
+  min-width: 28px;
+  border-radius: 7px;
+}
+.med-media-stage {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  padding: 16px;
+}
+.med-media-stage img,
+.med-media-stage video {
+  display: block;
+  margin: auto;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.med-media-stage video {
+  width: 100%;
+  height: 100%;
+  border-radius: 10px;
+  background: #111;
+}
+.med-media-stage[data-actual="true"] img {
+  max-width: none;
+  max-height: none;
+  flex-shrink: 0;
+}
+.med-media-error {
+  margin: auto;
+  color: var(--media-muted);
+  padding: 12px;
+  font-size: 12px;
+  text-align: center;
+}
+.med-media-diff {
+  color: var(--media-text);
+  border: 1px solid var(--media-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--media-bg);
+  margin-block: 8px;
+  width: 100%;
+}
+.med-media-diff .med-media-header {
+  cursor: pointer;
+  background: var(--media-panel);
+}
+.med-media-path {
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.med-media-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.med-media-pair figure {
+  margin: 0;
+  min-width: 0;
+}
+.med-media-pair figure + figure {
+  border-left: 1px solid var(--media-border);
+}
+.med-media-pair figcaption {
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--media-muted);
+}
+.med-media-thumbnail {
+  height: 180px;
+  padding: 8px 16px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-image: repeating-conic-gradient(#8881 0% 25%, transparent 0% 50%);
+  background-size: 16px 16px;
+}
+.med-media-thumbnail img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.med-media-diff .med-media-header {
+  position: relative;
+}
+.med-media-collapse {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.med-media-path {
+  position: relative;
+}

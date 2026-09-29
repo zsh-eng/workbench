@@ -344,3 +344,37 @@ reads the active file selection through a reader callback (including Pierre's
 virtual Visual selection). CodeMirror selections paint below text, so the active
 line background must remain translucent. Default yanks mirror Vim register 0 to
 the clipboard in the input task; named registers are left unchanged.
+
+
+## Media viewing
+
+File reads classify supported media from its extension after source/path checks.
+Responses contain MIME type, size, and version identity, never encoded media.
+Media bypasses text decoding, syntax workers, and editor state. `/api/media`
+serves authenticated GET/HEAD requests with single byte ranges. Worktree and
+local sources open no-follow handles and seek directly; commit sources stream
+`git cat-file` with backpressure and discard any prefix before the requested
+range. Git seeking can therefore cost more CPU and I/O than local seeking.
+Streams use 64 KiB file chunks, stop on disconnect, and recheck repository
+access for every chunk. No transcode or temporary whole-video copy is needed.
+
+The file viewer uses browser image/video elements and native video controls.
+Drops use object URLs without uploads; close and unmount revoke those URLs.
+Media references do not count toward the retained UTF-8 text budget. Only the
+active file mounts its decoder. Images are capped at 32 MiB; videos at 4 GiB.
+Codec and decoded-image memory costs remain browser-dependent.
+
+Image diffs use compact before/after cards and one shared visibility observer.
+Images mount near the viewport and unmount outside it. Rendered SVGs never enter
+the DOM as markup. Media responses use no-sniff and sandboxed CSP; app CSP permits
+same-origin and blob media. Git image sides use captured blob IDs, working sides
+check their review fingerprint, and file-pair images retain their original bytes.
+New saved reviews store bounded image snapshots alongside source text; combined
+capture and record limits remain in force. Optional image fields preserve older
+records. Older saved reviews display an unavailable preview instead of fetching
+live bytes. Git SVG/media patches bypass the client text parser and highlighter.
+
+`node scripts/validate-media.mjs` covers actual browser decoders, image comparisons,
+frozen captures, stale reads, lazy mounting, dropped media, video playback/seeking,
+authentication, symlink refusal, and range transfers from a sparse 512 MiB file.
+See [media validation](docs/validation/MEDIA.md) for captures and measurements.

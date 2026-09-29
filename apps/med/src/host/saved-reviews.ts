@@ -112,6 +112,9 @@ const recordSchema = z.object({
         targetId: z.string().regex(TARGET_ID),
         review: responseSchema,
         sources: z.array(sourceSchema),
+        images: z
+          .array(z.object({ path: text, side: z.enum(["old", "new"]), mime: text, data: text }))
+          .default([]),
         notes: z.object({
           reviewId: text,
           revision: natural,
@@ -468,13 +471,14 @@ export class SavedReviewStore {
       id: reviewId,
       repo: result.repo,
     });
+    const images = result.images ?? [];
     const sources = result.sources.map((source) => sourceSchema.parse({ ...source, reviewId }));
     if (
       new Set(sources.map((source) => source.path)).size !== sources.length ||
       sources.some((source) => !review.files.some((file) => file.path === source.path))
     )
       throw new HostError("invalid-capture", "Captured source paths do not match the review.");
-    if (Buffer.byteLength(JSON.stringify({ review, sources })) > MAX_RECORD_BYTES)
+    if (Buffer.byteLength(JSON.stringify({ review, sources, images })) > MAX_RECORD_BYTES)
       throw new HostError(
         "saved-review-limit",
         "This review exceeds the 64 MiB snapshot limit.",
@@ -496,6 +500,7 @@ export class SavedReviewStore {
       targetId,
       review,
       sources,
+      images,
       notes: { reviewId, revision: 0, notes: [] },
     });
     if (Buffer.byteLength(JSON.stringify(record)) > MAX_RECORD_BYTES)
@@ -546,6 +551,26 @@ export class SavedReviewStore {
   }
   notes(id: string, targetId: string): Promise<NoteState> {
     return this.serial(async () => this.target(await this.read(id), targetId).notes);
+  }
+  image(id: string, targetId: string, path: string, side: "old" | "new") {
+    return this.serial(async () => {
+      const record = await this.read(id);
+      const target = record.saved.targets.find((item) => item.id === targetId);
+      const image = this.target(record, targetId).images.find(
+        (item) => item.path === path && item.side === side,
+      );
+      if (!image)
+        throw new HostError(
+          "image-unavailable",
+          "This image was not captured in this saved review.",
+          404,
+        );
+      return {
+        repositoryId: target!.repositoryId,
+        mime: image.mime,
+        bytes: Buffer.from(image.data, "base64"),
+      };
+    });
   }
   source(id: string, targetId: string, path: string): Promise<SourceResponse> {
     return this.serial(async () => {

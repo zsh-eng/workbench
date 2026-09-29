@@ -42,6 +42,7 @@
     "compare:highlighting": "bun scripts/check-highlighter-parity.ts",
     "build:executable": "bun run build && bun scripts/build-executable.ts",
     "test:service": "node scripts/validate-service.mjs",
+    "test:media": "node scripts/validate-media.mjs",
     "test:markdown-links": "node scripts/validate-markdown-links.mjs"
   },
   "dependencies": {

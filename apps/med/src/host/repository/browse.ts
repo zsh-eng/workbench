@@ -1,3 +1,4 @@
+import { mediaType, MAX_IMAGE_BYTES, MAX_VIDEO_BYTES } from "../../shared/media";
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, open, realpath, rename, unlink } from "node:fs/promises";
@@ -279,6 +280,15 @@ export async function readBrowse(
         kind: "unsupported",
         reason: "Links, directories, and submodules have no content preview.",
       };
+    const media = mediaType(path);
+    if (media && entry.size <= (media.kind === "image" ? MAX_IMAGE_BYTES : MAX_VIDEO_BYTES))
+      return { ...metadata, kind: media.kind, media };
+    if (media)
+      return {
+        ...metadata,
+        kind: "too-large",
+        reason: `This ${media.kind} exceeds the ${media.kind === "image" ? "32 MiB" : "4 GiB"} media limit.`,
+      };
     if (entry.size > MAX_FILE_BYTES)
       return {
         ...metadata,
@@ -311,6 +321,15 @@ export async function readBrowse(
         ...metadata,
         kind: "unsupported",
         reason: "Links, directories, and special files have no content preview.",
+      };
+    const media = mediaType(path);
+    if (media && info.size <= (media.kind === "image" ? MAX_IMAGE_BYTES : MAX_VIDEO_BYTES))
+      return { ...metadata, kind: media.kind, media };
+    if (media)
+      return {
+        ...metadata,
+        kind: "too-large",
+        reason: `This ${media.kind} exceeds the ${media.kind === "image" ? "32 MiB" : "4 GiB"} media limit.`,
       };
     if (info.size > MAX_FILE_BYTES)
       return {

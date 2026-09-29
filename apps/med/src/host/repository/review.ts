@@ -1,3 +1,5 @@
+import { mediaType, MAX_IMAGE_BYTES } from "../../shared/media";
+import { markdownAsset } from "../markdown-assets";
 import { createHash } from "node:crypto";
 import { lstat, mkdtemp, open, readlink, realpath, rm, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
@@ -45,6 +47,7 @@ export interface StoredReview {
   mutable: boolean;
   indexState: string;
   frozenSources?: Map<string, SourceResponse>;
+  frozenImages?: { old: Buffer; new: Buffer };
 }
 
 export function safeRepoPath(repo: string, path: string) {
@@ -246,6 +249,7 @@ export class ReviewService {
     let patch: string;
     let frozen: { old: string; new: string } | undefined;
     let binaryPair = false;
+    let frozenImages: { old: Buffer; new: Buffer } | undefined;
     let label: string;
     let displayPath: string | undefined;
     let base: string;
@@ -279,6 +283,7 @@ export class ReviewService {
       head = createHash("sha256").update(newBytes).digest("hex");
       label = `${basename(oldPath)} → ${basename(newPath)}`;
       displayPath = basename(newPath);
+      if (mediaType(newPath)?.kind === "image") frozenImages = { old: oldBytes, new: newBytes };
       binaryPair = oldBytes.includes(0) || newBytes.includes(0);
       if (!binaryPair) frozen = { old: oldBytes.toString("utf8"), new: newBytes.toString("utf8") };
       const temporary = await mkdtemp(join(tmpdir(), "med-file-pair-"));
@@ -430,9 +435,11 @@ export class ReviewService {
         mutable: true,
         indexState: "",
         frozenSources,
+        frozenImages,
       },
       Buffer.byteLength(JSON.stringify(response)) * 2 +
-        (frozen ? Buffer.byteLength(frozen.old) + Buffer.byteLength(frozen.new) : 0),
+        (frozen ? Buffer.byteLength(frozen.old) + Buffer.byteLength(frozen.new) : 0) +
+        (frozenImages ? frozenImages.old.length + frozenImages.new.length : 0),
     );
     return response;
   }
@@ -637,6 +644,12 @@ export class ReviewService {
       );
     }
     applyPatchStats(files, patch);
+    // Raster and SVG media use lazy image responses, never text parsing/highlighting.
+    patch = patch
+      .split(/(?=^diff --git )/m)
+      .filter((part) => part.startsWith("diff --git "))
+      .filter((_, i) => !mediaType(files[i]?.path ?? ""))
+      .join("");
     if (comparison.kind === "working" || comparison.kind === "unstaged") {
       const untracked = (
         await git(repo, ["ls-files", "--others", "--exclude-standard", "-z"], {
@@ -665,6 +678,13 @@ export class ReviewService {
           newMode: "100644",
           fingerprint: before,
         };
+        if (mediaType(path)) {
+          const info = await lstat(safeRepoPath(repo, path));
+          if (!info.isFile()) file.newMode = info.isSymbolicLink() ? "120000" : "000000";
+          file.binary = true;
+          files.push(file);
+          continue;
+        }
         try {
           const text = await readWorkingFile(repo, path);
           const added = addedPatch(path, text);
@@ -749,6 +769,44 @@ export class ReviewService {
       }
     }
     return response;
+  }
+
+  async image(reviewId: string, path: string, side: "old" | "new", signal?: AbortSignal) {
+    const review = this.get(reviewId);
+    const file = review.sources.get(path);
+    const media = mediaType(side === "old" ? (file?.previousPath ?? path) : path);
+    if (!file || media?.kind !== "image")
+      throw new HostError("unsupported-media", "This review file has no image preview.", 422);
+    const mode = side === "old" ? file.oldMode : file.newMode;
+    if (!/^100[0-7]{3}$/.test(mode))
+      throw new HostError("image-unavailable", "This side has no image.", 404);
+    if (review.frozenImages) return { bytes: review.frozenImages[side], mime: media.mime };
+    if (file.sourceUnavailable)
+      throw new HostError("image-unavailable", "Image bytes are unavailable for this patch.", 422);
+    const repo = review.response.repo;
+    const current = () => fingerprint(repo, path);
+    if (file.fingerprint !== undefined && file.fingerprint !== (await current()))
+      throw new HostError("source-changed", "Refresh the review to load the changed image.", 409);
+    const oid = side === "old" ? file.oldOid : file.newOid;
+    const bytes =
+      side === "new" && review.response.head === "worktree"
+        ? (
+            await markdownAsset(
+              { kind: "worktree", repo },
+              "_",
+              path.split("/").map(encodeURIComponent).join("/"),
+              signal,
+              MAX_IMAGE_BYTES,
+            )
+          ).bytes
+        : await git(repo, ["cat-file", "blob", oid], { signal, maxBytes: MAX_IMAGE_BYTES });
+    if (file.fingerprint !== undefined && file.fingerprint !== (await current()))
+      throw new HostError(
+        "source-changed",
+        "The image changed while loading. Refresh the review.",
+        409,
+      );
+    return { bytes, mime: media.mime };
   }
 
   async sources(reviewId: string, path: string, signal?: AbortSignal): Promise<SourceResponse> {
