@@ -35,3 +35,13 @@ button:disabled {
 svg {
   vertical-align: middle;
 }
+
+/* Keep code on a character grid, including across syntax-token boundaries.
+   Geist Mono's shaped <> pair can paint over the preceding token. */
+code,
+pre,
+diffs-container,
+.cm-scroller {
+  font-variant-ligatures: none;
+  font-kerning: none;
+}

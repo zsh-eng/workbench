@@ -15,6 +15,11 @@ try {
     Array.from({ length: 30 }, (_, i) => `// row ${i}`).join("\n") +
     "\n";
   await writeFile(join(repo, "sample.ts"), text);
+  await writeFile(
+    join(repo, "Sample.java"),
+    "class Sample {\n  ConcurrentHashmap<> map;\n}\n" +
+      Array.from({ length: 200 }, (_, i) => `// row ${i}`).join("\n"),
+  );
   execFileSync("git", ["init", "-qb", "main", repo]);
   execFileSync("git", ["-C", repo, "add", "."]);
   execFileSync("git", [
@@ -249,12 +254,51 @@ try {
   await page.keyboard.type("u");
   await page.keyboard.press("Alt+KeyW");
   await editor.waitFor({ state: "hidden" });
+  await page.goto(`${new URL(launch).origin}/file${repo}/Sample.java`);
+  await editor.waitFor();
+  const diamond = editor.locator(".cm-line span").filter({ hasText: /^<>$/ });
+  await diamond.waitFor();
+  await page.evaluate(() => document.fonts.ready);
+  const widths = await diamond.evaluate((el) => {
+    const canvas = document.createElement("canvas").getContext("2d");
+    const style = getComputedStyle(el);
+    canvas.font = `${style.fontSize} ${style.fontFamily}`;
+    return { pair: el.getBoundingClientRect().width, cell: canvas.measureText("p").width };
+  });
+  assert.ok(
+    widths.pair >= widths.cell * 1.9,
+    `Angle brackets must occupy two cells: ${JSON.stringify(widths)}`,
+  );
+  await page.screenshot({
+    path: "/private/tmp/med-rendering-after.png",
+    clip: { x: 0, y: 0, width: 800, height: 190 },
+  });
+  await editor.focus();
+  await page.keyboard.type("100G");
+  for (const [keys, edge] of [
+    ["zt", "top"],
+    ["zb", "bottom"],
+    ["vzt", "top"],
+  ]) {
+    await page.keyboard.type(keys);
+    await until(async () => {
+      const gap = await page.locator(".cm-scroller").evaluate((el, edge) => {
+        const row = el.querySelector(".cm-activeLine")?.getBoundingClientRect();
+        const bounds = el.getBoundingClientRect();
+        return row ? (edge === "top" ? row.top - bounds.top : bounds.bottom - row.bottom) : -1;
+      }, edge);
+      return gap >= 78 && gap <= 82;
+    });
+  }
+  await page.keyboard.press("Escape");
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify({
       passed: true,
       standalone: !!executable,
       checks: [
+        "two-cell-generic-brackets",
+        "zt-zb-four-line-margin",
         "viw-visible",
         "mouse-word-selection",
         "selection-content-search",

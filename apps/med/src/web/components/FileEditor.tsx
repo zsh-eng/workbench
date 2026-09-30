@@ -67,10 +67,24 @@ const colors = StateField.define<DecorationSet>({
 });
 const actions = new WeakMap<
   object,
-  { save: () => void; close: () => void; saveAndClose: () => void; definition: () => void }
+  {
+    save: () => void;
+    close: () => void;
+    saveAndClose: () => void;
+    definition: () => void;
+    scroll: (y: "start" | "end") => void;
+  }
 >();
 Vim.defineAction("medDefinition", (cm) => actions.get(cm)?.definition());
 Vim.mapCommand("gd", "action", "medDefinition", {}, { context: "normal" });
+for (const [keys, y] of [
+  ["zt", "start"],
+  ["zb", "end"],
+] as const) {
+  Vim.defineAction(`med-${keys}`, (cm) => actions.get(cm)?.scroll(y));
+  for (const context of ["normal", "visual"] as const)
+    Vim.mapCommand(keys, "action", `med-${keys}`, {}, { context });
+}
 Vim.defineEx("write", "w", (cm) => actions.get(cm)?.save());
 Vim.defineEx("quit", "q", (cm) => actions.get(cm)?.close());
 Vim.defineEx("wq", undefined, (cm) => actions.get(cm)?.saveAndClose());
@@ -404,6 +418,19 @@ export default function FileEditor({
     drafts.update(draft, { state: editor.state });
     const cm = getCM(editor)!;
     actions.set(cm, {
+      scroll: (y) => {
+        const line = editor.state.doc.lineAt(editor.state.selection.main.head);
+        const margin = Math.min(
+          4 * editor.defaultLineHeight,
+          Math.max(0, (editor.scrollDOM.clientHeight - editor.defaultLineHeight) / 2),
+        );
+        editor.dispatch({
+          effects: EditorView.scrollIntoView(y === "start" ? line.from : line.to, {
+            y,
+            yMargin: margin,
+          }),
+        });
+      },
       definition: () => {
         const word = editor.state.wordAt(editor.state.selection.main.head);
         if (word) latest.current.context.onDefinition?.(editor.state.sliceDoc(word.from, word.to));
