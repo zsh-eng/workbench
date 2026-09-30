@@ -5,8 +5,8 @@
 ## Setup
 
 For macOS Apple Silicon, download the executable from the
-[Med release](https://github.com/zsh-eng/workbench/releases/tag/med-v0.1.3).
-See [installation](https://github.com/zsh-eng/workbench/blob/med-v0.1.3/apps/med/docs/INSTALL.md)
+[Med release](https://github.com/zsh-eng/workbench/releases/tag/med-v0.1.4).
+See [installation](https://github.com/zsh-eng/workbench/blob/med-v0.1.4/apps/med/docs/INSTALL.md)
 for checksum verification and setup. Node, Bun, and a checkout are not required.
 
 To build from Workbench, install dependencies at the root, then build the
