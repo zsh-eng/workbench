@@ -34,6 +34,7 @@ import {
 import { HostError } from "./runtime/errors";
 import {
   savedReviewCreateSchema,
+  pullRequestUrlSchema,
   type SavedReview,
   type SavedReviewCreate,
   type CapturedReviewTarget,
@@ -98,6 +99,7 @@ const targetSchema = z.object({
 const savedSchema = z.object({
   id: z.string().regex(REVIEW_ID),
   title: text,
+  pullRequestUrl: pullRequestUrlSchema.optional(),
   createdAt: text,
   revision: natural,
   commentCount: natural,
@@ -527,6 +529,7 @@ export class SavedReviewStore {
         saved: {
           id,
           title: input.title.trim(),
+          ...(input.pullRequestUrl ? { pullRequestUrl: input.pullRequestUrl } : {}),
           createdAt: new Date().toISOString(),
           revision: 0,
           commentCount: 0,

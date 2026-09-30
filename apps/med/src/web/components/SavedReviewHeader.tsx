@@ -84,6 +84,16 @@ export function SavedReviewHeader({
           >
             <Popover.Popup {...stylex.props(ui.popup, styles.details, ui.instant)}>
               <Popover.Title {...stylex.props(styles.title)}>{saved.title}</Popover.Title>
+              {saved.pullRequestUrl && (
+                <a
+                  href={saved.pullRequestUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  {...stylex.props(styles.prLink)}
+                >
+                  Open pull request <Icon name="external" size={12} />
+                </a>
+              )}
               <p {...stylex.props(styles.detailText)}>
                 {repositoryCount} {repositoryCount === 1 ? "repository" : "repositories"} ·{" "}
                 {saved.commentCount} comments
@@ -112,9 +122,21 @@ export function SavedReviewHeader({
           </Popover.Positioner>
         </Popover.Portal>
       </Popover.Root>
-      <span title={saved.title} {...stylex.props(styles.reviewTitle)}>
-        {saved.title}
-      </span>
+      {saved.pullRequestUrl ? (
+        <a
+          href={saved.pullRequestUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`Open pull request: ${saved.title}`}
+          {...stylex.props(styles.reviewTitle, styles.prLink)}
+        >
+          {saved.title} <Icon name="external" size={12} />
+        </a>
+      ) : (
+        <span title={saved.title} {...stylex.props(styles.reviewTitle)}>
+          {saved.title}
+        </span>
+      )}
       {saved.targets.length > 1 && (
         <select
           aria-label="Review target"
@@ -325,6 +347,7 @@ const styles = stylex.create({
     color: tokens.muted,
     fontSize: 12,
   },
+  prLink: { color: tokens.accent, textDecoration: { default: "none", ":hover": "underline" } },
   grow: { flexGrow: 1 },
   select: {
     minWidth: 0,

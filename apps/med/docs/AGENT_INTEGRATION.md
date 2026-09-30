@@ -56,6 +56,32 @@ The result is ready to paste into the final response:
 
 The base is the state before the task's changes, not the first changed commit. med resolves the endpoints and captures the comparison. It does not switch branches, stage files, or make commits. Do not commit solely to create a link unless the user has authorized commits.
 
+### Titles and pull requests
+
+`--title` sets the review heading and browser tab title. For a checked-out GitHub
+PR, omit it to use the PR title, or set it to override that title:
+
+```sh
+med review create --repo /path/to/feature-worktree \
+  --base origin/main --head HEAD --merge-base \
+  --pr https://github.com/owner/repository/pull/123
+```
+
+`--pr` saves a clickable link in the review header. With `--title` and `--pr`,
+no GitHub lookup is needed. Without an explicit link, a single-target review can
+infer it for commit/range comparisons from a GitHub `origin` remote and the reviewed branch using the optional
+GitHub CLI (`gh`). The PR head must match the reviewed commit exactly; that head is pinned before capture. Detached
+checkouts, older commits, other remotes, and ambiguous cases should use `--pr`.
+Use `--no-pr` to skip automatic lookup. Missing `gh`, authentication, offline
+connections, and lookup timeouts do not block review creation; without a supplied
+or resolved title, med uses a repository/comparison label. This lookup does not
+fetch Git refs, check out branches, or change the selected comparison.
+
+A manifest supplies `"title"` and optional `"pullRequestUrl"` (an HTTPS PR URL).
+These values are saved with the review and remain available offline and after
+restart. A review spanning several repositories should use a task title and
+only attach a PR link if it represents the whole review.
+
 ### Compare with a base branch
 
 Both `--base` and `--head` accept branch names and other local Git refs. Run this command against the feature worktree:
@@ -146,6 +172,7 @@ When handing off code changes, provide a med review link if the user's med host 
 - Match the task's actual working directories to that list. Include only repositories changed for this task. Do not include every registered repository.
 - For work directly on `main`, use the recorded pre-task commit and completed commit as exact before/after endpoints. Comparing `main` with `HEAD` after committing on `main` would be empty. For uncommitted work, use `--working` and explain any pre-existing changes included in the snapshot.
 - For a feature review, use that repository's intended base branch (`main`, `develop`, or another agreed ref). Use `--base <branch> --head HEAD --merge-base` to exclude changes made only on the base branch. For stacked changes, use the previous feature branch as the base. Recalculate after merging the base branch and create a new link. Do not guess the same base for every repository or fetch without authorization.
+- Use a concise `--title`, or omit it for a matching GitHub PR title. Supply `--pr` when known; do not invent a PR URL.
 - Use `review create` for one target, or `review create --manifest` for several repositories or comparisons. Include its Markdown link in the final response.
 - Do not commit, switch branches, add unrelated repositories, or edit AGENTS.md just to generate a link. Follow the user's authorization for those actions.
 - If the host is unavailable or a relevant repository is missing, state what is needed. Do not invent a URL or print the host's access token.

@@ -1,8 +1,29 @@
 import { z } from "zod";
 import { comparisonSchema, type ReviewResponse, type SourceResponse } from "./protocol";
 
+export const pullRequestUrlSchema = z
+  .string()
+  .trim()
+  .max(2048)
+  .refine((value) => {
+    try {
+      const url = new URL(value);
+      return (
+        url.protocol === "https:" &&
+        !url.username &&
+        !url.password &&
+        !url.search &&
+        !url.hash &&
+        /^\/[^/]+\/[^/]+\/pull\/[1-9]\d*\/?$/.test(url.pathname)
+      );
+    } catch {
+      return false;
+    }
+  }, "Supply an HTTPS GitHub pull request URL.");
+
 export const savedReviewCreateSchema = z.object({
   title: z.string().trim().min(1).max(200),
+  pullRequestUrl: pullRequestUrlSchema.optional(),
   targets: z
     .array(
       z.object({
@@ -33,6 +54,7 @@ export type SavedReviewTarget = z.infer<typeof savedReviewTargetSchema>;
 export const savedReviewSchema = z.object({
   id: z.string(),
   title: z.string(),
+  pullRequestUrl: pullRequestUrlSchema.optional(),
   createdAt: z.string(),
   revision: z.number().int().nonnegative(),
   commentCount: z.number().int().nonnegative(),

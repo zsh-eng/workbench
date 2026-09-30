@@ -387,3 +387,12 @@ tabs. `#L42` suffixes select a line in repository and standalone files.
 Same-page heading links keep their preview navigation. Web and mail links keep
 their external behavior. Dropped previews have no disk location, so relative
 file links are unavailable there. Missing files use the normal file-open error.
+
+### Review titles and PR links
+
+`med review create --title "Fix navigation" ...` uses that title in the browser
+tab and review header. Add `--pr https://github.com/owner/repo/pull/123` to make
+the heading a link. Without `--title`, med uses the matching PR title when `gh`
+can resolve it. Single-repository GitHub branch reviews can infer the link;
+`--no-pr` skips lookup. See [agent guidance](AGENT_INTEGRATION.md#titles-and-pull-requests)
+for scope and fallback behavior. File tabs use the filename in the browser title.

@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import { savedReviewCreateSchema } from "../shared/saved-review";
@@ -10,6 +10,8 @@ import {
   type RunningConnection,
 } from "../host/runtime/connection";
 
+import { reviewMetadata } from "./review-metadata";
+
 export const reviewManifestSchema = savedReviewCreateSchema.strict();
 export type ReviewManifest = z.infer<typeof reviewManifestSchema>;
 
@@ -18,6 +20,8 @@ export const reviewHelp = `Usage: med-diff review create --title <title> --repo 
        med-diff review create --manifest <json-path>
        med-diff review repos
 
+--title sets the review and browser tab title. Without it, use the matching PR title or a comparison label.
+--pr <https-url> adds a clickable GitHub PR link. A matching PR is inferred for a single GitHub origin repository when gh is available; --no-pr skips lookup.
 --merge-base compares the common ancestor of --base and --head with --head (for pull requests and stacked branches).
 Options: --port <port> (default ${DEFAULT_PORT}), --state-dir <path> (or MED_STATE_DIR)
 The running host must already have the target repositories registered.
@@ -30,6 +34,8 @@ export interface ReviewCommand {
   port: number;
   stateDir: string;
   manifest?: ReviewManifest;
+  keepTitle?: boolean;
+  inferPullRequest?: boolean;
 }
 
 export async function parseReviewCommand(args: string[]): Promise<ReviewCommand> {
@@ -41,6 +47,8 @@ export async function parseReviewCommand(args: string[]): Promise<ReviewCommand>
       port: { type: "string" },
       "state-dir": { type: "string" },
       title: { type: "string" },
+      pr: { type: "string" },
+      "no-pr": { type: "boolean" },
       repo: { type: "string" },
       base: { type: "string" },
       head: { type: "string" },
@@ -58,6 +66,7 @@ export async function parseReviewCommand(args: string[]): Promise<ReviewCommand>
     throw new Error(reviewHelp);
   const targetOptions = [
     values.title,
+    values.pr,
     values.repo,
     values.base,
     values.head,
@@ -65,7 +74,11 @@ export async function parseReviewCommand(args: string[]): Promise<ReviewCommand>
     values["merge-base"],
   ];
   if (positionals[0] === "repos") {
-    if (values.manifest !== undefined || targetOptions.some((value) => value !== undefined))
+    if (
+      values["no-pr"] !== undefined ||
+      values.manifest !== undefined ||
+      targetOptions.some((value) => value !== undefined)
+    )
       throw new Error("The repos command accepts only --port and --state-dir.");
     return { ...common, kind: "repos" };
   }
@@ -79,8 +92,8 @@ export async function parseReviewCommand(args: string[]): Promise<ReviewCommand>
       throw new Error("Could not read the review manifest. Supply a readable JSON file.");
     }
   } else {
-    if (!values.title || !values.repo)
-      throw new Error("Use --title and --repo, or supply --manifest.");
+    if (!values.repo) throw new Error("Use --repo, or supply --manifest.");
+    if (values.pr && values["no-pr"]) throw new Error("Use --pr without --no-pr.");
     if (
       values.working &&
       (values.base !== undefined || values.head !== undefined || values["merge-base"])
@@ -91,7 +104,13 @@ export async function parseReviewCommand(args: string[]): Promise<ReviewCommand>
         "Supply both --base and --head, or use --working to capture current changes.",
       );
     input = {
-      title: values.title,
+      title:
+        values.title ??
+        `${basename(resolve(values.repo))} · ${values.working ? "Working changes" : `${values.base} → ${values.head}`}`.slice(
+          0,
+          200,
+        ),
+      ...(values.pr ? { pullRequestUrl: values.pr } : {}),
       targets: [
         {
           repo: values.repo,
@@ -116,7 +135,13 @@ export async function parseReviewCommand(args: string[]): Promise<ReviewCommand>
     ...result.data,
     targets: result.data.targets.map((target) => ({ ...target, repo: resolve(target.repo) })),
   };
-  return { ...common, kind: "create", manifest };
+  return {
+    ...common,
+    kind: "create",
+    manifest,
+    keepTitle: values.title !== undefined || values.manifest !== undefined,
+    inferPullRequest: !values["no-pr"],
+  };
 }
 
 export async function request(
@@ -170,7 +195,12 @@ export async function runReviewCommand(
     print(JSON.stringify(repositories, null, 2));
     return;
   }
-  const result = await request(connection, "/api/reviews", fetcher, command.manifest);
+  const manifest = await reviewMetadata(
+    command.manifest!,
+    !!command.keepTitle,
+    !!command.inferPullRequest,
+  );
+  const result = await request(connection, "/api/reviews", fetcher, manifest);
   const parsed = z.object({ id: z.string().regex(/^[A-Za-z0-9_-]+$/) }).safeParse(result);
   if (!parsed.success) throw new Error("Med returned an invalid review ID.");
   print(`[Review changes here](${connection.origin}/review/${parsed.data.id})`);

@@ -1,3 +1,4 @@
+import { useDocumentTitle } from "../data/document-title";
 import { mediaType, MAX_IMAGE_BYTES, MAX_VIDEO_BYTES } from "../../shared/media";
 import { ToolButton } from "./ToolButton";
 import {
@@ -52,6 +53,11 @@ export function LocalFiles({ children }: { children: ReactNode }) {
   const [drafts] = useState(createEditorDrafts);
   useSyncExternalStore(drafts.subscribe, drafts.getSnapshot);
   const active = tabs.find((tab) => tab.id === selected);
+  useDocumentTitle(
+    active ? `${active.file.path.split("/").at(-1)} — med` : "Files — med",
+    1,
+    visible,
+  );
   const sequence = useRef(0);
   const currentTabs = useRef(tabs);
   currentTabs.current = tabs;

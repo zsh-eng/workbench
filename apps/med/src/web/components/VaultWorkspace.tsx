@@ -1,3 +1,4 @@
+import { useDocumentTitle } from "../data/document-title";
 import { ActionTooltip, ToolButton } from "./ToolButton";
 import {
   useCallback,
@@ -76,6 +77,11 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
   const pinRequests = useRef(new Map<string, boolean>());
   const surface = useRef<HTMLDivElement>(null);
   const source = sources.find((s) => s.id === locationState.id);
+  useDocumentTitle(
+    `${locationState.file.split("/").at(-1) || source?.name || "Sources"} — med`,
+    2,
+    locationState.visible,
+  );
   const entries = useMemo(
     () => (manifest.id === locationState.id ? manifest.entries : []),
     [manifest, locationState.id],

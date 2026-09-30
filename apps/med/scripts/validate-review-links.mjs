@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, writeFile, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright";
@@ -119,17 +119,86 @@ try {
     manifestPath,
     JSON.stringify({
       title: "Agent handoff validation",
+      pullRequestUrl: "https://github.com/example/repo/pull/42",
       targets: repositories.map((repo) => ({ repo, comparison: { kind: "working" } })),
     }),
   );
+  const bin = join(directory, "bin");
+  await mkdir(bin);
+  await writeFile(
+    join(bin, "gh"),
+    `#!/usr/bin/env node
+if (process.argv[2] !== "pr" || process.argv[3] !== "view" || !process.argv[4]) process.exit(1);
+process.stdout.write(process.env.MED_TEST_PR);
+`,
+  );
+  await chmod(join(bin, "gh"), 0o755);
+  let prResult = {
+    title: "Faster lookups",
+    url: "https://github.com/example/repo/pull/42",
+    headRefOid: git(repositories[0], "rev-parse", "HEAD"),
+  };
   const runCli = (...args) =>
     execFileSync(
       command,
       [...cliArgs, "review", ...args, "--state-dir", stateDir, "--port", String(connection.port)],
-      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+      {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH}`,
+          MED_TEST_PR: JSON.stringify(prResult),
+        },
+      },
     ).trim();
   const catalogue = JSON.parse(runCli("repos"));
   assert.equal(catalogue.repositories.length, 2);
+  const fromLink = async (link) =>
+    api(new URL(/\((http[^)]+)\)/.exec(link)[1]).pathname.replace("/review/", "/api/reviews/"));
+  git(repositories[0], "remote", "set-url", "origin", "git@github.com:example/repo.git");
+  const inferred = await fromLink(
+    runCli("create", "--repo", repositories[0], "--base", "HEAD", "--head", "HEAD"),
+  );
+  assert.equal(inferred.title, "Faster lookups");
+  assert.equal(inferred.pullRequestUrl, prResult.url);
+  const exact = await fromLink(
+    runCli("create", "--repo", repositories[0], "--base", "HEAD", "--head", prResult.headRefOid),
+  );
+  assert.equal(exact.title, "Faster lookups");
+  assert.equal(exact.targets[0].comparison.head, prResult.headRefOid);
+  const custom = await fromLink(
+    runCli(
+      "create",
+      "--repo",
+      repositories[0],
+      "--working",
+      "--title",
+      "My review",
+      "--pr",
+      prResult.url,
+    ),
+  );
+  assert.equal(custom.title, "My review");
+  assert.equal(custom.pullRequestUrl, prResult.url);
+  const linked = await fromLink(
+    runCli("create", "--repo", repositories[0], "--working", "--pr", prResult.url),
+  );
+  assert.equal(linked.title, "Faster lookups");
+  const skipped = await fromLink(
+    runCli("create", "--repo", repositories[0], "--base", "HEAD", "--head", "HEAD", "--no-pr"),
+  );
+  assert.equal(skipped.pullRequestUrl, undefined);
+  assert.throws(() =>
+    runCli("create", "--repo", repositories[0], "--working", "--pr", "javascript:alert(1)"),
+  );
+  prResult = { ...prResult, headRefOid: "0".repeat(40) };
+  const mismatch = await fromLink(
+    runCli("create", "--repo", repositories[0], "--base", "HEAD", "--head", "HEAD"),
+  );
+  assert.equal(mismatch.pullRequestUrl, undefined);
+  assert.notEqual(mismatch.title, "Faster lookups");
+  git(repositories[0], "remote", "set-url", "origin", bareRemote);
   const markdown = runCli("create", "--manifest", manifestPath);
   // Clearing one review must leave another review's comments intact.
   const other = await api("/api/reviews", {
@@ -151,6 +220,7 @@ try {
   const id = new URL(reviewUrl).pathname.split("/").at(-1);
   let saved = await api(`/api/reviews/${id}`);
   assert.equal(saved.targets.length, 2);
+  assert.equal(saved.pullRequestUrl, "https://github.com/example/repo/pull/42");
   assert.ok(saved.targets.every((target) => target.captured));
 
   browser = await chromium.launch({ headless: true });
@@ -185,6 +255,13 @@ try {
   assert.ok(cookies.some((cookie) => cookie.httpOnly && cookie.sameSite === "Strict"));
   const page = await context.newPage();
   await page.goto(reviewUrl);
+  await page.waitForFunction(() => document.title === "Agent handoff validation");
+  assert.equal(
+    await page
+      .getByRole("link", { name: "Open pull request: Agent handoff validation", exact: true })
+      .getAttribute("href"),
+    "https://github.com/example/repo/pull/42",
+  );
   await page.getByRole("region", { name: "Saved review" }).waitFor();
   await page.locator('[data-review-status="ready"]').waitFor();
   assert.equal(new URL(page.url()).hash, "");
@@ -219,6 +296,13 @@ try {
     },
   });
   await page.reload();
+  await page.waitForFunction(() => document.title === "Agent handoff validation");
+  assert.equal(
+    await page
+      .getByRole("link", { name: "Open pull request: Agent handoff validation", exact: true })
+      .getAttribute("href"),
+    "https://github.com/example/repo/pull/42",
+  );
   await page.waitForFunction(() =>
     document.querySelector('button[aria-label="Copy comments"]')?.textContent?.trim().endsWith("2"),
   );
@@ -390,6 +474,13 @@ try {
   assert.ok(source.new.includes("frontendAfter"));
   assert.ok(!source.new.includes("changedAfterCapture"));
   await page.reload();
+  await page.waitForFunction(() => document.title === "Agent handoff validation");
+  assert.equal(
+    await page
+      .getByRole("link", { name: "Open pull request: Agent handoff validation", exact: true })
+      .getAttribute("href"),
+    "https://github.com/example/repo/pull/42",
+  );
   await page.waitForFunction(() =>
     document.querySelector('button[aria-label="Copy comments"]')?.textContent?.trim().endsWith("3"),
   );
@@ -419,7 +510,7 @@ try {
   console.log(
     JSON.stringify({
       checks:
-        "built CLI discovery and multi-repo snapshot manifest; token-free link and new-tab cookie auth; UI comments on saved and browsed commits; stable copy controls through delayed and rejected clipboard writes; UI push to temporary bare remote and merge-base dropdown; copied cross-repo and cross-tab source context; same-port restart and frozen snapshots; persistent comments; cancel and confirm clear",
+        "PR metadata inference and exact-head guard; custom browser title and clickable PR; built CLI discovery and multi-repo snapshot manifest; token-free link and new-tab cookie auth; UI comments on saved and browsed commits; stable copy controls through delayed and rejected clipboard writes; UI push to temporary bare remote and merge-base dropdown; copied cross-repo and cross-tab source context; same-port restart and frozen snapshots; persistent comments; cancel and confirm clear",
       repositories: 2,
       commentsCopied: 3,
       pageErrors,

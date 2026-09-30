@@ -378,3 +378,12 @@ live bytes. Git SVG/media patches bypass the client text parser and highlighter.
 frozen captures, stale reads, lazy mounting, dropped media, video playback/seeking,
 authentication, symlink refusal, and range transfers from a sparse 512 MiB file.
 See [media validation](docs/validation/MEDIA.md) for captures and measurements.
+
+### Review display metadata
+
+Saved reviews retain an optional validated HTTPS pull-request URL alongside their
+existing title. Older records remain valid. The browser title follows the visible
+review, file, or vault surface; covering a mounted review does not let background
+updates replace the visible title. CLI-only PR lookup uses optional `gh` with a
+bounded timeout. Inferred metadata requires one GitHub origin and an exact match
+between the reviewed commit and PR head. The host and UI make no GitHub requests.

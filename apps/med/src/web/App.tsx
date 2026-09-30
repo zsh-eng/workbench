@@ -1,3 +1,4 @@
+import { useDocumentTitle } from "./data/document-title";
 import { DiffImages } from "./components/MediaView";
 import { mediaType } from "../shared/media";
 import { ActionTooltip, ToolButton } from "./components/ToolButton";
@@ -234,6 +235,14 @@ export function App({
     [browseSource, prefetch, workerPool],
   );
   const activeFile = fileState.tabs.find((tab) => tab.id === fileState.active);
+  useDocumentTitle(
+    state.savedReview?.title ??
+      (activeFile
+        ? `${activeFile.path.split("/").at(-1)} — med`
+        : state.session
+          ? `${state.session.repository.name} · ${state.activeBranch ?? "Working changes"} — med`
+          : "med"),
+  );
   const definitionScope = JSON.stringify([
     fileState.file?.source,
     fileState.file?.path,
