@@ -1,0 +1,274 @@
+/* Reading typography: directly adapted from Med's MarkdownPreview.css:44–155.
+   Keep the 14px body, 38em measure, 1.625 leading, 400-weight headings, and
+   paragraph/heading rhythm. Do not import another app's runtime code. */
+@font-face {
+  font-family: Geist;
+  src: url("/fonts/Geist-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Mono";
+  src: url("/fonts/GeistMono-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+.reader-main {
+  --reading-font: Geist, sans-serif;
+  --reading-heading:
+    -apple-system, BlinkMacSystemFont, "SF Pro Display", Geist, sans-serif;
+  --reading-code: "Geist Mono", monospace;
+  font-family: var(--reading-font);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.625;
+}
+.article-heading {
+  max-width: 38em;
+  margin: 20px auto 35px;
+}
+.article-heading h1,
+.article-body :is(h1, h2, h3, h4, h5, h6) {
+  font-family: var(--reading-heading);
+  line-height: 1.22;
+  letter-spacing: -0.035em;
+  font-weight: 400;
+  text-wrap: balance;
+  scroll-margin-top: 40px;
+}
+.article-heading h1,
+.article-body h1 {
+  font-size: clamp(1.875em, 4.375cqw, 2.75em);
+  margin: 0 0 28px;
+}
+.article-heading > .eyebrow {
+  margin-bottom: 18px;
+}
+.standfirst {
+  font-size: 1.125em;
+  line-height: 1.625;
+  font-weight: 400;
+  color: #68685e;
+}
+.reader-byline {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  font-size: 12px;
+  line-height: 1.625;
+  margin-top: 24px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--rule);
+}
+.reader-byline strong {
+  font-weight: 600;
+}
+.reader-byline > span:last-child:not(:first-child) {
+  font-size: 11px;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.hero {
+  margin: 0 0 40px;
+}
+.hero img {
+  display: block;
+  width: 100%;
+  max-height: 500px;
+  object-fit: contain;
+}
+.article-body {
+  width: 100%;
+  max-width: 38em;
+  margin: auto;
+  overflow-wrap: anywhere;
+}
+.article-body p {
+  margin: 0 0 1.5em;
+}
+.article-body h2 {
+  font-size: 1.625em;
+  margin: 49px 0 21px;
+}
+.article-body h3 {
+  font-size: 1.375em;
+  margin: 35px 0 18px;
+}
+.article-body :is(h4, h5, h6) {
+  font-size: 1em;
+  font-weight: 500;
+  margin: 28px 0 14px;
+}
+.article-body strong {
+  font-weight: 600;
+}
+.article-body a {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+}
+.article-body a:hover {
+  text-decoration-thickness: 2px;
+}
+.article-body :is(ul, ol) {
+  padding-left: 1.5em;
+  margin: 0 0 1.4em;
+}
+.article-body li {
+  margin: 0.35em 0;
+}
+.article-body li p {
+  margin: 0.45em 0;
+}
+.article-body blockquote {
+  margin: 1.7em 0;
+  padding: 4px 0 4px 20px;
+  border-left: 3px solid var(--accent);
+  color: var(--muted);
+}
+.article-body blockquote p:last-child {
+  margin-bottom: 0;
+}
+.article-body hr {
+  border: 0;
+  border-top: 1px solid var(--rule);
+  margin: 2.7em 0;
+}
+.article-body code {
+  font-family: var(--reading-code);
+  font-size: 0.86em;
+  background: #f0ede5;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 0.15em 0.35em;
+}
+.article-body pre {
+  margin: 1.5em 0;
+  padding: 20px;
+  background: #f0ede5;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  overflow: auto;
+  max-width: 100%;
+  font: 13px/1.7 var(--reading-code);
+}
+.article-body pre code {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font-size: inherit;
+}
+.article-body table {
+  display: block;
+  overflow: auto;
+  border-collapse: collapse;
+  font-size: 1em;
+}
+.article-body :is(th, td) {
+  padding: 10px;
+  border: 1px solid var(--rule);
+}
+.article-body figure {
+  position: relative;
+  left: 50%;
+  translate: -50% 0;
+  width: calc(100% + 100px);
+  max-width: 100cqw;
+  margin: 36px 0;
+}
+.article-body :is(img, video) {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 25px auto;
+  max-height: 75vh;
+  object-fit: contain;
+}
+.article-body figure img {
+  width: 100%;
+  margin: 0;
+}
+.article-body figcaption {
+  font-size: 12px;
+  line-height: 1.625;
+  text-align: center;
+  color: var(--muted);
+  margin: 12px auto;
+  max-width: 38em;
+}
+
+/* Live Works in Progress article cards, measured 2026-10-03 at 1440, 1100,
+   768 and 390px. Their Editor-Bold is a bold face registered as weight 400;
+   our existing EB Garamond uses its real 700 weight for that role.
+   https://worksinprogress.co/ */
+.card-top {
+  padding: 20px;
+  min-height: 146px;
+  display: flex;
+  flex-direction: column;
+}
+.card-source {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font: 10px/15px var(--mono);
+  color: var(--muted);
+  margin-bottom: 12px;
+  overflow-wrap: anywhere;
+}
+.card-source > span {
+  font-size: 10px;
+  white-space: nowrap;
+}
+.card-top h2 {
+  font: 700 20px/26px var(--serif);
+  letter-spacing: normal;
+  margin-bottom: 8px;
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+.byline {
+  font: 400 12px/15px var(--mono);
+  margin-top: auto;
+}
+.byline strong {
+  font-weight: 700;
+}
+.card-description {
+  border-top: 1px solid #737369;
+  padding: 18px 20px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 122px;
+}
+.card-description > p {
+  font: 400 12px/18px var(--serif);
+}
+.read-more {
+  font: 700 12px/15px var(--mono);
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  align-items: center;
+  margin-top: auto;
+  padding-top: 20px;
+}
+.card-tags button,
+.card-tags > span {
+  font: 400 11px/15px var(--mono);
+  border-right: 1px solid #737369;
+  padding: 10px 14px;
+}
+@media (max-width: 850px) {
+  .reader-byline {
+    flex-direction: column;
+    gap: 8px;
+  }
+}
+@media (max-width: 620px) {
+  .article-body figure {
+    width: calc(100% + 12px);
+    max-width: calc(100cqw + 12px);
+  }
+}

@@ -5,6 +5,7 @@ import { Tooltip } from "@base-ui/react/tooltip";
 import { App } from "./App";
 import { initialize } from "./store";
 import "./styles.css";
+import "./typography.css";
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <BrowserRouter>

@@ -5,15 +5,7 @@ import {
   useNavigate,
   useSearchParams,
 } from "react-router-dom";
-import {
-  ArrowDown,
-  ArrowRight,
-  Check,
-  MountainSnow,
-  Plus,
-  Search,
-  X,
-} from "lucide-react";
+import { ArrowDown, ArrowRight, Check, Plus, Search, X } from "lucide-react";
 import { articlePath, sourceName, webURL, type Article } from "./model";
 import { changeLibrary, useLibrary } from "./store";
 import { ArticleActions, Modal, SortSelect } from "./ui";
@@ -150,9 +142,14 @@ export function App() {
       </a>
       <header className="site-header">
         <Link to="/" className="brand" aria-label="Arctic home">
-          <MountainSnow size={26} strokeWidth={1.3} />
+          <img
+            className="brand-icon"
+            src="/arctic.png"
+            width="36"
+            height="36"
+            alt=""
+          />
           <span>arctic</span>
-          <span className="brand-dot">•</span>
         </Link>
         <div className="header-middle">
           {!reader && (

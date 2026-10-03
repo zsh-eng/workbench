@@ -59,9 +59,26 @@ adding an annotation saves the associated article. Archiving keeps favourites.
 ## UI and validation
 
 React 19, Vite 8, and Base UI follow Med's library choices. React Router owns
-navigation. Lucide supplies control icons. The local EB Garamond and DM Sans
-fonts are copied from Arctic's existing assets; see
-[font notices](../THIRD_PARTY_NOTICES.txt).
+navigation. Lucide supplies control icons. The header and favicon use the native
+Arctic app icon from `Resources/Assets.xcassets/AppIcon.appiconset`.
+
+Typography is defined in [typography.css](src/typography.css). The reading view
+directly follows [Med's Markdown typography](../../med/src/web/components/MarkdownPreview.css):
+14px Geist text, 1.625 line height, a 38em measure, 1.5em paragraph spacing,
+400-weight headings with 1.22 line height, and 600-weight strong text. Its heading
+scale and margins also follow Med. Images can exceed the text measure.
+
+Library card sizes were measured from the live
+[Works in Progress](https://worksinprogress.co/) article cards on 3 October 2026
+at 1440, 1100, 768, and 390px viewport widths: titles 20px/26px, summaries
+12px/18px, bylines 12px/15px, and tags 11px/15px. We keep Arctic's EB Garamond
+and monospace fonts. The reference uses a dedicated Editor-Bold face registered
+at CSS weight 400; Arctic uses EB Garamond's actual 700 weight for this role.
+Card heights and padding were reduced with the type sizes.
+
+EB Garamond and DM Sans come from Arctic's existing assets; see
+[font notices](../THIRD_PARTY_NOTICES.txt). Geist and Geist Mono are copied from
+Med's existing assets with their [SIL license](public/fonts/GEIST-OFL.txt).
 
 Desktop uses two article columns plus the tag rail. Narrow screens move tags
 above the library and notes below the article. Hover and keyboard focus expose
