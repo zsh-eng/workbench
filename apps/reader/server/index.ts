@@ -18,7 +18,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 
 // Define your environment bindings type
-type Bindings = Env;
+type Bindings = Env & { SYNC_CUTOVER_MODE?: "freeze" | "retired" };
 
 type AppEnv = {
   Bindings: Bindings;
@@ -30,6 +30,28 @@ type AppEnv = {
 };
 
 const app = new Hono<AppEnv>();
+// Cutover only: keep reads and auth available; Arctic routes are independent.
+app.use("/api/*", async (c, next) => {
+  const mode = c.env.SYNC_CUTOVER_MODE;
+  const recordWrite =
+    c.req.method === "POST" && c.req.path === "/api/sync/v2/push";
+  const fileWrite =
+    ["PUT", "DELETE"].includes(c.req.method) &&
+    c.req.path.startsWith("/api/files/");
+  if (mode && (recordWrite || fileWrite)) {
+    c.header("Cache-Control", "no-store");
+    if (mode === "freeze") c.header("Retry-After", "60");
+    return c.json(
+      {
+        error: mode === "freeze" ? "SYNC_MAINTENANCE" : "SYNC_UPGRADE_REQUIRED",
+        message:
+          "Keep this device's local data. Reload the latest app to continue syncing.",
+      },
+      mode === "freeze" ? 503 : 410,
+    );
+  }
+  await next();
+});
 
 app.use(
   "*",
