@@ -189,6 +189,10 @@ struct LibraryView: View {
       discoveryMotion.reduceMotion = reduced
     }
     .overlay(alignment: .top) { navigationControls.accessibilityHidden(showingAnnotations) }
+    .overlay {
+      DiscoveryFlightSurface(flight: discoveryMotion.flight)
+        .allowsHitTesting(false).accessibilityHidden(true)
+    }
     .overlay(alignment: .bottomLeading) {
       LibraryPreloadDriver(
         visibility: viewportVisibility, store: store, browsers: browsers, projection: projection,
@@ -772,7 +776,7 @@ struct LibraryView: View {
               .padding(.horizontal, 12)
               .padding(.top, topInset + 8)
           }
-            .transition(reduceMotion || appReduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.94, anchor: .top)))
+            .transition(.opacity)
             .zIndex(1)
         }
       }
@@ -809,7 +813,7 @@ struct LibraryView: View {
   }
 
   private var discoveryShelf: some View {
-    LibraryDiscovery { url in
+    LibraryDiscovery(motion: discoveryMotion) { url in
       discoveryMotion.close()
       // A publisher shortcut is a website destination, never a cached Reader article.
       selected = browsers.open(url, store: store, preferWebsite: true)

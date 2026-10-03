@@ -406,12 +406,14 @@ position. The tabs and news follow the list's native top bounce through a read-o
 scroll observation. Only those small header views observe per-frame changes.
 The news row owns a floating glass panel with a gap above the tabs; neither the
 panel nor its horizontal scroller shares the article pager's background or gestures.
-Bubbles fan out with short staggered springs, while the panel scales/fades. Their
-fixed hit targets and the article list do not take part in those springs. Removing
-the row cancels pending animation starts. A 240 ms transition handles the layout;
-Reduce Motion skips the bubble springs, fades the news and changes
-the brand position immediately. There are no flying icon copies, scroll-inset
-changes, or display-link writes to scroll offsets. Publisher availability
+Bubbles travel continuously from the overlapping header stack to the expanded
+row, then return along the same path. One noninteractive overlay carries the
+circles through a 360 ms spring; their native hit targets stay in the row.
+An interrupted transition continues from the circles' current presentation
+frames. A 240 ms transition handles layout and the separate panel fades in.
+Reduce Motion skips circle travel, fades the news and changes the brand position
+immediately. Leaving the library cancels the flight. There are no scroll-inset
+changes or display-link writes to scroll offsets. Publisher availability
 requires a connection. A publisher shortcut starts a fresh website visit, even
 when that homepage has downloaded Reader content. In-page URL changes get their
 own history and article identity, so saving a linked article does not replace

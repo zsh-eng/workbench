@@ -308,3 +308,165 @@ Implementation starts in `Sync/`, continues through
 `Sources/ArticleSyncRepository.swift` and the three live stores, then app account
 UI and lifecycle wiring. Shared principles remain in [Local-first](../../LOCAL_FIRST.md)
 and [UI performance](../../UI_PERFORMANCE.md).
+
+## Current schema audit — 3 October 2026
+
+This section describes the checked-in code and a read-only sample of the local
+Mac library. It does not verify production deployment or activate sync. Use this
+section for backend consolidation; the earlier sections remain the target design.
+
+### Running app: current local records
+
+Paths below are relative to `Application Support/ArticleReader` unless stated.
+
+| Record | Storage | Fields and ownership |
+| --- | --- | --- |
+| Article | `links.json`, one array of `SavedArticle` | UUID, URL, title, subtitle, tagging excerpt, image/favicon URLs; saved/read/archive/favourite flags; saved, favourite, visit, preview-fetch and download dates; tags, tagging state; share-transfer and import-batch IDs |
+| Tagging state | Inside each article | Generation, pending/completed input identities, automatic/manual/rejected tags and share-feedback receipt. No Jev key |
+| Highlight or note | `Annotations/<UUID>.json` | UUID, article URL, optional quote (`exact`, `prefix`, `suffix`, UTF-16 `start` hint), note, highlight flag/colour, created/updated/deleted dates. `deletedAt` is a tombstone |
+| Reading session | `ReadingSessions/<UUID>.json` | UUID, article URL, start/update dates, accumulated seconds. Persist sessions; derive stats rather than syncing totals |
+| Reader position | UserDefaults `reader-position.<SHA256(raw URL)>` | Block index, text anchor, fraction within block, document progress. Currently no timestamp/device version for cross-device ordering |
+| Downloaded Reader | `Downloads/<article UUID>.html` | Separate UTF-8 HTML; can include base64 image data. File presence and `downloadedAt` are device-local |
+| iOS preview images | `Images/` | URL-hashed compact raster, 24px preview, and regenerable display derivatives. Bounded cache, not authoritative user data |
+| Mac preview images | `Caches/ArcticMacThumbnails-640/` | URL-hashed 640px JPEG/PNG derivatives; independent from the iOS image cache |
+
+Sources: [articles](Sources/ArticleStore.swift), [annotations](Sources/AnnotationStore.swift),
+[sessions](Sources/ReadingSessions.swift), [positions](Sources/ReaderPosition.swift),
+[iOS images](Sources/LibrarySearch.swift), [Mac images](Mac/MacLibrary.swift).
+
+### Implemented but dormant article adapter
+
+`ArticleSyncRepository` is not called by the live `ArticleStore`. Its schema-v1
+codec accepts exactly three record families, each keyed by SHA-256 of the
+canonical URL. Canonicalization lowercases scheme/host, removes default ports
+and fragment, supplies `/` for an empty path, and **retains query strings**.
+
+| Key | JSON value |
+| --- | --- |
+| `article/<hash>` | `url`, `title`, `subtitle`, optional `taggingText`, remote `imageURL`, remote `faviconURL` |
+| `library/<hash>` | `url`, `saved`, `archived`, optional `favourite`, `read`, optional `savedAt`, `lastVisitedAt`, `importBatchID` |
+| `tags/<hash>` | `url`, `names`, `generation`, `automatic`, `manual`, `rejected`, optional `completedIdentity` |
+
+The adapter keeps download dates, failed-preview state, file URLs and share
+receipts in private local values. Pending network/tagging work and credentials
+are not sync records. Important gaps: **`favouritedAt` is omitted** from the
+current library record, and annotation, session, position and content/image
+manifest families are not accepted by the codec. They must be added deliberately;
+the earlier suggested families in the server README are not implemented schemas.
+Splitting three records prevents preview refresh from overwriting tags, but all
+library flags still share one last-write-wins record. Independent concurrent
+archive/favourite/read edits can therefore overwrite each other.
+
+Sources: [codec and repository](Sources/ArticleSyncRepository.swift),
+[journal](Sync/Sources/ArcticSync/SyncStore.swift).
+
+### Server record envelope and files
+
+The checked-in Reader Worker mounts `/api/arctic/sync/v2` with the generic
+`packages/local-sync` routes, Better Auth identity and a separate `ARCTIC_DATABASE`.
+The record table is:
+
+```sql
+sync_records (
+  server_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  key TEXT NOT NULL,
+  value TEXT NOT NULL, -- JSON encoded as a string
+  schema_version INTEGER NOT NULL,
+  hlc_wall_time_ms INTEGER NOT NULL,
+  hlc_counter INTEGER NOT NULL,
+  device_id TEXT NOT NULL,
+  is_deleted INTEGER NOT NULL
+)
+-- UNIQUE (user_id, key); INDEX (user_id, server_seq)
+```
+
+One winning row is retained per user/key; a winning update gets a new server
+sequence. Conflict order is `(HLC wall time, HLC counter, device ID)`. Pull uses
+a cursor and fixed head, up to 500 records per page. Push is bounded by 500
+changes and a 1 MiB request body; each JSON value is at most 64 KiB. A tombstone
+uses the same envelope. This is record-level LWW, not a note-text CRDT.
+
+Private files use `/api/arctic/files/sha256:<hex>` and R2 keys
+`arctic/v1/users/<encoded user ID>/sha256:<hex>`. Uploads verify the hash and have
+an 8 MiB limit. The current file API serves inert binary attachments and does
+not implement an image manifest or a compression format. Store bytes before
+publishing their reference; do not block metadata sync on files.
+
+For a unified backend, isolation must include **app namespace + authenticated
+user + record key**, with a matching namespace boundary for cursors and files.
+The current separate D1 database supplies Arctic's app boundary; removing that
+boundary without replacing it would mix incompatible record streams. The SQL
+above has no `app_id` column today. Keep transport envelopes distinct from each
+app's record-value schemas.
+
+Sources: [D1 migration](../../packages/arctic-sync-server/migrations/0001_records.sql),
+[Arctic routes](../../packages/arctic-sync-server/routes.ts),
+[generic limits](../../packages/local-sync/src/protocol.ts).
+
+### Image dimensions and bytes
+
+**Dimensions are maximum long edges, preserving aspect ratio.** iOS masters are
+at most 1,200px: opaque images use HEIC quality 0.7 if available and smaller than
+JPEG quality 0.8; transparency uses PNG. Small SVG favicons up to 256,000 bytes
+are an exception. New raster downloads do not retain publisher originals.
+Legacy cache files remain readable, so this is not a guarantee that every old
+cache entry has been re-encoded.
+
+| iOS representation | Encoding / purpose |
+| --- | --- |
+| 1,200px master | HEIC/JPEG/PNG, regenerable source for local display sizes |
+| 960px | JPEG/PNG library card derivative |
+| 256px | JPEG/PNG search/history derivative |
+| 96px | JPEG/PNG icon derivative |
+| 24px | JPEG quality 0.4 or PNG, blurred immediate preview |
+| 192px display | Clipboard display decode; not a separately persisted derivative |
+
+iOS compressed masters and derivatives share a 128,000,000-byte trim target.
+Decoded images have a 32 MiB / 96-entry NSCache limit; tiny decoded previews have
+a separate 1 MiB / 256-entry limit. Cache limits are eviction targets, not
+reserved RAM or guarantees. At 960 × 720 × 4 bytes, a card costs about 2.64 MiB
+decoded; 32 MiB fits roughly 12 such cards before overhead. Byte size on disk is
+not decoded memory size. Mac has a separate 48 MiB decoded-thumbnail cache.
+
+**Measured local Mac sample, 3 October 2026:** 247 cached 640px OG derivatives,
+187 JPEG and 60 PNG; 17,599,151 bytes total (16.8 MiB), median 49,889 bytes
+(48.7 KiB), P90 150,057 bytes (146.5 KiB), maximum 393,202 bytes (384 KiB).
+This is the existing Mac cache, not an iPhone measurement or a complete-library
+image inventory. Only files and aggregate sizes were read; no downloads occurred.
+
+The existing controlled iOS-codec photograph benchmark is 57,818 bytes for the
+1,200 × 900 HEIC master and 1,227 bytes for its 24 × 18 preview. These are one
+photograph's results, not a median. [Codec](Sources/PreviewImageCodec.swift),
+[benchmark](PERFORMANCE.md).
+
+For scale, the same Mac library has 461 article records in a 741,063-byte index;
+8 annotation files total 3,168 bytes; 128 session files total 27,292 bytes;
+31 downloaded HTML files total 955,057 bytes (median 29,209; max 112,510).
+Those small note/HTML samples are not capacity limits; embedded images can make
+HTML much larger. Dates use the current Swift Codable representation, not an
+assumed ISO-8601 wire format; version any conversion explicitly.
+
+### Fast-sync recommendation for consolidation
+
+1. Sync small user records first: metadata, membership, independent favourite/read
+   state, tag edits, notes/highlights, session records and versioned positions.
+   Do not replicate derived statistics or device-local download state.
+2. Include a tiny preview reference, dimensions and media type in a separate
+   image manifest. Optionally send its roughly kilobyte preview early; avoid
+   embedding full images in a 64 KiB record or resending them with tag edits.
+3. Fetch a shared medium card rendition (for example 640px) for visible and nearby
+   articles. Retain a higher-resolution compact master for high-density iOS cards
+   when needed. Generate local 96/256px variants; do not sync every derivative.
+4. Transfer Reader HTML and other media by content hash on demand or through a
+   bounded offline-download queue. Separate embedded assets in a versioned content
+   manifest if deduplication becomes worthwhile; current HTML is not that format.
+5. Use transactional SQLite records + outbox + cursor locally before live
+   integration. The dormant JSON journal encodes its whole snapshot per change:
+   its historical 10,000-article Release edit cost was 320 ms with a full outbox.
+   Faster transport cannot fix that local write cost. [Evidence](Sync/PERFORMANCE.md).
+
+A first sync should make the library usable from metadata immediately, fill tiny
+previews, then restore visible media. A later sync should transfer changed records
+only. Credentials and Jev keys stay in device Keychain. This audit makes no storage
+migration or backend deployment changes.

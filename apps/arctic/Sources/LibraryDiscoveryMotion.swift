@@ -4,6 +4,7 @@ import UIKit
 /// Two stable states. UIKit owns every scroll offset, inset and momentum curve.
 /// Only a deliberate drag or a header tap changes the news row above the tabs.
 @MainActor @Observable final class DiscoveryMotion {
+  @ObservationIgnored let flight = DiscoveryBubbleFlight()
   private(set) var isExpanded = false
   private(set) var pullDistance: CGFloat = 0
   @ObservationIgnored var enabled = false
@@ -17,6 +18,7 @@ import UIKit
   func setEnabled(_ value: Bool) {
     enabled = value
     if !value {
+      flight.cancel()
       isExpanded = false
       pullDistance = 0
     }
@@ -36,9 +38,11 @@ import UIKit
 
   private func setExpanded(_ value: Bool) {
     guard isExpanded != value else { return }
+    flight.prepare(opening: value, reduced: reduceMotion)
     withAnimation(reduceMotion ? .easeOut(duration: 0.12) : .smooth(duration: 0.24)) {
       isExpanded = value
     }
+    DispatchQueue.main.async { self.flight.startIfReady() }
   }
 
   func handle(_ pan: UIPanGestureRecognizer, in scroll: UIScrollView) {
@@ -159,6 +163,8 @@ struct DiscoveryHeader: View {
           }
         }
         .frame(width: 46, height: 26, alignment: .leading)
+        .opacity(motion.flight.active ? 0 : 1)
+        .background(DiscoveryCompactAnchor(flight: motion.flight))
         .frame(width: available && !motion.isExpanded ? 54 : 0, alignment: .leading)
         .clipped().opacity(available && !motion.isExpanded ? 1 : 0)
         ArcticMark().frame(width: 22, height: 22)
@@ -177,17 +183,16 @@ struct DiscoveryHeader: View {
 }
 
 struct NativeDiscoveryShelf: UIViewRepresentable {
-  @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
-  @Environment(\.articleReduceMotion) private var appReduceMotion
+  let motion: DiscoveryMotion
   let open: (URL) -> Void
   let weekly: () -> Void
   func makeUIView(context: Context) -> DiscoveryShelfView {
     let view = DiscoveryShelfView()
-    view.reduceMotion = systemReduceMotion || appReduceMotion
+    view.flight = motion.flight
+    motion.flight.shelf = view
     return view
   }
   func updateUIView(_ view: DiscoveryShelfView, context: Context) {
-    view.reduceMotion = systemReduceMotion || appReduceMotion
     view.open = open
     view.weekly = weekly
     view.updatePalette()
@@ -201,8 +206,7 @@ final class DiscoveryShelfView: UIView {
   var buttons: [UIButton] = []
   var open: (URL) -> Void = { _ in }
   var weekly: () -> Void = {}
-  var reduceMotion = false
-  private var entrance: [UIViewPropertyAnimator] = []
+  weak var flight: DiscoveryBubbleFlight?
 
   init() {
     super.init(frame: .zero)
@@ -253,35 +257,6 @@ final class DiscoveryShelfView: UIView {
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-  override func didMoveToWindow() {
-    super.didMoveToWindow()
-    for animator in entrance { animator.stopAnimation(true) }
-    entrance.removeAll()
-    for icon in icons {
-      icon.transform = .identity
-      icon.alpha = 1
-    }
-    for label in labels { label.alpha = 1 }
-    guard window != nil, !reduceMotion else { return }
-    // Animate only the six bubble surfaces. The list, tabs and hit targets never
-    // participate, and removal cancels all delayed starts during rapid toggles.
-    for index in icons.indices {
-      let icon = icons[index]
-      let label = labels[index]
-      icon.transform = CGAffineTransform(translationX: -CGFloat(min(index, 4)) * 3, y: -6)
-        .scaledBy(x: 0.72, y: 0.72)
-      icon.alpha = 0
-      label.alpha = 0
-      let animator = UIViewPropertyAnimator(duration: 0.32, dampingRatio: 0.78) {
-        icon.transform = .identity
-        icon.alpha = 1
-        label.alpha = 1
-      }
-      entrance.append(animator)
-      animator.startAnimation(afterDelay: Double(min(index, 4)) * 0.025)
-    }
-  }
-
   // The official FT avatar places the letters 24px above the canvas centre.
   // Normalize the artwork once so both the shelf and its compact header mark are centred.
   private static let centeredFT: UIImage? = {
@@ -308,10 +283,164 @@ final class DiscoveryShelfView: UIView {
     scroller.contentSize = CGSize(width: CGFloat(buttons.count) * 86 + 22, height: bounds.height)
     for index in buttons.indices {
       buttons[index].frame = CGRect(x: 16 + CGFloat(index) * 86, y: 0, width: 68, height: 88)
-      // Frame is undefined while a view is transformed by its entrance spring.
-      icons[index].bounds = CGRect(x: 0, y: 0, width: 58, height: 58)
-      icons[index].center = CGPoint(x: 34, y: 33)
+      icons[index].frame = CGRect(x: 5, y: 4, width: 58, height: 58)
       labels[index].frame = CGRect(x: 0, y: 70, width: 68, height: 18)
+      icons[index].alpha = flight?.active == true ? 0 : 1
     }
+    flight?.startIfReady()
+  }
+}
+
+/// One overlay carries the same circles between their two real layouts. It never
+/// changes a scroll offset. Interrupted transitions start at presentation frames.
+@MainActor @Observable final class DiscoveryBubbleFlight {
+  private(set) var active = false
+  @ObservationIgnored weak var compact: UIView?
+  @ObservationIgnored weak var shelf: DiscoveryShelfView?
+  @ObservationIgnored weak var surface: UIView?
+  @ObservationIgnored private var copies: [UIImageView] = []
+  @ObservationIgnored private var animator: UIViewPropertyAnimator?
+  @ObservationIgnored private var compactFrames: [CGRect] = []
+  @ObservationIgnored private var pending = false
+  @ObservationIgnored private var opening = false
+  @ObservationIgnored private var generation = 0
+
+  func attach(_ surface: UIView) {
+    self.surface = surface
+    copies = (0...ArcticPublisher.all.count).map { index in
+      let image = UIImageView()
+      image.image =
+        index == 0
+        ? UIImage(
+          systemName: "star.fill",
+          withConfiguration: UIImage.SymbolConfiguration(pointSize: 22, weight: .medium))
+        : DiscoveryShelfView.publisherImage(ArcticPublisher.all[index - 1].asset)
+      image.contentMode = index == 0 ? .center : .scaleAspectFill
+      image.tintColor = UIColor(ArcticBrand.accent)
+      image.backgroundColor =
+        index == 0 ? UIColor(ArcticBrand.accent).withAlphaComponent(0.1) : .white
+      image.clipsToBounds = true
+      image.isHidden = true
+      surface.addSubview(image)
+      return image
+    }
+  }
+
+  func prepare(opening: Bool, reduced: Bool) {
+    guard !reduced, let surface, let compact, surface.window != nil else {
+      cancel()
+      return
+    }
+    if !active && opening {
+      compactFrames = (0..<3).map {
+        compact.convert(CGRect(x: CGFloat($0) * 11, y: 1, width: 24, height: 24), to: surface)
+      }
+    }
+    guard compactFrames.count == 3 else {
+      cancel()
+      return
+    }
+    let current =
+      active
+      ? copies.map { image -> (CGRect, CGFloat) in
+        let layer = image.layer.presentation() ?? image.layer
+        return (layer.frame, CGFloat(layer.opacity))
+      } : (opening ? compactPoses() : expandedPoses())
+    guard current.count == copies.count else {
+      cancel()
+      return
+    }
+    generation += 1
+    animator?.stopAnimation(true)
+    animator = nil
+    self.opening = opening
+    pending = true
+    active = true
+    for icon in shelf?.icons ?? [] { icon.alpha = 0 }
+    for (index, copy) in copies.enumerated() {
+      copy.frame = current[index].0
+      copy.layer.cornerRadius = current[index].0.width / 2
+      copy.alpha = current[index].1
+      copy.isHidden = false
+      // Match the overlapping stack's order, with NY Times in front.
+      copy.layer.zPosition = CGFloat(copies.count - index)
+    }
+  }
+
+  private func compactPoses() -> [(CGRect, CGFloat)] {
+    (0..<copies.count).map { index in
+      (compactFrames[max(0, min(index - 1, 2))], (1...3).contains(index) ? 1 : 0)
+    }
+  }
+
+  private func expandedPoses() -> [(CGRect, CGFloat)] {
+    guard let shelf, let surface, shelf.window != nil, shelf.bounds.width > 0 else { return [] }
+    let visible = shelf.scroller.convert(shelf.scroller.bounds, to: surface)
+    return shelf.icons.map { icon in
+      let rect = icon.convert(icon.bounds, to: surface)
+      // Keep clipped edge items in the row instead of flying outside its panel.
+      return (rect, visible.contains(rect) ? 1 : 0)
+    }
+  }
+
+  func startIfReady() {
+    guard pending, let surface, surface.window != nil else { return }
+    let ends = opening ? expandedPoses() : compactPoses()
+    guard ends.count == copies.count else { return }
+    pending = false
+    let token = generation
+    let animator = UIViewPropertyAnimator(duration: 0.36, dampingRatio: 0.9)
+    animator.addAnimations { [self] in
+      for (index, copy) in copies.enumerated() {
+        copy.frame = ends[index].0
+        copy.layer.cornerRadius = ends[index].0.width / 2
+        copy.alpha = ends[index].1
+      }
+    }
+    animator.addCompletion { [weak self] _ in
+      guard let self, self.generation == token else { return }
+      self.active = false
+      for copy in self.copies { copy.isHidden = true }
+      for icon in self.shelf?.icons ?? [] { icon.alpha = 1 }
+      self.animator = nil
+    }
+    self.animator = animator
+    animator.startAnimation()
+  }
+
+  func cancel() {
+    generation += 1
+    animator?.stopAnimation(true)
+    animator = nil
+    pending = false
+    active = false
+    for copy in copies { copy.isHidden = true }
+    for icon in shelf?.icons ?? [] { icon.alpha = 1 }
+  }
+}
+
+struct DiscoveryCompactAnchor: UIViewRepresentable {
+  let flight: DiscoveryBubbleFlight
+  func makeUIView(context: Context) -> UIView {
+    let view = UIView()
+    view.isUserInteractionEnabled = false
+    flight.compact = view
+    return view
+  }
+  func updateUIView(_ view: UIView, context: Context) { flight.compact = view }
+}
+
+struct DiscoveryFlightSurface: UIViewRepresentable {
+  let flight: DiscoveryBubbleFlight
+  func makeCoordinator() -> DiscoveryBubbleFlight { flight }
+  func makeUIView(context: Context) -> UIView {
+    let view = UIView()
+    view.isUserInteractionEnabled = false
+    flight.attach(view)
+    return view
+  }
+  func updateUIView(_ view: UIView, context: Context) {}
+  static func dismantleUIView(_ view: UIView, coordinator: DiscoveryBubbleFlight) {
+    coordinator.cancel()
   }
 }
