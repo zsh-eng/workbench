@@ -16,7 +16,7 @@ import {
 import type { Article, Annotation, AnnotationColor } from "./model";
 import { sourceName } from "./model";
 import { changeLibrary } from "./store";
-import { cleanArticle } from "./content";
+import { loadArticleBody } from "./downloads";
 import { LoadingStatus } from "./LoadingStatus";
 import { ArticleActions, Tool } from "./ui";
 import { HighlightToolbar, type PassageRect } from "./HighlightToolbar";
@@ -39,7 +39,7 @@ export function Reader({
   const composer = useRef<HTMLTextAreaElement>(null);
   const [html, setHTML] = useState("");
   const [loadError, setLoadError] = useState("");
-  const [loading, setLoading] = useState(!!article.bodyPath);
+  const [loading, setLoading] = useState(true);
   const [selection, setSelection] = useState<Passage | null>(null);
   const [toolbarSelection, setToolbarSelection] = useState<Passage | null>(
     null,
@@ -108,19 +108,15 @@ export function Reader({
     };
   }, [article.id, article.title]);
   useEffect(() => {
-    if (!article.bodyPath) return;
     const controller = new AbortController();
     setLoading(true);
     setLoadError("");
-    void fetch(article.bodyPath, { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok)
-          throw new Error("The saved article could not be loaded.");
-        const source = await response.text();
-        if (source.includes("/src/main.tsx") || source.includes('id="root"'))
-          throw new Error("The saved article is missing from this computer.");
-        if (!controller.signal.aborted)
-          setHTML(cleanArticle(source, article.url));
+    void loadArticleBody(
+      { id: article.id, url: article.url, bodyPath: article.bodyPath },
+      controller.signal,
+    )
+      .then((source) => {
+        if (!controller.signal.aborted) setHTML(source);
       })
       .catch((error) => {
         if (!controller.signal.aborted) setLoadError(error.message);
@@ -129,7 +125,7 @@ export function Reader({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [article.bodyPath, article.url, retry]);
+  }, [article.id, article.bodyPath, article.url, retry]);
   useEffect(() => {
     if (!content.current) return;
     content.current.innerHTML = html;
@@ -145,7 +141,7 @@ export function Reader({
           },
           className: "article-highlight",
         });
-  }, [html, annotations]);
+  }, [html, annotations, loading]);
   useEffect(() => {
     const update = () => {
       const selected = window.getSelection();
@@ -398,12 +394,8 @@ export function Reader({
             <button className="primary" onClick={() => setRetry((n) => n + 1)}>
               Try again
             </button>
-          </div>
-        ) : !article.bodyPath ? (
-          <div className="reader-status">
-            <p>Full text not downloaded.</p>
             <a
-              className="primary"
+              className="text-button"
               href={article.url}
               target="_blank"
               rel="noopener noreferrer"

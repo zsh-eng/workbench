@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { ArrowRight, ClipboardPaste, Link as LinkIcon, X } from "lucide-react";
 import { type Article, sourceName, webURL } from "./model";
+import { prepareDownload } from "./downloads";
 import { changeLibrary } from "./store";
 
 // Desktop counterpart of the native ClipboardBanner: Save and Open are separate.
@@ -45,9 +46,10 @@ export function AddArticle({
     setBusy(true);
     setError("");
     try {
+      let target: Article | undefined;
       await changeLibrary((library) => {
         const found = library.articles.some((article) => article.url === url);
-        return {
+        const next = {
           ...library,
           articles: found
             ? library.articles.map((article) =>
@@ -71,7 +73,10 @@ export function AddArticle({
                 ...library.articles,
               ],
         };
+        target = next.articles.find((article) => article.url === url);
+        return next;
       });
+      if (target) prepareDownload(target);
       onClose();
       if (save) notify("Article saved.");
       else onOpen(url);

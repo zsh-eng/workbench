@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import type { Article } from "./model";
+import { prepareDownload } from "./downloads";
 import { changeLibrary } from "./store";
 export function Tool({
   label,
@@ -103,6 +104,7 @@ export function ArticleActions({
           a.id === article.id ? { ...a, ...patch } : a,
         ),
       }));
+      if (patch.saved) prepareDownload({ ...article, ...patch });
       notify(message);
     } catch {
       notify("Could not save this change. Please try again.");

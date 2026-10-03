@@ -7,6 +7,7 @@ From the repository root:
 
 ```sh
 bun install
+bun run --cwd apps/arctic/Browser browser:install
 bun run seed:arctic-browser
 bun run dev:arctic-browser
 ```
@@ -33,9 +34,9 @@ users can change them. Cached articles come first in the default reading order.
 The Newest first option uses the original Chrome saved date.
 
 The initial snapshot has 460 links and 31 full article bodies on the development
-machine. Counts depend on the input files. Links without a body show their saved
-description and an Open original action. The browser does not fetch or extract
-uncached publisher pages. Some article images still require the network.
+machine. Counts depend on the input files. Opening or saving a link without a
+body starts a background download. Library startup does not fetch the whole
+reading list. Article images still require the network.
 
 ## Data and routing
 
@@ -43,7 +44,10 @@ uncached publisher pages. Some article images still require the network.
 profile once. Later runs do not overwrite edits. Article actions and annotations
 read the latest snapshot in a read/write transaction and update the UI only after
 commit. Cross-tab notifications reload the current snapshot. Large article bodies
-stay in separate seed files and load only when opened.
+stay in separate seed files or the IndexedDB `bodies` store and load only when
+opened. The version 2 upgrade preserves the existing library and annotations.
+Delete removes the associated downloaded body in the same transaction; Undo
+restores it. A download finishing after deletion cannot recreate the article.
 
 Article URLs use `/read/<encodeURIComponent(source URL)>`. Encoding preserves
 protocol, query, fragment, and percent escapes without treating them as app
@@ -102,7 +106,9 @@ use the Paste link button. Save bookmarks it and stays in the library; Open
 creates an unsaved entry when needed and opens Reader. Existing saved links offer
 Open only. Dismiss does not write an article. URL queries and fragments remain
 intact. Previews reuse existing library metadata; new URLs show their host until
-metadata is available. This local app still does not fetch new publisher text.
+metadata is available. Save starts the download without waiting for the publisher;
+Open joins that download and displays the result. Failed downloads retain the
+bookmark and can be retried in the reader.
 
 The selection toolbar appears immediately and fades out over 150ms on dismissal;
 Reduce Motion disables the fade. Exiting controls cannot receive input.
@@ -118,3 +124,44 @@ the production app, IndexedDB, navigation, sanitization, and highlighting. It
 covers filters, save/favourite/archive/restore, tags, adding a URL, encoded direct
 links, quote-note persistence/edit/delete, and mobile overflow/actions. Native
 Swift and extraction code are unchanged.
+
+## Background downloads
+
+`bun run dev:arctic-browser` starts Vite on 5186 and the Bun extraction service
+on 5187. Vite proxies `/api` to the service. Stop the runner to stop both. For a
+built preview, run `bun run --cwd apps/arctic/Browser service` separately from
+`bun run --cwd apps/arctic/Browser preview`. This is a local service; static
+hosting alone cannot fetch publisher pages through browser CORS restrictions.
+
+The service uses the same Defuddle 0.19.4 as native Arctic:
+
+1. Fetch HTML with an 8-second deadline and extract using LinkeDOM. No browser
+   process starts when this provides readable text.
+2. If extraction is insufficient, use a shared headless Chromium process.
+   It loads scripts but blocks images, media, fonts, stylesheets, service workers,
+   WebSockets, and non-GET requests. It polls for readable text after
+   DOMContentLoaded instead of waiting for network idle or every asset.
+3. Close each isolated browser context after extraction. Close Chromium after
+   30 seconds idle. Allow three downloads and one rendered page concurrently;
+   duplicate URLs share work. Rendered pages have a 15-second deadline, a maximum
+   of 80 requests, and a 4 MiB limit per response.
+4. Cache extraction results for seven days under
+   `~/.cache/arctic-browser/articles` (override with `ARCTIC_CACHE_DIR`). Limit
+   this cache to 128 entries / 128 MiB. The web app sanitizes the result with
+   DOMPurify before storing a separate durable IndexedDB copy. That copy remains
+   readable when the publisher or extraction service is offline. This does not
+   provide a service worker to load the entire app while the local server is off.
+
+The service accepts only local host/origin requests with the app's JSON header.
+Every HTTP request, redirect, and rendered subrequest uses a validated, pinned
+public IP address. The test publisher exemption is injected only by tests.
+Publisher content is returned as JSON, never served as an executable document.
+No browser profile, login cookies, or native app data is shared. Login-only,
+POST-driven, blocked, and non-HTML pages can still fail; the reader keeps an
+Open original action. There is no visible WebView and no sync.
+
+Run `bun run --cwd apps/arctic/Browser test:service` for real HTTP extraction,
+script-rendered fallback, cache reuse, request deduplication, and destination
+checks. The browser download tests use the real Bun service and an isolated HTTP
+publisher to verify Save, storage migration, offline reopening, Delete/Undo,
+and deletion during an in-flight download. See [download measurements](docs/DOWNLOAD_VALIDATION.md).

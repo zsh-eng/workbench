@@ -13,7 +13,7 @@ import {
   type Article,
   type Annotation,
 } from "./model";
-import { changeLibrary, useLibrary } from "./store";
+import { changeLibrary, readDownloadedBody, useLibrary } from "./store";
 import { ArticleActions, SortSelect } from "./ui";
 import { LoadingStatus } from "./LoadingStatus";
 import { AddArticle } from "./AddArticle";
@@ -38,6 +38,7 @@ export function App() {
     let removed: Article | undefined;
     let annotations: Annotation[] = [];
     try {
+      const downloadedBody = await readDownloadedBody(id);
       await changeLibrary((library) => {
         removed = library.articles.find((article) => article.id === id);
         annotations = library.annotations.filter(
@@ -58,26 +59,34 @@ export function App() {
         if (restoring) return;
         restoring = true;
         try {
-          await changeLibrary((library) => {
-            const existing = library.articles.find(
-              (item) => item.id === id || item.url === article.url,
-            );
-            return {
-              ...library,
-              articles: existing
-                ? library.articles
-                : [article, ...library.articles],
-              annotations: [
-                ...library.annotations,
-                ...annotations
-                  .filter(
-                    (note) =>
-                      !library.annotations.some((item) => item.id === note.id),
-                  )
-                  .map((note) => ({ ...note, articleId: existing?.id ?? id })),
-              ],
-            };
-          });
+          await changeLibrary(
+            (library) => {
+              const existing = library.articles.find(
+                (item) => item.id === id || item.url === article.url,
+              );
+              return {
+                ...library,
+                articles: existing
+                  ? library.articles
+                  : [article, ...library.articles],
+                annotations: [
+                  ...library.annotations,
+                  ...annotations
+                    .filter(
+                      (note) =>
+                        !library.annotations.some(
+                          (item) => item.id === note.id,
+                        ),
+                    )
+                    .map((note) => ({
+                      ...note,
+                      articleId: existing?.id ?? id,
+                    })),
+                ],
+              };
+            },
+            downloadedBody ? { id, body: downloadedBody } : undefined,
+          );
           notify("Article restored.");
         } catch {
           restoring = false;

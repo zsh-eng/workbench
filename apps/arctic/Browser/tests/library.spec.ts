@@ -42,6 +42,12 @@ const seed = {
 const body =
   '<p>A good tool leaves room for the work. A few quiet minutes become enough to read and keep a thought for another day.</p><h2>A wider perspective</h2><figure><img alt="A landscape" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII="><figcaption>A small illustration.</figcaption></figure><p>Reading gives ideas the space they need.</p><script>window.__unsafe = true</script><img src="x" onerror="window.__unsafe = true"><a href="javascript:alert(1)">Unsafe link</a>';
 async function prepare(page: Page) {
+  await page.route("**/api/extract", (route) =>
+    route.fulfill({
+      status: 422,
+      json: { error: "The publisher could not be loaded." },
+    }),
+  );
   await page.route("**/seed/index.json", (route) =>
     route.fulfill({ json: seed }),
   );
@@ -255,7 +261,9 @@ test("sort select updates article order and supports keyboard dismissal", async 
   await expect(page.locator(".article-card h2").first()).toHaveText(
     "The shape of a good idea",
   );
+  await expect(page.getByRole("listbox")).toHaveCount(0);
   await sort.click();
+  await expect(page.getByRole("listbox")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("listbox")).toHaveCount(0);
   await expect(sort).toBeFocused();

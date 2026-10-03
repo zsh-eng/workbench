@@ -11,6 +11,7 @@ export type Article = {
   archived: boolean;
   favourite: boolean;
   bodyPath?: string;
+  downloadedAt?: number;
   image?: string;
   minutes?: number;
 };
@@ -43,3 +44,14 @@ export function webURL(value: string): string | null {
 }
 export const sourceName = (url: string) =>
   new URL(url).hostname.replace(/^www\./, "");
+
+export type DownloadedBody = {
+  html: string;
+  url: string;
+  downloadedAt: number;
+  title: string;
+  description: string;
+  author: string;
+  image?: string;
+  wordCount: number;
+};
