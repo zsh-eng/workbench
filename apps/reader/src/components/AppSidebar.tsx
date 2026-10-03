@@ -1,3 +1,4 @@
+import { SHARED_API_ORIGIN } from "@/lib/shared-api";
 import {
   getLabRuntime,
   getRuntimeOnline,
@@ -251,6 +252,12 @@ export function AppSidebar() {
   const handleGoogleSignIn = async () => {
     try {
       if (getLabRuntime()) return;
+      if (SHARED_API_ORIGIN) {
+        window.location.assign(
+          `${SHARED_API_ORIGIN}/login?returnTo=${encodeURIComponent(window.location.origin)}`,
+        );
+        return;
+      }
       await authClient.signIn.social({
         provider: "google",
         callbackURL: window.location.origin,
@@ -504,7 +511,11 @@ export function AppSidebar() {
                 onClick={() => void handleGoogleSignIn()}
               >
                 <LogIn />
-                <span>Sign in with Google</span>
+                <span>
+                  {SHARED_API_ORIGIN
+                    ? "Sign in to Workbench"
+                    : "Sign in with Google"}
+                </span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>

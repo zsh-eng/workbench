@@ -1,3 +1,4 @@
+import { readerApiFetch } from "../shared-fetch";
 import { parseFileId } from "@/lib/files/file-id";
 import type { FileId, RemoteFile } from "@/lib/files/types";
 
@@ -58,7 +59,7 @@ function parseRemoteFile(value: unknown): RemoteFile {
 /** Fetch implementation for the authenticated generic server files API. */
 export class FetchFileRemoteApi implements FileRemoteApi {
   async put(id: FileId, blob: Blob, mediaType: string): Promise<RemoteFile> {
-    const response = await fetch(`/api/files/${id}`, {
+    const response = await readerApiFetch(`/api/files/${id}`, {
       method: "PUT",
       headers: {
         "Content-Type": mediaType,
@@ -71,7 +72,7 @@ export class FetchFileRemoteApi implements FileRemoteApi {
   }
 
   async get(id: FileId): Promise<Blob> {
-    const response = await fetch(`/api/files/${id}`, {
+    const response = await readerApiFetch(`/api/files/${id}`, {
       credentials: "include",
     });
     await requireSuccessfulResponse(response, "File download");
@@ -79,7 +80,9 @@ export class FetchFileRemoteApi implements FileRemoteApi {
   }
 
   async list(): Promise<RemoteFile[]> {
-    const response = await fetch("/api/files", { credentials: "include" });
+    const response = await readerApiFetch("/api/files", {
+      credentials: "include",
+    });
     await requireSuccessfulResponse(response, "Remote file inventory");
 
     const body: unknown = await response.json();
@@ -96,7 +99,7 @@ export class FetchFileRemoteApi implements FileRemoteApi {
   }
 
   async delete(id: FileId): Promise<void> {
-    const response = await fetch(`/api/files/${id}`, {
+    const response = await readerApiFetch(`/api/files/${id}`, {
       method: "DELETE",
       credentials: "include",
     });

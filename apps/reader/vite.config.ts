@@ -7,6 +7,9 @@ import { VitePWA } from "vite-plugin-pwa";
 
 // https://vite.dev/config/
 export default defineConfig({
+  cacheDir: process.env.VITE_SHARED_API_URL
+    ? "node_modules/.vite-shared"
+    : undefined,
   optimizeDeps: {
     exclude: ["@jsquash/webp"],
   },
@@ -70,7 +73,7 @@ export default defineConfig({
         ],
       },
     }),
-    cloudflare(),
+    ...(process.env.VITE_SHARED_API_URL ? [] : [cloudflare()]),
   ],
   build: {
     outDir: "dist",

@@ -1,3 +1,4 @@
+import { SHARED_API_ORIGIN } from "@/lib/shared-api";
 import { SheetUtilityButton } from "./SheetUtilityButton";
 import { useDebugEnabled } from "@/lib/debug-preference";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -385,7 +386,11 @@ export function AppMobileNavigationSheets({
               ) : (
                 <SheetUtilityButton
                   label="Sign in"
-                  accessibleLabel="Sign in with Google"
+                  accessibleLabel={
+                    SHARED_API_ORIGIN
+                      ? "Sign in to Workbench"
+                      : "Sign in with Google"
+                  }
                   onClick={() => void onSignIn()}
                   className="border-l border-border/60"
                 >

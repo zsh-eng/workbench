@@ -1,10 +1,10 @@
 import SyncEngine from "@/lib/sync/engine";
 import { ensureSyncState, persistenceReady } from "@/lib/db/persistence";
 import { setClientId, setSessionExpiry } from "@/lib/sync/meta";
-import { API_BASE } from "../api";
+import { AUTH_API_BASE } from "../api";
 const SESSION_DURATION_MS = 1000 * 60 * 60 * 24 * 7 - 60000;
 async function request(path: string, body: unknown) {
-  const response = await fetch(`${API_BASE}/auth/${path}`, {
+  const response = await fetch(`${AUTH_API_BASE}/auth/${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -35,8 +35,11 @@ export async function register(email: string, password: string) {
     password,
     name: email.split("@")[0],
   });
+  const signedIn = response.ok && typeof data.token === "string";
+  if (signedIn) await renew();
   return {
     success: response.ok,
+    signedIn,
     message: response.ok ? undefined : (data.message ?? "Registration failed"),
   };
 }

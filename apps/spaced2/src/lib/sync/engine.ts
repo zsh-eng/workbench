@@ -1,5 +1,5 @@
 import { createLocalSyncState } from "./local-sync-state";
-import { API_BASE } from "@/lib/api";
+import { API_BASE, SHARED_API_ORIGIN } from "@/lib/api";
 import {
   broadcastRecordsChanged,
   broadcastRecordsCleared,
@@ -67,6 +67,10 @@ function sync(): Promise<void> {
         controller!.signal.throwIfAborted();
         const owner = await db.metadataKv.get("owner");
         if (owner && owner.value !== userId) {
+          if (SHARED_API_ORIGIN)
+            throw new Error(
+              "This local library belongs to another account. Local data was preserved.",
+            );
           await rawDb.transaction("rw", rawDb.tables, async () => {
             for (const table of rawDb.tables) await table.clear();
           });
@@ -111,15 +115,21 @@ function sync(): Promise<void> {
             locally(() => storage.reconcilePushResults(sent, records)),
         },
         stateStore: localState!.store,
-        remote: createRemote(controller.signal),
+        remote: createRemote(controller.signal, localState!.store),
         signal: controller.signal,
       });
       await client.sync();
 
       // Explicit cutover: only discard the old database after successful bootstrap.
-      for (const legacy of ["SpacedDatabase", "SpacedRecordsV2", "ImageCache"])
-        void Dexie.delete(legacy).catch(() => {});
-      localStorage.removeItem("spaced-records-v2-state");
+      if (!SHARED_API_ORIGIN) {
+        for (const legacy of [
+          "SpacedDatabase",
+          "SpacedRecordsV2",
+          "ImageCache",
+        ])
+          void Dexie.delete(legacy).catch(() => {});
+        localStorage.removeItem("spaced-records-v2-state");
+      }
     } catch (error) {
       if (!stopped)
         setStatus({
@@ -192,8 +202,9 @@ async function wipeDatabase() {
   await withSyncLock(async () => {
     rawDb.close();
     await db.delete();
-    for (const legacy of ["SpacedDatabase", "SpacedRecordsV2", "ImageCache"])
-      await Dexie.delete(legacy);
+    if (!SHARED_API_ORIGIN)
+      for (const legacy of ["SpacedDatabase", "SpacedRecordsV2", "ImageCache"])
+        await Dexie.delete(legacy);
     localStorage.removeItem(STATE_KEY);
     broadcastRecordsCleared();
     MemoryDB._db.cards = {};

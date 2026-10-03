@@ -61,8 +61,13 @@ export function LoginFormDialogContent({
       return;
     }
 
-    setRegisteredEmail(data.email);
-    setFormType("verify");
+    if (response.signedIn) {
+      emitChange();
+      onSuccess();
+    } else {
+      setRegisteredEmail(data.email);
+      setFormType("verify");
+    }
   };
 
   const handleVerifyOtp = async (data: VerifyOtpFormValues) => {

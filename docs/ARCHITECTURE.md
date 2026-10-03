@@ -6,6 +6,11 @@ and local development files. Shared packages must not import app code.
 
 ## Current boundaries
 
+- **sync-server** provides optional local shared auth, namespaced sync, and files
+  for Reader and Spaced. Run `bun run dev:shared`. Its
+  [local guide](../apps/sync-server/README.md) defines storage isolation and limits.
+  Production cutover and Arctic integration remain separate work.
+
 - **Spaced** owns flashcards, FSRS, review UI, local operation storage and its
   deployed Hono Worker. Read its [architecture](../apps/spaced2/ARCHITECTURE.md).
   It consumes `packages/local-sync` through a workspace dependency.

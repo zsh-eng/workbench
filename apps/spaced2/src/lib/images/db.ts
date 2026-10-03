@@ -1,4 +1,5 @@
-import { API_BASE } from "@/lib/api";
+import { API_BASE, SHARED_API_ORIGIN, SHARED_STORAGE_SUFFIX } from "@/lib/api";
+import { requestSharedFile } from "../files/shared-request";
 import { Dexie, type EntityTable, type Table } from "dexie";
 
 export type UncachedImage = { url: string };
@@ -25,7 +26,9 @@ export function createImageDatabase(name: string): ImageCacheDatabase {
 }
 
 // Keep metadata separate so consumers can read it without loading full images.
-export const imagePersistedDb = createImageDatabase("ImageCacheV2");
+export const imagePersistedDb = createImageDatabase(
+  "ImageCacheV2" + SHARED_STORAGE_SUFFIX,
+);
 
 export function isCachedImage(
   image: CachedImage | UncachedImage,
@@ -43,12 +46,15 @@ export function isCachedImage(
 
 async function fetchImage(url: string): Promise<Blob> {
   const backendUrl = API_BASE;
-  const response = await fetch(
-    url,
-    backendUrl && url.startsWith(backendUrl)
-      ? { credentials: "include", signal: AbortSignal.timeout(15000) }
-      : { signal: AbortSignal.timeout(15000) },
-  );
+  const response =
+    SHARED_API_ORIGIN && url.startsWith(`${API_BASE}/files/`)
+      ? await requestSharedFile(url.slice(API_BASE.length))
+      : await fetch(
+          url,
+          backendUrl && url.startsWith(backendUrl)
+            ? { credentials: "include", signal: AbortSignal.timeout(15000) }
+            : { signal: AbortSignal.timeout(15000) },
+        );
   if (!response.ok)
     throw new Error(`Image download failed (${response.status})`);
   const blob = await response.blob();

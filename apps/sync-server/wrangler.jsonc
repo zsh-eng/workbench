@@ -1,0 +1,23 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "workbench-sync-local",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-04-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "d1_databases": [
+    {
+      "binding": "DATABASE",
+      "database_name": "workbench-sync-local",
+      "database_id": "00000000-0000-0000-0000-000000000004",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "workbench-sync-local" }],
+  "vars": {
+    "BASE_URL": "http://localhost:8792",
+    "APP_ORIGINS": "http://localhost:5175,http://localhost:5180",
+    "BETTER_AUTH_SECRET": "local-only-shared-sync-development-secret-2026",
+    "LOCAL_DEVELOPMENT": "true",
+  },
+}

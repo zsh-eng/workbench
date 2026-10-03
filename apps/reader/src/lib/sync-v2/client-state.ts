@@ -1,3 +1,4 @@
+import { SHARED_STORAGE_SUFFIX } from "../shared-api";
 import { getRuntimeStorage } from "@/features/sync-lab/runtime";
 import {
   createSyncClientStateStore,
@@ -12,7 +13,8 @@ import {
 export { createSyncClientState } from "@zsh-eng/local-sync";
 export type SyncClientStateStorage = SyncKeyValueStorage;
 // Preserve the production storage key through the package extraction.
-export const SYNC_CLIENT_STATE_STORAGE_KEY = "epub-reader-sync-v2-state";
+export const SYNC_CLIENT_STATE_STORAGE_KEY =
+  "epub-reader-sync-v2-state" + SHARED_STORAGE_SUFFIX;
 
 export function readerSyncStateStore(
   storage: SyncClientStateStorage = getRuntimeStorage(),

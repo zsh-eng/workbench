@@ -107,7 +107,7 @@ export default function CreateFlashcardRoute() {
     setImageUploading(true);
     const promise =
       uploadPromise ??
-      uploadImage(imageFile, trimmedAltText).catch(
+      uploadImage(imageFile).catch(
         (error): UploadResponse => ({
           success: false,
           error:

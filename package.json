@@ -8,7 +8,8 @@
     "packages/*",
     "apps/spaced2",
     "apps/podcast-lab",
-    "apps/arctic/Browser"
+    "apps/arctic/Browser",
+    "apps/sync-server"
   ],
   "type": "module",
   "scripts": {
@@ -64,7 +65,15 @@
     "dev:arctic-browser": "bun run --cwd apps/arctic/Browser dev",
     "build:arctic-browser": "bun run --cwd apps/arctic/Browser build",
     "test:arctic-browser": "bun run --cwd apps/arctic/Browser test",
-    "seed:arctic-browser": "bun run --cwd apps/arctic/Browser seed"
+    "seed:arctic-browser": "bun run --cwd apps/arctic/Browser seed",
+    "dev:sync": "bun run --cwd apps/sync-server dev",
+    "db:sync:local": "bun run --cwd apps/sync-server db:migrate",
+    "test:sync-server": "bun run build:packages && bun run --cwd apps/sync-server test",
+    "build:sync-server": "bun run build:packages && bun run --cwd apps/sync-server build",
+    "dev:reader:shared": "VITE_SHARED_API_URL=http://localhost:8792 bun run --cwd apps/reader dev --host localhost --port 5175 --strictPort",
+    "dev:spaced2:shared": "VITE_SHARED_API_URL=http://localhost:8792 bun run --cwd apps/spaced2 dev --host localhost",
+    "dev:shared": "bun scripts/dev-shared.ts",
+    "test:shared:e2e": "bun run --cwd apps/sync-server test:e2e"
   },
   "devDependencies": {
     "oxfmt": "^0.46.0",
