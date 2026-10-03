@@ -9,6 +9,28 @@
         "oxlint": "^1.61.0",
       },
     },
+    "apps/arctic/Browser": {
+      "name": "@workbench/arctic-browser",
+      "dependencies": {
+        "@base-ui/react": "1.8.0",
+        "@zsh-eng/text-highlighter": "workspace:*",
+        "dompurify": "3.4.15",
+        "lucide-react": "^0.546.0",
+        "react": "19.3.0",
+        "react-dom": "19.3.0",
+        "react-router-dom": "^7.14.2",
+      },
+      "devDependencies": {
+        "@playwright/test": "^1.59.1",
+        "@types/node": "26.6.2",
+        "@types/react": "19.3.0",
+        "@types/react-dom": "19.3.0",
+        "@vitejs/plugin-react": "6.1.1",
+        "happy-dom": "^20.9.0",
+        "typescript": "7.0.2",
+        "vite": "8.3.0",
+      },
+    },
     "apps/arctic/Web": {
       "name": "@workbench/arctic-web",
       "dependencies": {
@@ -127,7 +149,9 @@
         "@tanstack/react-query": "^5.100.1",
         "@tanstack/react-table": "^8.21.3",
         "@tanstack/react-virtual": "^3.14.10",
-        "@workbench/arctic-sync-server": "workspace:*",
+        "@workbench/arctic-browser": ["@workbench/arctic-browser@workspace:apps/arctic/Browser"],
+
+    "@workbench/arctic-sync-server": "workspace:*",
         "@zsh-eng/local-sync": "workspace:*",
         "@zsh-eng/text-highlighter": "workspace:*",
         "better-auth": "^1.6.9",

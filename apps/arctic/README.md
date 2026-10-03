@@ -1,5 +1,9 @@
 # Arctic — native article reader
 
+The separate [browser app](Browser/README.md) provides a local web reading library,
+seeded from Chrome and the native article cache. Run `bun run dev:arctic-browser`
+from the repository root after following its seed instructions.
+
 The native Mac workspace has its own [Mac guide](Mac/README.md) and
 `ArcticMac.xcodeproj`. The iPhone app and share extension use the project below.
 

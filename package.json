@@ -7,7 +7,8 @@
     "apps/arctic/Web",
     "packages/*",
     "apps/spaced2",
-    "apps/podcast-lab"
+    "apps/podcast-lab",
+    "apps/arctic/Browser"
   ],
   "type": "module",
   "scripts": {
@@ -59,7 +60,11 @@
     "preview:spaced2": "bun run --cwd apps/spaced2 preview",
     "dev:spaced2-server": "bun run --cwd apps/spaced2 dev:server",
     "dev:podcast": "bun run --cwd apps/podcast-lab dev",
-    "test:podcast": "bun run --cwd apps/podcast-lab test"
+    "test:podcast": "bun run --cwd apps/podcast-lab test",
+    "dev:arctic-browser": "bun run --cwd apps/arctic/Browser dev",
+    "build:arctic-browser": "bun run --cwd apps/arctic/Browser build",
+    "test:arctic-browser": "bun run --cwd apps/arctic/Browser test",
+    "seed:arctic-browser": "bun run --cwd apps/arctic/Browser seed"
   },
   "devDependencies": {
     "oxfmt": "^0.46.0",
