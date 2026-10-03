@@ -11,7 +11,7 @@
     "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,
-    "types": ["node", "vite/client"]
+    "types": ["node", "vite/client", "bun"]
   },
-  "include": ["src", "scripts", "tests", "*.config.ts"]
+  "include": ["src", "scripts", "tests", "*.config.ts", "server"]
 }
