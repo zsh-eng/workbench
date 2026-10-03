@@ -494,3 +494,58 @@ test("highlight toolbar appears immediately and fades only on exit", async ({
   expect(exit?.opacity).toBeLessThan(1);
   await expect(page.locator("[data-highlight-toolbar]")).toHaveCount(0);
 });
+
+test("card delete removes local article and notes; undo restores both", async ({
+  page,
+}) => {
+  await prepare(page);
+  await page.locator(".card-top").first().click();
+  await page.getByRole("button", { name: "Show notes", exact: true }).click();
+  await page
+    .getByRole("textbox", { name: "Write a note" })
+    .fill("Keep this annotation");
+  await page.getByRole("button", { name: "Save note", exact: true }).click();
+  await expect(page.locator(".annotation")).toContainText(
+    "Keep this annotation",
+  );
+  await page
+    .getByRole("link", { name: "Back to reading list", exact: true })
+    .click();
+  const card = page
+    .locator(".article-card")
+    .filter({ hasText: "The shape of a good idea" });
+  await card.getByRole("button", { name: "Delete article" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(card).toHaveCount(0);
+  await expect(page.locator(".article-card")).toHaveCount(1);
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(card).toHaveCount(1);
+  await card.locator(".card-top").click();
+  await expect(page.locator(".annotation")).toContainText(
+    "Keep this annotation",
+  );
+  await page
+    .getByRole("link", { name: "Back to reading list", exact: true })
+    .click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  const remove = card.getByRole("button", { name: "Delete article" });
+  await expect(remove).toBeVisible();
+  const cardBox = await card.boundingBox();
+  const actionBox = await remove.boundingBox();
+  expect(actionBox!.x + actionBox!.width).toBeLessThanOrEqual(
+    cardBox!.x + cardBox!.width,
+  );
+  await remove.click();
+  await expect(card).toHaveCount(0);
+  await page.reload();
+  await page.getByRole("button", { name: "All articles", exact: true }).click();
+  await expect(page.locator(".article-card")).toHaveCount(1);
+  await expect(page.locator(".article-card h2")).toHaveText("The patient city");
+  await page.getByRole("button", { name: "Add article", exact: true }).click();
+  await page.getByRole("textbox", { name: "Article URL" }).fill(source);
+  await page.getByRole("button", { name: "Open", exact: true }).click();
+  await expect(
+    page.getByRole("complementary", { name: "Article annotations" }),
+  ).toBeVisible();
+  await expect(page.locator(".annotation")).toHaveCount(0);
+});

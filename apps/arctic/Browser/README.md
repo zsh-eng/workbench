@@ -55,6 +55,8 @@ DOMPurify sanitization. Original links open in a separate tab. Quotes use the
 shared text-highlighter package, with text offsets and surrounding context.
 Notes and highlights are local and survive reloads. Unsaving retains annotations;
 adding an annotation saves the associated article. Archiving keeps favourites.
+Card Delete removes the local article and its annotations together. The toast
+offers Undo for ten seconds. Seed files and the native library are unchanged.
 
 ## UI and validation
 

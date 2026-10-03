@@ -12,6 +12,7 @@ import {
   Link2,
   ExternalLink,
   Tags,
+  Trash2,
   X,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
@@ -86,9 +87,11 @@ export function Modal({
 export function ArticleActions({
   article,
   notify,
+  onDelete,
 }: {
   article: Article;
   notify: (message: string) => void;
+  onDelete?: () => void;
 }) {
   const [tagsOpen, setTagsOpen] = useState(false);
   const [tags, setTags] = useState("");
@@ -184,6 +187,11 @@ export function ArticleActions({
         >
           <ExternalLink size={17} />
         </a>
+        {onDelete && (
+          <Tool label="Delete article" onClick={onDelete}>
+            <Trash2 size={17} />
+          </Tool>
+        )}
       </div>
       <Modal
         title="Edit article tags"

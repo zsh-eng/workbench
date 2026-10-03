@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Link,
   useLocation,
@@ -6,8 +6,14 @@ import {
   useSearchParams,
 } from "react-router-dom";
 import { ArrowDown, ArrowRight, Check, Plus, Search, X } from "lucide-react";
-import { articlePath, sourceName, webURL, type Article } from "./model";
-import { useLibrary } from "./store";
+import {
+  articlePath,
+  sourceName,
+  webURL,
+  type Article,
+  type Annotation,
+} from "./model";
+import { changeLibrary, useLibrary } from "./store";
 import { ArticleActions, SortSelect } from "./ui";
 import { AddArticle } from "./AddArticle";
 import { Reader } from "./Reader";
@@ -22,7 +28,66 @@ export function App() {
   const location = useLocation();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState<{
+    text: string;
+    undo?: () => Promise<void>;
+  } | null>(null);
+  const notify = useCallback((text: string) => setNotice({ text }), []);
+  const deleteArticle = async (id: string) => {
+    let removed: Article | undefined;
+    let annotations: Annotation[] = [];
+    try {
+      await changeLibrary((library) => {
+        removed = library.articles.find((article) => article.id === id);
+        annotations = library.annotations.filter(
+          (note) => note.articleId === id,
+        );
+        return {
+          ...library,
+          articles: library.articles.filter((article) => article.id !== id),
+          annotations: library.annotations.filter(
+            (note) => note.articleId !== id,
+          ),
+        };
+      });
+      if (!removed) return;
+      const article = removed;
+      let restoring = false;
+      const undo = async () => {
+        if (restoring) return;
+        restoring = true;
+        try {
+          await changeLibrary((library) => {
+            const existing = library.articles.find(
+              (item) => item.id === id || item.url === article.url,
+            );
+            return {
+              ...library,
+              articles: existing
+                ? library.articles
+                : [article, ...library.articles],
+              annotations: [
+                ...library.annotations,
+                ...annotations
+                  .filter(
+                    (note) =>
+                      !library.annotations.some((item) => item.id === note.id),
+                  )
+                  .map((note) => ({ ...note, articleId: existing?.id ?? id })),
+              ],
+            };
+          });
+          notify("Article restored.");
+        } catch {
+          restoring = false;
+          setNotice({ text: "Could not restore. Try again.", undo });
+        }
+      };
+      setNotice({ text: "Article deleted.", undo });
+    } catch {
+      notify("Could not delete this article. Please try again.");
+    }
+  };
   const [addOpen, setAddOpen] = useState(false);
   const [pendingURL, setPendingURL] = useState("");
   const addTrigger = useRef<HTMLButtonElement>(null);
@@ -35,7 +100,7 @@ export function App() {
   const reader = location.pathname.startsWith("/read/");
   useEffect(() => {
     if (!notice) return;
-    const timer = setTimeout(() => setNotice(""), 4500);
+    const timer = setTimeout(() => setNotice(null), notice.undo ? 10000 : 4500);
     return () => clearTimeout(timer);
   }, [notice]);
   useEffect(() => {
@@ -229,7 +294,7 @@ export function App() {
             annotations={library.annotations.filter(
               (n) => n.articleId === selected.id,
             )}
-            notify={setNotice}
+            notify={notify}
           />
         ) : (
           <main id="main" className="empty">
@@ -254,7 +319,7 @@ export function App() {
                   initialURL={pendingURL}
                   onClose={closeAdd}
                   onOpen={(url) => navigate(articlePath(url))}
-                  notify={setNotice}
+                  notify={notify}
                 />
               </div>
             )}
@@ -303,7 +368,8 @@ export function App() {
                 <ArticleCard
                   key={article.id}
                   article={article}
-                  notify={setNotice}
+                  notify={notify}
+                  onDelete={() => void deleteArticle(article.id)}
                   onTag={(value) => setFilter("tag", value)}
                 />
               ))}
@@ -363,11 +429,16 @@ export function App() {
       {notice && (
         <div className="toast" role="status">
           <Check size={16} />
-          {notice}
+          {notice.text}
+          {notice.undo && (
+            <button className="toast-undo" onClick={() => void notice.undo?.()}>
+              Undo
+            </button>
+          )}
           <button
             className="tool"
             aria-label="Dismiss notification"
-            onClick={() => setNotice("")}
+            onClick={() => setNotice(null)}
           >
             <X size={14} />
           </button>
@@ -380,15 +451,17 @@ function ArticleCard({
   article,
   notify,
   onTag,
+  onDelete,
 }: {
   article: Article;
   notify: (message: string) => void;
   onTag: (tag: string) => void;
+  onDelete: () => void;
 }) {
   return (
     <article className="article-card">
       <div className="card-actions">
-        <ArticleActions article={article} notify={notify} />
+        <ArticleActions article={article} notify={notify} onDelete={onDelete} />
       </div>
       <Link className="card-top" to={articlePath(article.url)}>
         <span className="card-source">
