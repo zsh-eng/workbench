@@ -64,25 +64,34 @@ Arctic app icon from `Resources/Assets.xcassets/AppIcon.appiconset`.
 
 Typography is defined in [typography.css](src/typography.css). The reading view
 directly follows [Med's Markdown typography](../../med/src/web/components/MarkdownPreview.css):
-14px Geist text, 1.625 line height, a 38em measure, 1.5em paragraph spacing,
+17.5px Geist text (Med at 125%), 1.625 line height, a 38em measure, 1.5em paragraph spacing,
 400-weight headings with 1.22 line height, and 600-weight strong text. Its heading
-scale and margins also follow Med. Images can exceed the text measure.
+scale and margins also follow Med at 125%. Images can exceed the text measure.
 
 Library card sizes were measured from the live
 [Works in Progress](https://worksinprogress.co/) article cards on 3 October 2026
 at 1440, 1100, 768, and 390px viewport widths: titles 20px/26px, summaries
 12px/18px, bylines 12px/15px, and tags 11px/15px. We keep Arctic's EB Garamond
 and monospace fonts. The reference uses a dedicated Editor-Bold face registered
-at CSS weight 400; Arctic uses EB Garamond's actual 700 weight for this role.
-Card heights and padding were reduced with the type sizes.
+at CSS weight 400. Arctic now scales these sizes to 125% and uses a lighter
+EB Garamond 500 title weight.
 
 EB Garamond and DM Sans come from Arctic's existing assets; see
 [font notices](../THIRD_PARTY_NOTICES.txt). Geist and Geist Mono are copied from
 Med's existing assets with their [SIL license](public/fonts/GEIST-OFL.txt).
 
 Desktop uses two article columns plus the tag rail. Narrow screens move tags
-above the library and notes below the article. Hover and keyboard focus expose
+above the library. The notes sidebar starts closed and remembers its visibility.
+Use ⌘⇧B (Ctrl⇧B) or the top-right button to toggle it. Article actions live in
+this sidebar. It uses an overlay on narrow screens and retains drafts when hidden.
+The reader has a back arrow in place of the library header. Hover and keyboard focus expose
 card actions; touch layouts keep them visible. Reduced motion is respected.
+
+The selection toolbar adapts `~/papers/src/components/highlight-toolbar.tsx`:
+a floating pill with four color swatches, a current-color ring, and copy feedback.
+Arctic adds a note button that opens the sidebar. Click a highlight to recolor it;
+click its current color to remove the highlight while retaining its note. Escape,
+scroll, and outside clicks dismiss the toolbar. ⌘⇧C (Ctrl⇧C) copies the selection.
 
 The Playwright suite uses a small seed through network fixtures while exercising
 the production app, IndexedDB, navigation, sanitization, and highlighting. It

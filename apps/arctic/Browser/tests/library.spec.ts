@@ -133,7 +133,7 @@ test("article URL survives reload; quote annotation, edit, delete, and safe HTML
     .evaluate((node) => {
       const range = document.createRange();
       range.setStart(node.firstChild!, 0);
-      range.setEnd(node.firstChild!, 35);
+      range.setEnd(node.firstChild!, 36);
       window.getSelection()!.removeAllRanges();
       window.getSelection()!.addRange(range);
     });
@@ -196,7 +196,7 @@ test("tag editing and add link use real persistent state", async ({ page }) => {
     "example.net",
   );
 });
-test("mobile layout exposes actions and places notes after the article", async ({
+test("mobile layout exposes actions and toggles notes beside the article", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -215,6 +215,7 @@ test("mobile layout exposes actions and places notes after the article", async (
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
   ).toBeLessThanOrEqual(390);
+  await page.getByRole("button", { name: "Show notes", exact: true }).click();
   await page
     .getByRole("textbox", { name: "Write a note" })
     .fill("A mobile note");
@@ -249,4 +250,103 @@ test("sort select updates article order and supports keyboard dismissal", async 
   await page.keyboard.press("Escape");
   await expect(page.getByRole("listbox")).toHaveCount(0);
   await expect(sort).toBeFocused();
+});
+
+test("reader centers the article and toggles a persistent sidebar without losing drafts", async ({
+  page,
+}) => {
+  await prepare(page);
+  await page.locator(".card-top").first().click();
+  await expect(page.getByTestId("article-body")).toBeVisible();
+  await expect(page.locator(".site-header")).toHaveCount(0);
+  await expect(
+    page.getByRole("textbox", { name: "Write a note" }),
+  ).toBeHidden();
+  const bounds = await page.locator(".article-body").boundingBox();
+  expect(
+    Math.abs(bounds!.x + bounds!.width / 2 - page.viewportSize()!.width / 2),
+  ).toBeLessThan(2);
+  await page.keyboard.press("Control+Shift+B");
+  const sidebar = page.getByRole("complementary", {
+    name: "Article annotations",
+  });
+  await expect(sidebar).toBeVisible();
+  await sidebar
+    .getByRole("textbox", { name: "Write a note" })
+    .fill("Keep this draft");
+  await page.keyboard.press("Meta+Shift+B");
+  await expect(sidebar).toBeHidden();
+  await page.getByRole("button", { name: "Show notes", exact: true }).click();
+  await expect(sidebar.getByRole("textbox")).toHaveValue("Keep this draft");
+  await sidebar
+    .getByRole("button", { name: "Favourite article", exact: true })
+    .click();
+  await expect(
+    sidebar.getByRole("button", { name: "Remove favourite" }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(sidebar).toBeVisible();
+  await page.getByRole("button", { name: "Hide notes", exact: true }).click();
+  await page.reload();
+  await expect(sidebar).toBeHidden();
+  await page
+    .getByRole("link", { name: "Back to reading list", exact: true })
+    .click();
+  await expect(page.locator(".site-header")).toBeVisible();
+});
+
+test("selection pill copies, colors, edits, and removes highlights while retaining notes", async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await prepare(page);
+  await page.locator(".card-top").first().click();
+  const paragraph = page.locator(".article-body p").first();
+  await expect(paragraph).toBeVisible();
+  await paragraph.evaluate((node) => {
+    const range = document.createRange();
+    range.setStart(node.firstChild!, 0);
+    range.setEnd(node.firstChild!, 36);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+  });
+  const toolbar = page.getByRole("toolbar", {
+    name: "Selected passage actions",
+  });
+  await expect(toolbar).toBeVisible();
+  const pill = await toolbar.boundingBox();
+  const text = await paragraph.boundingBox();
+  expect(pill!.y + pill!.height).toBeLessThan(text!.y);
+  await toolbar.getByRole("button", { name: "Copy text" }).click();
+  await expect(toolbar.getByRole("status")).toHaveText("Copied!");
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+    "A good tool leaves room for the work",
+  );
+  await toolbar.getByRole("button", { name: "Highlight blue" }).click();
+  const mark = page.locator(".article-highlight");
+  await expect(mark).toHaveAttribute("data-color", "blue");
+  await page.reload();
+  await expect(mark).toHaveAttribute("data-color", "blue");
+  await mark.click();
+  await toolbar.getByRole("button", { name: "Change to green" }).click();
+  await expect(mark).toHaveAttribute("data-color", "green");
+  await mark.focus();
+  await page.keyboard.press("Enter");
+  await toolbar.getByRole("button", { name: "Add note" }).click();
+  await page
+    .getByRole("textbox", { name: "Edit note" })
+    .fill("Keep this thought");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(mark).toHaveAttribute("data-color", "green");
+  await mark.click();
+  await page.keyboard.press("Escape");
+  await expect(toolbar).toHaveCount(0);
+  await mark.click();
+  await toolbar.getByRole("button", { name: "Remove green highlight" }).click();
+  await expect(mark).toHaveCount(0);
+  await expect(page.locator(".annotation")).toContainText("Keep this thought");
+  await page.reload();
+  await expect(mark).toHaveCount(0);
+  await expect(page.locator(".annotation")).toContainText("Keep this thought");
 });

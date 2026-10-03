@@ -503,38 +503,14 @@ kbd {
   gap: 10px;
   font-size: 12px;
 }
-.reader-layout {
-  max-width: 1360px;
-  margin: 0 auto;
-  padding: 28px 36px 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 250px;
-  gap: 65px;
-}
-.reader-main {
-  container-type: inline-size;
-  min-width: 0;
-}
-.reader-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-bottom: 33px;
-}
-.back-link {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  font-size: 11px;
-  color: var(--muted);
-}
+
 .article-highlight {
   background: #ece3a8;
   color: inherit;
   border-radius: 2px;
 }
 .reader-status {
-  max-width: 532px;
+  max-width: 665px;
   margin: 40px auto;
   padding: 25px 0;
   font-size: 14px;
@@ -545,7 +521,7 @@ kbd {
   margin-top: 20px;
 }
 .article-end {
-  max-width: 532px;
+  max-width: 665px;
   margin: 55px auto 65px;
   display: flex;
   align-items: center;
@@ -561,17 +537,7 @@ kbd {
   align-items: center;
   gap: 9px;
 }
-.annotation-sidebar {
-  padding-top: 64px;
-}
-.notes-sticky {
-  position: sticky;
-  top: 28px;
-  max-height: calc(100vh - 55px);
-  overflow-y: auto;
-  scrollbar-width: thin;
-  padding: 3px;
-}
+
 .notes-heading {
   display: flex;
   align-items: center;
@@ -680,31 +646,6 @@ kbd {
   width: 20px;
   height: 20px;
 }
-.selection-toolbar {
-  position: fixed;
-  bottom: 28px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 4px;
-  background: var(--ink);
-  color: var(--paper);
-  border-radius: 6px;
-  box-shadow: 0 6px 30px #0003;
-  padding: 7px;
-  z-index: 40;
-}
-.selection-toolbar button {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 9px 13px;
-  font-size: 12px;
-}
-.selection-toolbar button:hover {
-  background: #46483e;
-  border-radius: 3px;
-}
 @media (min-width: 1500px) {
   .library-layout {
     padding-inline: 0;
@@ -722,11 +663,6 @@ kbd {
 
   .library-controls nav {
     gap: 16px;
-  }
-  .reader-layout {
-    gap: 30px;
-    grid-template-columns: minmax(0, 1fr) 225px;
-    padding-inline: 26px;
   }
 
   .site-header {
@@ -768,17 +704,6 @@ kbd {
   .tag-row.chosen {
     background: #e9ecdf;
     border-color: #a9b195 !important;
-  }
-  .reader-layout {
-    grid-template-columns: minmax(0, 1fr) 205px;
-    gap: 24px;
-    padding-inline: 22px;
-  }
-
-  .reader-toolbar {
-    align-items: flex-start;
-    gap: 12px;
-    flex-direction: column;
   }
 
   .reader-byline {
@@ -873,41 +798,8 @@ kbd {
     padding: 10px 12px;
   }
 
-  .reader-layout {
-    display: flex;
-    flex-direction: column;
-    padding: 25px 22px 0;
-    gap: 0;
-  }
-  .reader-toolbar {
-    flex-direction: row;
-    align-items: center;
-    gap: 8px;
-    padding-bottom: 25px;
-  }
-  .reader-toolbar .tool {
-    width: 28px;
-  }
-  .back-link {
-    font-size: 10px;
-    gap: 5px;
-  }
-
-  .annotation-sidebar {
-    padding: 5px 0 35px;
-    border-top: 1px solid var(--rule);
-  }
-  .notes-sticky {
-    position: static;
-    max-height: none;
-    overflow: visible;
-  }
   .article-end {
     margin-bottom: 35px;
-  }
-  .selection-toolbar {
-    bottom: 20px;
-    width: max-content;
   }
   .toast {
     font-size: 11px;
@@ -982,4 +874,160 @@ kbd {
   display: block;
   border-radius: 8px;
   flex-shrink: 0;
+}
+
+/* Reading surface: centered when the optional right rail is closed. */
+.reader-layout {
+  padding: 76px 40px 0;
+}
+.reader-layout[data-sidebar-open="true"] {
+  padding-right: 360px;
+}
+.reader-main {
+  min-width: 0;
+  width: 100%;
+  max-width: 1000px;
+  margin: 0 auto;
+  container-type: inline-size;
+}
+.reader-back,
+.reader-sidebar-toggle {
+  position: fixed;
+  top: 18px;
+  z-index: 45;
+  background: var(--paper);
+  width: 36px;
+  height: 36px;
+}
+.reader-back {
+  left: 20px;
+}
+.reader-sidebar-toggle {
+  right: 20px;
+}
+.annotation-sidebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 320px;
+  padding: 24px 20px;
+  border-left: 1px solid var(--rule);
+  background: var(--paper);
+  z-index: 30;
+  overflow-y: auto;
+}
+.annotation-sidebar[hidden] {
+  display: none;
+}
+.notes-sticky {
+  padding: 0;
+}
+.notes-heading {
+  padding-right: 44px;
+  min-height: 32px;
+}
+.reader-sidebar-actions {
+  padding-top: 16px;
+}
+@media (max-width: 850px) {
+  .reader-layout,
+  .reader-layout[data-sidebar-open="true"] {
+    padding: 72px 24px 0;
+  }
+  .annotation-sidebar {
+    width: min(320px, calc(100vw - 24px));
+    box-shadow: -12px 0 40px #26282316;
+  }
+}
+
+/* Selection pill and palette adapted from Papers. */
+:root {
+  --highlight-yellow: #eccb60;
+  --highlight-green: #bec97e;
+  --highlight-blue: #92bfdb;
+  --highlight-magenta: #f4a4c2;
+}
+[data-color="yellow"] {
+  --highlight-color: var(--highlight-yellow);
+}
+[data-color="green"] {
+  --highlight-color: var(--highlight-green);
+}
+[data-color="blue"] {
+  --highlight-color: var(--highlight-blue);
+}
+[data-color="magenta"] {
+  --highlight-color: var(--highlight-magenta);
+}
+.article-highlight {
+  background: color-mix(
+    in srgb,
+    var(--highlight-color, var(--highlight-yellow)) 48%,
+    transparent
+  );
+  cursor: pointer;
+}
+.highlight-toolbar {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--paper) 95%, transparent);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 24px #0000001a;
+  animation: highlight-appear 150ms ease-out;
+}
+.highlight-toolbar button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 50%;
+  transition: transform 150ms;
+}
+.highlight-toolbar button:hover {
+  transform: scale(1.1);
+}
+.highlight-toolbar .highlight-swatch {
+  background: var(--highlight-color);
+  box-shadow: inset 0 1px 2px #0000001a;
+}
+.highlight-swatch[aria-pressed="true"] {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.highlight-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--rule);
+  flex-shrink: 0;
+}
+.highlight-toolbar .copied {
+  color: var(--accent);
+}
+@keyframes highlight-appear {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .highlight-toolbar {
+    animation: none;
+  }
+  .highlight-toolbar button {
+    transition: none;
+  }
 }

@@ -1,5 +1,6 @@
 /* Reading typography: directly adapted from Med's MarkdownPreview.css:44–155.
-   Keep the 14px body, 38em measure, 1.625 leading, 400-weight headings, and
+   Scale Med's 14px body to 17.5px (125%). Keep the 38em measure, 1.625
+   leading, 400-weight headings, and
    paragraph/heading rhythm. Do not import another app's runtime code. */
 @font-face {
   font-family: Geist;
@@ -19,7 +20,7 @@
     -apple-system, BlinkMacSystemFont, "SF Pro Display", Geist, sans-serif;
   --reading-code: "Geist Mono", monospace;
   font-family: var(--reading-font);
-  font-size: 14px;
+  font-size: 17.5px;
   font-weight: 400;
   line-height: 1.625;
 }
@@ -38,8 +39,8 @@
 }
 .article-heading h1,
 .article-body h1 {
-  font-size: clamp(1.875em, 4.375cqw, 2.75em);
-  margin: 0 0 28px;
+  font-size: clamp(1.875em, 5.46875cqw, 2.75em);
+  margin: 0 0 35px;
 }
 .article-heading > .eyebrow {
   margin-bottom: 18px;
@@ -88,16 +89,16 @@
 }
 .article-body h2 {
   font-size: 1.625em;
-  margin: 49px 0 21px;
+  margin: 61.25px 0 26.25px;
 }
 .article-body h3 {
   font-size: 1.375em;
-  margin: 35px 0 18px;
+  margin: 43.75px 0 22.5px;
 }
 .article-body :is(h4, h5, h6) {
   font-size: 1em;
   font-weight: 500;
-  margin: 28px 0 14px;
+  margin: 35px 0 17.5px;
 }
 .article-body strong {
   font-weight: 600;
@@ -150,7 +151,7 @@
   border-radius: 10px;
   overflow: auto;
   max-width: 100%;
-  font: 13px/1.7 var(--reading-code);
+  font: 16.25px/1.7 var(--reading-code);
 }
 .article-body pre code {
   border: 0;
@@ -199,7 +200,7 @@
 
 /* Live Works in Progress article cards, measured 2026-10-03 at 1440, 1100,
    768 and 390px. Their Editor-Bold is a bold face registered as weight 400;
-   our existing EB Garamond uses its real 700 weight for that role.
+   Arctic scales this type to 125%, with a lighter 500-weight title.
    https://worksinprogress.co/ */
 .card-top {
   padding: 20px;
@@ -221,18 +222,18 @@
   white-space: nowrap;
 }
 .card-top h2 {
-  font: 700 20px/26px var(--serif);
+  font: 500 25px/32.5px var(--serif);
   letter-spacing: normal;
   margin-bottom: 8px;
   text-wrap: pretty;
   overflow-wrap: anywhere;
 }
 .byline {
-  font: 400 12px/15px var(--mono);
+  font: 400 15px/18.75px var(--mono);
   margin-top: auto;
 }
 .byline strong {
-  font-weight: 700;
+  font-weight: 600;
 }
 .card-description {
   border-top: 1px solid #737369;
@@ -243,10 +244,10 @@
   min-height: 122px;
 }
 .card-description > p {
-  font: 400 12px/18px var(--serif);
+  font: 400 15px/22.5px var(--serif);
 }
 .read-more {
-  font: 700 12px/15px var(--mono);
+  font: 600 15px/18.75px var(--mono);
   display: flex;
   gap: 12px;
   justify-content: flex-end;
@@ -256,7 +257,7 @@
 }
 .card-tags button,
 .card-tags > span {
-  font: 400 11px/15px var(--mono);
+  font: 400 13.75px/18.75px var(--mono);
   border-right: 1px solid #737369;
   padding: 10px 14px;
 }

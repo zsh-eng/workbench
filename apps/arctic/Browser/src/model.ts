@@ -14,11 +14,13 @@ export type Article = {
   image?: string;
   minutes?: number;
 };
+export type AnnotationColor = "yellow" | "green" | "blue" | "magenta";
 export type Annotation = {
   id: string;
   articleId: string;
   text: string;
   quote?: TextHighlight;
+  color?: AnnotationColor;
   createdAt: number;
 };
 export type Library = {

@@ -140,53 +140,55 @@ export function App() {
       <a href="#main" className="skip-link">
         Skip to content
       </a>
-      <header className="site-header">
-        <Link to="/" className="brand" aria-label="Arctic home">
-          <img
-            className="brand-icon"
-            src="/arctic.png"
-            width="36"
-            height="36"
-            alt=""
-          />
-          <span>arctic</span>
-        </Link>
-        <div className="header-middle">
-          {!reader && (
-            <div className="search">
-              <Search size={18} />
-              <input
-                ref={search}
-                aria-label="Search articles"
-                placeholder="Search articles…"
-                value={query}
-                onChange={(e) => setFilter("q", e.target.value)}
-              />
-              {query ? (
-                <button
-                  className="tool"
-                  aria-label="Clear search"
-                  onClick={() => setFilter("q", "")}
-                >
-                  <X size={16} />
-                </button>
-              ) : (
-                <kbd>⌘ K</kbd>
-              )}
-            </div>
-          )}
-        </div>
-        <button
-          className="add-button"
-          onClick={() => {
-            setAddError("");
-            setAddOpen(true);
-          }}
-        >
-          <Plus size={17} />
-          <span>Add article</span>
-        </button>
-      </header>
+      {!reader && (
+        <header className="site-header">
+          <Link to="/" className="brand" aria-label="Arctic home">
+            <img
+              className="brand-icon"
+              src="/arctic.png"
+              width="36"
+              height="36"
+              alt=""
+            />
+            <span>arctic</span>
+          </Link>
+          <div className="header-middle">
+            {!reader && (
+              <div className="search">
+                <Search size={18} />
+                <input
+                  ref={search}
+                  aria-label="Search articles"
+                  placeholder="Search articles…"
+                  value={query}
+                  onChange={(e) => setFilter("q", e.target.value)}
+                />
+                {query ? (
+                  <button
+                    className="tool"
+                    aria-label="Clear search"
+                    onClick={() => setFilter("q", "")}
+                  >
+                    <X size={16} />
+                  </button>
+                ) : (
+                  <kbd>⌘ K</kbd>
+                )}
+              </div>
+            )}
+          </div>
+          <button
+            className="add-button"
+            onClick={() => {
+              setAddError("");
+              setAddOpen(true);
+            }}
+          >
+            <Plus size={17} />
+            <span>Add article</span>
+          </button>
+        </header>
+      )}
       {!library ? (
         <main id="main" className="empty">
           <h1>
