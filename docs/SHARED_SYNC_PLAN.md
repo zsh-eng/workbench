@@ -4,7 +4,7 @@ Status: local Reader and Spaced implementation recovered onto current main,
 3 October 2026.
 See the [local service guide](../apps/sync-server/README.md) for commands and limits.
 Arctic remains outside this implementation. Fresh production D1/R2 backups and a
-full local conversion rehearsal passed on 3 October 2026. No production data
+full local Worker import and browser restore passed on 3 October 2026. No production data
 mutation, deployment, or client cutover has run. See the
 [rehearsal results and cutover checklist](../apps/sync-server/MIGRATION.md).
 
@@ -184,12 +184,13 @@ to `(server origin, user ID, namespace)`. Save its epoch beside the cursor.
 A server replacement requires an explicit recovery/migration path, not an automatic
 push of whatever happens to be on the device.
 
-For this known migration, retain local domain data and pending outboxes, switch the
-verified owner/scope, clear the old pagination head, reset `pullCursor` to zero and
-`bootstrapped` to false, and run a complete pull. Preserve HLC state and original
-pending-write versions. Do not turn downloaded rows into new local mutations.
-Observe remote clocks before issuing new versions. The first pull must include
-this device's own rows. An unknown epoch change stops sync with recoverable state.
+The implemented cutover opens a fresh local store scoped to the shared API origin
+and leaves old domain data/outboxes intact. Drain each active old client before the
+freeze and use the read-only browser preflight. Restore all records into the new
+store with a zero cursor and fresh device identity. Do not turn downloaded rows
+into new mutations. Old pending edits are not replayed automatically; any such
+recovery must retain their original versions and verified ownership. An unknown
+epoch change stops sync with recoverable state.
 
 Do not reset a cursor alone when the local store belongs to another account.
 Adopt existing unscoped browser stores only through the explicit single-user
@@ -244,8 +245,8 @@ rather than concatenating source SQL dumps.
 3. **Choose the account mapping.** Prefer the existing Reader user ID as canonical
    if live identity checks confirm it. Explicitly map each source account to that
    user; do not infer ownership from an unverified email. Deduplicate verified
-   provider identities. Start fresh sessions. Prefer one fresh password/reset over
-   permanently retaining two password policies or Spaced's legacy verifier.
+   provider identities. Start fresh sessions. The implemented host preserves the
+   three verified legacy password accounts through a tested PBKDF2 verifier.
 4. **Load record winners.** Assign namespace from the source database, remap user
    ownership, and preserve keys, values, schema versions, HLCs, original device IDs,
    and tombstones. Allocate fresh server sequences and stream epochs. Never seed
@@ -258,8 +259,9 @@ rather than concatenating source SQL dumps.
    Arctic's prefix even if its D1 is empty; local HTML may still need later upload.
 6. **Switch the shared service and web apps.** Configure the new OAuth callback,
    central auth, API origin, namespaced routes, and v3 client migration. Require a
-   fresh sign-in. Apply a durable migration receipt only after local ownership/state
-   is migrated successfully. Replay preserved outboxes with their original versions.
+   fresh sign-in and restore into a fresh origin-scoped local store. Keep the old
+   stores intact. Any pending old outbox blocks cutover until it is drained or
+   explicitly recovered with its original versions and verified ownership.
 7. **Prove restoration.** Compare source and target manifests per namespace,
    including deletion flags and versions. Restore into a fresh browser profile.
    Check Reader position, notes, highlights and EPUB bytes; check Spaced cards,

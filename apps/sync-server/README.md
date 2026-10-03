@@ -63,7 +63,9 @@ edit followed by sync, and repeated file deletion.
 
 The configuration contains local resource IDs and a development secret. It has
 no deployment command. Existing deployment commands still use the app backends.
-Fresh backups and the complete local conversion have passed. The
+Fresh backups, the complete local Worker import, and a full-data browser restore
+have passed. The service now supports migrated legacy passwords and configured
+Google/GitHub login. Old app Workers have inactive cutover write gates. The
 [rehearsal guide](MIGRATION.md) records sizes, checks, repeatable commands and
 remaining cutover work. The [migration plan](../../docs/SHARED_SYNC_PLAN.md)
 defines the account, namespace and local-state contracts. Production deployment
