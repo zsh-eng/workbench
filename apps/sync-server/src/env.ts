@@ -5,7 +5,10 @@ export interface Bindings {
   BASE_URL: string;
   APP_ORIGINS: string;
   BETTER_AUTH_SECRET: string;
+  MIGRATION_MODE?: "closed";
   LOCAL_DEVELOPMENT?: string;
+  GITHUB_CLIENT_ID?: string;
+  GITHUB_CLIENT_SECRET?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
 }

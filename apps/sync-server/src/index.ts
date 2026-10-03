@@ -11,7 +11,11 @@ import { trustedOrigins, type AppEnv } from "./env";
 
 const app = new Hono<AppEnv>();
 app.use("*", async (c, next) => {
-  // This configuration is deliberately local-only. Production needs its own secrets and bindings.
+  if (c.env.MIGRATION_MODE === "closed" && c.req.path !== "/health") {
+    c.header("Cache-Control", "no-store");
+    return c.json({ error: "Migration verification in progress" }, 503);
+  }
+  // The development configuration must not run on a public host.
   if (
     c.env.LOCAL_DEVELOPMENT === "true" &&
     !["localhost", "127.0.0.1"].includes(new URL(c.req.url).hostname)
@@ -37,7 +41,13 @@ app.get("/login", (c) => {
     c.req.query("returnTo") ?? c.env.APP_ORIGINS.split(",")[0].trim();
   if (!trustedOrigins(c.env).includes(returnTo))
     return c.text("Invalid return origin", 400);
-  return c.html(loginPage(returnTo));
+  return c.html(
+    loginPage(returnTo, {
+      local: c.env.LOCAL_DEVELOPMENT === "true",
+      google: Boolean(c.env.GOOGLE_CLIENT_ID && c.env.GOOGLE_CLIENT_SECRET),
+      github: Boolean(c.env.GITHUB_CLIENT_ID && c.env.GITHUB_CLIENT_SECRET),
+    }),
+  );
 });
 const requireUser = createMiddleware<AppEnv>(async (c, next) => {
   const auth = await createAuth(c.env).api.getSession({

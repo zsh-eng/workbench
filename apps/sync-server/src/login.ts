@@ -1,7 +1,10 @@
 import { html } from "hono/html";
 
 /** The return origin is checked against APP_ORIGINS before this page is rendered. */
-export function loginPage(returnTo: string) {
+export function loginPage(
+  returnTo: string,
+  options: { local: boolean; google: boolean; github: boolean },
+) {
   return html`
     <!doctype html>
     <html lang="en">
@@ -55,11 +58,36 @@ export function loginPage(returnTo: string) {
               minlength="8"
               required
           /></label>
-          <button name="action" value="sign-in">Sign in</button
-          ><button name="action" value="sign-up">Create local account</button>
+          <button name="action" value="sign-in">Sign in</button>
+          ${options.local ? html`<button name="action" value="sign-up">Create local account</button>` : ""} ${options.google ? html`<button type="button" data-provider="google">Continue with Google</button>` : ""}
+          ${options.github ? html`<button type="button" data-provider="github">Continue with GitHub</button>` : ""}
           <p id="error" role="alert"></p>
         </form>
         <script>
+          document.querySelectorAll("[data-provider]").forEach((button) => {
+            button.addEventListener("click", async () => {
+              button.disabled = true;
+              try {
+                const returnTo = document.querySelector('[name="returnTo"]').value;
+                const response = await fetch("/api/auth/sign-in/social", {
+                  method: "POST",
+                  credentials: "include",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    provider: button.dataset.provider,
+                    callbackURL: returnTo,
+                  }),
+                });
+                const result = await response.json();
+                if (!response.ok || !result.url)
+                  throw new Error(result.message || "Sign in failed");
+                location.assign(result.url);
+              } catch (error) {
+                document.querySelector("#error").textContent = error.message;
+                button.disabled = false;
+              }
+            });
+          });
           document
             .querySelector("form")
             .addEventListener("submit", async (event) => {

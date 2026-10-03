@@ -6,6 +6,7 @@ import {
   type SyncClientState,
 } from "@zsh-eng/local-sync";
 import xxhash from "xxhash-wasm";
+import worker from "../src/index";
 const origin = "http://localhost:8792";
 async function user() {
   const response = await SELF.fetch(`${origin}/api/auth/sign-up/email`, {
@@ -212,4 +213,55 @@ it("shares the browser session across allowed origins and revokes access on logo
     (await SELF.fetch(`${origin}/api/me`, { headers: { Cookie: cookie } }))
       .status,
   ).toBe(401);
+});
+
+it("authenticates migrated verified PBKDF2 accounts through the real sign-in route", async () => {
+  const id = crypto.randomUUID(),
+    email = `${id}@example.test`,
+    now = Date.now();
+  await env.DATABASE.prepare(
+    "INSERT INTO user(id,name,email,email_verified,created_at,updated_at) VALUES(?,?,?,?,?,?)",
+  )
+    .bind(id, "Migrated fixture", email, 1, now, now)
+    .run();
+  await env.DATABASE.prepare(
+    "INSERT INTO account(id,account_id,provider_id,user_id,password,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+  )
+    .bind(
+      id,
+      id,
+      "credential",
+      id,
+      "legacy-pbkdf2:Xj+SO0CHAnpDOZyhr2+KAojZiIxA+ns2Oa3M8/uCxACqqWLH6PfCNTuEtuBfyUmt",
+      now,
+      now,
+    )
+    .run();
+  const login = (password: string) =>
+    worker.fetch(
+      new Request(`${origin}/api/auth/sign-in/email`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://localhost:5180",
+        },
+        body: JSON.stringify({ email, password }),
+      }),
+      { ...env, LOCAL_DEVELOPMENT: "false" },
+    );
+  await env.DATABASE.prepare("UPDATE user SET email_verified=0 WHERE id=?")
+    .bind(id)
+    .run();
+  expect((await login("test-user-password")).status).toBe(403);
+  await env.DATABASE.prepare("UPDATE user SET email_verified=1 WHERE id=?")
+    .bind(id)
+    .run();
+  expect((await login("wrong-password")).status).toBe(401);
+  const response = await login("test-user-password");
+  expect(response.status).toBe(200);
+  const cookie = response.headers.get("set-cookie")!.split(";")[0];
+  expect(
+    (await SELF.fetch(`${origin}/api/me`, { headers: { Cookie: cookie } }))
+      .status,
+  ).toBe(200);
 });

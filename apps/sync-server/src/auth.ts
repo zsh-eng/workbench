@@ -3,6 +3,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "./auth-schema";
 import { trustedOrigins, type Bindings } from "./env";
+import { hashPassword, verifyStoredPassword } from "./password";
 export function createAuth(env: Bindings) {
   return betterAuth({
     database: drizzleAdapter(drizzle(env.DATABASE, { schema }), {
@@ -14,16 +15,27 @@ export function createAuth(env: Bindings) {
     advanced: { cookiePrefix: "workbench" },
     emailAndPassword: {
       enabled: true,
+      requireEmailVerification: env.LOCAL_DEVELOPMENT !== "true",
+      password: { hash: hashPassword, verify: verifyStoredPassword },
       disableSignUp: env.LOCAL_DEVELOPMENT !== "true",
     },
-    socialProviders:
-      env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
+    socialProviders: {
+      ...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
         ? {
             google: {
               clientId: env.GOOGLE_CLIENT_ID,
               clientSecret: env.GOOGLE_CLIENT_SECRET,
             },
           }
-        : {},
+        : {}),
+      ...(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET
+        ? {
+            github: {
+              clientId: env.GITHUB_CLIENT_ID,
+              clientSecret: env.GITHUB_CLIENT_SECRET,
+            },
+          }
+        : {}),
+    },
   });
 }
