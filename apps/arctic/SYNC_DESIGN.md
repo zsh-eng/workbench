@@ -22,7 +22,7 @@ flowchart LR
     Repo --> DB[(Account-scoped SQLite\nrecords, outbox, jobs, cursor)]
     Repo --> Files[(Local HTML and compact images)]
     DB <--> Sync[Sync coordinator]
-    Files <--> Sync
+    Files <-->|Optional preservation| Sync
     Keys[Device Keychain] --> Sync
   end
   Sync <-->|HTTPS| API[Reader Worker\nBetter Auth + Arctic routes]
@@ -40,7 +40,7 @@ flowchart LR
 | Article bridge | Dormant `ArticleSyncRepository.swift`: metadata, library, tags | Final schemas, granular mutations, migration and UI integration |
 | Other user data | Separate annotation/session files; Reader positions in UserDefaults | One account-scoped repository with transactional outbox capture |
 | Server | `packages/arctic-sync-server`, hosted by Reader Worker | Verify actual deployed resources, migrate Arctic tables, deploy and test native auth |
-| Files | Authenticated, SHA-256 verified R2 API | Durable upload jobs, portable content manifests and bounded restore |
+| Optional files | Authenticated, SHA-256 verified R2 API | Deferred from core sync; preservation needs durable jobs, portable manifests and bounded restore |
 
 The backend README records an earlier undeployed state. **Production deployment,
 database contents and current OAuth configuration were not inspected for this
@@ -175,7 +175,49 @@ finish useful pending work, and resume safely next launch. Do not promise instan
 sync while iOS has suspended the app.
 [Apple background strategies](https://developer.apple.com/documentation/backgroundtasks/choosing-background-strategies-for-your-app)
 
-## HTML, covers and restore
+## Restore priority and optional downloads
+
+Updated 3 October 2026: core sync restores user records in this order:
+
+1. **Articles:** identity, title, subtitle, source/image URLs, tags, library flags
+   and their dates. Make the library usable as each batch commits.
+2. **Highlights and notes:** restore full quote text and anchors without waiting
+   for the source page or Reader HTML. Retain annotations for unsaved articles.
+3. **Reading sessions and positions:** restore history, derive statistics locally,
+   and restore compatible Reader checkpoints when the article opens.
+
+This is initial-restore priority, not a reason to delay new user edits behind a
+large import. Local writes remain immediate; bounded upload batches must give
+new notes and other interactive edits a turn while bulk restore continues.
+
+The current protocol has one sequence-ordered cursor. It cannot guarantee this
+family order: do not skip records or advance a cursor past uncommitted records.
+Until the backend has a consistent bootstrap snapshot or independent family
+streams/cursors, consume each complete page safely, publish available articles
+first and keep dependent records pending until their identities are resolved.
+Guaranteed network ordering is a transport requirement for the backend handoff,
+not a claim about the existing adapter.
+
+**Core sync includes no Reader HTML or image bytes, including tiny previews.**
+URLs are metadata. Missing covers use local placeholders; visible covers may
+fetch from their source URLs through the normal bounded image pipeline. That
+cache activity is independent of sync completion and must not cause a full
+library download at sign-in.
+
+Use a separate **Download for offline** action for an article or selection.
+An optional device setting can download new saved articles in the background,
+with Wi-Fi-only and storage limits. Jobs are durable, resumable and lower
+priority than opening an article. Download status stays device-local.
+
+Cloud copies of extracted HTML and compact covers are a separate, optional
+preservation feature, disabled by default and outside the first sync milestone.
+Background download normally fetches/extracts from the publisher; it is not a
+cross-device backup. A changed, removed or restricted source may not reproduce
+the original Reader content. Existing local content and annotations remain intact.
+
+## Optional HTML and cover preservation
+
+The following file-transfer design applies only if cloud preservation is enabled.
 
 ```mermaid
 flowchart LR
@@ -204,13 +246,14 @@ larger content stays local with a clear pending/unsupported-content state while
 metadata continues to sync. Add versioned compression or chunking only after
 measuring a representative library. Hash exact stored bytes and verify downloads.
 
-Sync one compact cover representation and its tiny preview when available;
+When preservation is enabled, sync one compact cover and its tiny preview;
 generate screen-size variants locally. Reuse Arctic's existing ImageIO pipeline,
 HEIC/JPEG selection and bounded decoded cache. Do not upload original OG downloads
 or every device-specific thumbnail. Keep cover work independent from article saves.
 
-On another device: restore metadata first, visible covers next, then requested
-Reader content and nearby candidates. Begin with two file transfers; pause
+On another device, optional file restoration follows the user-record priorities
+above and runs only for visible or requested media and explicit offline jobs.
+Begin with two file transfers; pause
 speculative work under memory pressure or active reading. Do not fetch every
 publisher page at sign-in. A local Downloaded tab describes files on this device;
 cloud availability is a separate state. Complete offline article media is not
@@ -293,6 +336,10 @@ Acceptance checks must cover:
 - Schema mismatch, disk full, hash mismatch, clock skew, server reset and revoked
   session preserve local data and expose a recoverable state.
 - Cold launch with no network still shows the local library and opens cached HTML.
+- With media transfer disabled, article, annotation and session sync completes;
+  missing images/HTML do not block notes, statistics or new local edits.
+- Interrupted offline-download jobs resume without re-importing user records.
+- Mixed-family pull pages never lose records when publishing articles first.
 - 1,000/10,000 article import and one-record edits, measured on Mac and a physical
   iPhone. Initial target: p95 durable one-record commit below 50 ms off MainActor;
   UI publication fits the 8.33 ms frame budget. These are targets, not results.
@@ -449,24 +496,25 @@ assumed ISO-8601 wire format; version any conversion explicitly.
 
 ### Fast-sync recommendation for consolidation
 
-1. Sync small user records first: metadata, membership, independent favourite/read
-   state, tag edits, notes/highlights, session records and versioned positions.
-   Do not replicate derived statistics or device-local download state.
-2. Include a tiny preview reference, dimensions and media type in a separate
-   image manifest. Optionally send its roughly kilobyte preview early; avoid
-   embedding full images in a 64 KiB record or resending them with tag edits.
-3. Fetch a shared medium card rendition (for example 640px) for visible and nearby
-   articles. Retain a higher-resolution compact master for high-density iOS cards
-   when needed. Generate local 96/256px variants; do not sync every derivative.
-4. Transfer Reader HTML and other media by content hash on demand or through a
-   bounded offline-download queue. Separate embedded assets in a versioned content
-   manifest if deduplication becomes worthwhile; current HTML is not that format.
+1. Restore articles first, then highlights/notes, then sessions and versioned
+   positions. Include article metadata, membership, independent favourite/read
+   state and tags. Do not replicate derived statistics or local download state.
+   Respect the cursor constraints in [restore priority](#restore-priority-and-optional-downloads).
+2. Keep core sync independent of all image and HTML bytes. Fetch visible covers
+   from source URLs through the normal cache pipeline; do not download the whole
+   library at sign-in. Generate local display variants rather than syncing them.
+3. Offer separate, resumable offline-download jobs for selected articles and an
+   optional background-download setting. These fetch source content unless an
+   optional preserved cloud copy exists.
+4. Defer cloud media preservation from the first milestone. If enabled later,
+   transfer compact covers and HTML by content hash with versioned manifests;
+   never embed full images in 64 KiB records or resend them with tag edits.
 5. Use transactional SQLite records + outbox + cursor locally before live
    integration. The dormant JSON journal encodes its whole snapshot per change:
    its historical 10,000-article Release edit cost was 320 ms with a full outbox.
    Faster transport cannot fix that local write cost. [Evidence](Sync/PERFORMANCE.md).
 
-A first sync should make the library usable from metadata immediately, fill tiny
-previews, then restore visible media. A later sync should transfer changed records
-only. Credentials and Jev keys stay in device Keychain. This audit makes no storage
-migration or backend deployment changes.
+A first sync should make the library usable from metadata immediately, followed
+by annotations and reading history. It can complete without transferring any
+media. Later sync transfers changed records only. Credentials and Jev keys stay
+in device Keychain. This audit makes no storage migration or deployment changes.
