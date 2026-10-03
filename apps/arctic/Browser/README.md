@@ -80,6 +80,9 @@ EB Garamond and DM Sans come from Arctic's existing assets; see
 [font notices](../THIRD_PARTY_NOTICES.txt). Geist and Geist Mono are copied from
 Med's existing assets with their [SIL license](public/fonts/GEIST-OFL.txt).
 
+The app follows the system light/dark theme, including menus, notes, and the
+highlight toolbar. Card descriptions show at most three lines with an ellipsis.
+
 Desktop uses two article columns plus the tag rail. Narrow screens move tags
 above the library. The notes sidebar starts closed and remembers its visibility.
 Use ⌘⇧B (Ctrl⇧B) or the top-right button to toggle it. Article actions live in

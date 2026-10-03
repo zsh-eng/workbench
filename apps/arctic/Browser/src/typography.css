@@ -49,7 +49,7 @@
   font-size: 1.125em;
   line-height: 1.625;
   font-weight: 400;
-  color: #68685e;
+  color: var(--secondary);
 }
 .reader-byline {
   display: flex;
@@ -138,7 +138,7 @@
 .article-body code {
   font-family: var(--reading-code);
   font-size: 0.86em;
-  background: #f0ede5;
+  background: var(--code);
   border: 1px solid var(--rule);
   border-radius: 4px;
   padding: 0.15em 0.35em;
@@ -146,7 +146,7 @@
 .article-body pre {
   margin: 1.5em 0;
   padding: 20px;
-  background: #f0ede5;
+  background: var(--code);
   border: 1px solid var(--rule);
   border-radius: 10px;
   overflow: auto;
@@ -236,7 +236,7 @@
   font-weight: 600;
 }
 .card-description {
-  border-top: 1px solid #737369;
+  border-top: 1px solid var(--card-rule);
   padding: 18px 20px;
   flex: 1;
   display: flex;
@@ -244,6 +244,12 @@
   min-height: 122px;
 }
 .card-description > p {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
   font: 400 15px/22.5px var(--serif);
 }
 .read-more {
@@ -258,7 +264,7 @@
 .card-tags button,
 .card-tags > span {
   font: 400 13.75px/18.75px var(--mono);
-  border-right: 1px solid #737369;
+  border-right: 1px solid var(--card-rule);
   padding: 10px 14px;
 }
 @media (max-width: 850px) {
