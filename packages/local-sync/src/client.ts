@@ -1,5 +1,6 @@
 import {
   observeSyncHlcBatch,
+  bindSyncScope,
   type SyncClientStateStore,
 } from "./client-state.js";
 import {
@@ -7,6 +8,7 @@ import {
   MAX_SYNC_PUSH_CHANGES,
   MAX_SYNC_PUSH_BODY_BYTES,
   syncPushChangeSchema,
+  syncScopeSchema,
   syncPullResponseSchema,
   syncPushResponseSchema,
   type SyncPullBody,
@@ -56,6 +58,7 @@ export class SyncClient<Prepared> {
   }
 
   async pull(): Promise<Pick<SyncRunResult, "pulled" | "skipped">> {
+    await this.bindScope();
     if (this.remote.pullStream) return this.pullStreaming();
     let pulled = 0;
     let skipped = 0;
@@ -195,6 +198,7 @@ export class SyncClient<Prepared> {
   }
 
   async push(): Promise<number> {
+    await this.bindScope();
     const state = this.requireState();
     const pendingSnapshot = await this.storage.getPendingChanges();
     let pushed = 0;
@@ -218,6 +222,13 @@ export class SyncClient<Prepared> {
     }
 
     return pushed;
+  }
+
+  private async bindScope(): Promise<void> {
+    if (!this.remote.getScope) return;
+    const scope = syncScopeSchema.parse(await this.remote.getScope());
+    this.signal?.throwIfAborted();
+    bindSyncScope(this.stateStore, scope);
   }
 
   private async runSync(): Promise<SyncRunResult> {

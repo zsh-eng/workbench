@@ -31,13 +31,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS sync_records_user_key_unique ON sync_records (
 CREATE INDEX IF NOT EXISTS sync_records_user_seq_idx ON sync_records (user_id, server_seq);
 `;
 
-/**
- * One JSON bind avoids D1's parameter limit. A winning conflict copies the
- * attempted insert's fresh AUTOINCREMENT value into the compacted row.
- */
-const APPLY_SYNC_V2_BATCH_SQL = `
+/** Both adapters share conflict and pagination rules; v2 keeps its existing schema. */
+function syncQueries(namespaced: boolean) {
+  /**
+   * One JSON bind avoids D1's parameter limit. A winning conflict copies the
+   * attempted insert's fresh AUTOINCREMENT value into the compacted row.
+   */
+  const APPLY_SYNC_V2_BATCH_SQL = `
   INSERT INTO sync_records (
     user_id,
+    ${namespaced ? "namespace," : ""}
     key,
     value,
     schema_version,
@@ -48,6 +51,7 @@ const APPLY_SYNC_V2_BATCH_SQL = `
   )
   SELECT
     ?,
+    ${namespaced ? "?," : ""}
     json_extract(candidate.value, '$.key'),
     json_extract(candidate.value, '$.value'),
     json_extract(candidate.value, '$.schemaVersion'),
@@ -57,7 +61,7 @@ const APPLY_SYNC_V2_BATCH_SQL = `
     json_extract(candidate.value, '$.isDeleted')
   FROM json_each(?) AS candidate
   WHERE true
-  ON CONFLICT (user_id, key) DO UPDATE SET
+  ON CONFLICT (user_id, ${namespaced ? "namespace," : ""} key) DO UPDATE SET
     server_seq = excluded.server_seq,
     value = excluded.value,
     schema_version = excluded.schema_version,
@@ -79,7 +83,7 @@ const APPLY_SYNC_V2_BATCH_SQL = `
   RETURNING *
 `;
 
-const READ_SYNC_V2_BATCH_WINNERS_SQL = `
+  const READ_SYNC_V2_BATCH_WINNERS_SQL = `
   WITH requested(key) AS (
     SELECT json_extract(candidate.value, '$.key')
     FROM json_each(?) AS candidate
@@ -87,21 +91,21 @@ const READ_SYNC_V2_BATCH_WINNERS_SQL = `
   SELECT stored.*
   FROM requested
   CROSS JOIN sync_records AS stored
-    INDEXED BY sync_records_user_key_unique
-  WHERE stored.user_id = ?
+    INDEXED BY ${namespaced ? "sync_records_scope_key_unique" : "sync_records_user_key_unique"}
+  WHERE stored.user_id = ? ${namespaced ? "AND stored.namespace = ?" : ""}
     AND stored.key = requested.key
 `;
 
-const READ_SYNC_V2_HEAD_SQL = `
+  const READ_SYNC_V2_HEAD_SQL = `
   SELECT COALESCE(MAX(server_seq), 0) AS head
   FROM sync_records
-  WHERE user_id = ?
+  WHERE user_id = ? ${namespaced ? "AND namespace = ?" : ""}
 `;
 
-const PULL_SYNC_V2_PAGE_SQL = `
+  const PULL_SYNC_V2_PAGE_SQL = `
   SELECT *
-  FROM sync_records INDEXED BY sync_records_user_seq_idx
-  WHERE user_id = ?
+  FROM sync_records INDEXED BY ${namespaced ? "sync_records_scope_seq_idx" : "sync_records_user_seq_idx"}
+  WHERE user_id = ? ${namespaced ? "AND namespace = ?" : ""}
     AND server_seq > ?
     AND server_seq <= ?
     AND (? = 0 OR device_id <> ?)
@@ -109,9 +113,9 @@ const PULL_SYNC_V2_PAGE_SQL = `
   LIMIT ?
 `;
 
-// Bound rows returned from D1 by raw UTF-8 bytes as well as count. One row past
-// the byte budget is retained as lookahead; no full large page reaches the Worker.
-const PULL_SYNC_STREAM_PAGE_SQL = `
+  // Bound rows returned from D1 by raw UTF-8 bytes as well as count. One row past
+  // the byte budget is retained as lookahead; no full large page reaches the Worker.
+  const PULL_SYNC_STREAM_PAGE_SQL = `
   WITH candidates AS (
     ${PULL_SYNC_V2_PAGE_SQL}
   ), measured AS (
@@ -122,6 +126,26 @@ const PULL_SYNC_STREAM_PAGE_SQL = `
     FROM measured
   )
   SELECT * FROM sized WHERE cumulative_bytes - record_bytes <= ? ORDER BY server_seq
+`;
+
+  return {
+    APPLY_SYNC_V2_BATCH_SQL,
+    READ_SYNC_V2_BATCH_WINNERS_SQL,
+    READ_SYNC_V2_HEAD_SQL,
+    PULL_SYNC_V2_PAGE_SQL,
+    PULL_SYNC_STREAM_PAGE_SQL,
+  };
+}
+
+export const NAMESPACED_SYNC_D1_SCHEMA_SQL = `
+CREATE TABLE sync_records (
+  server_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL, namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
+  schema_version INTEGER NOT NULL, hlc_wall_time_ms INTEGER NOT NULL,
+  hlc_counter INTEGER NOT NULL, device_id TEXT NOT NULL, is_deleted INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX sync_records_scope_key_unique ON sync_records(user_id, namespace, key);
+CREATE INDEX sync_records_scope_seq_idx ON sync_records(user_id, namespace, server_seq);
 `;
 
 interface StoredSyncV2Record {
@@ -141,20 +165,24 @@ export async function pushSyncV2(
   userId: string,
   deviceId: string,
   changes: readonly SyncPushChange[],
+  namespace?: string,
 ): Promise<SyncPushResponse> {
   if (changes.length === 0) {
     return { results: [] };
   }
 
+  const { APPLY_SYNC_V2_BATCH_SQL, READ_SYNC_V2_BATCH_WINNERS_SQL } =
+    syncQueries(namespace !== undefined);
+  const scope = namespace === undefined ? [userId] : [userId, namespace];
   const encodedChanges = JSON.stringify(changes);
   const [acceptedResult, winnersResult] =
     await database.batch<StoredSyncV2Record>([
       database
         .prepare(APPLY_SYNC_V2_BATCH_SQL)
-        .bind(userId, deviceId, encodedChanges),
+        .bind(...scope, deviceId, encodedChanges),
       database
         .prepare(READ_SYNC_V2_BATCH_WINNERS_SQL)
-        .bind(encodedChanges, userId),
+        .bind(encodedChanges, ...scope),
     ]);
 
   if (acceptedResult === undefined || winnersResult === undefined) {
@@ -191,10 +219,12 @@ export async function pushSyncV2(
 export async function readSyncV2Head(
   database: SyncD1Database,
   userId: string,
+  namespace?: string,
 ): Promise<number> {
+  const { READ_SYNC_V2_HEAD_SQL } = syncQueries(namespace !== undefined);
   const result = await database
     .prepare(READ_SYNC_V2_HEAD_SQL)
-    .bind(userId)
+    .bind(...(namespace === undefined ? [userId] : [userId, namespace]))
     .first<{ head: number }>();
   return result?.head ?? 0;
 }
@@ -206,10 +236,15 @@ export async function pullSyncV2(
   body: SyncPullBody,
   head: number,
   boundedBytes = false,
+  namespace?: string,
 ): Promise<SyncPullResponse> {
+  const { PULL_SYNC_V2_PAGE_SQL, PULL_SYNC_STREAM_PAGE_SQL } = syncQueries(
+    namespace !== undefined,
+  );
   const limit = body.limit ?? DEFAULT_SYNC_PULL_LIMIT;
   const values: unknown[] = [
     userId,
+    ...(namespace === undefined ? [] : [namespace]),
     body.cursor,
     head,
     body.excludeOwnDevice ? 1 : 0,

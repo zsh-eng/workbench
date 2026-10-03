@@ -4,9 +4,12 @@ import type {
   SyncPullResponse,
   SyncPushResponse,
   SyncRecord,
+  SyncScope,
 } from "./protocol.js";
 
 export interface SyncRemote {
+  /** Authenticated stream identity. Required by namespaced v3 transports. */
+  getScope?(): Promise<SyncScope>;
   /** Optional bounded-window stream. Must honor cancellation, including pending reads. */
   pullStream?(
     deviceId: string,
