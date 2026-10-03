@@ -63,6 +63,8 @@ edit followed by sync, and repeated file deletion.
 
 The configuration contains local resource IDs and a development secret. It has
 no deployment command. Existing deployment commands still use the app backends.
-Production account merging, transformed data import, password-provider choices,
-legacy image URL rewriting, and cutover remain in the
-[migration plan](../../docs/SHARED_SYNC_PLAN.md).
+Fresh backups and the complete local conversion have passed. The
+[rehearsal guide](MIGRATION.md) records sizes, checks, repeatable commands and
+remaining cutover work. The [migration plan](../../docs/SHARED_SYNC_PLAN.md)
+defines the account, namespace and local-state contracts. Production deployment
+and client cutover remain separate work.

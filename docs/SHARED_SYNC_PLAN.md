@@ -3,9 +3,10 @@
 Status: local Reader and Spaced implementation recovered onto current main,
 3 October 2026.
 See the [local service guide](../apps/sync-server/README.md) for commands and limits.
-Arctic remains outside this implementation. No production inventory, export,
-migration, deployment, or client cutover has run. The production steps below
-remain a plan.
+Arctic remains outside this implementation. Fresh production D1/R2 backups and a
+full local conversion rehearsal passed on 3 October 2026. No production data
+mutation, deployment, or client cutover has run. See the
+[rehearsal results and cutover checklist](../apps/sync-server/MIGRATION.md).
 
 ## Decision
 
@@ -18,7 +19,9 @@ R2 bucket. Keep each app's local database and domain model. The server stores
 opaque records; it does not import app schemas or implement reading/review logic.
 
 Proposed location: `apps/sync-server`. Proposed public origin: `api.zsheng.app`.
-The origin and resource names are proposals; availability has not been checked.
+The origin and resource names are proposals. No matching Worker custom domain was
+registered at preflight; DNS did not resolve. Zone DNS inspection was denied by
+the current token, so production domain configuration remains to be checked.
 Reader and Spaced keep their existing frontend origins and release separately.
 Their Workers can continue to serve assets, but the shared Worker owns all auth,
 sync, file, and device APIs.
@@ -73,8 +76,8 @@ Evidence paths, relative to the main checkout:
 - `packages/arctic-sync-server/README.md`, `routes.ts`, `native-auth.ts`
 - `apps/arctic/README.md`, `Sync/PERFORMANCE.md`
 
-These are source/configuration findings. Current remote row counts, account IDs,
-file completeness, and deployment state must be checked during migration preflight.
+Remote inventory and file completeness were checked in the documented rehearsal.
+Repeat those checks on the final frozen snapshot; these counts can change with use.
 
 ## Namespace contract
 
@@ -289,7 +292,8 @@ migration is required for working Arctic sync even if the backend merge succeeds
 
 Keep integration and end-to-end tests focused on these boundaries. Do not duplicate
 all existing app behavior tests in the server package. Build/check affected consumers
-because the protocol types change. No implementation build is needed for this plan.
+because the protocol types change. For migration-tool-only changes, run the backup
+and conversion integration tests plus the local app-codec verification.
 
 The intended result is one account and one backend with independent app datasets.
 Adding a fourth app means registering its namespace and supplying its local adapter
