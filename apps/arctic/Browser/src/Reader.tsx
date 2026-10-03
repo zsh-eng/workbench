@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowLeft,
@@ -40,6 +40,20 @@ export function Reader({
   const [loadError, setLoadError] = useState("");
   const [loading, setLoading] = useState(!!article.bodyPath);
   const [selection, setSelection] = useState<Passage | null>(null);
+  const [toolbarSelection, setToolbarSelection] = useState<Passage | null>(
+    null,
+  );
+  useLayoutEffect(() => {
+    if (selection) {
+      setToolbarSelection(selection);
+      return;
+    }
+    const timer = setTimeout(
+      () => setToolbarSelection(null),
+      matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 150,
+    );
+    return () => clearTimeout(timer);
+  }, [selection]);
   const [quote, setQuote] = useState<TextHighlight | undefined>();
   const [draftColor, setDraftColor] = useState<AnnotationColor>("yellow");
   const [draft, setDraft] = useState("");
@@ -536,16 +550,18 @@ export function Reader({
           </div>
         </div>
       </aside>
-      {selection && (
+      {toolbarSelection && (
         <HighlightToolbar
-          rect={selection.rect}
-          currentColor={selection.color}
-          text={selection.quote.selectedText}
+          open={!!selection}
+          rect={toolbarSelection.rect}
+          currentColor={toolbarSelection.color}
+          text={toolbarSelection.quote.selectedText}
           busy={saving}
           notify={notify}
           onClose={dismissSelection}
           onColor={(color) => void highlight(color)}
           onNote={() => {
+            if (!selection) return;
             const existing = annotations.find(
               (n) => n.id === selection.annotationId,
             );

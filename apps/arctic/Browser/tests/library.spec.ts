@@ -181,9 +181,18 @@ test("tag editing and add link use real persistent state", async ({ page }) => {
   await page
     .getByRole("textbox", { name: "Article URL" })
     .fill("https://example.net/new?x=one&y=two#part");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(
+    page.getByRole("navigation", { name: "Library folders" }),
+  ).toBeVisible();
+  await expect(page.locator(".article-card")).toHaveCount(3);
+  await page.reload();
   await page
-    .getByRole("button", { name: "Save article", exact: true })
-    .last()
+    .locator(".card-top")
+    .filter({
+      has: page.getByRole("heading", { name: "example.net", exact: true }),
+    })
     .click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(
     "example.net",
@@ -349,4 +358,139 @@ test("selection pill copies, colors, edits, and removes highlights while retaini
   await page.reload();
   await expect(mark).toHaveCount(0);
   await expect(page.locator(".annotation")).toContainText("Keep this thought");
+});
+
+test("slash focuses search but leaves URL and note typing alone", async ({
+  page,
+}) => {
+  await prepare(page);
+  await page.keyboard.press("/");
+  const search = page.getByRole("textbox", { name: "Search articles" });
+  await expect(search).toBeFocused();
+  await expect(search).toHaveValue("");
+  await page.keyboard.type("/");
+  await expect(search).toHaveValue("/");
+  await page.getByRole("button", { name: "Clear search" }).click();
+  await page.getByRole("button", { name: "Add article", exact: true }).click();
+  const url = page.getByRole("textbox", { name: "Article URL" });
+  await url.fill("https:");
+  await page.keyboard.type("//example.net/path");
+  await expect(url).toHaveValue("https://example.net/path");
+  await page.keyboard.press("Escape");
+  await expect(
+    page.getByRole("button", { name: "Add article", exact: true }),
+  ).toBeFocused();
+  await page.locator(".card-top").first().click();
+  await page.getByRole("button", { name: "Show notes", exact: true }).click();
+  const draft = page.getByRole("textbox", { name: "Write a note" });
+  await draft.fill("and");
+  await page.keyboard.type("/or");
+  await expect(draft).toHaveValue("and/or");
+  await page.getByRole("button", { name: "Hide notes", exact: true }).click();
+  await page.keyboard.press("/");
+  await expect(search).toBeFocused();
+});
+
+test("inline paste preview distinguishes Open from Save and dismisses without saving", async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await prepare(page);
+  await page.evaluate(() =>
+    navigator.clipboard.writeText("https://example.net/open?edition=2#section"),
+  );
+  await page.getByRole("button", { name: "Add article", exact: true }).click();
+  await page.getByRole("button", { name: "Paste link", exact: true }).click();
+  await expect(page.locator(".add-link-preview")).toContainText("example.net");
+  await page.getByRole("button", { name: "Open", exact: true }).click();
+  await expect(page).toHaveURL(
+    `/read/${encodeURIComponent("https://example.net/open?edition=2#section")}`,
+  );
+  await page.getByRole("button", { name: "Show notes", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Save article", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("link", { name: "Back to reading list", exact: true })
+    .click();
+  await expect(page.locator(".article-card")).toHaveCount(2);
+  await page.getByRole("button", { name: "All articles", exact: true }).click();
+  await expect(page.locator(".article-card")).toHaveCount(3);
+  await page.evaluate((url) => {
+    const data = new DataTransfer();
+    data.setData("text/plain", url);
+    document.body.dispatchEvent(
+      new ClipboardEvent("paste", {
+        clipboardData: data,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  }, source);
+  await expect(page.locator(".add-link-preview")).toContainText(
+    "The shape of a good idea",
+  );
+  await expect(
+    page
+      .locator(".add-link-preview")
+      .getByRole("button", { name: "Save", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("textbox", { name: "Article URL" }).fill("not a link");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".add-article-panel [role=alert]")).toBeVisible();
+  await page
+    .getByRole("textbox", { name: "Article URL" })
+    .fill("https://example.net/dismiss");
+  await page.getByRole("button", { name: "Dismiss add article" }).click();
+  await page.reload();
+  await expect(page.locator(".article-card")).toHaveCount(3);
+});
+
+test("highlight toolbar appears immediately and fades only on exit", async ({
+  page,
+}) => {
+  await prepare(page);
+  await page.locator(".card-top").first().click();
+  const paragraph = page.locator(".article-body p").first();
+  await expect(paragraph).toBeVisible();
+  await paragraph.evaluate((node) => {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+  });
+  const toolbar = page.getByRole("toolbar");
+  await expect(toolbar).toBeVisible();
+  expect(
+    await toolbar.evaluate((node) => ({
+      opacity: getComputedStyle(node).opacity,
+      animations: node.getAnimations().length,
+    })),
+  ).toEqual({ opacity: "1", animations: 0 });
+  const exit = await page.evaluate(async () => {
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+    await new Promise(requestAnimationFrame);
+    await new Promise(requestAnimationFrame);
+    const node = document.querySelector<HTMLElement>(
+      "[data-highlight-toolbar]",
+    );
+    if (!node) return null;
+    // Sample the real exit transition at its midpoint without racing frame timing.
+    void getComputedStyle(node).opacity;
+    const animation = node.getAnimations()[0];
+    if (animation) {
+      animation.pause();
+      animation.currentTime = 75;
+    }
+    return {
+      inert: node.inert,
+      opacity: Number(getComputedStyle(node).opacity),
+    };
+  });
+  expect(exit?.inert).toBe(true);
+  expect(exit?.opacity).toBeLessThan(1);
+  await expect(page.locator("[data-highlight-toolbar]")).toHaveCount(0);
 });

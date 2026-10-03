@@ -90,6 +90,17 @@ this sidebar. It uses an overlay on narrow screens and retains drafts when hidde
 The reader has a back arrow in place of the library header. Hover and keyboard focus expose
 card actions; touch layouts keep them visible. Reduced motion is respected.
 
+Press `/` to focus search outside text fields. Add article opens an inline link
+preview modeled on the native ClipboardBanner. Paste a link into the library or
+use the Paste link button. Save bookmarks it and stays in the library; Open
+creates an unsaved entry when needed and opens Reader. Existing saved links offer
+Open only. Dismiss does not write an article. URL queries and fragments remain
+intact. Previews reuse existing library metadata; new URLs show their host until
+metadata is available. This local app still does not fetch new publisher text.
+
+The selection toolbar appears immediately and fades out over 150ms on dismissal;
+Reduce Motion disables the fade. Exiting controls cannot receive input.
+
 The selection toolbar adapts `~/papers/src/components/highlight-toolbar.tsx`:
 a floating pill with four color swatches, a current-color ring, and copy feedback.
 Arctic adds a note button that opens the sidebar. Click a highlight to recolor it;

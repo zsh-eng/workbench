@@ -7,8 +7,9 @@ import {
 } from "react-router-dom";
 import { ArrowDown, ArrowRight, Check, Plus, Search, X } from "lucide-react";
 import { articlePath, sourceName, webURL, type Article } from "./model";
-import { changeLibrary, useLibrary } from "./store";
-import { ArticleActions, Modal, SortSelect } from "./ui";
+import { useLibrary } from "./store";
+import { ArticleActions, SortSelect } from "./ui";
+import { AddArticle } from "./AddArticle";
 import { Reader } from "./Reader";
 const folders = [
   ["saved", "Reading list"],
@@ -23,9 +24,10 @@ export function App() {
   const [params, setParams] = useSearchParams();
   const [notice, setNotice] = useState("");
   const [addOpen, setAddOpen] = useState(false);
-  const [urlInput, setURLInput] = useState("");
-  const [addError, setAddError] = useState("");
+  const [pendingURL, setPendingURL] = useState("");
+  const addTrigger = useRef<HTMLButtonElement>(null);
   const search = useRef<HTMLInputElement>(null);
+  const focusSearchAfterNavigation = useRef(false);
   const query = params.get("q") ?? "";
   const folder = params.get("folder") ?? "saved";
   const tag = params.get("tag") ?? "";
@@ -38,15 +40,36 @@ export function App() {
   }, [notice]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key === "k") {
+      const target = event.target instanceof Element ? event.target : null;
+      if (
+        event.isComposing ||
+        event.repeat ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        target?.closest(
+          "input, textarea, select, [contenteditable]:not([contenteditable=false])",
+        ) ||
+        document.querySelector('[role="dialog"], [role="listbox"]')
+      )
+        return;
+      if (event.key === "/") {
         event.preventDefault();
-        if (reader) navigate("/");
-        requestAnimationFrame(() => search.current?.focus());
+        if (reader) {
+          focusSearchAfterNavigation.current = true;
+          navigate("/");
+        } else search.current?.focus();
       }
     };
     document.addEventListener("keydown", key);
     return () => document.removeEventListener("keydown", key);
   }, [reader, navigate]);
+  useEffect(() => {
+    if (!reader && focusSearchAfterNavigation.current) {
+      focusSearchAfterNavigation.current = false;
+      search.current?.focus();
+    }
+  }, [reader]);
   const setFilter = (key: string, value: string) => {
     const next = new URLSearchParams(params);
     if (value) next.set(key, value);
@@ -88,46 +111,32 @@ export function App() {
   useEffect(() => {
     setLimit(30);
   }, [query, folder, tag, sort]);
-  const add = async (event: React.FormEvent) => {
-    event.preventDefault();
-    const url = webURL(urlInput.trim());
-    if (!url) {
-      setAddError("Enter a complete http:// or https:// article URL.");
-      return;
-    }
-    try {
-      await changeLibrary((l) => {
-        const found = l.articles.some((a) => a.url === url);
-        return {
-          ...l,
-          articles: found
-            ? l.articles.map((a) =>
-                a.url === url ? { ...a, saved: true, archived: false } : a,
-              )
-            : [
-                {
-                  id: crypto.randomUUID(),
-                  url,
-                  title: sourceName(url),
-                  description: "",
-                  author: "",
-                  tags: [],
-                  savedAt: Date.now(),
-                  saved: true,
-                  archived: false,
-                  favourite: false,
-                },
-                ...l.articles,
-              ],
-        };
-      });
-      setAddOpen(false);
-      setURLInput("");
-      navigate(articlePath(url));
-    } catch {
-      setAddError("Could not save this link. Please try again.");
-    }
+  const closeAdd = () => {
+    setAddOpen(false);
+    addTrigger.current?.focus();
   };
+  useEffect(() => {
+    const paste = (event: ClipboardEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (
+        reader ||
+        target?.closest(
+          "input, textarea, [contenteditable]:not([contenteditable=false])",
+        ) ||
+        document.querySelector('[role="dialog"]')
+      )
+        return;
+      const url = webURL(
+        event.clipboardData?.getData("text/plain").trim() ?? "",
+      );
+      if (!url) return;
+      event.preventDefault();
+      setPendingURL(url);
+      setAddOpen(true);
+    };
+    document.addEventListener("paste", paste);
+    return () => document.removeEventListener("paste", paste);
+  }, [reader]);
   let selectedURL = "";
   try {
     selectedURL = decodeURIComponent(location.pathname.slice("/read/".length));
@@ -150,7 +159,7 @@ export function App() {
               height="36"
               alt=""
             />
-            <span>arctic</span>
+            <span className="brand-wordmark">arctic</span>
           </Link>
           <div className="header-middle">
             {!reader && (
@@ -159,6 +168,7 @@ export function App() {
                 <input
                   ref={search}
                   aria-label="Search articles"
+                  aria-keyshortcuts="/"
                   placeholder="Search articles…"
                   value={query}
                   onChange={(e) => setFilter("q", e.target.value)}
@@ -172,16 +182,19 @@ export function App() {
                     <X size={16} />
                   </button>
                 ) : (
-                  <kbd>⌘ K</kbd>
+                  <kbd>/</kbd>
                 )}
               </div>
             )}
           </div>
           <button
+            ref={addTrigger}
             className="add-button"
+            aria-expanded={addOpen}
+            aria-controls="add-article-inline"
             onClick={() => {
-              setAddError("");
-              setAddOpen(true);
+              setPendingURL("");
+              setAddOpen((open) => !open);
             }}
           >
             <Plus size={17} />
@@ -233,6 +246,18 @@ export function App() {
       ) : (
         <main id="main" className="library-layout">
           <section className="library-main">
+            {addOpen && (
+              <div id="add-article-inline">
+                <AddArticle
+                  key={pendingURL}
+                  articles={library.articles}
+                  initialURL={pendingURL}
+                  onClose={closeAdd}
+                  onOpen={(url) => navigate(articlePath(url))}
+                  notify={setNotice}
+                />
+              </div>
+            )}
             <h1 className="sr-only">
               {tag ||
                 (query
@@ -335,24 +360,6 @@ export function App() {
           </aside>
         </main>
       )}
-      <Modal title="Add article" open={addOpen} onOpenChange={setAddOpen}>
-        <form onSubmit={add}>
-          <label htmlFor="article-url">Article URL</label>
-          <input
-            id="article-url"
-            type="url"
-            placeholder="https://…"
-            value={urlInput}
-            onChange={(e) => setURLInput(e.target.value)}
-            autoFocus
-            required
-          />
-          {addError && <p role="alert">{addError}</p>}
-          <button className="primary" type="submit">
-            Save article <ArrowRight size={16} />
-          </button>
-        </form>
-      </Modal>
       {notice && (
         <div className="toast" role="status">
           <Check size={16} />

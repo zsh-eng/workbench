@@ -12,6 +12,7 @@ const colors: AnnotationColor[] = ["yellow", "green", "blue", "magenta"];
 
 // Adapted from ~/papers/src/components/highlight-toolbar.tsx.
 export function HighlightToolbar({
+  open,
   rect,
   currentColor,
   text,
@@ -21,6 +22,7 @@ export function HighlightToolbar({
   onClose,
   notify,
 }: {
+  open: boolean;
   rect: PassageRect;
   currentColor?: AnnotationColor;
   text: string;
@@ -44,6 +46,7 @@ export function HighlightToolbar({
   }, [text, notify]);
   useEffect(() => () => clearTimeout(timer.current), []);
   useEffect(() => {
+    if (!open) return;
     const key = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -76,7 +79,7 @@ export function HighlightToolbar({
       window.removeEventListener("scroll", onClose, true);
       window.removeEventListener("resize", onClose);
     };
-  }, [copy, onClose]);
+  }, [copy, onClose, open]);
   const width = 276;
   const left = Math.max(
     12,
@@ -95,6 +98,9 @@ export function HighlightToolbar({
   return (
     <div
       data-highlight-toolbar
+      data-exiting={!open || undefined}
+      aria-hidden={!open || undefined}
+      inert={!open}
       className="highlight-toolbar"
       role="toolbar"
       aria-label="Selected passage actions"
