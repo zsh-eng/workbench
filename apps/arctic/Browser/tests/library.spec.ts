@@ -549,3 +549,60 @@ test("card delete removes local article and notes; undo restores both", async ({
   ).toBeVisible();
   await expect(page.locator(".annotation")).toHaveCount(0);
 });
+
+test("local reads stay quiet before the delay and retain slow-load and retry feedback", async ({
+  page,
+}) => {
+  await page.clock.install();
+  let releaseSeed!: () => void;
+  const seedGate = new Promise<void>((resolve) => {
+    releaseSeed = resolve;
+  });
+  await page.route("**/seed/index.json", async (route) => {
+    await seedGate;
+    await route.fulfill({ json: seed });
+  });
+  let releaseBody!: () => void;
+  const bodyGate = new Promise<void>((resolve) => {
+    releaseBody = resolve;
+  });
+  let failed = false;
+  await page.route("**/seed/bodies/one.html", async (route) => {
+    if (!failed) {
+      await bodyGate;
+      failed = true;
+      await route.fulfill({ status: 503, body: "Unavailable" });
+    } else await route.fulfill({ contentType: "text/html", body });
+  });
+  await page.goto("/");
+  await expect(page.getByRole("link", { name: "Arctic home" })).toBeVisible();
+  await page.clock.runFor(250);
+  await expect(
+    page.getByText("Opening your reading list…", { exact: true }),
+  ).toHaveCount(0);
+  await page.clock.runFor(400);
+  await expect(page.getByRole("status")).toHaveText(
+    "Opening your reading list…",
+  );
+  releaseSeed();
+  await expect(
+    page.getByRole("navigation", { name: "Library folders" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Opening your reading list…", { exact: true }),
+  ).toHaveCount(0);
+  await page.locator(".card-top").first().click();
+  await page.clock.runFor(250);
+  await expect(
+    page.getByText("Opening the article…", { exact: true }),
+  ).toHaveCount(0);
+  await page.clock.runFor(400);
+  await expect(page.getByRole("status")).toHaveText("Opening the article…");
+  releaseBody();
+  await expect(page.getByRole("alert")).toContainText("could not be loaded");
+  await expect(page.getByRole("status")).toHaveCount(0);
+  await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await expect(page.getByTestId("article-body")).toContainText("A good tool");
+  await page.clock.runFor(500);
+  await expect(page.getByRole("status")).toHaveCount(0);
+});

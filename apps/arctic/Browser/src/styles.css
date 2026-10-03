@@ -1170,3 +1170,9 @@ kbd {
   text-underline-offset: 3px;
   padding: 6px;
 }
+
+.library-loading {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.6;
+}

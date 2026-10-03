@@ -82,6 +82,10 @@ EB Garamond and DM Sans come from Arctic's existing assets; see
 [font notices](../THIRD_PARTY_NOTICES.txt). Geist and Geist Mono are copied from
 Med's existing assets with their [SIL license](public/fonts/GEIST-OFL.txt).
 
+Library and article loading copy appears only after 400ms. Fast local reads show
+no loading message. Errors still appear immediately, and local note saves keep
+a stable button label while preventing duplicate submissions.
+
 The app follows the system light/dark theme, including menus, notes, and the
 highlight toolbar. Card descriptions show at most three lines with an ellipsis.
 

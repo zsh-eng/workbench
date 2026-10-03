@@ -17,6 +17,7 @@ import type { Article, Annotation, AnnotationColor } from "./model";
 import { sourceName } from "./model";
 import { changeLibrary } from "./store";
 import { cleanArticle } from "./content";
+import { LoadingStatus } from "./LoadingStatus";
 import { ArticleActions, Tool } from "./ui";
 import { HighlightToolbar, type PassageRect } from "./HighlightToolbar";
 type Passage = {
@@ -388,9 +389,9 @@ export function Reader({
           </figure>
         )}
         {loading ? (
-          <p className="reader-status" role="status">
+          <LoadingStatus className="reader-status">
             Opening the article…
-          </p>
+          </LoadingStatus>
         ) : loadError ? (
           <div className="reader-status" role="alert">
             <p>{loadError}</p>
@@ -430,12 +431,14 @@ export function Reader({
             }}
           />
         )}
-        <footer className="article-end">
-          <a href={article.url} target="_blank" rel="noopener noreferrer">
-            Read at {sourceName(article.url)} <ArrowRight size={14} />
-          </a>
-          <Link to="/">Back to your reading list</Link>
-        </footer>
+        {!loading && (
+          <footer className="article-end">
+            <a href={article.url} target="_blank" rel="noopener noreferrer">
+              Read at {sourceName(article.url)} <ArrowRight size={14} />
+            </a>
+            <Link to="/">Back to your reading list</Link>
+          </footer>
+        )}
       </div>
       <aside
         id="reader-notes"
@@ -496,7 +499,7 @@ export function Reader({
                 </button>
               )}
               <button type="submit" disabled={!draft.trim() || saving}>
-                {saving ? "Saving…" : editing ? "Save changes" : "Save note"}
+                {editing ? "Save changes" : "Save note"}
                 <ArrowRight size={14} />
               </button>
             </div>

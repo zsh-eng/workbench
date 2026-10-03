@@ -15,6 +15,7 @@ import {
 } from "./model";
 import { changeLibrary, useLibrary } from "./store";
 import { ArticleActions, SortSelect } from "./ui";
+import { LoadingStatus } from "./LoadingStatus";
 import { AddArticle } from "./AddArticle";
 import { Reader } from "./Reader";
 const folders = [
@@ -268,14 +269,14 @@ export function App() {
         </header>
       )}
       {!library ? (
-        <main id="main" className="empty">
-          <h1>
-            {error
-              ? "Your library could not open."
-              : "Opening your reading list…"}
-          </h1>
-          {error && (
-            <>
+        <main
+          id="main"
+          className={error ? "empty" : "library-layout"}
+          aria-busy={!error}
+        >
+          {error ? (
+            <div role="alert">
+              <h1>Your library could not open.</h1>
               <p>{error}</p>
               <button
                 className="primary"
@@ -283,7 +284,11 @@ export function App() {
               >
                 Try again
               </button>
-            </>
+            </div>
+          ) : (
+            <LoadingStatus className="library-loading">
+              Opening your reading list…
+            </LoadingStatus>
           )}
         </main>
       ) : reader ? (
