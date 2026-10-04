@@ -1,6 +1,12 @@
-import { AnimatePresence, motion } from "motion/react";
+import {
+  AnimatePresence,
+  motion,
+  useReducedMotionConfig,
+  type Transition,
+} from "motion/react";
 import { Copy, NotebookText, PenLine } from "lucide-react";
 import {
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -16,6 +22,7 @@ import { BOOK, chapterOf, CURRENT_CHAPTER, CURRENT_PAGE } from "./lab-content";
 import {
   colorVar,
   EASE,
+  SPRING_SOFT,
   type LabColor,
   type LabToastState,
   type LocalRect,
@@ -41,6 +48,7 @@ export function ReaderSurface({
   pageStyle,
   bottomInset = 44,
   pageNumber = true,
+  chapterTitle = true,
 }: {
   children: (pageStyle: CSSProperties) => ReactNode;
   topRight?: ReactNode;
@@ -49,6 +57,8 @@ export function ReaderSurface({
   /** Phone: space kept below the text for bottom controls. */
   bottomInset?: number;
   pageNumber?: boolean;
+  /** Phone: the lab's own running head. Off when real Reader chrome is shown. */
+  chapterTitle?: boolean;
 }) {
   const { device } = useLabScreen();
   if (device === "desktop") {
@@ -97,12 +107,14 @@ export function ReaderSurface({
   }
   return (
     <div className="absolute inset-0">
-      <header
-        className="absolute inset-x-0 flex h-9 items-center justify-center text-[10px] font-medium uppercase tracking-[0.24em] text-muted-foreground"
-        style={{ top: "var(--safe-top)" }}
-      >
-        {chapterOf(CURRENT_CHAPTER).title}
-      </header>
+      {chapterTitle && (
+        <header
+          className="absolute inset-x-0 flex h-9 items-center justify-center text-[10px] font-medium uppercase tracking-[0.24em] text-muted-foreground"
+          style={{ top: "var(--safe-top)" }}
+        >
+          {chapterOf(CURRENT_CHAPTER).title}
+        </header>
+      )}
       <div
         className="absolute inset-x-[26px] overflow-hidden"
         style={{
@@ -418,5 +430,83 @@ export function Kbd({ children }: { children: ReactNode }) {
     <kbd className="rounded-[5px] border border-border bg-secondary/60 px-1 py-px font-sans text-[10px] text-muted-foreground">
       {children}
     </kbd>
+  );
+}
+
+/**
+ * A surface that animates its own size to the natural size of its current
+ * layer, so one object can become a palette, a composer or a sheet in place.
+ * Explicit width and height (not layout projection) keep the morph correct
+ * inside a scaled device frame. The first size is applied without a morph:
+ * a surface that appears never grows out of a previous shape.
+ */
+export function MorphSurface({
+  layerKey,
+  radius,
+  anchor = "center",
+  transition = SPRING_SOFT,
+  className,
+  children,
+}: {
+  layerKey: string;
+  radius: number;
+  /** Where the content stays pinned while the surface changes size. */
+  anchor?: "center" | "right";
+  transition?: Transition;
+  className?: string;
+  children: ReactNode;
+}) {
+  const layer = useRef<HTMLDivElement>(null);
+  const reduced = useReducedMotionConfig();
+  const [size, setSize] = useState<{ width: number; height: number } | null>(
+    null,
+  );
+  const [settled, setSettled] = useState(false);
+  useLayoutEffect(() => {
+    const element = layer.current;
+    if (!element) return;
+    const update = () =>
+      setSize({ width: element.offsetWidth, height: element.offsetHeight });
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [layerKey]);
+  // Morph only after the first measured size has been applied.
+  useEffect(() => {
+    if (size && !settled) setSettled(true);
+  }, [size, settled]);
+  return (
+    <motion.div
+      className={cn("pointer-events-auto relative overflow-hidden", className)}
+      initial={false}
+      animate={
+        size
+          ? { width: size.width, height: size.height, borderRadius: radius }
+          : { borderRadius: radius }
+      }
+      transition={!settled || reduced ? { duration: 0 } : transition}
+    >
+      <AnimatePresence initial={false}>
+        <motion.div
+          key={layerKey}
+          ref={layer}
+          className={cn(
+            "absolute bottom-0 w-max",
+            anchor === "center" ? "left-1/2 -translate-x-1/2" : "right-0",
+          )}
+          initial={{ opacity: 0, filter: "blur(4px)" }}
+          animate={{ opacity: 1, filter: "blur(0px)" }}
+          exit={{
+            opacity: 0,
+            filter: "blur(4px)",
+            transition: { duration: 0.12, ease: EASE },
+          }}
+          transition={{ duration: 0.24, ease: EASE, delay: 0.05 }}
+        >
+          {children}
+        </motion.div>
+      </AnimatePresence>
+    </motion.div>
   );
 }

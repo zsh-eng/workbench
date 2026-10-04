@@ -1,4 +1,4 @@
-import { AnimatePresence, motion, useReducedMotionConfig } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { ArrowUp, NotebookText, PenLine, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AnimatedNumber } from "@/components/ui/animated-number";
@@ -30,7 +30,7 @@ import {
   type LabSelection,
 } from "../lab-model";
 import { LabPage, type PageMark } from "../LabPage";
-import { LabToast, ReaderSurface, Swatch } from "../lab-ui";
+import { LabToast, MorphSurface, ReaderSurface, Swatch } from "../lab-ui";
 
 type IslandState = "rest" | "select" | "compose" | "saved" | "notebook";
 
@@ -237,7 +237,11 @@ export function Island() {
             "drop-shadow(0 14px 28px color-mix(in srgb, var(--foreground) 22%, transparent)) drop-shadow(0 2px 4px color-mix(in srgb, var(--foreground) 12%, transparent))",
         }}
       >
-        <IslandSurface state={state} theme={invertedTheme(theme)}>
+        <MorphSurface
+          layerKey={state}
+          radius={RADIUS[state]}
+          className={cn(invertedTheme(theme), "bg-background text-foreground")}
+        >
           {state === "rest" && (
             <div className="flex h-11 items-center gap-0.5 px-1.5 whitespace-nowrap">
               <button
@@ -417,75 +421,12 @@ export function Island() {
               </div>
             </div>
           )}
-        </IslandSurface>
+        </MorphSurface>
       </motion.div>
 
       <FauxKeyboard open={composing} />
       <LabToast toast={toast.toast} bottom={80} />
     </div>
-  );
-}
-
-/**
- * Animates its own size to the natural size of the current layer. Explicit
- * width and height (not layout projection) keep the morph correct inside a
- * scaled device frame.
- */
-function IslandSurface({
-  state,
-  theme,
-  children,
-}: {
-  state: IslandState;
-  theme: string;
-  children: React.ReactNode;
-}) {
-  const layer = useRef<HTMLDivElement>(null);
-  const reduced = useReducedMotionConfig();
-  const [size, setSize] = useState({ width: 150, height: 44 });
-  useLayoutEffect(() => {
-    const element = layer.current;
-    if (!element) return;
-    const update = () =>
-      setSize({ width: element.offsetWidth, height: element.offsetHeight });
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [state]);
-  return (
-    <motion.div
-      className={cn(
-        theme,
-        "pointer-events-auto relative overflow-hidden bg-background text-foreground",
-      )}
-      initial={false}
-      animate={{
-        width: size.width,
-        height: size.height,
-        borderRadius: RADIUS[state],
-      }}
-      transition={reduced ? { duration: 0 } : SPRING_SOFT}
-    >
-      <AnimatePresence initial={false}>
-        <motion.div
-          key={state}
-          ref={layer}
-          className="absolute bottom-0 left-1/2 w-max -translate-x-1/2"
-          initial={{ opacity: 0, scale: 0.94, filter: "blur(6px)" }}
-          animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
-          exit={{
-            opacity: 0,
-            scale: 0.98,
-            filter: "blur(6px)",
-            transition: { duration: 0.14, ease: EASE },
-          }}
-          transition={{ duration: 0.3, ease: EASE, delay: 0.06 }}
-        >
-          {children}
-        </motion.div>
-      </AnimatePresence>
-    </motion.div>
   );
 }
 

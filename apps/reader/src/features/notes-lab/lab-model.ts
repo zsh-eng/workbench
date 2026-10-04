@@ -53,6 +53,12 @@ export const SPRING_SOFT = {
   bounce: 0.18,
   duration: 0.5,
 } as const;
+/** Low-bounce spring for surfaces that change shape near reading text. */
+export const SPRING_CALM = {
+  type: "spring",
+  bounce: 0.1,
+  duration: 0.42,
+} as const;
 export const SPRING_SNAP = {
   type: "spring",
   bounce: 0.32,

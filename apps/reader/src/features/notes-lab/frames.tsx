@@ -397,3 +397,23 @@ export function useSampleSelection(
     if (demo) run();
   }, [demo]);
 }
+
+/** The screen's unscaled size, measured after its ref attaches. */
+export function useScreenSize() {
+  const { screen } = useLabScreen();
+  const [size, setSize] = useState({
+    width: PHONE.width,
+    height: PHONE.height,
+  });
+  useEffect(() => {
+    const element = screen.current;
+    if (!element) return;
+    const update = () =>
+      setSize({ width: element.offsetWidth, height: element.offsetHeight });
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [screen]);
+  return size;
+}

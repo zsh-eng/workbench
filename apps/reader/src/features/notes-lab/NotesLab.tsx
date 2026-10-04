@@ -25,9 +25,12 @@ import { Interleaf } from "./concepts/Interleaf";
 import { Island } from "./concepts/Island";
 import { Lift } from "./concepts/Lift";
 import { Marginalia } from "./concepts/Marginalia";
+import { NotesIsland } from "./concepts/NotesIsland";
 
 interface Concept {
   id: string;
+  /** A prototype refines one direction; explorations compare directions. */
+  kind: "prototype" | "exploration";
   name: string;
   line: string;
   stages: ("Capture" | "Compose" | "Revisit")[];
@@ -41,7 +44,35 @@ interface Concept {
 
 const CONCEPTS: Concept[] = [
   {
+    id: "notes-island",
+    kind: "prototype",
+    name: "Notes Island",
+    line: "Island, refined: it lives in the Reader chrome and stays out of reading.",
+    stages: ["Capture", "Compose", "Revisit"],
+    devices: ["phone"],
+    component: NotesIsland,
+    idea: "Island combined with Commonplace and a note peek, inside the real Reader header and footer. The capsule is never shown during plain reading. It replaces the Jot a note button and rides on the footer when the chrome is shown; it rises alone for a selection or a noted passage; it becomes the composer while writing; after saving it confirms and leaves with the chrome. It uses the reading theme's own popover material, so dark themes stay dark. The notebook filters by type and highlight colour, and maps entries on the book ribbon.",
+    steps: [
+      "Tap the page: the chrome appears and the capsule rides on the footer.",
+      "Tap again: both leave. Nothing floats over the text while reading.",
+      "Select text: the chrome steps away and the capsule becomes the palette.",
+      "Tap a passage with a dot: the capsule shows its note, with Edit and Delete.",
+      "Open the notebook from the capsule; filter by type and colour.",
+    ],
+    motion: [
+      "Resting capsule uses the footer's own enter (260 ms) and exit (180 ms) curves.",
+      "Other changes of shape use one spring (bounce 0.18, 500 ms).",
+      "Writing rides the keyboard on the iOS sheet curve; Undo lives in the capsule.",
+    ],
+    tradeoffs: [
+      "A draft has no indicator while reading; it shows on the capsule with the chrome.",
+      "Right alignment suits right thumbs; left-handed readers may want a setting.",
+      "Desktop needs its own pattern; a bottom palette is far from the cursor.",
+    ],
+  },
+  {
     id: "interleaf",
+    kind: "exploration",
     name: "Interleaf",
     line: "The page parts, and the note is written inside the text.",
     stages: ["Capture", "Compose"],
@@ -66,6 +97,7 @@ const CONCEPTS: Concept[] = [
   },
   {
     id: "marginalia",
+    kind: "exploration",
     name: "Marginalia",
     line: "Notes are typeset as sidenotes. The margin is the notebook.",
     stages: ["Compose", "Revisit"],
@@ -90,6 +122,7 @@ const CONCEPTS: Concept[] = [
   },
   {
     id: "island",
+    kind: "exploration",
     name: "Island",
     line: "One surface that changes shape for each step of the flow.",
     stages: ["Capture", "Compose", "Revisit"],
@@ -114,6 +147,7 @@ const CONCEPTS: Concept[] = [
   },
   {
     id: "lift",
+    kind: "exploration",
     name: "Lift",
     line: "The passage rises into a writing card, then flies into the notebook.",
     stages: ["Capture", "Compose"],
@@ -138,6 +172,7 @@ const CONCEPTS: Concept[] = [
   },
   {
     id: "commonplace",
+    kind: "exploration",
     name: "Commonplace",
     line: "The notebook as a typeset journal, mapped onto the whole book.",
     stages: ["Revisit"],
@@ -162,6 +197,7 @@ const CONCEPTS: Concept[] = [
   },
   {
     id: "arc",
+    kind: "exploration",
     name: "Arc",
     line: "Press and hold a sentence; actions fan out under the thumb.",
     stages: ["Capture"],
@@ -365,57 +401,34 @@ export function NotesLab() {
             Notes Lab
           </h1>
           <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
-            Six directions for how a reader captures, writes and revisits notes.
-            Prototypes only: nothing here touches your library.
+            One refined prototype and six explorations of how a reader captures,
+            writes and revisits notes. Nothing here touches your library.
           </p>
         </div>
         <LayoutGroup>
           <nav aria-label="Concepts" className="px-3">
-            {CONCEPTS.map((entry, index) => {
-              const active = entry.id === concept.id;
-              return (
-                <button
-                  key={entry.id}
-                  type="button"
-                  onClick={() => set("concept", entry.id)}
-                  aria-current={active}
-                  className="group relative block w-full rounded-2xl px-3 py-3 text-left"
-                >
-                  {active && (
-                    <motion.span
-                      layoutId="concept-active"
-                      transition={{
-                        type: "spring",
-                        bounce: 0.18,
-                        duration: 0.45,
-                      }}
-                      className="absolute inset-0 rounded-2xl bg-secondary"
+            {(["prototype", "exploration"] as const).map((kind) => (
+              <div key={kind} className="mb-3">
+                <h2 className="px-3 pb-1 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                  {kind === "prototype" ? "Prototype" : "Explorations"}
+                </h2>
+                {CONCEPTS.filter((entry) => entry.kind === kind).map(
+                  (entry, index) => (
+                    <ConceptLink
+                      key={entry.id}
+                      concept={entry}
+                      number={
+                        kind === "prototype"
+                          ? "P"
+                          : String(index + 1).padStart(2, "0")
+                      }
+                      active={entry.id === concept.id}
+                      onSelect={() => set("concept", entry.id)}
                     />
-                  )}
-                  <span className="relative flex items-baseline gap-3">
-                    <span className="font-numeric text-[11px] text-muted-foreground tabular-nums">
-                      {String(index + 1).padStart(2, "0")}
-                    </span>
-                    <span className="flex-1">
-                      <span className="flex items-center gap-2 text-sm font-medium">
-                        {entry.name}
-                        <span className="flex gap-1 text-muted-foreground">
-                          {entry.devices.includes("desktop") && (
-                            <Monitor className="size-3" />
-                          )}
-                          {entry.devices.includes("phone") && (
-                            <Smartphone className="size-3" />
-                          )}
-                        </span>
-                      </span>
-                      <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
-                        {entry.line}
-                      </span>
-                    </span>
-                  </span>
-                </button>
-              );
-            })}
+                  ),
+                )}
+              </div>
+            ))}
           </nav>
         </LayoutGroup>
         <Brief concept={concept} />
@@ -425,6 +438,56 @@ export function NotesLab() {
         <div className="min-h-0 flex-1">{stage}</div>
       </main>
     </div>
+  );
+}
+
+function ConceptLink({
+  concept,
+  number,
+  active,
+  onSelect,
+}: {
+  concept: Concept;
+  number: string;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-current={active}
+      className="group relative block w-full rounded-2xl px-3 py-3 text-left"
+    >
+      {active && (
+        <motion.span
+          layoutId="concept-active"
+          transition={{ type: "spring", bounce: 0.18, duration: 0.45 }}
+          className="absolute inset-0 rounded-2xl bg-secondary"
+        />
+      )}
+      <span className="relative flex items-baseline gap-3">
+        <span className="w-4 font-numeric text-[11px] text-muted-foreground tabular-nums">
+          {number}
+        </span>
+        <span className="flex-1">
+          <span className="flex items-center gap-2 text-sm font-medium">
+            {concept.name}
+            <span className="flex gap-1 text-muted-foreground">
+              {concept.devices.includes("desktop") && (
+                <Monitor className="size-3" />
+              )}
+              {concept.devices.includes("phone") && (
+                <Smartphone className="size-3" />
+              )}
+            </span>
+          </span>
+          <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+            {concept.line}
+          </span>
+        </span>
+      </span>
+    </button>
   );
 }
 

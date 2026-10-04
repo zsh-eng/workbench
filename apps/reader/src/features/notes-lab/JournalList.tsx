@@ -150,8 +150,10 @@ export function JournalList({
   dense?: boolean;
 }) {
   const groups = groupNotes(notes, order);
+  // A layout root: entries animate only when they move within the list, not
+  // when the list scrolls or its container moves or resizes.
   return (
-    <div className="relative">
+    <motion.div layoutRoot className="relative">
       <AnimatePresence initial={false}>
         {groups.flatMap((group) => [
           <motion.h3
@@ -184,7 +186,7 @@ export function JournalList({
           )),
         ])}
       </AnimatePresence>
-    </div>
+    </motion.div>
   );
 }
 
