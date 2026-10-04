@@ -1,7 +1,5 @@
-import { motion, useReducedMotionConfig } from "motion/react";
 import {
   Fragment,
-  useLayoutEffect,
   useRef,
   type CSSProperties,
   type ReactNode,
@@ -10,7 +8,6 @@ import {
 import { cn } from "@/lib/utils";
 import {
   colorVar,
-  EASE,
   selectionToRange,
   type LabColor,
   type LabSelection,
@@ -28,8 +25,7 @@ export interface PageMark extends TextRange {
  * One page of book text with decorated passages.
  *
  * Marks are rendered as text segments, like Reader's injected highlight markup,
- * so offsets survive reflow. A mark that is new or changes colour sweeps in
- * from its first character, across line breaks, like a highlighter.
+ * so offsets survive reflow. Highlights appear at once, without animation.
  */
 export function LabPage({
   paragraphs,
@@ -62,14 +58,6 @@ export function LabPage({
   from?: number;
 }) {
   const root = useRef<HTMLDivElement | null>(null);
-  const reduced = useReducedMotionConfig();
-  const seen = useRef<Set<string> | null>(null);
-  const keys = new Set(marks.map((mark) => `${mark.id}:${mark.color}`));
-  const firstRender = seen.current === null;
-  const fresh = (key: string) => !firstRender && !seen.current!.has(key);
-  useLayoutEffect(() => {
-    seen.current = keys;
-  });
 
   function capture() {
     if (!onSelect || !root.current) return;
@@ -112,7 +100,6 @@ export function LabPage({
                       <Fragment key={segmentIndex}>{segment.text}</Fragment>
                     );
                   const mark = segment.mark;
-                  const key = `${mark.id}:${mark.color}`;
                   const fill =
                     mark.color === "invisible"
                       ? "transparent"
@@ -120,16 +107,9 @@ export function LabPage({
                         ? `color-mix(in srgb, ${colorVar(mark.color)} 55%, transparent)`
                         : colorVar(mark.color);
                   return (
-                    <Fragment key={`${key}:${segmentIndex}`}>
-                      <motion.mark
+                    <Fragment key={`${mark.id}:${segmentIndex}`}>
+                      <mark
                         data-mark-id={mark.id}
-                        initial={
-                          fresh(key) && !reduced
-                            ? { backgroundSize: "0% 100%" }
-                            : false
-                        }
-                        animate={{ backgroundSize: "100% 100%" }}
-                        transition={{ duration: 0.46, ease: EASE }}
                         onClick={
                           onMarkClick
                             ? (event) => {
@@ -142,15 +122,14 @@ export function LabPage({
                         onPointerEnter={() => onMarkHover?.(mark.id)}
                         onPointerLeave={() => onMarkHover?.(null)}
                         className={cn(
-                          "rounded-[2px] bg-no-repeat transition-[text-decoration-color] duration-150",
+                          "rounded-[2px] transition-[text-decoration-color] duration-150",
                           onMarkClick && "cursor-pointer",
                           mark.color === "invisible" &&
                             "underline decoration-dotted decoration-[1.5px] underline-offset-[5px]",
                         )}
                         style={{
                           color: "inherit",
-                          backgroundColor: "transparent",
-                          backgroundImage: `linear-gradient(${fill}, ${fill})`,
+                          backgroundColor: fill,
                           textDecorationColor:
                             mark.color === "invisible"
                               ? mark.tone === "focus"
@@ -164,7 +143,7 @@ export function LabPage({
                         }}
                       >
                         {segment.text}
-                      </motion.mark>
+                      </mark>
                       {segment.lastOfMark && afterMark?.(mark.id)}
                     </Fragment>
                   );

@@ -456,6 +456,7 @@ export function MorphSurface({
   className?: string;
   children: ReactNode;
 }) {
+  const surface = useRef<HTMLDivElement>(null);
   const layer = useRef<HTMLDivElement>(null);
   const reduced = useReducedMotionConfig();
   const [size, setSize] = useState<{ width: number; height: number } | null>(
@@ -464,9 +465,20 @@ export function MorphSurface({
   const [settled, setSettled] = useState(false);
   useLayoutEffect(() => {
     const element = layer.current;
-    if (!element) return;
+    const container = surface.current;
+    if (!element || !container) return;
+    // The surface is border-box sized: add its border, or the bottom-anchored
+    // layer sits off centre and loses its top edge to the clip.
+    const style = getComputedStyle(container);
+    const borderX =
+      parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
+    const borderY =
+      parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
     const update = () =>
-      setSize({ width: element.offsetWidth, height: element.offsetHeight });
+      setSize({
+        width: element.offsetWidth + borderX,
+        height: element.offsetHeight + borderY,
+      });
     update();
     const observer = new ResizeObserver(update);
     observer.observe(element);
@@ -478,6 +490,7 @@ export function MorphSurface({
   }, [size, settled]);
   return (
     <motion.div
+      ref={surface}
       className={cn("pointer-events-auto relative overflow-hidden", className)}
       initial={false}
       animate={
