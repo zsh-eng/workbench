@@ -4,6 +4,7 @@ import {
   syncDeviceIdSchema,
   type SyncClientState,
   type SyncHlc,
+  type SyncScope,
 } from "./protocol.js";
 
 /** Each client/account must receive its own durable state store. */
@@ -86,4 +87,29 @@ export function observeSyncHlcBatch(
     throw new Error("Sync client state must be initialized before remote sync");
   const latest = observeSyncHlc(state.hlc, timestamps);
   if (latest !== state.hlc) store.write({ ...state, hlc: latest });
+}
+
+/** Refuse implicit account/epoch changes. New isolated stores may bind once. */
+export function bindSyncScope(
+  store: SyncClientStateStore,
+  scope: SyncScope,
+): void {
+  const state = store.read();
+  if (!state) throw new Error("Missing sync state");
+  if (state.scope) {
+    if (
+      Object.keys(scope).some(
+        (key) =>
+          scope[key as keyof SyncScope] !==
+          state.scope![key as keyof SyncScope],
+      )
+    )
+      throw new Error(
+        "Sync account, namespace, server or epoch changed. Local data is preserved; migration is required.",
+      );
+    return;
+  }
+  if (state.bootstrapped || state.pullCursor !== 0)
+    throw new Error("Legacy sync state requires an explicit migration");
+  store.write({ ...state, scope });
 }

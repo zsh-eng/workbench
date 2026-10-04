@@ -14,9 +14,11 @@ import Spaced code.
 - FSRS-6 runs through ts-fsrs 5.4.2 with the fitted client defaults. Existing
   due dates are preserved. Statistics use the user's local study day, starting
   at 04:00. See `docs/FSRS_OPTIMIZATION.md`.
-- The `spaced2` Worker serves the built frontend and same-origin `/api` routes.
-  Hono and Better Auth provide auth; D1 stores accounts and opaque sync records;
-  R2 stores images. Google callback: `/api/auth/callback/google`.
+- The `spaced2` Worker serves the built frontend. Production auth, sync, images,
+  and devices use `https://api.zsheng.app` in `apps/sync-server`, with namespace
+  `spaced`. Local records and images use API-origin-scoped browser stores.
+  Legacy app record/file writes return 410; old D1/R2 data is retained for recovery.
+  Google callback: `https://api.zsheng.app/api/auth/callback/google`.
 
 ## Local writes and sync
 
@@ -63,6 +65,8 @@ Run browser checks for interaction changes. `wrangler.jsonc` remains the app's
 production configuration. Migration, restore and retirement evidence is in
 `docs/`; historical reports retain their original paths and commit IDs.
 
-The Workbench import changes source ownership only. It does not change browser
+The earlier Workbench import changed source ownership only. The shared-backend
+cutover on 4 October 2026 is documented in `../sync-server/MIGRATION.md`.
+That earlier source import did not change browser
 origins, storage keys, Worker names, secrets, account identities or production
 records. See `../../docs/SPACED_MIGRATION.md`.

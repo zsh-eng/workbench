@@ -1,3 +1,4 @@
+import { readerApiFetch } from "./shared-fetch";
 import { getLabRuntime } from "@/features/sync-lab/runtime";
 import type { AppType } from "@server/index";
 import { hc } from "hono/client";
@@ -9,7 +10,7 @@ export const honoClient = hc<AppType>(import.meta.env.BASE_URL, {
       return Promise.reject(
         new Error("Production API requests are disabled in Sync Lab."),
       );
-    return fetch(input, init);
+    return readerApiFetch(input, init);
   },
   init: {
     credentials: "include",

@@ -19,6 +19,7 @@ import {
 } from "./d1.js";
 export {
   SYNC_D1_SCHEMA_SQL,
+  NAMESPACED_SYNC_D1_SCHEMA_SQL,
   type SyncD1Database,
   type SyncD1Statement,
 } from "./d1.js";
@@ -28,6 +29,8 @@ export interface SyncHonoOptions<E extends Env> {
   /** Use authenticated context, never a user ID supplied in the request body. */
   getIdentity(context: Context<E>): {
     userId: string;
+    /** Host-validated namespace; omitted only by legacy v2 hosts. */
+    namespace?: string;
     deviceId: string | undefined;
   };
   getDatabase(context: Context<E>): SyncD1Database;
@@ -77,6 +80,7 @@ export function createSyncHonoRoutes<E extends Env>(
             identity.userId,
             deviceIdResult.data,
             changes,
+            identity.namespace,
           ),
         );
       },
@@ -96,7 +100,11 @@ export function createSyncHonoRoutes<E extends Env>(
         if (!device.success) return c.json({ error: "Invalid device ID" }, 400);
         const database = options.getDatabase(c);
         const query = c.req.valid("query");
-        const currentHead = await readSyncV2Head(database, identity.userId);
+        const currentHead = await readSyncV2Head(
+          database,
+          identity.userId,
+          identity.namespace,
+        );
         const head = query.head ?? currentHead;
         if (query.cursor > currentHead || head > currentHead)
           return c.json(
@@ -115,6 +123,7 @@ export function createSyncHonoRoutes<E extends Env>(
               { ...query, cursor },
               head,
               true,
+              identity.namespace,
             );
             signal.throwIfAborted();
             yield page;
@@ -173,6 +182,7 @@ export function createSyncHonoRoutes<E extends Env>(
         const currentHead = await readSyncV2Head(
           options.getDatabase(c),
           identity.userId,
+          identity.namespace,
         );
         const head = body.head ?? currentHead;
         if (body.cursor > currentHead || head > currentHead) {
@@ -189,6 +199,8 @@ export function createSyncHonoRoutes<E extends Env>(
             deviceIdResult.data,
             body,
             head,
+            false,
+            identity.namespace,
           ),
         );
       },

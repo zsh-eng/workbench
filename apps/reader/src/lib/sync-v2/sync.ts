@@ -1,3 +1,4 @@
+import { SHARED_API_ORIGIN } from "../shared-api";
 /** Reader composition: shared engine plus this app's database, codecs and transport. */
 import { getLabRuntime, getRuntimeStorage } from "@/features/sync-lab/runtime";
 import { honoClient } from "@/lib/api";
@@ -9,6 +10,7 @@ import type { EPUBReaderSyncV2DB } from "./db";
 import { READER_SYNC_TABLES } from "./tables";
 import {
   SyncClient,
+  createNamespacedHttpClient,
   SYNC_DEVICE_ID_HEADER,
   syncPullResponseSchema,
   syncPushResponseSchema,
@@ -35,10 +37,12 @@ export interface SyncV2ClientOptions {
   remote?: SyncRemote;
   stateStorage?: SyncClientStateStorage;
   onEvent?: (event: SyncEvent) => void;
+  signal?: AbortSignal;
 }
 export class SyncV2Client extends SyncClient<readonly PreparedRemoteRecord[]> {
   constructor(options: SyncV2ClientOptions) {
     super({
+      signal: options.signal,
       storage: new DexieSyncStorage({
         db: options.syncDb,
         tables: READER_SYNC_TABLES,
@@ -48,7 +52,18 @@ export class SyncV2Client extends SyncClient<readonly PreparedRemoteRecord[]> {
         options.stateStorage ?? getRuntimeStorage(),
       ),
       remote:
-        options.remote ?? getLabRuntime()?.syncRemote ?? new HonoSyncV2Remote(),
+        options.remote ??
+        getLabRuntime()?.syncRemote ??
+        (SHARED_API_ORIGIN
+          ? createNamespacedHttpClient({
+              origin: SHARED_API_ORIGIN,
+              namespace: "reader",
+              signal: options.signal,
+              stateStore: readerSyncStateStore(
+                options.stateStorage ?? getRuntimeStorage(),
+              ),
+            }).remote
+          : new HonoSyncV2Remote()),
     });
   }
 }

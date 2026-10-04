@@ -1,3 +1,4 @@
+import { SHARED_STORAGE_SUFFIX } from "../shared-api";
 import { getLabRuntime, getRuntimeStorage } from "@/features/sync-lab/runtime";
 import type { SyncClientStateStorage } from "@/lib/sync-v2/client-state";
 /**
@@ -33,7 +34,8 @@ import type { NoteDraft, Note } from "@/types/note";
 import type { ReadingState } from "@/types/reading-state";
 import Dexie, { type Table, type Transaction } from "dexie";
 
-export const SYNC_V2_DATABASE_NAME = "epub-reader-db-v2";
+export const SYNC_V2_DATABASE_NAME =
+  "epub-reader-db-v2" + SHARED_STORAGE_SUFFIX;
 const LEGACY_DATABASE_NAME = "epub-reader-db";
 
 export interface SyncV2DeletionState {
@@ -277,7 +279,7 @@ export class EPUBReaderSyncV2DB extends Dexie {
 
 /** Remove the pre-v2 database after the completed production cutover. */
 export async function deleteLegacyClientDatabase(): Promise<void> {
-  if (getLabRuntime()) return;
+  if (getLabRuntime() || SHARED_STORAGE_SUFFIX) return;
   await Dexie.delete(LEGACY_DATABASE_NAME);
 }
 

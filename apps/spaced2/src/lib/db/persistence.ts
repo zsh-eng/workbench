@@ -1,3 +1,4 @@
+import { SHARED_STORAGE_SUFFIX } from "../api";
 import { withSyncLock } from "../sync/lock";
 import Dexie, { type Table } from "dexie";
 import { installSync } from "@zsh-eng/local-sync/dexie";
@@ -10,8 +11,8 @@ import {
 } from "@zsh-eng/local-sync";
 import { syncTables, type StoredOperation } from "../sync/records";
 
-export const DATABASE_NAME = "SpacedRecordsV3";
-export const STATE_KEY = "spaced-records-v3-state";
+export const DATABASE_NAME = "SpacedRecordsV3" + SHARED_STORAGE_SUFFIX;
+export const STATE_KEY = "spaced-records-v3-state" + SHARED_STORAGE_SUFFIX;
 export const stateStore = createSyncClientStateStore(localStorage, STATE_KEY);
 export function ensureSyncState() {
   return getOrCreateSyncClientState(crypto.randomUUID(), stateStore);

@@ -251,10 +251,11 @@ export function AppSidebar() {
   const handleGoogleSignIn = async () => {
     try {
       if (getLabRuntime()) return;
-      await authClient.signIn.social({
+      const { error } = await authClient.signIn.social({
         provider: "google",
         callbackURL: window.location.origin,
       });
+      if (error) throw new Error(error.message || "Google sign-in failed");
     } catch (error) {
       console.error("Error signing in:", error);
       toast({

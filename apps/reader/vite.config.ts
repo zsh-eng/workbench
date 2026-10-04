@@ -6,7 +6,10 @@ import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ command }) => ({
+  cacheDir: process.env.VITE_SHARED_API_URL
+    ? "node_modules/.vite-shared"
+    : undefined,
   optimizeDeps: {
     exclude: ["@jsquash/webp"],
   },
@@ -70,7 +73,9 @@ export default defineConfig({
         ],
       },
     }),
-    cloudflare(),
+    ...(command === "serve" && process.env.VITE_SHARED_API_URL
+      ? []
+      : [cloudflare()]),
   ],
   build: {
     outDir: "dist",
@@ -84,4 +89,4 @@ export default defineConfig({
   server: {
     allowedHosts: ["fe-dev.zsheng.app", "pc.zsheng.app"],
   },
-});
+}));

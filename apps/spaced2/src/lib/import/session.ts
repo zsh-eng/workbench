@@ -12,7 +12,7 @@ export function createAssetLinkResolver(upload = uploadImage) {
   return async (path: string, file: () => File, alt?: string) => {
     let uploaded = uploads.get(path);
     if (!uploaded) {
-      uploaded = upload(file(), alt).then((response) => {
+      uploaded = upload(file()).then((response) => {
         if (!response.success) throw new Error(response.error);
         return response.fileKey;
       });

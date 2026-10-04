@@ -94,6 +94,33 @@ the server. Versions compare clock wall time, counter, and device ID. Pull uses
 a fixed sequence head for each paginated run. Push returns the current winner
 for every submitted key, including rejected or repeated changes.
 
+## Optional namespaced shared host
+
+A host can pass a validated `namespace` beside its authenticated `userId` in
+`getIdentity`. Apply `NAMESPACED_SYNC_D1_SCHEMA_SQL` to a separate database for
+that mode. Record uniqueness, conflict winners, pull heads and streamed pages
+then use `(userId, namespace)`. Omitting the namespace retains the v2 schema;
+adding a namespace does not migrate existing data. The host owns the allowed-app
+registry, authentication and epoch lifecycle.
+
+`createNamespacedHttpClient({ origin, namespace, stateStore, signal })` supplies
+`remote` for `SyncClient` and `request(path, init)` for namespaced file APIs. It
+uses cookie credentials and the host's `/api/apps/:namespace/sync/v3/state`
+endpoint. `SyncClient` obtains and binds the scope before pull and push. Requests
+and responses carry `X-Sync-Scope` with origin, user ID, namespace and epoch.
+An HTTP failure throws `SyncHttpError` with its status and response; fetch-style
+app adapters may return that response to preserve their existing status handling.
+
+Only a new state with no cursor and no completed bootstrap can bind implicitly.
+A changed account, origin, namespace or epoch fails without resetting local
+state. Existing unscoped installations require an explicit migration. The host
+must isolate local stores, cancel obsolete sessions and serialize state updates;
+this transport does not adopt or merge accounts. The optional stream retains the
+same bounded lookahead and cancellation behavior.
+
+The local reference host is [sync-server](../../apps/sync-server/README.md).
+It integrates Reader and Spaced while keeping their production profiles separate.
+
 ## Storage contract and limits
 
 Local rows and their compacted outbox changes commit in one transaction.

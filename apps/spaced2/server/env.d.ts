@@ -1,4 +1,5 @@
 interface Env {
+  SYNC_CUTOVER_MODE?: "freeze" | "retired";
   DATABASE: D1Database;
   FILES: R2Bucket;
   ASSETS: Fetcher;

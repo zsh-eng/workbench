@@ -1,12 +1,27 @@
-import { API_BASE } from "@/lib/api";
+import { API_BASE, SHARED_API_ORIGIN } from "@/lib/api";
 import {
   syncPullResponseSchema,
   readSyncPullStream,
   syncPushResponseSchema,
   type SyncRemote,
+  type SyncClientStateStore,
+  createNamespacedHttpClient,
 } from "@zsh-eng/local-sync";
 
-export function createRemote(signal: AbortSignal): SyncRemote {
+export function createRemote(
+  signal: AbortSignal,
+  stateStore?: SyncClientStateStore,
+): SyncRemote {
+  if (SHARED_API_ORIGIN) {
+    if (!stateStore)
+      throw new Error("Shared sync requires a local state store");
+    return createNamespacedHttpClient({
+      origin: SHARED_API_ORIGIN,
+      namespace: "spaced",
+      stateStore,
+      signal,
+    }).remote;
+  }
   let supportsStreaming = true;
   const request = async (
     path: string,

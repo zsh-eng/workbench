@@ -193,11 +193,20 @@ export const syncPullResponseSchema = z
     }
   });
 
+export const syncScopeSchema = z.strictObject({
+  origin: z.string().url(),
+  userId: z.string().min(1),
+  namespace: z.string().regex(/^[a-z][a-z0-9-]*$/),
+  epoch: z.string().min(1),
+});
+export type SyncScope = z.infer<typeof syncScopeSchema>;
+
 export const syncClientStateSchema = z.strictObject({
   deviceId: syncDeviceIdSchema,
   hlc: syncHlcSchema,
   pullCursor: safeNonNegativeInteger,
   bootstrapped: z.boolean(),
+  scope: syncScopeSchema.optional(),
 });
 
 export type SyncHlc = z.infer<typeof syncHlcSchema>;

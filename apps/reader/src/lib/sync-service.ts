@@ -1,3 +1,5 @@
+import { SHARED_API_ORIGIN } from "./shared-api";
+import { SyncHttpError } from "@zsh-eng/local-sync";
 /** Application lifecycle wrapper around the small sync v2 client. */
 
 import {
@@ -28,7 +30,7 @@ export interface SyncServiceState {
 
 /** Owns automatic sync and its subscriptions for one application lifetime. */
 class SyncService {
-  private readonly client: SyncV2Client;
+  private controller: AbortController | undefined;
   private state: SyncServiceState = {
     isSyncing: false,
     lastSyncedAt: null,
@@ -57,10 +59,6 @@ class SyncService {
 
   constructor() {
     getOrCreateSyncClientState(getOrCreateDeviceId());
-    this.client = new SyncV2Client({
-      syncDb: syncV2SyncDb,
-      onEvent: getLabRuntime()?.onSyncEvent,
-    });
     if (typeof window === "undefined") return;
     this.unsubscribers.push(subscribeRuntimeOnline(this.handleOnline));
     const lab = getLabRuntime();
@@ -83,6 +81,7 @@ class SyncService {
   stopPeriodicSync(): void {
     this.requestedInterval = null;
     this.clearInterval();
+    if (SHARED_API_ORIGIN) this.controller?.abort();
   }
 
   dispose(): void {
@@ -95,9 +94,17 @@ class SyncService {
     if (this.activeRun) return this.activeRun;
     const sessionId = this.sessionId;
     this.publish({ isSyncing: true, error: null, authRequired: false });
-    const run: Promise<SyncServiceResult> = this.client
+    const controller = new AbortController();
+    this.controller = controller;
+    const client = new SyncV2Client({
+      syncDb: syncV2SyncDb,
+      onEvent: getLabRuntime()?.onSyncEvent,
+      signal: SHARED_API_ORIGIN ? controller.signal : undefined,
+    });
+    const run: Promise<SyncServiceResult> = client
       .sync()
       .then((result) => {
+        if (SHARED_API_ORIGIN) controller.signal.throwIfAborted();
         this.publish({ lastSyncedAt: new Date(), error: null });
         return { status: "completed" as const, ...result };
       })
@@ -108,7 +115,9 @@ class SyncService {
           this.publish({
             error,
             authRequired:
-              error instanceof SyncRemoteRequestError && error.status === 401,
+              (error instanceof SyncRemoteRequestError ||
+                error instanceof SyncHttpError) &&
+              error.status === 401,
           });
         throw error;
       })

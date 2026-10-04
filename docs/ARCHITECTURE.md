@@ -6,6 +6,11 @@ and local development files. Shared packages must not import app code.
 
 ## Current boundaries
 
+- **sync-server** provides production shared auth, namespaced sync, and files
+  for Reader and Spaced at `https://api.zsheng.app`. Run `bun run dev:shared` for
+  isolated local development. Its [guide](../apps/sync-server/README.md) defines
+  storage isolation and limits. Arctic integration remains separate work.
+
 - **Spaced** owns flashcards, FSRS, review UI, local operation storage and its
   deployed Hono Worker. Read its [architecture](../apps/spaced2/ARCHITECTURE.md).
   It consumes `packages/local-sync` through a workspace dependency.
