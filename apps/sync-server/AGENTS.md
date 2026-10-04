@@ -2,8 +2,8 @@
 
 Follow the root guidelines and read `../../docs/SHARED_SYNC_PLAN.md` before
 changes. This service owns production Reader and Spaced auth, sync, and files at
-`https://api.zsheng.app`. Arctic native auth and its namespace are implemented locally; production
-activation and native library migration remain separate steps. Keep production deployment and
+`https://api.zsheng.app`. Arctic native auth and its namespace are deployed; native device verification
+and live library migration remain separate steps. Keep production deployment and
 data migration explicit; local development uses its own configuration and data.
 
 The server owns authentication and app namespaces. Values remain opaque; do

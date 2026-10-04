@@ -1,6 +1,6 @@
 # Arctic sync design
 
-Updated 4 October 2026 · Native auth/v3 trial implemented; live library sync remains dormant.
+Updated 4 October 2026 · Native auth/v3 backend deployed; live library sync remains dormant.
 Reader and Spaced now use the shared service. The dated 3 October schema audit
 below describes the legacy Arctic adapter, not the new shared server.
 
@@ -42,7 +42,7 @@ flowchart LR
 | Local sync store | Actor with atomic JSON journal, outbox, clock, cursor, tombstones and persisted v3 identity | SQLite implementation before any live library activation |
 | Article bridge | Dormant `ArticleSyncRepository.swift`: metadata, library, tags | Final schemas, granular mutations, migration and UI integration |
 | Other user data | Separate annotation/session files; Reader positions in UserDefaults | One account-scoped repository with transactional outbox capture |
-| Server | Shared Worker now includes `arctic` and native auth locally; real Better Auth/D1 tests pass | Explicit deployment of additive auth migration/routes, then device auth verification |
+| Server | Shared Worker includes deployed `arctic` and native auth; real Better Auth/D1 tests pass | Device auth verification |
 | Optional files | Authenticated, SHA-256 verified R2 API | Deferred from core sync; preservation needs durable jobs, portable manifests and bounded restore |
 
 The shared service's [migration evidence](../sync-server/MIGRATION.md) records
@@ -83,8 +83,9 @@ sequenceDiagram
   A->>S: Pull/push with exact scope and device ID
 ```
 
-These shared-host native routes are now implemented and tested locally. They
-have not been deployed as part of this change.
+These shared-host native routes were deployed on 4 October 2026 after explicit
+approval. Live checks verified the Google redirect and authentication guards;
+Google sign-in completion on a native device remains unverified.
 Google's registered callback remains the shared HTTPS callback. The app callback
 is a separate hop, not a URL to register as the Google web client's redirect.
 The app carries no Google client secret. State ties the callback to this attempt;
@@ -127,8 +128,8 @@ separate native session instead of copying and sharing the browser session.
 1. Build **Debug**. On iPhone, open the library's **Sort and filter → Sync trial**.
    On Mac, use **Arctic settings → Sync trial**. Release hides this developer UI.
 2. Use an HTTPS host with the shared auth routes and `0003_native_auth.sql`
-   applied. Default is `https://api.zsheng.app`; it requires explicit deployment
-   before Google sign-in will work. Local tests validate the flow with real D1
+   applied. The default `https://api.zsheng.app` is now deployed and ready for
+   this trial. Local tests validate the flow with real D1
    and Better Auth, but substitute a local login for Google's external UI.
 3. Continue with Google using a test account. Change the sample title, choose
    **Save sample locally**, then **Sync now**. On the other device, sign in to
@@ -164,7 +165,26 @@ Use a test account: trial records are real records on the selected server.
   intentionally skipped without its separate migration dataset. The first Reader
   desktop attempt hit stale Vite dependencies; its clean retry passes.
 - No physical-device Google handoff, Keychain relaunch, or cross-device restore
-  is claimed. Those checks require the HTTPS deployment and user sign-in.
+  is claimed. The HTTPS deployment is ready; those checks still require user sign-in.
+
+### Production deployment — 4 October, 23:16 SGT
+
+- Worker version: `9da22388-aad3-41d9-a62a-3306d3e9fedb` at `api.zsheng.app`.
+- Source: Arctic backend `f4c69541`, plus the unchanged, already-deployed CLI
+  dependency recorded in `fb7e9dc4`. Built from an isolated snapshot; unrelated
+  checkout edits were excluded. Native Debug trial source is `3a980107`.
+- Applied only `0003_native_auth.sql`: temporary flow/code tables and indexes.
+  Existing CLI migration `0004_cli_auth.sql` was retained, not reapplied.
+- Combined Worker: 12 integration tests pass; type check and bundle build pass.
+- Live checks: health lists all three apps; unauthenticated state requests return
+  401 for each app; malformed native auth returns 400; untrusted-origin push
+  returns 403. Native start returns Google's authorization URL with the existing
+  shared HTTPS callback and a Secure, HttpOnly flow cookie. CLI `/device` is 200.
+- No Google login was completed during these probes. No article, annotation,
+  reading-session, or file data was uploaded or migrated.
+- Previous Worker version: `4f290fd1-4c92-4996-b134-c9e9caf1de08`. A rollback to
+  it preserves CLI functionality and leaves the additive auth tables in place.
+  It disables the new Arctic routes; do not drop tables as part of rollback.
 
 ### Smallest useful integration milestone
 
@@ -179,8 +199,8 @@ Use a test account: trial records are real records on the selected server.
 3. Add the SQLite repository and record families. Exercise offline edits,
    interrupted batches, account/epoch changes, tombstones and restart recovery
    through the production adapters. Then review the concrete data migration and
-   enable it only with separate approval. No deployment or activation is part of
-   this design update.
+   enable it only with separate approval. The deployed backend does not activate
+   the live library migration.
 
 ## Local storage and ownership
 
