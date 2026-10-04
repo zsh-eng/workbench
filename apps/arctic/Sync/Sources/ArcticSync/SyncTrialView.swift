@@ -105,6 +105,8 @@
             status = "The session expired. Sign out, then sign in again. Local changes are kept."
           case NativeSignInFailure.invalidCallback:
             status = "The sign-in return link did not match this attempt. Please start Google sign-in again."
+          case NativeSignInFailure.callbackRejected(let reason):
+            status = "Sign-in return link rejected (\(reason.rawValue)). Please report this label; do not share the return link."
           case NativeSignInFailure.failed:
             status = "Google sign-in returned without a valid session. Please try again."
           case NativeSignInFailure.unableToPresent:

@@ -5,6 +5,13 @@ import Security
 
 public enum NativeSignInFailure: Error, Equatable {
   case invalidCallback, failed, alreadyInProgress, unableToPresent
+  case callbackRejected(CallbackRejection)
+}
+
+/// Fixed diagnostic labels only. Never include a callback URL, state, or code.
+public enum CallbackRejection: String, Sendable {
+  case route, credentials, fragment, missingState, duplicateState, stateMismatch
+  case missingCode, duplicateCode, codeFormat
 }
 
 /// State and verifier exist only for this attempt. No reusable session credential
@@ -36,18 +43,24 @@ public struct NativeSignInRequest: Sendable {
     return try await HTTPRemote.exchangeNativeCode(server: server, code: code, verifier: verifier)
   }
   func callbackCode(_ callback: URL) throws -> String {
-    guard callback.scheme == "articles", callback.host == "auth", callback.path == "/callback",
-      callback.user == nil, callback.password == nil, callback.port == nil,
-      callback.fragment == nil,
-      let query = URLComponents(url: callback, resolvingAgainstBaseURL: false)?.queryItems,
-      query.filter({ $0.name == "state" }).count == 1,
-      query.first(where: { $0.name == "state" })?.value == state
-    else { throw NativeSignInFailure.invalidCallback }
+    guard callback.scheme == "articles", callback.host == "auth", callback.path == "/callback"
+    else { throw NativeSignInFailure.callbackRejected(.route) }
+    guard callback.user == nil, callback.password == nil, callback.port == nil
+    else { throw NativeSignInFailure.callbackRejected(.credentials) }
+    guard callback.fragment == nil
+    else { throw NativeSignInFailure.callbackRejected(.fragment) }
+    let query = URLComponents(url: callback, resolvingAgainstBaseURL: false)?.queryItems ?? []
+    let states = query.filter { $0.name == "state" }
+    guard !states.isEmpty else { throw NativeSignInFailure.callbackRejected(.missingState) }
+    guard states.count == 1 else { throw NativeSignInFailure.callbackRejected(.duplicateState) }
+    guard states[0].value == state else { throw NativeSignInFailure.callbackRejected(.stateMismatch) }
     if query.contains(where: { $0.name == "error" }) { throw NativeSignInFailure.failed }
-    guard query.filter({ $0.name == "code" }).count == 1,
-      let code = query.first(where: { $0.name == "code" })?.value,
+    let codes = query.filter { $0.name == "code" }
+    guard !codes.isEmpty else { throw NativeSignInFailure.callbackRejected(.missingCode) }
+    guard codes.count == 1 else { throw NativeSignInFailure.callbackRejected(.duplicateCode) }
+    guard let code = codes[0].value,
       code.range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil
-    else { throw NativeSignInFailure.invalidCallback }
+    else { throw NativeSignInFailure.callbackRejected(.codeFormat) }
     return code
   }
   static func challenge(_ verifier: String) -> String {

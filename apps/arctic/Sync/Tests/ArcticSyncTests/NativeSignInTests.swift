@@ -22,15 +22,21 @@ import Testing
   #expect(
     try request.callbackCode(URL(string: "articles://auth/callback?state=\(state)&code=\(code)")!)
       == code)
-  for invalid in [
-    "articles://auth/callback?state=wrong&code=\(code)",
-    "articles://attacker/callback?state=\(state)&code=\(code)",
-    "articles://auth/other?state=\(state)&code=\(code)",
-    "articles://auth/callback?state=\(state)&code=\(code)&code=\(code)",
-    "articles://auth/callback?state=\(state)&state=\(state)&code=\(code)",
-    "https://auth/callback?state=\(state)&code=\(code)",
-  ] {
-    #expect(throws: NativeSignInFailure.invalidCallback) {
+  let invalidCallbacks: [(String, CallbackRejection)] = [
+    ("articles://auth/callback?state=wrong&code=\(code)", .stateMismatch),
+    ("articles://attacker/callback?state=\(state)&code=\(code)", .route),
+    ("articles://auth/other?state=\(state)&code=\(code)", .route),
+    ("https://auth/callback?state=\(state)&code=\(code)", .route),
+    ("articles://user@auth/callback?state=\(state)&code=\(code)", .credentials),
+    ("articles://auth/callback?state=\(state)&code=\(code)#", .fragment),
+    ("articles://auth/callback?code=\(code)", .missingState),
+    ("articles://auth/callback?state=\(state)&state=\(state)&code=\(code)", .duplicateState),
+    ("articles://auth/callback?state=\(state)", .missingCode),
+    ("articles://auth/callback?state=\(state)&code=\(code)&code=\(code)", .duplicateCode),
+    ("articles://auth/callback?state=\(state)&code=short", .codeFormat),
+  ]
+  for (invalid, reason) in invalidCallbacks {
+    #expect(throws: NativeSignInFailure.callbackRejected(reason)) {
       try request.callbackCode(URL(string: invalid)!)
     }
   }
