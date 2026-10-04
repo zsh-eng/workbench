@@ -1,6 +1,8 @@
 # Arctic sync design
 
-28 September 2026 · Proposal, not an enabled migration or deployed service.
+Updated 4 October 2026 · Arctic integration proposal; native sync remains dormant.
+Reader and Spaced now use the shared service. The dated 3 October schema audit
+below describes the legacy Arctic adapter, not the new shared server.
 
 ## Decision
 
@@ -8,10 +10,11 @@ Use one shared Swift repository on iOS and macOS, backed by **local SQLite**.
 Each user action commits its data and pending upload in the same transaction.
 The UI reads local data. Network access never gates launch, reading, or saving.
 
-Reuse the existing Better Auth account system, Cloudflare Worker, record protocol,
-and private R2 file routes. Give Arctic its own D1 stream. Keep these boundaries
-if Workbench later extracts the routes into a shared sync service; that extraction
-does not need to block Arctic. This checkout has no `apps/sync-server` host.
+Use the shared Better Auth account system and Worker at `https://api.zsheng.app`,
+owned by `apps/sync-server`. Add the `arctic` namespace to its existing D1 record
+streams. Use sync v3 scope `(origin, user ID, namespace, epoch)`; do not carry an
+old Arctic v2 cursor or session into this service. Media remains optional and
+outside the first integration milestone. [Shared service](../sync-server/README.md).
 
 ```mermaid
 flowchart LR
@@ -25,9 +28,9 @@ flowchart LR
     Files <-->|Optional preservation| Sync
     Keys[Device Keychain] --> Sync
   end
-  Sync <-->|HTTPS| API[Reader Worker\nBetter Auth + Arctic routes]
-  API <--> D1[(Separate Arctic D1\nrecords and tombstones)]
-  API <--> R2[(Private R2\nuser + content hash)]
+  Sync <-->|HTTPS and v3 scope| API[Shared Worker\napi.zsheng.app]
+  API <--> D1[(Shared D1\nuser + arctic namespace)]
+  API <-. optional preservation .-> R2[(Shared R2\nuser + app + content ID)]
   Other[Other device's sync coordinator] <-->|HTTPS| API
 ```
 
@@ -35,22 +38,111 @@ flowchart LR
 
 | Area | Source in this checkout | Required before release |
 | --- | --- | --- |
-| Native transport | `Sync/`: HTTPS, account credentials, Google browser handoff, record sync, verified file transfers | App account UI and lifecycle wiring on both platforms |
+| Native transport | `Sync/`: HTTPS, Keychain credentials, Google handoff and legacy v2 sync | Shared auth cookie, v3 endpoints/scope, app account UI and lifecycle wiring |
 | Local sync store | Actor with atomic JSON journal, outbox, clock, cursor and tombstones | SQLite implementation; retain its correctness contracts |
 | Article bridge | Dormant `ArticleSyncRepository.swift`: metadata, library, tags | Final schemas, granular mutations, migration and UI integration |
 | Other user data | Separate annotation/session files; Reader positions in UserDefaults | One account-scoped repository with transactional outbox capture |
-| Server | `packages/arctic-sync-server`, hosted by Reader Worker | Verify actual deployed resources, migrate Arctic tables, deploy and test native auth |
+| Server | Shared Worker accepts Reader and Spaced; legacy Arctic routes remain in Reader Worker | Add `arctic` registry entry and native auth exchange to the shared host; verify isolation and device auth |
 | Optional files | Authenticated, SHA-256 verified R2 API | Deferred from core sync; preservation needs durable jobs, portable manifests and bounded restore |
 
-The backend README records an earlier undeployed state. **Production deployment,
-database contents and current OAuth configuration were not inspected for this
-design.** Source code alone does not establish that sync works in production.
+The shared service's [migration evidence](../sync-server/MIGRATION.md) records
+the 4 October Reader/Spaced cutover. This review checked source and that report,
+not live account data. It does not establish native Arctic sign-in or sync.
 
 The staged JSON journal is not suitable for activation unchanged. Its recorded
 10,000-article Release benchmark takes **320 ms for one edit with a full outbox**;
 JSON encoding dominates. Projecting one article takes about 0.08 ms. These are
 historical Mac measurements, not current iPhone timings. See
 [the benchmark](Sync/PERFORMANCE.md).
+
+## Native sign-in and shared-service integration — 4 October
+
+Mobile has a callback URL. It does not need to run a web server. Arctic's iOS
+`Info.plist` registers `articles`, and its dormant `NativeGoogleSignIn` uses
+`ASWebAuthenticationSession` to receive `articles://auth/callback`. Google
+returns to the shared HTTPS server first; that server then returns to the app.
+
+```mermaid
+sequenceDiagram
+  participant A as Arctic
+  participant B as System sign-in sheet
+  participant G as Google
+  participant S as api.zsheng.app
+  A->>A: Create random state and PKCE verifier
+  A->>B: Open native start URL with state + verifier hash
+  B->>S: /api/arctic/auth/start
+  S->>G: Existing Better Auth Google flow
+  G->>S: /api/auth/callback/google
+  S->>S: Validate login; create one-use code
+  S-->>B: articles://auth/callback?code=...&state=...
+  B-->>A: System delivers callback and closes sheet
+  A->>S: POST /api/arctic/auth/exchange with code + verifier
+  S-->>A: Shared account identity + session credential over HTTPS
+  A->>A: Store credential in device Keychain
+  A->>S: Fetch /api/apps/arctic/sync/v3/state
+  A->>S: Pull/push with exact scope and device ID
+```
+
+These are proposed shared-host native routes; they are not mounted there today.
+Google's registered callback remains the shared HTTPS callback. The app callback
+is a separate hop, not a URL to register as the Google web client's redirect.
+The app carries no Google client secret. State ties the callback to this attempt;
+PKCE means the one-use code cannot be exchanged without the app's verifier.
+Keep the existing 60-second code expiry, atomic consume, exact callback checks,
+and cancellation handling. Never put a reusable credential in a deep link.
+[Apple authentication sessions](https://developer.apple.com/documentation/authenticationservices/authenticating-a-user-through-a-web-service),
+[native OAuth guidance](https://www.rfc-editor.org/rfc/rfc8252).
+
+The native app uses the same account database, but holds its own session. Safari's
+cookie is not automatically available to `URLSession`. The existing exchange
+delivers a signed session cookie over HTTPS; Swift stores it in Keychain and
+sends it only to the configured API origin. Keep the current ephemeral sign-in
+sheet for the first milestone: it avoids reusing/revoking a web app's session,
+but may ask the user to sign in again. If browser SSO is added later, mint a
+separate native session instead of copying and sharing the browser session.
+
+### Concrete gaps in the current code
+
+- **Namespace:** `apps/sync-server/src/index.ts` and `env.ts` allow only `reader`
+  and `spaced`. The generic SQL tables already support another namespace. Add
+  `arctic` to the registry/types/health and isolation tests. Keep Arctic file
+  routes disabled until it has an explicit media policy.
+- **Auth routes:** reuse `packages/arctic-sync-server/native-auth.ts`, adapting
+  its host wrapper to shared Better Auth and adding its flow/code tables through
+  an additive migration. Preserve legacy Reader-hosted routes during transition.
+- **Cookie name:** both legacy native server code and `HTTPRemote` hard-code
+  `__Secure-better-auth.session_token`. Shared auth uses the `workbench` prefix.
+  Derive/configure this consistently; changing only the base URL will fail.
+- **Transport:** replace `/api/arctic/sync/v2` with
+  `/api/apps/arctic/sync/v3`. Fetch state, persist the full scope, send
+  `X-Sync-Scope`, and handle 409 scope changes without resetting local records
+  or replaying another profile's outbox. Native profile identity needs namespace
+  and epoch as well as server origin and user ID.
+- **Session lifecycle:** validate stored credentials on reconnect; verify expiry,
+  refresh and revocation against real Better Auth. Current middleware does not
+  explicitly forward refreshed session headers. Persist renewed credentials
+  before accepting them; 401 requires sign-in while local reading remains usable.
+  Signing out retires in-flight requests and preserves the local library.
+- **Data:** add SQLite transactions/outbox, then wire the app stores. Complete
+  article state (including `favouritedAt`), annotations, sessions and positions.
+  Keep article-first restore and optional media policies below. Core sync needs
+  no resolution of the legacy SHA-256 versus shared xxh64 file contract yet.
+
+### Smallest useful integration milestone
+
+1. Add native auth and the Arctic namespace in an isolated local/staging service.
+   Test real Better Auth/D1 code exchange, expiry, replay, wrong verifier/state,
+   logout and cross-app isolation. Native browser tests need reachable HTTPS;
+   do not weaken the production HTTPS checks to use phone-local `localhost`.
+2. Use a disposable native test profile to sign in on iPhone, fetch v3 scope,
+   push one article and restore it on Mac. Keep the user's existing stores intact.
+   Verify the callback, Keychain persistence, relaunch and session revocation on
+   real devices before implementing broad account UI or migrating the library.
+3. Add the SQLite repository and record families. Exercise offline edits,
+   interrupted batches, account/epoch changes, tombstones and restart recovery
+   through the production adapters. Then review the concrete data migration and
+   enable it only with separate approval. No deployment or activation is part of
+   this design update.
 
 ## Local storage and ownership
 
@@ -301,25 +393,29 @@ encrypted. End-to-end encryption would need a separate key recovery design.
 
 ## Rollout and checks
 
-1. **Storage and contract, isolated.** Implement SQLite under the existing Swift
+1. **Auth and protocol trial.** Complete the disposable-profile iPhone/Mac
+   milestone above against the shared host in staging. Verify callback delivery,
+   Keychain persistence and v3 account/namespace/epoch isolation first.
+2. **Storage and contract, isolated.** Implement SQLite under the existing Swift
    API. Finalize the record families and shared platform codecs. Port transaction,
    tombstone, account and concurrent-edit tests. Do not change the active store.
-2. **Concrete local migration, opt-in.** Inventory articles, annotations, sessions,
+3. **Concrete local migration, opt-in.** Inventory articles, annotations, sessions,
    positions, inbox receipts and file references. Make a consistent backup; briefly
    gate mutations while copying into a separate profile database. Verify counts,
    identities, dates, text and hashes, then commit a completion marker and switch
    the active profile atomically. Leave legacy sources intact. Interrupted copy
    resumes or retries without touching them. After new writes, rollback requires
    reconciliation/export, not reopening a stale legacy file.
-3. **Local two-client integration.** Run two isolated clients against the actual
+4. **Local two-client integration.** Run two isolated clients against the actual
    Worker routes and local D1/R2. Test offline edits, restart, reconnect, conflicts,
    auth expiry, note overflow, file failure and share-inbox replay. Add Mac package
    wiring and test the same cases on both app targets.
-4. **Server pilot.** Verify current resources and account/OAuth configuration;
-   back up before applying only Arctic migrations. Deploy the existing host with
-   its correct bindings. Verify real browser sign-in and a disposable test account
-   before importing a personal library. Do not migrate Reader's domain tables.
-5. **Device pilot.** Enable the approved migration, connect iPhone and Mac, verify
+5. **Server pilot.** Verify shared resources and account/OAuth configuration;
+   back up before applying additive native-auth migrations to the shared service.
+   Preserve existing Reader/Spaced records and test their sign-in/sync paths after
+   deployment. Verify native sign-in with a disposable account before importing
+   a personal Arctic library. No second Reader/Spaced data cutover is required.
+6. **Device pilot.** Enable the approved migration, connect iPhone and Mac, verify
    cross-device edits and offline reopen, then expand adoption after performance
    and recovery checks pass.
 
