@@ -31,6 +31,7 @@
     },
   ],
   "vars": {
+    "SYNC_CUTOVER_MODE": "retired",
     "BASE_URL": "https://spaced2.zsheng.app",
     "MAIL_MODE": "resend",
     "MAIL_FROM": "Spaced <no-reply@updates.spaced.zsheng.app>",

@@ -73,7 +73,8 @@
     "dev:reader:shared": "VITE_SHARED_API_URL=http://localhost:8792 bun run --cwd apps/reader dev --host localhost --port 5175 --strictPort",
     "dev:spaced2:shared": "VITE_SHARED_API_URL=http://localhost:8792 bun run --cwd apps/spaced2 dev --host localhost",
     "dev:shared": "bun scripts/dev-shared.ts",
-    "test:shared:e2e": "bun run --cwd apps/sync-server test:e2e"
+    "test:shared:e2e": "bun run --cwd apps/sync-server test:e2e",
+    "deploy:sync": "bun run --cwd apps/sync-server deploy"
   },
   "devDependencies": {
     "oxfmt": "^0.46.0",

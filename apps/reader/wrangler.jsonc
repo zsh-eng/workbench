@@ -42,6 +42,7 @@
         },
       ],
       "vars": {
+        "SYNC_CUTOVER_MODE": "retired",
         "BASE_URL": "https://reader.zsheng.app",
         "BETTER_AUTH_URL": "https://reader.zsheng.app",
       },
@@ -55,6 +56,7 @@
     },
   ],
   "vars": {
+    "SYNC_CUTOVER_MODE": "retired",
     "BASE_URL": "https://reader.zsheng.app",
     "BETTER_AUTH_URL": "https://reader.zsheng.app",
   },

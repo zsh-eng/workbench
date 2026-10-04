@@ -1,0 +1,33 @@
+{
+  "name": "workbench-sync",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-04-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "api.zsheng.app",
+      "custom_domain": true,
+      "zone_name": "zsheng.app",
+    },
+  ],
+  "d1_databases": [
+    {
+      "binding": "DATABASE",
+      "database_name": "workbench-sync",
+      "database_id": "e82aa3f9-1ac9-410b-a8a7-a2edba92d49a",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "r2_buckets": [
+    {
+      "binding": "FILES",
+      "bucket_name": "workbench-sync",
+    },
+  ],
+  "vars": {
+    "BASE_URL": "https://api.zsheng.app",
+    "APP_ORIGINS": "https://reader.zsheng.app,https://spaced2.zsheng.app",
+    "MIGRATION_MODE": "closed",
+  },
+}

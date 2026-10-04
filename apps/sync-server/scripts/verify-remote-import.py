@@ -9,6 +9,8 @@ from pathlib import Path
 import sqlite3
 import subprocess
 import tomllib
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -59,8 +61,17 @@ def main():
         raise SystemExit('Wrangler token unavailable')
 
     def get(path):
-        return urllib.request.urlopen(urllib.request.Request('https://api.cloudflare.com/client/v4' + path,
-            headers={'Authorization': 'Bearer ' + token}), timeout=120)
+        for attempt in range(10):
+            try:
+                return urllib.request.urlopen(urllib.request.Request('https://api.cloudflare.com/client/v4' + path,
+                    headers={'Authorization': 'Bearer ' + token}), timeout=120)
+            except urllib.error.HTTPError as error:
+                if error.code not in [429, 500, 502, 503, 504] or attempt == 9:
+                    raise
+                delay = min(60, max(5, int(error.headers.get('Retry-After', '30'))))
+                print(f'Cloudflare verification retry after HTTP {error.code}; waiting {delay}s', flush=True)
+                error.close()
+                time.sleep(delay)
 
     with get('/accounts') as response:
         accounts = json.load(response)['result']
@@ -79,7 +90,9 @@ def main():
             raise ValueError('Target object checksum differs')
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-        list(pool.map(verify, plan['files']))
+        for index, _ in enumerate(pool.map(verify, plan['files']), 1):
+            if index % 50 == 0:
+                print(f'Verified {index}/{len(plan["files"])} objects', flush=True)
     report = {'counts': counts, 'filesVerified': len(plan['files']), 'allRowsCompared': True, 'allObjectHashesCompared': True}
     (output / 'verification.json').write_text(json.dumps(report, indent=2))
     print(json.dumps(report))

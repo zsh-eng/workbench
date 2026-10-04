@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && wrangler deploy --dry-run --outdir dist",
     "test": "vitest run",
     "lint": "oxlint --config ../../.oxlintrc.json .",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "deploy": "bun run build && wrangler deploy --config wrangler.production.jsonc"
   },
   "dependencies": {
     "@hono/zod-validator": "0.7.6",
