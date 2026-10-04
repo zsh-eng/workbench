@@ -21,8 +21,10 @@ This builds shared packages, applies local migrations, and starts:
 | Spaced                | http://localhost:5180 |
 | Auth, sync, and files | http://localhost:8792 |
 
-Use `localhost` for all three. Select **Sign in to Workbench** in Reader or create
-an account in Spaced, then open the other app in the same browser.
+Use `localhost` for all three. Create a local account in Spaced or at
+`http://localhost:8792/login?returnTo=http://localhost:5175`, then open the other
+app in the same browser. In production, each app's Google button goes straight to
+Google and returns through the shared callback without an intermediate login page.
 Local registration does not send an email code. Both frontends
 send authenticated requests to the shared API host using its session cookie.
 

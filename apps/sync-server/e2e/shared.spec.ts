@@ -19,14 +19,8 @@ test("Reader and Spaced share login and restore their own local data in a fresh 
       })
       .toBe(200);
   }
-  await page.goto("http://localhost:5175");
-  await expect(page.getByText("Your library is empty")).toBeVisible({
-    timeout: 30_000,
-  });
-  await page
-    .getByRole("button", { name: "Toggle sidebar", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Sign in to Workbench" }).click();
+  // Local email registration is a fixture; app Google buttons bypass this page.
+  await page.goto(`${api}/login?returnTo=http://localhost:5175`);
   await page.getByLabel("Email", { exact: true }).fill(email);
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Create local account" }).click();
