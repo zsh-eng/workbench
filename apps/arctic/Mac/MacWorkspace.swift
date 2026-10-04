@@ -62,6 +62,7 @@ enum MacLibraryFolder: Hashable {
   var showShortcuts = false
   var showOpen = false
   var showSettings = false
+  var showSyncTrial = false
   var showDiagnostics = false
   var error: String?
   var sidebarVisible = true
@@ -224,7 +225,7 @@ enum MacLibraryFolder: Hashable {
   }
 
   func updateActivity() {
-    guard windowActive, !showShortcuts, !showOpen, !showSettings, !showStats, !showNotes,
+    guard windowActive, !showShortcuts, !showOpen, !showSettings, !showSyncTrial, !showStats, !showNotes,
       let reader = selectedReader, reader.ready, !reader.websiteVisible, !reader.showFind,
       store.article(for: reader.url)?.saved == true
     else {

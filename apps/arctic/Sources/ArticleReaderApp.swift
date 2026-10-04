@@ -1,3 +1,4 @@
+import ArcticSync
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
@@ -109,6 +110,7 @@ struct LibraryView: View {
   @State private var selected: ArticleBrowser?
   @State private var choosingImport = false
   @State private var showingTaggingSettings = false
+  @State private var showingSyncTrial = false
   @State private var showingAnnotations = false
   @State private var showingReadingStats = false
   @State private var showingWeeklyFavourites = false
@@ -368,6 +370,9 @@ struct LibraryView: View {
       WeeklyFavouritesSheet(store: store) { weeklyArticleToOpen = $0 }
     }
     .sheet(isPresented: $showingReadingStats) { ReadingStatsView() }
+    #if DEBUG
+    .sheet(isPresented: $showingSyncTrial) { SyncTrialView() }
+    #endif
     .sheet(isPresented: $showingTaggingSettings) {
       TaggingSettingsView { store.resumeTagging() }
     }
@@ -490,6 +495,10 @@ struct LibraryView: View {
           Button("Favourites this week", systemImage: "star") { showingWeeklyFavourites = true }
           Button("Reading stats", systemImage: "chart.bar.xaxis") { showingReadingStats = true }
             .accessibilityIdentifier("library-reading-stats")
+          #if DEBUG
+          Button("Sync trial", systemImage: "arrow.triangle.2.circlepath") { showingSyncTrial = true }
+            .accessibilityIdentifier("sync-trial-open")
+          #endif
           Button("Automatic tags", systemImage: "sparkles") { showingTaggingSettings = true }
             .accessibilityIdentifier("automatic-tag-settings")
           Button("Tag existing articles", systemImage: "tag") { store.retagSavedArticles() }

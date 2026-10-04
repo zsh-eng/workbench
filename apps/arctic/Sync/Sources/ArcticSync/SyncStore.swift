@@ -60,6 +60,21 @@ public actor SyncStore {
       state = State(accountID: accountID, deviceID: deviceID)
     }
   }
+  /// A v3 journal cannot reopen under another origin, user, app, or epoch.
+  public init(
+    file: URL, scope: SyncScope, deviceID: String = UUID().uuidString,
+    validateValue: @escaping @Sendable (SyncChange) throws -> Void = { _ in }
+  ) throws {
+    try self.init(
+      file: file, accountID: scope.header, deviceID: deviceID, validateValue: validateValue)
+  }
+  /// Read the small, disposable trial journal's identity without a network call.
+  /// Production SQLite profiles will carry this identity in their state table.
+  public static func persistedScope(file: URL) throws -> SyncScope? {
+    guard FileManager.default.fileExists(atPath: file.path) else { return nil }
+    let stored = try JSONDecoder().decode(State.self, from: Data(contentsOf: file))
+    return try JSONDecoder().decode(SyncScope.self, from: Data(stored.accountID.utf8))
+  }
   public func snapshot() -> [String: SyncRecord] { state.rows }
   public func snapshotState() -> JournalSnapshot {
     JournalSnapshot(rows: state.rows, localValues: state.localValues ?? [:])
@@ -124,6 +139,7 @@ public actor SyncStore {
     guard !syncing else { throw SyncFailure.alreadySyncing }
     syncing = true
     defer { syncing = false }
+    try await remote.validateStore(accountID: state.accountID)
     var head: Int64?
     while true {
       try Task.checkCancellation()

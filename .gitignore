@@ -38,3 +38,4 @@ test-results/
 
 # Native Arctic build products
 apps/arctic/.build/
+apps/arctic/Sync/.build/

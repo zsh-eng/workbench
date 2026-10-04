@@ -199,7 +199,7 @@ struct MacWorkspaceView: View {
 
   private var blocksReading: Bool {
     workspace.showNotes || workspace.showOpen || workspace.showShortcuts || workspace.showStats
-      || workspace.showSettings
+      || workspace.showSettings || workspace.showSyncTrial
   }
 
   private var observedLayout: some View {
@@ -329,7 +329,7 @@ struct MacWorkspaceView: View {
       let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
       if event.keyCode == 48, modifiers.contains(.control),
         !modifiers.contains(.command), !modifiers.contains(.option),
-        !workspace.showOpen, !workspace.showSettings, !workspace.showShortcuts
+        !workspace.showOpen, !workspace.showSettings, !workspace.showSyncTrial, !workspace.showShortcuts
       {
         workspace.cycle(modifiers.contains(.shift) ? -1 : 1)
         return nil
@@ -342,7 +342,7 @@ struct MacWorkspaceView: View {
         return nil
       }
       guard event.characters == "?", !event.modifierFlags.contains(.command),
-        !workspace.showOpen, !workspace.showSettings,
+        !workspace.showOpen, !workspace.showSettings, !workspace.showSyncTrial,
         !(NSApp.keyWindow?.firstResponder is NSTextView)
       else { return event }
       // Website text fields own their typing. Reader uses an isolated JS handler.

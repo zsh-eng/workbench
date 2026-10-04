@@ -9,7 +9,8 @@ The native Mac workspace has its own [Mac guide](Mac/README.md) and
 
 The [sync design](SYNC_DESIGN.md) covers the proposed iPhone/Mac architecture,
 account isolation, conflict rules, file transfer and staged local migration.
-It is a proposal; live sync and the storage migration remain inactive.
+A debug-only shared-auth/v3 trial is implemented; live library sync and the
+storage migration remain inactive.
 
 Open `ArticleReader.xcodeproj`, select the **ArticleReader** scheme and an iPhone
 simulator, then Run. Requires Xcode 26+ and iOS 17+. For a physical iPhone, select
@@ -190,8 +191,11 @@ flag; unsaving clears it. Favourite state is independent of the tag catalogue.
 ## Sync implementation status
 
 `Sync/` contains the staged native protocol, account-scoped journal, authenticated
-transport and Google sign-in helper. `../../packages/arctic-sync-server/` contains isolated Worker/D1
-routes and release instructions. The main app still uses its existing local JSON
+scoped v3 transport and Google sign-in helper. Debug builds expose **Sync trial**
+from the iPhone library menu and Mac Arctic settings. It uses a separate sample
+profile; see the [trial checklist](SYNC_DESIGN.md#native-trial-checklist).
+`../sync-server` owns shared auth/v3 routes; `../../packages/arctic-sync-server/`
+contains reusable native auth and legacy Reader-hosted route support. The main app still uses its existing local JSON
 library. Account UI, the live storage migration, annotation sync and durable HTML
 upload intent are not integrated. No production Worker release or remote Arctic
 migration has been applied as part of this work.

@@ -5,6 +5,9 @@
 	};
 	"objectVersion" = 56;
 	"objects" = {
+    ABC000000000000000000001 = { isa = XCLocalSwiftPackageReference; relativePath = Sync; };
+    ABC000000000000000000002 = { isa = XCSwiftPackageProductDependency; package = ABC000000000000000000001; productName = ArcticSync; };
+    ABC000000000000000000003 = { isa = PBXBuildFile; productRef = ABC000000000000000000002; };
 "A08E55A42F9B4AD0B517C400" = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Mac/MacCommandPalette.swift"; sourceTree = "<group>"; };
 "A08E55A42F9B4AD0B517C401" = { isa = PBXBuildFile; fileRef = "A08E55A42F9B4AD0B517C400"; };
 "851740A0D841AD40AE9E1593" = { isa = PBXFileReference; lastKnownFileType = text; path = "Web/reader-diagnostics.js"; sourceTree = "<group>"; };
@@ -312,7 +315,7 @@
 		"F178867DA2879CAE0F60630A" = {
 			"isa" = "PBXFrameworksBuildPhase";
 			"buildActionMask" = 2147483647;
-			"files" = ("0B81248F8FE3323FB8ED5A6E");
+			"files" = ("0B81248F8FE3323FB8ED5A6E", ABC000000000000000000003);
 			"runOnlyForDeploymentPostprocessing" = 0;
 		};
 		"E6FC57C251E9E1BEC1D3C0D2" = {
@@ -388,7 +391,7 @@
 			"buildRules" = ();
 			"dependencies" = ();
 			"name" = "ArcticMac";
-			"packageProductDependencies" = ("8419228954CC8C9060EA45E5");
+			"packageProductDependencies" = ("8419228954CC8C9060EA45E5", ABC000000000000000000002);
 			"productName" = "Arctic";
 			"productReference" = "E6FC57C251E9E1BEC1D3C0D2";
 			"productType" = "com.apple.product-type.application";
@@ -608,7 +611,7 @@
 			"hasScannedForEncodings" = 0;
 			"knownRegions" = ("en", "Base");
 			"mainGroup" = "325F10A6957A34D66CB8C0E4";
-			"packageReferences" = ("93AD1EDAFAFA81C496F7C2F3");
+			"packageReferences" = ("93AD1EDAFAFA81C496F7C2F3", ABC000000000000000000001);
 			"productRefGroup" = "FBDC4F23F93125BBEEAE800C";
 			"projectDirPath" = "";
 			"projectRoot" = "";

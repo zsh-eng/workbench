@@ -14,5 +14,7 @@ Read `README.md` and `PERFORMANCE.md` before changing the native app. Read
 - Preserve local data. Keep HTML and images separate from metadata. Never
   synchronize Jev keys. Keep the live ArticleStore sync/storage migration
   dormant until the user approves that concrete migration.
-- Auth and sync server support lives in `../../packages/arctic-sync-server`.
-  The web Reader Worker hosts these routes; this is not a separate deployment.
+- Shared auth and v3 sync are owned by `../sync-server`; reusable native auth
+  support lives in `../../packages/arctic-sync-server`. Legacy Reader-hosted
+  Arctic routes remain during transition. Keep live storage migration dormant;
+  use the separate Debug sync trial for device auth validation first.

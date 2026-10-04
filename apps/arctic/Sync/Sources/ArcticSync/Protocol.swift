@@ -1,5 +1,32 @@
 import Foundation
 
+/// Server-issued identity of one record stream. A reset must never adopt an old
+/// cursor or outbox silently, even when the user ID is unchanged.
+public struct SyncScope: Codable, Equatable, Sendable {
+  public let origin: String
+  public let userId: String
+  public let namespace: String
+  public let epoch: String
+  public init(origin: String, userId: String, namespace: String = "arctic", epoch: String) {
+    self.origin = origin
+    self.userId = userId
+    self.namespace = namespace
+    self.epoch = epoch
+  }
+  public var header: String {
+    get throws {
+      // The shared service compares its canonical header byte for byte.
+      let encoder = JSONEncoder()
+      encoder.outputFormatting = [.withoutEscapingSlashes]
+      func quoted(_ value: String) throws -> String {
+        String(decoding: try encoder.encode(value), as: UTF8.self)
+      }
+      return try
+        "{\"origin\":\(quoted(origin)),\"userId\":\(quoted(userId)),\"namespace\":\(quoted(namespace)),\"epoch\":\(quoted(epoch))}"
+    }
+  }
+}
+
 public struct SyncClock: Codable, Equatable, Sendable, Comparable {
   public var wallTimeMs: Int64
   public var counter: Int64
@@ -64,12 +91,19 @@ public struct SyncPush: Codable, Sendable {
   public init(results: [Result]) { self.results = results }
 }
 public protocol SyncRemote: Sendable {
+  func validateStore(accountID: String) async throws
   func pull(deviceID: String, cursor: Int64, head: Int64?) async throws -> SyncPull
   func push(deviceID: String, changes: [SyncChange]) async throws -> SyncPush
+}
+// Legacy/local test transports have no server scope. Network transports must
+// check the persisted profile before either pulling or uploading.
+extension SyncRemote {
+  public func validateStore(accountID: String) async throws {}
 }
 public enum SyncFailure: Error, Equatable {
   case invalidRecord, invalidResponse, wrongAccount, alreadySyncing, invalidServer, unauthorized
   case httpStatus(Int)
+  case scopeChanged, scopeRequired, mediaSyncDisabled
 }
 func validate(_ change: SyncChange) throws {
   guard !change.key.isEmpty, change.key.utf8.count <= 1024, change.value.utf8.count <= 65536,

@@ -3,6 +3,42 @@ import XCTest
 final class ArticleReaderUITests: XCTestCase {
   override func setUp() { continueAfterFailure = false }
 
+  @MainActor func testSyncTrialIsSeparateAndRejectsInsecureServer() throws {
+    let app = XCUIApplication()
+    app.launchArguments = [
+      "-ui-testing", "-reset-store", "-reset-appearance", "-seed-preload-fixtures",
+    ]
+    app.launch()
+    let menu = app.buttons["Sort and filter"]
+    XCTAssertTrue(menu.waitForExistence(timeout: 10))
+    let article = app.descendants(matching: .any).matching(identifier: "article-cached-0")
+      .firstMatch
+    XCTAssertTrue(article.waitForExistence(timeout: 10), app.debugDescription)
+    menu.tap()
+    app.buttons["sync-trial-open"].tap()
+    let input = app.textFields["sync-trial-server"]
+    XCTAssertTrue(input.waitForExistence(timeout: 5))
+    input.tap()
+    input.press(forDuration: 1)
+    if app.menuItems["Select All"].exists {
+      app.menuItems["Select All"].tap()
+    } else {
+      input.typeText(
+        String(
+          repeating: XCUIKeyboardKey.delete.rawValue, count: (input.value as? String ?? "").count))
+    }
+    input.typeText("http://localhost")
+    app.buttons["sync-trial-sign-in"].tap()
+    let error = app.staticTexts["sync-trial-status"]
+    expectation(
+      for: NSPredicate(format: "label CONTAINS %@", "Could not complete"), evaluatedWith: error)
+    waitForExpectations(timeout: 5)
+    XCTAssertFalse(app.buttons["sync-trial-save"].exists)
+    app.buttons["Done"].tap()
+    XCTAssertTrue(menu.waitForExistence(timeout: 5))
+    XCTAssertTrue(article.waitForExistence(timeout: 5), app.debugDescription)
+  }
+
   @MainActor func testStationaryBarAndReaderBackSwipe() throws {
     let app = XCUIApplication()
     app.launchArguments = ["-ui-testing", "-reset-store", "-reset-appearance"]

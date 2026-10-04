@@ -1,6 +1,6 @@
 # Arctic sync design
 
-Updated 4 October 2026 · Arctic integration proposal; native sync remains dormant.
+Updated 4 October 2026 · Native auth/v3 trial implemented; live library sync remains dormant.
 Reader and Spaced now use the shared service. The dated 3 October schema audit
 below describes the legacy Arctic adapter, not the new shared server.
 
@@ -38,11 +38,11 @@ flowchart LR
 
 | Area | Source in this checkout | Required before release |
 | --- | --- | --- |
-| Native transport | `Sync/`: HTTPS, Keychain credentials, Google handoff and legacy v2 sync | Shared auth cookie, v3 endpoints/scope, app account UI and lifecycle wiring |
-| Local sync store | Actor with atomic JSON journal, outbox, clock, cursor and tombstones | SQLite implementation; retain its correctness contracts |
+| Native transport | `Sync/`: HTTPS, Keychain, Google handoff, shared cookie and scoped v3 transport | Device Google handoff and cross-device trial; production account lifecycle UI |
+| Local sync store | Actor with atomic JSON journal, outbox, clock, cursor, tombstones and persisted v3 identity | SQLite implementation before any live library activation |
 | Article bridge | Dormant `ArticleSyncRepository.swift`: metadata, library, tags | Final schemas, granular mutations, migration and UI integration |
 | Other user data | Separate annotation/session files; Reader positions in UserDefaults | One account-scoped repository with transactional outbox capture |
-| Server | Shared Worker accepts Reader and Spaced; legacy Arctic routes remain in Reader Worker | Add `arctic` registry entry and native auth exchange to the shared host; verify isolation and device auth |
+| Server | Shared Worker now includes `arctic` and native auth locally; real Better Auth/D1 tests pass | Explicit deployment of additive auth migration/routes, then device auth verification |
 | Optional files | Authenticated, SHA-256 verified R2 API | Deferred from core sync; preservation needs durable jobs, portable manifests and bounded restore |
 
 The shared service's [migration evidence](../sync-server/MIGRATION.md) records
@@ -83,7 +83,8 @@ sequenceDiagram
   A->>S: Pull/push with exact scope and device ID
 ```
 
-These are proposed shared-host native routes; they are not mounted there today.
+These shared-host native routes are now implemented and tested locally. They
+have not been deployed as part of this change.
 Google's registered callback remains the shared HTTPS callback. The app callback
 is a separate hop, not a URL to register as the Google web client's redirect.
 The app carries no Google client secret. State ties the callback to this attempt;
@@ -101,32 +102,69 @@ sheet for the first milestone: it avoids reusing/revoking a web app's session,
 but may ask the user to sign in again. If browser SSO is added later, mint a
 separate native session instead of copying and sharing the browser session.
 
-### Concrete gaps in the current code
+### Implemented in the native-auth milestone
 
-- **Namespace:** `apps/sync-server/src/index.ts` and `env.ts` allow only `reader`
-  and `spaced`. The generic SQL tables already support another namespace. Add
-  `arctic` to the registry/types/health and isolation tests. Keep Arctic file
-  routes disabled until it has an explicit media policy.
-- **Auth routes:** reuse `packages/arctic-sync-server/native-auth.ts`, adapting
-  its host wrapper to shared Better Auth and adding its flow/code tables through
-  an additive migration. Preserve legacy Reader-hosted routes during transition.
-- **Cookie name:** both legacy native server code and `HTTPRemote` hard-code
-  `__Secure-better-auth.session_token`. Shared auth uses the `workbench` prefix.
-  Derive/configure this consistently; changing only the base URL will fail.
-- **Transport:** replace `/api/arctic/sync/v2` with
-  `/api/apps/arctic/sync/v3`. Fetch state, persist the full scope, send
-  `X-Sync-Scope`, and handle 409 scope changes without resetting local records
-  or replaying another profile's outbox. Native profile identity needs namespace
-  and epoch as well as server origin and user ID.
-- **Session lifecycle:** validate stored credentials on reconnect; verify expiry,
-  refresh and revocation against real Better Auth. Current middleware does not
-  explicitly forward refreshed session headers. Persist renewed credentials
-  before accepting them; 401 requires sign-in while local reading remains usable.
-  Signing out retires in-flight requests and preserves the local library.
-- **Data:** add SQLite transactions/outbox, then wire the app stores. Complete
-  article state (including `favouritedAt`), annotations, sessions and positions.
-  Keep article-first restore and optional media policies below. Core sync needs
-  no resolution of the legacy SHA-256 versus shared xxh64 file contract yet.
+- **Namespace:** shared routes, health, device and record scoping accept `arctic`.
+  Integration tests prove user/app isolation; Arctic file routes return 404.
+- **Auth routes:** the shared host reuses the native PKCE handoff and configures
+  its `workbench` cookie. Additive migration `0003_native_auth.sql` creates flow
+  and code tables. Legacy Reader-hosted native routes keep their old cookie.
+- **Transport:** Swift fetches v3 state and sends the exact canonical scope header.
+  Each journal persists the full scope as its identity. The transport validates
+  this identity before sync; an account/epoch mismatch stops without advancing
+  the cursor or clearing pending edits. It never adopts an old v2 journal.
+- **Session renewal:** shared middleware forwards refreshed session cookies.
+  Real Better Auth/D1 tests cover renewal and revocation. Native tests check
+  that cancellation or retirement cannot persist a late credential refresh.
+- **Trial UI:** Debug builds expose a separate sample-article profile on iPhone
+  and Mac. It is not the app's account UI and does not import ArticleStore.
+- **Still required:** a real Google/device trial, SQLite, final record families,
+  account lifecycle, granular UI updates, and reviewed migration. The large
+  library must not use the trial's whole-file JSON journal.
+
+### Native trial checklist
+
+1. Build **Debug**. On iPhone, open the library's **Sort and filter → Sync trial**.
+   On Mac, use **Arctic settings → Sync trial**. Release hides this developer UI.
+2. Use an HTTPS host with the shared auth routes and `0003_native_auth.sql`
+   applied. Default is `https://api.zsheng.app`; it requires explicit deployment
+   before Google sign-in will work. Local tests validate the flow with real D1
+   and Better Auth, but substitute a local login for Google's external UI.
+3. Continue with Google using a test account. Change the sample title, choose
+   **Save sample locally**, then **Sync now**. On the other device, sign in to
+   that same account and sync. Confirm that its sample title matches.
+4. Quit/relaunch and choose **Restore session**. Repeat offline, edit the sample,
+   then reconnect and sync. Revoke the session and confirm that the local sample
+   remains while network operations require sign-in. Sign out explicitly when
+   done; closing the sheet only cancels its requests.
+5. Record the Google callback, Keychain restore, offline edit, both device
+   results and revocation. Do not call this production native sync until these
+   checks and the storage migration are complete.
+
+Trial files live under Application Support/ArcticSyncTrial, separate from the
+library. Their filenames bind server and account; their stored identity also
+binds namespace/epoch. An epoch change cannot silently open a fresh journal.
+Only the explicit sample metadata at `https://example.com/arctic-sync-trial`
+is created. Existing articles, notes, HTML, images and Jev keys are not imported.
+Use a test account: trial records are real records on the selected server.
+
+### Validation — 4 October
+
+- Shared Worker: 10 integration tests pass, including native exchange, wrong
+  verifier, expired/replayed/revoked grants, session renewal, namespace isolation
+  and disabled Arctic file routes. Type check and Wrangler dry-run build pass.
+- Swift package: 21 tests pass, including durable scoped profiles, rejected
+  resets, retained offline edits and late-cookie cancellation.
+- Legacy Arctic server: 10 native-auth integration tests and four route tests pass.
+- iOS simulator and Mac Debug builds pass. The focused iOS 27 UI test opens the
+  trial, rejects HTTP, closes it, and confirms the local sample library remains.
+  This test needs ad-hoc signing for the App Group entitlement; an unsigned
+  simulator build cannot create the library fixture.
+- Shared browser checks: five pass; the production-restore fixture test is
+  intentionally skipped without its separate migration dataset. The first Reader
+  desktop attempt hit stale Vite dependencies; its clean retry passes.
+- No physical-device Google handoff, Keychain relaunch, or cross-device restore
+  is claimed. Those checks require the HTTPS deployment and user sign-in.
 
 ### Smallest useful integration milestone
 

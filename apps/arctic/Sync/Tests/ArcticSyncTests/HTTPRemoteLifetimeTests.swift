@@ -4,6 +4,7 @@ import Testing
 @testable import ArcticSync
 
 private let server = URL(string: "https://sync.example")!
+private let scope = SyncScope(origin: server.absoluteString, userId: "old", epoch: "test-epoch")
 private func credential(_ account: String, cookie: String) -> ArcticSession {
   .init(accountID: account, email: "\(account)@example.com", server: server, cookie: cookie)
 }
@@ -28,8 +29,9 @@ private actor DeferredResponse {
     let reply = HTTPURLResponse(
       url: server, statusCode: 200, httpVersion: "HTTP/1.1",
       headerFields: [
+        "X-Sync-Scope": try! scope.header,
         "Set-Cookie":
-          "__Secure-better-auth.session_token=renewed-old-token; Path=/; Secure; HttpOnly"
+          "__Secure-workbench.session_token=renewed-old-token; Path=/; Secure; HttpOnly",
       ])!
     let body = Data(#"{"records":[],"cursor":0,"head":0,"hasMore":false}"#.utf8)
     response?.resume(returning: (body, reply))
@@ -67,7 +69,7 @@ private final class MemoryCredentials: @unchecked Sendable {
   let sink = MemoryCredentials(old)
   let response = DeferredResponse()
   let remote = try HTTPRemote(
-    identity: old, performRequest: { try await response.load($0) },
+    identity: old, scope: scope, performRequest: { try await response.load($0) },
     cancelRequests: { sink.cancel() }, persistSession: { sink.save($0) })
   let request = Task { try await remote.pull(deviceID: "phone", cursor: 0, head: nil) }
   await response.waitUntilRequested()
@@ -87,7 +89,7 @@ private final class MemoryCredentials: @unchecked Sendable {
   let response = DeferredResponse()
   let sink = MemoryCredentials(old)
   let remote = try HTTPRemote(
-    identity: old,
+    identity: old, scope: scope,
     performRequest: { request in
       sink.requested()
       return try await response.load(request)
@@ -105,7 +107,7 @@ private final class MemoryCredentials: @unchecked Sendable {
   let response = DeferredResponse()
   let sink = MemoryCredentials(old)
   let remote = try HTTPRemote(
-    identity: old, performRequest: { try await response.load($0) },
+    identity: old, scope: scope, performRequest: { try await response.load($0) },
     cancelRequests: { sink.cancel() }, persistSession: { sink.save($0) })
   let request = Task { try await remote.pull(deviceID: "phone", cursor: 0, head: nil) }
   await response.waitUntilRequested()
@@ -121,7 +123,7 @@ private final class MemoryCredentials: @unchecked Sendable {
   let response = DeferredResponse()
   let sink = MemoryCredentials(old)
   let remote = try HTTPRemote(
-    identity: old, performRequest: { try await response.load($0) },
+    identity: old, scope: scope, performRequest: { try await response.load($0) },
     cancelRequests: { sink.cancel() }, persistSession: { sink.save($0) })
   let request = Task { try await remote.pull(deviceID: "phone", cursor: 0, head: nil) }
   await response.waitUntilRequested()
