@@ -83,6 +83,7 @@
     @Published var pending = 0
     @Published var status = "Requires a server with native Arctic auth enabled."
     @Published var busy = false
+    private var step = "Sync"
     private var operation: Task<Void, Never>?
     private var login: NativeGoogleSignIn?
     private var remote: HTTPRemote?
@@ -102,9 +103,31 @@
               "The account or server data changed. This trial profile is preserved; sync is stopped."
           case SyncFailure.unauthorized:
             status = "The session expired. Sign out, then sign in again. Local changes are kept."
+          case NativeSignInFailure.invalidCallback:
+            status = "The sign-in return link did not match this attempt. Please start Google sign-in again."
+          case NativeSignInFailure.failed:
+            status = "Google sign-in returned without a valid session. Please try again."
+          case NativeSignInFailure.unableToPresent:
+            status = "Could not open the sign-in sheet. Close Sync trial and try again."
+          case SyncFailure.httpStatus(let code):
+            status = "\(step) failed (HTTP \(code)). Local changes are kept."
+          case SyncFailure.invalidResponse:
+            status = "\(step) received an invalid server response. Local changes are kept."
+          case SyncFailure.invalidServer:
+            status = "Use an HTTPS server address without a path, such as https://api.zsheng.app."
           default:
-            status =
-              "Could not complete this step. Check the server and connection, then retry. Local changes are kept."
+            let failure = error as NSError
+            // Only allowlisted domains and numeric codes: error descriptions can
+            // include credential-bearing request or callback URLs.
+            if failure.domain == NSURLErrorDomain {
+              status = "\(step) could not connect (network \(failure.code)). Please retry."
+            } else if failure.domain == NSOSStatusErrorDomain {
+              status = "\(step) failed (Keychain \(failure.code)). Local changes are kept."
+            } else if failure.domain == ASWebAuthenticationSessionError.errorDomain {
+              status = "Google sign-in was cancelled or could not return to Arctic (\(failure.code))."
+            } else {
+              status = "\(step) could not complete. Please retry. Local changes are kept."
+            }
           }
         }
       }
@@ -114,14 +137,18 @@
       let login = NativeGoogleSignIn(anchor: anchor)
       self.login = login
       defer { self.login = nil }
+      step = "Google sign-in and code exchange"
+      status = "Opening Google sign-in…"
       let session = try await login.signIn(server: server)
       try Task.checkCancellation()
       // Save the credential before any sync; never use browser-global cookies.
+      step = "Saving the session"
       try SessionKeychain.save(session)
       try await attach(session)
       try await synchronize()
     }
     func restore(server: String) async throws {
+      step = "Restoring the session"
       guard let server = URL(string: server), let session = try SessionKeychain.load(server: server)
       else {
         status = "No session on this device. Continue with Google."
@@ -131,6 +158,7 @@
       try await synchronize()
     }
     private func attach(_ session: ArcticSession) async throws {
+      step = "Opening the local trial profile"
       let root = try FileManager.default.url(
         for: .applicationSupportDirectory, in: .userDomainMask,
         appropriateFor: nil, create: true
@@ -155,7 +183,9 @@
         email = session.email
         await refresh()
       } else {
+        step = "Fetching the account scope"
         let scope = try await transport.getScope()
+        step = "Creating the local trial profile"
         try Task.checkCancellation()
         let local = try SyncStore(file: file, scope: scope)
         try await local.commit([])
@@ -170,13 +200,16 @@
     }
     func synchronize() async throws {
       guard let remote, let store else { return }
+      step = "Checking the account scope"
       _ = try await remote.getScope()
+      step = "Syncing the sample"
       try await store.sync(using: remote)
       try Task.checkCancellation()
       await refresh()
       status = "Up to date. Open Sync trial on your other device and restore the same account."
     }
     func saveSample(title: String) async throws {
+      step = "Saving the sample"
       guard let store else { return }
       struct Metadata: Encodable {
         let url: String
@@ -206,6 +239,7 @@
       pending = await store.pendingCount
     }
     func signOut() async throws {
+      step = "Signing out"
       guard let remote, let identity else { return }
       // Server failure still permits local sign-out, but must not imply revocation.
       var revoked = true
