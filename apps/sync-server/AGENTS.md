@@ -1,8 +1,9 @@
 # Shared sync service
 
 Follow the root guidelines and read `../../docs/SHARED_SYNC_PLAN.md` before
-changes. This service is an opt-in local profile. Keep production deployment and
-data migration separate from local implementation work.
+changes. This service owns production Reader and Spaced auth, sync, and files at
+`https://api.zsheng.app`. Arctic remains separate. Keep production deployment and
+data migration explicit; local development uses its own configuration and data.
 
 The server owns authentication and app namespaces. Values remain opaque; do
 not import Reader or Spaced domain schemas. Scope records, files and devices by

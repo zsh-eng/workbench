@@ -1,9 +1,59 @@
-# Reader and Spaced migration rehearsal
+# Reader and Spaced migration
 
-The tools in `scripts/` read production backups and produce a **local** candidate
-database. They do not deploy, write to Cloudflare, or change either app's active
-backend. The shared server runtime still treats record values as opaque.
-The local verifier imports app codecs only to check migration output.
+## Production cutover: 4 October 2026
+
+Reader and Spaced now use `https://api.zsheng.app`. The shared Worker, D1 database,
+and R2 bucket are named `workbench-sync`. Both frontend builds were released with
+the shared origin. Old app Workers return 410 for legacy record pushes and file
+PUT/DELETE requests. Reader's independent Arctic/auth routes remain available.
+
+The user confirmed that active devices had synced before the write freeze. Fresh
+frozen backups, candidate data, import receipts, and full remote verification are
+outside Git in the private main-checkout directory
+`shared-sync-cutover.local/2026-10-04T08-28-47Z/`. Keep these files private: they
+include source data, account mappings, and deployment secrets. Old D1 databases
+and R2 buckets remain intact.
+
+| Source | Records | Users | Catalogued files | Backed-up R2 objects |
+| ------ | ------: | ----: | ---------------: | -------------------: |
+| Reader | 1,115 | 1 | 80 | 120 |
+| Spaced | 101,383 | 265 | 634 | 634 |
+
+- SQL exports total 81,710,484 bytes. All 754 source objects total 421,168,174 bytes.
+- The target contains 102,498 records, 265 users, 266 accounts, 188 streams, and
+  714 catalogued files (323,251,967 bytes). The candidate SQLite file is
+  90,587,136 bytes. Forty uncatalogued Reader objects remain in backup only.
+- All target rows were compared against the candidate. All 714 remote objects
+  matched their sizes and SHA-256 hashes. Actual app codecs accepted every record;
+  every selected file also passed its xxh64 content-ID check.
+- One exact Google provider-subject match merges the source users into Reader's
+  user ID. Keys, clocks, device IDs, schema versions, tombstones, FSRS state, and
+  review history are preserved. Only 852 relative image URLs in 821 Spaced records
+  are rewritten to the shared host. No referenced files were missing.
+- Sessions, verification codes, OAuth tokens, and old device catalog rows were not
+  copied. Existing password hashes and provider identities were retained.
+- Shared health, unauthenticated access, CORS, and the Google authorization request
+  passed. Google accepted the configured client and exact shared callback. Both live
+  frontend assets matched the built files; legacy push and file PUT/DELETE
+  probes returned 410 on both app origins.
+  Production Google sign-in completion, Safari, and installed-PWA restore still
+  require manual confirmation. The complete local browser rehearsal passed below.
+- After rebase onto current main, the 7 service tests, 623 Reader client tests,
+  138 Spaced tests, and both shared production builds passed.
+
+Reload each app, sign in, and restore into its new API-origin-scoped browser store.
+Old browser databases remain intact; unsynced old outboxes are not replayed
+implicitly. Do not clear them to resolve a sign-in or restore error. Once the
+shared target accepts writes, rollback requires a freeze and reconciliation;
+changing URLs back alone can lose new work. Resource deletion and Arctic migration
+remain separate work.
+
+## Migration tools and historical rehearsal
+
+The backup and conversion scripts read production snapshots and produce a local
+candidate. Only the explicit remote import runner writes the new target. The
+shared runtime treats record values as opaque; the local verifier imports app
+codecs only to check migration output.
 
 ## Verified snapshot: 3 October 2026
 
@@ -40,9 +90,10 @@ The rehearsal verified:
   the complete SQL dump into another local SQLite database reproduces every table.
 
 The candidate `shared.sqlite` is 90,124,288 bytes. It uses the proposed origin
-`https://api.zsheng.app`; that origin has not been deployed. The Worker domain list
-has no matching entry and DNS did not resolve during preflight. The current token
-could not list zone DNS records (403), so domain configuration is not fully checked.
+`https://api.zsheng.app`; that origin had not been deployed at this rehearsal.
+The Worker domain list had no matching entry and DNS did not resolve at preflight.
+The token could not list zone DNS records (403). The final cutover later configured
+the domain and verified live requests, as recorded above.
 
 The complete candidate was then loaded into isolated local Worker bindings using
 71 resumable import batches. Every imported row matched the candidate; all 712
@@ -98,8 +149,8 @@ The converter's `productionReady` flag stays false by design.
 
 **`seed.sql` is a complete SQLite schema and data dump, not a production D1 import
 script.** It is verified by importing into an empty local SQLite database. Do not
-apply it on top of D1 migrations. A production importer still needs to handle D1
-transaction syntax, schema migration bookkeeping and verified target loading.
+apply it on top of D1 migrations. Use the bounded import runner below to handle
+D1 syntax, migration bookkeeping, and verified target loading.
 
 ## Import tools
 
@@ -139,16 +190,16 @@ Create its new D1 database and R2 bucket separately; this script creates neither
 Set a fresh `BETTER_AUTH_SECRET` and Reader's `GOOGLE_CLIENT_ID` and
 `GOOGLE_CLIENT_SECRET` through Wrangler secrets. No production secret belongs in
 this config. `MIGRATION_MODE=closed` returns 503 for all routes except health.
-The config was checked with the service's pinned Wrangler deployment dry run;
-no production resource has been created or deployed.
+The config was first checked with the service's pinned Wrangler deployment dry
+run, then used for the verified production cutover described above.
 
 For the final remote import, use the runner's `--remote-new-target` instead of
 `--persist-to`. It requires the closed production config. Keep that Worker closed
 and run the read-only `verify-remote-import.py --plan <plan.json> --config
 <private-config.json> --output <new-private-verification-directory>`. It exports
 target D1, compares all tables, and downloads each selected R2 object to verify its
-SHA-256. Remote execution remains untested; the same SQL/upload batches passed
-against the local Worker. Do not mark an import verified from upload progress alone.
+SHA-256. Remote execution and full readback passed on 4 October 2026. Do not mark a
+future import verified from upload progress alone.
 
 Run Wrangler from `apps/sync-server` so it uses that app's pinned version. Root
 `bunx wrangler` can select an unrelated older installation.
@@ -176,7 +227,7 @@ changing IndexedDB. Any nonzero count blocks that device's cutover. Do not clear
 browser storage to silence the check. Offline or unaccounted-for devices require
 an explicit pending-data recovery before retiring the old backend.
 
-## Remaining production steps, in order
+## Cutover procedure (release completed; manual checks noted above)
 
 1. Confirm the Google callback
    `https://api.zsheng.app/api/auth/callback/google` is added to Reader's OAuth
@@ -188,13 +239,14 @@ an explicit pending-data recovery before retiring the old backend.
 3. Deploy the old app Workers with `SYNC_CUTOVER_MODE=freeze`. The tested gate
    returns 503 for record pushes and file PUT/DELETE only. Reads and auth remain
    available, including Arctic's independent Reader routes. Freeze edits during
-   final export/import. No cutover flag has been enabled in production yet.
+   final export/import. The production cutover used this freeze before final backups.
 4. Make fresh final D1/R2 backups, convert and prepare a new import plan. Import
    into the empty closed target and verify all rows and files. Earlier snapshots
    are rehearsal evidence, not permission to discard newer writes.
 5. Remove the target's closed mode only after verification. Check real Google
    login and restore on the target; use the local opt-in clients first if needed.
-   Verify Safari and installed PWAs before publishing the client switch.
+   Record Safari and installed-PWA results separately; these checks remain open
+   for the 4 October release.
 6. Build/release both frontends with `VITE_SHARED_API_URL=https://api.zsheng.app`.
    Require a fresh sign-in and restore into the new scoped browser stores. Keep
    old app data gates at `SYNC_CUTOVER_MODE=retired` (410), so old clients cannot

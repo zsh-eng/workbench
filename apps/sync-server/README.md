@@ -1,7 +1,10 @@
-# Local shared service
+# Shared sync service
 
-Reader and Spaced can use one local Better Auth server, D1 database, and R2
-bucket. Arctic is not connected. This is an opt-in development profile.
+Reader and Spaced use one production Better Auth server, D1 database, and R2
+bucket at `https://api.zsheng.app`. Arctic is not connected. The production
+cutover completed on 4 October 2026; see [migration evidence](MIGRATION.md).
+
+## Local development
 
 From the workspace root:
 
@@ -48,7 +51,7 @@ Spaced's existing explicit sign-out action clears that browser's Spaced data.
 Other tabs lose server access after the shared session is revoked. An account
 change during sync fails the scope check instead of adopting the old library.
 
-## Checks and remaining cutover work
+## Checks and deployment
 
 ```sh
 bun run test:sync-server
@@ -61,12 +64,20 @@ epoch, CORS, and logout checks. The browser test uses both real app adapters and
 check shared sign-in, separate restore, EPUB/image downloads, an offline Spaced
 edit followed by sync, and repeated file deletion.
 
-The configuration contains local resource IDs and a development secret. It has
-no deployment command. Existing deployment commands still use the app backends.
-Fresh backups, the complete local Worker import, and a full-data browser restore
-have passed. The service now supports migrated legacy passwords and configured
-Google/GitHub login. Old app Workers have inactive cutover write gates. The
-[rehearsal guide](MIGRATION.md) records sizes, checks, repeatable commands and
-remaining cutover work. The [migration plan](../../docs/SHARED_SYNC_PLAN.md)
-defines the account, namespace and local-state contracts. Production deployment
-and client cutover remain separate work.
+`wrangler.jsonc` contains local resource IDs and a development secret. Production
+uses `wrangler.production.jsonc` and secrets stored on the Worker. Deploy with
+`bun run deploy:sync` from the workspace root. Deploy the Reader and Spaced
+frontends separately with their owning app commands.
+
+The production defaults in both clients select the shared API. An explicit empty
+`VITE_SHARED_API_URL` selects the legacy profile for recovery tooling; it must not
+be used for a normal release. Old app Workers return 410 for legacy record and
+file writes. Their old databases and buckets remain available for recovery.
+Reader's independent Arctic/auth routes remain available.
+
+The [migration guide](MIGRATION.md) records backup sizes, full remote verification,
+and repeatable commands. The [design](../../docs/SHARED_SYNC_PLAN.md) defines the
+account, namespace, and local-state contracts. Fresh sign-in and restore are
+required after the client switch; old local stores are preserved, but old outboxes
+are not replayed automatically. Production Google sign-in completion, Safari,
+and installed-PWA restore remain manual checks until recorded there.

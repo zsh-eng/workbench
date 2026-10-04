@@ -36,6 +36,13 @@ competes with rendering; more parallel work is not automatically faster.
 
 ## Local data and sync
 
+Production Reader uses `https://api.zsheng.app` for auth, sync, files, and devices,
+with namespace `reader`. `apps/sync-server` owns that service. Browser stores are
+scoped to the API origin; legacy local stores remain intact after the fresh
+sign-in and restore. The Reader Worker serves assets and retains independent
+Arctic/auth routes. Legacy Reader record/file writes return 410; old remote stores
+remain for recovery. See the [migration evidence](../../sync-server/MIGRATION.md).
+
 Domain data lives in IndexedDB. Local writes must work without the network;
 the sync outbox records durable changes with those writes. The server stores
 opaque records and resolves versions without owning book-specific behavior.

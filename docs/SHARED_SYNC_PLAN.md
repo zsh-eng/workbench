@@ -1,12 +1,10 @@
 # Shared auth, sync, and file service
 
-Status: local Reader and Spaced implementation recovered onto current main,
-3 October 2026.
-See the [local service guide](../apps/sync-server/README.md) for commands and limits.
-Arctic remains outside this implementation. Fresh production D1/R2 backups and a
-full local Worker import and browser restore passed on 3 October 2026. No production data
-mutation, deployment, or client cutover has run. See the
-[rehearsal results and cutover checklist](../apps/sync-server/MIGRATION.md).
+Status: Reader and Spaced production cutover completed on 4 October 2026.
+See the [service guide](../apps/sync-server/README.md) for commands and limits,
+and the [migration evidence](../apps/sync-server/MIGRATION.md) for the frozen
+backups and full remote verification. Arctic remains outside this implementation.
+Production Google sign-in completion, Safari, and installed-PWA checks remain open.
 
 ## Decision
 
@@ -18,10 +16,9 @@ Use one Better Auth account store, one Cloudflare Worker, one D1 database, and o
 R2 bucket. Keep each app's local database and domain model. The server stores
 opaque records; it does not import app schemas or implement reading/review logic.
 
-Proposed location: `apps/sync-server`. Proposed public origin: `api.zsheng.app`.
-The origin and resource names are proposals. No matching Worker custom domain was
-registered at preflight; DNS did not resolve. Zone DNS inspection was denied by
-the current token, so production domain configuration remains to be checked.
+Location: `apps/sync-server`. Public origin: `https://api.zsheng.app`.
+The Worker, D1 database, and R2 bucket are named `workbench-sync`. The custom
+domain is live and the complete target was verified before activation.
 Reader and Spaced keep their existing frontend origins and release separately.
 Their Workers can continue to serve assets, but the shared Worker owns all auth,
 sync, file, and device APIs.
@@ -30,7 +27,7 @@ sync, file, and device APIs.
 flowchart LR
   R[Reader: IndexedDB] --> S[Shared Worker: auth, sync, files]
   P[Spaced: IndexedDB] --> S
-  A[Arctic: native local store] --> S
+  A[Arctic: native local store] -. future migration .-> S
   S --> D[One D1: accounts and namespaced records]
   S --> B[One R2: namespaced files]
 ```
@@ -48,7 +45,8 @@ The initial plan inspected main at `99b09e8`. The local implementation from
 `codex/shared-sync-local` was recovered onto `bab4718` in
 `codex/shared-sync-resume`. Unrelated Reader cleanup and native work remain in
 the original worktree.
-The table describes the existing deployment configuration.
+The table records the source backends retained after cutover. Reader and Spaced
+now use the shared service; their legacy record and file write routes return 410.
 
 | App    | Auth and remote storage in checked source                                                    | Local storage                                                |
 | ------ | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
@@ -76,8 +74,8 @@ Evidence paths, relative to the main checkout:
 - `packages/arctic-sync-server/README.md`, `routes.ts`, `native-auth.ts`
 - `apps/arctic/README.md`, `Sync/PERFORMANCE.md`
 
-Remote inventory and file completeness were checked in the documented rehearsal.
-Repeat those checks on the final frozen snapshot; these counts can change with use.
+Remote inventory and file completeness were checked in the rehearsal and final
+frozen production snapshot. Counts can change with use; see migration evidence.
 
 ## Namespace contract
 
