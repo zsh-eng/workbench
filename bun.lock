@@ -300,6 +300,7 @@
       "name": "@workbench/sync-server",
       "dependencies": {
         "@hono/zod-validator": "0.7.6",
+        "@workbench/arctic-sync-server": "workspace:*",
         "@zsh-eng/local-sync": "workspace:*",
         "better-auth": "1.6.9",
         "drizzle-orm": "0.45.2",

@@ -35,6 +35,8 @@ export interface NativeAuthDatabase {
   batch(statements: NativeAuthStatement[]): Promise<unknown>;
 }
 export interface NativeAuthOptions<E extends Env> {
+  /** Host-specific Better Auth cookie; defaults to the legacy Reader host. */
+  sessionCookieName?: string;
   database(c: Context<E>): NativeAuthDatabase;
   secret(c: Context<E>): string;
   origin(c: Context<E>): string;
@@ -128,6 +130,8 @@ export function createNativeAuthRoutes<E extends Env>(
   options: NativeAuthOptions<E>,
 ) {
   const now = options.now ?? Date.now;
+  const sessionCookieName =
+    options.sessionCookieName ?? "__Secure-better-auth.session_token";
   async function consumeFlow(c: Context<E>): Promise<Flow | null> {
     const flow = c.req.query("flow");
     if (!flow || !tokenPattern.test(flow) || getCookie(c, flowCookie) !== flow)
@@ -208,14 +212,14 @@ export function createNativeAuthRoutes<E extends Env>(
     .get("/finish", async (c: Context<E>) => {
       const flow = await consumeFlow(c);
       if (!flow) return c.json({ error: "Authorization request expired" }, 400);
-      const cookieValue = getCookie(c, "__Secure-better-auth.session_token");
+      const cookieValue = getCookie(c, sessionCookieName);
       if (!cookieValue)
         return c.redirect(
           redirect(flow.state, { error: "sign_in_failed" }),
           302,
         );
       // Hono decoded the cookie value. Re-encode exactly as Better Auth expects.
-      const cookie = `__Secure-better-auth.session_token=${encodeURIComponent(cookieValue)}`;
+      const cookie = `${sessionCookieName}=${encodeURIComponent(cookieValue)}`;
       const user = await options.authenticate(c, cookie);
       if (!user)
         return c.redirect(

@@ -5,8 +5,10 @@ import { createSyncHonoRoutes } from "@zsh-eng/local-sync/hono";
 import { syncDeviceIdSchema } from "@zsh-eng/local-sync";
 import { UAParser } from "ua-parser-js";
 import { createAuth } from "./auth";
+import { cliAuth, cliIdentity, cliReadPath, devicePage } from "./cli-auth";
 import { createFileRoutes } from "./files";
 import { loginPage } from "./login";
+import { nativeAuth } from "./native-auth";
 import { trustedOrigins, type AppEnv } from "./env";
 
 const app = new Hono<AppEnv>();
@@ -36,6 +38,14 @@ app.use("*", async (c, next) => {
 app.on(["GET", "POST"], "/api/auth/*", (c) =>
   createAuth(c.env).handler(c.req.raw),
 );
+app.route("/api/arctic/auth", nativeAuth);
+app.route("/api/cli", cliAuth);
+app.get("/device", c => {
+  c.header("X-Frame-Options", "DENY");
+  c.header("Referrer-Policy", "no-referrer");
+  c.header("Content-Security-Policy", "frame-ancestors 'none'");
+  return c.html(devicePage(c.env.LOCAL_DEVELOPMENT === "true"));
+});
 app.get("/login", (c) => {
   const returnTo =
     c.req.query("returnTo") ?? c.env.APP_ORIGINS.split(",")[0].trim();
@@ -50,9 +60,20 @@ app.get("/login", (c) => {
   );
 });
 const requireUser = createMiddleware<AppEnv>(async (c, next) => {
-  const auth = await createAuth(c.env).api.getSession({
+  if (c.req.header("Authorization")) {
+    const identity = await cliIdentity(c);
+    if (!identity) return c.json({ error: "Unauthorized" }, 401);
+    if (c.req.method !== "GET" || !cliReadPath(c.req.path)) return c.json({ error: "Read-only CLI credential" }, 403);
+    c.set("user", identity.user);
+    c.set("session", { id: "cli", token: "", userId: identity.user.id, createdAt: new Date(0), updatedAt: new Date(0), expiresAt: identity.expiresAt });
+    return next();
+  }
+  const { response: auth, headers } = await createAuth(c.env).api.getSession({
     headers: c.req.raw.headers,
+    returnHeaders: true,
   });
+  for (const cookie of headers.getSetCookie())
+    c.header("Set-Cookie", cookie, { append: true });
   if (!auth) return c.json({ error: "Unauthorized" }, 401);
   c.set("user", auth.user);
   c.set("session", auth.session);
@@ -65,9 +86,14 @@ app.get("/api/me", requireUser, (c) =>
     expiresAt: c.get("session").expiresAt,
   }),
 );
+app.get("/api/namespaces", requireUser, c => c.json({ namespaces: ["reader", "spaced"] }));
 app.use("/api/apps/:namespace/*", requireUser, async (c, next) => {
   const namespace = c.req.param("namespace");
-  if (namespace !== "reader" && namespace !== "spaced")
+  if (
+    namespace !== "reader" &&
+    namespace !== "spaced" &&
+    namespace !== "arctic"
+  )
     return c.json({ error: "Unknown app" }, 404);
   c.set("namespace", namespace);
   const userId = c.get("user").id;
@@ -176,8 +202,18 @@ app.get("/api/apps/:namespace/devices", async (c) => {
     })),
   });
 });
+// Arctic's first sync milestone includes records only. Do not silently inherit
+// Reader's file limits or xxh64 media contract for the native SHA-256 cache.
+app.use("/api/apps/arctic/files", async (c) =>
+  c.json({ error: "Media sync is not enabled" }, 404),
+);
+app.use("/api/apps/arctic/files/*", async (c) =>
+  c.json({ error: "Media sync is not enabled" }, 404),
+);
 app.route("/api/apps/:namespace/files", createFileRoutes());
-app.get("/health", (c) => c.json({ ok: true, apps: ["reader", "spaced"] }));
+app.get("/health", (c) =>
+  c.json({ ok: true, apps: ["reader", "spaced", "arctic"] }),
+);
 function agentInfo(ua?: string | null) {
   const parsed = new UAParser(ua ?? "").getResult();
   return {

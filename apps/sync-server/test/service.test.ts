@@ -57,10 +57,13 @@ function client(cookie: string, namespace: string) {
 it("uses one real auth session with independent app winners, tombstones, pages and streams", async () => {
   const cookie = await user();
   const reader = client(cookie, "reader"),
-    spaced = client(cookie, "spaced");
+    spaced = client(cookie, "spaced"),
+    arctic = client(cookie, "arctic");
   const a = await reader.remote.getScope!(),
     b = await spaced.remote.getScope!();
   expect(a.userId).toBe(b.userId);
+  expect((await arctic.remote.getScope!()).userId).toBe(a.userId);
+  await arctic.remote.push("iphone", [change("arctic")]);
   await reader.remote.push("reader-device", [change("reader")]);
   await spaced.remote.push("spaced-device", [change("spaced", 20)]);
   const duplicate = await reader.remote.push("reader-device", [
@@ -98,6 +101,11 @@ it("uses one real auth session with independent app winners, tombstones, pages a
   expect(
     (await client(await user(), "reader").request("/sync/v3/state")).status,
   ).toBe(200);
+  expect(
+    (
+      await arctic.remote.pull("mac", { cursor: 0, excludeOwnDevice: false })
+    ).records.map((r) => r.value),
+  ).toEqual(["arctic"]);
   const other = client(await user(), "reader");
   await other.remote.getScope!();
   expect(
@@ -113,7 +121,7 @@ it("uses one real auth session with independent app winners, tombstones, pages a
   ).toBe(401);
   expect(
     (
-      await SELF.fetch(`${origin}/api/apps/arctic/sync/v3/state`, {
+      await SELF.fetch(`${origin}/api/apps/unknown/sync/v3/state`, {
         headers: { Cookie: cookie },
       })
     ).status,

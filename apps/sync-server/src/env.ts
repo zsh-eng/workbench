@@ -17,7 +17,7 @@ export type AppEnv = {
   Variables: {
     user: User;
     session: Session;
-    namespace: "reader" | "spaced";
+    namespace: "reader" | "spaced" | "arctic";
     scope: { origin: string; userId: string; namespace: string; epoch: string };
   };
 };

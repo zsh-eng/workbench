@@ -1,7 +1,8 @@
 # Shared sync service
 
 Reader and Spaced use one production Better Auth server, D1 database, and R2
-bucket at `https://api.zsheng.app`. Arctic is not connected. The production
+bucket at `https://api.zsheng.app`. Arctic native auth and the `arctic` namespace
+are implemented locally; they have not been deployed or connected to its live library. The production
 cutover completed on 4 October 2026; see [migration evidence](MIGRATION.md).
 
 ## Local development
@@ -35,7 +36,7 @@ EPUB or create cards to try this profile.
 
 ## Data contract
 
-Requests use `/api/apps/reader` or `/api/apps/spaced`. The server authenticates
+Requests use `/api/apps/reader`, `/api/apps/spaced`, or `/api/apps/arctic`. The server authenticates
 the user and validates the namespace. Record uniqueness, pull cursors, winner
 lookups, files, and device records all use the user and namespace. Both apps can
 use the same record key or file ID without changing each other's data.
@@ -47,7 +48,8 @@ or an explicit export/import migration. Do not reuse an old cursor.
 
 Files use scoped R2 paths and verified `xxh64:` IDs. Upload limits are 100 MiB for
 Reader and 2 MiB for Spaced. Delete removes a file from the catalog but retains
-its bytes. Physical garbage collection is not implemented.
+its bytes. Physical garbage collection is not implemented. Arctic file routes
+return 404: native media sync is outside this milestone.
 
 Spaced's existing explicit sign-out action clears that browser's Spaced data.
 Other tabs lose server access after the shared session is revoked. An account
@@ -83,3 +85,22 @@ account, namespace, and local-state contracts. Fresh sign-in and restore are
 required after the client switch; old local stores are preserved, but old outboxes
 are not replayed automatically. Production Google sign-in completion, Safari,
 and installed-PWA restore remain manual checks until recorded there.
+
+## Arctic native sign-in (local implementation)
+
+`/api/arctic/auth/start`, `/finish`, and `/exchange` reuse the native PKCE
+handoff in `packages/arctic-sync-server`. The wrapper selects the shared
+`__Secure-workbench.session_token` cookie; legacy Reader-hosted auth retains its
+old cookie name. Google returns to `/api/auth/callback/google`, then the native
+flow returns a 60-second, one-use code to `articles://auth/callback`.
+
+Migration `0003_native_auth.sql` adds only flow/code tables and expiry indexes.
+It does not change accounts, existing streams, or existing records. Apply it
+before deploying these routes. No remote migration or deployment was performed
+for this implementation. The device trial is documented in
+[Arctic sync design](../arctic/SYNC_DESIGN.md#native-trial-checklist).
+
+`test/native-auth.test.ts` runs real Better Auth and D1 locally. It checks the
+Google authorization URL, browser-bound finish, wrong verifier, one-use exchange,
+expiry, revocation, session renewal, scoped push/pull, and disabled media routes.
+Google's external login UI and native device handoff still require a device test.
