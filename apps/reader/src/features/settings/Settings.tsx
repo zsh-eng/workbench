@@ -91,6 +91,17 @@ export function Settings() {
               </p>
             </Link>
           )}
+          {debugEnabled && (
+            <Link
+              to="/debug/experiments"
+              className="mt-4 block rounded-2xl border border-border p-5 text-sm hover:bg-muted"
+            >
+              <strong>Design experiments →</strong>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Browse interactive studies for the Reader, Library, Highlights, and Sessions.
+              </p>
+            </Link>
+          )}
           {debugEnabled && !getLabRuntime() && (
             <a
               href="/debug/sync"

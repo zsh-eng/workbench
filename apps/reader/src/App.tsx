@@ -37,6 +37,12 @@ const NotesLab = lazy(() =>
   })),
 );
 
+const Experiments = lazy(() =>
+  import("@/features/experiments/Experiments").then((module) => ({
+    default: module.Experiments,
+  })),
+);
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -149,6 +155,22 @@ function App() {
                           }
                         >
                           <NotesLab />
+                        </Suspense>
+                      </DebugGate>
+                    }
+                  />
+                  <Route
+                    path="/debug/experiments"
+                    element={
+                      <DebugGate>
+                        <Suspense
+                          fallback={
+                            <div className="p-8 text-sm text-muted-foreground">
+                              Loading experiments…
+                            </div>
+                          }
+                        >
+                          <Experiments />
                         </Suspense>
                       </DebugGate>
                     }

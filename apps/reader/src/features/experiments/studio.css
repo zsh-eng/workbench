@@ -1,0 +1,150 @@
+/* Experiments page. Typography and motion helpers scoped with an xp- prefix.
+   Colours come only from the existing theme tokens. */
+
+.xp-smcp {
+  font-variant-caps: all-small-caps;
+  letter-spacing: 0.09em;
+  font-feature-settings: "c2sc", "smcp";
+}
+
+.xp-onum {
+  font-variant-numeric: oldstyle-nums proportional-nums;
+}
+
+.xp-lnum {
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.xp-serif {
+  font-family: var(--font-serif);
+  font-kerning: normal;
+  font-feature-settings: "kern", "liga", "onum";
+}
+
+.xp-hairline {
+  border-color: color-mix(in oklab, var(--foreground) 14%, transparent);
+}
+
+/* Book text set for print: justified, hyphenated, with indented paragraphs. */
+.xp-book-text {
+  font-family: var(--font-serif);
+  font-feature-settings: "kern", "liga", "onum";
+  text-align: justify;
+  hyphens: auto;
+  -webkit-hyphens: auto;
+  text-wrap: pretty;
+  hanging-punctuation: first allow-end;
+}
+
+.xp-book-text p {
+  margin: 0;
+  text-indent: 1.35em;
+  orphans: 1;
+  widows: 1;
+}
+
+.xp-book-text p.xp-opening {
+  text-indent: 0;
+}
+
+.xp-book-text p.xp-opening::first-letter {
+  initial-letter: 3;
+  -webkit-initial-letter: 3;
+  font-weight: 500;
+  margin-right: 0.08em;
+  color: var(--foreground);
+}
+
+.xp-book-text p.xp-opening::first-line {
+  font-variant-caps: small-caps;
+  letter-spacing: 0.04em;
+}
+
+/* Registered so a mark can change colour with a transition. */
+@property --xp-ink {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
+
+/* Marker ink. "slice" lets the sweep cross line breaks in reading order. */
+.xp-ink {
+  --xp-ink-size: 100%;
+  /* Clear the user-agent <mark> fill; only the ink gradient should show. */
+  background-color: transparent;
+  color: inherit;
+  background-image: linear-gradient(
+    100deg,
+    color-mix(in oklab, var(--xp-ink) 72%, transparent) 0%,
+    color-mix(in oklab, var(--xp-ink) 92%, transparent) 4%,
+    color-mix(in oklab, var(--xp-ink) 84%, transparent) 96%,
+    color-mix(in oklab, var(--xp-ink) 60%, transparent) 100%
+  );
+  background-repeat: no-repeat;
+  background-position: 0 88%;
+  background-size: var(--xp-ink-size) 78%;
+  box-decoration-break: slice;
+  -webkit-box-decoration-break: slice;
+  border-radius: 0.18em 0.32em 0.22em 0.4em;
+  transition:
+    background-size 0.75s cubic-bezier(0.65, 0, 0.35, 1),
+    background-position 0.25s ease,
+    --xp-ink 0.45s ease;
+}
+
+.xp-ink[data-erasing="true"] {
+  opacity: 0.35;
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in oklab, var(--foreground) 50%, transparent);
+}
+
+.xp-ink[data-hovered="true"] {
+  background-position: 0 100%;
+  background-size: var(--xp-ink-size) 100%;
+}
+
+/* Dot grid for desk surfaces. */
+.xp-desk {
+  background-color: var(--muted);
+  background-image: radial-gradient(
+    color-mix(in oklab, var(--foreground) 9%, transparent) 1px,
+    transparent 1.2px
+  );
+  background-size: 18px 18px;
+}
+
+/* Paper fore-edge: the visible stack of pages beside the spread. */
+.xp-fore-edge {
+  background-image: repeating-linear-gradient(
+    to right,
+    color-mix(in oklab, var(--foreground) 16%, var(--card)) 0 1px,
+    var(--card) 1px 2.5px
+  );
+}
+
+.xp-scroll-quiet {
+  scrollbar-width: none;
+}
+
+.xp-scroll-quiet::-webkit-scrollbar {
+  display: none;
+}
+
+.xp-leader {
+  flex: 1;
+  min-width: 1.5rem;
+  margin: 0 0.4rem;
+  translate: 0 -0.28em;
+  border-bottom: 1.5px dotted color-mix(in oklab, var(--foreground) 28%, transparent);
+}
+
+.xp-vertical {
+  writing-mode: vertical-rl;
+  text-orientation: sideways;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xp-ink {
+    transition: none;
+  }
+}
