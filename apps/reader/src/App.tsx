@@ -31,6 +31,12 @@ const ReaderChromeDebug = lazy(() =>
   })),
 );
 
+const NotesLab = lazy(() =>
+  import("@/features/notes-lab/NotesLab").then((module) => ({
+    default: module.NotesLab,
+  })),
+);
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -127,6 +133,22 @@ function App() {
                           }
                         >
                           <ReaderChromeDebug />
+                        </Suspense>
+                      </DebugGate>
+                    }
+                  />
+                  <Route
+                    path="/debug/notes-lab"
+                    element={
+                      <DebugGate>
+                        <Suspense
+                          fallback={
+                            <div className="p-8 text-sm text-muted-foreground">
+                              Loading Notes Lab…
+                            </div>
+                          }
+                        >
+                          <NotesLab />
                         </Suspense>
                       </DebugGate>
                     }

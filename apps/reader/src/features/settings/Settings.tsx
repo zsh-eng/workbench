@@ -80,6 +80,17 @@ export function Settings() {
               </p>
             </Link>
           )}
+          {debugEnabled && (
+            <Link
+              to="/debug/notes-lab"
+              className="mt-4 block rounded-2xl border border-border p-5 text-sm hover:bg-muted"
+            >
+              <strong>Notes Lab →</strong>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Compare prototypes for capturing, writing, and revisiting notes.
+              </p>
+            </Link>
+          )}
           {debugEnabled && !getLabRuntime() && (
             <a
               href="/debug/sync"
