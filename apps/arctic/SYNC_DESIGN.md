@@ -186,6 +186,24 @@ Use a test account: trial records are real records on the selected server.
   it preserves CLI functionality and leaves the additive auth tables in place.
   It disables the new Arctic routes; do not drop tables as part of rollback.
 
+### Native callback fragment fix — 5 October
+
+The iPhone reached Google's callback and the server issued a one-use native
+code, but the app rejected the return URL because it contained a fragment.
+HTTP redirects can inherit fragments under
+[RFC 9110 §10.2.2](https://www.rfc-editor.org/rfc/rfc9110.html#section-10.2.2).
+The diagnostic identified fragment presence; its content was not collected.
+
+The native parser now ignores the fragment and reads credentials only from the
+query. Exact callback route, no user-info/port, one matching state and one valid
+code remain required. Fragment values cannot repair or override query values.
+PKCE, server expiry and single-use consumption are unchanged. Regression tests
+reproduce the former rejection and cover empty/inherited fragments plus forged
+state and fragment-only credentials. No backend deployment or Google callback
+configuration change is required. All 22 Swift tests and the iPhone/simulator
+builds pass. Installation was blocked by a disconnected device; device login
+completion still needs a retry after installation.
+
 ### Smallest useful integration milestone
 
 1. Add native auth and the Arctic namespace in an isolated local/staging service.

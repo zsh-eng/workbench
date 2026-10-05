@@ -28,7 +28,6 @@ import Testing
     ("articles://auth/other?state=\(state)&code=\(code)", .route),
     ("https://auth/callback?state=\(state)&code=\(code)", .route),
     ("articles://user@auth/callback?state=\(state)&code=\(code)", .credentials),
-    ("articles://auth/callback?state=\(state)&code=\(code)#", .fragment),
     ("articles://auth/callback?code=\(code)", .missingState),
     ("articles://auth/callback?state=\(state)&state=\(state)&code=\(code)", .duplicateState),
     ("articles://auth/callback?state=\(state)", .missingCode),
@@ -56,5 +55,28 @@ import Testing
     let bValue = bQuery.first { $0.name == name }!.value!
     #expect(aValue != bValue)
     #expect(aValue.range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil)
+  }
+}
+
+@Test func callbackUsesOnlyQueryCredentialsWhenBrowserCarriesAFragment() throws {
+  let state = String(repeating: "s", count: 43)
+  let code = String(repeating: "c", count: 43)
+  let request = try NativeSignInRequest(
+    server: URL(string: "https://api.zsheng.app")!, state: state,
+    verifier: String(repeating: "v", count: 43))
+  let callback = "articles://auth/callback?state=\(state)&code=\(code)"
+  // Redirect chains may inherit a fragment. It is never an auth parameter source.
+  for fragment in ["#", "#_=_", "#state=wrong&code=ignored&error=ignored"] {
+    #expect(try request.callbackCode(URL(string: callback + fragment)!) == code)
+  }
+  #expect(throws: NativeSignInFailure.callbackRejected(.stateMismatch)) {
+    try request.callbackCode(
+      URL(string: "articles://auth/callback?state=wrong&code=\(code)#state=\(state)")!)
+  }
+  #expect(throws: NativeSignInFailure.callbackRejected(.missingCode)) {
+    try request.callbackCode(URL(string: "articles://auth/callback?state=\(state)#code=\(code)")!)
+  }
+  #expect(throws: NativeSignInFailure.callbackRejected(.missingState)) {
+    try request.callbackCode(URL(string: "articles://auth/callback#state=\(state)&code=\(code)")!)
   }
 }

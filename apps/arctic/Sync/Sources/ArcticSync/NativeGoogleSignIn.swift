@@ -10,7 +10,7 @@ public enum NativeSignInFailure: Error, Equatable {
 
 /// Fixed diagnostic labels only. Never include a callback URL, state, or code.
 public enum CallbackRejection: String, Sendable {
-  case route, credentials, fragment, missingState, duplicateState, stateMismatch
+  case route, credentials, missingState, duplicateState, stateMismatch
   case missingCode, duplicateCode, codeFormat
 }
 
@@ -47,8 +47,9 @@ public struct NativeSignInRequest: Sendable {
     else { throw NativeSignInFailure.callbackRejected(.route) }
     guard callback.user == nil, callback.password == nil, callback.port == nil
     else { throw NativeSignInFailure.callbackRejected(.credentials) }
-    guard callback.fragment == nil
-    else { throw NativeSignInFailure.callbackRejected(.fragment) }
+    // HTTP redirect chains can inherit a browser fragment (RFC 9110 §10.2.2).
+    // It has no role in this protocol: take credentials only from query items.
+    // In particular, fragment values cannot supply or override state or code.
     let query = URLComponents(url: callback, resolvingAgainstBaseURL: false)?.queryItems ?? []
     let states = query.filter { $0.name == "state" }
     guard !states.isEmpty else { throw NativeSignInFailure.callbackRejected(.missingState) }
