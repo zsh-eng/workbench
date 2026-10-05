@@ -80,15 +80,29 @@ export function ComparisonActions({
           if (open) setQuery("");
         }}
       >
-        <Menu.Trigger {...stylex.props(ui.button)} aria-label="Compare against base branch">
-          {comparison.kind === "range" && comparison.mergeBase
-            ? `Base: ${comparison.base.replace(/^refs\/(heads|remotes)\//, "")}`
-            : "Compare against"}
-          <Icon name="chevron" size={12} />
+        <Menu.Trigger
+          {...stylex.props(
+            ui.button,
+            styles.trigger,
+            comparison.kind === "range" && comparison.mergeBase && ui.strong,
+          )}
+          aria-label="Compare against base branch"
+        >
+          {comparison.kind === "range" && comparison.mergeBase ? (
+            <>
+              <span {...stylex.props(styles.baseLabel)}>Base</span>
+              {comparison.base.replace(/^refs\/(heads|remotes)\//, "")}
+            </>
+          ) : (
+            "Compare against"
+          )}
+          <span {...stylex.props(styles.chevron)}>
+            <Icon name="chevron" size={14} />
+          </span>
         </Menu.Trigger>
         <Menu.Portal>
           <Menu.Positioner sideOffset={6} {...stylex.props(styles.positioner)}>
-            <Menu.Popup {...stylex.props(ui.popup, styles.menu)}>
+            <Menu.Popup {...stylex.props(ui.popup, ui.pop, styles.menu)}>
               <input
                 aria-label="Filter comparison branches"
                 placeholder="Find a base branch"
@@ -131,11 +145,15 @@ export function ComparisonActions({
           setPushOpen(open);
         }}
       >
-        <Dialog.Trigger {...stylex.props(ui.button)} disabled={!commitHead || !targets}>
+        <Dialog.Trigger
+          {...stylex.props(ui.button, ui.outlined, ui.pressable, styles.push)}
+          disabled={!commitHead || !targets}
+        >
+          <Icon name="push" size={14} />
           Push
         </Dialog.Trigger>
         <Dialog.Portal>
-          <Dialog.Backdrop {...stylex.props(styles.backdrop)} />
+          <Dialog.Backdrop {...stylex.props(ui.scrim, styles.backdrop)} />
           <Dialog.Popup {...stylex.props(styles.dialog)}>
             <Dialog.Title {...stylex.props(styles.title)}>Push to remote</Dialog.Title>
             <Dialog.Description {...stylex.props(styles.hint)}>
@@ -197,7 +215,7 @@ export function ComparisonActions({
                 Cancel
               </Dialog.Close>
               <button
-                {...stylex.props(ui.button, ui.strong)}
+                {...stylex.props(ui.button, ui.primary, ui.pressable)}
                 disabled={pushing || !remote || !branch.trim()}
                 onClick={() => void publish()}
               >
@@ -208,7 +226,8 @@ export function ComparisonActions({
         </Dialog.Portal>
       </Dialog.Root>
       {published && (
-        <span role="status" {...stylex.props(styles.hint)}>
+        <span role="status" {...stylex.props(styles.published)}>
+          <Icon name="check" size={14} />
           {published}
         </span>
       )}
@@ -216,30 +235,66 @@ export function ComparisonActions({
   );
 }
 const styles = stylex.create({
-  positioner: { zIndex: 105 },
-  menu: { maxHeight: 380, overflowY: "auto", minWidth: 240, maxWidth: 460 },
-  backdrop: { position: "fixed", inset: 0, backgroundColor: "#00000050", zIndex: 110 },
+  positioner: { zIndex: 105, outline: "none" },
+  trigger: { gap: 4, paddingInlineEnd: 5 },
+  baseLabel: { color: tokens.faint, fontWeight: 450 },
+  chevron: { display: "inline-flex", color: tokens.faint },
+  push: { gap: 5, marginInlineStart: 2, paddingInlineStart: 7, paddingInlineEnd: 9 },
+  menu: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+    maxHeight: 380,
+    overflowY: "auto",
+    minWidth: 260,
+    maxWidth: 460,
+  },
+  backdrop: { zIndex: 110 },
   dialog: {
     position: "fixed",
     top: "20vh",
     left: "50%",
     transform: "translateX(-50%)",
     width: "min(440px, 90vw)",
+    boxSizing: "border-box",
     padding: 20,
-    borderRadius: 16,
+    borderRadius: 12,
     backgroundColor: tokens.raised,
     color: tokens.text,
     borderWidth: 1,
     borderStyle: "solid",
-    borderColor: tokens.border,
+    borderColor: tokens.lineStrong,
     boxShadow: tokens.shadow,
     zIndex: 111,
     outline: "none",
     fontFamily: tokens.ui,
   },
-  title: { margin: 0, fontSize: 14, fontWeight: 600 },
-  hint: { fontSize: 12, color: tokens.muted, lineHeight: 1.5 },
-  repo: { fontSize: 12, overflowWrap: "anywhere", color: tokens.muted },
-  field: { display: "flex", flexDirection: "column", gap: 6, marginBlock: 14, fontSize: 12 },
-  actions: { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 },
+  title: { margin: 0, fontSize: 14, fontWeight: 550 },
+  hint: { fontSize: 12, color: tokens.muted, lineHeight: 1.5, marginBlock: 6, paddingInline: 4 },
+  repo: {
+    fontFamily: tokens.code,
+    fontSize: 11,
+    overflowWrap: "anywhere",
+    color: tokens.faint,
+    marginBlock: 12,
+  },
+  field: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-start",
+    gap: 6,
+    marginBlock: 14,
+    fontSize: 12,
+    color: tokens.muted,
+  },
+  actions: { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 },
+  published: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    marginInlineStart: 6,
+    color: tokens.green,
+    fontSize: 12,
+    whiteSpace: "nowrap",
+  },
 });

@@ -36,8 +36,11 @@ export interface Theme {
   palette: ThemePalette;
 }
 
-const darkShadow = "0 14px 48px #00000060";
-const lightShadow = "0 14px 48px #23334a24";
+// Layered shadows: a tight contact shadow, a soft ambient one, and (dark only)
+// a one-pixel top highlight that separates raised surfaces from the canvas.
+const darkShadow =
+  "0 1px 0 0 #ffffff08 inset, 0 2px 6px -1px #00000066, 0 16px 40px -12px #000000b3";
+const lightShadow = "0 1px 2px -1px #1b1f2a1f, 0 4px 10px -4px #1b1f2a1a, 0 18px 40px -16px #1b1f2a33";
 
 // Shell mappings use the named projects' public palettes. Syntax definitions are
 // loaded by Pierre from its bundled Shiki themes; they are not copied here.
@@ -51,19 +54,20 @@ export const themes: readonly Theme[] = [
     syntax: "pierre-dark",
     pierreTheme: "med-graphite-dark",
     source: null,
+    // The frame (panel) sits darker than the review card (canvas).
     palette: {
-      canvas: "#171717",
-      panel: "#1c1c1c",
-      raised: "#242424",
-      hover: "#2d2d2d",
-      border: "#343434",
-      text: "#ededed",
-      muted: "#a1a1a1",
-      faint: "#737373",
-      accent: "#a5c9ff",
-      selected: "#29384d",
-      green: "#8bcba0",
-      red: "#e49ba3",
+      canvas: "#141416",
+      panel: "#0d0d0f",
+      raised: "#1b1b1e",
+      hover: "#232327",
+      border: "#28282d",
+      text: "#ececef",
+      muted: "#9d9da6",
+      faint: "#686871",
+      accent: "#8f9cff",
+      selected: "#252946",
+      green: "#82cfa1",
+      red: "#ee8d98",
       warning: "#e8c17a",
       shadow: darkShadow,
     },
@@ -178,17 +182,17 @@ export const themes: readonly Theme[] = [
     source: null,
     palette: {
       canvas: "#ffffff",
-      panel: "#fafafa",
+      panel: "#f4f4f5",
       raised: "#ffffff",
-      hover: "#f0f0f0",
-      border: "#e5e5e5",
-      text: "#171717",
-      muted: "#666666",
-      faint: "#8a8a8a",
-      accent: "#245ea8",
-      selected: "#e6effa",
-      green: "#297a49",
-      red: "#ad3d4b",
+      hover: "#eaeaec",
+      border: "#e1e1e5",
+      text: "#18181b",
+      muted: "#5f5f68",
+      faint: "#8b8b94",
+      accent: "#4f5bd5",
+      selected: "#e8eafc",
+      green: "#1f7a4a",
+      red: "#c23a4c",
       warning: "#94651c",
       shadow: lightShadow,
     },

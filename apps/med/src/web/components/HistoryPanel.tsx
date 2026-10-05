@@ -4,18 +4,27 @@ import { useMemo, useState, useRef, useEffect, useLayoutEffect } from "react";
 import type { Commit } from "../../shared/protocol";
 import { layoutHistory, type GraphRow } from "./history-layout";
 import { tokens, ui } from "../theme.stylex";
-import { Icon } from "./Icon";
 import { relativeTime } from "../data/relative-time";
 
 const rowHeight = 48;
-const colors = ["#8cabdf", "#b5a0d6", "#82b6ad", "#d0ad7e", "#ce97ad", "#a2b97b"];
+// Lane colors blend the theme accent with fixed hues, so every theme gets a
+// related set and lane 0 (the checked-out line) is the accent itself.
+const colors = [
+  tokens.accent,
+  `color-mix(in oklch, ${tokens.accent} 45%, #43c6b4)`,
+  `color-mix(in oklch, ${tokens.accent} 45%, #f0a35a)`,
+  `color-mix(in oklch, ${tokens.accent} 45%, #e874a8)`,
+  `color-mix(in oklch, ${tokens.accent} 45%, #9fd36a)`,
+  `color-mix(in oklch, ${tokens.accent} 45%, #c79bff)`,
+];
+const graphX = (lane: number) => 10 + lane * 12;
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "full",
   timeStyle: "long",
 });
 
-function Graph({ row }: { row: GraphRow }) {
-  const x = (lane: number) => 10 + lane * 12;
+function Graph({ row, working }: { row: GraphRow; working?: boolean }) {
+  const x = graphX;
   return (
     <svg
       width={Math.max(28, row.width * 12 + 9)}
@@ -31,21 +40,32 @@ function Graph({ row }: { row: GraphRow }) {
               ? `M${x(edge.from)} 0 L${x(edge.from)} 20 C${x(edge.from)} 36 ${x(edge.to)} 32 ${x(edge.to)} 48`
               : `M${x(edge.from)} 20 C${x(edge.from)} 36 ${x(edge.to)} 32 ${x(edge.to)} 48`
           }
-          stroke={colors[edge.color % colors.length]}
+          style={{ stroke: colors[edge.color % colors.length] }}
           fill="none"
-          strokeWidth="1.25"
-          opacity=".7"
+          strokeWidth="1.5"
+          opacity=".75"
         />
       ))}
       {row.incoming && (
         <path
           d={`M${x(row.lane)} 0V20`}
-          stroke={colors[row.lane % colors.length]}
-          strokeWidth="1.25"
+          style={{ stroke: colors[row.lane % colors.length] }}
+          strokeWidth="1.5"
         />
       )}
-      <circle cx={x(row.lane)} cy="20" r="3.5" fill={colors[row.lane % colors.length]} />
-      {row.commit.parents.length > 1 && <circle cx={x(row.lane)} cy="20" r="1.5" fill="#20242b" />}
+      {working && !row.incoming && (
+        <path
+          d={`M${x(row.lane)} 0V16`}
+          style={{ stroke: colors[row.lane % colors.length] }}
+          strokeWidth="1.5"
+          strokeDasharray="2 2.5"
+          opacity=".75"
+        />
+      )}
+      <circle cx={x(row.lane)} cy="20" r="3.5" style={{ fill: colors[row.lane % colors.length] }} />
+      {row.commit.parents.length > 1 && (
+        <circle cx={x(row.lane)} cy="20" r="1.5" style={{ fill: tokens.panel }} />
+      )}
     </svg>
   );
 }
@@ -135,11 +155,8 @@ export function HistoryPanel({
     <Tooltip.Provider delay={450} closeDelay={60} timeout={800}>
       <section {...stylex.props(styles.panel)} aria-label="Commit history">
         <div {...stylex.props(styles.heading)}>
-          <span {...stylex.props(ui.row)}>
-            <Icon name="history" size={14} />
-            History
-          </span>
-          <span {...stylex.props(ui.faint, ui.mono)}>
+          <span>History</span>
+          <span {...stylex.props(styles.count)}>
             {commits.length}
             {hasMore ? "+" : ""}
           </span>
@@ -154,10 +171,29 @@ export function HistoryPanel({
             }}
             aria-pressed={working}
           >
-            <span {...stylex.props(styles.workingDot)} />
-            <span>Working changes</span>
-            <span {...stylex.props(ui.grow)} />
-            <Icon name="branch" size={12} />
+            {/* Uncommitted work sits above HEAD as a dashed node on lane 0. */}
+            <svg width="28" height="32" aria-hidden="true" {...stylex.props(styles.graph)}>
+              <circle
+                cx={graphX(0)}
+                cy="16"
+                r="3.75"
+                fill="none"
+                strokeWidth="1.5"
+                strokeDasharray="2.2 1.9"
+                style={{ stroke: colors[0] }}
+              />
+              {commits.length > 0 && (
+                <path
+                  d={`M${graphX(0)} 20.5V32`}
+                  strokeWidth="1.5"
+                  strokeDasharray="2 2.5"
+                  opacity=".75"
+                  style={{ stroke: colors[0] }}
+                />
+              )}
+            </svg>
+            <span {...stylex.props(styles.workingLabel)}>Working changes</span>
+            <span {...stylex.props(styles.workingHint)}>uncommitted</span>
           </button>
         )}
         <div
@@ -204,14 +240,19 @@ export function HistoryPanel({
                 }
                 style={{ top: (start + offset) * rowHeight }}
               >
-                <Graph row={row} />
+                <Graph row={row} working={workingAvailable && start + offset === 0} />
                 <span {...stylex.props(styles.commitText)}>
-                  <span {...stylex.props(styles.subject)}>
-                    {row.commit.subject || "(no commit message)"}
+                  <span {...stylex.props(styles.subjectLine)}>
+                    <span {...stylex.props(styles.subject)}>
+                      {row.commit.subject || "(no commit message)"}
+                    </span>
+                    <span {...stylex.props(styles.commitHash)}>{row.commit.id.slice(0, 7)}</span>
                   </span>
                   <span {...stylex.props(styles.metadata)}>
                     {row.commit.refs.length > 0 && (
-                      <span {...stylex.props(styles.refs)}>{row.commit.refs.join(" · ")}</span>
+                      <span {...stylex.props(styles.refs)} title={row.commit.refs.join(" · ")}>
+                        {row.commit.refs.join(" · ")}
+                      </span>
                     )}
                     <span {...stylex.props(ui.truncate)}>{row.commit.author}</span>
                     <time
@@ -222,7 +263,6 @@ export function HistoryPanel({
                     </time>
                   </span>
                 </span>
-                <span {...stylex.props(styles.commitHash)}>{row.commit.id.slice(0, 7)}</span>
               </Tooltip.Trigger>
             ))}
           </div>
@@ -254,7 +294,7 @@ export function HistoryPanel({
               sideOffset={10}
               {...stylex.props(styles.tooltipPositioner)}
             >
-              <Tooltip.Popup role="tooltip" {...stylex.props(styles.tooltip, ui.instant)}>
+              <Tooltip.Popup role="tooltip" {...stylex.props(styles.tooltip, ui.pop)}>
                 {payload && (
                   <>
                     <strong>{payload.subject || "(no commit message)"}</strong>
@@ -283,114 +323,129 @@ const styles = stylex.create({
   tooltip: {
     display: "flex",
     flexDirection: "column",
-    gap: 6,
-    maxWidth: 400,
-    padding: 10,
+    gap: 4,
+    maxWidth: 380,
+    paddingBlock: 10,
+    paddingInline: 12,
     backgroundColor: tokens.raised,
     color: tokens.text,
     borderWidth: 1,
     borderStyle: "solid",
-    borderColor: tokens.border,
-    borderRadius: 6,
+    borderColor: tokens.lineStrong,
+    borderRadius: 9,
     boxShadow: tokens.shadow,
     fontFamily: tokens.ui,
     fontSize: 12,
     lineHeight: 1.5,
     overflowWrap: "anywhere",
   },
-  tooltipHash: { fontFamily: tokens.code, fontSize: 10, color: tokens.muted },
+  tooltipHash: { fontFamily: tokens.code, fontSize: 10.5, color: tokens.faint, marginTop: 4 },
   panel: {
     display: "flex",
     flexDirection: "column",
     minHeight: 140,
     height: "43%",
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: tokens.border,
   },
   heading: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
     paddingInline: 14,
-    height: 38,
-    minHeight: 38,
-    fontSize: 11,
-    fontWeight: 600,
+    height: 36,
+    minHeight: 36,
+    fontSize: 11.5,
+    fontWeight: 500,
     color: tokens.muted,
+  },
+  count: {
+    color: tokens.faint,
+    fontFamily: tokens.code,
+    fontSize: 10.5,
+    fontVariantNumeric: "tabular-nums",
   },
   working: {
     display: "flex",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
     marginInline: 6,
-    marginBottom: 5,
-    minHeight: 30,
-    paddingInline: 9,
-    backgroundColor: { default: "transparent", ":hover": tokens.hover },
+    height: 32,
+    minHeight: 32,
+    paddingInlineStart: 0,
+    paddingInlineEnd: 10,
+    backgroundColor: { default: "transparent", ":hover": tokens.fill },
     borderWidth: 0,
-    borderRadius: 4,
+    borderRadius: 7,
     color: tokens.text,
     fontFamily: tokens.ui,
-    fontSize: 12,
+    fontSize: 12.5,
     textAlign: "left",
     cursor: "pointer",
-    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accent}` },
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+    outlineOffset: -2,
   },
-  workingDot: {
-    width: 6,
-    height: 6,
-    borderRadius: "50%",
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: tokens.green,
-  },
+  workingLabel: { flex: "1", minWidth: 0 },
+  workingHint: { color: tokens.faint, fontSize: 11 },
   scroll: {
     flex: "1",
     overflowY: "auto",
     overflowX: "hidden",
     minHeight: 0,
     scrollbarWidth: "thin",
-    outline: { default: "none", ":focus-visible": `1px solid ${tokens.accent}` },
+    outline: { default: "none", ":focus-visible": `1px solid ${tokens.accentLine}` },
     outlineOffset: -1,
   },
   commit: {
     position: "absolute",
+    insetInline: 6,
     display: "flex",
     alignItems: "center",
-    width: "100%",
     height: rowHeight,
     padding: 0,
     paddingRight: 10,
     boxSizing: "border-box",
     borderWidth: 0,
-    backgroundColor: { default: "transparent", ":hover": tokens.hover },
+    borderRadius: 7,
+    backgroundColor: { default: "transparent", ":hover": tokens.fill },
     color: tokens.text,
     fontFamily: tokens.ui,
     textAlign: "left",
     cursor: "pointer",
   },
   selected: { backgroundColor: { default: tokens.selected, ":hover": tokens.selected } },
-  graph: { flexShrink: 0, maxWidth: 94, overflow: "hidden", marginLeft: 6 },
+  graph: { flexShrink: 0, maxWidth: 94, overflow: "hidden" },
   commitText: { flex: "1", minWidth: 0, display: "flex", flexDirection: "column", gap: 3 },
-  subject: { fontSize: 12, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" },
+  subjectLine: { display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 },
+  subject: {
+    flex: "1",
+    minWidth: 0,
+    fontSize: 12.5,
+    overflow: "hidden",
+    whiteSpace: "nowrap",
+    textOverflow: "ellipsis",
+  },
   refs: {
+    flexShrink: 1,
+    minWidth: 0,
+    maxWidth: 96,
+    paddingInline: 5,
+    borderRadius: 4,
+    backgroundColor: tokens.accentSoft,
     color: tokens.accent,
-    maxWidth: 80,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
-    fontSize: 9,
+    fontSize: 10.5,
+    lineHeight: "16px",
+    fontWeight: 500,
   },
-  metadata: { display: "flex", alignItems: "center", gap: 8, color: tokens.faint, fontSize: 10 },
+  metadata: { display: "flex", alignItems: "center", gap: 7, color: tokens.faint, fontSize: 11 },
   commitHash: {
-    alignSelf: "flex-start",
-    marginTop: 12,
-    marginLeft: 6,
+    flexShrink: 0,
     fontFamily: tokens.code,
     color: tokens.faint,
-    fontSize: 9,
+    fontSize: 10.5,
+    fontVariantNumeric: "tabular-nums",
   },
-  loadMore: { width: "100%", paddingBlock: 10 },
+  loadMore: { width: "calc(100% - 12px)", marginInline: 6, minHeight: 32 },
   empty: { padding: 16, fontSize: 12, color: tokens.muted },
 });

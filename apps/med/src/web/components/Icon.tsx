@@ -1,53 +1,8 @@
-/*!
-Selected Lucide SVG icons, 951813ce76a859d4d8b145366972cbb237147a4e
-https://github.com/lucide-icons/lucide/tree/951813ce76a859d4d8b145366972cbb237147a4e/icons
-ISC License
-
-Copyright (c) 2026 Lucide Icons and Contributors
-
-Permission to use, copy, modify, and/or distribute this software for any
-purpose with or without fee is hereby granted, provided that the above
-copyright notice and this permission notice appear in all copies.
-
-THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
-WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
-ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
-WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
-ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
-OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-
----
-
-The following Lucide icons are derived from the Feather project:
-
-airplay, alert-circle, alert-octagon, alert-triangle, aperture, arrow-down-circle, arrow-down-left, arrow-down-right, arrow-down, arrow-left-circle, arrow-left, arrow-right-circle, arrow-right, arrow-up-circle, arrow-up-left, arrow-up-right, arrow-up, at-sign, calendar, cast, check, chevron-down, chevron-left, chevron-right, chevron-up, chevrons-down, chevrons-left, chevrons-right, chevrons-up, circle, clipboard, clock, code, columns, command, compass, corner-down-left, corner-down-right, corner-left-down, corner-left-up, corner-right-down, corner-right-up, corner-up-left, corner-up-right, crosshair, database, divide-circle, divide-square, dollar-sign, download, external-link, feather, frown, hash, headphones, help-circle, info, italic, key, layout, life-buoy, link-2, link, loader, lock, log-in, log-out, maximize, meh, minimize, minimize-2, minus-circle, minus-square, minus, monitor, moon, more-horizontal, more-vertical, move, music, navigation-2, navigation, octagon, pause-circle, percent, plus-circle, plus-square, plus, power, radio, rss, search, server, share, shopping-bag, sidebar, smartphone, smile, square, table-2, tablet, target, terminal, trash-2, trash, triangle, tv, type, upload, x-circle, x-octagon, x-square, x, zoom-in, zoom-out
-
-The MIT License (MIT) (for the icons listed above)
-
-Copyright (c) 2013-present Cole Bemis
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-*/
 import type { CSSProperties, ReactNode } from "react";
 
+// Med's own icon set, drawn by hand on a 16-pixel grid. Strokes are 1.5 px with
+// round ends so icons share the weight of Geist at 12–13 px. Draw new icons at
+// this size; do not scale 24-pixel sets down, because their strokes become thin.
 export type IconName =
   | "branch"
   | "gitBranch"
@@ -74,252 +29,180 @@ export type IconName =
   | "copy"
   | "external"
   | "panelLeft"
+  | "panelRight"
   | "plus"
   | "edit"
   | "trash"
   | "reply"
   | "save"
-  | "preview";
+  | "preview"
+  | "diff"
+  | "commit"
+  | "push"
+  | "compare"
+  | "pullRequest";
+
+const branch = (
+  <>
+    <circle cx="4.5" cy="3.25" r="1.75" />
+    <circle cx="4.5" cy="12.75" r="1.75" />
+    <circle cx="11.5" cy="3.25" r="1.75" />
+    <path d="M4.5 5v6M11.5 5v1.5a2.25 2.25 0 0 1-2.25 2.25h-2.5A2.25 2.25 0 0 0 4.5 11" />
+  </>
+);
+const frame = <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" />;
 
 const icons: Record<IconName, ReactNode> = {
-  save: (
-    <>
-      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12l4 4v12a2 2 0 0 1-2 2Z" />
-      <path d="M7 3v6h10V3M7 21v-8h10v8" />
-    </>
-  ),
-  preview: (
-    <>
-      <rect x="3" y="3" width="18" height="18" rx="3" />
-      <path d="M12 3v18M15 8h3M15 12h3M15 16h2" />
-    </>
-  ),
-  branch: (
-    <>
-      {" "}
-      <path d="M15 6a9 9 0 0 0-9 9V3" />
-      <circle cx="18" cy="6" r="3" />
-      <circle cx="6" cy="18" r="3" />{" "}
-    </>
-  ),
-  gitBranch: (
-    <>
-      {" "}
-      <path d="M15 6a9 9 0 0 0-9 9V3" />
-      <circle cx="18" cy="6" r="3" />
-      <circle cx="6" cy="18" r="3" />{" "}
-    </>
-  ),
+  branch,
+  gitBranch: branch,
   gitWorktree: (
     <>
-      {" "}
-      <circle cx="12" cy="18" r="3" />
-      <circle cx="6" cy="6" r="3" />
-      <circle cx="18" cy="6" r="3" />
-      <path d="M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9" />
-      <path d="M12 12v3" />{" "}
+      <circle cx="4" cy="3.25" r="1.75" />
+      <circle cx="12" cy="3.25" r="1.75" />
+      <circle cx="8" cy="12.75" r="1.75" />
+      <path d="M4 5v.75A2.25 2.25 0 0 0 6.25 8h3.5A2.25 2.25 0 0 0 12 5.75V5M8 8v3" />
     </>
   ),
-  chevron: (
+  pullRequest: (
     <>
-      {" "}
-      <path d="m6 9 6 6 6-6" />{" "}
+      <circle cx="4" cy="3.25" r="1.75" />
+      <circle cx="4" cy="12.75" r="1.75" />
+      <circle cx="12" cy="12.75" r="1.75" />
+      <path d="M4 5v6M12 11V6.25a1.5 1.5 0 0 0-1.5-1.5H7.5M9.25 3 7.5 4.75 9.25 6.5" />
     </>
   ),
+  commit: (
+    <>
+      <circle cx="8" cy="8" r="2.75" />
+      <path d="M1.75 8h3.5M10.75 8h3.5" />
+    </>
+  ),
+  compare: (
+    <>
+      <circle cx="4" cy="12.25" r="1.75" />
+      <circle cx="12" cy="3.75" r="1.75" />
+      <path d="M4 10.5V6.25a1.5 1.5 0 0 1 1.5-1.5h3.25M7.25 3.25l1.5 1.5-1.5 1.5M12 5.5v4.25a1.5 1.5 0 0 1-1.5 1.5H7.25M8.75 9.75l-1.5 1.5 1.5 1.5" />
+    </>
+  ),
+  push: (
+    <path d="M8 10.25v-7.5M4.75 6 8 2.75 11.25 6M2.75 9.75v2a1.5 1.5 0 0 0 1.5 1.5h7.5a1.5 1.5 0 0 0 1.5-1.5v-2" />
+  ),
+  diff: (
+    <>
+      <rect x="2.25" y="2.25" width="11.5" height="11.5" rx="2.75" />
+      <path d="M8 4.75v4M6 6.75h4M6 11.25h4" />
+    </>
+  ),
+  chevron: <path d="M4.5 6.25 8 9.75l3.5-3.5" />,
   file: (
     <>
-      {" "}
-      <path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" />
-      <path d="M14 2v5a1 1 0 0 0 1 1h5" />{" "}
+      <path d="M9.25 1.75h-4.5a1.5 1.5 0 0 0-1.5 1.5v9.5a1.5 1.5 0 0 0 1.5 1.5h6.5a1.5 1.5 0 0 0 1.5-1.5v-7.5z" />
+      <path d="M9.25 1.75v2.5a1 1 0 0 0 1 1h2.5" />
     </>
+  ),
+  folder: (
+    <path d="M1.75 4.25a1.5 1.5 0 0 1 1.5-1.5h2.88a1.5 1.5 0 0 1 1.2.6l.84 1.12a1.5 1.5 0 0 0 1.2.6h3.38a1.5 1.5 0 0 1 1.5 1.5v5.68a1.5 1.5 0 0 1-1.5 1.5h-9.5a1.5 1.5 0 0 1-1.5-1.5z" />
   ),
   search: (
     <>
-      {" "}
-      <path d="m21 21-4.34-4.34" />
-      <circle cx="11" cy="11" r="8" />{" "}
+      <circle cx="7.25" cy="7.25" r="4.5" />
+      <path d="m10.5 10.5 3.25 3.25" />
     </>
   ),
   refresh: (
-    <>
-      {" "}
-      <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
-      <path d="M21 3v5h-5" />
-      <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
-      <path d="M8 16H3v5" />{" "}
-    </>
+    <path d="M2.75 8a5.25 5.25 0 0 1 9.8-2.63M12.55 2.63v2.75H9.8M13.25 8a5.25 5.25 0 0 1-9.8 2.63M3.45 13.38v-2.75H6.2" />
   ),
   settings: (
     <>
-      {" "}
-      <path d="M10 5H3" />
-      <path d="M12 19H3" />
-      <path d="M14 3v4" />
-      <path d="M16 17v4" />
-      <path d="M21 12h-9" />
-      <path d="M21 19h-5" />
-      <path d="M21 5h-7" />
-      <path d="M8 10v4" />
-      <path d="M8 12H3" />{" "}
+      <path d="M2.75 4.75h5.5M11.75 4.75h1.5M2.75 11.25h1.5M7.75 11.25h5.5" />
+      <circle cx="10" cy="4.75" r="1.75" />
+      <circle cx="6" cy="11.25" r="1.75" />
     </>
   ),
-  close: (
-    <>
-      {" "}
-      <path d="M18 6 6 18" />
-      <path d="m6 6 12 12" />{" "}
-    </>
-  ),
+  close: <path d="m4.5 4.5 7 7M11.5 4.5l-7 7" />,
+  plus: <path d="M8 3.25v9.5M3.25 8h9.5" />,
+  check: <path d="m3.5 8.25 3 3 6-6.5" />,
   split: (
     <>
-      {" "}
-      <rect width="18" height="18" x="3" y="3" rx="2" />
-      <path d="M12 3v18" />{" "}
+      {frame}
+      <path d="M8 2.75v10.5" />
     </>
   ),
   unified: (
     <>
-      {" "}
-      <rect width="18" height="18" x="3" y="3" rx="2" />
-      <path d="M3 12h18" />{" "}
-    </>
-  ),
-  wrap: (
-    <>
-      {" "}
-      <path d="m16 16-3 3 3 3" />
-      <path d="M3 12h14.5a1 1 0 0 1 0 7H13" />
-      <path d="M3 19h6" />
-      <path d="M3 5h18" />{" "}
-    </>
-  ),
-  sun: (
-    <>
-      {" "}
-      <circle cx="12" cy="12" r="4" />
-      <path d="M12 2v2" />
-      <path d="M12 20v2" />
-      <path d="m4.93 4.93 1.41 1.41" />
-      <path d="m17.66 17.66 1.41 1.41" />
-      <path d="M2 12h2" />
-      <path d="M20 12h2" />
-      <path d="m6.34 17.66-1.41 1.41" />
-      <path d="m19.07 4.93-1.41 1.41" />{" "}
-    </>
-  ),
-  moon: (
-    <>
-      {" "}
-      <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" />{" "}
-    </>
-  ),
-  theme: (
-    <>
-      {" "}
-      <path d="M12 2v2" />
-      <path d="M14.837 16.385a6 6 0 1 1-7.223-7.222c.624-.147.97.66.715 1.248a4 4 0 0 0 5.26 5.259c.589-.255 1.396.09 1.248.715" />
-      <path d="M16 12a4 4 0 0 0-4-4" />
-      <path d="m19 5-1.256 1.256" />
-      <path d="M20 12h2" />{" "}
-    </>
-  ),
-  note: (
-    <>
-      {" "}
-      <path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z" />{" "}
-    </>
-  ),
-  history: (
-    <>
-      {" "}
-      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-      <path d="M3 3v5h5" />
-      <path d="M12 7v5l4 2" />{" "}
-    </>
-  ),
-  check: (
-    <>
-      {" "}
-      <path d="M20 6 9 17l-5-5" />{" "}
-    </>
-  ),
-  folder: (
-    <>
-      {" "}
-      <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />{" "}
-    </>
-  ),
-  arrowDown: (
-    <>
-      {" "}
-      <path d="M12 5v14" />
-      <path d="m19 12-7 7-7-7" />{" "}
-    </>
-  ),
-  arrowUp: (
-    <>
-      {" "}
-      <path d="m5 12 7-7 7 7" />
-      <path d="M12 19V5" />{" "}
-    </>
-  ),
-  command: (
-    <>
-      {" "}
-      <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />{" "}
-    </>
-  ),
-  copy: (
-    <>
-      {" "}
-      <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
-      <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />{" "}
-    </>
-  ),
-  external: (
-    <>
-      {" "}
-      <path d="M15 3h6v6" />
-      <path d="M10 14 21 3" />
-      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />{" "}
+      {frame}
+      <path d="M1.75 8h12.5" />
     </>
   ),
   panelLeft: (
     <>
-      {" "}
-      <rect width="18" height="18" x="3" y="3" rx="2" />
-      <path d="M9 3v18" />{" "}
+      <path d="M3.75 2.75h2.5v10.5h-2.5a2 2 0 0 1-2-2v-6.5a2 2 0 0 1 2-2z" fill="currentColor" opacity=".28" stroke="none" />
+      {frame}
+      <path d="M6.25 2.75v10.5" />
     </>
   ),
-  plus: (
+  panelRight: (
     <>
-      {" "}
-      <path d="M5 12h14" />
-      <path d="M12 5v14" />{" "}
+      <path d="M12.25 2.75h-2.5v10.5h2.5a2 2 0 0 0 2-2v-6.5a2 2 0 0 0-2-2z" fill="currentColor" opacity=".28" stroke="none" />
+      {frame}
+      <path d="M9.75 2.75v10.5" />
     </>
   ),
+  preview: (
+    <>
+      {frame}
+      <path d="M8 2.75v10.5M10.25 6.25h1.75M10.25 9.25h1.75" />
+    </>
+  ),
+  wrap: (
+    <path d="M2.75 3.75h10.5M2.75 8h8.5a2.25 2.25 0 0 1 0 4.5H8.5M2.75 12.5h2.5M10 10.75l-1.75 1.75L10 14.25" />
+  ),
+  sun: (
+    <>
+      <circle cx="8" cy="8" r="2.75" />
+      <path d="M8 1.75v1.5M8 12.75v1.5M1.75 8h1.5M12.75 8h1.5M3.58 3.58l1.06 1.06M11.36 11.36l1.06 1.06M3.58 12.42l1.06-1.06M11.36 4.64l1.06-1.06" />
+    </>
+  ),
+  moon: <path d="M13.25 9.6A5.5 5.5 0 1 1 6.4 2.75a4.5 4.5 0 0 0 6.85 6.85z" />,
+  theme: (
+    <>
+      <circle cx="8" cy="8" r="5.75" />
+      <path d="M8 2.25a5.75 5.75 0 0 1 0 11.5z" fill="currentColor" stroke="none" />
+    </>
+  ),
+  note: (
+    <path d="M2.75 4.25a1.5 1.5 0 0 1 1.5-1.5h7.5a1.5 1.5 0 0 1 1.5 1.5v5.5a1.5 1.5 0 0 1-1.5 1.5H8l-2.75 2.25v-2.25h-1a1.5 1.5 0 0 1-1.5-1.5z" />
+  ),
+  history: (
+    <>
+      <path d="M2.75 8A5.25 5.25 0 1 0 4.5 4.1" />
+      <path d="M4.75 1.6v2.75H2" />
+      <path d="M8 5.25V8l1.75 1.5" />
+    </>
+  ),
+  arrowDown: <path d="M8 2.75v10.5M3.75 9 8 13.25 12.25 9" />,
+  arrowUp: <path d="M8 13.25V2.75M3.75 7 8 2.75 12.25 7" />,
+  command: (
+    <path d="M5.75 10.25v-6a1.5 1.5 0 1 0-1.5 1.5h7.5a1.5 1.5 0 1 0-1.5-1.5v7.5a1.5 1.5 0 1 0 1.5-1.5h-7.5a1.5 1.5 0 1 0 1.5 1.5z" />
+  ),
+  copy: (
+    <>
+      <rect x="5.25" y="5.25" width="8.5" height="8.5" rx="1.75" />
+      <path d="M2.25 10.25v-6.5a1.5 1.5 0 0 1 1.5-1.5h6.5" />
+    </>
+  ),
+  external: <path d="M5 11 11 5M5.75 5H11v5.25" />,
   edit: (
-    <>
-      {" "}
-      <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
-      <path d="m15 5 4 4" />{" "}
-    </>
+    <path d="M10.6 2.9a1.6 1.6 0 0 1 2.26 2.26l-7.11 7.11-3 .98.98-3zM9.25 4.25l2.5 2.5" />
   ),
   trash: (
-    <>
-      {" "}
-      <path d="M10 11v6" />
-      <path d="M14 11v6" />
-      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
-      <path d="M3 6h18" />
-      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />{" "}
-    </>
+    <path d="M2.75 4.25h10.5M6.25 4.25V3a.75.75 0 0 1 .75-.75h2a.75.75 0 0 1 .75.75v1.25M4.25 4.25l.62 8.36A1.5 1.5 0 0 0 6.37 14h3.26a1.5 1.5 0 0 0 1.5-1.39l.62-8.36" />
   ),
-  reply: (
+  reply: <path d="M6.25 4.25 2.75 7.75l3.5 3.5M2.75 7.75h6.5a4 4 0 0 1 4 4v.5" />,
+  save: (
     <>
-      {" "}
-      <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
-      <path d="m9 17-5-5 5-5" />{" "}
+      <path d="M2.75 4.25a1.5 1.5 0 0 1 1.5-1.5h6.13a1.5 1.5 0 0 1 1.06.44l1.62 1.62a1.5 1.5 0 0 1 .44 1.06v6.38a1.5 1.5 0 0 1-1.5 1.5h-7.5a1.5 1.5 0 0 1-1.5-1.5z" />
+      <path d="M5.25 13.25v-3a.5.5 0 0 1 .5-.5h4.5a.5.5 0 0 1 .5.5v3M5.75 2.75v2.5h3.5" />
     </>
   ),
 };
@@ -337,10 +220,10 @@ export function Icon({
     <svg
       width={size}
       height={size}
-      viewBox="0 0 24 24"
+      viewBox="0 0 16 16"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.65"
+      strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"

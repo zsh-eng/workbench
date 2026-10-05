@@ -7,7 +7,7 @@ import { Dialog } from "@base-ui/react/dialog";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ShortcutKeys } from "./ShortcutKeys";
 export { ShortcutKeys } from "./ShortcutKeys";
-import { Icon } from "./Icon";
+import { Icon, type IconName } from "./Icon";
 import { tokens, ui } from "../theme.stylex";
 
 export interface Choice {
@@ -45,20 +45,21 @@ export function ChoiceSelect({
       }}
       items={choices}
     >
-      <Select.Trigger {...stylex.props(ui.button, ui.strong)} aria-label={label}>
+      <Select.Trigger {...stylex.props(ui.button, ui.strong, styles.trigger)} aria-label={label}>
         {icon}
         <Select.Value />
-        <Select.Icon>
-          <Icon name="chevron" size={12} />
+        <Select.Icon {...stylex.props(styles.chevron)}>
+          <Icon name="chevron" size={14} />
         </Select.Icon>
       </Select.Trigger>
       <Select.Portal>
         <Select.Positioner
           sideOffset={6}
           align="start"
-          {...stylex.props(styles.positioner, ui.instant)}
+          alignItemWithTrigger={false}
+          {...stylex.props(styles.positioner)}
         >
-          <Select.Popup {...stylex.props(ui.popup, ui.instant)}>
+          <Select.Popup {...stylex.props(ui.popup, ui.pop)}>
             <Select.List>
               {choices.map((choice) => (
                 <Select.Item
@@ -69,8 +70,8 @@ export function ChoiceSelect({
                   }
                 >
                   <Select.ItemText>{choice.label}</Select.ItemText>
-                  <Select.ItemIndicator>
-                    <Icon name="check" size={12} />
+                  <Select.ItemIndicator {...stylex.props(styles.indicator)}>
+                    <Icon name="check" size={14} />
                   </Select.ItemIndicator>
                 </Select.Item>
               ))}
@@ -98,16 +99,12 @@ export function ActionMenu({
           {...stylex.props(ui.button, children ? null : ui.iconButton)}
           aria-label={label}
         >
-          {children ?? <Icon name="settings" />}
+          {children ?? <Icon name="settings" size={15} />}
         </Menu.Trigger>
       </ActionTooltip>
       <Menu.Portal>
-        <Menu.Positioner
-          align="end"
-          sideOffset={6}
-          {...stylex.props(styles.positioner, ui.instant)}
-        >
-          <Menu.Popup {...stylex.props(ui.popup, ui.instant)}>
+        <Menu.Positioner align="end" sideOffset={6} {...stylex.props(styles.positioner)}>
+          <Menu.Popup {...stylex.props(ui.popup, ui.pop)}>
             {actions.map((action) => (
               <Menu.Item
                 key={action.label}
@@ -119,7 +116,7 @@ export function ActionMenu({
                 <span {...stylex.props(ui.row)}>
                   {action.checked !== undefined && (
                     <span {...stylex.props(styles.check)}>
-                      {action.checked ? <Icon name="check" size={12} /> : null}
+                      {action.checked ? <Icon name="check" size={14} /> : null}
                     </span>
                   )}
                   {action.label}
@@ -180,21 +177,21 @@ export function CommandDialog({
       }}
     >
       <Dialog.Portal>
-        <Dialog.Backdrop {...stylex.props(styles.backdrop, ui.instant)} />
+        <Dialog.Backdrop {...stylex.props(ui.scrim, styles.backdrop, ui.instant)} />
         <Dialog.Popup
           initialFocus={() => {
             commandManagesFocus.current = false;
             return focusPaletteInput(inputRef.current);
           }}
           finalFocus={() => !commandManagesFocus.current}
-          {...stylex.props(styles.dialog, ui.instant)}
+          {...stylex.props(ui.palette, styles.dialog, ui.instant)}
         >
           <Dialog.Title {...stylex.props(styles.hidden)}>{title}</Dialog.Title>
           <Dialog.Description {...stylex.props(styles.hidden)}>
             Find and run a review command.
           </Dialog.Description>
-          <div {...stylex.props(styles.commandInput)}>
-            <Icon name="search" />
+          <div {...stylex.props(ui.paletteInput)}>
+            <Icon name="command" />
             <input
               ref={inputRef}
               value={query}
@@ -215,8 +212,8 @@ export function CommandDialog({
                   run(active);
                 }
               }}
-              {...stylex.props(styles.commandField)}
-              placeholder="Search commands…"
+              {...stylex.props(ui.paletteField)}
+              placeholder="Type a command…"
               aria-label={searchLabel}
               role="combobox"
               aria-expanded="true"
@@ -259,12 +256,16 @@ export function CommandDialog({
               <div {...stylex.props(styles.empty)}>No matching commands</div>
             )}
           </div>
-          <div {...stylex.props(styles.commandFooter)}>
+          <div {...stylex.props(ui.paletteFooter)}>
             <span {...stylex.props(styles.footerHint)}>
               <ShortcutKeys value="↑ ↓" /> Navigate
             </span>
             <span {...stylex.props(styles.footerHint)}>
-              Run command <ShortcutKeys value="↵" />
+              <ShortcutKeys value="↵" /> Run
+            </span>
+            <span {...stylex.props(ui.grow)} />
+            <span {...stylex.props(styles.footerHint)}>
+              {results.filter((command) => !command.disabled).length} available
             </span>
           </div>
         </Dialog.Popup>
@@ -273,29 +274,62 @@ export function CommandDialog({
   );
 }
 
+/**
+ * Two or three exclusive options with a pill that slides to the pressed one.
+ * The view changes at once; the pill only shows where the choice moved.
+ */
+export function SegmentedControl<T extends string>({
+  value,
+  options,
+  onChange,
+  label,
+}: {
+  value: T;
+  options: { value: T; label: string; icon: IconName; shortcut?: string }[];
+  onChange(value: T): void;
+  label: string;
+}) {
+  const index = Math.max(
+    0,
+    options.findIndex((option) => option.value === value),
+  );
+  return (
+    <div role="group" aria-label={label} {...stylex.props(styles.segmented)}>
+      <span
+        aria-hidden="true"
+        {...stylex.props(styles.segmentPill, styles.segmentPosition(options.length, index))}
+      />
+      {options.map((option) => (
+        <ActionTooltip key={option.value} label={option.label} shortcut={option.shortcut}>
+          <button
+            type="button"
+            aria-label={option.label}
+            aria-pressed={option.value === value}
+            onClick={() => onChange(option.value)}
+            {...stylex.props(
+              ui.button,
+              ui.iconButton,
+              styles.segment,
+              option.value === value && styles.segmentActive,
+            )}
+          >
+            <Icon name={option.icon} size={15} />
+          </button>
+        </ActionTooltip>
+      ))}
+    </div>
+  );
+}
+
 const styles = stylex.create({
   disabled: { opacity: 0.45 },
-  positioner: { zIndex: 100 },
-  check: { display: "inline-flex", width: 13 },
-  backdrop: { position: "fixed", inset: 0, backgroundColor: "#00000050", zIndex: 110 },
-  dialog: {
-    position: "fixed",
-    top: "18vh",
-    left: "50%",
-    transform: "translateX(-50%)",
-    width: "min(560px, calc(100vw - 32px))",
-    backgroundColor: tokens.panel,
-    color: tokens.text,
-    fontFamily: tokens.ui,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: tokens.border,
-    boxShadow: tokens.shadow,
-    zIndex: 111,
-    overflow: "hidden",
-    outline: "none",
-  },
+  positioner: { zIndex: 100, outline: "none" },
+  check: { display: "inline-flex", width: 14, color: tokens.accent },
+  indicator: { display: "inline-flex", color: tokens.accent },
+  trigger: { gap: 4, paddingInlineEnd: 5 },
+  chevron: { display: "inline-flex", color: tokens.faint },
+  backdrop: { zIndex: 110 },
+  dialog: { zIndex: 111 },
   hidden: {
     position: "absolute",
     width: 1,
@@ -304,34 +338,15 @@ const styles = stylex.create({
     clipPath: "inset(50%)",
     whiteSpace: "nowrap",
   },
-  commandInput: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    minHeight: 52,
-    paddingInline: 16,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: tokens.border,
-    color: tokens.muted,
-  },
-  commandField: {
-    flex: "1",
-    minWidth: 0,
-    borderWidth: 0,
-    outline: "none",
-    backgroundColor: "transparent",
-    color: tokens.text,
-    fontFamily: tokens.ui,
-    fontSize: 14,
-  },
-  commandResults: { padding: 6, maxHeight: "min(352px, 55vh)", overflowY: "auto" },
+  commandResults: { padding: 4, maxHeight: "min(360px, 55vh)", overflowY: "auto" },
   commandRow: {
     width: "100%",
-    minHeight: 34,
+    minHeight: 32,
     paddingInline: 10,
     textAlign: "left",
-    borderRadius: 8,
+    borderRadius: 6,
+    fontSize: 12.5,
+    color: { default: tokens.text, ":hover:not(:disabled)": tokens.text },
   },
   commandText: {
     flex: "1",
@@ -340,18 +355,42 @@ const styles = stylex.create({
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
   },
-  commandFooter: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    minHeight: 36,
-    paddingInline: 16,
-    borderTopWidth: 1,
-    borderTopStyle: "solid",
-    borderTopColor: tokens.border,
-    color: tokens.muted,
-    fontSize: 10,
-  },
   footerHint: { display: "inline-flex", alignItems: "center", gap: 6 },
-  empty: { padding: 20, textAlign: "center", fontSize: 13, color: tokens.muted },
+  empty: { padding: 24, textAlign: "center", fontSize: 12.5, color: tokens.muted },
+  segmented: {
+    position: "relative",
+    display: "flex",
+    padding: 2,
+    borderRadius: 8,
+    backgroundColor: tokens.fill,
+    boxShadow: `inset 0 0 0 1px ${tokens.line}`,
+  },
+  segmentPill: {
+    position: "absolute",
+    top: 2,
+    bottom: 2,
+    left: 2,
+    borderRadius: 6,
+    backgroundColor: tokens.raised,
+    boxShadow: `0 0 0 1px ${tokens.lineStrong}, 0 1px 2px #0000001f`,
+    transitionProperty: "transform",
+    transitionTimingFunction: tokens.easeOut,
+    transitionDuration: { default: "200ms", "@media (prefers-reduced-motion: reduce)": "0ms" },
+    pointerEvents: "none",
+  },
+  segmentPosition: (count: number, index: number) => ({
+    width: `calc((100% - 4px) / ${count})`,
+    transform: `translateX(${index * 100}%)`,
+  }),
+  segment: {
+    position: "relative",
+    width: 28,
+    minWidth: 28,
+    minHeight: 24,
+    height: 24,
+    borderRadius: 6,
+    backgroundColor: { default: "transparent", ":hover:not(:disabled)": "transparent" },
+    color: { default: tokens.faint, ":hover:not(:disabled)": tokens.text },
+  },
+  segmentActive: { color: { default: tokens.text, ":hover:not(:disabled)": tokens.text } },
 });

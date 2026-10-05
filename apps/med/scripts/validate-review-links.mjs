@@ -312,9 +312,9 @@ process.stdout.write(process.env.MED_TEST_PR);
   await page.mouse.down();
   await page.waitForFunction(() => {
     const button = document.querySelector('button[aria-label="Copy comments"]');
-    return button && new DOMMatrix(getComputedStyle(button).transform).a < 0.97;
+    return button && new DOMMatrix(getComputedStyle(button).transform).a < 0.99;
   });
-  assert.ok((await copyButton.boundingBox()).width < restingCopyWidth * 0.97);
+  assert.ok((await copyButton.boundingBox()).width < restingCopyWidth * 0.99);
   await page.mouse.up();
   await page.waitForFunction(
     () =>

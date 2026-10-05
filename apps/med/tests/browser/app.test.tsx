@@ -428,9 +428,11 @@ describe("graphical review", () => {
       .poll(() => fileRequests.at(-1)?.source)
       .toEqual({ kind: "commit", repo: "/test/repo", oid: firstCommit });
   });
-  test("question mark shows the command guide with keycaps and no top bar", async () => {
+  test("question mark shows the command guide with keycaps", async () => {
     await mountApp({ branches: true });
-    expect(document.querySelector("[data-theme] > header")).toBeNull();
+    await expect
+      .element(page.getByRole("button", { name: "Open command palette", exact: true }))
+      .toBeVisible();
     const input = document.querySelector('input[aria-label="Filter changed files"]')!;
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "?", bubbles: true }));
     expect(document.querySelector('[role="dialog"]')).toBeNull();
@@ -793,7 +795,11 @@ describe("graphical review", () => {
     await page.getByRole("button", { name: "Add note", exact: true }).click();
     await page.getByRole("textbox", { name: "Review note text" }).fill("Old range draft");
     // Editing inside the card keeps the diff selection.
-    await expect.element(page.getByText("L1–2 selected", { exact: true })).toBeVisible();
+    await expect
+      .element(
+        page.getByRole("toolbar", { name: "Line selection" }).getByText("L1–2", { exact: true }),
+      )
+      .toBeVisible();
     await number("2").click();
     await expect.element(page.getByRole("textbox", { name: "Review note text" })).toHaveValue("");
     await expect.element(page.getByText("Local comment on line R2", { exact: true })).toBeVisible();
@@ -859,7 +865,11 @@ describe("graphical review", () => {
         })!;
     await number("1").click();
     await number("2").click({ modifiers: ["Shift"] });
-    await expect.element(page.getByText("L1–2 selected", { exact: true })).toBeVisible();
+    await expect
+      .element(
+        page.getByRole("toolbar", { name: "Line selection" }).getByText("L1–2", { exact: true }),
+      )
+      .toBeVisible();
     await page.getByRole("button", { name: "Add note to line", exact: true }).first().click();
     await page.getByRole("textbox", { name: "Review note text" }).fill("Both lines");
     await page.getByRole("button", { name: "Save note", exact: true }).click();

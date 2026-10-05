@@ -25,7 +25,15 @@ import {
 import type { Comparison, Note, NoteInput } from "../shared/protocol";
 import { useReviewController, type ReviewController } from "./data/controller";
 import { tokens, ui } from "./theme.stylex";
-import { ActionMenu, ChoiceSelect, CommandDialog, type ReviewCommand } from "./components/Controls";
+import {
+  ActionMenu,
+  ChoiceSelect,
+  CommandDialog,
+  SegmentedControl,
+  ShortcutKeys,
+  type ReviewCommand,
+} from "./components/Controls";
+import { DiffStat } from "./components/DiffStat";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { FileSidebar } from "./components/FileSidebar";
 import { NoteCard, NoteComposer, type NoteTarget } from "./components/NoteCard";
@@ -77,6 +85,11 @@ const commandRank = (id: string) => {
   const rank = commonCommands.indexOf(id);
   return rank < 0 ? commonCommands.length : rank;
 };
+
+/** Abbreviate object IDs; keep symbolic endpoints such as "worktree" whole. */
+function shortRevision(revision: string) {
+  return /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(revision) ? revision.slice(0, 7) : revision;
+}
 
 function readPreference<T extends string>(key: string, fallback: T, values: readonly T[]): T {
   try {
@@ -621,7 +634,8 @@ export function App({
       // Keep hover and gutter dragging active immediately after keyboard scrolling.
       pointerEventsOnScroll: true,
       enableGutterUtility: true,
-      unsafeCSS: "[data-utility-button]::before { inset: 0; }",
+      unsafeCSS: `[data-utility-button]::before { inset: 0; }
+        [data-separator-content] { font-size: 11.5px; letter-spacing: 0.01em; }`,
       onLineEnter(_line, context) {
         context.element?.shadowRoot
           ?.querySelector("[data-utility-button]")
@@ -1551,8 +1565,44 @@ export function App({
     </div>
   );
 
+  const sidebarToggle = (
+    <ToolButton
+      label={sidebarVisible ? "Hide sidebar" : "Show sidebar"}
+      shortcut="⌘ B"
+      icon="panelLeft"
+      aria-label="Toggle sidebar"
+      aria-pressed={sidebarVisible}
+      onClick={toggleReviewSidebar}
+    />
+  );
+  const topTrailing = (
+    <>
+      <button
+        type="button"
+        aria-label="Open command palette"
+        {...stylex.props(styles.commandBar)}
+        onClick={() => setCommandsOpen(true)}
+      >
+        <Icon name="search" size={14} />
+        <span {...stylex.props(styles.commandBarText)}>Search commands</span>
+        <ShortcutKeys value="⌘ K" />
+      </button>
+      {browseSource && (
+        <ToolButton
+          label={filesVisible ? "Hide files" : "Show files"}
+          shortcut="⌘ ⇧ B"
+          icon="panelRight"
+          aria-label="Toggle files sidebar"
+          aria-pressed={filesVisible}
+          onClick={toggleFilesSidebar}
+        />
+      )}
+    </>
+  );
   const branchTabs = gitAvailable && (
     <BranchTabs
+      leading={sidebarToggle}
+      trailing={topTrailing}
       repositories={state.repositories}
       activeRepositoryId={state.activeRepositoryId}
       activeBranch={state.activeBranch}
@@ -1572,8 +1622,17 @@ export function App({
       <div {...stylex.props(styles.app)}>
         {branchTabs}
         <div {...stylex.props(styles.emptyRepositories)}>
-          <p>Add a repository to start.</p>
-          <button {...stylex.props(ui.button)} onClick={() => setBranchPickerOpen(true)}>
+          <span {...stylex.props(styles.emptyMark)}>
+            <Icon name="branch" size={20} />
+          </span>
+          <h1 {...stylex.props(styles.emptyTitle)}>Add a repository to start</h1>
+          <p {...stylex.props(styles.emptyDescription)}>
+            Med reads Git history and working files. It never switches branches or runs code.
+          </p>
+          <button
+            {...stylex.props(ui.button, ui.primary, ui.pressable, styles.emptyAction)}
+            onClick={() => setBranchPickerOpen(true)}
+          >
             Choose repositories
           </button>
         </div>
@@ -1611,7 +1670,13 @@ export function App({
           }}
         />
       )}
-      {branchTabs}
+      {branchTabs || (
+        <header {...stylex.props(styles.plainTopbar)}>
+          {sidebarToggle}
+          <span {...stylex.props(ui.grow)} />
+          {topTrailing}
+        </header>
+      )}
       <ThemePicker open={themePickerOpen} onOpenChange={setThemePickerOpen} />
       {definitions && (
         <SymbolPicker
@@ -1764,7 +1829,7 @@ export function App({
             aria-valuemin={220}
             aria-valuemax={520}
             tabIndex={0}
-            {...stylex.props(styles.divider)}
+            {...stylex.props(styles.divider, stylex.defaultMarker())}
             onKeyDown={(event) => {
               if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
                 event.preventDefault();
@@ -1777,13 +1842,24 @@ export function App({
               event.currentTarget.setPointerCapture(event.pointerId);
             }}
             onPointerMove={(event) => {
-              if (event.currentTarget.hasPointerCapture(event.pointerId))
-                setSidebarWidth(Math.max(220, Math.min(520, event.clientX)));
+              if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+              const left =
+                event.currentTarget.previousElementSibling?.getBoundingClientRect().left ?? 0;
+              setSidebarWidth(Math.max(220, Math.min(520, event.clientX - left)));
             }}
-          />
+          >
+            <span {...stylex.props(styles.dividerLine)} />
+          </div>
         )}
-        <main {...stylex.props(styles.main)} aria-label="Continuous review">
-          {fileLinkError && <div role="alert">{fileLinkError}</div>}
+        <main
+          {...stylex.props(styles.main, !sidebarVisible && styles.mainFlush)}
+          aria-label="Continuous review"
+        >
+          {fileLinkError && (
+            <div role="alert" {...stylex.props(styles.notice, styles.error)}>
+              {fileLinkError}
+            </div>
+          )}
           {!!browseSource && (
             <FileViewTabs
               tabs={fileState.tabs.map((tab) => ({
@@ -1791,6 +1867,7 @@ export function App({
                 dirty: !!editorDrafts.get(JSON.stringify([tab.source, tab.path]))?.dirty,
               }))}
               active={fileState.active}
+              changesCount={state.review ? state.files.length : undefined}
               onSelect={fileWorkspace.select}
               onClose={fileWorkspace.close}
               onPin={fileWorkspace.pin}
@@ -1839,11 +1916,16 @@ export function App({
                       }}
                     />
                   )}
-                <span {...stylex.props(styles.compareLabel)}>
-                  {state.review
-                    ? `${state.review.base.slice(0, 7)} → ${state.review.head.slice(0, 7)}`
-                    : ""}
-                </span>
+                {state.review && (
+                  <span
+                    {...stylex.props(styles.compareLabel)}
+                    title={`${state.review.base} → ${state.review.head}`}
+                  >
+                    <span {...stylex.props(styles.revision)}>{shortRevision(state.review.base)}</span>
+                    <Icon name="arrowUp" size={11} style={{ transform: "rotate(90deg)" }} />
+                    <span {...stylex.props(styles.revision)}>{shortRevision(state.review.head)}</span>
+                  </span>
+                )}
                 {state.review && (
                   <span
                     {...stylex.props(styles.reviewTotals)}
@@ -1853,25 +1935,20 @@ export function App({
                   >
                     <span {...stylex.props(ui.added)}>+{added.toLocaleString()}</span>
                     <span {...stylex.props(ui.removed)}>−{deleted.toLocaleString()}</span>
+                    <DiffStat additions={added} deletions={deleted} />
                   </span>
                 )}
                 <span {...stylex.props(ui.grow)} />
-                <div {...stylex.props(styles.modeGroup)}>
-                  <ToolButton
-                    label="Split"
-                    icon="split"
-                    active={mode === "split"}
-                    aria-pressed={mode === "split"}
-                    onClick={() => setMode("split")}
-                  />
-                  <ToolButton
-                    label="Unified"
-                    icon="unified"
-                    active={mode === "unified"}
-                    aria-pressed={mode === "unified"}
-                    onClick={() => setMode("unified")}
-                  />
-                </div>
+                <SegmentedControl<"split" | "unified">
+                  label="Diff layout"
+                  value={mode}
+                  onChange={setMode}
+                  options={[
+                    { value: "split", label: "Split", icon: "split" },
+                    { value: "unified", label: "Unified", icon: "unified" },
+                  ]}
+                />
+                <span {...stylex.props(styles.toolbarDivider)} />
                 <ToolButton
                   label="Wrap lines"
                   icon="wrap"
@@ -1879,15 +1956,22 @@ export function App({
                   aria-pressed={wrap}
                   onClick={() => setWrap(!wrap)}
                 />
-                <ActionTooltip label="Toggle comments">
+                <ActionTooltip label="Toggle comments" shortcut="C">
                   <button
-                    {...stylex.props(ui.button, showNotes && ui.active)}
+                    {...stylex.props(
+                      ui.button,
+                      ui.pressable,
+                      styles.notesButton,
+                      showNotes && ui.active,
+                    )}
                     aria-label="Toggle notes"
                     aria-pressed={showNotes}
                     onClick={() => setShowNotes(!showNotes)}
                   >
-                    <Icon name="note" size={13} />
-                    {notes.length || ""}
+                    <Icon name="note" size={15} />
+                    {notes.length > 0 && (
+                      <span {...stylex.props(styles.notesCount)}>{notes.length}</span>
+                    )}
                   </button>
                 </ActionTooltip>
                 <ActionMenu
@@ -1920,13 +2004,19 @@ export function App({
                 <ToolButton
                   label="Refresh review"
                   icon="refresh"
+                  busy={state.status === "loading"}
                   disabled={state.status === "loading"}
                   onClick={() => void controller.refresh()}
                 />
+                {state.status === "loading" && (
+                  <span role="presentation" {...stylex.props(styles.loadingTrack)}>
+                    <span {...stylex.props(styles.loadingBar)} />
+                  </span>
+                )}
               </div>
               {rangeOpen && (
                 <form
-                  {...stylex.props(styles.findbar)}
+                  {...stylex.props(styles.rangeBar)}
                   onSubmit={(event) => {
                     event.preventDefault();
                     if (baseRef && headRef) {
@@ -1939,21 +2029,22 @@ export function App({
                     }
                   }}
                 >
+                  <Icon name="compare" size={14} />
                   <span>Compare</span>
                   <input
                     aria-label="Base revision"
                     value={baseRef}
                     onChange={(event) => setBaseRef(event.target.value)}
-                    {...stylex.props(ui.input)}
+                    {...stylex.props(ui.input, styles.revisionInput)}
                   />
-                  <span>→</span>
+                  <Icon name="arrowUp" size={12} style={{ transform: "rotate(90deg)" }} />
                   <input
                     aria-label="Head revision"
                     value={headRef}
                     onChange={(event) => setHeadRef(event.target.value)}
-                    {...stylex.props(ui.input)}
+                    {...stylex.props(ui.input, styles.revisionInput)}
                   />
-                  <button type="submit" {...stylex.props(ui.button, ui.primary)}>
+                  <button type="submit" {...stylex.props(ui.button, ui.primary, ui.pressable)}>
                     Review
                   </button>
                   <button
@@ -1965,62 +2056,6 @@ export function App({
                     <Icon name="close" size={13} />
                   </button>
                 </form>
-              )}
-              {findOpen && (
-                <div {...stylex.props(styles.findbar)}>
-                  <Icon name="search" size={14} />
-                  <input
-                    ref={findRef}
-                    value={find}
-                    onChange={(event) => {
-                      setFind(event.target.value);
-                      setFindIndex(0);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        jumpHit(event.shiftKey ? findIndex - 1 : findIndex + 1);
-                      }
-                      if (event.key === "Escape") {
-                        event.stopPropagation();
-                        setFindOpen(false);
-                      }
-                    }}
-                    aria-label="Find in diff contents"
-                    placeholder="Find in changed hunks…"
-                    {...stylex.props(ui.input)}
-                  />
-                  <span {...stylex.props(styles.findCount)}>
-                    {find
-                      ? hits.length
-                        ? `${Math.min(findIndex + 1, hits.length)} / ${hits.length} hunks`
-                        : "No matches"
-                      : ""}
-                  </span>
-                  <button
-                    {...stylex.props(ui.button, ui.iconButton)}
-                    aria-label="Previous match"
-                    disabled={!hits.length}
-                    onClick={() => jumpHit(findIndex - 1)}
-                  >
-                    <Icon name="arrowUp" size={13} />
-                  </button>
-                  <button
-                    {...stylex.props(ui.button, ui.iconButton)}
-                    aria-label="Next match"
-                    disabled={!hits.length}
-                    onClick={() => jumpHit(findIndex + 1)}
-                  >
-                    <Icon name="arrowDown" size={13} />
-                  </button>
-                  <button
-                    {...stylex.props(ui.button, ui.iconButton)}
-                    aria-label="Close find"
-                    onClick={() => setFindOpen(false)}
-                  >
-                    <Icon name="close" size={13} />
-                  </button>
-                </div>
               )}
               {state.error && (
                 <div role="alert" {...stylex.props(styles.notice, styles.error)}>
@@ -2064,26 +2099,94 @@ export function App({
                   {warning}
                 </div>
               ))}
+              <div {...stylex.props(styles.stream)}>
+              {findOpen && (
+                <div {...stylex.props(styles.findWidget)}>
+                  <Icon name="search" size={14} />
+                  <input
+                    ref={findRef}
+                    value={find}
+                    onChange={(event) => {
+                      setFind(event.target.value);
+                      setFindIndex(0);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        jumpHit(event.shiftKey ? findIndex - 1 : findIndex + 1);
+                      }
+                      if (event.key === "Escape") {
+                        event.stopPropagation();
+                        setFindOpen(false);
+                      }
+                    }}
+                    aria-label="Find in diff contents"
+                    placeholder="Find in changed hunks"
+                    {...stylex.props(styles.findInput)}
+                  />
+                  <span
+                    {...stylex.props(styles.findCount, !!find && !hits.length && styles.findEmpty)}
+                  >
+                    {find
+                      ? hits.length
+                        ? `${Math.min(findIndex + 1, hits.length)} / ${hits.length} hunks`
+                        : "No matches"
+                      : ""}
+                  </span>
+                  <button
+                    {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
+                    aria-label="Previous match"
+                    disabled={!hits.length}
+                    onClick={() => jumpHit(findIndex - 1)}
+                  >
+                    <Icon name="arrowUp" size={14} />
+                  </button>
+                  <button
+                    {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
+                    aria-label="Next match"
+                    disabled={!hits.length}
+                    onClick={() => jumpHit(findIndex + 1)}
+                  >
+                    <Icon name="arrowDown" size={14} />
+                  </button>
+                  <button
+                    {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
+                    aria-label="Close find"
+                    onClick={() => setFindOpen(false)}
+                  >
+                    <Icon name="close" size={14} />
+                  </button>
+                </div>
+              )}
               {selection && (
-                <div data-line-selection-controls {...stylex.props(styles.selectionbar)}>
-                  <span {...stylex.props(ui.mono)}>
+                <div
+                  data-line-selection-controls
+                  role="toolbar"
+                  aria-label="Line selection"
+                  {...stylex.props(styles.selectionbar)}
+                >
+                  <span {...stylex.props(styles.selectionRange)}>
                     L{selection.range.start}
                     {selection.range.end !== selection.range.start
                       ? `–${selection.range.end}`
-                      : ""}{" "}
-                    selected
+                      : ""}
                   </span>
-                  <button {...stylex.props(ui.button, ui.strong)} onClick={startNote}>
-                    <Icon name="note" size={12} />
-                    Add note
-                  </button>
-                  <span {...stylex.props(ui.grow)} />
+                  <span {...stylex.props(styles.selectionLabel)}>selected</span>
                   <button
-                    {...stylex.props(ui.button, ui.iconButton)}
+                    {...stylex.props(ui.button, ui.primary, ui.pressable, styles.selectionAction)}
+                    aria-label="Add note"
+                    onClick={startNote}
+                  >
+                    <Icon name="note" size={14} />
+                    Add note
+                    <kbd {...stylex.props(styles.selectionKey)}>C</kbd>
+                  </button>
+                  <button
+                    {...stylex.props(ui.button, ui.iconButton, styles.selectionClose)}
                     aria-label="Clear line selection"
                     onClick={clearLineSelection}
                   >
-                    <Icon name="close" size={12} />
+                    <Icon name="close" size={14} />
                   </button>
                 </div>
               )}
@@ -2112,8 +2215,9 @@ export function App({
                       "--diffs-header-font-family": tokens.ui,
                       "--diffs-bg-context-override": tokens.canvas,
                       "--diffs-bg-context-gutter-override": tokens.canvas,
-                      "--diffs-bg-separator-override": tokens.raised,
-                      "--diffs-bg-buffer-override": tokens.panel,
+                      "--diffs-bg-separator-override": `color-mix(in srgb, ${tokens.canvas} 96.5%, ${tokens.text})`,
+                      "--diffs-bg-buffer-override": `color-mix(in srgb, ${tokens.canvas} 98%, ${tokens.text})`,
+                      "--diffs-fg-number-override": tokens.faint,
                       "--diffs-addition-color-override": tokens.green,
                       "--diffs-deletion-color-override": tokens.red,
                     } as CSSProperties
@@ -2121,12 +2225,31 @@ export function App({
                   renderCustomHeader={(item) => {
                     const path = item.type === "diff" ? item.fileDiff.name : item.file.name;
                     const info = fileInfoById.get(item.id);
+                    const slash = path.lastIndexOf("/") + 1;
+                    const isCollapsed = collapsed.has(item.id);
+                    const renamedFrom =
+                      item.type === "diff" &&
+                      item.fileDiff.prevName &&
+                      item.fileDiff.prevName !== path
+                        ? item.fileDiff.prevName
+                        : null;
+                    const status = !info
+                      ? null
+                      : info.untracked
+                        ? { label: "Untracked", tone: styles.statusAdded }
+                        : info.status.startsWith("A")
+                          ? { label: "Added", tone: styles.statusAdded }
+                          : info.status.startsWith("D")
+                            ? { label: "Deleted", tone: styles.statusDeleted }
+                            : renamedFrom
+                              ? { label: "Renamed", tone: styles.statusRenamed }
+                              : null;
                     return (
                       <div {...stylex.props(styles.diffHeader)}>
                         <button
                           {...stylex.props(styles.headerToggle)}
-                          aria-label={`${collapsed.has(item.id) ? "Expand" : "Collapse"} ${path}`}
-                          aria-expanded={!collapsed.has(item.id)}
+                          aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${path}`}
+                          aria-expanded={!isCollapsed}
                           onClick={() =>
                             setCollapsed((current) => {
                               const next = new Set(current);
@@ -2136,22 +2259,17 @@ export function App({
                             })
                           }
                         />
-                        <Icon
-                          name="chevron"
-                          size={12}
-                          style={{
-                            transform: collapsed.has(item.id) ? "rotate(-90deg)" : undefined,
-                          }}
-                        />
-                        {item.type === "diff" &&
-                          item.fileDiff.prevName &&
-                          item.fileDiff.prevName !== path && (
-                            <span {...stylex.props(ui.muted)} title={item.fileDiff.prevName}>
-                              {item.fileDiff.prevName} →
-                            </span>
-                          )}
+                        <span {...stylex.props(styles.headerChevron, isCollapsed && styles.collapsed)}>
+                          <Icon name="chevron" size={14} />
+                        </span>
+                        {renamedFrom && (
+                          <span {...stylex.props(styles.renamedFrom)} title={renamedFrom}>
+                            {renamedFrom} →
+                          </span>
+                        )}
                         <button
                           role="link"
+                          aria-label={path}
                           {...stylex.props(styles.fileLink)}
                           onPointerEnter={() => prefetchFile(path)}
                           onFocus={() => prefetchFile(path)}
@@ -2160,14 +2278,21 @@ export function App({
                           }
                           title={`Open full file · ${path}`}
                         >
-                          {path}
+                          <span {...stylex.props(styles.fileDirectory)}>{path.slice(0, slash)}</span>
+                          <span {...stylex.props(styles.fileName)}>{path.slice(slash)}</span>
                         </button>
+                        {status && (
+                          <span {...stylex.props(styles.statusBadge, status.tone)}>
+                            {status.label}
+                          </span>
+                        )}
                         <span {...stylex.props(ui.grow)} />
                         {info && (
-                          <>
+                          <span {...stylex.props(styles.headerStats)}>
                             <span {...stylex.props(ui.added)}>+{info.additions}</span>
                             <span {...stylex.props(ui.removed)}>−{info.deletions}</span>
-                          </>
+                            <DiffStat additions={info.additions} deletions={info.deletions} />
+                          </span>
                         )}
                       </div>
                     );
@@ -2238,7 +2363,9 @@ export function App({
                       renderMetadataRows()
                     ) : (
                       <div {...stylex.props(styles.streamEnd)}>
+                        <span {...stylex.props(styles.streamRule)} />
                         End of review · {files.length} files
+                        <span {...stylex.props(styles.streamRule)} />
                       </div>
                     )
                   }
@@ -2247,7 +2374,9 @@ export function App({
                 <div style={{ overflow: "auto", height: "100%" }}>{renderMetadataRows()}</div>
               ) : state.status !== "loading" && !state.error ? (
                 <div {...stylex.props(styles.emptyState)}>
-                  <Icon name={skipped.length ? "file" : "check"} size={30} />
+                  <span {...stylex.props(styles.emptyMark, !skipped.length && styles.emptyDone)}>
+                    <Icon name={skipped.length ? "file" : "check"} size={20} />
+                  </span>
                   <h1 {...stylex.props(styles.emptyTitle)}>
                     {state.filter
                       ? "No matching diffs"
@@ -2266,6 +2395,7 @@ export function App({
                   )}
                 </div>
               ) : null}
+              </div>
             </div>
             {activeFile && (
               <FullFileView
@@ -2350,8 +2480,18 @@ export function App({
         )}
       </div>
       <footer {...stylex.props(styles.statusbar)}>
-        <span {...stylex.props(styles.statusDot)} />
-        <span>
+        <span {...stylex.props(styles.statusItem)}>
+          <span
+            key={state.sourceRevision}
+            data-connection={state.connection}
+            {...stylex.props(
+              styles.statusDot,
+              state.connection === "reconnecting" && styles.statusWaiting,
+              state.connection !== "connected" &&
+                state.connection !== "reconnecting" &&
+                styles.statusIdle,
+            )}
+          />
           {activeFile
             ? editorDrafts.get(JSON.stringify([activeFile.source, activeFile.path]))?.editing
               ? "Editing file · Vim"
@@ -2381,11 +2521,11 @@ export function App({
               : activeFile.sourceLabel}
           </span>
         ) : (
-          <>
+          <span {...stylex.props(styles.statusItem)}>
             <span>{state.files.length} files</span>
-            <span {...stylex.props(ui.added)}>+{added}</span>
-            <span {...stylex.props(ui.removed)}>−{deleted}</span>
-          </>
+            <span {...stylex.props(ui.added)}>+{added.toLocaleString()}</span>
+            <span {...stylex.props(ui.removed)}>−{deleted.toLocaleString()}</span>
+          </span>
         )}
         <span {...stylex.props(ui.grow)} />
         <span {...stylex.props(styles.selectedPath)}>{activeFile?.path ?? selectedFile?.path}</span>
@@ -2429,47 +2569,24 @@ export function App({
   );
 }
 
+const rise = stylex.keyframes({
+  from: { opacity: 0, transform: "translate(-50%, 6px) scale(0.98)" },
+  to: { opacity: 1, transform: "translate(-50%, 0) scale(1)" },
+});
+const appear = stylex.keyframes({ from: { opacity: 0 }, to: { opacity: 1 } });
+const sweep = stylex.keyframes({
+  from: { transform: "translateX(-100%)" },
+  to: { transform: "translateX(320%)" },
+});
+// One ring per revision event: it confirms that a live update arrived.
+const ping = stylex.keyframes({
+  from: { boxShadow: `0 0 0 0 color-mix(in srgb, ${tokens.green} 55%, transparent)` },
+  to: { boxShadow: `0 0 0 6px color-mix(in srgb, ${tokens.green} 0%, transparent)` },
+});
+const reduced = "@media (prefers-reduced-motion: reduce)";
+const headerBackground = `color-mix(in srgb, ${tokens.canvas} 96%, ${tokens.text})`;
+
 const styles = stylex.create({
-  diffHeader: {
-    position: "relative",
-    pointerEvents: "none",
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    paddingBlock: 2,
-    paddingInline: 8,
-    backgroundColor: tokens.panel,
-    color: tokens.text,
-    fontFamily: tokens.ui,
-    fontSize: 12,
-    minHeight: 32,
-  },
-  headerToggle: {
-    position: "absolute",
-    inset: 0,
-    borderWidth: 0,
-    backgroundColor: "transparent",
-    cursor: "pointer",
-    pointerEvents: "auto",
-    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accent}` },
-    outlineOffset: -2,
-  },
-  fileLink: {
-    position: "relative",
-    pointerEvents: "auto",
-    borderWidth: 0,
-    backgroundColor: "transparent",
-    color: tokens.text,
-    fontFamily: tokens.ui,
-    fontSize: 12,
-    cursor: "pointer",
-    textAlign: "left",
-    padding: 0,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-    textDecoration: { default: "none", ":hover": "underline" },
-  },
   app: {
     position: "fixed",
     inset: 0,
@@ -2477,35 +2594,65 @@ const styles = stylex.create({
     flexDirection: "column",
     overflow: "hidden",
     color: tokens.text,
-    backgroundColor: tokens.canvas,
+    backgroundColor: tokens.panel,
     fontFamily: tokens.ui,
     fontSize: 12,
     isolation: "isolate",
+    WebkitFontSmoothing: "antialiased",
   },
-  helpButton: { fontSize: 10, minHeight: 20, paddingInline: 7, paddingBlock: 0 },
+  plainTopbar: {
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+    height: 40,
+    minHeight: 40,
+    paddingInline: 8,
+    backgroundColor: tokens.panel,
+  },
+  commandBar: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    width: "clamp(160px, 22vw, 280px)",
+    height: 28,
+    marginInlineEnd: 4,
+    paddingInlineStart: 9,
+    paddingInlineEnd: 5,
+    borderWidth: 0,
+    borderRadius: 7,
+    backgroundColor: { default: tokens.fill, ":hover": tokens.fillStrong },
+    boxShadow: `inset 0 0 0 1px ${tokens.line}`,
+    color: { default: tokens.faint, ":hover": tokens.muted },
+    fontFamily: tokens.ui,
+    fontSize: 12,
+    cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+  },
+  commandBarText: {
+    flex: "1",
+    textAlign: "start",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
   emptyRepositories: {
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
+    gap: 4,
     flex: "1",
+    marginInline: 6,
+    marginBottom: 6,
+    borderRadius: 10,
+    backgroundColor: tokens.canvas,
+    boxShadow: `0 0 0 1px ${tokens.line}`,
     color: tokens.muted,
     fontFamily: tokens.ui,
-    fontSize: 13,
   },
-  workspace: { display: "flex", flex: "1", minHeight: 0 },
-  reviewSurface: { display: "flex", flexDirection: "column", flex: "1", minHeight: 0, minWidth: 0 },
-  hiddenSurface: { display: "none" },
-  filesSidebar: {
-    width: 280,
-    maxWidth: "42vw",
-    minWidth: 200,
-    flexShrink: 0,
-    display: "flex",
-    borderLeftWidth: 1,
-    borderLeftStyle: "solid",
-    borderLeftColor: tokens.border,
-  },
+  emptyAction: { marginTop: 14, paddingInline: 12 },
+  // The frame holds both sidebars; the review sits on one inset card.
+  workspace: { display: "flex", flex: "1", minHeight: 0, paddingInline: 6 },
   sidebar: {
     display: "flex",
     flexDirection: "column",
@@ -2515,138 +2662,487 @@ const styles = stylex.create({
     maxWidth: "45vw",
   },
   divider: {
-    width: 1,
-    minWidth: 1,
-    backgroundColor: tokens.border,
+    position: "relative",
+    display: "flex",
+    justifyContent: "center",
+    width: 6,
+    minWidth: 6,
     cursor: "col-resize",
     zIndex: 2,
-    paddingInline: 2,
-    marginInline: -2,
-    backgroundClip: "content-box",
-    outline: { default: "none", ":focus-visible": `1px solid ${tokens.accent}` },
+    outline: "none",
     touchAction: "none",
   },
-  main: { minWidth: 0, flex: "1", display: "flex", flexDirection: "column", overflow: "hidden" },
+  // Show the handle only after a short hover so passing the pointer across
+  // the gap does not flash it, as in VS Code's sashes.
+  dividerLine: {
+    width: 2,
+    height: "100%",
+    borderRadius: 1,
+    backgroundColor: tokens.accentLine,
+    opacity: {
+      default: 0,
+      [stylex.when.ancestor(":hover")]: 1,
+      [stylex.when.ancestor(":focus-visible")]: 1,
+      [stylex.when.ancestor(":active")]: 1,
+    },
+    transitionProperty: "opacity",
+    transitionDuration: "120ms",
+    transitionDelay: {
+      default: "0ms",
+      [stylex.when.ancestor(":hover")]: "250ms",
+      [stylex.when.ancestor(":active")]: "0ms",
+    },
+  },
+  main: {
+    position: "relative",
+    minWidth: 0,
+    flex: "1",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+    backgroundColor: tokens.canvas,
+    borderRadius: 10,
+    boxShadow: `0 0 0 1px ${tokens.line}, 0 1px 3px #0000000f`,
+  },
+  mainFlush: {},
+  reviewSurface: {
+    position: "relative",
+    display: "flex",
+    flexDirection: "column",
+    flex: "1",
+    minHeight: 0,
+    minWidth: 0,
+  },
+  hiddenSurface: { display: "none" },
+  filesSidebar: {
+    width: 280,
+    maxWidth: "42vw",
+    minWidth: 200,
+    flexShrink: 0,
+    display: "flex",
+    marginInlineStart: 6,
+    backgroundColor: tokens.panel,
+  },
   toolbar: {
+    position: "relative",
     display: "flex",
     alignItems: "center",
-    gap: 5,
-    minHeight: 33,
-    paddingInline: 10,
+    gap: 4,
+    flexShrink: 0,
+    height: 40,
+    minHeight: 40,
+    paddingInlineStart: 8,
+    paddingInlineEnd: 8,
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
-    borderBottomColor: tokens.border,
+    borderBottomColor: tokens.line,
   },
   compareLabel: {
+    display: { default: "inline-flex", "@media (max-width: 1100px)": "none" },
+    alignItems: "center",
+    gap: 4,
+    marginInlineStart: 6,
     color: tokens.faint,
-    fontSize: 10,
+    flexShrink: 0,
+  },
+  revision: {
+    paddingInline: 5,
+    borderRadius: 4,
+    backgroundColor: tokens.fill,
+    color: tokens.muted,
     fontFamily: tokens.code,
-    whiteSpace: "nowrap",
-    display: { default: "inline", "@media (max-width: 1000px)": "none" },
+    fontSize: 10.5,
+    lineHeight: "18px",
   },
   reviewTotals: {
     display: "inline-flex",
+    alignItems: "center",
     gap: 6,
-    marginInlineStart: 5,
+    marginInlineStart: 8,
     fontFamily: tokens.code,
     fontSize: 11,
     whiteSpace: "nowrap",
     flexShrink: 0,
   },
-  modeGroup: { display: "flex", backgroundColor: tokens.panel, padding: 2, borderRadius: 5 },
-  findbar: {
+  toolbarDivider: {
+    width: 1,
+    height: 16,
+    marginInline: 4,
+    backgroundColor: tokens.line,
+  },
+  notesButton: { gap: 5, minWidth: 28, paddingInline: 6 },
+  notesCount: { fontFamily: tokens.code, fontSize: 10.5, fontVariantNumeric: "tabular-nums" },
+  // Only loads that last long enough to notice show progress.
+  loadingTrack: {
+    position: "absolute",
+    insetInline: 0,
+    bottom: -1,
+    height: 2,
+    overflow: "hidden",
+    pointerEvents: "none",
+    opacity: 0,
+    animationName: appear,
+    animationDuration: "200ms",
+    animationDelay: "300ms",
+    animationFillMode: "forwards",
+  },
+  loadingBar: {
+    display: "block",
+    width: "30%",
+    height: "100%",
+    borderRadius: 1,
+    backgroundImage: `linear-gradient(90deg, transparent, ${tokens.accent}, transparent)`,
+    animationName: { default: sweep, [reduced]: "none" },
+    animationDuration: "1100ms",
+    animationTimingFunction: tokens.easeInOut,
+    animationIterationCount: "infinite",
+  },
+  rangeBar: {
     display: "flex",
     alignItems: "center",
-    gap: 7,
-    minHeight: 33,
-    paddingInline: 13,
-    paddingBlock: 4,
+    gap: 8,
+    flexShrink: 0,
+    minHeight: 44,
+    paddingInline: 12,
     color: tokens.muted,
-    backgroundColor: tokens.panel,
+    backgroundColor: tokens.fill,
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
-    borderBottomColor: tokens.border,
+    borderBottomColor: tokens.line,
   },
-  findCount: { whiteSpace: "nowrap", fontSize: 10, minWidth: 70 },
+  revisionInput: { maxWidth: 220, fontFamily: tokens.code, fontSize: 11.5 },
+  // Find floats over the stream so opening it never moves the code.
+  stream: {
+    position: "relative",
+    display: "flex",
+    flexDirection: "column",
+    flex: "1",
+    minHeight: 0,
+  },
+  findWidget: {
+    position: "absolute",
+    top: 8,
+    right: 16,
+    zIndex: 20,
+    display: "flex",
+    alignItems: "center",
+    gap: 2,
+    height: 36,
+    boxSizing: "border-box",
+    paddingInlineStart: 10,
+    paddingInlineEnd: 4,
+    borderRadius: 9,
+    backgroundColor: tokens.raised,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: tokens.lineStrong,
+    boxShadow: tokens.shadow,
+    color: tokens.faint,
+  },
+  findInput: {
+    width: 220,
+    height: 28,
+    marginInlineStart: 6,
+    borderWidth: 0,
+    outline: "none",
+    backgroundColor: "transparent",
+    color: tokens.text,
+    fontFamily: tokens.ui,
+    fontSize: 12.5,
+    "::placeholder": { color: tokens.faint },
+  },
+  findCount: {
+    whiteSpace: "nowrap",
+    fontFamily: tokens.code,
+    fontSize: 10.5,
+    minWidth: 76,
+    paddingInlineEnd: 4,
+    textAlign: "end",
+    color: tokens.muted,
+    fontVariantNumeric: "tabular-nums",
+  },
+  findEmpty: { color: tokens.red },
+  findButton: { width: 26, minWidth: 26, minHeight: 26, height: 26 },
   notice: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
+    flexShrink: 0,
     paddingInline: 14,
-    minHeight: 30,
-    fontSize: 11,
+    minHeight: 34,
+    fontSize: 12,
     color: tokens.warning,
-    backgroundColor: tokens.panel,
+    backgroundColor: `color-mix(in srgb, ${tokens.warning} 8%, transparent)`,
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
-    borderBottomColor: tokens.border,
+    borderBottomColor: tokens.line,
   },
-  error: { color: tokens.red },
+  error: {
+    color: tokens.red,
+    backgroundColor: `color-mix(in srgb, ${tokens.red} 8%, transparent)`,
+  },
   orphanPanel: {
-    padding: 10,
+    flexShrink: 0,
+    padding: 12,
     color: tokens.warning,
-    backgroundColor: tokens.panel,
-    fontSize: 11,
+    backgroundColor: `color-mix(in srgb, ${tokens.warning} 6%, transparent)`,
+    borderBottomWidth: 1,
+    borderBottomStyle: "solid",
+    borderBottomColor: tokens.line,
+    fontSize: 12,
     maxHeight: 260,
     overflowY: "auto",
   },
+  // A contextual action pill: it rises into view and never shifts the code.
   selectionbar: {
+    position: "absolute",
+    bottom: 18,
+    left: "50%",
+    zIndex: 20,
     display: "flex",
     alignItems: "center",
-    gap: 10,
-    paddingInline: 12,
-    height: 30,
-    minHeight: 30,
-    backgroundColor: tokens.selected,
+    gap: 6,
+    height: 40,
+    boxSizing: "border-box",
+    paddingInlineStart: 14,
+    paddingInlineEnd: 5,
+    borderRadius: 11,
+    backgroundColor: tokens.raised,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: tokens.lineStrong,
+    boxShadow: tokens.shadow,
+    transform: "translate(-50%, 0)",
+    animationName: { default: rise, [reduced]: "none" },
+    animationDuration: "180ms",
+    animationTimingFunction: tokens.easeOut,
+    whiteSpace: "nowrap",
+  },
+  selectionRange: {
     color: tokens.accent,
+    fontFamily: tokens.code,
+    fontSize: 11.5,
+    fontVariantNumeric: "tabular-nums",
+  },
+  selectionLabel: { color: tokens.muted, fontSize: 12, marginInlineEnd: 6 },
+  selectionAction: { height: 30, minHeight: 30, paddingInlineStart: 9, paddingInlineEnd: 6 },
+  selectionKey: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 16,
+    height: 16,
+    marginInlineStart: 2,
+    borderRadius: 4,
+    backgroundColor: `color-mix(in srgb, ${tokens.canvas} 18%, transparent)`,
+    fontFamily: tokens.ui,
+    fontSize: 10,
+    fontWeight: 500,
+  },
+  selectionClose: { width: 30, minWidth: 30, height: 30, minHeight: 30 },
+  codeView: { flex: "1", minHeight: 0, height: "100%", overflow: "auto", scrollbarWidth: "thin" },
+  diffHeader: {
+    position: "relative",
+    pointerEvents: "none",
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    paddingBlock: 0,
+    paddingInlineStart: 8,
+    paddingInlineEnd: 14,
+    backgroundColor: headerBackground,
+    boxShadow: `inset 0 -1px 0 ${tokens.line}, inset 0 1px 0 ${tokens.line}`,
+    color: tokens.text,
+    fontFamily: tokens.ui,
+    fontSize: 12.5,
+    minHeight: 36,
+  },
+  headerToggle: {
+    position: "absolute",
+    inset: 0,
+    borderWidth: 0,
+    backgroundColor: { default: "transparent", ":hover": tokens.fill },
+    cursor: "pointer",
+    pointerEvents: "auto",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+    outlineOffset: -2,
+  },
+  headerChevron: {
+    position: "relative",
+    display: "inline-flex",
+    color: tokens.faint,
+    transitionProperty: "transform",
+    transitionDuration: { default: "150ms", [reduced]: "0ms" },
+    transitionTimingFunction: tokens.easeOut,
+  },
+  collapsed: { transform: "rotate(-90deg)" },
+  renamedFrom: {
+    position: "relative",
+    maxWidth: "30%",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    color: tokens.faint,
+    textDecoration: "line-through",
+    textDecorationColor: tokens.lineStrong,
+  },
+  fileLink: {
+    position: "relative",
+    pointerEvents: "auto",
+    minWidth: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    color: tokens.text,
+    fontFamily: tokens.ui,
+    fontSize: 12.5,
+    cursor: "pointer",
+    textAlign: "left",
+    padding: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    textDecoration: { default: "none", ":hover": "underline" },
+    textDecorationColor: tokens.lineStrong,
+    textUnderlineOffset: 3,
+  },
+  fileDirectory: { color: tokens.muted },
+  fileName: { fontWeight: 550 },
+  statusBadge: {
+    position: "relative",
+    flexShrink: 0,
+    paddingInline: 6,
+    borderRadius: 4,
+    fontSize: 10.5,
+    fontWeight: 500,
+    lineHeight: "17px",
+  },
+  statusAdded: {
+    color: tokens.green,
+    backgroundColor: `color-mix(in srgb, ${tokens.green} 13%, transparent)`,
+  },
+  statusDeleted: {
+    color: tokens.red,
+    backgroundColor: `color-mix(in srgb, ${tokens.red} 13%, transparent)`,
+  },
+  statusRenamed: { color: tokens.accent, backgroundColor: tokens.accentSoft },
+  headerStats: {
+    position: "relative",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    fontFamily: tokens.code,
     fontSize: 11,
   },
-  codeView: { flex: "1", minHeight: 0, height: "100%", overflow: "auto", scrollbarWidth: "thin" },
-  skipped: { padding: 14, backgroundColor: tokens.panel },
-  skippedRow: { display: "flex", alignItems: "center", gap: 8, paddingBlock: 10, fontSize: 12 },
-  streamEnd: { padding: 24, textAlign: "center", color: tokens.faint, fontSize: 11 },
+  skipped: { paddingBlock: 6, paddingInline: 14, backgroundColor: tokens.canvas },
+  skippedRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    minHeight: 36,
+    fontSize: 12.5,
+    color: tokens.muted,
+    borderBottomWidth: 1,
+    borderBottomStyle: "solid",
+    borderBottomColor: tokens.line,
+  },
+  streamEnd: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    paddingBlock: 28,
+    paddingInline: 24,
+    color: tokens.faint,
+    fontSize: 11.5,
+    whiteSpace: "nowrap",
+  },
+  streamRule: { flex: "1", height: 1, backgroundColor: tokens.line },
   emptyState: {
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
+    gap: 4,
     flex: "1",
     minHeight: 180,
     color: tokens.faint,
     padding: 30,
   },
-  emptyTitle: { fontSize: 17, fontWeight: 500, color: tokens.text, marginTop: 16, marginBottom: 0 },
-  emptyDescription: {
-    fontSize: 12,
-    lineHeight: 1.8,
+  emptyMark: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 44,
+    height: 44,
+    marginBottom: 10,
+    borderRadius: 12,
     color: tokens.muted,
-    maxWidth: 370,
+    backgroundColor: tokens.fill,
+    boxShadow: `inset 0 0 0 1px ${tokens.line}`,
+  },
+  emptyDone: {
+    color: tokens.green,
+    backgroundColor: `color-mix(in srgb, ${tokens.green} 10%, transparent)`,
+    boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${tokens.green} 22%, transparent)`,
+  },
+  emptyTitle: { fontSize: 15, fontWeight: 550, color: tokens.text, margin: 0 },
+  emptyDescription: {
+    fontSize: 12.5,
+    lineHeight: 1.6,
+    color: tokens.muted,
+    maxWidth: 380,
     textAlign: "center",
     whiteSpace: "pre-wrap",
+    marginBlock: 4,
   },
   statusbar: {
     display: "flex",
     alignItems: "center",
-    gap: 10,
-    paddingInline: 12,
-    height: 27,
-    minHeight: 27,
-    borderTopWidth: 1,
-    borderTopStyle: "solid",
-    borderTopColor: tokens.border,
+    gap: 12,
+    flexShrink: 0,
+    paddingInline: 14,
+    height: 28,
+    minHeight: 28,
     backgroundColor: tokens.panel,
-    color: tokens.muted,
-    fontSize: 10,
+    color: tokens.faint,
+    fontSize: 11,
   },
-  statusDot: { width: 5, height: 5, borderRadius: "50%", backgroundColor: tokens.green },
+  statusItem: { display: "inline-flex", alignItems: "center", gap: 7, whiteSpace: "nowrap" },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: "50%",
+    backgroundColor: tokens.green,
+    animationName: { default: ping, [reduced]: "none" },
+    animationDuration: "900ms",
+    animationTimingFunction: tokens.easeOut,
+  },
+  statusWaiting: { backgroundColor: tokens.warning, animationName: "none" },
+  statusIdle: { backgroundColor: tokens.faint, animationName: "none" },
   selectedPath: {
-    maxWidth: 230,
+    maxWidth: 280,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
     color: tokens.faint,
     display: { default: "inline", "@media (max-width: 1000px)": "none" },
   },
-  performance: { color: tokens.faint, fontFamily: tokens.code, fontSize: 9, whiteSpace: "nowrap" },
+  performance: {
+    color: tokens.faint,
+    fontFamily: tokens.code,
+    fontSize: 10,
+    whiteSpace: "nowrap",
+    fontVariantNumeric: "tabular-nums",
+    opacity: 0.8,
+    display: { default: "inline", "@media (max-width: 900px)": "none" },
+  },
+  helpButton: {
+    minHeight: 20,
+    height: 20,
+    paddingInline: 6,
+    fontSize: 10.5,
+    color: tokens.faint,
+    boxShadow: `inset 0 0 0 1px ${tokens.line}`,
+    borderRadius: 5,
+  },
 });

@@ -74,12 +74,12 @@ export function FileSidebar({
     <section {...stylex.props(styles.panel)} aria-label="Changed files">
       <div {...stylex.props(styles.heading)}>
         <span>Changes</span>
-        <span {...stylex.props(ui.faint, ui.mono)}>
+        <span {...stylex.props(styles.count)}>
           {filter ? `${files.length} / ${total}` : total}
         </span>
       </div>
       <div {...stylex.props(styles.filter)}>
-        <Icon name="search" size={13} />
+        <Icon name="search" size={14} />
         <input
           ref={filterRef}
           value={filter}
@@ -90,11 +90,11 @@ export function FileSidebar({
         />
         {filter && (
           <button
-            {...stylex.props(ui.button, ui.iconButton)}
+            {...stylex.props(ui.button, ui.iconButton, styles.clear)}
             onClick={() => onFilter("")}
             aria-label="Clear file filter"
           >
-            <Icon name="close" size={12} />
+            <Icon name="close" size={13} />
           </button>
         )}
       </div>
@@ -145,14 +145,20 @@ export function FileSidebar({
         style={
           {
             "--trees-font-family-override": tokens.ui,
+            "--trees-font-size-override": "12.5px",
+            "--trees-border-radius-override": "6px",
+            "--trees-item-margin-x-override": "6px",
+            "--trees-fg-muted-override": tokens.faint,
+            "--trees-indent-guide-bg-override": tokens.line,
             "--trees-theme-sidebar-header-fg": tokens.muted,
             "--trees-accent-override": tokens.accent,
             "--trees-theme-sidebar-bg": tokens.panel,
             "--trees-theme-sidebar-fg": tokens.text,
             "--trees-theme-list-active-selection-bg": tokens.selected,
+            "--trees-selected-bg-override": tokens.selected,
             "--trees-theme-list-active-selection-fg": tokens.text,
-            "--trees-theme-list-hover-bg": tokens.hover,
-            "--trees-theme-focus-ring": tokens.accent,
+            "--trees-theme-list-hover-bg": tokens.fill,
+            "--trees-theme-focus-ring": tokens.accentLine,
             "--trees-theme-git-added-fg": tokens.green,
             "--trees-theme-git-deleted-fg": tokens.red,
             "--trees-theme-git-modified-fg": tokens.accent,
@@ -173,30 +179,44 @@ const styles = stylex.create({
     display: "flex",
     flexDirection: "column",
     overflow: "hidden",
+    // An inset hairline separates the two scroll areas without boxing them.
+    backgroundImage: `linear-gradient(${tokens.line}, ${tokens.line})`,
+    backgroundSize: "calc(100% - 24px) 1px",
+    backgroundPosition: "12px 0",
+    backgroundRepeat: "no-repeat",
   },
   heading: {
-    height: 37,
-    minHeight: 37,
+    height: 36,
+    minHeight: 36,
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
     paddingInline: 14,
     color: tokens.muted,
-    fontSize: 11,
-    fontWeight: 600,
+    fontSize: 11.5,
+    fontWeight: 500,
+  },
+  count: {
+    color: tokens.faint,
+    fontFamily: tokens.code,
+    fontSize: 10.5,
+    fontVariantNumeric: "tabular-nums",
   },
   filter: {
     display: "flex",
     alignItems: "center",
-    gap: 6,
-    marginInline: 10,
-    marginBottom: 8,
-    paddingLeft: 7,
-    height: 27,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: tokens.border,
+    gap: 7,
+    marginInline: 8,
+    marginBottom: 6,
+    paddingInlineStart: 9,
+    paddingInlineEnd: 2,
+    height: 28,
     borderRadius: 7,
+    backgroundColor: tokens.fill,
+    boxShadow: {
+      default: `inset 0 0 0 1px ${tokens.line}`,
+      ":focus-within": `inset 0 0 0 1px ${tokens.accentLine}, 0 0 0 3px ${tokens.accentSoft}`,
+    },
     color: tokens.faint,
   },
   input: {
@@ -206,9 +226,12 @@ const styles = stylex.create({
     color: tokens.text,
     minWidth: 0,
     width: "100%",
-    fontSize: 11,
+    height: "100%",
+    fontSize: 12,
     fontFamily: tokens.ui,
+    "::placeholder": { color: tokens.faint },
   },
+  clear: { width: 24, minWidth: 24, minHeight: 24, height: 24 },
   tree: { flex: "1", minHeight: 0, width: "100%", overflow: "hidden" },
   empty: { color: tokens.muted, fontSize: 12, paddingInline: 14 },
 });
