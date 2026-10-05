@@ -176,3 +176,8 @@
   color: var(--edit-accent);
   background: color-mix(in srgb, var(--edit-accent) 12%, transparent);
 }
+
+.med-editor .cm-editor[data-scrolling] .cm-fat-cursor,
+.med-editor .cm-editor[data-scrolling] .cm-cursor {
+  transition: none;
+}

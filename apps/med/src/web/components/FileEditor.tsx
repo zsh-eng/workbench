@@ -487,7 +487,13 @@ export default function FileEditor({
     const manualScroll = () => {
       cursorMotionAt = 0;
     };
+    let scrollMotionTimer: ReturnType<typeof setTimeout>;
     const followScroll = () => {
+      // CodeMirror rebases cursor-layer coordinates while scrolling. Interpolating
+      // those corrections makes the cursor lag behind its character.
+      editor.dom.dataset.scrolling = "true";
+      clearTimeout(scrollMotionTimer);
+      scrollMotionTimer = setTimeout(() => delete editor.dom.dataset.scrolling, 100);
       // CodeMirror scrolls after moving the cursor. Keep that cursor as the anchor;
       // wheel, touch and scrollbar input instead follow the viewport.
       if (performance.now() - cursorMotionAt < 200) return;
@@ -543,6 +549,7 @@ export default function FileEditor({
       restoreFocus.current = editor.hasFocus;
       stopped = true;
       clearTimeout(timer);
+      clearTimeout(scrollMotionTimer);
       worker.terminate();
       actions.delete(cm);
       drafts.update(draft, {
