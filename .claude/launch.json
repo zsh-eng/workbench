@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "reader",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "--cwd", "apps/reader", "dev", "--", "--port", "5188", "--strictPort"],
+      "port": 5188
+    },
+    {
+      "name": "med",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["apps/med/scripts/dev.mjs", "."],
+      "port": 5173
+    }
+  ]
+}
