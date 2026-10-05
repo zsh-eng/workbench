@@ -66,3 +66,9 @@ before/after results, and comparison of retained builds.
 CLI, Markdown worker, browser, and file APIs: working and historical repository
 files, standalone tabs, URL encoding, parent paths, missing targets, and root
 boundaries. Vault relative links are covered by `bun run test:service`.
+
+`bun run test:navigation` uses an isolated headless Chromium and temporary
+repositories to check repository-scoped file picking, filter composition,
+identical paths in different repositories, keyboard focus, file integrity,
+cursor alignment while scrolling, and diff search contexts. It does not use
+the user's native browser or add registrations to their Med service.

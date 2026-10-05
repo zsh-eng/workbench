@@ -8,11 +8,19 @@ import type { BrowseEntry, BrowseSource } from "../../shared/browse";
 import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
 import { FullFileView } from "./FullFileView";
-import { browseSourceKey, type BrowseApi } from "../data/browse";
+import { browseSourceKey, useBrowseFiles, type BrowseApi } from "../data/browse";
 import { usePickerPreview, type FilePreviewReader } from "../data/picker-preview";
 import type { BrowseSearch } from "../../shared/inspect";
 
+import type { RegisteredRepository } from "../../shared/protocol";
+import { isTestFile, matchesFileFilters, parsePickerFilters } from "../data/file-filters";
+
+type RepositoryScope = { id: string; name: string; path: string; source: BrowseSource };
 export interface FilePickerProps {
+  repositories?: RegisteredRepository[];
+  repositoryScopes?: RepositoryScope[];
+  scopedRepository?: RepositoryScope;
+  onRepository?(scope?: RepositoryScope, query?: string): void;
   open: boolean;
   onOpenChange(open: boolean): void;
   entries: BrowseEntry[];
@@ -63,6 +71,7 @@ export function findFiles(
   query: string,
   openPaths: string[] = [],
   recentPaths: string[] = [],
+  filters?: ReturnType<typeof parsePickerFilters>,
 ): BrowseEntry[] {
   const { text } = parseFileQuery(query);
   // Keep only the best 50 entries while scanning; never sort or mount the full repository.
@@ -70,7 +79,8 @@ export function findFiles(
   const recent = new Map(recentPaths.map((path, index) => [path, Math.max(0, 100 - index)]));
   const best: { entry: BrowseEntry; score: number }[] = [];
   for (const entry of entries) {
-    if (entry.kind === "directory") continue;
+    if (entry.kind === "directory" || (filters && !matchesFileFilters(entry.path, filters)))
+      continue;
     const score =
       matchScore(entry.path, text) +
       (opened.has(entry.path) ? 200 : 0) +
@@ -86,14 +96,74 @@ export function findFiles(
 }
 
 type PickerMode = "files" | "content";
-type PickerResult = { id: string; path: string; line?: number; text?: string };
+type PickerResult = {
+  id: string;
+  path: string;
+  line?: number;
+  text?: string;
+  repository?: RepositoryScope;
+};
 type PickerSession = { query: string; selected: string | null; scroll: Map<string, number> };
 const emptyPaths: string[] = [];
 
 export function FilePicker(props: FilePickerProps) {
+  const [scopeQuery, setScopeQuery] = useState<string>();
+  const [repository, setRepository] = useState<RepositoryScope>();
+  const [previousOpen, setPreviousOpen] = useState(props.open);
+  if (previousOpen !== props.open) {
+    setPreviousOpen(props.open);
+    setScopeQuery(undefined);
+    if (props.open && !props.resume) setRepository(undefined);
+  }
+  const repositoryScopes = useMemo(
+    () =>
+      (props.repositories ?? []).flatMap((repo) => {
+        if (repo.error) return [];
+        const paths = [
+          ...new Set([
+            repo.path,
+            ...repo.worktrees.filter((tree) => !tree.bare).map((tree) => tree.path),
+          ]),
+        ];
+        return paths.map((path) => ({
+          id: `${repo.id}:${path}`,
+          name: repo.name,
+          path,
+          source: { kind: "worktree" as const, repo: path },
+        }));
+      }),
+    [props.repositories],
+  );
+  const selectedRepository = repositoryScopes.find((entry) => entry.id === repository?.id);
+  const remote =
+    !!selectedRepository &&
+    (!props.source || browseSourceKey(selectedRepository.source) !== browseSourceKey(props.source));
+  const files = useBrowseFiles(
+    remote ? selectedRepository.source : null,
+    props.open && remote,
+    props.sourceRevision,
+    { api: props.api },
+  );
+  const effective = selectedRepository
+    ? {
+        ...props,
+        source: remote ? selectedRepository.source : props.source,
+        sourceLabel: selectedRepository.path,
+        ...(remote
+          ? {
+              entries: files.entries,
+              loading: files.loading,
+              error: files.error,
+              openPaths: [],
+              recentPaths: [],
+              previewReader: undefined,
+            }
+          : {}),
+      }
+    : props;
   const [sessions] = useState(() => new Map<string, PickerSession>());
   const [lastModes] = useState(() => new Map<string, PickerMode>());
-  const scope = props.source ? browseSourceKey(props.source) : props.sourceLabel;
+  const scope = effective.source ? browseSourceKey(effective.source) : effective.sourceLabel;
   const rememberMode = useCallback(
     (next: PickerMode) => {
       lastModes.delete(scope);
@@ -105,8 +175,15 @@ export function FilePicker(props: FilePickerProps) {
   const mode = (props.resume ? lastModes.get(scope) : undefined) ?? props.initialMode ?? "files";
   return props.open ? (
     <PickerSessionView
-      key={`${scope}:${mode}`}
-      {...props}
+      key={`${scope}:${mode}:${selectedRepository?.id ?? "current"}`}
+      {...effective}
+      repositoryScopes={repositoryScopes}
+      scopedRepository={selectedRepository}
+      onRepository={(scope, query) => {
+        setScopeQuery(query ?? "");
+        setRepository(scope);
+      }}
+      initialQuery={scopeQuery ?? effective.initialQuery}
       initialMode={mode}
       scope={scope}
       sessions={sessions}
@@ -116,6 +193,9 @@ export function FilePicker(props: FilePickerProps) {
 }
 
 function PickerSessionView({
+  repositoryScopes,
+  scopedRepository,
+  onRepository,
   open,
   onOpenChange,
   entries,
@@ -159,6 +239,9 @@ function PickerSessionView({
       key={sessionKey}
       onSave={(patch) => sessions.set(sessionKey, { ...sessions.get(sessionKey)!, ...patch })}
       {...{
+        repositoryScopes,
+        scopedRepository,
+        onRepository,
         open,
         onOpenChange,
         entries,
@@ -186,6 +269,9 @@ function PickerSessionView({
 }
 
 function PickerContents({
+  repositoryScopes = [],
+  scopedRepository,
+  onRepository,
   open,
   onOpenChange,
   entries,
@@ -211,9 +297,40 @@ function PickerContents({
   onSave(patch: Partial<PickerSession>): void;
 }) {
   const [query, setQuery] = useState(initialQuery ?? session.query);
+  const filters = useMemo(
+    () =>
+      mode === "files" ? parsePickerFilters(query) : { text: query, kinds: [], extensions: [] },
+    [query, mode],
+  );
+  const [repositoryMode, setRepositoryMode] = useState(false);
+  const repoMatches = useMemo(() => {
+    if (mode !== "files" || scopedRepository || (!filters.text && !repositoryMode)) return [];
+    return repositoryScopes
+      .map((repository) => ({
+        repository,
+        score: Math.max(
+          matchScore(repository.name, filters.text),
+          matchScore(repository.path, filters.text),
+        ),
+      }))
+      .filter((entry) => entry.score > -Infinity)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 8)
+      .map(({ repository }) => ({
+        id: `repo:${repository.id}`,
+        path: repository.path,
+        repository,
+      }));
+  }, [repositoryScopes, scopedRepository, filters.text, repositoryMode, mode]);
   const [selected, setSelected] = useState(initialQuery === undefined ? session.selected : null);
   const [restoreId, setRestoreId] = useState(initialQuery === undefined ? session.selected : null);
   const [refresh, setRefresh] = useState(0);
+  const updateQuery = (value: string) => {
+    setQuery(value);
+    onSave({ query: value, selected: null });
+    setSelected(null);
+    setRestoreId(null);
+  };
   const inputRef = useRef<HTMLInputElement>(null);
   const sourceKey = source ? browseSourceKey(source) : "";
   const searchScope = JSON.stringify([sourceKey, sourceRevision]);
@@ -225,10 +342,10 @@ function PickerContents({
     error?: string;
   }>({ key: "", scope: "" });
   useEffect(() => {
-    if (mode !== "content" || !source || !api?.search || !query.trim()) return;
+    if (mode !== "content" || !source || !api?.search || !filters.text.trim()) return;
     const controller = new AbortController();
     void api
-      .search(source, query, controller.signal)
+      .search(source, filters.text, controller.signal)
       .then((result) => {
         if (!controller.signal.aborted) setSearch({ key: searchKey, scope: searchScope, result });
       })
@@ -241,17 +358,17 @@ function PickerContents({
           });
       });
     return () => controller.abort();
-  }, [mode, sourceKey, source, api, query, searchKey, searchScope]);
+  }, [mode, sourceKey, source, api, filters.text, searchKey, searchScope]);
   // Keep the last result and its commit preview while this source's next query runs.
   const displayedSearch =
     mode === "content" && query.trim() && search.scope === searchScope ? search.result : undefined;
   const results = useMemo<PickerResult[]>(() => {
     const matches =
       mode === "files"
-        ? findFiles(entries, query, openPaths, recentPaths).map((entry) => ({
+        ? findFiles(entries, filters.text, openPaths, recentPaths, filters).map((entry) => ({
             id: entry.path,
             path: entry.path,
-            line: parseFileQuery(query).line,
+            line: parseFileQuery(filters.text).line,
           }))
         : (displayedSearch?.matches ?? [])
             .slice(0, 200)
@@ -259,8 +376,8 @@ function PickerContents({
     // Place the previously selected result first on resume. Base UI owns keyboard highlight.
     const index = matches.findIndex((entry) => entry.id === restoreId);
     if (index > 0) matches.unshift(matches.splice(index, 1)[0]!);
-    return matches;
-  }, [entries, query, openPaths, recentPaths, mode, displayedSearch, restoreId]);
+    return [...repoMatches, ...matches.filter((entry) => matchesFileFilters(entry.path, filters))];
+  }, [entries, filters, openPaths, recentPaths, mode, displayedSearch, restoreId, repoMatches]);
   const selectedResult = results.find((entry) => entry.id === selected) ?? results[0];
   const currentSearch = search.key === searchKey ? search.result : undefined;
   const resultSource = displayedSearch?.resultSource;
@@ -270,7 +387,7 @@ function PickerContents({
   const preview = usePickerPreview(
     api,
     previewSource,
-    selectedResult?.path,
+    selectedResult?.repository ? undefined : selectedResult?.path,
     `${sourceRevision}:${refresh}`,
     previewReader,
   );
@@ -278,10 +395,24 @@ function PickerContents({
     mode === "files" ? loading : !!query.trim() && search.key !== searchKey && !!api?.search;
   const failure = mode === "files" ? error : search.key === searchKey ? search.error : null;
   const accepted = useRef(false);
+  const selectRepository = (repository?: RepositoryScope) =>
+    onRepository?.(
+      repository,
+      query
+        .match(/(?:^|\s)(?:type:(?:code|tests|docs)|ext:[a-z0-9,+.-]+)(?=\s|$)/gi)
+        ?.map((token) => token.trim())
+        .join(" ")
+        .trim() ?? "",
+    );
   const choose = (entry: PickerResult) => {
+    if (entry.repository) {
+      selectRepository(entry.repository);
+      return;
+    }
     if (busy || failure) return;
     accepted.current = true;
     if (resultSource) onOpen(entry.path, entry.line, resultSource);
+    else if (source && scopedRepository) onOpen(entry.path, entry.line, source);
     else onOpen(entry.path, entry.line);
     onOpenChange(false);
   };
@@ -329,9 +460,35 @@ function PickerContents({
               <Dialog.Title {...stylex.props(styles.title)}>
                 {mode === "files" ? "Find file" : "Search files"}
               </Dialog.Title>
-              <span {...stylex.props(styles.scope)} title={sourceLabel}>
-                {sourceLabel}
-              </span>
+              {repositoryScopes.length ? (
+                <button
+                  type="button"
+                  {...stylex.props(ui.button, styles.scope)}
+                  title={sourceLabel}
+                  aria-label={scopedRepository ? "Back to current repository" : "Choose repository"}
+                  onClick={() => {
+                    if (scopedRepository) selectRepository();
+                    else {
+                      setRepositoryMode((value) => !value);
+                      setQuery("");
+                    }
+                    inputRef.current?.focus();
+                  }}
+                >
+                  {scopedRepository ? (
+                    <>
+                      <span {...stylex.props(styles.scopeName)}>← {scopedRepository.name}</span>
+                      <span {...stylex.props(styles.path)}>{sourceLabel}</span>
+                    </>
+                  ) : (
+                    sourceLabel
+                  )}
+                </button>
+              ) : (
+                <span {...stylex.props(styles.scope)} title={sourceLabel}>
+                  {sourceLabel}
+                </span>
+              )}
               {api?.search && (
                 <div {...stylex.props(styles.modes)}>
                   <button
@@ -376,10 +533,30 @@ function PickerContents({
                 onFocus={(event) => event.currentTarget.select()}
                 aria-label={mode === "files" ? "Find file" : "Search file contents"}
                 placeholder={
-                  mode === "files" ? "Search files… or file:line" : "Search committed text…"
+                  mode === "files"
+                    ? "File, repository + Tab, or ext:java…"
+                    : "Search committed text…"
                 }
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" && busy && !event.nativeEvent.isComposing) {
+                  if (event.nativeEvent.isComposing) return;
+                  if (event.key === "Tab" && !event.shiftKey && repoMatches.length) {
+                    event.preventDefault();
+                    event.preventBaseUIHandler();
+                    selectRepository(selectedResult?.repository ?? repoMatches[0]!.repository);
+                    return;
+                  }
+                  if (event.key === "Backspace" && !query && scopedRepository) {
+                    event.preventDefault();
+                    event.preventBaseUIHandler();
+                    selectRepository();
+                    return;
+                  }
+                  if (
+                    event.key === "Enter" &&
+                    busy &&
+                    !selectedResult?.repository &&
+                    !event.nativeEvent.isComposing
+                  ) {
                     event.preventDefault();
                     event.preventBaseUIHandler();
                     return;
@@ -387,8 +564,8 @@ function PickerContents({
                   if (
                     event.key === "Enter" &&
                     !event.nativeEvent.isComposing &&
-                    !busy &&
-                    !failure &&
+                    (!busy || !!selectedResult?.repository) &&
+                    (!failure || !!selectedResult?.repository) &&
                     selectedResult
                   ) {
                     event.preventDefault();
@@ -399,6 +576,67 @@ function PickerContents({
                 {...stylex.props(styles.input)}
               />
             </div>
+            {mode === "files" && (
+              <div {...stylex.props(styles.filters)} aria-label="File filters">
+                {(["code", "tests", "docs"] as const).map((kind) => (
+                  <button
+                    key={kind}
+                    {...stylex.props(
+                      ui.button,
+                      styles.mode,
+                      filters.kinds.includes(kind) && styles.selectedMode,
+                    )}
+                    aria-pressed={filters.kinds.includes(kind)}
+                    onClick={() => {
+                      const next = filters.kinds.includes(kind)
+                        ? query
+                            .replace(new RegExp(`(?:^|\\s)type:${kind}(?=\\s|$)`, "gi"), " ")
+                            .trim()
+                        : `${query} type:${kind}`.trim();
+                      updateQuery(next);
+                      inputRef.current?.focus();
+                    }}
+                  >
+                    {kind[0]!.toUpperCase() + kind.slice(1)}
+                  </button>
+                ))}
+                {filters.extensions.map((ext) => (
+                  <button
+                    key={ext}
+                    {...stylex.props(ui.button, styles.mode)}
+                    aria-label={`Remove .${ext} filter`}
+                    onClick={() => {
+                      updateQuery(
+                        [
+                          filters.text,
+                          ...filters.kinds.map((kind) => `type:${kind}`),
+                          ...filters.extensions
+                            .filter((value) => value !== ext)
+                            .map((value) => `ext:${value}`),
+                        ]
+                          .filter(Boolean)
+                          .join(" "),
+                      );
+                      inputRef.current?.focus();
+                    }}
+                  >
+                    .{ext} ×
+                  </button>
+                ))}
+                {(filters.kinds.length > 0 || filters.extensions.length > 0) && (
+                  <button
+                    {...stylex.props(ui.button, styles.mode)}
+                    onClick={() => {
+                      updateQuery(filters.text);
+                      inputRef.current?.focus();
+                    }}
+                  >
+                    Clear filters
+                  </button>
+                )}
+                <span {...stylex.props(styles.filterHint)}>type:tests · ext:java,kt</span>
+              </div>
+            )}
             {mode === "content" && (
               <p {...stylex.props(styles.searchNotice)}>
                 Committed files · uncommitted changes excluded
@@ -432,7 +670,12 @@ function PickerContents({
                           <Combobox.Item
                             key={entry.id}
                             value={entry}
-                            disabled={busy}
+                            disabled={busy && !entry.repository}
+                            aria-label={
+                              entry.repository
+                                ? `Repository ${entry.repository.name} · ${entry.path}`
+                                : undefined
+                            }
                             className={(state) =>
                               stylex.props(
                                 styles.item,
@@ -442,22 +685,48 @@ function PickerContents({
                               ).className
                             }
                           >
-                            <Icon name="file" size={14} />
+                            <span
+                              aria-hidden="true"
+                              title={
+                                entry.repository
+                                  ? "Repository"
+                                  : isTestFile(entry.path)
+                                    ? "Test file"
+                                    : "File"
+                              }
+                            >
+                              <Icon
+                                name={
+                                  entry.repository
+                                    ? "branch"
+                                    : isTestFile(entry.path)
+                                      ? "testFile"
+                                      : "file"
+                                }
+                                size={14}
+                              />
+                            </span>
                             <span {...stylex.props(styles.itemText)}>
                               <span {...stylex.props(styles.itemTop)}>
                                 <span {...stylex.props(styles.name)}>
-                                  {entry.path.slice(slash + 1)}
+                                  {entry.repository?.name ?? entry.path.slice(slash + 1)}
                                   {mode === "content" ? `:${entry.line}` : ""}
                                 </span>
                                 <span {...stylex.props(styles.path)}>
-                                  {slash >= 0 ? entry.path.slice(0, slash) : ""}
+                                  {entry.repository
+                                    ? entry.path
+                                    : slash >= 0
+                                      ? entry.path.slice(0, slash)
+                                      : ""}
                                 </span>
                               </span>
                               {entry.text !== undefined && (
                                 <span {...stylex.props(styles.snippet)}>{entry.text}</span>
                               )}
                             </span>
-                            {mode === "files" &&
+                            {entry.repository && <ShortcutKeys value="Tab" />}
+                            {!entry.repository &&
+                              mode === "files" &&
                               (openPaths.includes(entry.path) ? (
                                 <span {...stylex.props(styles.label)}>Open</span>
                               ) : recentPaths.includes(entry.path) ? (
@@ -472,7 +741,7 @@ function PickerContents({
               </div>
               {((api && source) || previewReader) && (
                 <div {...stylex.props(styles.preview)} aria-label="File preview">
-                  {selectedResult ? (
+                  {selectedResult && !selectedResult.repository ? (
                     <FullFileView
                       key={`${previewSourceKey}:${selectedResult.path}`}
                       compact
@@ -515,7 +784,7 @@ function PickerContents({
                 {mode === "files"
                   ? results.length === 50
                     ? "Top 50 matches"
-                    : `${results.length} files`
+                    : `${results.length} ${results.length === 1 ? "file" : "files"}`
                   : `${results.length} matches${displayedSearch?.truncated || (displayedSearch?.matches.length ?? 0) > 200 ? " · more available" : ""}`}
               </span>
             </div>
@@ -527,6 +796,8 @@ function PickerContents({
 }
 
 const styles = stylex.create({
+  filters: { display: "flex", gap: 4, alignItems: "center", paddingInline: 12, paddingBlock: 5 },
+  filterHint: { marginLeft: "auto", color: tokens.faint, fontSize: 10 },
   backdrop: { position: "fixed", inset: 0, backgroundColor: "#00000030", zIndex: 110 },
   popup: {
     position: "fixed",
@@ -552,7 +823,9 @@ const styles = stylex.create({
   },
   heading: { display: "flex", alignItems: "center", gap: 12, paddingTop: 10, paddingInline: 14 },
   title: { fontSize: 12, fontWeight: 600, margin: 0, whiteSpace: "nowrap" },
+  scopeName: { flexShrink: 0, color: tokens.text, fontSize: 12 },
   scope: {
+    justifyContent: "flex-start",
     flex: "1",
     minWidth: 0,
     color: tokens.muted,
@@ -596,8 +869,15 @@ const styles = stylex.create({
     outline: "none",
   },
   highlighted: { backgroundColor: tokens.selected },
-  name: { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+  name: {
+    flexShrink: 0,
+    maxWidth: "100%",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
   path: {
+    flexShrink: 1,
     marginLeft: "auto",
     minWidth: 0,
     color: tokens.faint,

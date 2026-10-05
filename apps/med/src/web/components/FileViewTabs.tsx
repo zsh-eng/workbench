@@ -11,6 +11,7 @@ export interface FileViewTab {
   pinned: boolean;
   dirty?: boolean;
   sourceLabel?: string;
+  sourcePath?: string;
 }
 export function FileViewTabs({
   tabs,
@@ -39,7 +40,7 @@ export function FileViewTabs({
     tabs.map((tab) => ({
       label: tab.path.split("/").at(-1)!,
       qualifier: tabs.some((other) => other.id !== tab.id && other.path === tab.path)
-        ? `${tab.sourceLabel ?? "File"}/${tab.path.split("/").slice(0, -1).join("/")}`
+        ? `${tabs.some((other) => other.path === tab.path && other.sourcePath !== tab.sourcePath) ? (tab.sourcePath ?? tab.sourceLabel ?? "File") : (tab.sourceLabel ?? "File")}/${tab.path.split("/").slice(0, -1).join("/")}`
         : tab.path.split("/").slice(0, -1).join("/"),
     })),
   );
@@ -153,7 +154,7 @@ const styles = stylex.create({
     backgroundColor: { default: tokens.fillStrong, ":hover": tokens.fillStrong },
   },
   preview: { fontStyle: "italic" },
-  name: { maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" },
+  name: { maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis" },
   count: {
     minWidth: 18,
     paddingInline: 5,

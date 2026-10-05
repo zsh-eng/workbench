@@ -102,6 +102,28 @@ bunx --package ./med-diff-0.1.0.tgz med-diff /path/to/repository
 
 The legacy JavaScript CLI uses Node, including when launched through `bunx`. The package serves compiled assets; it does not need a Vite development server.
 
+## Files across repositories
+
+Open **Find file** with `⌘⇧K` / `Ctrl+Shift+K`. Type part of a registered
+repository name, then press **Tab** to scope the picker to it. Arrow keys and
+Enter also select repository rows. The scope shows its full path, including
+worktree paths, so separate clones and names with spaces remain distinct.
+Only the chosen repository's file list is requested. Med does not scan nearby
+directories or register repositories from this picker.
+
+Combine **Code**, **Tests**, and **Docs**, or type `type:tests ext:java,kt`.
+Categories and extensions each use OR; the two groups combine with AND.
+For example, `type:code type:docs ext:java,md` finds Java source and Markdown,
+excluding test files. Test icons use language conventions such as `.test.ts`,
+`_test.go`, `test_*.py`, Java `*Test.java`, and `src/test/` source paths.
+An ordinary name such as `Contest.java` is not a test.
+
+Remove an extension chip, use **Clear filters**, or press Backspace in an empty
+input to return to the current repository. The scope button also goes back.
+Escape closes the picker and restores focus. Opening a result keeps the review
+in place and opens a file tab with the selected repository identity. Picking
+and previewing files never saves or changes their contents.
+
 ## First review
 
 1. Select a commit in the left history panel, or select working changes. Commit diffs compare with the first parent; merge commits are labeled accordingly.

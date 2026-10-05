@@ -872,6 +872,7 @@ export function App({
         event.key === "?" &&
         !editing &&
         !modal &&
+        !(event.target instanceof Element && event.target.closest('[data-file-pane="main"][tabindex="0"]')) &&
         !event.metaKey &&
         !event.ctrlKey &&
         !event.altKey
@@ -969,7 +970,8 @@ export function App({
       }
       if (
         editing ||
-        commandsOpen ||
+        modal ||
+        Boolean(document.querySelector('[role="dialog"]')) ||
         fileState.active !== "changes" ||
         event.metaKey ||
         event.ctrlKey ||
@@ -1727,6 +1729,7 @@ export function App({
         }
       />
       <FilePicker
+        repositories={state.repositories}
         open={filePickerOpen && !!browseSource}
         onOpenChange={setFilePickerOpen}
         entries={repositoryFiles.entries}
@@ -1749,7 +1752,9 @@ export function App({
             false,
             line,
             source,
-            source?.kind === "commit" ? `Commit ${source.oid.slice(0, 8)}` : sourceLabel,
+            source?.kind === "commit"
+              ? `Commit ${source.oid.slice(0, 8)}`
+              : (source?.repo ?? sourceLabel),
           )
         }
       />
@@ -1864,6 +1869,7 @@ export function App({
             <FileViewTabs
               tabs={fileState.tabs.map((tab) => ({
                 ...tab,
+                sourcePath: tab.source.repo,
                 dirty: !!editorDrafts.get(JSON.stringify([tab.source, tab.path]))?.dirty,
               }))}
               active={fileState.active}
@@ -1921,16 +1927,20 @@ export function App({
                     {...stylex.props(styles.compareLabel)}
                     title={`${state.review.base} → ${state.review.head}`}
                   >
-                    <span {...stylex.props(styles.revision)}>{shortRevision(state.review.base)}</span>
+                    <span {...stylex.props(styles.revision)}>
+                      {shortRevision(state.review.base)}
+                    </span>
                     <Icon name="arrowUp" size={11} style={{ transform: "rotate(90deg)" }} />
-                    <span {...stylex.props(styles.revision)}>{shortRevision(state.review.head)}</span>
+                    <span {...stylex.props(styles.revision)}>
+                      {shortRevision(state.review.head)}
+                    </span>
                   </span>
                 )}
                 {state.review && (
                   <span
                     {...stylex.props(styles.reviewTotals)}
                     role="group"
-                    aria-label={`Review total: ${added} lines added, ${deleted} lines deleted`}
+                    aria-label={`Comparison total: ${added} lines added, ${deleted} lines deleted`}
                     title="Total lines changed in this comparison"
                   >
                     <span {...stylex.props(ui.added)}>+{added.toLocaleString()}</span>
@@ -2100,301 +2110,308 @@ export function App({
                 </div>
               ))}
               <div {...stylex.props(styles.stream)}>
-              {findOpen && (
-                <div {...stylex.props(styles.findWidget)}>
-                  <Icon name="search" size={14} />
-                  <input
-                    ref={findRef}
-                    value={find}
-                    onChange={(event) => {
-                      setFind(event.target.value);
-                      setFindIndex(0);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        jumpHit(event.shiftKey ? findIndex - 1 : findIndex + 1);
+                {findOpen && (
+                  <div {...stylex.props(styles.findWidget)}>
+                    <Icon name="search" size={14} />
+                    <input
+                      ref={findRef}
+                      value={find}
+                      onChange={(event) => {
+                        setFind(event.target.value);
+                        setFindIndex(0);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          jumpHit(event.shiftKey ? findIndex - 1 : findIndex + 1);
+                        }
+                        if (event.key === "Escape") {
+                          event.stopPropagation();
+                          setFindOpen(false);
+                        }
+                      }}
+                      aria-label="Find in diff contents"
+                      placeholder="Find in changed hunks"
+                      {...stylex.props(styles.findInput)}
+                    />
+                    <span
+                      {...stylex.props(
+                        styles.findCount,
+                        !!find && !hits.length && styles.findEmpty,
+                      )}
+                    >
+                      {find
+                        ? hits.length
+                          ? `${Math.min(findIndex + 1, hits.length)} / ${hits.length} hunks`
+                          : "No matches"
+                        : ""}
+                    </span>
+                    <button
+                      {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
+                      aria-label="Previous match"
+                      disabled={!hits.length}
+                      onClick={() => jumpHit(findIndex - 1)}
+                    >
+                      <Icon name="arrowUp" size={14} />
+                    </button>
+                    <button
+                      {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
+                      aria-label="Next match"
+                      disabled={!hits.length}
+                      onClick={() => jumpHit(findIndex + 1)}
+                    >
+                      <Icon name="arrowDown" size={14} />
+                    </button>
+                    <button
+                      {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
+                      aria-label="Close find"
+                      onClick={() => setFindOpen(false)}
+                    >
+                      <Icon name="close" size={14} />
+                    </button>
+                  </div>
+                )}
+                {selection && (
+                  <div
+                    data-line-selection-controls
+                    role="toolbar"
+                    aria-label="Line selection"
+                    {...stylex.props(styles.selectionbar)}
+                  >
+                    <span {...stylex.props(styles.selectionRange)}>
+                      L{selection.range.start}
+                      {selection.range.end !== selection.range.start
+                        ? `–${selection.range.end}`
+                        : ""}
+                    </span>
+                    <span {...stylex.props(styles.selectionLabel)}>selected</span>
+                    <button
+                      {...stylex.props(ui.button, ui.primary, ui.pressable, styles.selectionAction)}
+                      aria-label="Add note"
+                      onClick={startNote}
+                    >
+                      <Icon name="note" size={14} />
+                      Add note
+                      <kbd {...stylex.props(styles.selectionKey)}>C</kbd>
+                    </button>
+                    <button
+                      {...stylex.props(ui.button, ui.iconButton, styles.selectionClose)}
+                      aria-label="Clear line selection"
+                      onClick={clearLineSelection}
+                    >
+                      <Icon name="close" size={14} />
+                    </button>
+                  </div>
+                )}
+                {items.length > 0 ? (
+                  <CodeView
+                    key={`${reviewScope}:${state.review?.id}`}
+                    ref={viewer}
+                    onScroll={(position) => {
+                      if (fileState.active === "changes" && !restoringScroll.current) {
+                        reviewScroll.current.delete(reviewScope);
+                        reviewScroll.current.set(reviewScope, position);
+                        while (reviewScroll.current.size > 256)
+                          reviewScroll.current.delete(reviewScroll.current.keys().next().value!);
                       }
-                      if (event.key === "Escape") {
-                        event.stopPropagation();
-                        setFindOpen(false);
-                      }
                     }}
-                    aria-label="Find in diff contents"
-                    placeholder="Find in changed hunks"
-                    {...stylex.props(styles.findInput)}
-                  />
-                  <span
-                    {...stylex.props(styles.findCount, !!find && !hits.length && styles.findEmpty)}
-                  >
-                    {find
-                      ? hits.length
-                        ? `${Math.min(findIndex + 1, hits.length)} / ${hits.length} hunks`
-                        : "No matches"
-                      : ""}
-                  </span>
-                  <button
-                    {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
-                    aria-label="Previous match"
-                    disabled={!hits.length}
-                    onClick={() => jumpHit(findIndex - 1)}
-                  >
-                    <Icon name="arrowUp" size={14} />
-                  </button>
-                  <button
-                    {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
-                    aria-label="Next match"
-                    disabled={!hits.length}
-                    onClick={() => jumpHit(findIndex + 1)}
-                  >
-                    <Icon name="arrowDown" size={14} />
-                  </button>
-                  <button
-                    {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
-                    aria-label="Close find"
-                    onClick={() => setFindOpen(false)}
-                  >
-                    <Icon name="close" size={14} />
-                  </button>
-                </div>
-              )}
-              {selection && (
-                <div
-                  data-line-selection-controls
-                  role="toolbar"
-                  aria-label="Line selection"
-                  {...stylex.props(styles.selectionbar)}
-                >
-                  <span {...stylex.props(styles.selectionRange)}>
-                    L{selection.range.start}
-                    {selection.range.end !== selection.range.start
-                      ? `–${selection.range.end}`
-                      : ""}
-                  </span>
-                  <span {...stylex.props(styles.selectionLabel)}>selected</span>
-                  <button
-                    {...stylex.props(ui.button, ui.primary, ui.pressable, styles.selectionAction)}
-                    aria-label="Add note"
-                    onClick={startNote}
-                  >
-                    <Icon name="note" size={14} />
-                    Add note
-                    <kbd {...stylex.props(styles.selectionKey)}>C</kbd>
-                  </button>
-                  <button
-                    {...stylex.props(ui.button, ui.iconButton, styles.selectionClose)}
-                    aria-label="Clear line selection"
-                    onClick={clearLineSelection}
-                  >
-                    <Icon name="close" size={14} />
-                  </button>
-                </div>
-              )}
-              {items.length > 0 ? (
-                <CodeView
-                  key={`${reviewScope}:${state.review?.id}`}
-                  ref={viewer}
-                  onScroll={(position) => {
-                    if (fileState.active === "changes" && !restoringScroll.current) {
-                      reviewScroll.current.delete(reviewScope);
-                      reviewScroll.current.set(reviewScope, position);
-                      while (reviewScroll.current.size > 256)
-                        reviewScroll.current.delete(reviewScroll.current.keys().next().value!);
+                    items={items}
+                    selectedLines={selection}
+                    onSelectedLinesChange={setSelection}
+                    options={options}
+                    className={stylex.props(styles.codeView).className}
+                    style={
+                      {
+                        "--diffs-font-family": tokens.code,
+                        "--diffs-font-size": "12px",
+                        "--diffs-line-height": "20px",
+                        "--diffs-header-font-family": tokens.ui,
+                        "--diffs-bg-context-override": tokens.canvas,
+                        "--diffs-bg-context-gutter-override": tokens.canvas,
+                        "--diffs-bg-separator-override": `color-mix(in srgb, ${tokens.canvas} 96.5%, ${tokens.text})`,
+                        "--diffs-bg-buffer-override": `color-mix(in srgb, ${tokens.canvas} 98%, ${tokens.text})`,
+                        "--diffs-fg-number-override": tokens.faint,
+                        "--diffs-addition-color-override": tokens.green,
+                        "--diffs-deletion-color-override": tokens.red,
+                      } as CSSProperties
                     }
-                  }}
-                  items={items}
-                  selectedLines={selection}
-                  onSelectedLinesChange={setSelection}
-                  options={options}
-                  className={stylex.props(styles.codeView).className}
-                  style={
-                    {
-                      "--diffs-font-family": tokens.code,
-                      "--diffs-font-size": "12px",
-                      "--diffs-line-height": "20px",
-                      "--diffs-header-font-family": tokens.ui,
-                      "--diffs-bg-context-override": tokens.canvas,
-                      "--diffs-bg-context-gutter-override": tokens.canvas,
-                      "--diffs-bg-separator-override": `color-mix(in srgb, ${tokens.canvas} 96.5%, ${tokens.text})`,
-                      "--diffs-bg-buffer-override": `color-mix(in srgb, ${tokens.canvas} 98%, ${tokens.text})`,
-                      "--diffs-fg-number-override": tokens.faint,
-                      "--diffs-addition-color-override": tokens.green,
-                      "--diffs-deletion-color-override": tokens.red,
-                    } as CSSProperties
-                  }
-                  renderCustomHeader={(item) => {
-                    const path = item.type === "diff" ? item.fileDiff.name : item.file.name;
-                    const info = fileInfoById.get(item.id);
-                    const slash = path.lastIndexOf("/") + 1;
-                    const isCollapsed = collapsed.has(item.id);
-                    const renamedFrom =
-                      item.type === "diff" &&
-                      item.fileDiff.prevName &&
-                      item.fileDiff.prevName !== path
-                        ? item.fileDiff.prevName
-                        : null;
-                    const status = !info
-                      ? null
-                      : info.untracked
-                        ? { label: "Untracked", tone: styles.statusAdded }
-                        : info.status.startsWith("A")
-                          ? { label: "Added", tone: styles.statusAdded }
-                          : info.status.startsWith("D")
-                            ? { label: "Deleted", tone: styles.statusDeleted }
-                            : renamedFrom
-                              ? { label: "Renamed", tone: styles.statusRenamed }
-                              : null;
-                    return (
-                      <div {...stylex.props(styles.diffHeader)}>
-                        <button
-                          {...stylex.props(styles.headerToggle)}
-                          aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${path}`}
-                          aria-expanded={!isCollapsed}
-                          onClick={() =>
-                            setCollapsed((current) => {
-                              const next = new Set(current);
-                              if (next.has(item.id)) next.delete(item.id);
-                              else next.add(item.id);
-                              return next;
-                            })
+                    renderCustomHeader={(item) => {
+                      const path = item.type === "diff" ? item.fileDiff.name : item.file.name;
+                      const info = fileInfoById.get(item.id);
+                      const slash = path.lastIndexOf("/") + 1;
+                      const isCollapsed = collapsed.has(item.id);
+                      const renamedFrom =
+                        item.type === "diff" &&
+                        item.fileDiff.prevName &&
+                        item.fileDiff.prevName !== path
+                          ? item.fileDiff.prevName
+                          : null;
+                      const status = !info
+                        ? null
+                        : info.untracked
+                          ? { label: "Untracked", tone: styles.statusAdded }
+                          : info.status.startsWith("A")
+                            ? { label: "Added", tone: styles.statusAdded }
+                            : info.status.startsWith("D")
+                              ? { label: "Deleted", tone: styles.statusDeleted }
+                              : renamedFrom
+                                ? { label: "Renamed", tone: styles.statusRenamed }
+                                : null;
+                      return (
+                        <div {...stylex.props(styles.diffHeader)}>
+                          <button
+                            {...stylex.props(styles.headerToggle)}
+                            aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${path}`}
+                            aria-expanded={!isCollapsed}
+                            onClick={() =>
+                              setCollapsed((current) => {
+                                const next = new Set(current);
+                                if (next.has(item.id)) next.delete(item.id);
+                                else next.add(item.id);
+                                return next;
+                              })
+                            }
+                          />
+                          <span
+                            {...stylex.props(styles.headerChevron, isCollapsed && styles.collapsed)}
+                          >
+                            <Icon name="chevron" size={14} />
+                          </span>
+                          {renamedFrom && (
+                            <span {...stylex.props(styles.renamedFrom)} title={renamedFrom}>
+                              {renamedFrom} →
+                            </span>
+                          )}
+                          <button
+                            role="link"
+                            aria-label={path}
+                            {...stylex.props(styles.fileLink)}
+                            onPointerEnter={() => prefetchFile(path)}
+                            onFocus={() => prefetchFile(path)}
+                            onClick={(event) =>
+                              openWorkingFile(path, true, event.metaKey || event.ctrlKey)
+                            }
+                            title={`Open full file · ${path}`}
+                          >
+                            <span {...stylex.props(styles.fileDirectory)}>
+                              {path.slice(0, slash)}
+                            </span>
+                            <span {...stylex.props(styles.fileName)}>{path.slice(slash)}</span>
+                          </button>
+                          {status && (
+                            <span {...stylex.props(styles.statusBadge, status.tone)}>
+                              {status.label}
+                            </span>
+                          )}
+                          <span {...stylex.props(ui.grow)} />
+                          {info && (
+                            <span {...stylex.props(styles.headerStats)}>
+                              <span {...stylex.props(ui.added)}>+{info.additions}</span>
+                              <span {...stylex.props(ui.removed)}>−{info.deletions}</span>
+                              <DiffStat additions={info.additions} deletions={info.deletions} />
+                            </span>
+                          )}
+                        </div>
+                      );
+                    }}
+                    renderAnnotation={(annotation) =>
+                      annotation.metadata?.draft ? (
+                        <NoteComposer
+                          key={JSON.stringify(annotation.metadata.draft)}
+                          target={annotation.metadata.draft}
+                          initialText={
+                            pendingDraft?.target === annotation.metadata.draft
+                              ? pendingDraft.note.text
+                              : undefined
                           }
-                        />
-                        <span {...stylex.props(styles.headerChevron, isCollapsed && styles.collapsed)}>
-                          <Icon name="chevron" size={14} />
-                        </span>
-                        {renamedFrom && (
-                          <span {...stylex.props(styles.renamedFrom)} title={renamedFrom}>
-                            {renamedFrom} →
-                          </span>
-                        )}
-                        <button
-                          role="link"
-                          aria-label={path}
-                          {...stylex.props(styles.fileLink)}
-                          onPointerEnter={() => prefetchFile(path)}
-                          onFocus={() => prefetchFile(path)}
-                          onClick={(event) =>
-                            openWorkingFile(path, true, event.metaKey || event.ctrlKey)
+                          initialError={
+                            pendingDraft?.target === annotation.metadata.draft
+                              ? pendingDraft.error
+                              : undefined
                           }
-                          title={`Open full file · ${path}`}
-                        >
-                          <span {...stylex.props(styles.fileDirectory)}>{path.slice(0, slash)}</span>
-                          <span {...stylex.props(styles.fileName)}>{path.slice(slash)}</span>
-                        </button>
-                        {status && (
-                          <span {...stylex.props(styles.statusBadge, status.tone)}>
-                            {status.label}
-                          </span>
-                        )}
-                        <span {...stylex.props(ui.grow)} />
-                        {info && (
-                          <span {...stylex.props(styles.headerStats)}>
-                            <span {...stylex.props(ui.added)}>+{info.additions}</span>
-                            <span {...stylex.props(ui.removed)}>−{info.deletions}</span>
-                            <DiffStat additions={info.additions} deletions={info.deletions} />
-                          </span>
-                        )}
-                      </div>
-                    );
-                  }}
-                  renderAnnotation={(annotation) =>
-                    annotation.metadata?.draft ? (
-                      <NoteComposer
-                        key={JSON.stringify(annotation.metadata.draft)}
-                        target={annotation.metadata.draft}
-                        initialText={
-                          pendingDraft?.target === annotation.metadata.draft
-                            ? pendingDraft.note.text
-                            : undefined
-                        }
-                        initialError={
-                          pendingDraft?.target === annotation.metadata.draft
-                            ? pendingDraft.error
-                            : undefined
-                        }
-                        onSave={async (note) => {
-                          const submission = {
-                            target: annotation.metadata!.draft!,
-                            reviewId: state.review?.id,
-                            note,
-                            existingIds: new Set(notes.map((entry) => entry.id)),
-                          };
-                          setPendingDraft(submission);
-                          try {
-                            await controller.mutateNote({ type: "add", note });
-                          } catch (error) {
+                          onSave={async (note) => {
+                            const submission = {
+                              target: annotation.metadata!.draft!,
+                              reviewId: state.review?.id,
+                              note,
+                              existingIds: new Set(notes.map((entry) => entry.id)),
+                            };
+                            setPendingDraft(submission);
+                            try {
+                              await controller.mutateNote({ type: "add", note });
+                            } catch (error) {
+                              setPendingDraft((current) =>
+                                current === submission
+                                  ? {
+                                      ...submission,
+                                      error:
+                                        error instanceof Error
+                                          ? error.message
+                                          : "Could not save comment",
+                                    }
+                                  : current,
+                              );
+                              throw error;
+                            }
+                          }}
+                          onCancel={() => {
+                            const target = annotation.metadata!.draft!;
+                            if (draftRef.current === target) {
+                              setDraft(null);
+                              setSelection(null);
+                            }
                             setPendingDraft((current) =>
-                              current === submission
-                                ? {
-                                    ...submission,
-                                    error:
-                                      error instanceof Error
-                                        ? error.message
-                                        : "Could not save comment",
-                                  }
-                                : current,
+                              current?.target === target ? null : current,
                             );
-                            throw error;
-                          }
-                        }}
-                        onCancel={() => {
-                          const target = annotation.metadata!.draft!;
-                          if (draftRef.current === target) {
-                            setDraft(null);
-                            setSelection(null);
-                          }
-                          setPendingDraft((current) =>
-                            current?.target === target ? null : current,
-                          );
-                        }}
-                      />
-                    ) : annotation.metadata?.note ? (
-                      <NoteCard
-                        note={annotation.metadata.note}
-                        replies={notes.filter(
-                          (note) => note.parentId === annotation.metadata?.note?.id,
-                        )}
-                        onMutate={(mutation) => controller.mutateNote(mutation)}
-                      />
-                    ) : null
-                  }
-                  renderCodeViewFooter={() =>
-                    skipped.length ? (
+                          }}
+                        />
+                      ) : annotation.metadata?.note ? (
+                        <NoteCard
+                          note={annotation.metadata.note}
+                          replies={notes.filter(
+                            (note) => note.parentId === annotation.metadata?.note?.id,
+                          )}
+                          onMutate={(mutation) => controller.mutateNote(mutation)}
+                        />
+                      ) : null
+                    }
+                    renderCodeViewFooter={() =>
+                      skipped.length ? (
+                        renderMetadataRows()
+                      ) : (
+                        <div {...stylex.props(styles.streamEnd)}>
+                          <span {...stylex.props(styles.streamRule)} />
+                          End of review · {files.length} files
+                          <span {...stylex.props(styles.streamRule)} />
+                        </div>
+                      )
+                    }
+                  />
+                ) : skipped.length && state.status !== "loading" && !state.error ? (
+                  <div style={{ overflow: "auto", height: "100%" }}>{renderMetadataRows()}</div>
+                ) : state.status !== "loading" && !state.error ? (
+                  <div {...stylex.props(styles.emptyState)}>
+                    <span {...stylex.props(styles.emptyMark, !skipped.length && styles.emptyDone)}>
+                      <Icon name={skipped.length ? "file" : "check"} size={20} />
+                    </span>
+                    <h1 {...stylex.props(styles.emptyTitle)}>
+                      {state.filter
+                        ? "No matching diffs"
+                        : skipped.length
+                          ? "No text diff to display"
+                          : "All caught up"}
+                    </h1>
+                    {skipped.length ? (
                       renderMetadataRows()
                     ) : (
-                      <div {...stylex.props(styles.streamEnd)}>
-                        <span {...stylex.props(styles.streamRule)} />
-                        End of review · {files.length} files
-                        <span {...stylex.props(styles.streamRule)} />
-                      </div>
-                    )
-                  }
-                />
-              ) : skipped.length && state.status !== "loading" && !state.error ? (
-                <div style={{ overflow: "auto", height: "100%" }}>{renderMetadataRows()}</div>
-              ) : state.status !== "loading" && !state.error ? (
-                <div {...stylex.props(styles.emptyState)}>
-                  <span {...stylex.props(styles.emptyMark, !skipped.length && styles.emptyDone)}>
-                    <Icon name={skipped.length ? "file" : "check"} size={20} />
-                  </span>
-                  <h1 {...stylex.props(styles.emptyTitle)}>
-                    {state.filter
-                      ? "No matching diffs"
-                      : skipped.length
-                        ? "No text diff to display"
-                        : "All caught up"}
-                  </h1>
-                  {skipped.length ? (
-                    renderMetadataRows()
-                  ) : (
-                    <p {...stylex.props(styles.emptyDescription)}>
-                      {state.comparison.kind === "working"
-                        ? "Working tree clean."
-                        : "No changed text files."}
-                    </p>
-                  )}
-                </div>
-              ) : null}
+                      <p {...stylex.props(styles.emptyDescription)}>
+                        {state.comparison.kind === "working"
+                          ? "Working tree clean."
+                          : "No changed text files."}
+                      </p>
+                    )}
+                  </div>
+                ) : null}
               </div>
             </div>
             {activeFile && (
@@ -2988,6 +3005,8 @@ const styles = stylex.create({
     textDecorationColor: tokens.lineStrong,
   },
   fileLink: {
+    display: "inline-flex",
+    maxWidth: "75%",
     position: "relative",
     pointerEvents: "auto",
     minWidth: 0,
@@ -3006,8 +3025,21 @@ const styles = stylex.create({
     textDecorationColor: tokens.lineStrong,
     textUnderlineOffset: 3,
   },
-  fileDirectory: { color: tokens.muted },
-  fileName: { fontWeight: 550 },
+  fileDirectory: {
+    color: tokens.muted,
+    minWidth: 0,
+    flexShrink: 1,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  fileName: {
+    fontWeight: 550,
+    flexShrink: 0,
+    maxWidth: "100%",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
   statusBadge: {
     position: "relative",
     flexShrink: 0,

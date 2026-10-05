@@ -693,7 +693,7 @@ describe("graphical review", () => {
   test("filters the full file set, switches layout, and finds across both files", async () => {
     const { controller } = await mountApp();
     const totals = page.getByRole("group", {
-      name: "Review total: 2 lines added, 2 lines deleted",
+      name: "Comparison total: 2 lines added, 2 lines deleted",
     });
     await expect.element(totals).toBeVisible();
     await page.getByRole("textbox", { name: "Filter changed files" }).fill("alpha");
