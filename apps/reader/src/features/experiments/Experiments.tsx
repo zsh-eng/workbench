@@ -33,9 +33,15 @@ import { Unfold } from "./library/Unfold";
 import { Companion } from "./margin/Companion";
 import { Inspector } from "./margin/Inspector";
 import { OutlineRail } from "./margin/OutlineRail";
+import { Elastic } from "./edge/Elastic";
+import { Ribbons } from "./edge/Ribbons";
+import { Stack } from "./edge/Stack";
+import { Threads } from "./edge/Threads";
+import { Verso } from "./edge/Verso";
+import { SystemPrototype } from "./system/SystemPrototype";
 import "./studio.css";
 
-type ChapterId = "page" | "commonplace" | "habit" | "library" | "margin";
+type ChapterId = "system" | "edge" | "page" | "commonplace" | "habit" | "library" | "margin";
 
 interface ChapterDefinition {
   id: ChapterId;
@@ -57,38 +63,147 @@ interface PlateDefinition {
 
 const CHAPTERS: ChapterDefinition[] = [
   {
-    id: "page",
+    id: "system",
     numeral: "I",
+    title: "The System",
+    line: "Newest: the library, the app sidebar and the reader’s panel designed as one product. One surface, one type pairing, one motion curve, and a page that is never covered.",
+  },
+  {
+    id: "edge",
+    numeral: "II",
+    title: "The Edge",
+    line: "Five bolder sidebars, each built around one gesture: the facing page, the thread, the ribbon, the width and the pile.",
+  },
+  {
+    id: "page",
+    numeral: "III",
     title: "The Page",
     line: "Three ways to hold a text: as an object, as a lamp, and as a surface you can write on.",
   },
   {
     id: "commonplace",
-    numeral: "II",
+    numeral: "IV",
     title: "The Commonplace",
     line: "What you keep should be read again. Three forms for returning to passages: anthology, deck and concordance.",
   },
   {
     id: "habit",
-    numeral: "III",
+    numeral: "V",
     title: "The Habit",
     line: "Reading time shown as a printed almanac, a twenty-four-hour clock and a shelf of books.",
   },
   {
     id: "library",
-    numeral: "IV",
+    numeral: "VI",
     title: "The Library",
     line: "Quieter studies from here on. One book in front, the whole collection as a list, and details that open in place.",
   },
   {
     id: "margin",
-    numeral: "V",
+    numeral: "VII",
     title: "The Margin",
     line: "Sidebars for the reading view that stay out of the way until you need them: a minimap outline, a calm inspector, and a margin that follows your page.",
   },
 ];
 
 const PLATES: PlateDefinition[] = [
+  {
+    id: "system",
+    chapter: "system",
+    name: "System",
+    subtitle: "One reader, from shelf to margin",
+    thesis:
+      "A desk holds the sidebar and the panels; each screen is a sheet on the desk. Opening a panel narrows the sheet, so the page moves aside instead of disappearing under it. The book speaks in serif and the app in sans. One panel with three labelled tabs, one search field and one row style replaces five icon tabs.",
+    tries: [
+      <>Continue Walden from the library, then press <Kbd>T</Kbd>, <Kbd>N</Kbd> or <Kbd>A</Kbd></>,
+      <>Select words on the page to highlight them or add a note</>,
+      <>
+        <Kbd>⌘</Kbd> <Kbd>K</Kbd> to search books and passages; <Kbd>[</Kbd> for the sidebar
+      </>,
+      <a key="full-screen" href="/debug/experiments/system" className="underline decoration-foreground/30 underline-offset-4 hover:text-foreground">
+        Open full screen
+      </a>,
+    ],
+    stageClassName: "h-[min(92svh,900px)] min-h-[680px]",
+    render: (library) => <SystemPrototype library={library} />,
+  },
+  {
+    id: "verso",
+    chapter: "edge",
+    name: "Verso",
+    subtitle: "The sidebar is the facing page",
+    thesis:
+      "The left leaf of the book stands up at the spine. Pull it down and the book opens into a spread. The facing page holds the contents, your marginalia and a colophon, set as front matter. Point at a chapter to see a thumb index cut into the fore-edge. In the colophon, every value is a control.",
+    tries: [
+      <>Drag the standing page down to the left</>,
+      <>Point at a chapter, then choose it to riffle there</>,
+      <>In the Colophon, drag “18” or click “EB Garamond”</>,
+    ],
+    stageClassName: "h-[min(88svh,840px)] min-h-[640px]",
+    render: () => <Verso />,
+  },
+  {
+    id: "threads",
+    chapter: "edge",
+    name: "Threads",
+    subtitle: "Marginalia, tied to the text",
+    thesis:
+      "Each note in the margin is tied to its passage by a thread. Notes follow their passages on springs: a fast scroll stretches the threads, and they settle when you stop. Point at a note and its thread lights up and carries a pulse to the text. Select words to tie a new one.",
+    tries: [
+      <>Scroll quickly, then stop</>,
+      <>Point at a note, or at a marked passage</>,
+      <>Select a few words, then press <Kbd>1</Kbd>–<Kbd>4</Kbd></>,
+    ],
+    stageClassName: "h-[min(86svh,820px)] min-h-[620px]",
+    render: () => <Threads />,
+  },
+  {
+    id: "ribbons",
+    chapter: "edge",
+    name: "Ribbons",
+    subtitle: "A sidebar that hangs from a bookmark",
+    thesis:
+      "Silk ribbons hang from the head of the page: a dark one for your place and one for each ink, longer when it holds more. Pass over them and they sway. Pull one down and the book opens where it lies, then the ribbon unrolls into a banner of every passage in its ink. Pull the tail up to roll it away.",
+    tries: [
+      <>Sweep the pointer across the ribbons</>,
+      <>Pull a ribbon down and let go</>,
+      <>Pull the banner’s tail up, or press <Kbd>Esc</Kbd></>,
+    ],
+    stageClassName: "h-[min(88svh,860px)] min-h-[640px]",
+    render: () => <Ribbons />,
+  },
+  {
+    id: "elastic",
+    chapter: "edge",
+    name: "Elastic",
+    subtitle: "The sidebar’s width is its zoom",
+    thesis:
+      "One sidebar with one handle and no modes. At a hairline it is a barcode of the whole book: chapters by length, every ink, and your place. Pull it wider and numerals grow in the bands; wider still, the bands even out into contents; at full width it becomes an atlas of every passage. Let go and it settles on the nearest level, with your throw.",
+    tries: [
+      <>Drag the sidebar’s edge slowly, then throw it</>,
+      <>On the strip, point along the book and click</>,
+      <>
+        <Kbd>[</Kbd> <Kbd>]</Kbd> to step between levels
+      </>,
+    ],
+    stageClassName: "h-[min(86svh,820px)] min-h-[620px]",
+    render: () => <Elastic />,
+  },
+  {
+    id: "stack",
+    chapter: "edge",
+    name: "Stack",
+    subtitle: "The app sidebar is your nightstand",
+    thesis:
+      "The books you are reading lie in a pile at the foot of the sidebar, spines out, each as thick as it is long. Choose one: it slides out, the books above drop into its place, and it turns in the air to show its cover before it lands on the desk and opens. Close it and it flies back to the top of the pile.",
+    tries: [
+      <>Point at a spine, then choose it</>,
+      <>Choose another spine while a book is open</>,
+      <>Choose a cover in the library to add it to the pile</>,
+    ],
+    stageClassName: "h-[min(86svh,820px)] min-h-[640px]",
+    render: (library) => <Stack library={library} />,
+  },
   {
     id: "folio",
     chapter: "page",
@@ -332,6 +447,14 @@ function plateNumber(index: number): string {
   return String(index + 1).padStart(2, "0");
 }
 
+function plateRange(chapter: ChapterId): string {
+  const indexes = PLATES.flatMap((plate, index) => (plate.chapter === chapter ? [index] : []));
+  if (indexes.length === 0) return "";
+  const first = plateNumber(indexes[0]);
+  const last = plateNumber(indexes[indexes.length - 1]);
+  return first === last ? first : `${first}—${last}`;
+}
+
 function SourceSwitch({
   source,
   canUseLibrary,
@@ -410,11 +533,13 @@ function Masthead({
   sourceSwitch: ReactNode;
 }) {
   const reducedMotion = useReducedMotion() ?? false;
-  const lines: { id: ChapterId; text: ReactNode; plates: string }[] = [
-    { id: "page", text: <>The Page,</>, plates: "01—03" },
-    { id: "commonplace", text: <>the Commonplace,</>, plates: "04—06" },
-    { id: "habit", text: <>the Habit,</>, plates: "07—09" },
-    { id: "library", text: <>the Library,</>, plates: "10—12" },
+  const lines: { id: ChapterId; text: ReactNode }[] = [
+    { id: "system", text: <>The System,</> },
+    { id: "edge", text: <>the Edge,</> },
+    { id: "page", text: <>the Page,</> },
+    { id: "commonplace", text: <>the Commonplace,</> },
+    { id: "habit", text: <>the Habit,</> },
+    { id: "library", text: <>the Library,</> },
     {
       id: "margin",
       text: (
@@ -422,7 +547,6 @@ function Masthead({
           <span className="italic">&amp;</span> the Margin.
         </>
       ),
-      plates: "13—15",
     },
   ];
 
@@ -432,7 +556,7 @@ function Masthead({
         <div className="flex items-center gap-3">
           <MobileBackToLibrary />
           <p className="xp-smcp text-xs text-muted-foreground">
-            Reader · Experiments · Fifteen plates
+            Reader · Experiments · {PLATES.length} plates
           </p>
         </div>
         <div className="max-md:hidden">{sourceSwitch}</div>
@@ -454,7 +578,7 @@ function Masthead({
               {line.text}
             </span>
             <span className="xp-onum translate-y-[-0.2em] text-[0.14em] tracking-normal text-muted-foreground opacity-0 transition-opacity duration-300 group-hover:opacity-100 max-md:hidden">
-              plates {line.plates}
+              plates {plateRange(line.id)}
             </span>
           </motion.button>
         ))}
@@ -467,10 +591,10 @@ function Masthead({
         className="mt-10 grid gap-8 md:mt-14 md:grid-cols-[minmax(0,34rem)_1fr] md:items-end"
       >
         <p className="xp-serif text-xl leading-snug text-balance text-foreground/85 md:text-2xl">
-          Fifteen working prototypes for the places a reader spends time: the
-          page they read, the passages they keep, the habit that brings them
-          back, the shelf they choose from and the margin beside the text.
-          Plates 10–15 take a quieter approach. Each plate is interactive.
+          Working prototypes for the places a reader spends time. The newest
+          comes first: the library, the sidebar and the reader’s panels as one
+          calm system. Earlier, bolder rounds follow. Each plate is
+          interactive.
         </p>
         <div className="md:hidden">{sourceSwitch}</div>
       </motion.div>

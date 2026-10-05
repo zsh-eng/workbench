@@ -43,6 +43,12 @@ const Experiments = lazy(() =>
   })),
 );
 
+const SystemPage = lazy(() =>
+  import("@/features/experiments/system/SystemPage").then((module) => ({
+    default: module.SystemPage,
+  })),
+);
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -171,6 +177,22 @@ function App() {
                           }
                         >
                           <Experiments />
+                        </Suspense>
+                      </DebugGate>
+                    }
+                  />
+                  <Route
+                    path="/debug/experiments/system"
+                    element={
+                      <DebugGate>
+                        <Suspense
+                          fallback={
+                            <div className="p-8 text-sm text-muted-foreground">
+                              Loading prototype…
+                            </div>
+                          }
+                        >
+                          <SystemPage />
                         </Suspense>
                       </DebugGate>
                     }

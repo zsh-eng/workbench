@@ -143,8 +143,35 @@
   text-orientation: sideways;
 }
 
+@keyframes xp-ink-sweep {
+  from {
+    background-size: 0% 78%;
+  }
+  to {
+    background-size: 100% 78%;
+  }
+}
+
+/* A mark that has just been reached sweeps in again, in reading order. */
+.xp-ink[data-flash="true"] {
+  animation: xp-ink-sweep 0.9s cubic-bezier(0.65, 0, 0.35, 1) 0.12s both;
+}
+
+/* Faint lines of type for leaves that turn too fast to read. */
+.xp-ghost-lines {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    color-mix(in oklab, var(--foreground) 9%, transparent) 0 0.42em,
+    transparent 0.42em 1.5em
+  );
+}
+
 @media (prefers-reduced-motion: reduce) {
   .xp-ink {
     transition: none;
+  }
+
+  .xp-ink[data-flash="true"] {
+    animation: none;
   }
 }
