@@ -171,13 +171,6 @@ export function parseFlashcardBlocks(
       }
 
       if (isDelimiterMarker(lines[i])) {
-        diagnostics.push({
-          code: "MISSING_ANSWER",
-          message: "Card block is missing an A: answer marker.",
-          file: sourceFile,
-          line: lineStart,
-          severity: "error",
-        });
         i++;
         break;
       }
@@ -187,15 +180,13 @@ export function parseFlashcardBlocks(
     }
 
     if (!hasAnswer) {
-      if (i >= lines.length) {
-        diagnostics.push({
-          code: "MISSING_ANSWER",
-          message: "Card block is missing an A: answer marker.",
-          file: sourceFile,
-          line: lineStart,
-          severity: "error",
-        });
-      }
+      diagnostics.push({
+        code: "MISSING_ANSWER",
+        message: "Card block is missing an A: answer marker.",
+        file: sourceFile,
+        line: lineStart,
+        severity: "error",
+      });
       continue;
     }
 

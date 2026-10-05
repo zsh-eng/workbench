@@ -16,6 +16,28 @@ import { createZip, readZip } from "../src/lib/import/zip";
 const rootDir = process.cwd();
 
 describe("parseFlashcardBlocks", () => {
+  test.each([
+    "Q: Missing answer",
+    "Q: Missing answer\n===",
+    "Q: Missing answer\n===\n",
+  ])(
+    "reports one missing-answer error for %j",
+    (input) => {
+      const result = parseFlashcardBlocks(input, "note.md");
+      expect(
+        result.diagnostics.filter((diagnostic) => diagnostic.severity === "error"),
+      ).toEqual([
+        {
+          code: "MISSING_ANSWER",
+          message: "Card block is missing an A: answer marker.",
+          file: "note.md",
+          line: 1,
+          severity: "error",
+        },
+      ]);
+    },
+  );
+
   test("parses multiline cards", () => {
     const input = `Q: What is TL2?\nLine 2\nA: An STM\nLine B\n===`;
     const result = parseFlashcardBlocks(input, "note.md");
@@ -334,6 +356,25 @@ describe("compiler CLI", () => {
 });
 
 describe("replacePlaceholderLinks", () => {
+  test("preserves literal dollar substitution characters in imported image text", () => {
+    const card = {
+      front: "Before ![cost](asset://img_1) after",
+      back: "Answer ![cost](asset://img_1)",
+      assets: [{ placeholder: "asset://img_1", file: "assets/cost.png" }],
+      source: { file: "note.md", lineStart: 1, lineEnd: 3 },
+    };
+    const content = replacePlaceholderLinks(
+      card,
+      new Map([
+        ["asset://img_1", "![$& $$ $` $'](https://example.test/cost.png)"],
+      ]),
+    );
+    expect(content).toEqual({
+      front: "Before ![$& $$ $` $'](https://example.test/cost.png) after",
+      back: "Answer ![$& $$ $` $'](https://example.test/cost.png)",
+    });
+  });
+
   test("does not nest markdown image syntax when replacing placeholders", () => {
     const card = {
       front: "Prompt",

@@ -89,7 +89,10 @@ export function replacePlaceholderLinks(
       `!\\[[^\\]]*\\]\\(${escapeRegExp(placeholder)}\\)`,
       "g",
     );
-    const replacedImageToken = markdown.replace(imageTokenPattern, replacement);
+    const replacedImageToken = markdown.replace(
+      imageTokenPattern,
+      () => replacement,
+    );
     if (replacedImageToken !== markdown) {
       return replacedImageToken;
     }
