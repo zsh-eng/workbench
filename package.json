@@ -9,7 +9,8 @@
     "apps/spaced2",
     "apps/podcast-lab",
     "apps/arctic/Browser",
-    "apps/sync-server"
+    "apps/sync-server",
+    "apps/sync-backup"
   ],
   "type": "module",
   "scripts": {
@@ -74,7 +75,9 @@
     "dev:spaced2:shared": "VITE_SHARED_API_URL=http://localhost:8792 bun run --cwd apps/spaced2 dev --host localhost",
     "dev:shared": "bun scripts/dev-shared.ts",
     "test:shared:e2e": "bun run --cwd apps/sync-server test:e2e",
-    "deploy:sync": "bun run --cwd apps/sync-server deploy"
+    "deploy:sync": "bun run --cwd apps/sync-server deploy",
+    "wb": "bun apps/sync-backup/src/cli.ts",
+    "test:sync-backup": "bun run --cwd apps/sync-backup test"
   },
   "devDependencies": {
     "oxfmt": "^0.46.0",

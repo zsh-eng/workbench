@@ -1,0 +1,21 @@
+{
+  "name": "@workbench/sync-backup",
+  "private": true,
+  "bin": {
+    "wb": "src/cli.ts"
+  },
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "benchmark": "bun test/benchmark.ts",
+    "check": "tsc --noEmit",
+    "test:e2e": "bun test/run-local-e2e.ts"
+  },
+  "dependencies": {
+    "@zsh-eng/local-sync": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.9",
+    "typescript": "^6.0.3"
+  }
+}

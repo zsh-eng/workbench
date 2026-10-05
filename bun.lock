@@ -296,6 +296,19 @@
         "wrangler": "4.135.0",
       },
     },
+    "apps/sync-backup": {
+      "name": "@workbench/sync-backup",
+      "bin": {
+        "wb": "src/cli.ts",
+      },
+      "dependencies": {
+        "@zsh-eng/local-sync": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "1.3.9",
+        "typescript": "^6.0.3",
+      },
+    },
     "apps/sync-server": {
       "name": "@workbench/sync-server",
       "dependencies": {
@@ -1555,6 +1568,8 @@
     "@workbench/reader": ["@workbench/reader@workspace:apps/reader"],
 
     "@workbench/spaced2": ["@workbench/spaced2@workspace:apps/spaced2"],
+
+    "@workbench/sync-backup": ["@workbench/sync-backup@workspace:apps/sync-backup"],
 
     "@workbench/sync-server": ["@workbench/sync-server@workspace:apps/sync-server"],
 
@@ -3447,6 +3462,8 @@
     "@workbench/spaced2/wrangler": ["wrangler@4.135.0", "", { "dependencies": { "@cloudflare/kv-asset-handler": "0.5.0", "@cloudflare/unenv-preset": "2.16.1", "blake3-wasm": "2.1.5", "esbuild": "0.28.1", "miniflare": "5.20260918.0-alpha", "path-to-regexp": "6.3.0", "unenv": "2.0.0-rc.24", "workerd": "1.20260918.1" }, "optionalDependencies": { "fsevents": "2.3.3" }, "peerDependencies": { "@cloudflare/workers-types": "^5.20260918.1" }, "optionalPeers": ["@cloudflare/workers-types"], "bin": { "wrangler": "bin/wrangler.js", "wrangler2": "bin/wrangler.js", "cf-wrangler": "bin/cf-wrangler.js" } }, "sha512-WrNBQSfIG6YcILJcodYr5ty8vgkzGsV8YX+kfd+uZ5/Bd8cUW0GnUIRKAVfn5kYKqh1m/BPcji9h1d7mE8euFw=="],
 
     "@workbench/spaced2/zod": ["zod@3.24.1", "", {}, "sha512-muH7gBL9sI1nciMZV67X5fTKKBLtwpZ5VBp1vsOQzj1MhrBZ4wlVCm3gedKZWLp0Oyel8sIGfeiz54Su+OVT+A=="],
+
+    "@workbench/sync-backup/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
     "@workbench/sync-server/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
