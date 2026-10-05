@@ -91,7 +91,8 @@ export function SavedReviewHeader({
                   rel="noopener noreferrer"
                   {...stylex.props(styles.prLink)}
                 >
-                  Open pull request <Icon name="external" size={12} />
+                  <Icon name="github" size={14} /> Open pull request{" "}
+                  <Icon name="external" size={12} />
                 </a>
               )}
               <p {...stylex.props(styles.detailText)}>
@@ -130,11 +131,23 @@ export function SavedReviewHeader({
           aria-label={`Open pull request: ${saved.title}`}
           {...stylex.props(styles.reviewTitle, styles.prLink)}
         >
-          {saved.title} <Icon name="external" size={12} />
+          <Icon name="github" size={14} /> {saved.title} <Icon name="external" size={12} />
         </a>
       ) : (
         <span title={saved.title} {...stylex.props(styles.reviewTitle)}>
           {saved.title}
+        </span>
+      )}
+      {saved.totals && (
+        <span
+          {...stylex.props(ui.row)}
+          role="group"
+          aria-label={`Whole review: ${saved.totals.additions} lines added, ${saved.totals.deletions} lines deleted`}
+          title={`All ${saved.totals.comparisons} saved comparisons · ${saved.totals.files} files. Totals use the captured comparison endpoints, including the resolved merge base.`}
+        >
+          <span {...stylex.props(styles.totalLabel)}>Review</span>
+          <span {...stylex.props(ui.added)}>+{saved.totals.additions.toLocaleString()}</span>
+          <span {...stylex.props(ui.removed)}>−{saved.totals.deletions.toLocaleString()}</span>
         </span>
       )}
       {saved.targets.length > 1 && (
@@ -335,6 +348,7 @@ const styles = stylex.create({
     borderBottomStyle: "solid",
     borderBottomColor: tokens.border,
   },
+  totalLabel: { color: tokens.muted, fontSize: 12, whiteSpace: "nowrap" },
   fixed: { flexShrink: 0 },
   desktop: { display: { default: "inline", "@media (max-width: 600px)": "none" } },
   reviewTitle: {

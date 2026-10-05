@@ -40,7 +40,9 @@ export type IconName =
   | "commit"
   | "push"
   | "compare"
-  | "pullRequest";
+  | "pullRequest"
+  | "github"
+  | "testFile";
 
 const branch = (
   <>
@@ -53,6 +55,19 @@ const branch = (
 const frame = <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" />;
 
 const icons: Record<IconName, ReactNode> = {
+  github: (
+    <path
+      fill="currentColor"
+      stroke="none"
+      d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38v-1.49c-2.23.48-2.7-.95-2.7-.95-.36-.92-.89-1.17-.89-1.17-.73-.5.06-.49.06-.49.8.06 1.23.83 1.23.83.71 1.22 1.87.87 2.33.67.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.22 2.2.82A7.65 7.65 0 0 1 8 3.87c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.19c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
+    />
+  ),
+  testFile: (
+    <>
+      <path d="M5 1.75h6M6 1.75v4l-3.5 6a1.65 1.65 0 0 0 1.4 2.5h8.2a1.65 1.65 0 0 0 1.4-2.5l-3.5-6v-4M4.5 10h7" />
+      <path d="m6 11.75 1 1 2.5-2.5" />
+    </>
+  ),
   branch,
   gitBranch: branch,
   gitWorktree: (
@@ -136,14 +151,24 @@ const icons: Record<IconName, ReactNode> = {
   ),
   panelLeft: (
     <>
-      <path d="M3.75 2.75h2.5v10.5h-2.5a2 2 0 0 1-2-2v-6.5a2 2 0 0 1 2-2z" fill="currentColor" opacity=".28" stroke="none" />
+      <path
+        d="M3.75 2.75h2.5v10.5h-2.5a2 2 0 0 1-2-2v-6.5a2 2 0 0 1 2-2z"
+        fill="currentColor"
+        opacity=".28"
+        stroke="none"
+      />
       {frame}
       <path d="M6.25 2.75v10.5" />
     </>
   ),
   panelRight: (
     <>
-      <path d="M12.25 2.75h-2.5v10.5h2.5a2 2 0 0 0 2-2v-6.5a2 2 0 0 0-2-2z" fill="currentColor" opacity=".28" stroke="none" />
+      <path
+        d="M12.25 2.75h-2.5v10.5h2.5a2 2 0 0 0 2-2v-6.5a2 2 0 0 0-2-2z"
+        fill="currentColor"
+        opacity=".28"
+        stroke="none"
+      />
       {frame}
       <path d="M9.75 2.75v10.5" />
     </>
@@ -192,9 +217,7 @@ const icons: Record<IconName, ReactNode> = {
     </>
   ),
   external: <path d="M5 11 11 5M5.75 5H11v5.25" />,
-  edit: (
-    <path d="M10.6 2.9a1.6 1.6 0 0 1 2.26 2.26l-7.11 7.11-3 .98.98-3zM9.25 4.25l2.5 2.5" />
-  ),
+  edit: <path d="M10.6 2.9a1.6 1.6 0 0 1 2.26 2.26l-7.11 7.11-3 .98.98-3zM9.25 4.25l2.5 2.5" />,
   trash: (
     <path d="M2.75 4.25h10.5M6.25 4.25V3a.75.75 0 0 1 .75-.75h2a.75.75 0 0 1 .75.75v1.25M4.25 4.25l.62 8.36A1.5 1.5 0 0 0 6.37 14h3.26a1.5 1.5 0 0 0 1.5-1.39l.62-8.36" />
   ),

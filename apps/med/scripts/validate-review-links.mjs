@@ -306,6 +306,17 @@ process.stdout.write(process.env.MED_TEST_PR);
   await page.waitForFunction(() =>
     document.querySelector('button[aria-label="Copy comments"]')?.textContent?.trim().endsWith("2"),
   );
+  await header
+    .getByRole("group", { name: "Whole review: 2 lines added, 2 lines deleted", exact: true })
+    .waitFor();
+  assert.equal(
+    await header
+      .getByRole("link", { name: "Open pull request: Agent handoff validation", exact: true })
+      .locator("svg")
+      .count(),
+    2,
+  );
+  await header.screenshot({ path: "/private/tmp/med-review-scope.png" });
   const copyButton = header.getByRole("button", { name: "Copy comments", exact: true });
   await copyButton.hover();
   const restingCopyWidth = (await copyButton.boundingBox()).width;
@@ -427,6 +438,9 @@ process.stdout.write(process.env.MED_TEST_PR);
   await page.waitForFunction(() =>
     document.querySelector('button[aria-label="Copy comments"]')?.textContent?.trim().endsWith("3"),
   );
+  await header
+    .getByRole("group", { name: "Whole review: 2 lines added, 2 lines deleted", exact: true })
+    .waitFor();
   await page.getByRole("button", { name: "Push", exact: true }).click();
   assert.equal(
     await page.getByRole("combobox", { name: "Destination branch" }).inputValue(),

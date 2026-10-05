@@ -250,3 +250,13 @@ keep its content and index out of source control. See [vault commands](VAULTS.md
 `med docs agents`, `med docs usage`, and `med docs vaults` print embedded guides
 without a server. Confirm the user's workflow and source scope before adding
 these instructions to their AGENTS.md. Never include launch tokens in links.
+
+### Review totals
+
+The saved-review bar shows **Review +/−** for all original targets, using their
+captured comparison endpoints. It stays fixed when browsing individual commits
+or adding comments there. The diff toolbar shows the currently selected
+comparison's totals. Multiple targets are summed as comparisons; overlapping
+targets can count the same line more than once. For PRs and stacked changes, use
+the intended base branch with `--merge-base` so merged upstream work is excluded.
+These totals count added/deleted text lines, not binary file size.

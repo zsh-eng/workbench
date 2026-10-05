@@ -59,6 +59,14 @@ export const savedReviewSchema = z.object({
   revision: z.number().int().nonnegative(),
   commentCount: z.number().int().nonnegative(),
   targets: z.array(savedReviewTargetSchema),
+  totals: z
+    .object({
+      additions: z.number().nonnegative(),
+      deletions: z.number().nonnegative(),
+      files: z.number().nonnegative(),
+      comparisons: z.number().nonnegative(),
+    })
+    .optional(),
 });
 export type SavedReview = z.infer<typeof savedReviewSchema>;
 export const savedFeedbackSchema = z.object({

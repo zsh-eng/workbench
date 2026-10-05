@@ -542,12 +542,29 @@ export class SavedReviewStore {
         this.appendCapture(record, result);
       }
       await this.write(record, beforeCommit);
-      return record.saved;
+      return this.describe(record);
     }, beforeCommit);
   }
 
+  private describe(record: SavedRecord): SavedReview {
+    // Browsed commits are retained for comments, not added to the review scope.
+    const targets = new Set(
+      record.saved.targets.filter((target) => !target.commentReviewId).map((target) => target.id),
+    );
+    const totals = { additions: 0, deletions: 0, files: 0, comparisons: targets.size };
+    for (const capture of record.captures) {
+      if (!targets.has(capture.targetId)) continue;
+      totals.files += capture.review.files.length;
+      for (const file of capture.review.files) {
+        totals.additions += file.additions;
+        totals.deletions += file.deletions;
+      }
+    }
+    return { ...record.saved, totals };
+  }
+
   get(id: string): Promise<SavedReview> {
-    return this.serial(async () => (await this.read(id)).saved);
+    return this.serial(async () => this.describe(await this.read(id)));
   }
   review(id: string, targetId: string): Promise<ReviewResponse> {
     return this.serial(async () => this.target(await this.read(id), targetId).review);
@@ -699,7 +716,7 @@ export class SavedReviewStore {
       record.saved.commentCount = 0;
       record.saved.revision++;
       await this.write(record, beforeCommit);
-      return record.saved;
+      return this.describe(record);
     }, beforeCommit);
   }
 
