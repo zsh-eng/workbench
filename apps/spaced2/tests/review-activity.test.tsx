@@ -78,6 +78,22 @@ function at(milliseconds: number) {
   setSystemTime(epoch + milliseconds);
 }
 
+async function grade(container: HTMLElement, cardId: string) {
+  const button = [...container.querySelectorAll("button")].find(
+    (button) => button.textContent?.includes("Good"),
+  )!;
+  await act(async () => {
+    button.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    button.click();
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const reviews = await rawDb.reviewLogOperations.toArray();
+      if (reviews.some((review) => review.payload.cardId === cardId)) return;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error(`Review for ${cardId} did not save`);
+  });
+}
+
 test("an idle card's pending activity cannot shorten the next recorded review", async () => {
   at(0);
   Object.defineProperty(globalThis, "IntersectionObserver", {
@@ -93,24 +109,8 @@ test("an idle card's pending activity cannot shorten the next recorded review", 
   views.push(view);
   expect(view.container.textContent).toContain("Question activity-A");
 
-  async function grade(cardId: string) {
-    const button = [...view.container.querySelectorAll("button")].find(
-      (button) => button.textContent?.includes("Good"),
-    )!;
-    await act(async () => {
-      button.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-      button.click();
-      for (let attempt = 0; attempt < 100; attempt++) {
-        const reviews = await rawDb.reviewLogOperations.toArray();
-        if (reviews.some((review) => review.payload.cardId === cardId)) return;
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
-      throw new Error(`Review for ${cardId} did not save`);
-    });
-  }
-
   at(121000);
-  await grade("activity-A");
+  await grade(view.container, "activity-A");
   expect(view.container.textContent).toContain("Question activity-B");
   at(122000);
   await flushActivity();
@@ -119,7 +119,7 @@ test("an idle card's pending activity cannot shorten the next recorded review", 
   at(124000);
   await flushActivity();
   at(126000);
-  await grade("activity-B");
+  await grade(view.container, "activity-B");
   const reviews = await rawDb.reviewLogOperations.toArray();
   expect(
     reviews.find((review) => review.payload.cardId === "activity-B")?.payload.duration,
@@ -145,4 +145,36 @@ test("activity keeps a recent card's start and resets an idle card after the del
   at(138000);
   await click(view.container.querySelector("button")!);
   expect(view.container.querySelector("output")?.textContent).toBe("5000");
+});
+
+test("returning to a review resets the activity baseline as well as its start", async () => {
+  at(0);
+  Object.defineProperty(globalThis, "IntersectionObserver", {
+    value: window.IntersectionObserver,
+    configurable: true,
+  });
+  MemoryDB.putCard(card("activity-resume", epoch - 1000));
+  MemoryDB.notify();
+  const view = await render(<MemoryRouter><ReviewRoute /></MemoryRouter>);
+  views.push(view);
+  expect(view.container.textContent).toContain("Question activity-resume");
+
+  at(10000);
+  await act(async () => {
+    document.dispatchEvent(new Event("visibilitychange", { bubbles: true }));
+  });
+  at(121000);
+  await act(async () => {
+    document.dispatchEvent(new Event("visibilitychange", { bubbles: true }));
+  });
+  at(122000);
+  window.dispatchEvent(new MouseEvent("mousemove"));
+  at(123000);
+  await flushActivity();
+  at(126000);
+  await grade(view.container, "activity-resume");
+  const reviews = await rawDb.reviewLogOperations.toArray();
+  expect(
+    reviews.find((review) => review.payload.cardId === "activity-resume")?.payload.duration,
+  ).toBe(5000);
 });

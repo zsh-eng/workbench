@@ -30,7 +30,8 @@ export function useActiveStartTime(
     }
 
     function resetStartTime() {
-      setStartTime(Date.now());
+      lastInteraction = Date.now();
+      setStartTime(lastInteraction);
     }
 
     // Track user interactions
