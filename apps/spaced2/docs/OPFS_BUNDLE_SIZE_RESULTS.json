@@ -1,0 +1,154 @@
+{
+  "package": "@sqlite.org/sqlite-wasm@3.53.4-build1",
+  "method": "Vite 6 production minification of a minimal SAH-pool worker; bytes compressed independently per emitted file; gzip level 9, Brotli quality 11; no production adapter",
+  "assets": [
+    {
+      "file": "dist/sqlite-worker.js",
+      "raw": 217663,
+      "gzip9": 66841,
+      "brotli11": 58205
+    },
+    {
+      "file": "dist/assets/sqlite3-opfs-async-proxy-Ck-yCayi.js",
+      "raw": 32505,
+      "gzip9": 10528,
+      "brotli11": 8969
+    },
+    {
+      "file": "dist/assets/sqlite3-Con_VOcu.wasm",
+      "raw": 868907,
+      "gzip9": 403196,
+      "brotli11": 348812
+    },
+    {
+      "file": "dist/assets/sqlite3-worker1-DmbBqlOr.js",
+      "raw": 215491,
+      "gzip9": 66126,
+      "brotli11": 57466
+    }
+  ],
+  "total": {
+    "raw": 1334566,
+    "gzip9": 546691,
+    "brotli11": 473452
+  },
+  "currentAppJSAndCSS": [
+    {
+      "file": "vendor-CGgJ8Qg7.css",
+      "raw": 30215,
+      "gzip9": 8524,
+      "brotli11": 7437
+    },
+    {
+      "file": "vendor-BfMOdRdi.js",
+      "raw": 1850236,
+      "gzip9": 546202,
+      "brotli11": 439234
+    },
+    {
+      "file": "index-Cuq-gbei.js",
+      "raw": 180956,
+      "gzip9": 50484,
+      "brotli11": 42894
+    },
+    {
+      "file": "index-CKGNULM7.css",
+      "raw": 93014,
+      "gzip9": 14901,
+      "brotli11": 12375
+    }
+  ],
+  "currentAppJSAndCSSTotal": {
+    "raw": 2154421,
+    "gzip9": 620111,
+    "brotli11": 501940
+  },
+  "unminifiedPackageJS": {
+    "raw": 642742,
+    "gzip9": 174687,
+    "brotli11": 140830
+  },
+  "optionalProxy": {
+    "raw": 32505,
+    "gzip9": 10528,
+    "brotli11": 8969
+  },
+  "runtimeVersion": "3.53.4",
+  "observedRequests": [
+    {
+      "path": "/",
+      "status": 200
+    },
+    {
+      "path": "/sqlite-worker.js",
+      "status": 200
+    },
+    {
+      "path": "/assets/sqlite3-Con_VOcu.wasm",
+      "status": 200
+    },
+    {
+      "path": "/assets/sqlite3-opfs-async-proxy-Ck-yCayi.js",
+      "status": 200
+    },
+    {
+      "path": "/assets/sqlite3-opfs-async-proxy-Ck-yCayi.js",
+      "status": 200
+    }
+  ],
+  "loadedAssets": [
+    {
+      "file": "dist/sqlite-worker.js",
+      "raw": 217663,
+      "gzip9": 66841,
+      "brotli11": 58205
+    },
+    {
+      "file": "dist/assets/sqlite3-opfs-async-proxy-Ck-yCayi.js",
+      "raw": 32505,
+      "gzip9": 10528,
+      "brotli11": 8969
+    },
+    {
+      "file": "dist/assets/sqlite3-Con_VOcu.wasm",
+      "raw": 868907,
+      "gzip9": 403196,
+      "brotli11": 348812
+    }
+  ],
+  "loadedTotal": {
+    "raw": 1119075,
+    "gzip9": 480565,
+    "brotli11": 415986
+  },
+  "sahOnlyRuntimeVersion": "3.53.4",
+  "sahOnlyRequests": [
+    {
+      "path": "/sqlite-worker.js",
+      "status": 200
+    },
+    {
+      "path": "/assets/sqlite3-Con_VOcu.wasm",
+      "status": 200
+    }
+  ],
+  "sahOnlyAssets": [
+    {
+      "file": "dist/sqlite-worker.js",
+      "raw": 217663,
+      "gzip9": 66841,
+      "brotli11": 58205
+    },
+    {
+      "file": "dist/assets/sqlite3-Con_VOcu.wasm",
+      "raw": 868907,
+      "gzip9": 403196,
+      "brotli11": 348812
+    }
+  ],
+  "sahOnlyTotal": {
+    "raw": 1086570,
+    "gzip9": 470037,
+    "brotli11": 407017
+  }
+}

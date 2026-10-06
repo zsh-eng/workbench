@@ -1,0 +1,517 @@
+{
+  "note": "Two completed series. First-series durations retained from its console log at 1 ms precision after metadata-only correction; second series retains full result metadata. All samples included. No fresh IndexedDB run was possible.",
+  "firstSeries": {
+    "prepareMs": 2945.639875,
+    "samples": [
+      {
+        "engine": "sqlite",
+        "scope": "all",
+        "batch": 500,
+        "writeMs": 1522.0,
+        "checkpointMs": 10.0,
+        "verified": true
+      },
+      {
+        "engine": "sqlite",
+        "scope": "all",
+        "batch": 5000,
+        "writeMs": 688.0,
+        "checkpointMs": 0.0,
+        "verified": true
+      },
+      {
+        "engine": "sqlite",
+        "scope": "all",
+        "batch": 20000,
+        "writeMs": 492.0,
+        "checkpointMs": 1.0,
+        "verified": true
+      },
+      {
+        "engine": "sqlite",
+        "scope": "all",
+        "batch": 97266,
+        "writeMs": 474.0,
+        "checkpointMs": 2.0,
+        "verified": true
+      },
+      {
+        "engine": "sqlite",
+        "scope": "main",
+        "batch": 5000,
+        "writeMs": 156.0,
+        "checkpointMs": 3.0,
+        "verified": true
+      },
+      {
+        "engine": "sqlite",
+        "scope": "all",
+        "batch": 5000,
+        "writeMs": 696.0,
+        "checkpointMs": 1.0,
+        "verified": true
+      },
+      {
+        "engine": "sqlite",
+        "scope": "all",
+        "batch": 20000,
+        "writeMs": 494.0,
+        "checkpointMs": 1.0,
+        "verified": true
+      },
+      {
+        "engine": "sqlite",
+        "scope": "all",
+        "batch": 97266,
+        "writeMs": 459.0,
+        "checkpointMs": 3.0,
+        "verified": true
+      },
+      {
+        "engine": "sqlite",
+        "scope": "main",
+        "batch": 5000,
+        "writeMs": 149.0,
+        "checkpointMs": 3.0,
+        "verified": true
+      },
+      {
+        "engine": "sqlite",
+        "scope": "all",
+        "batch": 500,
+        "writeMs": 1591.0,
+        "checkpointMs": 10.0,
+        "verified": true
+      },
+      {
+        "engine": "sqlite",
+        "scope": "all",
+        "batch": 20000,
+        "writeMs": 481.0,
+        "checkpointMs": 1.0,
+        "verified": true
+      },
+      {
+        "engine": "sqlite",
+        "scope": "all",
+        "batch": 97266,
+        "writeMs": 448.0,
+        "checkpointMs": 3.0,
+        "verified": true
+      },
+      {
+        "engine": "sqlite",
+        "scope": "main",
+        "batch": 5000,
+        "writeMs": 151.0,
+        "checkpointMs": 3.0,
+        "verified": true
+      },
+      {
+        "engine": "sqlite",
+        "scope": "all",
+        "batch": 500,
+        "writeMs": 1708.0,
+        "checkpointMs": 10.0,
+        "verified": true
+      },
+      {
+        "engine": "sqlite",
+        "scope": "all",
+        "batch": 5000,
+        "writeMs": 801.0,
+        "checkpointMs": 1.0,
+        "verified": true
+      }
+    ]
+  },
+  "secondSeries": {
+    "metadata": {
+      "createdAt": "2026-09-26T10:24:36.933Z",
+      "source": "2026-09-19 converted snapshot, largest account",
+      "prepareMs": 3070.469208,
+      "records": 97266,
+      "mainRecords": 30215,
+      "jsonBytes": 43852891,
+      "mainJsonBytes": 9981129,
+      "bun": "1.3.5",
+      "sqliteVersion": "3.51.0",
+      "cpus": 8,
+      "durability": "SQLite WAL + synchronous FULL, default wal_autocheckpoint",
+      "indexes": [
+        "primary id",
+        "type",
+        "timestamp"
+      ],
+      "cases": [
+        {
+          "scope": "all",
+          "batch": 500
+        },
+        {
+          "scope": "all",
+          "batch": 5000
+        },
+        {
+          "scope": "all",
+          "batch": 20000
+        },
+        {
+          "scope": "all",
+          "batch": 97266
+        },
+        {
+          "scope": "main",
+          "batch": 5000
+        }
+      ]
+    },
+    "samples": [
+      {
+        "engine": "sqlite",
+        "scope": "all",
+        "batch": 500,
+        "writeMs": 1556.2361249999994,
+        "checkpointMs": 11.252875000000131,
+        "readParseMs": 137.62937499999953,
+        "transactions": 195,
+        "records": 97266,
+        "bytes": 69214208,
+        "verified": true,
+        "loadStart": [
+          3.5908203125,
+          3.5927734375,
+          3.78955078125
+        ],
+        "loadEnd": [
+          3.5908203125,
+          3.5927734375,
+          3.78955078125
+        ],
+        "round": 1
+      },
+      {
+        "engine": "sqlite",
+        "scope": "all",
+        "batch": 5000,
+        "writeMs": 767.489208,
+        "checkpointMs": 0.7752499999996871,
+        "readParseMs": 135.7387089999993,
+        "transactions": 20,
+        "records": 97266,
+        "bytes": 69214208,
+        "verified": true,
+        "loadStart": [
+          3.5908203125,
+          3.5927734375,
+          3.78955078125
+        ],
+        "loadEnd": [
+          3.5908203125,
+          3.5927734375,
+          3.78955078125
+        ],
+        "round": 1
+      },
+      {
+        "engine": "sqlite",
+        "scope": "all",
+        "batch": 20000,
+        "writeMs": 481.01037499999984,
+        "checkpointMs": 0.6673339999997552,
+        "readParseMs": 121.72504099999969,
+        "transactions": 5,
+        "records": 97266,
+        "bytes": 69214208,
+        "verified": true,
+        "loadStart": [
+          3.5908203125,
+          3.5927734375,
+          3.78955078125
+        ],
+        "loadEnd": [
+          3.70361328125,
+          3.61572265625,
+          3.79638671875
+        ],
+        "round": 1
+      },
+      {
+        "engine": "sqlite",
+        "scope": "all",
+        "batch": 97266,
+        "writeMs": 477.7686249999997,
+        "checkpointMs": 1.8513329999987036,
+        "readParseMs": 120.82487500000025,
+        "transactions": 1,
+        "records": 97266,
+        "bytes": 69214208,
+        "verified": true,
+        "loadStart": [
+          3.70361328125,
+          3.61572265625,
+          3.79638671875
+        ],
+        "loadEnd": [
+          3.70361328125,
+          3.61572265625,
+          3.79638671875
+        ],
+        "round": 1
+      },
+      {
+        "engine": "sqlite",
+        "scope": "main",
+        "batch": 5000,
+        "writeMs": 152.33266600000024,
+        "checkpointMs": 3.5742079999999987,
+        "readParseMs": 43.72400000000016,
+        "transactions": 7,
+        "records": 30215,
+        "bytes": 17403904,
+        "verified": true,
+        "loadStart": [
+          3.70361328125,
+          3.61572265625,
+          3.79638671875
+        ],
+        "loadEnd": [
+          3.70361328125,
+          3.61572265625,
+          3.79638671875
+        ],
+        "round": 1
+      },
+      {
+        "engine": "sqlite",
+        "scope": "all",
+        "batch": 5000,
+        "writeMs": 690.3158339999991,
+        "checkpointMs": 0.6409160000002885,
+        "readParseMs": 131.20000000000073,
+        "transactions": 20,
+        "records": 97266,
+        "bytes": 69214208,
+        "verified": true,
+        "loadStart": [
+          3.70361328125,
+          3.61572265625,
+          3.79638671875
+        ],
+        "loadEnd": [
+          3.70361328125,
+          3.61572265625,
+          3.79638671875
+        ],
+        "round": 2
+      },
+      {
+        "engine": "sqlite",
+        "scope": "all",
+        "batch": 20000,
+        "writeMs": 540.2333330000001,
+        "checkpointMs": 0.6710000000002765,
+        "readParseMs": 127.18329199999971,
+        "transactions": 5,
+        "records": 97266,
+        "bytes": 69214208,
+        "verified": true,
+        "loadStart": [
+          3.70361328125,
+          3.61572265625,
+          3.79638671875
+        ],
+        "loadEnd": [
+          3.70361328125,
+          3.61572265625,
+          3.79638671875
+        ],
+        "round": 2
+      },
+      {
+        "engine": "sqlite",
+        "scope": "all",
+        "batch": 97266,
+        "writeMs": 466.1656660000008,
+        "checkpointMs": 2.83904099999927,
+        "readParseMs": 121.38641700000153,
+        "transactions": 1,
+        "records": 97266,
+        "bytes": 69214208,
+        "verified": true,
+        "loadStart": [
+          3.70361328125,
+          3.61572265625,
+          3.79638671875
+        ],
+        "loadEnd": [
+          3.64697265625,
+          3.60546875,
+          3.79150390625
+        ],
+        "round": 2
+      },
+      {
+        "engine": "sqlite",
+        "scope": "main",
+        "batch": 5000,
+        "writeMs": 151.55608399999983,
+        "checkpointMs": 2.630542000000787,
+        "readParseMs": 35.41345900000124,
+        "transactions": 7,
+        "records": 30215,
+        "bytes": 17403904,
+        "verified": true,
+        "loadStart": [
+          3.64697265625,
+          3.60546875,
+          3.79150390625
+        ],
+        "loadEnd": [
+          3.64697265625,
+          3.60546875,
+          3.79150390625
+        ],
+        "round": 2
+      },
+      {
+        "engine": "sqlite",
+        "scope": "all",
+        "batch": 500,
+        "writeMs": 1535.332375,
+        "checkpointMs": 11.150458000000071,
+        "readParseMs": 125.49633399999948,
+        "transactions": 195,
+        "records": 97266,
+        "bytes": 69214208,
+        "verified": true,
+        "loadStart": [
+          3.64697265625,
+          3.60546875,
+          3.79150390625
+        ],
+        "loadEnd": [
+          3.64697265625,
+          3.60546875,
+          3.79150390625
+        ],
+        "round": 2
+      },
+      {
+        "engine": "sqlite",
+        "scope": "all",
+        "batch": 20000,
+        "writeMs": 614.278166,
+        "checkpointMs": 0.9705409999987751,
+        "readParseMs": 126.5216249999994,
+        "transactions": 5,
+        "records": 97266,
+        "bytes": 69214208,
+        "verified": true,
+        "loadStart": [
+          3.64697265625,
+          3.60546875,
+          3.79150390625
+        ],
+        "loadEnd": [
+          3.64697265625,
+          3.60546875,
+          3.79150390625
+        ],
+        "round": 3
+      },
+      {
+        "engine": "sqlite",
+        "scope": "all",
+        "batch": 97266,
+        "writeMs": 556.3071249999975,
+        "checkpointMs": 1.6550000000024738,
+        "readParseMs": 124.90149999999994,
+        "transactions": 1,
+        "records": 97266,
+        "bytes": 69214208,
+        "verified": true,
+        "loadStart": [
+          3.64697265625,
+          3.60546875,
+          3.79150390625
+        ],
+        "loadEnd": [
+          3.64697265625,
+          3.60546875,
+          3.79150390625
+        ],
+        "round": 3
+      },
+      {
+        "engine": "sqlite",
+        "scope": "main",
+        "batch": 5000,
+        "writeMs": 446.2009579999976,
+        "checkpointMs": 15.971083000000363,
+        "readParseMs": 396.96629199999734,
+        "transactions": 7,
+        "records": 30215,
+        "bytes": 17403904,
+        "verified": true,
+        "loadStart": [
+          3.64697265625,
+          3.60546875,
+          3.79150390625
+        ],
+        "loadEnd": [
+          3.5146484375,
+          3.57861328125,
+          3.78076171875
+        ],
+        "round": 3
+      },
+      {
+        "engine": "sqlite",
+        "scope": "all",
+        "batch": 500,
+        "writeMs": 2083.4294169999994,
+        "checkpointMs": 11.145542000002024,
+        "readParseMs": 214.88562500000262,
+        "transactions": 195,
+        "records": 97266,
+        "bytes": 69214208,
+        "verified": true,
+        "loadStart": [
+          3.5146484375,
+          3.57861328125,
+          3.78076171875
+        ],
+        "loadEnd": [
+          3.5146484375,
+          3.57861328125,
+          3.78076171875
+        ],
+        "round": 3
+      },
+      {
+        "engine": "sqlite",
+        "scope": "all",
+        "batch": 5000,
+        "writeMs": 757.7319580000003,
+        "checkpointMs": 0.6050840000025346,
+        "readParseMs": 125.40874999999869,
+        "transactions": 20,
+        "records": 97266,
+        "bytes": 69214208,
+        "verified": true,
+        "loadStart": [
+          3.5146484375,
+          3.57861328125,
+          3.78076171875
+        ],
+        "loadEnd": [
+          3.31298828125,
+          3.53564453125,
+          3.76416015625
+        ],
+        "round": 3
+      }
+    ]
+  }
+}
