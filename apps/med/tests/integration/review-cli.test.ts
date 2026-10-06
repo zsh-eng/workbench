@@ -145,6 +145,33 @@ describe("agent review CLI through the production host", () => {
     }
   });
 
+  it("attaches a brief from a file, then replaces and removes it without a new revision", async () => {
+    const f = await fixture();
+    const path = join(f.root, "brief.md");
+    await writeFile(path, "\n# Fix\n\nSee [file.txt:1](file.txt:1).\n\n");
+    const bundle = await f.saved(
+      await f.run("create", "--title", "Fix", "--repo", f.repos[0]!, "--working", "--brief", path),
+    );
+    expect(bundle.brief.text).toBe("# Fix\n\nSee [file.txt:1](file.txt:1).");
+    const post = (brief: string | null) =>
+      fetch(`http://127.0.0.1:${f.host.port}/api/reviews/${bundle.id}/brief`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${f.host.token}`, "content-type": "application/json" },
+        body: JSON.stringify({ brief }),
+      });
+    const replaced = await (await post("Second brief")).json();
+    expect(replaced).toMatchObject({ brief: { text: "Second brief" }, revision: bundle.revision });
+    expect((await post("x".repeat(100_001))).status).toBe(400);
+    expect((await f.api(`/api/reviews/${bundle.id}`)).brief.text).toBe("Second brief");
+    expect((await (await post(null)).json()).brief).toBeUndefined();
+    expect((await f.api(`/api/reviews/${bundle.id}`)).brief).toBeUndefined();
+    const empty = join(f.root, "empty.md");
+    await writeFile(empty, " \n");
+    await expect(
+      f.run("create", "--title", "Fix", "--repo", f.repos[0]!, "--working", "--brief", empty),
+    ).rejects.toThrow("Invalid brief: Supply the brief text.");
+  });
+
   it("reports invalid commands and missing repositories without printing a review link", async () => {
     const f = await fixture();
     const output: string[] = [];

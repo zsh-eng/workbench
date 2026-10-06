@@ -99,6 +99,10 @@ export interface ReviewController {
   returnToSavedReview(): Promise<void>;
   copyFeedback(): Promise<SavedFeedback>;
   clearSavedComments(expectedRevision: number): Promise<void>;
+  /** Replace the saved review's brief, or remove it with null. */
+  setSavedBrief(text: string | null): Promise<void>;
+  /** Save the current Git comparison as a review and return its ID. */
+  saveReview(input: { title: string; brief?: string }): Promise<string>;
   selectComparison(comparison: Comparison): Promise<void>;
   refresh(): Promise<void>;
   loadMoreHistory(): Promise<void>;
@@ -1414,6 +1418,45 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         await refreshSavedMetadata();
         throw error;
       }
+    },
+    async setSavedBrief(text) {
+      const saved = snapshot.savedReview;
+      if (!saved) throw new Error("Open a saved review to attach a brief.");
+      const next = await api.json(
+        `/api/reviews/${encodeURIComponent(saved.id)}/brief`,
+        savedReviewSchema,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ brief: text }),
+        },
+      );
+      if (disposed || snapshot.savedReview?.id !== saved.id) return;
+      // A brief change does not move the comment revision. Keep newer comment counts.
+      update({
+        savedReview:
+          next.revision >= snapshot.savedReview.revision
+            ? next
+            : { ...snapshot.savedReview, brief: next.brief },
+      });
+    },
+    async saveReview({ title, brief }) {
+      const repo = snapshot.session?.repository.path;
+      const comparison = snapshot.comparison;
+      if (!repo || snapshot.session?.repository.git === false)
+        throw new Error("Open a Git repository to save a review.");
+      if (comparison.kind === "files" || comparison.kind === "patch")
+        throw new Error("Saved reviews support Git comparisons and working changes.");
+      const created = await api.json("/api/reviews", savedReviewSchema, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          ...(brief ? { brief } : {}),
+          targets: [{ repo, comparison }],
+        }),
+      });
+      return created.id;
     },
     selectWorktree(path, repositoryId) {
       if (snapshot.session?.repository.git === false) {

@@ -23,6 +23,7 @@ export const reviewHelp = `Usage: med-diff review create --title <title> --repo 
 --title sets the review and browser tab title. Without it, use the matching PR title or a comparison label.
 --pr <https-url> adds a clickable GitHub PR link. A matching PR is inferred for a single GitHub origin repository when gh is available; --no-pr skips lookup.
 --merge-base compares the common ancestor of --base and --head with --head (for pull requests and stacked branches).
+--brief <path|-> attaches a Markdown explanation; - reads standard input. Links such as [App.tsx:42](src/App.tsx:42) open the cited lines.
 Options: --port <port> (default ${DEFAULT_PORT}), --state-dir <path> (or MED_STATE_DIR)
 The running host must already have the target repositories registered.
 --working captures the current changes, including pre-existing changes.
@@ -36,6 +37,12 @@ export interface ReviewCommand {
   manifest?: ReviewManifest;
   keepTitle?: boolean;
   inferPullRequest?: boolean;
+}
+
+async function readStandardInput() {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 export async function parseReviewCommand(args: string[]): Promise<ReviewCommand> {
@@ -55,6 +62,7 @@ export async function parseReviewCommand(args: string[]): Promise<ReviewCommand>
       working: { type: "boolean" },
       "merge-base": { type: "boolean" },
       manifest: { type: "string" },
+      brief: { type: "string" },
     },
   });
   const port = values.port === undefined ? DEFAULT_PORT : Number(values.port);
@@ -77,6 +85,7 @@ export async function parseReviewCommand(args: string[]): Promise<ReviewCommand>
     if (
       values["no-pr"] !== undefined ||
       values.manifest !== undefined ||
+      values.brief !== undefined ||
       targetOptions.some((value) => value !== undefined)
     )
       throw new Error("The repos command accepts only --port and --state-dir.");
@@ -126,10 +135,26 @@ export async function parseReviewCommand(args: string[]): Promise<ReviewCommand>
       ],
     };
   }
+  if (values.brief !== undefined) {
+    let brief: string;
+    try {
+      brief =
+        values.brief === "-"
+          ? await readStandardInput()
+          : await readFile(resolve(values.brief), "utf8");
+    } catch {
+      throw new Error(
+        "Could not read the brief. Supply a readable Markdown file, or - for standard input.",
+      );
+    }
+    input = { ...(input as object), brief };
+  }
   const result = reviewManifestSchema.safeParse(input);
   if (!result.success)
     throw new Error(
-      "Invalid review manifest. Supply a title and 1–16 targets, each with repo and a Git comparison.",
+      result.error.issues.some((issue) => issue.path[0] === "brief")
+        ? `Invalid brief: ${result.error.issues.find((issue) => issue.path[0] === "brief")!.message}`
+        : "Invalid review manifest. Supply a title and 1–16 targets, each with repo and a Git comparison.",
     );
   const manifest = {
     ...result.data,

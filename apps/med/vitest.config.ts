@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import { defineConfig } from "vitest/config";
 import { playwright } from "@vitest/browser-playwright";
 import react from "@vitejs/plugin-react";
@@ -24,6 +25,15 @@ export default defineConfig({
         },
       },
       {
+        // Same worker-safe decoders as vite.config.ts, so Markdown workers run.
+        resolve: {
+          alias: Object.fromEntries(
+            ["decode-named-character-reference", "hast-util-from-html-isomorphic"].map((name) => [
+              name,
+              createRequire(import.meta.url).resolve(name),
+            ]),
+          ),
+        },
         plugins: [pierreHighlighter(), stylex.vite({ useCSSLayers: true }), react()],
         optimizeDeps: {
           exclude: ["@pierre/diffs"],

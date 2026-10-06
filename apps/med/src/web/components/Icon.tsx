@@ -45,7 +45,10 @@ export type IconName =
   | "testFile"
   | "focus"
   | "focusExit"
-  | "selector";
+  | "selector"
+  | "brief"
+  | "more"
+  | "jump";
 
 const branch = (
   <>
@@ -69,6 +72,17 @@ const icons: Record<IconName, ReactNode> = {
     <path d="M5.75 2.75v1.5a1.5 1.5 0 0 1-1.5 1.5h-1.5M13.25 5.75h-1.5a1.5 1.5 0 0 1-1.5-1.5v-1.5M10.25 13.25v-1.5a1.5 1.5 0 0 1 1.5-1.5h1.5M2.75 10.25h1.5a1.5 1.5 0 0 1 1.5 1.5v1.5" />
   ),
   selector: <path d="M5.5 6.25 8 3.75l2.5 2.5M5.5 9.75 8 12.25l2.5-2.5" />,
+  // Indented lines with a change bar beside one of them: Med's own mark.
+  brief: <path d="M6 3.75h7.25M8 8h5.25M6 12.25h4.5M2.75 6.75v2.5" />,
+  more: (
+    <>
+      <circle cx="3.75" cy="8" r="1" fill="currentColor" stroke="none" />
+      <circle cx="8" cy="8" r="1" fill="currentColor" stroke="none" />
+      <circle cx="12.25" cy="8" r="1" fill="currentColor" stroke="none" />
+    </>
+  ),
+  // Down and across: go to this place in the full diff.
+  jump: <path d="M3.75 3v4.25a2 2 0 0 0 2 2h7M9.75 6.25l3 3-3 3" />,
   github: (
     <path
       fill="currentColor"

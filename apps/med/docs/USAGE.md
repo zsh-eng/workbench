@@ -79,6 +79,18 @@ A saved review opens its first target. Select other repositories or ranges from 
 
 Saved reviews and their comments persist in `~/.local/state/med`. Normal branch review notes still end with the host process. See [agent integration](AGENT_INTEGRATION.md) for commands, state settings, limits, and suggested `AGENTS.md` guidance.
 
+### Briefs
+
+A brief is the agent's explanation of a review, in Markdown. Its links open the lines they cite, so you can read the changes in the order the agent explains them.
+
+- **Attach.** Copy the agent's last message and press `⌘V` anywhere outside a text field. On a saved review, med attaches the brief. On live changes, med asks for a title and saves the comparison as a review first, so the links keep pointing at the code they describe. Agents can also attach one at creation with `review create --brief`.
+- **Read.** The **Brief** tab comes before **Changes**. Below each paragraph that cites lines, a short diff excerpt shows those lines. `]` and `[` step through the excerpts. Hover a link to highlight its excerpt.
+- **Jump.** Click a link, an excerpt heading, or a line number to open those lines in **Changes**, selected and centered.
+- **Check coverage.** The header shows how many changed files the brief cites. **Not in the brief** lists the changed files it never mentions; read those yourself.
+- **Replace or remove.** Paste again to replace the brief. **Undo** in the confirmation restores the previous one. The **⋯** menu also copies or removes it.
+
+med resolves `path`, `path:12`, `path:12-20`, `path#L12-L20`, absolute paths in the repository, editor links, and GitHub blob URLs. A path can be a suffix, such as `App.tsx:42`, when only one changed file matches. A path outside the change opens the file instead. Changing a brief does not change comments.
+
 Review endpoints can be branch names: `review create --repo /path/to/feature-worktree --base main --head HEAD`. This compares the tips directly and saves their exact commits. Use the common ancestor for a pull-request-style diff, and create a new link after merging the base branch. See [branch comparisons](AGENT_INTEGRATION.md#compare-with-a-base-branch) for commands. In the app, **Compare revisions…** accepts the same refs.
 
 ### Indexed branch search
@@ -145,7 +157,7 @@ and previewing files never saves or changes their contents.
 
 ## First review
 
-1. Select a commit in the left history panel, or select working changes. Commit diffs compare with the first parent; merge commits are labeled accordingly.
+1. Select a commit in the left history panel, or select working changes. Commit diffs compare with the first parent; merge commits are labeled accordingly. Click **History** to collapse the panel to one line that names the selection; med remembers this choice.
 2. Select a changed path to move to it in the diff stream. Double-click the path to open its current file in the selected worktree.
 3. Use the branch switcher (`⌘⇧G`) to open another branch; open branches show as tabs above the review. A branch with a worktree opens that directory; a branch without one opens committed content.
 4. Use the file picker or right Files sidebar to open unchanged files. A preview does not replace your current review until you open it.
@@ -167,6 +179,8 @@ Shift-click another commit to select an inclusive range. The comparison runs fro
 | Toggle history / files sidebar    | `⌘B` / `⌘⇧B` | `Ctrl+B` / `Ctrl+Shift+B` |
 | Zen mode                          | `⌥Z`         | `Alt+Z`                   |
 | Add note to selected lines        | `c`          | `c`                       |
+| Paste a brief                     | `⌘V`         | `Ctrl+V`                  |
+| Next / previous brief excerpt     | `]` / `[`    | `]` / `[`                 |
 | Resume search                     | `⌥R`         | `Alt+R`                   |
 | Keep preview tab                  | `⌥P`         | `Alt+P`                   |
 | Toggle gutter blame               | `⌥B`         | `Alt+B`                   |

@@ -1,0 +1,39 @@
+/* Rendered brief Markdown is HTML, so its references are styled here. */
+.med-brief-scroll {
+  scroll-padding-top: 56px;
+}
+.med-brief-prose {
+  /* Excerpts reach past the text column when the pane has room. */
+  --med-brief-bleed: clamp(0px, calc((100cqw - 38em) / 2 - 24px), 36px);
+}
+.med-brief-prose a.med-brief-ref {
+  color: var(--med-accent);
+  text-decoration-line: underline;
+  text-decoration-color: color-mix(in srgb, var(--med-accent) 38%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  border-radius: 4px;
+  transition:
+    background-color 140ms ease-out,
+    text-decoration-color 140ms ease-out;
+}
+.med-brief-prose a.med-brief-ref:hover,
+.med-brief-prose a.med-brief-ref[data-linked] {
+  text-decoration-color: var(--med-accent);
+  background-color: color-mix(in srgb, var(--med-accent) 12%, transparent);
+}
+.med-brief-prose a.med-brief-ref code {
+  color: inherit;
+  border-color: color-mix(in srgb, var(--med-accent) 28%, var(--med-border));
+}
+.med-brief-prose a.med-brief-ref:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--med-accent) 55%, transparent);
+  outline-offset: 2px;
+}
+/* Slots hold excerpt cards; an empty slot takes no space. */
+.med-brief-prose [data-brief-slot]:empty {
+  display: none;
+}
+.med-brief-prose li > [data-brief-slot] {
+  margin-block: 10px 14px;
+}

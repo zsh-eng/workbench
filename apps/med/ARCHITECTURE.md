@@ -178,6 +178,8 @@ The CLI uses a stable default port (4173) and private state directory (`~/.local
 
 The browser opens one target at a time. Saved source does not follow watcher events. The normal file browser and commit history remain available; the header shows when the user has left the saved comparison. Feedback export uses captured source, including selected lines and adjacent context. Saved file access requires the repository family to remain registered, but a surviving checkout can replace a removed linked worktree as the session anchor.
 
+A bundle can hold one Markdown brief. `POST /api/reviews/:id/brief` replaces or removes it without a new comment revision, so comment writes and a brief change do not conflict. The browser renders the brief in the Markdown worker with link marking on. `src/web/data/brief.ts` then resolves each link to a changed file and line range: exact path first, then a unique path suffix, so agents in another working directory still resolve. Each cited range becomes an excerpt: a subset of the captured patch, parsed again for Pierre's `FileDiff`, or captured source lines when the range has no changes. Excerpts mount near the viewport only. `BriefView` loads lazily and stays mounted after first use, to keep its scroll position. A paste on live changes saves the comparison first, because a brief is only stable against captured code.
+
 See [agent integration](docs/AGENT_INTEGRATION.md) for the CLI contract, repository selection policy, data limits, and user-confirmed `AGENTS.md` guidance.
 
 ## Working-file editing

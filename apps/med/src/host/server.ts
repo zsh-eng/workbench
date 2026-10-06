@@ -71,6 +71,8 @@ export interface RunningHost {
   close(): Promise<void>;
 }
 const MAX_BODY = 128 * 1024;
+// A brief holds up to 100,000 characters; UTF-8 can need four bytes for one.
+const MAX_BRIEF_BODY = 512 * 1024;
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -449,7 +451,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 "Start med with Git repositories to create a review.",
                 422,
               );
-            const input = savedReviewCreateSchema.parse(await readBody(request));
+            const input = savedReviewCreateSchema.parse(await readBody(request, MAX_BRIEF_BODY));
             send(
               await savedReviews.create(
                 input,
@@ -628,7 +630,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           const savedRoute =
-            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes)|\/(feedback|clear))?$/.exec(
+            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes)|\/(feedback|clear|brief))?$/.exec(
               url.pathname,
             );
           if (savedRoute) {
@@ -666,7 +668,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               else if (targetAction === "notes") send(await savedReviews.notes(id!, targetId!));
               else if (action === "feedback") send(await savedReviews.feedback(id!));
               else if (!action) send(bundle);
-              else throw new HostError("method-not-allowed", "Use POST to clear comments.", 405);
+              else
+                throw new HostError(
+                  "method-not-allowed",
+                  "Use POST for this saved review action.",
+                  405,
+                );
               return;
             }
             if (request.method === "POST" && targetAction === "notes") {
@@ -686,6 +693,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   assertRequestAccess,
                 ),
               );
+              return;
+            }
+            if (request.method === "POST" && action === "brief") {
+              const input = z
+                .object({ brief: z.string().nullable() })
+                .parse(await readBody(request, MAX_BRIEF_BODY));
+              assertRequestAccess();
+              send(await savedReviews.setBrief(id!, input.brief, assertRequestAccess));
               return;
             }
             if (request.method === "POST" && action === "clear") {

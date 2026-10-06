@@ -35,6 +35,8 @@ import { HostError } from "./runtime/errors";
 import {
   savedReviewCreateSchema,
   pullRequestUrlSchema,
+  briefTextSchema,
+  MAX_BRIEF_LENGTH,
   type SavedReview,
   type SavedReviewCreate,
   type CapturedReviewTarget,
@@ -100,6 +102,7 @@ const savedSchema = z.object({
   id: z.string().regex(REVIEW_ID),
   title: text,
   pullRequestUrl: pullRequestUrlSchema.optional(),
+  brief: z.object({ text: text.max(MAX_BRIEF_LENGTH), updatedAt: text }).optional(),
   createdAt: text,
   revision: natural,
   commentCount: natural,
@@ -530,6 +533,9 @@ export class SavedReviewStore {
           id,
           title: input.title.trim(),
           ...(input.pullRequestUrl ? { pullRequestUrl: input.pullRequestUrl } : {}),
+          ...(input.brief
+            ? { brief: { text: input.brief, updatedAt: new Date().toISOString() } }
+            : {}),
           createdAt: new Date().toISOString(),
           revision: 0,
           commentCount: 0,
@@ -697,6 +703,22 @@ export class SavedReviewStore {
       );
       await this.write(record, beforeCommit);
       return target.notes;
+    }, beforeCommit);
+  }
+
+  /** Replace or remove the brief. Comments and their revision stay unchanged. */
+  setBrief(id: string, brief: string | null, beforeCommit?: () => void): Promise<SavedReview> {
+    return this.writing(async () => {
+      const record = await this.read(id);
+      if (brief === null) delete record.saved.brief;
+      else {
+        const parsed = briefTextSchema.safeParse(brief);
+        if (!parsed.success)
+          throw new HostError("invalid-brief", parsed.error.issues[0]!.message, 400);
+        record.saved.brief = { text: parsed.data, updatedAt: new Date().toISOString() };
+      }
+      await this.write(record, beforeCommit);
+      return this.describe(record);
     }, beforeCommit);
   }
 

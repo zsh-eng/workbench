@@ -21,9 +21,23 @@ export const pullRequestUrlSchema = z
     }
   }, "Supply an HTTPS GitHub pull request URL.");
 
+/** A pasted or agent-written explanation of a review, in Markdown. */
+export const MAX_BRIEF_LENGTH = 100_000;
+export const briefTextSchema = z
+  .string()
+  .trim()
+  .min(1, "Supply the brief text.")
+  .max(
+    MAX_BRIEF_LENGTH,
+    `A brief can contain up to ${MAX_BRIEF_LENGTH.toLocaleString("en")} characters.`,
+  );
+export const savedBriefSchema = z.object({ text: z.string(), updatedAt: z.string() });
+export type SavedBrief = z.infer<typeof savedBriefSchema>;
+
 export const savedReviewCreateSchema = z.object({
   title: z.string().trim().min(1).max(200),
   pullRequestUrl: pullRequestUrlSchema.optional(),
+  brief: briefTextSchema.optional(),
   targets: z
     .array(
       z.object({
@@ -55,6 +69,7 @@ export const savedReviewSchema = z.object({
   id: z.string(),
   title: z.string(),
   pullRequestUrl: pullRequestUrlSchema.optional(),
+  brief: savedBriefSchema.optional(),
   createdAt: z.string(),
   revision: z.number().int().nonnegative(),
   commentCount: z.number().int().nonnegative(),

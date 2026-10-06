@@ -21,6 +21,7 @@ export function FileViewTabs({
   onPin,
   panelId = "file-view-panel",
   showChanges = true,
+  showBrief = false,
   changesCount,
   leading,
   trailing,
@@ -29,6 +30,8 @@ export function FileViewTabs({
   active: string;
   panelId?: string;
   showChanges?: boolean;
+  /** A saved review's brief comes first, before Changes. */
+  showBrief?: boolean;
   /** Changed-file count shown beside the Changes tab. */
   changesCount?: number;
   /** Controls placed before the tabs and at the end of the tab row. */
@@ -54,6 +57,22 @@ export function FileViewTabs({
     >
       {leading}
       <Tabs.List aria-label="Open files" {...stylex.props(styles.list)}>
+        {showBrief && (
+          <Tabs.Tab
+            value="brief"
+            aria-controls={panelId}
+            aria-label="Brief"
+            {...stylex.props(
+              styles.tab,
+              styles.changes,
+              styles.enter,
+              active === "brief" && styles.active,
+            )}
+          >
+            <Icon name="brief" size={14} />
+            Brief
+          </Tabs.Tab>
+        )}
         {showChanges && (
           <Tabs.Tab
             value="changes"
@@ -107,6 +126,10 @@ export function FileViewTabs({
     </Tabs.Root>
   );
 }
+const tabEnter = stylex.keyframes({
+  from: { opacity: 0, transform: "translateX(-4px)" },
+  to: { opacity: 1, transform: "none" },
+});
 const styles = stylex.create({
   root: {
     display: "flex",
@@ -151,6 +174,11 @@ const styles = stylex.create({
     whiteSpace: "nowrap",
   },
   changes: { paddingInlineEnd: 6 },
+  enter: {
+    animationName: { default: tabEnter, "@media (prefers-reduced-motion: reduce)": "none" },
+    animationDuration: "200ms",
+    animationTimingFunction: tokens.easeOut,
+  },
   fileTab: { paddingInlineEnd: 26 },
   active: {
     color: { default: tokens.text, ":hover": tokens.text },

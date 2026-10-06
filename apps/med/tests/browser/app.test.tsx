@@ -44,6 +44,7 @@ let mount: HTMLDivElement | undefined;
 beforeEach(() => {
   localStorage.removeItem("med:vim");
   localStorage.removeItem("med:zen");
+  localStorage.removeItem("med:history");
 });
 afterEach(() => {
   root?.unmount();
@@ -52,6 +53,7 @@ afterEach(() => {
   mount = undefined;
   localStorage.removeItem("med:vim");
   localStorage.removeItem("med:zen");
+  localStorage.removeItem("med:history");
 });
 
 function response(comparison: Comparison): ReviewResponse {
@@ -82,6 +84,8 @@ async function mountApp(
     metadataFile?: boolean;
     branches?: boolean;
     savedReview?: boolean;
+    /** Markdown brief of the saved review. */
+    brief?: string;
     readOnly?: boolean;
     noteMutation?: () => Promise<Response | undefined>;
   } = {},
@@ -112,18 +116,24 @@ async function mountApp(
     ],
     worktrees: [{ path: target.repo, head: firstCommit, branch: target.branch }],
   }));
+  let brief = options.brief;
+  const savedBundle = () => ({
+    id: "saved",
+    title: "Agent review",
+    createdAt: "2026-09-20T00:00:00Z",
+    revision: 0,
+    commentCount: 0,
+    targets: savedTargets,
+    ...(brief ? { brief: { text: brief, updatedAt: "2026-09-20T00:00:00Z" } } : {}),
+  });
   const fetcher: typeof fetch = async (input, init) => {
     const url = new URL(String(input), "http://localhost");
     if (options.savedReview) {
-      if (url.pathname === "/api/reviews/saved")
-        return Response.json({
-          id: "saved",
-          title: "Agent review",
-          createdAt: "2026-09-20T00:00:00Z",
-          revision: 0,
-          commentCount: 0,
-          targets: savedTargets,
-        });
+      if (url.pathname === "/api/reviews/saved") return Response.json(savedBundle());
+      if (url.pathname === "/api/reviews/saved/brief" && init?.method === "POST") {
+        brief = JSON.parse(String(init.body)).brief ?? undefined;
+        return Response.json(savedBundle());
+      }
       if (url.pathname === "/api/repositories")
         return Response.json({ repositories: savedRepositories });
       if (url.pathname === "/api/branches")
@@ -1273,4 +1283,81 @@ describe("graphical review", () => {
       .toBe("Checked against the current source");
     await expect.element(page.getByText("Preserve this concern", { exact: true })).toBeVisible();
   });
+});
+
+describe("review brief", () => {
+  const excerptText = () =>
+    [...document.querySelectorAll("[data-brief-excerpt] diffs-container")]
+      .map((host) => host.shadowRoot?.textContent ?? "")
+      .join("\n");
+
+  test("opens on the brief, shows the cited lines, and follows a link into Changes", async () => {
+    await mountApp({
+      savedReview: true,
+      brief: "# Rename the export\n\nThe constant changes in [alpha.ts:1](src/alpha.ts:1).\n",
+    });
+    await expect
+      .element(page.getByRole("tab", { name: "Brief" }))
+      .toHaveAttribute("aria-selected", "true");
+    await expect.element(page.getByRole("heading", { name: "Rename the export" })).toBeVisible();
+    await expect.element(page.getByText("Cites 1 of 2 changed files")).toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: "Open src/alpha.ts L1 in Changes" }))
+      .toBeVisible();
+    await expect.poll(excerptText).toContain("export const after = 2;");
+    await expect.element(page.getByRole("heading", { name: "Not in the brief 1" })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "src/beta.ts +1 −1" })).toBeVisible();
+
+    await page.getByRole("link", { name: "alpha.ts:1" }).click();
+    await expect
+      .element(page.getByRole("tab", { name: "Changes" }))
+      .toHaveAttribute("aria-selected", "true");
+    await expect
+      .element(page.getByRole("button", { name: "Clear line selection" }))
+      .toBeInTheDocument();
+  });
+
+  test("attaches a pasted brief to a saved review and undoes it", async () => {
+    await mountApp({ savedReview: true });
+    await expect.element(page.getByRole("tab", { name: "Brief" })).not.toBeInTheDocument();
+    const data = new DataTransfer();
+    data.setData("text/plain", "Only [beta.ts:2](src/beta.ts:2) matters.");
+    document.body.dispatchEvent(
+      new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }),
+    );
+    await expect
+      .element(page.getByRole("tab", { name: "Brief" }))
+      .toHaveAttribute("aria-selected", "true");
+    await expect.element(page.getByRole("status")).toMatchTextContent("Brief attached.");
+    await expect.poll(excerptText).toContain("export const shared = true;");
+
+    await page.getByRole("button", { name: "Undo", exact: true }).click();
+    await expect.element(page.getByRole("tab", { name: "Brief" })).not.toBeInTheDocument();
+    await expect
+      .element(page.getByRole("tab", { name: "Changes" }))
+      .toHaveAttribute("aria-selected", "true");
+    await expect.element(page.getByRole("status")).toHaveTextContent("Brief removed.");
+  });
+});
+
+test("collapses history to a heading that names the selection, and remembers it", async () => {
+  await mountApp();
+  const toggle = page.getByRole("button", { name: /^History/ });
+  await expect.element(toggle).toHaveAttribute("aria-expanded", "true");
+  await toggle.click();
+  await expect.element(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect.element(toggle).toHaveTextContent("HistoryWorking changes");
+  expect(document.getElementById("history-body")!.inert).toBe(true);
+  expect(localStorage.getItem("med:history")).toBe("closed");
+
+  root!.unmount();
+  mount!.remove();
+  await mountApp();
+  const restored = page.getByRole("button", { name: /^History/ });
+  await expect.element(restored).toHaveAttribute("aria-expanded", "false");
+  await restored.click();
+  await expect.element(restored).toHaveAttribute("aria-expanded", "true");
+  await expect
+    .element(page.getByRole("option", { name: /Improve the review stream/ }))
+    .toBeVisible();
 });

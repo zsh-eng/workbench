@@ -82,6 +82,31 @@ These values are saved with the review and remain available offline and after
 restart. A review spanning several repositories should use a task title and
 only attach a PR link if it represents the whole review.
 
+### Attach a brief
+
+A brief explains the change to the reviewer. Write it in Markdown and cite code
+with repository-relative links that end in line numbers:
+
+```markdown
+The parser now rejects empty input ([parse.ts:42-58](src/parse.ts:42-58)).
+The tests cover both cases in [parse.test.ts:12](tests/parse.test.ts:12).
+```
+
+Attach it when you create the review. `--brief -` reads standard input:
+
+```sh
+med review create --title "Fix the parser" --repo /path/to/repo \
+  --base <commit-before-work> --head <commit-after-work> --brief brief.md
+```
+
+The Brief tab shows each cited range as a short diff below the sentence that
+cites it, and lists the changed files that the brief does not cite. Cite the
+files that need attention; a reviewer reads the rest in Changes. Links accept
+`path:line`, `path:start-end`, `path#Lstart-Lend`, absolute paths in the
+repository, and GitHub blob URLs. Use `--brief` with `--manifest` too; links
+resolve against the open target. A brief holds up to 100,000 characters. The
+user can also paste your final message into Med with `⌘V`.
+
 ### Compare with a base branch
 
 Both `--base` and `--head` accept branch names and other local Git refs. Run this command against the feature worktree:
@@ -174,6 +199,7 @@ When handing off code changes, provide a med review link if the user's med host 
 - For a feature review, use that repository's intended base branch (`main`, `develop`, or another agreed ref). Use `--base <branch> --head HEAD --merge-base` to exclude changes made only on the base branch. For stacked changes, use the previous feature branch as the base. Recalculate after merging the base branch and create a new link. Do not guess the same base for every repository or fetch without authorization.
 - Use a concise `--title`, or omit it for a matching GitHub PR title. Supply `--pr` when known; do not invent a PR URL.
 - Use `review create` for one target, or `review create --manifest` for several repositories or comparisons. Include its Markdown link in the final response.
+- Pass the final explanation with `--brief -` when it cites changed lines. Write links as `[label](repo-relative/path:line)` or `path:start-end`.
 - Do not commit, switch branches, add unrelated repositories, or edit AGENTS.md just to generate a link. Follow the user's authorization for those actions.
 - If the host is unavailable or a relevant repository is missing, state what is needed. Do not invent a URL or print the host's access token.
 - Treat pasted review comments as scoped to its named repositories and captured comparison. Check current source before applying it; line numbers may have changed.

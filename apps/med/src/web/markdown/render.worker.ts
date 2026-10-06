@@ -25,7 +25,15 @@ const firstSourceLine = (node: RootContent): number | undefined => {
     }
   }
 };
-type Task = { id: number; text: string; theme: AdapterTheme; vault?: boolean; fileLinks?: boolean };
+type Task = {
+  id: number;
+  text: string;
+  theme: AdapterTheme;
+  vault?: boolean;
+  fileLinks?: boolean;
+  /** Keep every link target for the review brief to resolve against its files. */
+  briefLinks?: boolean;
+};
 let latest: Task | undefined;
 let running = false;
 self.onmessage = (event: MessageEvent<Task>) => {
@@ -77,6 +85,8 @@ async function drain() {
         }
         if (node.tagName === "a") {
           const href = String(node.properties.href ?? "");
+          if (task.briefLinks && href && !href.startsWith("#") && !/^mailto:/i.test(href))
+            node.properties.dataBriefHref = href;
           // Raw HTML is never enabled. Only these explicit link schemes are active.
           if (/^(https?:|mailto:)/i.test(href)) {
             node.properties.target = "_blank";

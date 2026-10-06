@@ -1,0 +1,784 @@
+import * as stylex from "@stylexjs/stylex";
+import { resolveTheme } from "@pierre/diffs";
+import { FileDiff, type FileDiffOptions } from "@pierre/diffs/react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import type { ParsedReviewFile } from "../../shared/review";
+import type { SavedBrief } from "../../shared/saved-review";
+import {
+  annotateBrief,
+  diffExcerpt,
+  sourceExcerpt,
+  type BriefExcerpt,
+  type Excerpt,
+} from "../data/brief";
+import type { MarkdownResult } from "../markdown/model";
+import RenderWorker from "../markdown/render.worker?worker";
+import { useTheme } from "../themes";
+import { tokens } from "../theme.stylex";
+import { ActionMenu } from "./Controls";
+import { DiffStat } from "./DiffStat";
+import { Icon } from "./Icon";
+import { diffSurfaceStyle } from "./diff-surface";
+import "./MarkdownPreview.css";
+import "./BriefView.css";
+
+export interface BriefLocation {
+  fileId: string;
+  side?: "old" | "new";
+  start?: number;
+  end?: number;
+}
+export interface BriefViewProps {
+  brief: SavedBrief;
+  /** All changed files of the saved comparison. */
+  files: ParsedReviewFile[];
+  /** Repository root, for absolute paths in links. */
+  root?: string;
+  /** The Brief tab is showing; its keys are active. */
+  active: boolean;
+  loadSource(path: string): Promise<{ old: string; new: string }>;
+  onOpen(location: BriefLocation): void;
+  onOpenPath(path: string, line?: number): void;
+  onPaste(): void;
+  onCopy(): void;
+  onRemove(): void;
+}
+
+const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const Block = memo(
+  function Block({ html, start, end }: { html: string; start: number; end: number }) {
+    return (
+      <div
+        className="med-md-block"
+        data-block-line={start}
+        data-block-end={end}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    );
+  },
+  (a, b) => a.html === b.html && a.start === b.start && a.end === b.end,
+);
+
+/** The pasted explanation, with each cited range shown as a short diff below
+ * the sentence that cites it, and the changed files it never mentions. */
+export default function BriefView({
+  brief,
+  files,
+  root,
+  active,
+  loadSource,
+  onOpen,
+  onOpenPath,
+  onPaste,
+  onCopy,
+  onRemove,
+}: BriefViewProps) {
+  const { active: theme } = useTheme();
+  const [result, setResult] = useState<MarkdownResult>();
+  const [error, setError] = useState("");
+  const worker = useRef<Worker | null>(null);
+  const sequence = useRef(0);
+  const pane = useRef<HTMLDivElement>(null);
+  const article = useRef<HTMLElement>(null);
+  const [slots, setSlots] = useState<Map<string, HTMLElement>>(() => new Map());
+  const [linked, setLinked] = useState<string | null>(null);
+
+  useEffect(() => {
+    const instance = new RenderWorker();
+    worker.current = instance;
+    instance.onmessage = ({ data }) => {
+      if (data.id !== sequence.current) return;
+      if (data.error) setError(data.error);
+      else {
+        setResult(data);
+        setError("");
+      }
+    };
+    instance.onerror = () => setError("The brief could not render. Reload the review to retry.");
+    return () => {
+      instance.terminate();
+      worker.current = null;
+    };
+  }, []);
+  useEffect(() => {
+    const id = ++sequence.current;
+    void resolveTheme(theme.pierreTheme)
+      .then((resolved) => {
+        if (id === sequence.current)
+          worker.current?.postMessage({ id, text: brief.text, theme: resolved, briefLinks: true });
+      })
+      .catch(() => setError("The brief theme could not load."));
+  }, [brief.text, theme.pierreTheme]);
+
+  const annotated = useMemo(
+    () => (result ? annotateBrief(result.blocks, files, root) : null),
+    [result, files, root],
+  );
+  const fileById = useMemo(() => new Map(files.map((file) => [file.id, file])), [files]);
+  const uncited = useMemo(
+    () => files.filter((file) => !annotated?.cited.includes(file.id)),
+    [files, annotated],
+  );
+
+  // Excerpts render through portals into slots inside the rendered Markdown.
+  useLayoutEffect(() => {
+    const found = new Map<string, HTMLElement>();
+    article.current
+      ?.querySelectorAll<HTMLElement>("[data-brief-slot]")
+      .forEach((slot) => found.set(slot.dataset.briefSlot!, slot));
+    // The slots exist only in the rendered HTML, so they are read after commit.
+    // oxlint-disable-next-line react/set-state-in-effect
+    setSlots((current) =>
+      current.size === found.size && [...found].every(([key, node]) => current.get(key) === node)
+        ? current
+        : found,
+    );
+  }, [annotated]);
+
+  // A link and its excerpt light up together.
+  useEffect(() => {
+    const host = article.current;
+    if (!host) return;
+    host.querySelectorAll(".med-brief-ref[data-linked]").forEach((node) => {
+      node.removeAttribute("data-linked");
+    });
+    if (linked)
+      host
+        .querySelectorAll(`.med-brief-ref[data-brief-ref="${CSS.escape(linked)}"]`)
+        .forEach((node) => node.setAttribute("data-linked", ""));
+  }, [linked, annotated]);
+
+  const scrollToNode = (node: HTMLElement, offset = 28) => {
+    const scroller = pane.current;
+    if (!scroller) return;
+    // Scroll this pane only: scrollIntoView can move hidden split ancestors.
+    const top =
+      node.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+    scroller.scrollTo({
+      top: Math.max(0, top - offset),
+      behavior: reducedMotion() ? "auto" : "smooth",
+    });
+  };
+
+  // [ and ] step through the excerpts, like hunks in Changes.
+  useEffect(() => {
+    if (!active) return;
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key !== "[" && event.key !== "]") return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const editing = event
+        .composedPath()
+        .some(
+          (node) =>
+            node instanceof HTMLElement &&
+            (node.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(node.tagName)),
+        );
+      if (editing || document.querySelector('[role="dialog"]')) return;
+      const scroller = pane.current;
+      const cards = [
+        ...(article.current?.querySelectorAll<HTMLElement>("[data-brief-excerpt]") ?? []),
+      ];
+      if (!scroller || !cards.length) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const top = scroller.getBoundingClientRect().top;
+      const focused = cards.findIndex((card) => card.contains(document.activeElement));
+      let index: number;
+      if (focused >= 0) index = focused + (event.key === "]" ? 1 : -1);
+      else if (event.key === "]")
+        index = cards.findIndex((card) => card.getBoundingClientRect().top > top + 40);
+      else index = cards.findLastIndex((card) => card.getBoundingClientRect().top < top + 20);
+      const card = cards[Math.max(0, Math.min(cards.length - 1, index < 0 ? 0 : index))]!;
+      scrollToNode(card, 56);
+      card.querySelector<HTMLElement>("[data-excerpt-open]")?.focus({ preventScroll: true });
+    };
+    window.addEventListener("keydown", keydown);
+    return () => window.removeEventListener("keydown", keydown);
+  }, [active]);
+
+  // Links resolve through delegation: the Markdown is HTML, not React elements.
+  const handlers = useRef({ onOpen, onOpenPath });
+  useEffect(() => {
+    handlers.current = { onOpen, onOpenPath };
+  });
+  useEffect(() => {
+    const host = article.current;
+    if (!host) return;
+    const follow = (event: MouseEvent) => {
+      const anchor = (event.target as HTMLElement).closest("a");
+      if (!anchor || !host.contains(anchor)) return;
+      const data = anchor.dataset;
+      if (data.briefRef && data.briefFile) {
+        event.preventDefault();
+        handlers.current.onOpen({
+          fileId: data.briefFile,
+          ...(data.briefStart
+            ? {
+                side: data.briefSide as "old" | "new",
+                start: Number(data.briefStart),
+                end: Number(data.briefEnd),
+              }
+            : {}),
+        });
+      } else if (data.briefPath) {
+        event.preventDefault();
+        handlers.current.onOpenPath(
+          data.briefPath,
+          data.briefLine ? Number(data.briefLine) : undefined,
+        );
+      } else if (anchor.getAttribute("href")?.startsWith("#")) {
+        event.preventDefault();
+        let id: string;
+        try {
+          id = decodeURIComponent(anchor.getAttribute("href")!.slice(1));
+        } catch {
+          return;
+        }
+        const target = id && host.querySelector<HTMLElement>(`#${CSS.escape(id)}`);
+        if (target) scrollToNode(target);
+      }
+    };
+    const hover = (event: PointerEvent) => {
+      const node = (event.target as HTMLElement).closest<HTMLElement>(
+        "[data-brief-ref], [data-brief-excerpt]",
+      );
+      setLinked(node?.dataset.briefRef ?? node?.dataset.briefExcerpt ?? null);
+    };
+    const leave = () => setLinked(null);
+    host.addEventListener("click", follow);
+    host.addEventListener("pointerover", hover);
+    host.addEventListener("pointerleave", leave);
+    return () => {
+      host.removeEventListener("click", follow);
+      host.removeEventListener("pointerover", hover);
+      host.removeEventListener("pointerleave", leave);
+    };
+  }, []);
+
+  const citedCount = annotated?.cited.length ?? 0;
+  return (
+    <section aria-label="Brief" {...stylex.props(styles.root)}>
+      <div className="med-md-scroll med-brief-scroll" ref={pane}>
+        <article ref={article} className="med-md-prose med-brief-prose">
+          <header {...stylex.props(styles.meta)}>
+            <span {...stylex.props(styles.label)}>
+              <Icon name="brief" size={14} />
+              Brief
+            </span>
+            {annotated && files.length > 0 && (
+              <span
+                {...stylex.props(styles.coverage)}
+                title="Changed files that the brief links to"
+              >
+                <span {...stylex.props(styles.meter)} aria-hidden="true">
+                  <span {...stylex.props(styles.meterFill(citedCount / files.length))} />
+                </span>
+                Cites {citedCount} of {files.length} changed {files.length === 1 ? "file" : "files"}
+              </span>
+            )}
+            <span {...stylex.props(styles.grow)} />
+            <ActionMenu
+              label="Brief options"
+              sections={[
+                [
+                  { label: "Paste a new brief", shortcut: "⌘ V", onClick: onPaste },
+                  { label: "Copy brief text", onClick: onCopy },
+                ],
+                [{ label: "Remove brief", onClick: onRemove }],
+              ]}
+            >
+              <Icon name="more" size={15} />
+            </ActionMenu>
+          </header>
+          {error && (
+            <div role="alert" className="med-md-notice">
+              {error}
+            </div>
+          )}
+          {annotated?.blocks.map((block, index) => (
+            <Block key={index} html={block.html} start={block.start} end={block.end} />
+          ))}
+        </article>
+        {annotated && files.length > 0 && (
+          // Outside the prose, so Markdown heading and list styles do not apply.
+          <footer
+            aria-label="Changed files the brief does not cite"
+            {...stylex.props(styles.column)}
+          >
+            <div {...stylex.props(styles.uncited)}>
+              {uncited.length ? (
+                <>
+                  <h2 {...stylex.props(styles.uncitedTitle)}>
+                    Not in the brief
+                    <span {...stylex.props(styles.uncitedCount)}>{uncited.length}</span>
+                  </h2>
+                  <p {...stylex.props(styles.uncitedHint)}>
+                    The brief does not mention these changes. Read them in Changes.
+                  </p>
+                  <ul {...stylex.props(styles.uncitedList)}>
+                    {uncited.map((file) => {
+                      const slash = file.path.lastIndexOf("/") + 1;
+                      return (
+                        <li key={file.id}>
+                          <button
+                            {...stylex.props(styles.uncitedRow)}
+                            onClick={() => onOpen({ fileId: file.id })}
+                          >
+                            <Icon name="file" size={13} />
+                            <span {...stylex.props(styles.path)}>
+                              <span {...stylex.props(styles.directory)}>
+                                {file.path.slice(0, slash)}
+                              </span>
+                              {file.path.slice(slash)}
+                            </span>
+                            <span {...stylex.props(styles.stats)}>
+                              {file.info.additions > 0 && (
+                                <span {...stylex.props(styles.added)}>+{file.info.additions}</span>
+                              )}
+                              {file.info.deletions > 0 && (
+                                <span {...stylex.props(styles.removed)}>
+                                  −{file.info.deletions}
+                                </span>
+                              )}
+                              <DiffStat
+                                additions={file.info.additions}
+                                deletions={file.info.deletions}
+                              />
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              ) : (
+                <p {...stylex.props(styles.covered)}>
+                  <Icon name="check" size={14} />
+                  The brief cites every changed file.
+                </p>
+              )}
+            </div>
+          </footer>
+        )}
+      </div>
+      {annotated?.excerpts.map((excerpt) => {
+        const slot = slots.get(excerpt.key);
+        const file = fileById.get(excerpt.fileId);
+        return slot && file
+          ? createPortal(
+              <ExcerptCard
+                excerpt={excerpt}
+                file={file}
+                linked={linked === excerpt.key}
+                pierreTheme={theme.pierreTheme}
+                themeType={theme.appearance}
+                loadSource={loadSource}
+                onOpen={onOpen}
+              />,
+              slot,
+              excerpt.key,
+            )
+          : null;
+      })}
+    </section>
+  );
+}
+
+function ExcerptCard({
+  excerpt,
+  file,
+  linked,
+  pierreTheme,
+  themeType,
+  loadSource,
+  onOpen,
+}: {
+  excerpt: BriefExcerpt;
+  file: ParsedReviewFile;
+  linked: boolean;
+  pierreTheme: FileDiffOptions<undefined, undefined>["theme"];
+  themeType: "light" | "dark";
+  loadSource: BriefViewProps["loadSource"];
+  onOpen: BriefViewProps["onOpen"];
+}) {
+  const { range } = excerpt;
+  const host = useRef<HTMLElement>(null);
+  const [near, setNear] = useState(false);
+  const [source, setSource] = useState<Excerpt | "missing" | null>(null);
+  // Mount the diff only near the viewport; long briefs stay cheap to open.
+  useEffect(() => {
+    const node = host.current!;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        observer.disconnect();
+        setNear(true);
+      },
+      { rootMargin: "900px 0px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  const diff = useMemo(() => {
+    const result = diffExcerpt(file, range);
+    // The excerpt starts at its first row: no "unmodified lines" bar above it.
+    if (result?.metadata.hunks[0]) result.metadata.hunks[0].collapsedBefore = 0;
+    return result;
+  }, [file, range]);
+  useEffect(() => {
+    if (diff || !near || source) return;
+    let cancelled = false;
+    loadSource(file.path)
+      .then((text) => {
+        if (cancelled) return;
+        const result = sourceExcerpt(file, range, range.side === "new" ? text.new : text.old);
+        if (result?.metadata.hunks[0]) result.metadata.hunks[0].collapsedBefore = 0;
+        setSource(result ?? "missing");
+      })
+      .catch(() => {
+        if (!cancelled) setSource("missing");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [diff, near, source, file, range, loadSource]);
+  const shown = diff ?? (source && source !== "missing" ? source : null);
+  const open = (side = range.side, start = range.start, end = range.end) =>
+    onOpen({ fileId: file.id, side, start, end });
+  const options = useMemo<FileDiffOptions<undefined, undefined>>(
+    () => ({
+      theme: pierreTheme,
+      themeType,
+      diffStyle: "unified",
+      overflow: "wrap",
+      diffIndicators: "bars",
+      lineDiffType: "word-alt",
+      disableFileHeader: true,
+      hunkSeparators: "line-info",
+      unsafeCSS: `[data-separator-content] { font-size: 11px; }`,
+      onLineNumberClick(line) {
+        const side = line.annotationSide === "deletions" ? "old" : "new";
+        onOpen({ fileId: file.id, side, start: line.lineNumber, end: line.lineNumber });
+      },
+    }),
+    [pierreTheme, themeType, onOpen, file.id],
+  );
+  const slash = file.path.lastIndexOf("/") + 1;
+  const lines = `L${range.start}${range.end > range.start ? `–${range.end}` : ""}`;
+  return (
+    <figure
+      ref={host}
+      data-brief-excerpt={excerpt.key}
+      {...stylex.props(styles.card, linked && styles.cardLinked)}
+    >
+      <button
+        data-excerpt-open
+        aria-label={`Open ${file.path} ${lines} in Changes`}
+        onClick={() => open()}
+        {...stylex.props(styles.cardHeader, stylex.defaultMarker())}
+      >
+        <Icon name="file" size={13} />
+        <span {...stylex.props(styles.path)}>
+          <span {...stylex.props(styles.directory)}>{file.path.slice(0, slash)}</span>
+          <span {...stylex.props(styles.name)}>{file.path.slice(slash)}</span>
+        </span>
+        <span {...stylex.props(styles.lines)}>{lines}</span>
+        <span {...stylex.props(styles.grow)} />
+        {shown && diff && (shown.additions > 0 || shown.deletions > 0) && (
+          <span {...stylex.props(styles.stats)}>
+            {shown.additions > 0 && <span {...stylex.props(styles.added)}>+{shown.additions}</span>}
+            {shown.deletions > 0 && (
+              <span {...stylex.props(styles.removed)}>−{shown.deletions}</span>
+            )}
+          </span>
+        )}
+        {!diff && source && source !== "missing" && (
+          <span {...stylex.props(styles.unchanged)}>Unchanged lines</span>
+        )}
+        <span {...stylex.props(styles.jump)}>
+          <Icon name="jump" size={13} />
+        </span>
+      </button>
+      <div
+        {...stylex.props(
+          styles.cardBody,
+          near && shown
+            ? styles.cardBodyReady
+            : styles.placeholder(Math.min(14, range.end - range.start + 7) * 20),
+        )}
+      >
+        {near && shown && (
+          <FileDiff fileDiff={shown.metadata} options={options} style={diffSurfaceStyle} />
+        )}
+        {near && source === "missing" && (
+          <p {...stylex.props(styles.missing)}>
+            These lines are outside the captured change. Open the file to read them.
+          </p>
+        )}
+      </div>
+      {shown && shown.hidden > 0 && (
+        <button {...stylex.props(styles.more)} onClick={() => open()}>
+          <Icon name="jump" size={12} />
+          {shown.hidden} more {shown.hidden === 1 ? "line" : "lines"} in Changes
+        </button>
+      )}
+    </figure>
+  );
+}
+
+const enter = stylex.keyframes({
+  from: { opacity: 0, transform: "translateY(4px)" },
+  to: { opacity: 1, transform: "none" },
+});
+const grow = stylex.keyframes({ from: { transform: "scaleX(0)" } });
+const reduced = "@media (prefers-reduced-motion: reduce)";
+
+const styles = stylex.create({
+  root: {
+    containerType: "inline-size",
+    display: "flex",
+    flexDirection: "column",
+    flex: "1",
+    minWidth: 0,
+    minHeight: 0,
+    height: "100%",
+    backgroundColor: tokens.canvas,
+    color: tokens.text,
+  },
+  meta: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    minHeight: 30,
+    marginBottom: 30,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomStyle: "solid",
+    borderBottomColor: tokens.line,
+    fontFamily: tokens.ui,
+    fontSize: 12,
+    lineHeight: 1.4,
+    color: tokens.muted,
+  },
+  label: {
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    color: tokens.text,
+    fontWeight: 500,
+  },
+  coverage: { display: "flex", alignItems: "center", gap: 8, color: tokens.faint },
+  meter: {
+    display: "block",
+    width: 40,
+    height: 3,
+    borderRadius: 2,
+    overflow: "hidden",
+    backgroundColor: tokens.fillStrong,
+  },
+  meterFill: (scale: number) => ({
+    display: "block",
+    transform: `scaleX(${scale})`,
+    height: "100%",
+    backgroundColor: tokens.accent,
+    transformOrigin: "left",
+    transitionProperty: "transform",
+    transitionDuration: "420ms",
+    transitionTimingFunction: tokens.easeOut,
+    animationName: { default: grow, [reduced]: "none" },
+    animationDuration: "520ms",
+    animationTimingFunction: tokens.easeOut,
+  }),
+  grow: { flex: "1" },
+  card: {
+    // Code is wider than prose: the card reaches a little past the text column.
+    marginTop: 12,
+    marginBottom: 22,
+    marginInlineStart: "calc(-1 * var(--med-brief-bleed, 0px))",
+    marginInlineEnd: "calc(-1 * var(--med-brief-bleed, 0px))",
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: tokens.line,
+    borderRadius: 10,
+    overflow: "hidden",
+    backgroundColor: tokens.canvas,
+    boxShadow: "0 0 0 0 transparent",
+    transitionProperty: "border-color, box-shadow",
+    transitionDuration: "160ms",
+    transitionTimingFunction: tokens.easeOut,
+    fontSize: 12,
+    lineHeight: "normal",
+  },
+  cardLinked: {
+    borderColor: tokens.accentLine,
+    boxShadow: `0 0 0 3px ${tokens.accentSoft}`,
+  },
+  cardHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    width: "100%",
+    height: 32,
+    paddingInline: 11,
+    borderWidth: 0,
+    borderBottomWidth: 1,
+    borderBottomStyle: "solid",
+    borderBottomColor: tokens.line,
+    backgroundColor: { default: tokens.panel, ":hover": tokens.hover },
+    color: { default: tokens.muted, ":hover": tokens.text },
+    fontFamily: tokens.ui,
+    fontSize: 11.5,
+    textAlign: "left",
+    cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+    outlineOffset: -2,
+    transitionProperty: "background-color, color",
+    transitionDuration: "120ms",
+  },
+  path: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  directory: { color: tokens.faint },
+  name: { color: tokens.text, fontWeight: 500 },
+  lines: {
+    flexShrink: 0,
+    fontFamily: tokens.code,
+    fontSize: 10.5,
+    color: tokens.faint,
+    fontVariantNumeric: "tabular-nums",
+  },
+  stats: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 0,
+    fontFamily: tokens.code,
+    fontSize: 10.5,
+    fontVariantNumeric: "tabular-nums",
+  },
+  added: { color: tokens.green },
+  removed: { color: tokens.red },
+  unchanged: { flexShrink: 0, color: tokens.faint, fontSize: 11 },
+  jump: {
+    display: "flex",
+    flexShrink: 0,
+    color: tokens.faint,
+    opacity: {
+      default: 0,
+      [stylex.when.ancestor(":hover")]: 1,
+      [stylex.when.ancestor(":focus-visible")]: 1,
+    },
+    transform: {
+      default: "translateX(-2px)",
+      [stylex.when.ancestor(":hover")]: "none",
+      [stylex.when.ancestor(":focus-visible")]: "none",
+    },
+    transitionProperty: "opacity, transform",
+    transitionDuration: "140ms",
+    transitionTimingFunction: tokens.easeOut,
+  },
+  cardBody: { position: "relative", backgroundColor: tokens.canvas },
+  placeholder: (height: number) => ({ height }),
+  cardBodyReady: {
+    animationName: { default: enter, [reduced]: "none" },
+    animationDuration: "220ms",
+    animationTimingFunction: tokens.easeOut,
+  },
+  missing: {
+    margin: 0,
+    padding: 14,
+    color: tokens.faint,
+    fontFamily: tokens.ui,
+    fontSize: 12,
+  },
+  more: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    width: "100%",
+    height: 28,
+    paddingInline: 11,
+    borderWidth: 0,
+    borderTopWidth: 1,
+    borderTopStyle: "solid",
+    borderTopColor: tokens.line,
+    backgroundColor: { default: tokens.panel, ":hover": tokens.hover },
+    color: { default: tokens.muted, ":hover": tokens.text },
+    fontFamily: tokens.ui,
+    fontSize: 11.5,
+    cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+    outlineOffset: -2,
+  },
+  // The reading column of .med-md-prose, for content outside the prose.
+  column: {
+    boxSizing: "border-box",
+    width: "100%",
+    maxWidth: "calc(38em + 2 * clamp(24px, 4cqw, 48px))",
+    marginInline: "auto",
+    paddingInlineStart: "clamp(24px, 4cqw, 48px)",
+    paddingInlineEnd: "clamp(24px, 4cqw, 48px)",
+    paddingBottom: 64,
+    fontSize: 14,
+  },
+  uncited: {
+    paddingTop: 18,
+    borderTopWidth: 1,
+    borderTopStyle: "solid",
+    borderTopColor: tokens.line,
+    fontFamily: tokens.ui,
+  },
+  uncitedTitle: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    margin: 0,
+    fontFamily: tokens.ui,
+    fontSize: 11,
+    fontWeight: 500,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    color: tokens.muted,
+  },
+  uncitedCount: {
+    fontFamily: tokens.code,
+    fontSize: 10.5,
+    letterSpacing: 0,
+    color: tokens.faint,
+  },
+  uncitedHint: {
+    marginTop: 6,
+    marginBottom: 12,
+    marginInline: 0,
+    fontSize: 12.5,
+    color: tokens.faint,
+  },
+  uncitedList: { listStyle: "none", margin: 0, padding: 0 },
+  uncitedRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    width: "calc(100% + 16px)",
+    height: 30,
+    marginInline: -8,
+    paddingInline: 8,
+    borderWidth: 0,
+    borderRadius: 7,
+    backgroundColor: { default: "transparent", ":hover": tokens.fill },
+    color: { default: tokens.muted, ":hover": tokens.text },
+    fontFamily: tokens.ui,
+    fontSize: 12.5,
+    textAlign: "left",
+    cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+    outlineOffset: -2,
+  },
+  covered: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    margin: 0,
+    color: tokens.faint,
+    fontSize: 12.5,
+  },
+});

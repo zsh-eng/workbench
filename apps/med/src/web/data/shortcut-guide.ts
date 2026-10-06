@@ -79,6 +79,20 @@ export const guideContexts: GuideContext[] = [
         ],
       },
       {
+        title: "Brief",
+        description: "An agent's explanation of the changes, with links to the cited lines.",
+        entries: [
+          {
+            label: "Paste a brief",
+            keys: ["Mod+V"],
+            note: "Outside text fields; live changes are saved as a review first",
+            command: "paste-brief",
+          },
+          { label: "Next / previous excerpt", keys: ["]", "["], note: "In the brief" },
+          { label: "Open the cited lines", keys: ["Enter"], note: "On a link or an excerpt" },
+        ],
+      },
+      {
         title: "Layout",
         entries: [
           { label: "Toggle the sidebar", keys: ["Mod+B"], command: "sidebar" },

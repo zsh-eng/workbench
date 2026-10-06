@@ -25,6 +25,9 @@ interface FileWorkspaceSnapshot extends Workspace {
   stale: boolean;
   error: string | null;
 }
+/** Tabs that are not files: the diff stream and a saved review's brief. */
+export const isFileTab = (id: string) => id !== "changes" && id !== "brief";
+
 export function sourceKey(source: BrowseSource) {
   return JSON.stringify(
     source.kind === "commit" ? [source.kind, source.repo, source.oid] : [source.kind, source.repo],
@@ -125,7 +128,7 @@ export function createFileWorkspace(api: BrowseApi) {
         stale: false,
         error: null,
       });
-      if (source && snapshot.active !== "changes") void load();
+      if (source && isFileTab(snapshot.active)) void load();
     },
     open(
       path: string,
@@ -177,7 +180,7 @@ export function createFileWorkspace(api: BrowseApi) {
       if (!background) void load();
     },
     select(id: string) {
-      if (id !== "changes" && !snapshot.tabs.some((tab) => tab.id === id)) return;
+      if (isFileTab(id) && !snapshot.tabs.some((tab) => tab.id === id)) return;
       publish({ active: id });
       void load();
     },
@@ -209,7 +212,7 @@ export function createFileWorkspace(api: BrowseApi) {
       });
     },
     closeOthers() {
-      if (snapshot.active === "changes") return;
+      if (!isFileTab(snapshot.active)) return;
       publish({ tabs: snapshot.tabs.filter((tab) => tab.id === snapshot.active) });
     },
     forgetRepository(repositoryId: string) {

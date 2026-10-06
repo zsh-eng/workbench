@@ -5,6 +5,7 @@ import type { Commit } from "../../shared/protocol";
 import { layoutHistory, type GraphRow } from "./history-layout";
 import { tokens, ui } from "../theme.stylex";
 import { relativeTime } from "../data/relative-time";
+import { Icon } from "./Icon";
 
 const rowHeight = 48;
 // Lane colors blend the theme accent with fixed hues, so every theme gets a
@@ -83,6 +84,8 @@ export function HistoryPanel({
   onWorking,
   working,
   workingAvailable = true,
+  collapsed = false,
+  onCollapsedChange,
 }: {
   commits: Commit[];
   selected?: string;
@@ -96,6 +99,9 @@ export function HistoryPanel({
   onWorking(): void;
   working: boolean;
   workingAvailable?: boolean;
+  /** A collapsed panel keeps only its heading, which names the selection. */
+  collapsed?: boolean;
+  onCollapsedChange?(collapsed: boolean): void;
 }) {
   const tooltip = useMemo(() => Tooltip.createHandle<Commit>(), []);
   const [now, setNow] = useState(Date.now);
@@ -151,137 +157,193 @@ export function HistoryPanel({
       });
     }
   };
+  const selectedCommit = selected ? commits.find((commit) => commit.id === selected) : undefined;
+  const summary = working ? (
+    <span {...stylex.props(styles.summaryText)}>Working changes</span>
+  ) : selectedRange ? (
+    <span {...stylex.props(styles.commitHash)}>
+      {selectedRange.base.slice(0, 7)}…{selectedRange.head.slice(0, 7)}
+    </span>
+  ) : selected ? (
+    <>
+      {selectedCommit && (
+        <span {...stylex.props(styles.summaryText)}>
+          {selectedCommit.subject || "(no commit message)"}
+        </span>
+      )}
+      <span {...stylex.props(styles.commitHash)}>{selected.slice(0, 7)}</span>
+    </>
+  ) : null;
+  const count = (
+    <span {...stylex.props(styles.count)}>
+      {commits.length}
+      {hasMore ? "+" : ""}
+    </span>
+  );
   return (
     <Tooltip.Provider delay={450} closeDelay={60} timeout={800}>
-      <section {...stylex.props(styles.panel)} aria-label="Commit history">
-        <div {...stylex.props(styles.heading)}>
-          <span>History</span>
-          <span {...stylex.props(styles.count)}>
-            {commits.length}
-            {hasMore ? "+" : ""}
-          </span>
-        </div>
-        {workingAvailable && (
+      <section
+        {...stylex.props(styles.panel, collapsed && styles.collapsed)}
+        aria-label="Commit history"
+      >
+        {onCollapsedChange ? (
           <button
-            {...stylex.props(styles.working, working && styles.selected)}
-            onClick={() => {
-              pendingSelection.current = undefined;
-              anchor.current = undefined;
-              onWorking();
-            }}
-            aria-pressed={working}
+            {...stylex.props(styles.heading, styles.toggle, stylex.defaultMarker())}
+            aria-expanded={!collapsed}
+            aria-controls="history-body"
+            onClick={() => onCollapsedChange(!collapsed)}
           >
-            {/* Uncommitted work sits above HEAD as a dashed node on lane 0. */}
-            <svg width="28" height="32" aria-hidden="true" {...stylex.props(styles.graph)}>
-              <circle
-                cx={graphX(0)}
-                cy="16"
-                r="3.75"
-                fill="none"
-                strokeWidth="1.5"
-                strokeDasharray="2.2 1.9"
-                style={{ stroke: colors[0] }}
-              />
-              {commits.length > 0 && (
-                <path
-                  d={`M${graphX(0)} 20.5V32`}
-                  strokeWidth="1.5"
-                  strokeDasharray="2 2.5"
-                  opacity=".75"
-                  style={{ stroke: colors[0] }}
-                />
-              )}
-            </svg>
-            <span {...stylex.props(styles.workingLabel)}>Working changes</span>
+            <span {...stylex.props(styles.label)}>
+              History
+              <span {...stylex.props(styles.chevron, collapsed && styles.chevronClosed)}>
+                <Icon name="chevron" size={12} />
+              </span>
+            </span>
+            {collapsed ? (
+              <span key="summary" {...stylex.props(styles.summary)}>
+                {summary ?? count}
+              </span>
+            ) : (
+              count
+            )}
           </button>
+        ) : (
+          <div {...stylex.props(styles.heading)}>
+            <span>History</span>
+            {count}
+          </div>
         )}
         <div
-          ref={container}
-          {...stylex.props(styles.scroll)}
-          tabIndex={0}
-          role="listbox"
-          aria-label="Commits"
-          aria-multiselectable={!!onSelectRange}
-          aria-activedescendant={
-            rows.slice(start, end).some((row) => row.commit.id === selected)
-              ? `commit-${selected}`
-              : undefined
-          }
-          onKeyDown={(event) => {
-            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-              event.preventDefault();
-              selectRelative(event.key === "ArrowDown" ? 1 : -1, event.shiftKey);
-            }
-          }}
-          onScroll={(event) => {
-            const node = event.currentTarget;
-            setViewport({ top: node.scrollTop, height: node.clientHeight });
-            if (node.scrollHeight - node.scrollTop - node.clientHeight < 180 && hasMore && !loading)
-              onLoadMore();
-          }}
+          id="history-body"
+          inert={collapsed}
+          {...stylex.props(styles.body, collapsed && styles.bodyHidden)}
         >
-          <div style={{ height: rows.length * rowHeight, position: "relative" }}>
-            {rows.slice(start, end).map((row, offset) => (
-              <Tooltip.Trigger
-                handle={tooltip}
-                payload={row.commit}
-                id={`commit-${row.commit.id}`}
-                key={row.commit.id}
-                role="option"
-                aria-selected={isSelected(row.commit.id, start + offset)}
-                tabIndex={-1}
-                onClick={(event) => selectCommit(row.commit.id, event.shiftKey)}
-                className={
-                  stylex.props(
-                    styles.commit,
-                    isSelected(row.commit.id, start + offset) && styles.selected,
-                  ).className
-                }
-                style={{ top: (start + offset) * rowHeight }}
-              >
-                <Graph row={row} working={workingAvailable && start + offset === 0} />
-                <span {...stylex.props(styles.commitText)}>
-                  <span {...stylex.props(styles.subjectLine)}>
-                    <span {...stylex.props(styles.subject)}>
-                      {row.commit.subject || "(no commit message)"}
-                    </span>
-                    <span {...stylex.props(styles.commitHash)}>{row.commit.id.slice(0, 7)}</span>
-                  </span>
-                  <span {...stylex.props(styles.metadata)}>
-                    {row.commit.refs.length > 0 && (
-                      <span {...stylex.props(styles.refs)} title={row.commit.refs.join(" · ")}>
-                        {row.commit.refs.join(" · ")}
-                      </span>
-                    )}
-                    <span {...stylex.props(ui.truncate)}>{row.commit.author}</span>
-                    <time
-                      {...stylex.props(styles.time)}
-                      dateTime={new Date(row.commit.timestamp).toISOString()}
-                    >
-                      {relativeTime(row.commit.timestamp, now)}
-                    </time>
-                  </span>
-                </span>
-              </Tooltip.Trigger>
-            ))}
-          </div>
-          {commits.length === 0 && !loading && !error && (
-            <div {...stylex.props(styles.empty)}>No commits yet</div>
-          )}
-          {error && (
-            <div role="alert" {...stylex.props(styles.empty)}>
-              {error}
-            </div>
-          )}
-          {(hasMore || loading) && (
+          {workingAvailable && (
             <button
-              {...stylex.props(ui.button, styles.loadMore)}
-              onClick={onLoadMore}
-              disabled={loading}
+              {...stylex.props(styles.working, working && styles.selected)}
+              onClick={() => {
+                pendingSelection.current = undefined;
+                anchor.current = undefined;
+                onWorking();
+              }}
+              aria-pressed={working}
             >
-              {loading ? "Loading history…" : "Load earlier commits"}
+              {/* Uncommitted work sits above HEAD as a dashed node on lane 0. */}
+              <svg width="28" height="32" aria-hidden="true" {...stylex.props(styles.graph)}>
+                <circle
+                  cx={graphX(0)}
+                  cy="16"
+                  r="3.75"
+                  fill="none"
+                  strokeWidth="1.5"
+                  strokeDasharray="2.2 1.9"
+                  style={{ stroke: colors[0] }}
+                />
+                {commits.length > 0 && (
+                  <path
+                    d={`M${graphX(0)} 20.5V32`}
+                    strokeWidth="1.5"
+                    strokeDasharray="2 2.5"
+                    opacity=".75"
+                    style={{ stroke: colors[0] }}
+                  />
+                )}
+              </svg>
+              <span {...stylex.props(styles.workingLabel)}>Working changes</span>
             </button>
           )}
+          <div
+            ref={container}
+            {...stylex.props(styles.scroll)}
+            tabIndex={0}
+            role="listbox"
+            aria-label="Commits"
+            aria-multiselectable={!!onSelectRange}
+            aria-activedescendant={
+              rows.slice(start, end).some((row) => row.commit.id === selected)
+                ? `commit-${selected}`
+                : undefined
+            }
+            onKeyDown={(event) => {
+              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                event.preventDefault();
+                selectRelative(event.key === "ArrowDown" ? 1 : -1, event.shiftKey);
+              }
+            }}
+            onScroll={(event) => {
+              const node = event.currentTarget;
+              setViewport({ top: node.scrollTop, height: node.clientHeight });
+              if (
+                node.scrollHeight - node.scrollTop - node.clientHeight < 180 &&
+                hasMore &&
+                !loading
+              )
+                onLoadMore();
+            }}
+          >
+            <div style={{ height: rows.length * rowHeight, position: "relative" }}>
+              {rows.slice(start, end).map((row, offset) => (
+                <Tooltip.Trigger
+                  handle={tooltip}
+                  payload={row.commit}
+                  id={`commit-${row.commit.id}`}
+                  key={row.commit.id}
+                  role="option"
+                  aria-selected={isSelected(row.commit.id, start + offset)}
+                  tabIndex={-1}
+                  onClick={(event) => selectCommit(row.commit.id, event.shiftKey)}
+                  className={
+                    stylex.props(
+                      styles.commit,
+                      isSelected(row.commit.id, start + offset) && styles.selected,
+                    ).className
+                  }
+                  style={{ top: (start + offset) * rowHeight }}
+                >
+                  <Graph row={row} working={workingAvailable && start + offset === 0} />
+                  <span {...stylex.props(styles.commitText)}>
+                    <span {...stylex.props(styles.subjectLine)}>
+                      <span {...stylex.props(styles.subject)}>
+                        {row.commit.subject || "(no commit message)"}
+                      </span>
+                      <span {...stylex.props(styles.commitHash)}>{row.commit.id.slice(0, 7)}</span>
+                    </span>
+                    <span {...stylex.props(styles.metadata)}>
+                      {row.commit.refs.length > 0 && (
+                        <span {...stylex.props(styles.refs)} title={row.commit.refs.join(" · ")}>
+                          {row.commit.refs.join(" · ")}
+                        </span>
+                      )}
+                      <span {...stylex.props(ui.truncate)}>{row.commit.author}</span>
+                      <time
+                        {...stylex.props(styles.time)}
+                        dateTime={new Date(row.commit.timestamp).toISOString()}
+                      >
+                        {relativeTime(row.commit.timestamp, now)}
+                      </time>
+                    </span>
+                  </span>
+                </Tooltip.Trigger>
+              ))}
+            </div>
+            {commits.length === 0 && !loading && !error && (
+              <div {...stylex.props(styles.empty)}>No commits yet</div>
+            )}
+            {error && (
+              <div role="alert" {...stylex.props(styles.empty)}>
+                {error}
+              </div>
+            )}
+            {(hasMore || loading) && (
+              <button
+                {...stylex.props(ui.button, styles.loadMore)}
+                onClick={onLoadMore}
+                disabled={loading}
+              >
+                {loading ? "Loading history…" : "Load earlier commits"}
+              </button>
+            )}
+          </div>
         </div>
       </section>
       <Tooltip.Root handle={tooltip} disabled={!commits.length}>
@@ -316,6 +378,10 @@ export function HistoryPanel({
   );
 }
 
+const summaryEnter = stylex.keyframes({
+  from: { opacity: 0, transform: "translateY(3px)" },
+  to: { opacity: 1, transform: "none" },
+});
 const styles = stylex.create({
   time: { flexShrink: 0, whiteSpace: "nowrap" },
   tooltipPositioner: { zIndex: 100 },
@@ -342,9 +408,25 @@ const styles = stylex.create({
   panel: {
     display: "flex",
     flexDirection: "column",
+    flexShrink: 0,
     minHeight: 140,
     height: "43%",
+    transitionProperty: "height, min-height",
+    transitionDuration: { default: "280ms", "@media (prefers-reduced-motion: reduce)": "0s" },
+    transitionTimingFunction: tokens.easeInOut,
   },
+  collapsed: { height: 36, minHeight: 36 },
+  body: {
+    display: "flex",
+    flexDirection: "column",
+    flex: "1",
+    minHeight: 0,
+    overflow: "hidden",
+    transitionProperty: "opacity",
+    transitionDuration: { default: "180ms", "@media (prefers-reduced-motion: reduce)": "0s" },
+    transitionTimingFunction: tokens.easeOut,
+  },
+  bodyHidden: { opacity: 0 },
   heading: {
     display: "flex",
     alignItems: "center",
@@ -355,6 +437,68 @@ const styles = stylex.create({
     fontSize: 11.5,
     fontWeight: 500,
     color: tokens.muted,
+  },
+  // The heading is the toggle; it keeps the plain heading's look and alignment.
+  toggle: {
+    gap: 12,
+    flexShrink: 0,
+    width: "100%",
+    boxSizing: "border-box",
+    padding: 0,
+    paddingInline: 14,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    color: { default: tokens.muted, ":hover": tokens.text },
+    fontFamily: tokens.ui,
+    textAlign: "left",
+    cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+    outlineOffset: -2,
+    borderRadius: 7,
+    transitionProperty: "color",
+    transitionDuration: "120ms",
+  },
+  label: { display: "flex", alignItems: "center", gap: 4, flexShrink: 0 },
+  // The chevron shows on hover, and always while the panel is collapsed.
+  chevron: {
+    display: "flex",
+    color: tokens.faint,
+    opacity: {
+      default: 0,
+      [stylex.when.ancestor(":hover")]: 1,
+      [stylex.when.ancestor(":focus-visible")]: 1,
+    },
+    transform: "none",
+    transitionProperty: "opacity, transform",
+    transitionDuration: { default: "200ms", "@media (prefers-reduced-motion: reduce)": "0s" },
+    transitionTimingFunction: tokens.easeOut,
+  },
+  chevronClosed: {
+    opacity: {
+      default: 1,
+      [stylex.when.ancestor(":hover")]: 1,
+      [stylex.when.ancestor(":focus-visible")]: 1,
+    },
+    transform: "rotate(-90deg)",
+  },
+  summary: {
+    display: "flex",
+    alignItems: "baseline",
+    justifyContent: "flex-end",
+    gap: 8,
+    minWidth: 0,
+    animationName: { default: summaryEnter, "@media (prefers-reduced-motion: reduce)": "none" },
+    animationDuration: "240ms",
+    animationTimingFunction: tokens.easeOut,
+  },
+  summaryText: {
+    minWidth: 0,
+    overflow: "hidden",
+    whiteSpace: "nowrap",
+    textOverflow: "ellipsis",
+    color: tokens.muted,
+    fontSize: 11.5,
+    fontWeight: 400,
   },
   count: {
     color: tokens.faint,

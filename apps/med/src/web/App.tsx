@@ -13,6 +13,8 @@ import {
   type FileDiffMetadata,
 } from "@pierre/diffs/react";
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -20,7 +22,6 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
-  type CSSProperties,
 } from "react";
 import type { Comparison, Note, NoteInput } from "../shared/protocol";
 import { useReviewController, type ReviewController } from "./data/controller";
@@ -44,7 +45,7 @@ import { BranchStrip, BranchSwitch, useBranchTabs } from "./components/BranchTab
 import { BranchPicker } from "./components/BranchPicker";
 import type { BrowseSource } from "../shared/browse";
 import { createBrowseApi, useBrowseFiles, type BrowseApi } from "./data/browse";
-import { createFileWorkspace, sourceKey, useFileWorkspace } from "./data/file-workspace";
+import { createFileWorkspace, isFileTab, sourceKey, useFileWorkspace } from "./data/file-workspace";
 import { RepositoryFiles } from "./components/RepositoryFiles";
 import { FilePicker } from "./components/FilePicker";
 import { SymbolPicker } from "./components/SymbolPicker";
@@ -64,6 +65,13 @@ import { createFilePrefetch } from "./data/file-prefetch";
 import { createRenderDiagnostics } from "./data/render-diagnostics";
 import { findDefinitions } from "./data/definitions";
 import type { SymbolSearch } from "../shared/symbols";
+import { clipboardBrief } from "./data/brief";
+import type { BriefLocation } from "./components/BriefView";
+import { SaveReviewDialog } from "./components/SaveReviewDialog";
+import { diffSurfaceStyle } from "./components/diff-surface";
+
+// The brief loads its Markdown worker and excerpt renderer only when shown.
+const BriefView = lazy(() => import("./components/BriefView"));
 
 type Annotation = { note?: Note; draft?: NoteTarget };
 type Selection = {
@@ -109,10 +117,13 @@ export function App({
   controller,
   browseApi: providedBrowseApi,
   loadBlame: providedBlameLoader,
+  onOpenReview = (id) => location.assign(`/review/${encodeURIComponent(id)}`),
 }: {
   controller: ReviewController;
   browseApi?: BrowseApi;
   loadBlame?: BlameLoader;
+  /** Show a newly saved review. */
+  onOpenReview?(id: string): void;
 }) {
   const state = useReviewController(controller);
   const gitAvailable = state.session?.repository.git !== false;
@@ -166,6 +177,16 @@ export function App({
       /* Storage can be unavailable. */
     }
   }, [vimEnabled]);
+  const [historyCollapsed, setHistoryCollapsed] = useState(
+    () => readPreference("history", "open", ["open", "closed"]) === "closed",
+  );
+  useEffect(() => {
+    try {
+      localStorage.setItem("med:history", historyCollapsed ? "closed" : "open");
+    } catch {
+      /* Storage can be unavailable. */
+    }
+  }, [historyCollapsed]);
   const [helpOpen, setHelpOpen] = useState(false);
   const fileNavigation = useRef<((key: string, control?: boolean) => void) | null>(null);
   const onNavigationReady = useCallback(
@@ -597,6 +618,146 @@ export function App({
       });
     },
     [controller, fileWorkspace],
+  );
+
+  // A brief explains a saved review. Paste one with Command-V; its links open
+  // the cited lines in Changes.
+  const savedBrief = state.savedView ? state.savedReview?.brief : undefined;
+  // Keep the brief mounted once shown, so its scroll position survives tab changes.
+  const [briefMounted, setBriefMounted] = useState(false);
+  if (fileState.active === "brief" && !briefMounted) setBriefMounted(true);
+  const [pendingBrief, setPendingBrief] = useState<string | null>(null);
+  // Undo puts back the brief text that a change replaced; null removes the brief.
+  const [toast, setToast] = useState<{
+    id: number;
+    text: string;
+    restore?: string | null;
+  } | null>(null);
+  const showToast = useCallback(
+    (text: string, restore?: string | null) =>
+      setToast((current) => ({ id: (current?.id ?? 0) + 1, text, restore })),
+    [],
+  );
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), toast.restore === undefined ? 4000 : 8000);
+    return () => clearTimeout(timer);
+  }, [toast]);
+  const briefShown = useRef<string | null>(null);
+  useEffect(() => {
+    if (!savedBrief) {
+      if (fileState.active === "brief") fileWorkspace.select("changes");
+      return;
+    }
+    if (state.status !== "ready" || !state.savedReview) return;
+    // Open on the brief once per review and after each paste; tab choices stay.
+    if (briefShown.current === state.savedReview.id) return;
+    briefShown.current = state.savedReview.id;
+    fileWorkspace.select("brief");
+  }, [savedBrief, state.savedReview, state.status, fileState.active, fileWorkspace]);
+  const canSaveReview =
+    gitAvailable &&
+    !!state.session &&
+    !state.savedReview &&
+    state.status === "ready" &&
+    state.comparison.kind !== "files" &&
+    state.comparison.kind !== "patch";
+  const setBrief = useCallback(
+    async (text: string | null, message: string, undo?: string | null) => {
+      try {
+        await controller.setSavedBrief(text);
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : "The brief could not be saved.");
+        return false;
+      }
+      briefShown.current = null;
+      if (text && !controller.getSnapshot().savedView) void controller.returnToSavedReview();
+      if (!text) fileWorkspace.select("changes");
+      showToast(message, undo);
+      return true;
+    },
+    [controller, fileWorkspace, showToast],
+  );
+  const attachBrief = useCallback(
+    (text: string) => {
+      const saved = controller.getSnapshot().savedReview;
+      if (!saved) {
+        if (canSaveReview) setPendingBrief(text);
+        return;
+      }
+      const previous = saved.brief?.text ?? null;
+      void setBrief(text, previous ? "Brief replaced." : "Brief attached.", previous);
+    },
+    [controller, canSaveReview, setBrief],
+  );
+  const pasteBrief = useCallback(() => {
+    navigator.clipboard.readText().then(
+      (text) => (text.trim() ? attachBrief(text) : showToast("The clipboard has no text.")),
+      () => showToast("Allow clipboard access, or press ⌘V."),
+    );
+  }, [attachBrief, showToast]);
+  const copyBrief = useCallback(() => {
+    const text = controller.getSnapshot().savedReview?.brief?.text;
+    if (text)
+      navigator.clipboard.writeText(text).then(
+        () => showToast("Brief copied."),
+        () => showToast("Copying needs clipboard access."),
+      );
+  }, [controller, showToast]);
+  const removeBrief = useCallback(() => {
+    const text = controller.getSnapshot().savedReview?.brief?.text;
+    if (text) void setBrief(null, "Brief removed.", text);
+  }, [controller, setBrief]);
+  useEffect(() => {
+    const paste = (event: ClipboardEvent) => {
+      if (event.defaultPrevented) return;
+      const editing = event
+        .composedPath()
+        .some(
+          (node) =>
+            node instanceof HTMLElement &&
+            (node.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(node.tagName)),
+        );
+      if (editing || document.querySelector('[role="dialog"]')) return;
+      if (!controller.getSnapshot().savedReview && !canSaveReview) return;
+      const text = clipboardBrief(event.clipboardData);
+      if (!text) return;
+      event.preventDefault();
+      attachBrief(text);
+    };
+    window.addEventListener("paste", paste);
+    return () => window.removeEventListener("paste", paste);
+  }, [controller, canSaveReview, attachBrief]);
+  const openBriefLocation = useCallback(
+    (location: BriefLocation) => {
+      const snapshot = controller.getSnapshot();
+      if (!snapshot.visibleFiles.some((file) => file.id === location.fileId))
+        controller.setFilter("");
+      if (location.start === undefined) {
+        reveal(location.fileId);
+        return;
+      }
+      const id = location.fileId;
+      const start = location.start;
+      const side = location.side === "old" ? "deletions" : "additions";
+      explicitReveal.current = fileWorkspace.getSnapshot().active !== "changes";
+      fileWorkspace.select("changes");
+      controller.revealFile(id);
+      setCollapsed((current) => {
+        if (!current.has(id)) return current;
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+      setSelection({ id, range: { start, end: location.end ?? start, side } });
+      // Changes becomes visible in this frame and measures in the next.
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() =>
+          viewer.current?.scrollTo({ type: "line", id, lineNumber: start, side, align: "center" }),
+        ),
+      );
+    },
+    [controller, fileWorkspace, reveal],
   );
   useEffect(() => {
     if (!state.selectedFileId) return;
@@ -1404,6 +1565,24 @@ export function App({
       label: "Return to Changes",
       run: () => fileWorkspace.select("changes"),
     },
+    ...(savedBrief
+      ? [
+          { id: "brief", label: "Open the brief", run: () => fileWorkspace.select("brief") },
+          { id: "copy-brief", label: "Copy the brief text", run: copyBrief },
+          { id: "remove-brief", label: "Remove the brief", run: removeBrief },
+        ]
+      : []),
+    {
+      id: "paste-brief",
+      label: state.savedReview
+        ? savedBrief
+          ? "Replace the brief from the clipboard"
+          : "Attach a brief from the clipboard"
+        : "Save these changes with a brief from the clipboard",
+      shortcut: "⌘ V",
+      disabled: !state.savedReview && !canSaveReview,
+      run: pasteBrief,
+    },
     {
       id: "blame",
       label: blameEnabled ? "Hide Git blame" : "Show Git blame in the gutter",
@@ -1519,6 +1698,15 @@ export function App({
       shortcut: "⌘ B",
       run: toggleReviewSidebar,
     },
+    ...(gitAvailable && leftVisible
+      ? [
+          {
+            id: "history",
+            label: historyCollapsed ? "Expand history" : "Collapse history",
+            run: () => setHistoryCollapsed((value) => !value),
+          },
+        ]
+      : []),
     {
       id: "zen",
       label: zen ? "Leave zen mode" : "Enter zen mode",
@@ -1765,28 +1953,30 @@ export function App({
       <span {...stylex.props(styles.headerDivider)} />
     </>
   );
-  const mainHeader = browseSource ? (
-    <FileViewTabs
-      leading={leading}
-      trailing={viewControls}
-      tabs={fileState.tabs.map((tab) => ({
-        ...tab,
-        sourcePath: tab.source.repo,
-        dirty: !!editorDrafts.get(JSON.stringify([tab.source, tab.path]))?.dirty,
-      }))}
-      active={fileState.active}
-      changesCount={state.review ? state.files.length : undefined}
-      onSelect={fileWorkspace.select}
-      onClose={fileWorkspace.close}
-      onPin={fileWorkspace.pin}
-    />
-  ) : (
-    <header {...stylex.props(styles.mainHeader)}>
-      {leading}
-      <span {...stylex.props(ui.grow)} />
-      {viewControls}
-    </header>
-  );
+  const mainHeader =
+    browseSource || savedBrief ? (
+      <FileViewTabs
+        leading={leading}
+        trailing={viewControls}
+        showBrief={!!savedBrief}
+        tabs={fileState.tabs.map((tab) => ({
+          ...tab,
+          sourcePath: tab.source.repo,
+          dirty: !!editorDrafts.get(JSON.stringify([tab.source, tab.path]))?.dirty,
+        }))}
+        active={fileState.active}
+        changesCount={state.review ? state.files.length : undefined}
+        onSelect={fileWorkspace.select}
+        onClose={fileWorkspace.close}
+        onPin={fileWorkspace.pin}
+      />
+    ) : (
+      <header {...stylex.props(styles.mainHeader)}>
+        {leading}
+        <span {...stylex.props(ui.grow)} />
+        {viewControls}
+      </header>
+    );
   const branchPicker = gitAvailable && (
     <BranchPicker
       repositories={state.repositories}
@@ -1838,7 +2028,7 @@ export function App({
         <SavedReviewHeader
           controller={controller}
           state={state}
-          browsing={fileState.active !== "changes"}
+          browsing={isFileTab(fileState.active)}
           browsingSourceLabel={activeFile?.sourceLabel ?? sourceLabel}
           onReturn={() => {
             pendingSavedChanges.current = state.savedTargetId;
@@ -1854,6 +2044,18 @@ export function App({
       )}
       {zen ? <ZenHint loading={state.status === "loading"} /> : <BranchStrip model={branches} />}
       {branchPicker}
+      <SaveReviewDialog
+        brief={pendingBrief}
+        files={state.files}
+        root={state.review?.repo}
+        comparisonLabel={state.review?.label ?? "These changes"}
+        onClose={() => setPendingBrief(null)}
+        onSave={async (title) => {
+          const id = await controller.saveReview({ title, brief: pendingBrief ?? undefined });
+          setPendingBrief(null);
+          onOpenReview(id);
+        }}
+      />
       <ThemePicker open={themePickerOpen} onOpenChange={setThemePickerOpen} />
       {definitions && (
         <SymbolPicker
@@ -1962,6 +2164,8 @@ export function App({
                 }
                 working={state.comparison.kind === "working"}
                 workingAvailable={workingAvailable}
+                collapsed={historyCollapsed}
+                onCollapsedChange={setHistoryCollapsed}
                 loading={state.historyLoading}
                 hasMore={state.historyHasMore}
                 error={state.historyError}
@@ -2049,7 +2253,13 @@ export function App({
           <div
             id="file-view-panel"
             role="tabpanel"
-            aria-label={activeFile ? `File ${activeFile.path}` : "Changes"}
+            aria-label={
+              activeFile
+                ? `File ${activeFile.path}`
+                : fileState.active === "brief"
+                  ? "Brief"
+                  : "Changes"
+            }
             {...stylex.props(styles.reviewSurface)}
           >
             <div
@@ -2368,21 +2578,7 @@ export function App({
                     onSelectedLinesChange={setSelection}
                     options={options}
                     className={stylex.props(styles.codeView).className}
-                    style={
-                      {
-                        "--diffs-font-family": tokens.code,
-                        "--diffs-font-size": "12px",
-                        "--diffs-line-height": "20px",
-                        "--diffs-header-font-family": tokens.ui,
-                        "--diffs-bg-context-override": tokens.canvas,
-                        "--diffs-bg-context-gutter-override": tokens.canvas,
-                        "--diffs-bg-separator-override": `color-mix(in srgb, ${tokens.canvas} 96.5%, ${tokens.text})`,
-                        "--diffs-bg-buffer-override": `color-mix(in srgb, ${tokens.canvas} 98%, ${tokens.text})`,
-                        "--diffs-fg-number-override": tokens.faint,
-                        "--diffs-addition-color-override": tokens.green,
-                        "--diffs-deletion-color-override": tokens.red,
-                      } as CSSProperties
-                    }
+                    style={diffSurfaceStyle}
                     renderCustomHeader={(item) => {
                       const path = item.type === "diff" ? item.fileDiff.name : item.file.name;
                       const info = fileInfoById.get(item.id);
@@ -2562,6 +2758,31 @@ export function App({
                 ) : null}
               </div>
             </div>
+            {savedBrief && briefMounted && state.savedReview && (
+              <div
+                {...stylex.props(
+                  styles.reviewSurface,
+                  fileState.active !== "brief" && styles.hiddenSurface,
+                )}
+                aria-hidden={fileState.active !== "brief"}
+              >
+                <Suspense fallback={null}>
+                  <BriefView
+                    key={state.savedReview.id}
+                    brief={savedBrief}
+                    files={state.files}
+                    root={state.review?.repo}
+                    active={fileState.active === "brief"}
+                    loadSource={controller.loadSources}
+                    onOpen={openBriefLocation}
+                    onOpenPath={(path, line) => fileWorkspace.open(path, true, line)}
+                    onPaste={pasteBrief}
+                    onCopy={copyBrief}
+                    onRemove={removeBrief}
+                  />
+                </Suspense>
+              </div>
+            )}
             {activeFile && (
               <FullFileView
                 editor={
@@ -2622,6 +2843,23 @@ export function App({
               />
             )}
           </div>
+          {toast && (
+            <div key={toast.id} role="status" {...stylex.props(styles.toast)}>
+              {toast.text}
+              {toast.restore !== undefined && (
+                <button
+                  {...stylex.props(styles.toastAction)}
+                  onClick={() => {
+                    const restore = toast.restore!;
+                    setToast(null);
+                    void setBrief(restore, restore ? "Brief restored." : "Brief removed.");
+                  }}
+                >
+                  Undo
+                </button>
+              )}
+            </div>
+          )}
         </main>
         {browseSource && (
           <aside
@@ -2747,6 +2985,11 @@ const ping = stylex.keyframes({
 const reduced = "@media (prefers-reduced-motion: reduce)";
 const headerBackground = `color-mix(in srgb, ${tokens.canvas} 96%, ${tokens.text})`;
 
+const toastFade = stylex.keyframes({ from: { opacity: 0 }, to: { opacity: 1 } });
+const toastRise = stylex.keyframes({
+  from: { opacity: 0, transform: "translate(-50%, 8px)" },
+  to: { opacity: 1, transform: "translate(-50%, 0)" },
+});
 const styles = stylex.create({
   app: {
     position: "fixed",
@@ -2872,6 +3115,46 @@ const styles = stylex.create({
     minWidth: 0,
   },
   hiddenSurface: { display: "none" },
+  // One quiet message at a time, low in the review card, with an optional undo.
+  toast: {
+    position: "absolute",
+    left: "50%",
+    bottom: 18,
+    zIndex: 30,
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    height: 34,
+    paddingInlineStart: 13,
+    paddingInlineEnd: 10,
+    borderRadius: 10,
+    backgroundColor: tokens.raised,
+    boxShadow: `0 0 0 1px ${tokens.lineStrong}, 0 12px 32px -14px rgb(0 0 0 / 0.5)`,
+    color: tokens.text,
+    fontFamily: tokens.ui,
+    fontSize: 12,
+    whiteSpace: "nowrap",
+    transform: "translateX(-50%)",
+    animationName: {
+      default: toastRise,
+      "@media (prefers-reduced-motion: reduce)": toastFade,
+    },
+    animationDuration: "220ms",
+    animationTimingFunction: tokens.easeOut,
+  },
+  toastAction: {
+    height: 24,
+    paddingInline: 8,
+    borderWidth: 0,
+    borderRadius: 6,
+    backgroundColor: { default: tokens.fill, ":hover": tokens.fillStrong },
+    color: tokens.accent,
+    fontFamily: tokens.ui,
+    fontSize: 12,
+    fontWeight: 500,
+    cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+  },
   // Diagnostics stay out of sight until the pointer rests on the status bar.
   onStatusHover: {
     opacity: { default: 0, [stylex.when.ancestor(":hover")]: 1 },
