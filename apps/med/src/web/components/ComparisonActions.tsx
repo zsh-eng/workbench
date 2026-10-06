@@ -8,6 +8,7 @@ import { createApi } from "../data/api";
 import { readBrowserToken } from "../data/auth";
 import { ChoiceSelect } from "./Controls";
 import { Icon } from "./Icon";
+import { ActionTooltip } from "./ToolButton";
 import { tokens, ui } from "../theme.stylex";
 
 export function ComparisonActions({
@@ -193,13 +194,15 @@ export function ComparisonActions({
           setPushOpen(open);
         }}
       >
-        <Dialog.Trigger
-          {...stylex.props(ui.button, ui.outlined, ui.pressable, styles.push)}
-          disabled={!commitHead || !targets}
-        >
-          <Icon name="push" size={14} />
-          Push
-        </Dialog.Trigger>
+        <ActionTooltip label="Push to remote">
+          <Dialog.Trigger
+            {...stylex.props(ui.button, ui.iconButton, ui.pressable)}
+            aria-label="Push"
+            disabled={!commitHead || !targets}
+          >
+            <Icon name="push" size={15} />
+          </Dialog.Trigger>
+        </ActionTooltip>
         <Dialog.Portal>
           <Dialog.Backdrop {...stylex.props(ui.scrim, styles.backdrop)} />
           <Dialog.Popup {...stylex.props(styles.dialog)}>
@@ -287,7 +290,6 @@ const styles = stylex.create({
   trigger: { gap: 4, paddingInlineEnd: 5 },
   baseLabel: { color: tokens.faint, fontWeight: 450 },
   chevron: { display: "inline-flex", color: tokens.faint },
-  push: { gap: 5, marginInlineStart: 2, paddingInlineStart: 7, paddingInlineEnd: 9 },
   filter: {
     display: "flex",
     alignItems: "center",

@@ -43,7 +43,9 @@ export type IconName =
   | "pullRequest"
   | "github"
   | "testFile"
-  | "focus";
+  | "focus"
+  | "focusExit"
+  | "selector";
 
 const branch = (
   <>
@@ -62,6 +64,11 @@ const icons: Record<IconName, ReactNode> = {
       <circle cx="8" cy="8" r="1.25" fill="currentColor" stroke="none" />
     </>
   ),
+  // Corners turned inward: the way back out of zen mode.
+  focusExit: (
+    <path d="M5.75 2.75v1.5a1.5 1.5 0 0 1-1.5 1.5h-1.5M13.25 5.75h-1.5a1.5 1.5 0 0 1-1.5-1.5v-1.5M10.25 13.25v-1.5a1.5 1.5 0 0 1 1.5-1.5h1.5M2.75 10.25h1.5a1.5 1.5 0 0 1 1.5 1.5v1.5" />
+  ),
+  selector: <path d="M5.5 6.25 8 3.75l2.5 2.5M5.5 9.75 8 12.25l2.5-2.5" />,
   github: (
     <path
       fill="currentColor"

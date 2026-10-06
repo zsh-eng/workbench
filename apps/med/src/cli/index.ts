@@ -53,6 +53,11 @@ async function main() {
     await runOpenCommand(process.argv.slice(3));
     return;
   }
+  if (process.argv[2] === "pr") {
+    const { runPullRequestCommand } = await import("./pr");
+    await runPullRequestCommand(process.argv.slice(3));
+    return;
+  }
   if (process.argv[2] === "review") {
     await runReviewCommand(process.argv.slice(3));
     return;

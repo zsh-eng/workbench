@@ -139,9 +139,10 @@ try {
   await page
     .getByRole("textbox", { name: "Edit src/test/java/Payment Test.java", exact: true })
     .waitFor();
-  assert.equal(
-    await page.getByRole("tab", { name: /frontend.*main/ }).getAttribute("aria-selected"),
-    "true",
+  // One open branch has no tab strip; the switcher names the current branch.
+  assert.match(
+    await page.getByRole("button", { name: "Open branch", exact: true }).innerText(),
+    /frontend\s*\/\s*main/,
   );
   assert.ok(listed.some((repo) => repo === repositories[1]));
   assert.ok(listed.every((repo) => repositories.slice(0, 2).includes(repo)));

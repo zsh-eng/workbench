@@ -193,7 +193,6 @@ export function HistoryPanel({
               )}
             </svg>
             <span {...stylex.props(styles.workingLabel)}>Working changes</span>
-            <span {...stylex.props(styles.workingHint)}>uncommitted</span>
           </button>
         )}
         <div
@@ -384,7 +383,6 @@ const styles = stylex.create({
     outlineOffset: -2,
   },
   workingLabel: { flex: "1", minWidth: 0 },
-  workingHint: { color: tokens.faint, fontSize: 11 },
   scroll: {
     flex: "1",
     overflowY: "auto",

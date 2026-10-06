@@ -2,7 +2,8 @@ import { afterEach, expect, test } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { BranchTabs } from "../../src/web/components/BranchTabs";
+import { BranchStrip, BranchSwitch, useBranchTabs } from "../../src/web/components/BranchTabs";
+import { BranchPicker } from "../../src/web/components/BranchPicker";
 import type { RegisteredRepository } from "../../src/shared/protocol";
 import { initializeTheme } from "../../src/web/themes";
 
@@ -39,36 +40,46 @@ async function setup(
     const [activeBranch, setActiveBranch] = useState<string | null>("main");
     const [repo, setRepo] = useState(initial[0]!.path);
     const [pickerOpen, setPickerOpen] = useState(false);
+    // The same parts App places: the strip, the switcher, and the picker.
+    const model = useBranchTabs({
+      repositories,
+      activeRepositoryId,
+      activeBranch,
+      repo,
+      error: null,
+      onBranch: (branch, id) => {
+        selections.push(`${id}:${branch}`);
+        setActiveRepository(id);
+        setActiveBranch(branch);
+        setRepo(repositories.find((entry) => entry.id === id)!.path);
+      },
+      onWorktree: (path, id) => {
+        selections.push(`${id}:${path}`);
+        setActiveRepository(id);
+        setActiveBranch(null);
+        setRepo(path);
+      },
+    });
     return (
-      <BranchTabs
-        repositories={repositories}
-        activeRepositoryId={activeRepositoryId}
-        activeBranch={activeBranch}
-        repo={repo}
-        error={null}
-        pickerOpen={pickerOpen}
-        onPickerOpenChange={setPickerOpen}
-        onBranch={(branch, id) => {
-          selections.push(`${id}:${branch}`);
-          setActiveRepository(id);
-          setActiveBranch(branch);
-          setRepo(repositories.find((entry) => entry.id === id)!.path);
-        }}
-        onWorktree={(path, id) => {
-          selections.push(`${id}:${path}`);
-          setActiveRepository(id);
-          setActiveBranch(null);
-          setRepo(path);
-        }}
-        onRefresh={async () => {}}
-        onAddRepository={async (path) => {
-          if (path === "/missing") throw new Error("Repository does not exist.");
-          setRepositories((current) => [...current, repository(path.split("/").at(-1)!, path)]);
-        }}
-        onRemoveRepository={async (id) => {
-          setRepositories((current) => current.filter((entry) => entry.id !== id));
-        }}
-      />
+      <>
+        <BranchStrip model={model} />
+        <BranchSwitch model={model} onOpen={() => setPickerOpen(true)} />
+        <BranchPicker
+          repositories={repositories}
+          entries={model.entries}
+          open={pickerOpen}
+          onOpenChange={setPickerOpen}
+          onSelect={model.open}
+          onRefresh={async () => {}}
+          onAddRepository={async (path) => {
+            if (path === "/missing") throw new Error("Repository does not exist.");
+            setRepositories((current) => [...current, repository(path.split("/").at(-1)!, path)]);
+          }}
+          onRemoveRepository={async (id) => {
+            setRepositories((current) => current.filter((entry) => entry.id !== id));
+          }}
+        />
+      </>
     );
   }
   initializeTheme();
@@ -84,10 +95,11 @@ async function setup(
 
 test("groups identical branches by repository and focuses existing cross-repository tabs", async () => {
   const { selections } = await setup();
+  // One open branch needs no strip; the switcher names it.
   await expect
-    .element(page.getByRole("tab", { name: "frontend / main", exact: true }))
-    .toBeVisible();
-  expect(document.querySelectorAll('[role="tab"]')).toHaveLength(1);
+    .element(page.getByRole("button", { name: "Open branch", exact: true }))
+    .toHaveTextContent("frontend/main");
+  expect(document.querySelectorAll('[role="tab"]')).toHaveLength(0);
   await expect
     .element(page.getByRole("tab", { name: "backend / main", exact: true }))
     .not.toBeInTheDocument();
@@ -113,7 +125,7 @@ test("groups identical branches by repository and focuses existing cross-reposit
   ).toHaveLength(1);
   await page.getByRole("button", { name: "Close backend / main", exact: true }).click();
   await expect
-    .element(page.getByRole("tab", { name: "backend / main", exact: true }))
+    .element(page.getByRole("tablist", { name: "Branches and worktrees" }))
     .not.toBeInTheDocument();
   expect(selections.at(-1)).toBe("frontend:main");
 });
@@ -226,11 +238,8 @@ test("removes the final repository and starts with fresh branch tabs when it is 
   await page.getByRole("button", { name: "Add", exact: true }).click();
   await expect.element(page.getByRole("group", { name: "frontend", exact: true })).toBeVisible();
   await userEvent.keyboard("{Escape}");
-  await expect.element(page.getByRole("tab", { name: "release", exact: true })).toBeVisible();
   await expect
-    .element(page.getByRole("tab", { name: "main", exact: true }))
-    .not.toBeInTheDocument();
-  await expect
-    .element(page.getByRole("button", { name: "Close release", exact: true }))
-    .toBeDisabled();
+    .element(page.getByRole("button", { name: "Open branch", exact: true }))
+    .toHaveTextContent("frontend/release");
+  expect(document.querySelectorAll('[role="tab"]')).toHaveLength(0);
 });

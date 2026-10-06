@@ -33,7 +33,7 @@ Branch tabs map local refs to worktrees discovered by Git. An attached branch op
 
 ### Multiple repositories
 
-One host can register several local repositories. Open branch groups their branches and worktrees in one picker; branch tabs can span repositories. There is no separate repository navigation screen. The selected tab controls history, reviews, files, search, and symbols.
+One host can register several local repositories. Open branch groups their branches and worktrees in one picker; branch tabs can span repositories. The tab strip renders only when two or more branches are open; the sidebar's branch switcher shows the current one either way, so opening a second branch adds a row without moving other controls. There is no separate repository navigation screen. The selected tab controls history, reviews, files, search, and symbols.
 
 A repository family is identified by the canonical Git common directory. Linked worktrees share its opaque registry ID; separate clones have separate IDs. The Git command directory remains a checkout path. Browser tab identities combine the repository ID with a branch name or detached worktree path. File sources retain their exact repository path and, for committed content, object ID.
 

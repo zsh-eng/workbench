@@ -30,7 +30,6 @@ import {
   ChoiceSelect,
   CommandDialog,
   SegmentedControl,
-  ShortcutKeys,
   type ReviewCommand,
 } from "./components/Controls";
 import { DiffStat } from "./components/DiffStat";
@@ -41,7 +40,8 @@ import { Icon } from "./components/Icon";
 import "./pierre-theme";
 import { useTheme } from "./themes";
 import { ThemePicker } from "./components/ThemePicker";
-import { BranchTabs } from "./components/BranchTabs";
+import { BranchStrip, BranchSwitch, useBranchTabs } from "./components/BranchTabs";
+import { BranchPicker } from "./components/BranchPicker";
 import type { BrowseSource } from "../shared/browse";
 import { createBrowseApi, useBrowseFiles, type BrowseApi } from "./data/browse";
 import { createFileWorkspace, sourceKey, useFileWorkspace } from "./data/file-workspace";
@@ -53,7 +53,7 @@ import { FileViewTabs } from "./components/FileViewTabs";
 import { readBrowserToken } from "./data/auth";
 import { SavedReviewHeader } from "./components/SavedReviewHeader";
 import { ShortcutGuide } from "./components/ShortcutGuide";
-import { ZenBar } from "./components/ZenBar";
+import { ZenExit, ZenHint } from "./components/ZenExit";
 import { platform } from "./data/keys";
 import type { GuideContextId } from "./data/shortcut-guide";
 import { ComparisonActions } from "./components/ComparisonActions";
@@ -115,14 +115,24 @@ export function App({
   loadBlame?: BlameLoader;
 }) {
   const state = useReviewController(controller);
+  const gitAvailable = state.session?.repository.git !== false;
   const { active: activeTheme } = useTheme();
   const theme = activeTheme.appearance;
   const [themePickerOpen, setThemePickerOpen] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [filesVisible, setFilesVisible] = useState(false);
-  // Zen hides panels and toolbars without changing their saved visibility, so
-  // leaving it restores the previous layout exactly.
-  const [zen, setZen] = useState(() => readPreference("zen", "off", ["on", "off"]) === "on");
+  // Zen hides every bar. Its panels have their own visibility, which starts
+  // hidden, so leaving zen restores the previous layout exactly.
+  const [zen, setZenState] = useState(() => readPreference("zen", "off", ["on", "off"]) === "on");
+  const [zenPanels, setZenPanels] = useState({ sidebar: false, files: false });
+  const focusBeforeZen = useRef<Element | null>(null);
+  const setZen = useCallback((next: boolean | ((value: boolean) => boolean)) => {
+    focusBeforeZen.current = document.activeElement;
+    setZenPanels({ sidebar: false, files: false });
+    setZenState(next);
+  }, []);
+  const leftVisible = zen ? zenPanels.sidebar : sidebarVisible;
+  const rightVisible = zen ? zenPanels.files : filesVisible;
   useEffect(() => {
     try {
       localStorage.setItem("med:zen", zen ? "on" : "off");
@@ -361,42 +371,53 @@ export function App({
     setFilePickerOpen(true);
   }, []);
   const showFiles = useCallback(() => {
-    setZen(false);
+    if (zen) {
+      setZenPanels((panels) => ({
+        sidebar: window.innerWidth < 1100 ? false : panels.sidebar,
+        files: true,
+      }));
+      return;
+    }
     setFilesVisible(true);
     if (window.innerWidth < 1100) setSidebarVisible(false);
-  }, []);
-  // Asking for a panel in zen mode leaves zen and shows that panel.
+  }, [zen]);
+  // In zen mode the panel keys show panels without leaving zen.
   const toggleFilesSidebar = useCallback(() => {
-    if (filesVisible && !zen) setFilesVisible(false);
-    else showFiles();
-  }, [filesVisible, showFiles, zen]);
+    if (rightVisible) {
+      if (zen) setZenPanels((panels) => ({ ...panels, files: false }));
+      else setFilesVisible(false);
+    } else showFiles();
+  }, [rightVisible, showFiles, zen]);
   const toggleReviewSidebar = useCallback(() => {
+    const narrow = window.innerWidth < 1100;
     if (zen) {
-      setZen(false);
-      setSidebarVisible(true);
+      setZenPanels((panels) => ({
+        sidebar: !panels.sidebar,
+        files: !panels.sidebar && narrow ? false : panels.files,
+      }));
       return;
     }
     setSidebarVisible((visible) => {
-      if (!visible && window.innerWidth < 1100) setFilesVisible(false);
+      if (!visible && narrow) setFilesVisible(false);
       return !visible;
     });
   }, [zen]);
   const zenToggle = useRef<HTMLButtonElement>(null);
-  const toggleZen = useCallback(() => setZen((value) => !value), []);
+  const toggleZen = useCallback(() => setZen((value) => !value), [setZen]);
   // Keep keyboard focus when the control that held it leaves with the chrome.
   const previousZen = useRef(zen);
   useLayoutEffect(() => {
     if (previousZen.current === zen) return;
     previousZen.current = zen;
-    const focused = document.activeElement;
-    // Hidden chrome stays mounted, so check visibility rather than connection.
-    if (focused instanceof HTMLElement && focused !== document.body && focused.checkVisibility())
-      return;
-    // The zen control keeps focus in both directions; a file keeps reading focus.
+    // Move focus only when the control that held it has gone with the chrome.
+    const before = focusBeforeZen.current;
+    if (!(before instanceof HTMLElement) || before === document.body) return;
+    if (before.isConnected && before.checkVisibility()) return;
+    // The zen controls keep focus in both directions; a file keeps reading focus.
     if (zen)
       (
         document.querySelector<HTMLElement>('[data-file-pane="main"]') ??
-        document.querySelector<HTMLElement>('[data-zen-bar] [aria-label="Exit zen mode"]')
+        document.querySelector<HTMLElement>("[data-zen-exit]")
       )?.focus();
     else zenToggle.current?.focus();
   }, [zen]);
@@ -1012,6 +1033,16 @@ export function App({
         } else setCommandsOpen((open) => !open);
         return;
       }
+      // G for Git: branches and worktrees, beside ⌘⇧K for files.
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "g") {
+        if (!gitAvailable) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.repeat) return;
+        setCommandsOpen(false);
+        setBranchPickerOpen((open) => !open);
+        return;
+      }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
         if (commandsOpen || branchPickerOpen) return;
         if (fileState.active !== "changes") {
@@ -1097,9 +1128,26 @@ export function App({
     activeFile,
     fileState.file?.kind,
     fileWorkspace,
+    gitAvailable,
   ]);
 
-  const gitAvailable = state.session?.repository.git !== false;
+  const selectBranch = useCallback(
+    (name: string, repositoryId: string) => void controller.selectBranch(name, repositoryId),
+    [controller],
+  );
+  const selectWorktree = useCallback(
+    (path: string, repositoryId: string) => void controller.selectWorktree(path, repositoryId),
+    [controller],
+  );
+  const branches = useBranchTabs({
+    repositories: state.repositories,
+    activeRepositoryId: state.activeRepositoryId,
+    activeBranch: state.activeBranch,
+    repo: state.session?.repository.path,
+    error: state.branchesError,
+    onBranch: selectBranch,
+    onWorktree: selectWorktree,
+  });
   const workingAvailable = gitAvailable && !state.historyRef;
   const openWorkingFile = (path: string, pinned = true, background = false) =>
     fileWorkspace.open(path, { pinned, background });
@@ -1261,6 +1309,7 @@ export function App({
       id: "open-branch",
       managesFocus: true,
       label: "Open branch or worktree",
+      shortcut: "⌘ ⇧ G",
       disabled: !gitAvailable,
       run: () => setBranchPickerOpen(true),
     },
@@ -1389,7 +1438,7 @@ export function App({
           },
           {
             id: "browse-files",
-            label: filesVisible && !zen ? "Hide files sidebar" : "Show files sidebar",
+            label: rightVisible ? "Hide files sidebar" : "Show files sidebar",
             shortcut: "⌘⇧B",
             run: toggleFilesSidebar,
           },
@@ -1466,7 +1515,7 @@ export function App({
       : []),
     {
       id: "sidebar",
-      label: sidebarVisible && !zen ? "Hide sidebar" : "Show sidebar",
+      label: leftVisible ? "Hide sidebar" : "Show sidebar",
       shortcut: "⌘ B",
       run: toggleReviewSidebar,
     },
@@ -1665,26 +1714,31 @@ export function App({
 
   const sidebarToggle = (
     <ToolButton
-      label={sidebarVisible ? "Hide sidebar" : "Show sidebar"}
+      label={leftVisible ? "Hide sidebar" : "Show sidebar"}
       shortcut="⌘ B"
       icon="panelLeft"
       aria-label="Toggle sidebar"
-      aria-pressed={sidebarVisible}
+      aria-pressed={leftVisible}
       onClick={toggleReviewSidebar}
     />
   );
-  const topTrailing = (
-    <>
-      <button
-        type="button"
+  // Where am I, and the way to another branch. It heads the sidebar, or the
+  // tab row when the sidebar is hidden.
+  const identity = (
+    <div {...stylex.props(styles.identity)}>
+      {sidebarToggle}
+      {gitAvailable && <BranchSwitch model={branches} onOpen={() => setBranchPickerOpen(true)} />}
+    </div>
+  );
+  const viewControls = (
+    <span {...stylex.props(styles.viewControls)}>
+      <ToolButton
+        label="Commands"
+        shortcut="⌘ K"
+        icon="search"
         aria-label="Open command palette"
-        {...stylex.props(styles.commandBar)}
         onClick={() => setCommandsOpen(true)}
-      >
-        <Icon name="search" size={14} />
-        <span {...stylex.props(styles.commandBarText)}>Search commands</span>
-        <ShortcutKeys value="⌘ K" />
-      </button>
+      />
       <ToolButton
         ref={zenToggle}
         label="Zen mode"
@@ -1695,57 +1749,60 @@ export function App({
       />
       {browseSource && (
         <ToolButton
-          label={filesVisible ? "Hide files" : "Show files"}
+          label={rightVisible ? "Hide files" : "Show files"}
           shortcut="⌘ ⇧ B"
           icon="panelRight"
           aria-label="Toggle files sidebar"
-          aria-pressed={filesVisible}
+          aria-pressed={rightVisible}
           onClick={toggleFilesSidebar}
         />
       )}
+    </span>
+  );
+  const leading = !leftVisible && (
+    <>
+      {identity}
+      <span {...stylex.props(styles.headerDivider)} />
     </>
   );
-  const fileTabs = (quiet: boolean) =>
-    !!browseSource && (
-      <FileViewTabs
-        quiet={quiet}
-        tabs={fileState.tabs.map((tab) => ({
-          ...tab,
-          sourcePath: tab.source.repo,
-          dirty: !!editorDrafts.get(JSON.stringify([tab.source, tab.path]))?.dirty,
-        }))}
-        active={fileState.active}
-        changesCount={state.review ? state.files.length : undefined}
-        onSelect={fileWorkspace.select}
-        onClose={fileWorkspace.close}
-        onPin={fileWorkspace.pin}
-      />
-    );
-  const unsavedCount = fileState.tabs.filter(
-    (tab) => editorDrafts.get(JSON.stringify([tab.source, tab.path]))?.dirty,
-  ).length;
-  const branchTabs = gitAvailable && (
-    <BranchTabs
-      leading={sidebarToggle}
-      trailing={topTrailing}
+  const mainHeader = browseSource ? (
+    <FileViewTabs
+      leading={leading}
+      trailing={viewControls}
+      tabs={fileState.tabs.map((tab) => ({
+        ...tab,
+        sourcePath: tab.source.repo,
+        dirty: !!editorDrafts.get(JSON.stringify([tab.source, tab.path]))?.dirty,
+      }))}
+      active={fileState.active}
+      changesCount={state.review ? state.files.length : undefined}
+      onSelect={fileWorkspace.select}
+      onClose={fileWorkspace.close}
+      onPin={fileWorkspace.pin}
+    />
+  ) : (
+    <header {...stylex.props(styles.mainHeader)}>
+      {leading}
+      <span {...stylex.props(ui.grow)} />
+      {viewControls}
+    </header>
+  );
+  const branchPicker = gitAvailable && (
+    <BranchPicker
       repositories={state.repositories}
-      activeRepositoryId={state.activeRepositoryId}
-      activeBranch={state.activeBranch}
-      repo={state.session?.repository.path}
-      error={state.branchesError}
-      onBranch={(name, repositoryId) => void controller.selectBranch(name, repositoryId)}
-      onWorktree={(path, repositoryId) => void controller.selectWorktree(path, repositoryId)}
+      entries={branches.entries}
+      open={branchPickerOpen}
+      onOpenChange={setBranchPickerOpen}
+      onSelect={branches.open}
       onAddRepository={controller.addRepository}
       onRemoveRepository={controller.removeRepository}
       onRefresh={controller.refreshRepositories}
-      pickerOpen={branchPickerOpen}
-      onPickerOpenChange={setBranchPickerOpen}
     />
   );
   if (!state.session && !state.repositories.length && state.status === "idle" && !state.error)
     return (
       <div {...stylex.props(styles.app)}>
-        {branchTabs}
+        {branchPicker}
         <div {...stylex.props(styles.emptyRepositories)}>
           <span {...stylex.props(styles.emptyMark)}>
             <Icon name="branch" size={20} />
@@ -1795,32 +1852,8 @@ export function App({
           }}
         />
       )}
-      {zen && (
-        <ZenBar
-          repository={state.session?.repository.name}
-          branch={state.session ? (state.activeBranch ?? "detached") : undefined}
-          context={
-            fileState.active === "changes"
-              ? comparisonChoices.find((choice) => choice.value === comparisonValue)?.label
-              : undefined
-          }
-          tabs={fileTabs(true)}
-          unsaved={unsavedCount}
-          loading={state.status === "loading"}
-          onCommands={() => setCommandsOpen(true)}
-          onExit={toggleZen}
-        />
-      )}
-      {/* Branch tabs stay mounted in zen mode so the branch picker still opens. */}
-      <div hidden={zen} {...stylex.props(styles.topbarSlot, zen && styles.hiddenSurface)}>
-        {branchTabs || (
-          <header {...stylex.props(styles.plainTopbar)}>
-            {sidebarToggle}
-            <span {...stylex.props(ui.grow)} />
-            {topTrailing}
-          </header>
-        )}
-      </div>
+      {zen ? <ZenHint loading={state.status === "loading"} /> : <BranchStrip model={branches} />}
+      {branchPicker}
       <ThemePicker open={themePickerOpen} onOpenChange={setThemePickerOpen} />
       {definitions && (
         <SymbolPicker
@@ -1846,7 +1879,7 @@ export function App({
         />
       )}
       <SymbolPicker
-        sidebarWidth={sidebarVisible ? sidebarWidth : 316}
+        sidebarWidth={leftVisible ? sidebarWidth : 316}
         beginFilePreview={beginFilePreview}
         open={symbolPickerOpen}
         onOpenChange={setSymbolPickerOpen}
@@ -1901,17 +1934,22 @@ export function App({
         }
       />
       <div
-        {...stylex.props(styles.workspace, zen && styles.zenWorkspace)}
+        {...stylex.props(
+          styles.workspace,
+          (zen || branches.visible.length < 2) && styles.workspaceTop,
+          zen && styles.zenWorkspace,
+        )}
         id="review-workspace"
         role="tabpanel"
         aria-label={`${state.activeBranch ?? "Workspace"} review`}
       >
-        {sidebarVisible && !zen && (
+        {leftVisible && (
           <aside
             id="review-sidebar"
             className={stylex.props(styles.sidebar).className}
             style={{ width: sidebarWidth }}
           >
+            <div {...stylex.props(styles.sidebarHeader)}>{identity}</div>
             {gitAvailable && (
               <HistoryPanel
                 key={JSON.stringify([state.session?.repository.path, state.activeBranch])}
@@ -1967,7 +2005,7 @@ export function App({
             />
           </aside>
         )}
-        {sidebarVisible && !zen && (
+        {leftVisible && (
           <div
             role="separator"
             aria-label="Resize sidebar"
@@ -1999,7 +2037,7 @@ export function App({
           </div>
         )}
         <main
-          {...stylex.props(styles.main, !sidebarVisible && styles.mainFlush)}
+          {...stylex.props(styles.main, !leftVisible && styles.mainFlush)}
           aria-label="Continuous review"
         >
           {fileLinkError && (
@@ -2007,7 +2045,7 @@ export function App({
               {fileLinkError}
             </div>
           )}
-          {!zen && fileTabs(false)}
+          {zen ? <ZenExit onExit={toggleZen} /> : mainHeader}
           <div
             id="file-view-panel"
             role="tabpanel"
@@ -2053,28 +2091,13 @@ export function App({
                   )}
                 {state.review && (
                   <span
-                    {...stylex.props(styles.compareLabel)}
-                    title={`${state.review.base} → ${state.review.head}`}
-                  >
-                    <span {...stylex.props(styles.revision)}>
-                      {shortRevision(state.review.base)}
-                    </span>
-                    <Icon name="arrowUp" size={11} style={{ transform: "rotate(90deg)" }} />
-                    <span {...stylex.props(styles.revision)}>
-                      {shortRevision(state.review.head)}
-                    </span>
-                  </span>
-                )}
-                {state.review && (
-                  <span
                     {...stylex.props(styles.reviewTotals)}
                     role="group"
                     aria-label={`Comparison total: ${added} lines added, ${deleted} lines deleted`}
-                    title="Total lines changed in this comparison"
+                    title={`${shortRevision(state.review.base)} → ${shortRevision(state.review.head)}`}
                   >
                     <span {...stylex.props(ui.added)}>+{added.toLocaleString()}</span>
                     <span {...stylex.props(ui.removed)}>−{deleted.toLocaleString()}</span>
-                    <DiffStat additions={added} deletions={deleted} />
                   </span>
                 )}
                 <span {...stylex.props(ui.grow)} />
@@ -2086,14 +2109,6 @@ export function App({
                     { value: "split", label: "Split", icon: "split" },
                     { value: "unified", label: "Unified", icon: "unified" },
                   ]}
-                />
-                <span {...stylex.props(styles.toolbarDivider)} />
-                <ToolButton
-                  label="Wrap lines"
-                  icon="wrap"
-                  active={wrap}
-                  aria-pressed={wrap}
-                  onClick={() => setWrap(!wrap)}
                 />
                 <ActionTooltip label={showNotes ? "Hide comments" : "Show comments"}>
                   <button
@@ -2143,16 +2158,13 @@ export function App({
                     ],
                     [
                       { label: "Zen mode", shortcut: "⌥ Z", onClick: toggleZen },
-                      { label: "Refresh review", onClick: () => void controller.refresh() },
+                      {
+                        label: "Refresh review",
+                        disabled: state.status === "loading",
+                        onClick: () => void controller.refresh(),
+                      },
                     ],
                   ]}
-                />
-                <ToolButton
-                  label="Refresh review"
-                  icon="refresh"
-                  busy={state.status === "loading"}
-                  disabled={state.status === "loading"}
-                  onClick={() => void controller.refresh()}
                 />
                 {state.status === "loading" && (
                   <span role="presentation" {...stylex.props(styles.loadingTrack)}>
@@ -2613,9 +2625,9 @@ export function App({
         </main>
         {browseSource && (
           <aside
-            {...stylex.props(styles.filesSidebar, (!filesVisible || zen) && styles.hiddenSurface)}
+            {...stylex.props(styles.filesSidebar, !rightVisible && styles.hiddenSurface)}
             aria-label="Workspace files"
-            hidden={!filesVisible || zen}
+            hidden={!rightVisible}
           >
             <RepositoryFiles
               key={JSON.stringify([sourceKey(browseSource), repositoryFiles.ignored])}
@@ -2632,7 +2644,10 @@ export function App({
           </aside>
         )}
       </div>
-      <footer {...stylex.props(styles.statusbar, zen && styles.hiddenSurface)} hidden={zen}>
+      <footer
+        {...stylex.props(styles.statusbar, stylex.defaultMarker(), zen && styles.hiddenSurface)}
+        hidden={zen}
+      >
         <span {...stylex.props(styles.statusItem)}>
           <span
             key={state.sourceRevision}
@@ -2667,19 +2682,11 @@ export function App({
                       ? "Reconnecting…"
                       : "Connecting…"}
         </span>
-        {activeFile ? (
+        {activeFile && (
           <span>
             {fileState.file
               ? `${fileState.file.size.toLocaleString()} bytes`
               : activeFile.sourceLabel}
-          </span>
-        ) : (
-          <span {...stylex.props(styles.statusItem)}>
-            <span>
-              {state.files.length} {state.files.length === 1 ? "file" : "files"}
-            </span>
-            <span {...stylex.props(ui.added)}>+{added.toLocaleString()}</span>
-            <span {...stylex.props(ui.removed)}>−{deleted.toLocaleString()}</span>
           </span>
         )}
         <span {...stylex.props(ui.grow)} />
@@ -2687,7 +2694,7 @@ export function App({
         {!activeFile && state.metrics && (
           <span
             title="Request includes transfer; parse runs in a worker; frame measures React update to a frame after Pierre rendered."
-            {...stylex.props(styles.performance)}
+            {...stylex.props(styles.performance, styles.onStatusHover)}
           >
             {Math.round(state.metrics.requestMs)} ms request · {Math.round(state.metrics.parseMs)}{" "}
             ms parse{frameMs !== null ? ` · ${Math.round(frameMs)} ms frame` : ""} ·{" "}
@@ -2754,41 +2761,36 @@ const styles = stylex.create({
     isolation: "isolate",
     WebkitFontSmoothing: "antialiased",
   },
-  plainTopbar: {
+  identity: { display: "flex", alignItems: "center", gap: 2, minWidth: 0 },
+  // Same height as the tab row beside it, so the two read as one line.
+  sidebarHeader: {
+    display: "flex",
+    alignItems: "center",
+    flexShrink: 0,
+    height: 38,
+    paddingInlineStart: 2,
+    paddingInlineEnd: 8,
+  },
+  mainHeader: {
     display: "flex",
     alignItems: "center",
     gap: 4,
-    height: 40,
-    minHeight: 40,
-    paddingInline: 8,
-    backgroundColor: tokens.panel,
+    flexShrink: 0,
+    height: 38,
+    paddingInline: 6,
+    boxSizing: "border-box",
+    borderBottomWidth: 1,
+    borderBottomStyle: "solid",
+    borderBottomColor: tokens.line,
   },
-  commandBar: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    width: "clamp(160px, 22vw, 280px)",
-    height: 28,
-    marginInlineEnd: 4,
-    paddingInlineStart: 9,
-    paddingInlineEnd: 5,
-    borderWidth: 0,
-    borderRadius: 7,
-    backgroundColor: { default: tokens.fill, ":hover": tokens.fillStrong },
-    boxShadow: `inset 0 0 0 1px ${tokens.line}`,
-    color: { default: tokens.faint, ":hover": tokens.muted },
-    fontFamily: tokens.ui,
-    fontSize: 12,
-    cursor: "pointer",
-    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+  headerDivider: {
+    width: 1,
+    height: 16,
+    marginInline: 6,
+    backgroundColor: tokens.line,
+    flexShrink: 0,
   },
-  commandBarText: {
-    flex: "1",
-    textAlign: "start",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  },
+  viewControls: { display: "flex", alignItems: "center", gap: 2, flexShrink: 0 },
   emptyRepositories: {
     display: "flex",
     flexDirection: "column",
@@ -2796,8 +2798,7 @@ const styles = stylex.create({
     justifyContent: "center",
     gap: 4,
     flex: "1",
-    marginInline: 6,
-    marginBottom: 6,
+    margin: 6,
     borderRadius: 10,
     backgroundColor: tokens.canvas,
     boxShadow: `0 0 0 1px ${tokens.line}`,
@@ -2807,8 +2808,9 @@ const styles = stylex.create({
   emptyAction: { marginTop: 14, paddingInline: 12 },
   // The frame holds both sidebars; the review sits on one inset card.
   workspace: { display: "flex", flex: "1", minHeight: 0, paddingInline: 6 },
+  // Without the strip, the frame's own inset is the top margin.
+  workspaceTop: { paddingTop: 6 },
   zenWorkspace: { paddingBottom: 6 },
-  topbarSlot: { display: "contents" },
   sidebar: {
     display: "flex",
     flexDirection: "column",
@@ -2870,6 +2872,12 @@ const styles = stylex.create({
     minWidth: 0,
   },
   hiddenSurface: { display: "none" },
+  // Diagnostics stay out of sight until the pointer rests on the status bar.
+  onStatusHover: {
+    opacity: { default: 0, [stylex.when.ancestor(":hover")]: 1 },
+    transitionProperty: "opacity",
+    transitionDuration: "160ms",
+  },
   filesSidebar: {
     width: 280,
     maxWidth: "42vw",
@@ -2893,23 +2901,6 @@ const styles = stylex.create({
     borderBottomStyle: "solid",
     borderBottomColor: tokens.line,
   },
-  compareLabel: {
-    display: { default: "inline-flex", "@media (max-width: 1100px)": "none" },
-    alignItems: "center",
-    gap: 4,
-    marginInlineStart: 6,
-    color: tokens.faint,
-    flexShrink: 0,
-  },
-  revision: {
-    paddingInline: 5,
-    borderRadius: 4,
-    backgroundColor: tokens.fill,
-    color: tokens.muted,
-    fontFamily: tokens.code,
-    fontSize: 10.5,
-    lineHeight: "18px",
-  },
   reviewTotals: {
     display: "inline-flex",
     alignItems: "center",
@@ -2919,12 +2910,6 @@ const styles = stylex.create({
     fontSize: 11,
     whiteSpace: "nowrap",
     flexShrink: 0,
-  },
-  toolbarDivider: {
-    width: 1,
-    height: 16,
-    marginInline: 4,
-    backgroundColor: tokens.line,
   },
   notesButton: { gap: 5, minWidth: 28, paddingInline: 6 },
   notesCount: { fontFamily: tokens.code, fontSize: 10.5, fontVariantNumeric: "tabular-nums" },

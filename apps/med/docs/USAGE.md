@@ -46,11 +46,21 @@ med web
 bun run dev -- /path/to/frontend /path/to/backend
 ```
 
-Use **Open branch** (`+`) to search the registered repositories' branches and worktrees. The picker shows repository groups and worktree paths. Add another repository by entering its local path in the picker. Remove a repository there to close its views and release its resources; this does not delete files or Git branches.
+Use the branch switcher at the top of the sidebar, or `⌘⇧G` / `Ctrl+Shift+G`, to search the registered repositories' branches and worktrees. The picker shows repository groups and worktree paths. Add another repository by entering its local path in the picker. Remove a repository there to close its views and release its resources; this does not delete files or Git branches.
 
-Opening the launch URL starts with only the selected branch or worktree tab. Open additional tabs from **Open branch**. Branch tabs can belong to different repositories. Repository labels distinguish matching branch names. Each tab keeps its comparison and file navigation for the current browser session. The history, files, content search, and symbols all use that tab's repository and branch or worktree. Content search still reads committed content.
+Opening the launch URL starts with only the selected branch or worktree, and no tab strip. Each branch you open from the switcher becomes a tab; the strip appears above the review once two are open and leaves when you close back to one. Branch tabs can belong to different repositories. Repository labels distinguish matching branch names. Each tab keeps its comparison and file navigation for the current browser session. The history, files, content search, and symbols all use that tab's repository and branch or worktree. Content search still reads committed content.
 
 Linked worktrees belong to one repository entry. Separate clones remain separate entries, even when they use the same remote. Managed service registration persists across restarts, including changes from the branch picker. Legacy foreground registration lasts for that server session. Patch and file-pair inputs remain separate launch modes.
+
+### Pull requests
+
+Run `med pr checkout 333` inside a repository. Med runs `gh pr checkout 333`,
+fetches the pull request's base branch, and opens a saved review of the pull
+request: its merge base with the base branch, compared with its head. The review
+title and heading link to the pull request. Med starts its background server
+and registers the repository when needed. Requires the GitHub CLI (`gh`),
+signed in. Pass `gh pr checkout` options through, such as `--force` or
+`--branch <name>`; `--no-open` prints the launch URL instead of opening it.
 
 ### Saved agent reviews
 
@@ -128,7 +138,7 @@ and previewing files never saves or changes their contents.
 
 1. Select a commit in the left history panel, or select working changes. Commit diffs compare with the first parent; merge commits are labeled accordingly.
 2. Select a changed path to move to it in the diff stream. Double-click the path to open its current file in the selected worktree.
-3. Use the top branch tabs or `+` to select another branch. A branch with a worktree opens that directory; a branch without one opens committed content.
+3. Use the branch switcher (`⌘⇧G`) to open another branch; open branches show as tabs above the review. A branch with a worktree opens that directory; a branch without one opens committed content.
 4. Use the file picker or right Files sidebar to open unchanged files. A preview does not replace your current review until you open it.
 5. Toggle blame in a full file to show author and commit details beside the line numbers. Visible lines preload in the background after a file opens. Toggling blame reuses this cache. Hover a label for 250 ms to see the date and commit message; move to nearby labels for immediate updates. Open the command palette to change theme or find other actions.
 
@@ -144,7 +154,8 @@ Shift-click another commit to select an inclusive range. The comparison runs fro
 | Symbols in current file           | `⌘O`         | `Ctrl+O`                  |
 | Symbols in project commits        | `⌘⇧O`        | `Ctrl+Shift+O`            |
 | Search file contents              | `⌘⇧F`        | `Ctrl+Shift+F`            |
-| Toggle history / files sidebar       | `⌘B` / `⌘⇧B` | `Ctrl+B` / `Ctrl+Shift+B` |
+| Open a branch or worktree         | `⌘⇧G`        | `Ctrl+Shift+G`            |
+| Toggle history / files sidebar    | `⌘B` / `⌘⇧B` | `Ctrl+B` / `Ctrl+Shift+B` |
 | Zen mode                          | `⌥Z`         | `Alt+Z`                   |
 | Add note to selected lines        | `c`          | `c`                       |
 | Resume search                     | `⌥R`         | `Alt+R`                   |
@@ -166,12 +177,13 @@ elsewhere.
 ### Zen mode
 
 Press `⌥Z` / `Alt+Z`, use the focus button at the top right, or run **Enter zen
-mode** from the command palette. Zen mode hides the sidebars, branch tabs, the
-Changes toolbar, and the status bar. A quiet bar keeps the repository, branch,
-comparison, open tabs, unsaved-file count, the command palette, and **Exit
-zen**. `⌘B` or `⌘⇧B` leaves zen mode and shows that sidebar. Escape does not
-leave zen mode, so it stays free for search, Vim, and dialogs. Leaving restores
-the previous layout; the setting is remembered in this browser.
+mode** from the command palette. Zen mode hides every bar: branch and file tabs,
+the Changes toolbar, and the status bar. Only the diff or file remains. `⌘B` and
+`⌘⇧B` still show the history and files sidebars inside zen mode, so you can move
+between files. To leave, press `⌥Z` again or move the pointer to the top-right
+corner and click **Leave zen**. Escape does not leave zen mode, so it stays free
+for search, Vim, and dialogs. Leaving restores the previous layout; the setting
+is remembered in this browser.
 
 ## Symbols and Vim navigation
 
@@ -370,7 +382,6 @@ file being viewed. If live working content differs from that snapshot, markers
 show changes against HEAD instead. **Open before** and **Open after** show the
 exact commit versions. Markers are removed from stale views until refresh;
 line numbers from an older snapshot are not applied to new content.
-
 
 ## Markdown preview
 

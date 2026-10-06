@@ -63,7 +63,7 @@ Pass several repository paths to open them in one app:
 node apps/med/dist/cli.js /path/to/frontend /path/to/backend
 ```
 
-Use **Open branch** (`+`) to select a branch or worktree, or to add and remove repositories for the current session. Removing a repository from med does not delete its files or branches.
+Use the branch switcher at the top of the sidebar (`⌘⇧G` / `Ctrl+Shift+G`) to select a branch or worktree, or to add and remove repositories for the current session. Branch tabs appear once two branches are open. Run `med pr checkout <number>` in a repository to check out a pull request with `gh` and review it. Removing a repository from med does not delete its files or branches.
 
 ### Agent review links
 

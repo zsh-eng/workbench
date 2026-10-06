@@ -1,29 +1,14 @@
-import { ActionTooltip, ToolButton } from "./ToolButton";
+import { ActionTooltip } from "./ToolButton";
 import * as stylex from "@stylexjs/stylex";
 import { Tabs } from "@base-ui/react/tabs";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { RegisteredRepository } from "../../shared/protocol";
 import { tokens } from "../theme.stylex";
-import { BranchPicker, type BranchEntry } from "./BranchPicker";
+import type { BranchEntry } from "./BranchPicker";
 import { Icon } from "./Icon";
 import { distinctLabels } from "../data/tab-labels";
 
-export function BranchTabs({
-  repositories,
-  activeRepositoryId,
-  activeBranch,
-  repo,
-  error,
-  onBranch,
-  onWorktree,
-  onAddRepository,
-  onRemoveRepository,
-  onRefresh,
-  pickerOpen,
-  onPickerOpenChange,
-  leading,
-  trailing,
-}: {
+export interface BranchTabsOptions {
   repositories: RegisteredRepository[];
   activeRepositoryId: string | null;
   activeBranch: string | null;
@@ -31,15 +16,23 @@ export function BranchTabs({
   error: string | null;
   onBranch(name: string, repositoryId: string): void;
   onWorktree(path: string, repositoryId: string): void;
-  onAddRepository(path: string): Promise<unknown>;
-  onRemoveRepository(id: string): Promise<unknown>;
-  onRefresh(): Promise<unknown>;
-  pickerOpen: boolean;
-  onPickerOpenChange(open: boolean): void;
-  /** Controls placed before the tabs and at the far end of the bar. */
-  leading?: ReactNode;
-  trailing?: ReactNode;
-}) {
+}
+
+export type BranchTabsModel = ReturnType<typeof useBranchTabs>;
+
+/**
+ * Branches the reader has opened, in order. The strip shows them only when more
+ * than one is open; a single branch needs no tab bar, only the switcher.
+ */
+export function useBranchTabs({
+  repositories,
+  activeRepositoryId,
+  activeBranch,
+  repo,
+  error,
+  onBranch,
+  onWorktree,
+}: BranchTabsOptions) {
   const [opened, setOpened] = useState<string[]>([]);
   const lastActive = useRef<string | null>(null);
   const entries = useMemo<BranchEntry[]>(
@@ -82,8 +75,8 @@ export function BranchTabs({
     return repositories.length > 1 ? repositoryLabels[index] : null;
   };
   const labelFor = (entry: BranchEntry) => {
-    const index = repositories.findIndex((repository) => repository.id === entry.repositoryId);
-    return repositories.length > 1 ? `${repositoryLabels[index]} / ${entry.label}` : entry.label;
+    const repository = repositoryFor(entry);
+    return repository ? `${repository} / ${entry.label}` : entry.label;
   };
   useEffect(() => {
     const changed = lastActive.current !== active;
@@ -102,149 +95,198 @@ export function BranchTabs({
     const entry = entries.find((candidate) => candidate.key === key);
     return entry ? [entry] : [];
   });
-  const close = (entry: BranchEntry) => {
-    if (visible.length <= 1) return;
-    const index = visible.indexOf(entry);
-    const next = visible[index + 1] ?? visible[index - 1];
-    setOpened((current) => current.filter((key) => key !== entry.key));
-    if (entry.key === active && next) next.run();
+  const activeIndex = repositories.findIndex((repository) => repository.id === activeRepositoryId);
+  return {
+    entries,
+    visible,
+    active,
+    current: entries.find((entry) => entry.key === active),
+    /** Name of the active repository, qualified only when names collide. */
+    repositoryName:
+      activeIndex < 0
+        ? repo?.split("/").at(-1)
+        : repositories.length > 1
+          ? repositoryLabels[activeIndex]
+          : repositories[activeIndex]!.name,
+    branchName: activeBranch,
+    error,
+    labelFor,
+    repositoryFor,
+    close(entry: BranchEntry) {
+      if (visible.length <= 1) return;
+      const index = visible.indexOf(entry);
+      const next = visible[index + 1] ?? visible[index - 1];
+      setOpened((current) => current.filter((key) => key !== entry.key));
+      if (entry.key === active && next) next.run();
+    },
+    /** Picker selection: open the branch as a tab and switch to it. */
+    open(entry: BranchEntry): string | void {
+      if (!opened.includes(entry.key) && opened.length >= 32)
+        return "You have 32 branch tabs open. Close a tab before opening another.";
+      setOpened((current) => (current.includes(entry.key) ? current : [...current, entry.key]));
+      entry.run();
+    },
   };
+}
+
+/** Open branches as tabs. Renders nothing until a second branch is open. */
+export function BranchStrip({ model }: { model: BranchTabsModel }) {
+  const { visible, active } = model;
+  if (visible.length < 2) return null;
   return (
-    <header {...stylex.props(styles.row)}>
-      {leading}
-      <Tabs.Root
-        value={active}
-        onValueChange={(key) => entries.find((entry) => entry.key === key)?.run()}
-        {...stylex.props(styles.root)}
-      >
-        <Tabs.List aria-label="Branches and worktrees" {...stylex.props(styles.list)}>
-          {visible.map((entry) => {
-            const selected = entry.key === active;
-            const repository = repositoryFor(entry);
-            return (
-              <div key={entry.key} {...stylex.props(styles.tabGroup, stylex.defaultMarker())}>
-                <ActionTooltip
-                  label={
-                    entry.path
-                      ? `${entry.label}\nWorktree: ${entry.path}`
-                      : `${entry.label}\nCommit ${entry.head.slice(0, 7)} · no worktree`
-                  }
+    <Tabs.Root
+      value={active}
+      onValueChange={(key) => model.entries.find((entry) => entry.key === key)?.run()}
+      {...stylex.props(styles.strip)}
+    >
+      <Tabs.List aria-label="Branches and worktrees" {...stylex.props(styles.list)}>
+        {visible.map((entry) => {
+          const selected = entry.key === active;
+          const repository = model.repositoryFor(entry);
+          const label = model.labelFor(entry);
+          return (
+            <div key={entry.key} {...stylex.props(styles.tabGroup, stylex.defaultMarker())}>
+              <ActionTooltip
+                label={
+                  entry.path
+                    ? `${entry.label}\nWorktree: ${entry.path}`
+                    : `${entry.label}\nCommit ${entry.head.slice(0, 7)} · no worktree`
+                }
+              >
+                <Tabs.Tab
+                  value={entry.key}
+                  aria-label={label}
+                  aria-controls="review-workspace"
+                  onKeyDown={(event) => {
+                    if (event.key === "Delete" || event.key === "Backspace") {
+                      event.preventDefault();
+                      model.close(entry);
+                    }
+                  }}
+                  {...stylex.props(styles.tab, selected && styles.active)}
                 >
-                  <Tabs.Tab
-                    value={entry.key}
-                    aria-label={labelFor(entry)}
-                    aria-controls="review-workspace"
-                    onKeyDown={(event) => {
-                      if (event.key === "Delete" || event.key === "Backspace") {
-                        event.preventDefault();
-                        close(entry);
-                      }
-                    }}
-                    {...stylex.props(
-                      styles.tab,
-                      visible.length > 1 && styles.closable,
-                      selected && styles.active,
+                  <Icon name={entry.path ? "branch" : "commit"} size={14} />
+                  <span {...stylex.props(styles.name)}>
+                    {repository && (
+                      <>
+                        <span {...stylex.props(styles.repository)}>{repository}</span>
+                        <span {...stylex.props(styles.slash)}>/</span>
+                      </>
                     )}
-                  >
-                    <Icon name="branch" size={14} />
-                    <span {...stylex.props(styles.name)}>
-                      {repository && (
-                        <>
-                          <span {...stylex.props(styles.repository)}>{repository}</span>
-                          <span {...stylex.props(styles.slash)}>/</span>
-                        </>
-                      )}
-                      {entry.label}
-                    </span>
-                    {entry.path && (
-                      <span
-                        aria-label="Existing worktree"
-                        title="Existing worktree"
-                        {...stylex.props(styles.dot)}
-                      />
-                    )}
-                  </Tabs.Tab>
-                </ActionTooltip>
-                <ActionTooltip label={`Close ${labelFor(entry)}`}>
-                  <button
-                    type="button"
-                    disabled={visible.length <= 1}
-                    tabIndex={-1}
-                    aria-label={`Close ${labelFor(entry)}`}
-                    onClick={() => close(entry)}
-                    {...stylex.props(
-                      styles.close,
-                      selected && styles.closeVisible,
-                      visible.length <= 1 && styles.closeDisabled,
-                    )}
-                  >
-                    <Icon name="close" size={12} />
-                  </button>
-                </ActionTooltip>
-              </div>
-            );
-          })}
-        </Tabs.List>
-      </Tabs.Root>
-      <ToolButton label="Open branch" icon="plus" onClick={() => onPickerOpenChange(true)} />
-      {error && (
-        <span role="status" {...stylex.props(styles.error)} title={error}>
+                    {entry.label}
+                  </span>
+                </Tabs.Tab>
+              </ActionTooltip>
+              <ActionTooltip label={`Close ${label}`}>
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  aria-label={`Close ${label}`}
+                  onClick={() => model.close(entry)}
+                  {...stylex.props(styles.close, selected && styles.closeVisible)}
+                >
+                  <Icon name="close" size={12} />
+                </button>
+              </ActionTooltip>
+            </div>
+          );
+        })}
+      </Tabs.List>
+    </Tabs.Root>
+  );
+}
+
+/**
+ * The current repository and branch, and the way to another. It stays in one
+ * place whether or not the strip is showing, so the layout does not shift.
+ */
+export function BranchSwitch({ model, onOpen }: { model: BranchTabsModel; onOpen(): void }) {
+  const branch = model.current?.label ?? model.branchName ?? "Choose a branch";
+  return (
+    <span {...stylex.props(styles.switchRow)}>
+      <ActionTooltip label="Open branch" shortcut="⌘ ⇧ G">
+        <button
+          type="button"
+          aria-label="Open branch"
+          aria-haspopup="dialog"
+          aria-keyshortcuts="Meta+Shift+G Control+Shift+G"
+          onClick={onOpen}
+          {...stylex.props(styles.switch, stylex.defaultMarker())}
+        >
+          <Icon name={model.current && !model.current.path ? "commit" : "branch"} size={14} />
+          <span {...stylex.props(styles.switchText)}>
+            {model.repositoryName && (
+              <>
+                <span {...stylex.props(styles.switchRepository)}>{model.repositoryName}</span>
+                <span {...stylex.props(styles.slash)}>/</span>
+              </>
+            )}
+            {/* Keyed so a branch change rolls the new name in. */}
+            <span key={branch} {...stylex.props(styles.switchBranch)}>
+              {branch}
+            </span>
+          </span>
+          <span {...stylex.props(styles.switchChevron)}>
+            <Icon name="selector" size={14} />
+          </span>
+        </button>
+      </ActionTooltip>
+      {model.error && (
+        <span role="status" title={model.error} {...stylex.props(styles.error)}>
           Branches unavailable
         </span>
       )}
-      <span {...stylex.props(styles.spacer)} />
-      {trailing}
-      <BranchPicker
-        repositories={repositories}
-        entries={entries}
-        open={pickerOpen}
-        onOpenChange={onPickerOpenChange}
-        onAddRepository={onAddRepository}
-        onRemoveRepository={onRemoveRepository}
-        onRefresh={onRefresh}
-        onSelect={(entry) => {
-          if (!opened.includes(entry.key) && opened.length >= 32)
-            return "You have 32 branch tabs open. Close a tab before opening another.";
-          setOpened((current) => (current.includes(entry.key) ? current : [...current, entry.key]));
-          entry.run();
-        }}
-      />
-    </header>
+    </span>
   );
 }
+
+const enter = stylex.keyframes({
+  from: { opacity: 0, transform: "translateY(-3px)" },
+  to: { opacity: 1, transform: "none" },
+});
+const roll = stylex.keyframes({
+  from: { opacity: 0, transform: "translateY(5px)", filter: "blur(2px)" },
+  to: { opacity: 1, transform: "none", filter: "none" },
+});
+const reduced = "@media (prefers-reduced-motion: reduce)";
+
 const styles = stylex.create({
-  // The bar sits on the app frame, so it needs no border of its own.
-  row: {
+  // The strip sits on the app frame above both columns. It appears with the
+  // second open branch, so its tabs settle in rather than the row sliding.
+  strip: {
     display: "flex",
     alignItems: "center",
     flexShrink: 0,
-    height: 40,
-    minHeight: 40,
+    height: 36,
+    minHeight: 36,
     paddingInline: 8,
-    gap: 2,
     backgroundColor: tokens.panel,
   },
-  root: { minWidth: 0, flexShrink: 1, flexGrow: 0, marginInlineStart: 4 },
   list: {
     display: "flex",
     alignItems: "center",
     gap: 2,
+    minWidth: 0,
     overflowX: "auto",
     scrollbarWidth: "none",
+    animationName: { default: enter, [reduced]: "none" },
+    animationDuration: "180ms",
+    animationTimingFunction: tokens.easeOut,
   },
   tabGroup: { position: "relative", display: "flex", alignItems: "center", flexShrink: 0 },
   tab: {
     display: "flex",
     alignItems: "center",
     gap: 7,
-    height: 28,
+    height: 26,
     minWidth: 0,
     maxWidth: 260,
-    paddingInline: 10,
+    paddingInlineStart: 9,
+    paddingInlineEnd: 28,
     borderWidth: 0,
     borderRadius: 7,
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
-    color: { default: tokens.muted, ":hover": tokens.text },
+    color: { default: tokens.faint, ":hover": tokens.muted },
     fontFamily: tokens.ui,
     fontSize: 12.5,
     fontWeight: 450,
@@ -253,23 +295,13 @@ const styles = stylex.create({
     outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
     outlineOffset: -2,
   },
-  closable: { paddingInlineEnd: 28 },
   active: {
     color: { default: tokens.text, ":hover": tokens.text },
     backgroundColor: { default: tokens.fillStrong, ":hover": tokens.fillStrong },
-    boxShadow: `inset 0 0 0 1px ${tokens.line}`,
   },
   name: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  repository: { color: tokens.muted },
+  repository: { opacity: 0.72 },
   slash: { color: tokens.faint, marginInline: 5 },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: "50%",
-    backgroundColor: tokens.green,
-    boxShadow: `0 0 0 2px color-mix(in srgb, ${tokens.green} 22%, transparent)`,
-    flexShrink: 0,
-  },
   // Close controls stay out of the way until the tab is active or hovered.
   close: {
     position: "absolute",
@@ -288,8 +320,54 @@ const styles = stylex.create({
     opacity: { default: 0, [stylex.when.ancestor(":hover")]: 1, ":focus-visible": 1 },
   },
   closeVisible: { opacity: 1 },
-  // Keep the last tab's disabled control available to assistive technology.
-  closeDisabled: { opacity: 0, pointerEvents: "none" },
-  spacer: { flex: "1", minWidth: 8 },
-  error: { color: tokens.faint, fontSize: 11, marginInlineStart: 6 },
+  switchRow: { display: "flex", alignItems: "center", gap: 6, minWidth: 0 },
+  switch: {
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    height: 28,
+    minWidth: 0,
+    paddingInlineStart: 7,
+    paddingInlineEnd: 4,
+    borderWidth: 0,
+    borderRadius: 7,
+    backgroundColor: { default: "transparent", ":hover": tokens.fill },
+    color: tokens.text,
+    fontFamily: tokens.ui,
+    fontSize: 12.5,
+    fontWeight: 500,
+    cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+    outlineOffset: -2,
+  },
+  switchText: {
+    display: "flex",
+    alignItems: "baseline",
+    minWidth: 0,
+    overflow: "hidden",
+    whiteSpace: "nowrap",
+  },
+  // The repository name gives way first; the branch is what changes.
+  switchRepository: {
+    flexShrink: 1,
+    minWidth: 24,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    color: tokens.muted,
+    fontWeight: 450,
+  },
+  switchBranch: {
+    flexShrink: 0,
+    maxWidth: 220,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    animationName: { default: roll, [reduced]: "none" },
+    animationDuration: "220ms",
+    animationTimingFunction: tokens.easeOut,
+  },
+  switchChevron: {
+    display: "flex",
+    color: { default: tokens.faint, [stylex.when.ancestor(":hover")]: tokens.muted },
+  },
+  error: { color: tokens.faint, fontSize: 11, whiteSpace: "nowrap" },
 });

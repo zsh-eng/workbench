@@ -20,6 +20,7 @@ export interface MenuAction {
   shortcut?: string;
   /** A toggle. Renders as a checkbox item with its state. */
   checked?: boolean;
+  disabled?: boolean;
   onClick(): void;
 }
 export interface ReviewCommand {
@@ -161,6 +162,7 @@ export function ActionMenu({
                         <Menu.Item
                           key={action.label}
                           onClick={action.onClick}
+                          disabled={action.disabled}
                           className={className}
                         >
                           {content}
@@ -168,6 +170,7 @@ export function ActionMenu({
                       ) : (
                         <Menu.CheckboxItem
                           key={action.label}
+                          disabled={action.disabled}
                           checked={action.checked}
                           onCheckedChange={action.onClick}
                           className={className}

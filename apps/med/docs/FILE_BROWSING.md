@@ -40,7 +40,7 @@ A branch without a worktree needs no checkout. Its source includes the full reso
 
 Press **⌘⇧K** to open the file picker. **⌘B** toggles the left review sidebar; **⌘⇧B** toggles the right Files sidebar. **⌘K** opens commands. Control is also accepted in place of Command.
 
-Space has no application shortcut. Press `?` to see and run all commands with keycaps. The separate title bar is removed; branch tabs remain.
+Space has no application shortcut. Press `?` to see and run all commands with keycaps. The separate title bar is removed; branch tabs appear once two branches are open.
 
 The picker searches only the active workspace's file manifest. It uses filename-first fuzzy matching, smart case, and at most 50 results. `file:line` opens a matching file at the requested line; a trailing column can be accepted but is not used. Results from another worktree are never merged into this list. Open and recent files get a ranking bonus, but only within this manifest. Previewing a result does not change the current tab. Use Option–R to restore the last search, including selection and preview scroll.
 

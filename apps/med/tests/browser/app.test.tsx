@@ -455,40 +455,72 @@ describe("graphical review", () => {
     await expect.element(page.getByRole("combobox", { name: "Search branches" })).toBeVisible();
   });
 
-  test("zen mode hides panels and toolbars, keeps tabs, and restores the layout", async () => {
+  test("zen mode hides every bar, shows panels on request, and restores the layout", async () => {
     await page.viewport(1400, 850);
     await mountApp({ branches: true });
     const sidebar = () => document.getElementById("review-sidebar")?.checkVisibility() ?? false;
     const files = () =>
       document.querySelector('[aria-label="Workspace files"]')?.checkVisibility() ?? false;
-    const altZ = () =>
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Ω", code: "KeyZ", altKey: true, bubbles: true }),
+    const bars = () =>
+      ['[aria-label="Open files"]', "footer"].some(
+        (selector) => document.querySelector(selector)?.checkVisibility() ?? false,
       );
-    window.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "B", metaKey: true, shiftKey: true, bubbles: true }),
-    );
+    const key = (code: string, options: KeyboardEventInit) =>
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: code.at(-1)!, code, bubbles: true, ...options }),
+      );
+    const exit = page.getByRole("button", { name: "Exit zen mode", exact: true });
+    key("KeyB", { metaKey: true, shiftKey: true });
     await expect.poll(files).toBe(true);
     await page.getByRole("button", { name: "Enter zen mode", exact: true }).click();
-    await expect.element(page.getByRole("banner", { name: "Zen mode" })).toBeVisible();
-    expect(sidebar()).toBe(false);
-    expect(files()).toBe(false);
-    expect(document.querySelector('[aria-label="Branches and worktrees"]')?.checkVisibility()).toBe(
-      false,
-    );
-    await expect.element(page.getByRole("tab", { name: "Changes", exact: true })).toBeVisible();
+    await expect.element(exit).toBeInTheDocument();
+    expect([sidebar(), files(), bars()]).toEqual([false, false, false]);
+    // The toggle left with the chrome, so focus moves to the way out.
     expect(document.activeElement?.getAttribute("aria-label")).toBe("Exit zen mode");
-    altZ();
+    // Panel keys show panels without leaving zen.
+    key("KeyB", { metaKey: true });
     await expect.poll(sidebar).toBe(true);
-    expect(files()).toBe(true);
+    key("KeyB", { metaKey: true, shiftKey: true });
+    await expect.poll(files).toBe(true);
+    key("KeyB", { metaKey: true });
+    await expect.poll(sidebar).toBe(false);
+    expect(bars()).toBe(false);
+    await expect.element(exit).toBeInTheDocument();
+    // Leaving restores the saved layout, not the zen panels.
+    key("KeyZ", { altKey: true });
+    await expect.poll(sidebar).toBe(true);
+    expect([files(), bars()]).toEqual([true, true]);
     expect(localStorage.getItem("med:zen")).toBe("off");
-    altZ();
-    await expect.element(page.getByRole("banner", { name: "Zen mode" })).toBeVisible();
+    key("KeyZ", { altKey: true });
+    await expect.element(exit).toBeInTheDocument();
+    expect([sidebar(), files()]).toEqual([false, false]);
     expect(localStorage.getItem("med:zen")).toBe("on");
-    // Asking for a panel leaves zen and shows it.
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "b", metaKey: true, bubbles: true }));
+    await exit.click();
     await expect.poll(sidebar).toBe(true);
-    await expect.element(page.getByRole("banner", { name: "Zen mode" })).not.toBeInTheDocument();
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Enter zen mode");
+  });
+
+  test("a single branch needs no tab strip; Command Shift G opens another beside it", async () => {
+    await mountApp({ branches: true });
+    const strip = page.getByRole("tablist", { name: "Branches and worktrees" });
+    const switcher = page.getByRole("button", { name: "Open branch", exact: true });
+    const branch = () => switcher.element().textContent?.split("/").at(-1);
+    await expect.poll(branch).toBe("main");
+    await expect.element(strip).not.toBeInTheDocument();
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "G", metaKey: true, shiftKey: true, bubbles: true }),
+    );
+    await expect.element(page.getByRole("dialog", { name: "Open branch" })).toBeVisible();
+    await page.getByRole("combobox", { name: "Search branches" }).fill("feature");
+    await userEvent.keyboard("{Enter}");
+    await expect
+      .element(strip.getByRole("tab", { name: "feature", exact: true }))
+      .toHaveAttribute("aria-selected", "true");
+    await expect.element(strip.getByRole("tab", { name: "main", exact: true })).toBeVisible();
+    await expect.poll(branch).toBe("feature");
+    await page.getByRole("button", { name: "Close feature", exact: true }).click();
+    await expect.element(strip).not.toBeInTheDocument();
+    await expect.poll(branch).toBe("main");
   });
 
   test("the shortcut guide opens on the current context and searches keys", async () => {
@@ -503,7 +535,9 @@ describe("graphical review", () => {
     expect(guide.getByRole("option").elements()).toHaveLength(2);
     await page.getByRole("combobox", { name: "Search shortcuts and commands" }).fill("zen");
     await userEvent.keyboard("{Enter}");
-    await expect.element(page.getByRole("banner", { name: "Zen mode" })).toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: "Exit zen mode", exact: true }))
+      .toBeInTheDocument();
     await expect.element(guide).not.toBeInTheDocument();
   });
 

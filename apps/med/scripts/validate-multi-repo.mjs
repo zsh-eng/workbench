@@ -182,7 +182,7 @@ try {
   await page.getByRole("heading", { name: "Add a repository to start", exact: true }).waitFor();
   await page.reload();
   await page.getByRole("heading", { name: "Add a repository to start", exact: true }).waitFor();
-  await page.getByRole("button", { name: "Open branch", exact: true }).click();
+  await page.getByRole("button", { name: "Choose repositories", exact: true }).click();
   await dialog.getByRole("button", { name: "Add repository…", exact: true }).click();
   await dialog.getByRole("textbox", { name: "Repository path", exact: true }).fill(repositories[0]);
   await dialog.getByRole("button", { name: "Add", exact: true }).click();

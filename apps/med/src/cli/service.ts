@@ -20,6 +20,7 @@ export const serviceHelp = `Usage: med web                         Start the bac
        med remove <source-id|path|name>
        med index [source] [--wait]
        med serve                       Run the server in the foreground
+       med pr checkout <number|url|branch>  Check out a pull request with gh and review it
        med docs [agents|vaults|usage]
 Options: --port <port>, --state-dir <directory>, --no-open
 Existing review, open, and sources commands remain available.`;
@@ -128,7 +129,8 @@ export async function serve(stateDir: string, port: number) {
     throw error;
   }
 }
-async function ensure(stateDir: string, port: number) {
+/** Connects to the background server, starting it first if needed. */
+export async function ensureService(stateDir: string, port: number) {
   const existing = await connected(stateDir, port);
   if (existing) return existing;
   await mkdir(stateDir, { recursive: true, mode: 0o700 });
@@ -204,7 +206,7 @@ export async function runServiceCommand(command: string, args: string[]) {
       }
     return;
   }
-  const connection = await ensure(stateDir, port);
+  const connection = await ensureService(stateDir, port);
   if (command === "web") {
     const url = `${connection.origin}/sources#token=${connection.token}`;
     if (values.open) {

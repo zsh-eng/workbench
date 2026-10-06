@@ -55,6 +55,12 @@ export const guideContexts: GuideContext[] = [
             note: "Committed content",
             command: "content-search",
           },
+          {
+            label: "Open a branch or worktree",
+            keys: ["Mod+Shift+G"],
+            note: "Opens beside the current branch as a tab",
+            command: "open-branch",
+          },
           { label: "Symbols in this file", keys: ["Mod+O"], command: "file-symbols" },
           { label: "Symbols in the project", keys: ["Mod+Shift+O"], command: "project-symbols" },
           { label: "Resume the last file search", keys: ["Alt+R"], command: "resume-picker" },
@@ -80,7 +86,7 @@ export const guideContexts: GuideContext[] = [
           {
             label: "Zen mode",
             keys: ["Alt+Z"],
-            note: "Hides panels and toolbars; sidebar keys leave it",
+            note: "Hides every bar; the sidebar keys still show panels",
             command: "zen",
           },
         ],
