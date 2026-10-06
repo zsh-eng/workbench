@@ -31,6 +31,15 @@ or browser does not stop it. Use `med status` and `med stop`. Sources persist in
 port. `med serve` runs in the foreground. Optional macOS login startup requires
 an explicit `med service install`.
 
+### Install as an app
+
+Open Med in Chrome or Edge, then select the install icon in the address bar, or
+**Install Med** in the browser menu. Med then has its own window and Dock icon,
+without browser tabs or a toolbar. The title bar follows the Med theme. The app
+uses the background server: run `med service install` to start the server at
+login. Each port is a separate app. Med does not keep an offline copy of the
+interface, so a new `med` version shows when the window opens again.
+
 Use `med add /path/to/vault` for Obsidian, or `--type vault` for a Markdown folder.
 See [vaults, watchers and service commands](VAULTS.md). `med docs usage` prints this
 guide offline. Existing `node dist/cli.js ...` and `med-diff ...` commands remain

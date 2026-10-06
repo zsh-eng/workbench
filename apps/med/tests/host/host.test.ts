@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ByteCache } from "../../src/host/runtime/cache";
 import { runProcess } from "../../src/host/runtime/process";
@@ -505,6 +505,25 @@ describe("HTTP boundary", () => {
     const response = await fetch(`http://127.0.0.1:${host.port}/`);
     expect(await response.text()).toBe("<title>Review</title>");
     expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
+  });
+  test("serves the install manifest and its icons without a token", async () => {
+    const repo = await repository();
+    await commit(repo, "one\n", "first");
+    const host = await startHost({ repo, webRoot: resolve("public") });
+    hosts.push(host);
+    const base = `http://127.0.0.1:${host.port}`;
+    const response = await fetch(`${base}/manifest.webmanifest`);
+    expect(response.headers.get("content-type")).toBe("application/manifest+json");
+    // Unhashed files revalidate, so an installed app picks up a new icon.
+    expect(response.headers.get("cache-control")).toBe("no-cache");
+    const manifest = await response.json();
+    expect(manifest).toMatchObject({ start_url: "/", scope: "/", display: "standalone" });
+    for (const icon of manifest.icons) {
+      const image = await fetch(new URL(icon.src, base));
+      expect(image.headers.get("content-type")).toBe(icon.type);
+      const png = new DataView(await image.arrayBuffer());
+      expect(`${png.getUint32(16)}x${png.getUint32(20)}`).toBe(icon.sizes);
+    }
   });
   test("launches a file-only session in a directory without Git", async () => {
     const repo = await mkdtemp(join(tmpdir(), "med no git "));

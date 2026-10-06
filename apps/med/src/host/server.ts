@@ -80,6 +80,7 @@ const MIME: Record<string, string> = {
   ".png": "image/png",
   ".woff2": "font/woff2",
   ".ico": "image/x-icon",
+  ".webmanifest": "application/manifest+json",
 };
 
 async function readBody(request: IncomingMessage, limit = MAX_BODY) {
@@ -1090,8 +1091,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       }
       response.writeHead(200, {
         "content-type": MIME[extname(file)] ?? "application/octet-stream",
+        // Build assets and fonts keep their content in their names. Browsers
+        // revalidate the manifest and icons so an installed app sees updates.
         "cache-control":
-          appRoute || path.endsWith(".html") ? "no-store" : "public, max-age=31536000, immutable",
+          appRoute || path.endsWith(".html")
+            ? "no-store"
+            : path.startsWith("/assets/") || path.startsWith("/fonts/")
+              ? "public, max-age=31536000, immutable"
+              : "no-cache",
         "x-content-type-options": "nosniff",
         "referrer-policy": "no-referrer",
         "content-security-policy":

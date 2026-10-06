@@ -263,6 +263,15 @@ export function applyTheme(theme: Theme, root: HTMLElement = document.documentEl
   }
   root.style.colorScheme = theme.appearance;
   root.dataset.theme = theme.id;
+  // An installed app's title bar takes this color, so it joins the app frame.
+  const page = root.ownerDocument;
+  let meta = page.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+  if (!meta) {
+    meta = page.createElement("meta");
+    meta.name = "theme-color";
+    page.head.append(meta);
+  }
+  meta.content = theme.palette.panel;
 }
 
 export interface ThemeSnapshot {

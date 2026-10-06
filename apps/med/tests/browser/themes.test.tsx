@@ -100,4 +100,8 @@ test("search and Enter commit; click commits another theme; an empty search does
   expect(document.documentElement.style.getPropertyValue("--med-canvas")).toBe(
     findTheme("tokyo-night").palette.canvas,
   );
+  // An installed app colors its title bar to match the app frame.
+  expect(document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content).toBe(
+    findTheme("tokyo-night").palette.panel,
+  );
 });
