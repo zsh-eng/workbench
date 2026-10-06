@@ -792,12 +792,17 @@ export function FullFileView(props: FullFileViewProps) {
     [markdownModel],
   );
   const togglePreview = () => {
-    setPreview(!preview);
-    try {
-      localStorage.setItem("med-markdown-preview", String(!preview));
-    } catch {
-      /* Session preference still works. */
-    }
+    // Read the current value in the updater. The keyboard shortcut effect
+    // registers once per model, so a closure over `preview` would go stale and
+    // make every later toggle repeat the first result.
+    setPreview((value) => {
+      try {
+        localStorage.setItem("med-markdown-preview", String(!value));
+      } catch {
+        /* Session preference still works. */
+      }
+      return !value;
+    });
   };
   const previewButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
