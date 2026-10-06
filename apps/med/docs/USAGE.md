@@ -71,11 +71,11 @@ Linked worktrees belong to one repository entry. Separate clones remain separate
 
 A workspace is one task: a branch or worktree, a saved review, or a registered vault. Each one keeps its own comparison, open files, notes, and scroll position.
 
-- The **Workspaces** list at the top of the left sidebar appears once two are open. Registered vaults are pinned first. Each row shows the number of changed files.
+- The **Workspaces** list at the top of the left sidebar appears once two are open. Registered vaults are pinned first, then the home workspace, which opens on the default branch. Each row shows the number of changed files.
 - `⌘1`–`⌘9` / `Ctrl+1`–`Ctrl+9` show the workspace at that place in the list.
 - `⌃Tab` shows recent workspaces. Hold Control and press Tab to step; release Control to go. A quick `⌃Tab` returns to the previous workspace. The palette command **Switch workspace…** does the same without a held key.
 - **+** in the list, or **New workspace…** in the palette, opens the branch picker for a new workspace. Opening a saved review link adds a workspace for that review.
-- Select a row and press `Delete`, or click its **×**, to close it. Vaults stay.
+- Select a row and press `Delete`, or click its **×**, to close it. Vaults and the home workspace stay.
 
 The four most recently shown workspaces stay loaded; switching between them is immediate. Only the workspace on screen receives live updates; the others catch up when you return. Older workspaces load again when you open them. The list and the active workspace persist across reloads and restarts. The address follows the active workspace: a saved review keeps its `/review/<id>` link, and Back and Forward move between workspaces.
 

@@ -17,6 +17,9 @@ export interface ReviewWorkspace extends WorkspaceBase {
 }
 export interface RepositoryWorkspace extends WorkspaceBase {
   kind: "repository";
+  /** The window's own workspace. It stays, like a vault, and follows the
+   * branch you choose in it. */
+  home?: boolean;
   /** Without a path, the host's default repository opens. */
   path?: string;
   repositoryId?: string;
@@ -71,6 +74,7 @@ function parse(value: unknown): Workspace | null {
     return {
       ...base,
       kind: "repository",
+      ...(entry.home === true ? { home: true } : {}),
       path: optional(entry.path),
       repositoryId: optional(entry.repositoryId),
       branch: optional(entry.branch),
@@ -85,6 +89,10 @@ function read(): WorkspaceSnapshot {
       recent?: unknown[];
     } | null;
     const workspaces = (raw?.workspaces ?? []).flatMap((entry) => parse(entry) ?? []);
+    // Lists from before the home workspace pin their first branch workspace.
+    const first = workspaces.find((entry) => entry.kind === "repository");
+    if (first && !workspaces.some((entry) => entry.kind === "repository" && entry.home))
+      workspaces[workspaces.indexOf(first)] = { ...first, home: true };
     const ids = new Set(workspaces.map((entry) => entry.id));
     const recent = (raw?.recent ?? []).filter(
       (id): id is string => typeof id === "string" && ids.has(id),
@@ -137,10 +145,15 @@ export const workspaceUrl = (workspace: Workspace) =>
       ? `/vault/${encodeURIComponent(workspace.sourceId)}`
       : "/";
 
-/** Display order: vaults first, then the rest in the order they were opened. */
+/** Vaults and the home workspace stay; others can close. */
+export const pinned = (workspace: Workspace) =>
+  workspace.kind === "vault" || (workspace.kind === "repository" && !!workspace.home);
+
+/** Display order: vaults, the home workspace, then the rest as they opened. */
 export const orderedWorkspaces = (snapshot: WorkspaceSnapshot) => [
   ...snapshot.workspaces.filter((entry) => entry.kind === "vault"),
-  ...snapshot.workspaces.filter((entry) => entry.kind !== "vault"),
+  ...snapshot.workspaces.filter((entry) => entry.kind === "repository" && entry.home),
+  ...snapshot.workspaces.filter((entry) => !pinned(entry)),
 ];
 
 export type WorkspaceStore = ReturnType<typeof createWorkspaceStore>;
@@ -182,9 +195,7 @@ export function createWorkspaceStore(pathname: string, state?: unknown) {
       while (workspaces.length > LIMIT) {
         const drop = [...recent]
           .reverse()
-          .find(
-            (id) => id !== workspace.id && id !== snapshot.active && find(id)?.kind !== "vault",
-          );
+          .find((id) => id !== workspace.id && id !== snapshot.active && !pinned(find(id)!));
         if (!drop) break;
         workspaces = workspaces.filter((entry) => entry.id !== drop);
         recent = recent.filter((id) => id !== drop);
@@ -202,13 +213,13 @@ export function createWorkspaceStore(pathname: string, state?: unknown) {
       });
     },
     /** Closes a workspace; the most recent other one takes its place. Vaults
-     * and the last review workspace stay. */
+     * and the home workspace stay. */
     close(id: string) {
       const workspace = find(id);
       const others = snapshot.workspaces.filter(
         (entry) => entry.id !== id && entry.kind !== "vault",
       );
-      if (!workspace || workspace.kind === "vault" || !others.length) return;
+      if (!workspace || pinned(workspace) || !others.length) return;
       const workspaces = snapshot.workspaces.filter((entry) => entry.id !== id);
       const recent = snapshot.recent.filter((entry) => entry !== id);
       const active =
@@ -243,22 +254,39 @@ export function createWorkspaceStore(pathname: string, state?: unknown) {
               (entry) => entry.id !== id && entry.id !== snapshot.active && matches(next, entry),
             )
           : undefined;
+      // A workspace that comes to match the home one takes its place and pin,
+      // so the view on screen stays and the list keeps one home.
+      const heir = !!duplicate && pinned(duplicate) && !pinned(current);
+      if (heir) (next as RepositoryWorkspace).home = true;
+      const place = heir ? duplicate.id : id;
       publish({
         ...snapshot,
         workspaces: snapshot.workspaces.flatMap((entry) =>
-          entry === duplicate ? [] : entry.id === id ? [next] : [entry],
+          entry.id === place ? [next] : entry.id === id || entry === duplicate ? [] : [entry],
         ),
         recent: snapshot.recent.filter((entry) => entry !== duplicate?.id),
       });
     },
     /** Closes the workspaces of a repository that was removed, except the one
-     * that removed it, which has already moved to another repository. */
+     * that removed it, which has already moved to another repository. The
+     * home workspace starts again on the default repository. */
     closeRepository(repositoryId: string, keep: string) {
       const gone = snapshot.workspaces.filter(
         (entry) =>
           entry.kind === "repository" && entry.repositoryId === repositoryId && entry.id !== keep,
       );
-      for (const entry of gone) store.close(entry.id);
+      for (const entry of gone) {
+        if (!pinned(entry)) {
+          store.close(entry.id);
+          continue;
+        }
+        const fresh: Workspace = { id: newId(), kind: "repository", home: true };
+        publish({
+          workspaces: snapshot.workspaces.map((other) => (other.id === entry.id ? fresh : other)),
+          active: snapshot.active === entry.id ? fresh.id : snapshot.active,
+          recent: snapshot.recent.map((other) => (other === entry.id ? fresh.id : other)),
+        });
+      }
     },
     /** Pins the registered vaults; a vault that was removed closes. */
     syncVaults(vaults: { sourceId: string; title: string }[]) {
@@ -300,7 +328,7 @@ export function createWorkspaceStore(pathname: string, state?: unknown) {
         .map((id) => find(id))
         .find((entry) => entry?.kind === "repository");
       if (last) store.activate(last.id);
-      else store.open({ kind: "repository" });
+      else store.open({ kind: "repository", home: true });
     },
   };
   store.follow(pathname, state);

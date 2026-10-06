@@ -1573,6 +1573,8 @@ export function App({
           {
             id: "close-workspace",
             label: "Close workspace",
+            // The home workspace and vaults stay.
+            disabled: workspace.pinned,
             run: () => workspace.close(workspace.id),
           },
         ]
@@ -2134,24 +2136,6 @@ export function App({
       data-file-count={state.files.length}
       data-active-file={activeFile?.path ?? ""}
     >
-      {state.savedReview && (
-        <SavedReviewHeader
-          controller={controller}
-          state={state}
-          browsing={isFileTab(fileState.active)}
-          browsingSourceLabel={activeFile?.sourceLabel ?? sourceLabel}
-          onReturn={() => {
-            pendingSavedChanges.current = state.savedTargetId;
-            fileWorkspace.select("changes");
-            void controller.returnToSavedReview();
-          }}
-          onTarget={(id) => {
-            pendingSavedChanges.current = id;
-            fileWorkspace.select("changes");
-            void controller.selectSavedTarget(id);
-          }}
-        />
-      )}
       {zen ? (
         <ZenHint loading={state.status === "loading"} />
       ) : (
@@ -2361,6 +2345,26 @@ export function App({
           {...stylex.props(styles.main, !leftVisible && styles.mainFlush)}
           aria-label="Continuous review"
         >
+          {/* The review's own row heads the card, level with the sidebar's
+              identity, so the sidebar keeps its place between workspaces. */}
+          {state.savedReview && (
+            <SavedReviewHeader
+              controller={controller}
+              state={state}
+              browsing={isFileTab(fileState.active)}
+              browsingSourceLabel={activeFile?.sourceLabel ?? sourceLabel}
+              onReturn={() => {
+                pendingSavedChanges.current = state.savedTargetId;
+                fileWorkspace.select("changes");
+                void controller.returnToSavedReview();
+              }}
+              onTarget={(id) => {
+                pendingSavedChanges.current = id;
+                fileWorkspace.select("changes");
+                void controller.selectSavedTarget(id);
+              }}
+            />
+          )}
           {fileLinkError && (
             <div role="alert" {...stylex.props(styles.notice, styles.error)}>
               {fileLinkError}

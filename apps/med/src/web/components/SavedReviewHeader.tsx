@@ -333,6 +333,8 @@ const styles = stylex.create({
     whiteSpace: "nowrap",
     borderWidth: 0,
   },
+  // The first row of the review card: the height of the sidebar's identity
+  // row beside it, and the tab row's rule below.
   header: {
     position: "relative",
     display: "flex",
@@ -340,13 +342,14 @@ const styles = stylex.create({
     gap: 6,
     minWidth: 0,
     flexShrink: 0,
-    backgroundColor: tokens.panel,
+    height: 38,
+    minHeight: 38,
+    boxSizing: "border-box",
     color: tokens.text,
-    paddingBlock: 3,
-    paddingInline: 8,
+    paddingInline: 6,
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
-    borderBottomColor: tokens.border,
+    borderBottomColor: tokens.line,
   },
   totalLabel: { color: tokens.muted, fontSize: 12, whiteSpace: "nowrap" },
   fixed: { flexShrink: 0 },

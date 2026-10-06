@@ -354,7 +354,8 @@ process.stdout.write(process.env.MED_TEST_PR);
 
   // Copy state must remain in place, including when the external clipboard is slow.
   const clearButton = header.getByRole("button", { name: "Clear all comments", exact: true });
-  assert.ok((await header.boundingBox()).height <= 36);
+  // One row, level with the sidebar's identity row.
+  assert.equal((await header.boundingBox()).height, 38);
   // A settling press transition can round to identity while still moving.
   await page.waitForFunction(() => {
     const button = document.querySelector('[aria-label="Copy comments"]');

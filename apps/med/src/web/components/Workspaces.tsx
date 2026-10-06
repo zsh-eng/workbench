@@ -21,6 +21,7 @@ import {
   createWorkspaceStore,
   orderedWorkspaces,
   overlayAddress,
+  pinned,
   workspaceUrl,
   type RepositoryWorkspace,
   type ReviewWorkspace,
@@ -51,6 +52,8 @@ interface WorkspaceActions {
   update(id: string, patch: WorkspacePatch): void;
   /** Opens the switcher without a held key, as the palette does. */
   openSwitcher(): void;
+  subscribe(listener: () => void): () => void;
+  getSnapshot(): WorkspaceSnapshot;
 }
 
 const Actions = createContext<WorkspaceActions | null>(null);
@@ -64,8 +67,17 @@ const Lifetime = createContext<Set<() => void> | null>(null);
 export function useWorkspace() {
   const actions = use(Actions);
   const id = use(Current);
-  return useMemo(() => (actions && id ? { id, ...actions } : null), [actions, id]);
+  // Selected values change rarely, so a review renders again only for them.
+  const stays = useSyncExternalStore(actions?.subscribe ?? noSubscription, () => {
+    const workspace = actions?.getSnapshot().workspaces.find((entry) => entry.id === id);
+    return !!workspace && pinned(workspace);
+  });
+  return useMemo(
+    () => (actions && id ? { id, pinned: stays, ...actions } : null),
+    [actions, id, stays],
+  );
 }
+const noSubscription = () => () => {};
 
 /**
  * Disposes a long-lived object when its owner goes away for good. A hidden
@@ -175,6 +187,8 @@ export function WorkspaceHost({
         rememberFocus();
         setSwitcher({ held: false, reverse: false });
       },
+      subscribe: store.subscribe,
+      getSnapshot: store.getSnapshot,
     }),
     [rememberFocus, show, store],
   );
@@ -488,7 +502,7 @@ export function WorkspaceList({ onNew }: { onNew?(): void }) {
           const current = workspace.id === snapshot.active;
           const label = labelFor(workspace);
           const repository = qualifier(workspace);
-          const closable = workspace.kind !== "vault";
+          const closable = !pinned(workspace);
           return (
             <li key={workspace.id} {...stylex.props(styles.item, stylex.defaultMarker())}>
               <button
