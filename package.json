@@ -10,7 +10,8 @@
     "apps/podcast-lab",
     "apps/arctic/Browser",
     "apps/sync-server",
-    "apps/sync-backup"
+    "apps/sync-backup",
+    "apps/x-moodboard"
   ],
   "type": "module",
   "scripts": {
@@ -77,7 +78,12 @@
     "test:shared:e2e": "bun run --cwd apps/sync-server test:e2e",
     "deploy:sync": "bun run --cwd apps/sync-server deploy",
     "wb": "bun apps/sync-backup/src/cli.ts",
-    "test:sync-backup": "bun run --cwd apps/sync-backup test"
+    "test:sync-backup": "bun run --cwd apps/sync-backup test",
+    "dev:moodboard": "bun run --cwd apps/x-moodboard dev",
+    "start:moodboard": "bun run --cwd apps/x-moodboard start",
+    "import:moodboard": "bun run --cwd apps/x-moodboard import",
+    "build:moodboard": "bun run --cwd apps/x-moodboard build",
+    "test:moodboard": "bun run --cwd apps/x-moodboard test"
   },
   "devDependencies": {
     "oxfmt": "^0.46.0",
