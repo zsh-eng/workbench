@@ -201,8 +201,8 @@ PKCE, server expiry and single-use consumption are unchanged. Regression tests
 reproduce the former rejection and cover empty/inherited fragments plus forged
 state and fragment-only credentials. No backend deployment or Google callback
 configuration change is required. All 22 Swift tests and the iPhone/simulator
-builds pass. Installation was blocked by a disconnected device; device login
-completion still needs a retry after installation.
+builds pass. The fixed build was installed on the iPhone on 6 October after
+reconnection. Google sign-in completion still needs a device retry.
 
 ### Smallest useful integration milestone
 
