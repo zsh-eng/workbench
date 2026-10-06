@@ -122,6 +122,51 @@ describe("wrapRangeWithHighlight", () => {
     expect(container.querySelector("mark")?.textContent).toBe("wor");
   });
 
+  test("wraps only children selected by element boundaries", () => {
+    const container = createContainer(
+      "<p>Before <b>bold</b> middle <em>italic</em> after</p>",
+    );
+    const paragraph = container.querySelector("p")!;
+    const range = document.createRange();
+    range.setStart(paragraph, 1);
+    range.setEnd(paragraph, 4);
+
+    wrapRangeWithHighlight(range, document);
+
+    expect(container.innerHTML).toBe(
+      "<p>Before <b><mark>bold</mark></b><mark> middle </mark><em><mark>italic</mark></em> after</p>",
+    );
+  });
+
+  test("preserves partial endpoints across nested elements and blocks", () => {
+    const container = createContainer(
+      "<p>Before <b>bold</b> text</p><p><em>italic</em> after</p>",
+    );
+    const range = document.createRange();
+    range.setStart(container.querySelector("b")!.firstChild!, 2);
+    range.setEnd(container.querySelector("em")!.firstChild!, 3);
+
+    wrapRangeWithHighlight(range, document);
+
+    expect(container.innerHTML).toBe(
+      "<p>Before <b>bo<mark>ld</mark></b><mark> text</mark></p><p><em><mark>ita</mark>lic</em> after</p>",
+    );
+  });
+
+  test("marks the first and last visible segments across whitespace", () => {
+    const container = createContainer("<p>One</p> <p>Two</p> <p>Three</p>");
+    const range = document.createRange();
+    range.selectNodeContents(container);
+
+    wrapRangeWithHighlight(range, document, {
+      segmentBoundaryAttributes: { start: "data-start", end: "data-end" },
+    });
+
+    expect(container.innerHTML).toBe(
+      '<p><mark data-start="true">One</mark></p> <p><mark>Two</mark></p> <p><mark data-end="true">Three</mark></p>',
+    );
+  });
+
   test("uses custom tag name", () => {
     const container = createContainer("<p>Hello world</p>");
     const range = findRangeByTextOffset(container, 0, 5)!;

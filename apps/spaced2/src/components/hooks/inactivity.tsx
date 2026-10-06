@@ -1,5 +1,4 @@
-import { debounce } from "@/lib/utils";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 const INACTIVITY_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
 const DEBOUNCE_WAIT_MS = 1000; // 1 second
@@ -11,32 +10,28 @@ type UseActiveStartTimeOptions = {
 export function useActiveStartTime(
   options?: UseActiveStartTimeOptions,
 ): number {
-  const now = Date.now();
-  const [startTime, setStartTime] = useState(now);
-  const lastInteractionRef = useRef(now);
-
-  const handleUserActivity = debounce(() => {
-    const now = Date.now();
-    const timeSinceLastInteraction = now - lastInteractionRef.current;
-    if (timeSinceLastInteraction > INACTIVITY_THRESHOLD_MS) {
-      // User was inactive, reset start time
-      setStartTime(now);
-    }
-
-    lastInteractionRef.current = now;
-  }, DEBOUNCE_WAIT_MS);
-
-  // Reset the start time when the id changes
-  useEffect(() => {
-    setStartTime(Date.now());
-  }, [options?.id]);
+  const [startTime, setStartTime] = useState(Date.now);
 
   useEffect(() => {
-    if (!options?.id) {
-      return;
+    let lastInteraction = Date.now();
+    setStartTime(lastInteraction);
+    if (!options?.id) return;
+
+    let activityTimer: ReturnType<typeof setTimeout> | undefined;
+    function handleUserActivity() {
+      clearTimeout(activityTimer);
+      activityTimer = setTimeout(() => {
+        const now = Date.now();
+        if (now - lastInteraction > INACTIVITY_THRESHOLD_MS) {
+          setStartTime(now);
+        }
+        lastInteraction = now;
+      }, DEBOUNCE_WAIT_MS);
     }
+
     function resetStartTime() {
-      setStartTime(Date.now());
+      lastInteraction = Date.now();
+      setStartTime(lastInteraction);
     }
 
     // Track user interactions
@@ -55,12 +50,13 @@ export function useActiveStartTime(
     window.addEventListener("visibilitychange", resetStartTime);
 
     return () => {
+      clearTimeout(activityTimer);
       events.forEach((event) => {
         window.removeEventListener(event, handleUserActivity);
       });
       window.removeEventListener("visibilitychange", resetStartTime);
     };
-  }, [handleUserActivity, options?.id]);
+  }, [options?.id]);
 
   return startTime;
 }

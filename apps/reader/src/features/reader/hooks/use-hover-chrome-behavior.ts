@@ -36,6 +36,7 @@ export function useHoverChromeBehavior({
   hideChrome,
 }: UseHoverChromeBehaviorOptions): UseHoverChromeBehaviorResult {
   const hideTimeoutRef = useRef<number | null>(null);
+  const focusedSurfaceRef = useRef<HTMLElement | null>(null);
 
   const clearHideTimeout = useCallback(() => {
     if (hideTimeoutRef.current === null) return;
@@ -56,14 +57,19 @@ export function useHoverChromeBehavior({
     if (!enabled || isChromeSuppressed) return;
 
     hideTimeoutRef.current = window.setTimeout(() => {
-      hideChrome();
       hideTimeoutRef.current = null;
+      if (focusedSurfaceRef.current?.contains(document.activeElement)) return;
+      hideChrome();
     }, CHROME_HIDE_DELAY_MS);
   }, [clearHideTimeout, enabled, hideChrome, isChromeSuppressed]);
 
-  const handleChromeFocus = useCallback(() => {
-    revealChrome();
-  }, [revealChrome]);
+  const handleChromeFocus = useCallback<FocusEventHandler<HTMLElement>>(
+    (event) => {
+      focusedSurfaceRef.current = event.currentTarget;
+      revealChrome();
+    },
+    [revealChrome],
+  );
 
   const handleChromeBlur = useCallback<FocusEventHandler<HTMLElement>>(
     (event) => {
@@ -77,6 +83,7 @@ export function useHoverChromeBehavior({
         return;
       }
 
+      focusedSurfaceRef.current = null;
       scheduleHideChrome();
     },
     [enabled, scheduleHideChrome],

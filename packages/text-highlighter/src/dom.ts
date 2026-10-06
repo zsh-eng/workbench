@@ -128,50 +128,9 @@ export function wrapRangeWithHighlight(
   let textNode: Node | null;
   while ((textNode = walker.nextNode())) {
     const text = textNode as Text;
-    const nodeRange = doc.createRange();
-    nodeRange.selectNodeContents(text);
-
-    // Determine the portion of this text node within the highlight range
-    let startOffset = 0;
-    let endOffset = text.length;
-
-    // Adjust start if range starts within this node
-    if (range.compareBoundaryPoints(Range.START_TO_START, nodeRange) > 0) {
-      if (range.startContainer === text) {
-        startOffset = range.startOffset;
-      } else if (
-        text.contains(range.startContainer) ||
-        range.startContainer.contains(text)
-      ) {
-        const tempRange = doc.createRange();
-        tempRange.setStart(text, 0);
-        tempRange.setEnd(range.startContainer, range.startOffset);
-        try {
-          startOffset = tempRange.toString().length;
-        } catch {
-          startOffset = 0;
-        }
-      }
-    }
-
-    // Adjust end if range ends within this node
-    if (range.compareBoundaryPoints(Range.END_TO_END, nodeRange) < 0) {
-      if (range.endContainer === text) {
-        endOffset = range.endOffset;
-      } else if (
-        text.contains(range.endContainer) ||
-        range.endContainer.contains(text)
-      ) {
-        const tempRange = doc.createRange();
-        tempRange.setStart(text, 0);
-        tempRange.setEnd(range.endContainer, range.endOffset);
-        try {
-          endOffset = tempRange.toString().length;
-        } catch {
-          endOffset = text.length;
-        }
-      }
-    }
+    // Intersecting text nodes are fully selected unless they contain an endpoint.
+    const startOffset = range.startContainer === text ? range.startOffset : 0;
+    const endOffset = range.endContainer === text ? range.endOffset : text.length;
 
     if (startOffset < endOffset) {
       textNodes.push({ node: text, startOffset, endOffset });

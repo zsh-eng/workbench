@@ -56,6 +56,10 @@ test("desktop chrome fades in place and hides all navigation controls together",
     path: testInfo.outputPath("desktop-chrome-visible.png"),
   });
 
+  // A focused control keeps chrome open even when the pointer leaves.
+  await page.getByRole("button", { name: "Remove bookmark", exact: true }).evaluate(
+    (button) => button.blur(),
+  );
   await page.mouse.move(640, 400);
   await expect(header).toHaveCSS("opacity", "0");
   await expect(header).toHaveCSS("transform", "none");

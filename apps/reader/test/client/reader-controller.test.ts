@@ -64,14 +64,13 @@ function ControllerHarness({
             })
           : null,
         createElement(
-          "button",
+          "div",
           {
             ...chromeSurfaceProps,
             "data-testid": "header",
-            tabIndex: 0,
-            type: "button",
           },
-          "header",
+          createElement("button", { "data-testid": "header-control" }, "header"),
+          createElement("button", { "data-testid": "header-next" }, "next"),
         ),
         createElement(
           "button",
@@ -199,6 +198,40 @@ afterEach(() => {
 });
 
 describe("ReaderController", () => {
+  it("keeps focused chrome visible across pointer departure and surface focus changes", () => {
+    const harness = createHarness();
+    try {
+      renderHarness(harness.root, { chromeInteractionMode: "hover" });
+      const header = getByTestId(harness.container, "header");
+      const control = getByTestId(harness.container, "header-control");
+      const next = getByTestId(harness.container, "header-next");
+      const footer = getByTestId(harness.container, "footer");
+      const rail = getByTestId(harness.container, "bottom-rail");
+
+      dispatchPointerTransition(header, "pointerover");
+      act(() => control.focus());
+      dispatchPointerTransition(header, "pointerout");
+      act(() => vi.advanceTimersByTime(CHROME_HIDE_DELAY_MS));
+      expect(isChromeVisible(harness.container)).toBe(true);
+
+      act(() => next.focus());
+      act(() => vi.advanceTimersByTime(CHROME_HIDE_DELAY_MS));
+      expect(isChromeVisible(harness.container)).toBe(true);
+
+      act(() => footer.focus());
+      dispatchPointerTransition(rail, "pointerover");
+      dispatchPointerTransition(rail, "pointerout");
+      act(() => vi.advanceTimersByTime(CHROME_HIDE_DELAY_MS));
+      expect(isChromeVisible(harness.container)).toBe(true);
+
+      act(() => footer.blur());
+      act(() => vi.advanceTimersByTime(CHROME_HIDE_DELAY_MS));
+      expect(isChromeVisible(harness.container)).toBe(false);
+    } finally {
+      harness.cleanup();
+    }
+  });
+
   it("starts hidden in hover mode and hides after the rail leave delay", () => {
     const harness = createHarness();
     renderHarness(harness.root, { chromeInteractionMode: "hover" });

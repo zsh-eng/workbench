@@ -1,5 +1,32 @@
 import { test, expect, openLocalBook } from "./helpers/fixtures";
 
+test("focused Reader controls stay available after the pointer leaves", async ({
+  page,
+  localBook,
+}) => {
+  await openLocalBook(page, localBook.id);
+  const header = page.locator('[data-reader-header="desktop"]');
+  await header.getByRole("button", { name: "Dismiss reading status prompt" }).click();
+  await expect(header.locator("[data-reader-header-accessory]")).toHaveCount(0);
+  const viewport = page.viewportSize()!;
+  await page.mouse.move(viewport.width / 2, viewport.height / 2);
+  await expect(header).toHaveAttribute("aria-hidden", "true");
+  await page.locator('[data-reader-chrome-rail="top"]').hover();
+  const bookmark = header.getByRole("button", { name: /bookmark/ });
+  await bookmark.focus();
+  await page.clock.install();
+  await page.mouse.move(viewport.width / 2, viewport.height / 2);
+  await page.clock.fastForward(300);
+  await expect(header).toHaveAttribute("aria-hidden", "false");
+  await expect(bookmark).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(bookmark).toHaveAttribute("aria-pressed", "true");
+
+  await bookmark.evaluate((button) => button.blur());
+  await page.clock.fastForward(300);
+  await expect(header).toHaveAttribute("aria-hidden", "true");
+});
+
 test("library supports skip navigation and keyboard book opening", async ({
   page,
   localBook,
