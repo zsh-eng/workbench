@@ -138,13 +138,15 @@ Shift-click another commit to select an inclusive range. The comparison runs fro
 
 | Action                            | macOS        | Omarchy Linux             |
 | --------------------------------- | ------------ | ------------------------- |
-| All commands and shortcuts        | `?`          | `?`                       |
+| Keyboard shortcuts guide          | `?`          | `?`                       |
 | Command palette                   | `⌘K`         | `Ctrl+K`                  |
 | Find a file                       | `⌘⇧K`        | `Ctrl+Shift+K`            |
 | Symbols in current file           | `⌘O`         | `Ctrl+O`                  |
 | Symbols in project commits        | `⌘⇧O`        | `Ctrl+Shift+O`            |
 | Search file contents              | `⌘⇧F`        | `Ctrl+Shift+F`            |
 | Toggle history / files sidebar       | `⌘B` / `⌘⇧B` | `Ctrl+B` / `Ctrl+Shift+B` |
+| Zen mode                          | `⌥Z`         | `Alt+Z`                   |
+| Add note to selected lines        | `c`          | `c`                       |
 | Resume search                     | `⌥R`         | `Alt+R`                   |
 | Keep preview tab                  | `⌥P`         | `Alt+P`                   |
 | Toggle gutter blame               | `⌥B`         | `Alt+B`                   |
@@ -153,6 +155,23 @@ Shift-click another commit to select an inclusive range. The comparison runs fro
 | Close other files                 | `⌥⇧O`        | `Alt+Shift+O`             |
 
 Close actions preserve the Changes tab and other workspaces. Desktop or browser shortcuts can take priority over a web app; the command palette provides the same actions.
+
+`?` opens the shortcuts guide on your current context: Review, a read-only File,
+the Editor, or Pickers. Type to search every context by action or by key, such
+as `close`, `zz`, or `⌘K`. Sequences show a `›` between keys; dashed keys are
+values you type, such as a character or mark. Enter runs a highlighted row that
+has a command. Keys follow your platform: `⌘ ⌥ ⇧` on macOS, `Ctrl Alt Shift`
+elsewhere.
+
+### Zen mode
+
+Press `⌥Z` / `Alt+Z`, use the focus button at the top right, or run **Enter zen
+mode** from the command palette. Zen mode hides the sidebars, branch tabs, the
+Changes toolbar, and the status bar. A quiet bar keeps the repository, branch,
+comparison, open tabs, unsaved-file count, the command palette, and **Exit
+zen**. `⌘B` or `⌘⇧B` leaves zen mode and shows that sidebar. Escape does not
+leave zen mode, so it stays free for search, Vim, and dialogs. Leaving restores
+the previous layout; the setting is remembered in this browser.
 
 ## Symbols and Vim navigation
 
@@ -192,7 +211,10 @@ Vim Visual selections and mouse selections use the same visible selection colour
 Default yanks (`y`, `yiw`, `yy`) also copy to the system clipboard. Named and
 black-hole registers retain their Vim behavior. ⌘⇧F / Ctrl+Shift+F searches the
 selected text in the repository; ⌘⇧K / Ctrl+Shift+K opens the file picker in both
-Normal and Insert modes. App shortcuts take precedence over Vim bindings.
+Normal and Insert modes. App shortcuts take precedence over Vim bindings, with
+one exception on macOS: Control+B, Control+F, and Control+O in the editor reach
+Vim (page up, page down, jump back) because Command runs Med's shortcuts. On
+Linux these Control keys still run Med's sidebar, find, and symbol shortcuts.
 
 Git blame keeps its gutter width while editing. Attribution is hidden while the
 draft is unsaved or the disk contents have changed, and updates after saving.

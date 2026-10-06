@@ -41,7 +41,7 @@ The host validates registered paths before reads and routes search to the owning
 
 Inactive browser tabs retain bounded navigation records. They do not mount separate review renderers. Switching cancels old requests, restores navigation, and reloads mutable content; request generations reject late responses. File navigation is retained for up to 32 workspaces, with up to 12 file tabs each, while only the active file retains loaded bytes in the workspace store.
 
-Base UI supplies tabs and the searchable theme dialog. Theme selection previews the whole application; Enter saves locally, and dismissal restores the saved theme. Semantic CSS variables connect StyleX, Pierre Trees, and the diff theme. Geist fonts and a selected set of Lucide SVG paths ship locally. No runtime dependency was added for these controls. See [theme sources](upstream/THEMES.md).
+Base UI supplies tabs and the searchable theme dialog. Theme selection previews the whole application; Enter saves locally, and dismissal restores the saved theme. Semantic CSS variables connect StyleX, Pierre Trees, and the diff theme. Geist fonts and Med's own 16-pixel icon set (with the GitHub mark for pull-request links) ship locally. No runtime dependency was added for these controls. See [theme sources](upstream/THEMES.md).
 
 ## Boundaries and dependencies
 
