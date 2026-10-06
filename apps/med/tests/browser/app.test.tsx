@@ -82,6 +82,7 @@ async function mountApp(
     metadataFile?: boolean;
     branches?: boolean;
     savedReview?: boolean;
+    readOnly?: boolean;
     noteMutation?: () => Promise<Response | undefined>;
   } = {},
 ) {
@@ -238,7 +239,7 @@ async function mountApp(
       const review = { ...response(comparison), repo };
       if (options.metadataFile)
         review.files.push({
-          path: "assets/image.png",
+          path: "assets/model.bin",
           status: "M",
           additions: 0,
           deletions: 0,
@@ -282,7 +283,14 @@ async function mountApp(
   mount = document.createElement("div");
   document.body.append(mount);
   root = createRoot(mount);
-  root.render(<App controller={controller} browseApi={createBrowseApi(fetcher, "fixture")} />);
+  const browse = createBrowseApi(fetcher, "fixture");
+  // Writable working files open in the Vim editor; without write they use the read-only viewer.
+  root.render(
+    <App
+      controller={controller}
+      browseApi={{ ...browse, write: options.readOnly ? undefined : browse.write }}
+    />,
+  );
   await expect
     .poll(() => document.querySelector("[data-review-status]")?.getAttribute("data-review-status"))
     .toBe("ready");
@@ -313,7 +321,7 @@ describe("graphical review", () => {
     const { controller } = await mountApp({ savedReview: true, branches: true });
     await page.getByRole("link", { name: "src/alpha.ts", exact: true }).click();
     await expect
-      .element(page.getByRole("textbox", { name: "File navigation", exact: true }))
+      .element(page.getByRole("textbox", { name: "Edit src/alpha.ts", exact: true }))
       .toBeVisible();
     await expect.element(page.getByRole("button", { name: "Return to review" })).toBeVisible();
     await expect.element(page.getByText(/Captured working changes/)).not.toBeInTheDocument();
@@ -331,7 +339,7 @@ describe("graphical review", () => {
     await openBranch("feature");
     await page.getByRole("link", { name: "src/beta.ts", exact: true }).click();
     await expect
-      .element(page.getByRole("textbox", { name: "File navigation", exact: true }))
+      .element(page.getByRole("textbox", { name: "Edit src/beta.ts", exact: true }))
       .toBeVisible();
     await page.getByRole("combobox", { name: "Review target" }).selectOptions("target-0");
     await expect.poll(() => controller.getSnapshot().review?.id).toBe("target-0");
@@ -351,7 +359,7 @@ describe("graphical review", () => {
     await expect.poll(() => fileRequests.length).toBe(1);
     await link.click();
     await expect
-      .element(page.getByRole("textbox", { name: "File navigation", exact: true }))
+      .element(page.getByRole("textbox", { name: "Edit src/alpha.ts", exact: true }))
       .toBeVisible();
     expect(fileRequests).toHaveLength(1);
   });
@@ -377,15 +385,12 @@ describe("graphical review", () => {
       .toHaveAttribute("aria-selected", "true");
     expect(controller.getSnapshot().selectedFileId).toBe(selected);
     await page.getByRole("tab", { name: "alpha.ts", exact: true }).click();
-    await expect
-      .element(page.getByRole("textbox", { name: "File navigation", exact: true }))
-      .toBeVisible();
-    await expect
-      .poll(() => document.activeElement)
-      .toBe(page.getByRole("textbox", { name: "File navigation", exact: true }).element());
+    const editor = page.getByRole("textbox", { name: "Edit src/alpha.ts", exact: true });
+    await expect.element(editor).toBeVisible();
+    await expect.poll(() => document.activeElement).toBe(editor.element());
   });
-  test("a fresh launch opens files with a visible Vim cursor and keyboard focus", async () => {
-    await mountApp();
+  test("a fresh launch opens read-only files with a visible Vim cursor and keyboard focus", async () => {
+    await mountApp({ readOnly: true });
     await page.getByRole("link", { name: "src/alpha.ts", exact: true }).click();
     const pane = page.getByRole("textbox", { name: "File navigation", exact: true });
     await expect.poll(() => document.activeElement).toBe(pane.element());
@@ -400,7 +405,7 @@ describe("graphical review", () => {
 
   test("an explicit Vim opt-out is preserved", async () => {
     localStorage.setItem("med:vim", "off");
-    await mountApp();
+    await mountApp({ readOnly: true });
     await page.getByRole("link", { name: "src/alpha.ts", exact: true }).click();
     await expect
       .element(page.getByRole("textbox", { name: "File content", exact: true }))
@@ -415,7 +420,7 @@ describe("graphical review", () => {
     const { fileRequests } = await mountApp({ branches: true });
     await page.getByRole("treeitem", { name: /alpha.ts/ }).dblClick();
     await expect
-      .element(page.getByRole("region", { name: "Full file", exact: true }))
+      .element(page.getByRole("region", { name: "File editor", exact: true }))
       .toBeVisible();
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "o", metaKey: true, bubbles: true }));
     await expect.element(page.getByRole("dialog", { name: "Find symbol" })).toBeVisible();
@@ -523,12 +528,9 @@ describe("graphical review", () => {
     await expect
       .element(page.getByRole("tab", { name: "beta.ts", exact: true }))
       .toHaveAttribute("aria-selected", "true");
-    await expect
-      .element(page.getByRole("textbox", { name: "File navigation", exact: true }))
-      .toBeVisible();
-    await expect
-      .poll(() => document.activeElement)
-      .toBe(page.getByRole("textbox", { name: "File navigation", exact: true }).element());
+    const editor = page.getByRole("textbox", { name: "Edit src/beta.ts", exact: true });
+    await expect.element(editor).toBeVisible();
+    await expect.poll(() => document.activeElement).toBe(editor.element());
     altKey("KeyW", true);
     await expect
       .element(page.getByRole("tab", { name: "beta.ts", exact: true }))
@@ -542,7 +544,7 @@ describe("graphical review", () => {
     const diffHost = document.querySelector("diffs-container");
     await page.getByRole("treeitem", { name: /alpha.ts/ }).dblClick();
     await expect
-      .element(page.getByRole("region", { name: "Full file", exact: true }))
+      .element(page.getByRole("region", { name: "File editor", exact: true }))
       .toBeVisible();
     await expect
       .poll(() => fileRequests.at(-1))
@@ -550,6 +552,10 @@ describe("graphical review", () => {
     expect(diffHost?.isConnected).toBe(true);
     await page.getByRole("button", { name: "Open before", exact: true }).click();
     await expect.poll(() => fileRequests.at(-1)?.source.kind).toBe("commit");
+    // Commit snapshots stay read-only.
+    await expect
+      .element(page.getByRole("region", { name: "Full file", exact: true }))
+      .toBeVisible();
     await page.getByRole("tab", { name: "Changes", exact: true }).click();
     expect(diffHost?.isConnected).toBe(true);
     await expect
@@ -788,7 +794,7 @@ describe("graphical review", () => {
     await userEvent.keyboard("{Enter}");
     await expect.element(toggle).toHaveAttribute("aria-expanded", "true");
     await page.getByRole("link", { name: "src/alpha.ts", exact: true }).click();
-    await expect.element(page.getByRole("textbox", { name: "File navigation" })).toBeVisible();
+    await expect.element(page.getByRole("textbox", { name: "Edit src/alpha.ts" })).toBeVisible();
     await page.getByRole("tab", { name: "Changes", exact: true }).click();
     await expect.element(toggle).toHaveAttribute("aria-expanded", "true");
   });
@@ -796,12 +802,17 @@ describe("graphical review", () => {
   test("gd uses ctags to jump to a declaration in the current file", async () => {
     await mountApp();
     await page.getByRole("link", { name: "src/alpha.ts", exact: true }).click();
-    const pane = page.getByRole("textbox", { name: "File navigation" });
-    await expect.poll(() => document.activeElement).toBe(pane.element());
-    await userEvent.keyboard("2Gwwgd");
-    await expect.element(pane).toHaveAttribute("data-vim-line", "2");
-    await expect.element(pane).toHaveAttribute("data-vim-column", "14");
-    await expect.poll(() => document.activeElement).toBe(pane.element());
+    const editor = page.getByRole("textbox", { name: "Edit src/alpha.ts", exact: true });
+    await expect.element(editor).toBeVisible();
+    await expect.poll(() => document.activeElement).toBe(editor.element());
+    const cursorLine = () => document.querySelector(".med-editor .cm-activeLine")?.textContent;
+    // Type a use on the last line, then jump to the fixture's ctags match at line 2, column 14.
+    await userEvent.keyboard("Giuse(workingContents);{Escape}0wwgd");
+    await expect.poll(cursorLine).toBe("export const workingContents = true;");
+    // Insert at the cursor to prove the column.
+    await userEvent.keyboard("i_{Escape}");
+    await expect.poll(cursorLine).toBe("export const _workingContents = true;");
+    await expect.poll(() => document.activeElement).toBe(editor.element());
   });
 
   test("shift-click selects an inclusive commit range and a plain click resets it", async () => {
@@ -1171,10 +1182,10 @@ describe("graphical review", () => {
   test("reveals metadata-only files selected in the sidebar", async () => {
     await page.viewport(1280, 600);
     const { controller } = await mountApp({ metadataFile: true });
-    await page.getByRole("treeitem", { name: /image.png/ }).click();
+    await page.getByRole("treeitem", { name: /model.bin/ }).click();
     const target = page.getByText("Binary file", { exact: true });
     await expect.element(target).toBeVisible();
-    const row = document.querySelector('[data-metadata-file="assets/image.png"]');
+    const row = document.querySelector('[data-metadata-file="assets/model.bin"]');
     await expect
       .poll(() => {
         const rect = row?.getBoundingClientRect();
@@ -1185,7 +1196,7 @@ describe("graphical review", () => {
       controller
         .getSnapshot()
         .files.find((file) => file.id === controller.getSnapshot().selectedFileId)?.path,
-    ).toBe("assets/image.png");
+    ).toBe("assets/model.bin");
   });
 
   test("edits a stale note outside current hunks and preserves an orphaned note", async () => {
