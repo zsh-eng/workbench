@@ -1,13 +1,19 @@
 import Dexie from "dexie";
+import type { SyncPushChange } from "@zsh-eng/local-sync";
 
 /** Benchmark-only interceptor; the library still owns its apply transaction. */
 export function instrumentOutbox(
-  db: any,
+  db: {
+    _sync_outbox: {
+      count(): Promise<number>;
+      bulkGet(keys: string[]): Promise<(SyncPushChange | undefined)[]>;
+    };
+  },
   fast: boolean,
   metrics: { outboxChecks: number; outboxGets: number },
 ) {
   const bulkGet = db._sync_outbox.bulkGet.bind(db._sync_outbox);
-  db._sync_outbox.bulkGet = async (keys: any[]) => {
+  db._sync_outbox.bulkGet = async (keys: string[]) => {
     if (fast) {
       if (
         !Dexie.currentTransaction ||

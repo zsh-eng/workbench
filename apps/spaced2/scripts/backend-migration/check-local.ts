@@ -1,5 +1,6 @@
 /** End-to-end checks against the local Wrangler server and console email log. */
 import assert from "node:assert/strict";
+import type { SyncPullResponse } from "@zsh-eng/local-sync";
 import { computeFileId } from "../../server/lib/files";
 const base = "http://localhost:8791";
 const origin = "http://localhost:5180";
@@ -52,7 +53,7 @@ assert.equal(
   ).status,
   200,
 );
-assert.equal((await (await a("/me")).json()).userId, "local-check-user");
+assert.equal((await (await a("/me")).json<{ userId: string }>()).userId, "local-check-user");
 const email = `check-${Date.now()}@local.invalid`,
   password = "local-test-password";
 assert.equal(
@@ -96,10 +97,10 @@ assert.equal(
 );
 assert.equal((await b("/me")).status, 200);
 const bytes = new TextEncoder().encode("<script>test</script>"),
-  id = await computeFileId(bytes.buffer);
+  id = await computeFileId(bytes.buffer as ArrayBuffer);
 assert.equal((await a("/files/" + id, "PUT", bytes)).status, 200);
 assert.equal(
-  (await (await a("/files/" + id, "PUT", bytes)).json()).alreadyExists,
+  (await (await a("/files/" + id, "PUT", bytes)).json<{ alreadyExists: boolean }>()).alreadyExists,
   true,
 );
 assert.equal(
@@ -138,10 +139,10 @@ const pull = await (
     undefined,
     headers,
   )
-).json();
+).json<SyncPullResponse>();
 assert.ok(
   pull.records?.some(
-    (r: any) => r.key === record.key && r.value === record.value,
+    (r) => r.key === record.key && r.value === record.value,
   ),
   JSON.stringify(pull),
 );
@@ -154,7 +155,7 @@ assert.equal(
         undefined,
         headers,
       )
-    ).json()
+    ).json<SyncPullResponse>()
   ).records.length,
   0,
 );
@@ -180,9 +181,9 @@ const again = await (
     undefined,
     headers,
   )
-).json();
+).json<SyncPullResponse>();
 assert.equal(
-  again.records.find((r: any) => r.key === record.key).value,
+  again.records.find((r) => r.key === record.key)!.value,
   record.value,
 );
 assert.equal((await a("/unknown")).status, 404);

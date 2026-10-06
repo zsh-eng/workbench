@@ -6,7 +6,8 @@ import { render, click, input } from "./dom";
 import { LoginForm } from "@/components/form/login-form";
 import { RegisterForm } from "@/components/form/register-form";
 import VerifyOtpForm from "@/components/form/verify-otp-form";
-import { ThemeProvider, useTheme } from "@/components/theme/theme-provider";
+import { ThemeProvider } from "@/components/theme/theme-provider";
+import { useTheme } from "@/components/theme/theme-context";
 import { useSessionExpired } from "@/components/hooks/session-expired";
 import { login, register, verifyOtp, registerClient } from "@/lib/auth";
 import {

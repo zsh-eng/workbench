@@ -36,10 +36,7 @@ for (const phase of ["identity", "pull", "push"] as const) {
     MemoryDB.notify();
     // Ensure push also has something to send before pausing its response.
     if (phase === "push") await gradeCardOperation(card, Rating.Good);
-    globalThis.fetch = (async (
-      input: RequestInfo | URL,
-      init?: RequestInit,
-    ) => {
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input);
       const current = url.endsWith("/me")
         ? "identity"
@@ -97,7 +94,9 @@ for (const phase of ["identity", "pull", "push"] as const) {
       ]);
       for (const c of MemoryDB.getCards())
         MemoryDB.putCard({ ...c, deleted: true });
-      while (MemoryDB.popUndoGrade()) {}
+      while (MemoryDB.popUndoGrade()) {
+        // Drain the undo stack between network phases.
+      }
       MemoryDB.notify();
     }
   });

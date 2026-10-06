@@ -31,7 +31,7 @@ try {
   for (const table of ["user", "account", "file_storage", "sync_records"]) {
     const rows = source.query(`SELECT * FROM "${table}"`).all() as Record<
       string,
-      any
+      unknown
     >[];
     if (!rows.length) continue;
     const keys = Object.keys(rows[0]),

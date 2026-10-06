@@ -1,3 +1,6 @@
+import type Dexie from "dexie";
+import type { StoredOperation } from "../../src/lib/sync/records";
+
 /** Benchmark candidates only; no application schema or adapter changes. */
 export const candidates = [
   { name: "baseline" },
@@ -27,7 +30,7 @@ export interface Candidate {
   yieldPages?: number;
   queuePages?: number;
 }
-export function packRow(row: any) {
+export function packRow(row: StoredOperation) {
   return {
     id: row.id,
     type: row.type,
@@ -35,11 +38,17 @@ export function packRow(row: any) {
     value: JSON.stringify(row),
   };
 }
-export function installPackedRows(db: any) {
+export function installPackedRows(db: Dexie) {
   const original = db.Table.prototype.bulkPut;
-  db.Table.prototype.bulkPut = function (rows: any[], ...rest: any[]) {
+  db.Table.prototype.bulkPut = function (
+    this: Dexie["Table"]["prototype"],
+    rows: readonly StoredOperation[],
+    ...rest: Parameters<typeof original> extends [unknown, ...infer Rest]
+      ? Rest
+      : never
+  ) {
     return original.call(this, rows.map(packRow), ...rest);
-  };
+  } as typeof original;
 }
 export const frameSizes = new WeakMap<object, number>();
 export function tagFrame<T extends object>(page: T, bytes: number): T {

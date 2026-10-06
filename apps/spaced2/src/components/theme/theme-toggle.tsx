@@ -1,5 +1,5 @@
 import BouncyButton from "@/components/bouncy-button";
-import { useTheme } from "@/components/theme/theme-provider";
+import { useTheme } from "@/components/theme/theme-context";
 import { Monitor, MoonIcon, SunIcon } from "lucide-react";
 
 export function ThemeToggle() {

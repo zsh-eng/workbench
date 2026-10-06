@@ -13,6 +13,32 @@ import { resolve, join } from "node:path";
 import { convertRow, legacyTables } from "../sync-migration/convert";
 import { computeFileId } from "../../server/lib/files";
 
+type LegacyUser = {
+  id: string;
+  is_active: number;
+  display_name: string | null;
+  email: string;
+  image_url: string | null;
+  last_modified: number;
+  password_hash: string | null;
+};
+type LegacyOAuthAccount = {
+  id: string;
+  provider_user_id: string;
+  provider: string;
+  user_id: string;
+  created_at: number;
+};
+type ConvertedFile = {
+  id: string;
+  userId: string;
+  key: string;
+  localFile: string;
+  sha256: string;
+  size: number;
+  mediaType: string;
+};
+
 const [databasePath, backupPath, outputPath] = process.argv.slice(2);
 if (!databasePath || !backupPath || !outputPath)
   throw Error(
@@ -34,7 +60,7 @@ target.exec(
   ).text(),
 );
 target.exec("PRAGMA foreign_keys=ON");
-const users = source.query("SELECT * FROM users").all() as any[];
+const users = source.query("SELECT * FROM users").all() as LegacyUser[];
 if (users.some((u) => !u.is_active))
   throw Error("Inactive accounts need an explicit blocked-account migration");
 let passwords = 0,
@@ -69,7 +95,7 @@ target.transaction(() => {
       passwords++;
     }
   }
-  for (const a of source.query("SELECT * FROM oauth_accounts").all() as any[]) {
+  for (const a of source.query("SELECT * FROM oauth_accounts").all() as LegacyOAuthAccount[]) {
     account.run(
       `oauth:${a.id}`,
       a.provider_user_id,
@@ -83,7 +109,7 @@ target.transaction(() => {
   }
 })();
 const manifest = await Bun.file(join(backup, "r2-manifest.json")).json();
-const files: any[] = [],
+const files: ConvertedFile[] = [],
   aliases = new Map<string, string>(),
   seen = new Map<string, string>(),
   owners = new Set(users.map((u) => u.id));
@@ -110,7 +136,7 @@ for (const object of manifest.objects) {
   chmodSync(join(temporary, localFile), 0o600);
   const metadata = source
     .query("SELECT last_modified,file_type FROM files WHERE user_id=? AND id=?")
-    .get(userId, object.key.split("/")[1]) as any;
+    .get(userId, object.key.split("/")[1]) as { last_modified: number; file_type: string | null } | null;
   const mediaType =
     object.http_metadata?.contentType ??
     metadata?.file_type ??
@@ -142,14 +168,14 @@ target.transaction(() => {
   for (const table of legacyTables) {
     const rows = source
       .query(`SELECT * FROM ${table} ORDER BY user_id,seq_no`)
-      .all() as any[];
+      .all() as Parameters<typeof convertRow>[1][];
     counts[table] = rows.length;
     for (const input of rows) {
       const row = { ...input };
       if (table === "card_contents") {
         let changed = false;
         for (const field of ["front", "back"])
-          row[field] = row[field].replace(
+          row[field] = (row[field] as string).replace(
             /https?:\/\/api\.spaced2\.zsheng\.app\/api\/files\/([a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+)/g,
             (_: string, oldKey: string) => {
               const id = aliases.get(oldKey);
