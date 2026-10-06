@@ -7,6 +7,7 @@ import { VaultWorkspace } from "./components/VaultWorkspace";
 import { LocalFiles } from "./components/LocalFiles";
 import { App } from "./App";
 import { PierreThemeSync } from "./pierre-theme";
+import { UpdateNotice } from "./components/UpdateNotice";
 import { authorizeBrowser } from "./data/auth";
 import { createReviewController } from "./data/controller";
 import { createPatchParser } from "./workers/client";
@@ -36,6 +37,7 @@ createRoot(root).render(
   <WorkerPoolContextProvider poolOptions={poolOptions} highlighterOptions={highlighterOptions}>
     <Tooltip.Provider delay={400} closeDelay={80} timeout={500}>
       <PierreThemeSync />
+      <UpdateNotice />
       <VaultWorkspace>
         <LocalFiles>
           <App controller={controller} />

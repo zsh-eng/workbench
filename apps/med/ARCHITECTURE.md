@@ -297,6 +297,14 @@ owning one state directory. `med web` starts a detached server only when needed;
 `med serve` runs the same owner in the foreground. Login-service installation is
 an explicit, separate operation. UI repository registration uses the same owner.
 
+`GET /api/build` reports whether the code file on disk differs from the code the
+server started with (the CLI script's hash, or a compiled executable's identity),
+and the entry script of the page build on disk. The page compares that entry with
+its own to offer Reload. `POST /api/service/restart` first runs `--version` from
+disk, so a broken build never replaces a working server. Then the server closes,
+releases its lock, and starts a detached replacement; under its LaunchAgent it
+asks launchd to restart it instead.
+
 Repository identity uses its Git common directory; vault identity uses its
 canonical folder. Directory identity is checked before access. Watch events are
 debounced for 150 ms, with 60-second reconciliation. One short-lived subprocess

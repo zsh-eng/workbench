@@ -31,6 +31,11 @@ export class ServiceManager {
   private reconcile?: ReturnType<typeof setInterval>;
   private mutations: Promise<unknown> = Promise.resolve();
   onStop: () => void = () => {};
+  /** Set by a managed server that can replace itself with the code on disk. */
+  onRestart?: () => Promise<void>;
+  get canRestart() {
+    return Boolean(this.onRestart);
+  }
   private constructor(readonly sources: SourceCatalogue) {}
   static async open(stateDir: string) {
     return new ServiceManager(await SourceCatalogue.open(stateDir));
@@ -158,6 +163,12 @@ export class ServiceManager {
     if (action === "stop") {
       setTimeout(() => this.onStop(), 25);
       return { stopping: true };
+    }
+    if (action === "restart") {
+      if (!this.onRestart)
+        throw new HostError("restart-unavailable", "Restart this server from its terminal.", 409);
+      await this.onRestart();
+      return { restarting: true };
     }
     if (action === "add" || action === "remove") {
       const work = this.mutations.then(async () => {

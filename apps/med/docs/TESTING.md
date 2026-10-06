@@ -67,6 +67,10 @@ CLI, Markdown worker, browser, and file APIs: working and historical repository
 files, standalone tabs, URL encoding, parent paths, missing targets, and root
 boundaries. Vault relative links are covered by `bun run test:service`.
 
+`bun run test:restart` runs a copy of the build and changes it: a newer page
+offers Reload, a broken server build keeps the server running, and a working
+rebuild restarts it with a new process. Build first.
+
 `bun run test:navigation` uses an isolated headless Chromium and temporary
 repositories to check repository-scoped file picking, filter composition,
 identical paths in different repositories, keyboard focus, file integrity,

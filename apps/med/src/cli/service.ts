@@ -1,4 +1,5 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
 import { randomBytes } from "node:crypto";
 import { mkdir, open, readFile, writeFile, unlink, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -11,8 +12,12 @@ import {
   type RunningConnection,
 } from "../host/runtime/connection";
 import { startHost } from "../host/server";
+import { HostError } from "../host/runtime/errors";
 import { ServiceManager } from "../host/service/manager";
 import { selfCommand } from "../host/service/self";
+import { serviceLabel } from "./login-service";
+
+const exec = promisify(execFile);
 
 export const serviceHelp = `Usage: med web                         Start the background server and open the browser
        med add <path> [--type repo|vault] [--wait]
@@ -114,14 +119,32 @@ export async function serve(stateDir: string, port: number) {
       service: manager,
     });
     let closing = false;
-    const close = () => {
+    const close = (next?: () => Promise<unknown>) => {
       if (closing) return;
       closing = true;
-      void host.close().finally(release);
+      void host.close().finally(async () => {
+        await release();
+        await next?.();
+      });
     };
-    manager.onStop = close;
-    process.once("SIGTERM", close);
-    process.once("SIGINT", close);
+    manager.onStop = () => close();
+    // launchd restarts its own agent; otherwise a detached replacement starts
+    // after this server frees the port and the lock.
+    const label =
+      process.platform === "darwin" && process.env.XPC_SERVICE_NAME === serviceLabel(stateDir)
+        ? process.env.XPC_SERVICE_NAME
+        : undefined;
+    manager.onRestart = async () => {
+      await checkStartable();
+      if (label)
+        spawn("launchctl", ["kickstart", "-k", `gui/${process.getuid!()}/${label}`], {
+          detached: true,
+          stdio: "ignore",
+        }).unref();
+      else setTimeout(() => close(() => startDetached(stateDir, port)), 25);
+    };
+    process.once("SIGTERM", () => close());
+    process.once("SIGINT", () => close());
     console.log(`Med server: http://127.0.0.1:${host.port}/sources`);
   } catch (error) {
     await manager?.close();
@@ -129,10 +152,27 @@ export async function serve(stateDir: string, port: number) {
     throw error;
   }
 }
-/** Connects to the background server, starting it first if needed. */
-export async function ensureService(stateDir: string, port: number) {
-  const existing = await connected(stateDir, port);
-  if (existing) return existing;
+/** Loads the code on disk in a separate process, so a broken build never
+ * replaces a working server. */
+async function checkStartable() {
+  const command = selfCommand(["--version"]);
+  try {
+    await exec(command.executable, command.args, { timeout: 15_000 });
+  } catch (error) {
+    // Node prints the stack, then its version; the error line names the cause.
+    const stderr = String((error as { stderr?: string }).stderr ?? "");
+    const detail = (/^(?:\w*Error|error):.*$/m.exec(stderr)?.[0] ?? stderr.trim().split("\n")[0])
+      ?.trim()
+      .slice(0, 300);
+    throw new HostError(
+      "restart-failed",
+      `The new build does not start${detail ? ` (${detail})` : ""}. Med keeps running the current one.`,
+      409,
+    );
+  }
+}
+/** Starts the background server from the code on disk. */
+async function startDetached(stateDir: string, port: number) {
   await mkdir(stateDir, { recursive: true, mode: 0o700 });
   const log = join(stateDir, "service.log");
   try {
@@ -150,7 +190,15 @@ export async function ensureService(stateDir: string, port: number) {
   });
   child.unref();
   await output.close();
+  return { child, log, failed: () => launchError };
+}
+/** Connects to the background server, starting it first if needed. */
+export async function ensureService(stateDir: string, port: number) {
+  const existing = await connected(stateDir, port);
+  if (existing) return existing;
+  const { log, failed } = await startDetached(stateDir, port);
   for (let attempt = 0; attempt < 100; attempt++) {
+    const launchError = failed();
     if (launchError) throw launchError;
     const connection = await connected(stateDir, port);
     if (connection) return connection;

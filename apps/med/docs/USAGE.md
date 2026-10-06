@@ -31,6 +31,12 @@ or browser does not stop it. Use `med status` and `med stop`. Sources persist in
 port. `med serve` runs in the foreground. Optional macOS login startup requires
 an explicit `med service install`.
 
+After a rebuild, an open page tells you when Med is out of date. **Restart**
+replaces a server that runs older code; **Reload** loads a newer page. Med first
+checks that the new build starts. If it does not, the current server keeps
+running and the notice shows the error. A server started with `med serve` or
+`med-diff` in a terminal asks you to restart it there.
+
 ### Install as an app
 
 Open Med in Chrome or Edge, then select the install icon in the address bar, or

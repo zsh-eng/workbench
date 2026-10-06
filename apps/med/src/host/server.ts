@@ -30,6 +30,7 @@ import { ReviewService } from "./repository/review";
 import { HostError } from "./runtime/errors";
 import { ProcessFailure } from "./runtime/process";
 import { watchRepository } from "./runtime/watch";
+import { createCodeCheck, webEntry } from "./runtime/build";
 import { NoteService } from "./notes";
 import {
   browseListRequestSchema,
@@ -175,6 +176,17 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       dirname(fileURLToPath(import.meta.url)),
       fileURLToPath(import.meta.url).includes("/dist/assets/") ? "../web" : "web",
     );
+  // A rebuild while the host runs leaves old server code serving new pages.
+  const codeChanged = createCodeCheck();
+  const currentWebEntry = async () => {
+    try {
+      const html =
+        (await embeddedAssets?.("/index.html")) ?? (await readFile(join(webRoot, "index.html")));
+      return webEntry(Buffer.from(html).toString("utf8"));
+    } catch {
+      return null;
+    }
+  };
 
   const registry = new RepositoryRegistry(options.search, async (id, paths) => {
     for (const [abort, owners] of activeRequests) if (owners.has(id)) abort.abort();
@@ -716,6 +728,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               "This saved review action is not supported.",
               405,
             );
+          }
+          if (url.pathname === "/api/build" && request.method === "GET") {
+            send({
+              stale: await codeChanged(),
+              entry: await currentWebEntry(),
+              restart: options.service?.canRestart ?? false,
+            });
+            return;
           }
           if (url.pathname === "/api/session" && request.method === "GET") {
             send(await session(await requireRepo(url.searchParams.get("repo")), abort.signal));
