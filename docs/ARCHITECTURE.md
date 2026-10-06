@@ -40,6 +40,12 @@ and local development files. Shared packages must not import app code.
   or sync. See its
   [experiment report](../apps/podcast-lab/README.md).
 
+- **x-moodboard** owns Cuttings, a local moodboard of saved X bookmarks. A
+  validating importer turns a read-only archive into versioned snapshots and
+  derived thumbnails under its ignored `library.local`; a loopback Bun server
+  serves them with favourites and topic edits. It has no deployed service or
+  sync. See its [guide](../apps/x-moodboard/README.md).
+
 ## Dependency and storage rules
 
 Use Bun workspaces and the root `bun.lock`. Put dependencies in the manifest
