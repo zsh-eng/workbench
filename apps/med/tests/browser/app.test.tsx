@@ -117,6 +117,7 @@ async function mountApp(
     worktrees: [{ path: target.repo, head: firstCommit, branch: target.branch }],
   }));
   let brief = options.brief;
+  const savedNotes: Note[] = [];
   const savedBundle = () => ({
     id: "saved",
     title: "Agent review",
@@ -146,9 +147,21 @@ async function mountApp(
       );
       if (savedRoute) {
         const target = savedTargets[Number(savedRoute[1])];
+        if (savedRoute[2] === "notes" && init?.method === "POST") {
+          const { mutation } = JSON.parse(String(init.body));
+          if (mutation.type === "add")
+            savedNotes.push({
+              ...mutation.note,
+              id: `saved-note-${savedNotes.length}`,
+              resolution: "active",
+              createdAt: "2026-09-20T00:00:00Z",
+              updatedAt: "2026-09-20T00:00:00Z",
+            });
+          return Response.json({ reviewId: target.id, revision: ++revision, notes: savedNotes });
+        }
         return Response.json(
           savedRoute[2] === "notes"
-            ? { reviewId: target.id, revision: 0, notes: [] }
+            ? { reviewId: target.id, revision, notes: savedNotes }
             : { ...response(target.comparison), id: target.id, repo: target.repo },
         );
       }
@@ -1315,6 +1328,45 @@ describe("review brief", () => {
     await expect
       .element(page.getByRole("button", { name: "Clear line selection" }))
       .toBeInTheDocument();
+  });
+
+  test("adds a note on excerpt lines that also shows in Changes", async () => {
+    const { controller } = await mountApp({
+      savedReview: true,
+      brief: "The constant changes in [alpha.ts:1](src/alpha.ts:1).\n",
+    });
+    const excerpt = () => document.querySelector("[data-brief-excerpt] diffs-container");
+    await expect
+      .poll(() => excerpt()?.shadowRoot?.querySelectorAll("[data-column-number]").length)
+      .toBeGreaterThanOrEqual(2);
+    const host = excerpt()!;
+    const added = page
+      .getByText("1", { exact: true })
+      .all()
+      .find((locator) => {
+        const element = locator.element();
+        return (
+          element.getRootNode() === host.shadowRoot &&
+          element.closest("[data-column-number]") &&
+          element.closest('[data-line-type="change-addition"]')
+        );
+      })!;
+    await added.click();
+    await userEvent.keyboard("c");
+    await page.getByRole("textbox", { name: "Review note text" }).fill("Keep this name");
+    await page.getByRole("button", { name: "Save note", exact: true }).click();
+    await expect
+      .poll(() => controller.getSnapshot().notes?.notes[0])
+      .toMatchObject({ path: "src/alpha.ts", side: "new", line: 1, text: "Keep this name" });
+    await expect.element(page.getByTitle("1 note on these lines")).toBeVisible();
+    await expect
+      .element(page.getByRole("textbox", { name: "Review note text" }))
+      .not.toBeInTheDocument();
+
+    await page.getByRole("tab", { name: "Changes" }).click();
+    await expect
+      .poll(() => page.getByText("Keep this name", { exact: true }).elements().length)
+      .toBe(2);
   });
 
   test("attaches a pasted brief to a saved review and undoes it", async () => {

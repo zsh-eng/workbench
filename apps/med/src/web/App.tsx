@@ -2779,6 +2779,8 @@ export function App({
                     onPaste={pasteBrief}
                     onCopy={copyBrief}
                     onRemove={removeBrief}
+                    notes={notes}
+                    onMutateNote={(mutation) => controller.mutateNote(mutation)}
                   />
                 </Suspense>
               </div>

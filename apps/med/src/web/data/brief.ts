@@ -191,6 +191,8 @@ export interface Excerpt {
   deletions: number;
   /** Rows of the cited range left out to keep the excerpt short. */
   hidden: number;
+  /** Line numbers shown on each side, for notes on those lines. */
+  lines: { old: number[]; new: number[] };
 }
 function excerptFrom(metadata: FileDiffMetadata, rows: Row[], hidden: number): Excerpt | null {
   const parsed = parseReviewPatch(toPatch(metadata, rows))[0];
@@ -201,6 +203,10 @@ function excerptFrom(metadata: FileDiffMetadata, rows: Row[], hidden: number): E
     additions: rows.filter((row) => row.kind === "+").length,
     deletions: rows.filter((row) => row.kind === "-").length,
     hidden,
+    lines: {
+      old: rows.filter((row) => row.kind !== "+").map((row) => row.old),
+      new: rows.filter((row) => row.kind !== "-").map((row) => row.new),
+    },
   };
 }
 

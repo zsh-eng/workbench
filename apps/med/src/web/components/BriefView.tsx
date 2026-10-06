@@ -1,8 +1,14 @@
 import * as stylex from "@stylexjs/stylex";
 import { resolveTheme } from "@pierre/diffs";
-import { FileDiff, type FileDiffOptions } from "@pierre/diffs/react";
+import {
+  FileDiff,
+  type DiffLineAnnotation,
+  type FileDiffOptions,
+  type SelectedLineRange,
+} from "@pierre/diffs/react";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import type { Note, NoteInput, NoteMutation } from "../../shared/protocol";
 import type { ParsedReviewFile } from "../../shared/review";
 import type { SavedBrief } from "../../shared/saved-review";
 import {
@@ -19,6 +25,7 @@ import { tokens } from "../theme.stylex";
 import { ActionMenu } from "./Controls";
 import { DiffStat } from "./DiffStat";
 import { Icon } from "./Icon";
+import { NoteCard, NoteComposer, type NoteTarget } from "./NoteCard";
 import { diffSurfaceStyle } from "./diff-surface";
 import "./MarkdownPreview.css";
 import "./BriefView.css";
@@ -43,7 +50,21 @@ export interface BriefViewProps {
   onPaste(): void;
   onCopy(): void;
   onRemove(): void;
+  /** Notes of the open comparison; excerpts show those on their lines. */
+  notes: readonly Note[];
+  onMutateNote(mutation: NoteMutation): Promise<void>;
 }
+interface Draft {
+  key: string;
+  target: NoteTarget;
+}
+interface Submission {
+  draft: Draft;
+  note: NoteInput;
+  existing: Set<string>;
+  error?: string;
+}
+type Annotation = { note?: Note; draft?: NoteTarget };
 
 const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -74,6 +95,8 @@ export default function BriefView({
   onPaste,
   onCopy,
   onRemove,
+  notes,
+  onMutateNote,
 }: BriefViewProps) {
   const { active: theme } = useTheme();
   const [result, setResult] = useState<MarkdownResult>();
@@ -84,6 +107,24 @@ export default function BriefView({
   const article = useRef<HTMLElement>(null);
   const [slots, setSlots] = useState<Map<string, HTMLElement>>(() => new Map());
   const [linked, setLinked] = useState<string | null>(null);
+  // One note draft at a time, in the excerpt where it started, as in Changes.
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [selected, setSelected] = useState<Draft | null>(null);
+  const [submitted, setSubmitted] = useState<Submission | null>(null);
+  // The controller publishes a saved note before its save completes; hide the
+  // draft in that render so an excerpt never shows both.
+  const draftSaved =
+    !!draft &&
+    submitted?.draft === draft &&
+    notes.some(
+      (note) =>
+        !submitted.existing.has(note.id) &&
+        !note.parentId &&
+        note.path === draft.target.path &&
+        note.side === draft.target.side &&
+        note.line === draft.target.line,
+    );
+  const visibleDraft = draftSaved ? null : draft;
 
   useEffect(() => {
     const instance = new RenderWorker();
@@ -197,6 +238,21 @@ export default function BriefView({
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
   }, [active]);
+
+  // c starts a note on the lines selected in an excerpt, as in Changes.
+  useEffect(() => {
+    if (!active || !selected) return;
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key !== "c" || event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable]")) return;
+      if (document.querySelector('[role="dialog"]')) return;
+      event.preventDefault();
+      setDraft(selected);
+    };
+    window.addEventListener("keydown", keydown);
+    return () => window.removeEventListener("keydown", keydown);
+  }, [active, selected]);
 
   // Links resolve through delegation: the Markdown is HTML, not React elements.
   const handlers = useRef({ onOpen, onOpenPath });
@@ -376,6 +432,47 @@ export default function BriefView({
                 themeType={theme.appearance}
                 loadSource={loadSource}
                 onOpen={onOpen}
+                notes={notes}
+                draft={visibleDraft?.key === excerpt.key ? visibleDraft : null}
+                selected={selected?.key === excerpt.key ? selected.target : null}
+                submitted={submitted}
+                onSelect={(target) => {
+                  setSelected(target && { key: excerpt.key, target });
+                  // A selection moves an open draft in the same excerpt.
+                  if (target && draft?.key === excerpt.key) setDraft({ key: excerpt.key, target });
+                }}
+                onDraft={(target) => {
+                  setSubmitted(null);
+                  setDraft({ key: excerpt.key, target });
+                }}
+                onSave={async (current, note) => {
+                  const submission: Submission = {
+                    draft: current,
+                    note,
+                    existing: new Set(notes.map((entry) => entry.id)),
+                  };
+                  setSubmitted(submission);
+                  try {
+                    await onMutateNote({ type: "add", note });
+                  } catch (error) {
+                    setSubmitted((value) =>
+                      value === submission
+                        ? {
+                            ...submission,
+                            error:
+                              error instanceof Error ? error.message : "Could not save comment",
+                          }
+                        : value,
+                    );
+                    throw error;
+                  }
+                }}
+                onCancel={(current) => {
+                  setDraft((value) => (value === current ? null : value));
+                  setSelected(null);
+                  setSubmitted((value) => (value?.draft === current ? null : value));
+                }}
+                onMutate={onMutateNote}
               />,
               slot,
               excerpt.key,
@@ -394,14 +491,32 @@ function ExcerptCard({
   themeType,
   loadSource,
   onOpen,
+  notes,
+  draft,
+  selected,
+  submitted,
+  onSelect,
+  onDraft,
+  onSave,
+  onCancel,
+  onMutate,
 }: {
   excerpt: BriefExcerpt;
   file: ParsedReviewFile;
   linked: boolean;
-  pierreTheme: FileDiffOptions<undefined, undefined>["theme"];
+  pierreTheme: FileDiffOptions<Annotation, undefined>["theme"];
   themeType: "light" | "dark";
   loadSource: BriefViewProps["loadSource"];
   onOpen: BriefViewProps["onOpen"];
+  notes: readonly Note[];
+  draft: Draft | null;
+  selected: NoteTarget | null;
+  submitted: Submission | null;
+  onSelect(target: NoteTarget | null): void;
+  onDraft(target: NoteTarget): void;
+  onSave(draft: Draft, note: NoteInput): Promise<void>;
+  onCancel(draft: Draft): void;
+  onMutate(mutation: NoteMutation): Promise<void>;
 }) {
   const { range } = excerpt;
   const host = useRef<HTMLElement>(null);
@@ -447,8 +562,53 @@ function ExcerptCard({
   const shown = diff ?? (source && source !== "missing" ? source : null);
   const open = (side = range.side, start = range.start, end = range.end) =>
     onOpen({ fileId: file.id, side, start, end });
-  const options = useMemo<FileDiffOptions<undefined, undefined>>(
-    () => ({
+  // Notes and drafts on the lines this excerpt shows. Pierre places each below
+  // its first line, as in Changes.
+  const annotations = useMemo<DiffLineAnnotation<Annotation>[]>(() => {
+    if (!shown) return [];
+    const visible = { old: new Set(shown.lines.old), new: new Set(shown.lines.new) };
+    const list: DiffLineAnnotation<Annotation>[] = notes
+      .filter(
+        (note) =>
+          note.path === file.path &&
+          !note.parentId &&
+          note.resolution !== "orphaned" &&
+          note.resolution !== "stale" &&
+          visible[note.side].has(note.line),
+      )
+      .map((note) => ({
+        side: note.side === "old" ? "deletions" : "additions",
+        lineNumber: note.line,
+        metadata: { note },
+      }));
+    if (draft && visible[draft.target.side].has(draft.target.line))
+      list.push({
+        side: draft.target.side === "old" ? "deletions" : "additions",
+        lineNumber: draft.target.line,
+        metadata: { draft: draft.target },
+      });
+    return list;
+  }, [shown, notes, draft, file.path]);
+  const noteCount = annotations.filter((annotation) => annotation.metadata?.note).length;
+  const handlers = useRef({ onSelect, onDraft });
+  useEffect(() => {
+    handlers.current = { onSelect, onDraft };
+  });
+  const options = useMemo<FileDiffOptions<Annotation, undefined>>(() => {
+    const target = (range: SelectedLineRange | null): NoteTarget | null =>
+      !range || (range.endSide && range.side !== range.endSide)
+        ? null
+        : {
+            path: file.path,
+            side: range.side === "deletions" ? "old" : "new",
+            line: Math.min(range.start, range.end),
+            endLine: Math.max(range.start, range.end),
+          };
+    const label = (root: Node | null | undefined) =>
+      (root as ShadowRoot | null | undefined)
+        ?.querySelector?.("[data-utility-button]")
+        ?.setAttribute("aria-label", "Add note to line");
+    return {
       theme: pierreTheme,
       themeType,
       diffStyle: "unified",
@@ -457,14 +617,26 @@ function ExcerptCard({
       lineDiffType: "word-alt",
       disableFileHeader: true,
       hunkSeparators: "line-info",
-      unsafeCSS: `[data-separator-content] { font-size: 11px; }`,
-      onLineNumberClick(line) {
-        const side = line.annotationSide === "deletions" ? "old" : "new";
-        onOpen({ fileId: file.id, side, start: line.lineNumber, end: line.lineNumber });
+      // Select lines on the numbers, or drag the gutter + to start a note.
+      enableLineSelection: true,
+      enableGutterUtility: true,
+      unsafeCSS: `[data-separator-content] { font-size: 11px; }
+        [data-utility-button]::before { inset: 0; }`,
+      onLineSelectionEnd(range) {
+        handlers.current.onSelect(target(range));
       },
-    }),
-    [pierreTheme, themeType, onOpen, file.id],
-  );
+      onGutterUtilityClick(range) {
+        const next = target(range);
+        if (next) handlers.current.onDraft(next);
+      },
+      onLineEnter(line) {
+        label(line.lineElement.getRootNode());
+      },
+      onPostRender(node, _instance, phase) {
+        if (phase !== "unmount") label(node.shadowRoot);
+      },
+    };
+  }, [pierreTheme, themeType, file.path]);
   const slash = file.path.lastIndexOf("/") + 1;
   const lines = `L${range.start}${range.end > range.start ? `–${range.end}` : ""}`;
   return (
@@ -497,6 +669,15 @@ function ExcerptCard({
         {!diff && source && source !== "missing" && (
           <span {...stylex.props(styles.unchanged)}>Unchanged lines</span>
         )}
+        {noteCount > 0 && (
+          <span
+            {...stylex.props(styles.noteCount)}
+            title={`${noteCount} ${noteCount === 1 ? "note" : "notes"} on these lines`}
+          >
+            <Icon name="note" size={12} />
+            {noteCount}
+          </span>
+        )}
         <span {...stylex.props(styles.jump)}>
           <Icon name="jump" size={13} />
         </span>
@@ -510,7 +691,39 @@ function ExcerptCard({
         )}
       >
         {near && shown && (
-          <FileDiff fileDiff={shown.metadata} options={options} style={diffSurfaceStyle} />
+          <FileDiff
+            fileDiff={shown.metadata}
+            options={options}
+            style={diffSurfaceStyle}
+            lineAnnotations={annotations}
+            selectedLines={
+              selected
+                ? {
+                    start: selected.line,
+                    end: selected.endLine ?? selected.line,
+                    side: selected.side === "old" ? "deletions" : "additions",
+                  }
+                : null
+            }
+            renderAnnotation={(annotation) =>
+              annotation.metadata?.draft && draft ? (
+                <NoteComposer
+                  key={JSON.stringify(draft.target)}
+                  target={draft.target}
+                  initialText={submitted?.draft === draft ? submitted.note.text : undefined}
+                  initialError={submitted?.draft === draft ? submitted.error : undefined}
+                  onSave={(note) => onSave(draft, note)}
+                  onCancel={() => onCancel(draft)}
+                />
+              ) : annotation.metadata?.note ? (
+                <NoteCard
+                  note={annotation.metadata.note}
+                  replies={notes.filter((note) => note.parentId === annotation.metadata?.note?.id)}
+                  onMutate={onMutate}
+                />
+              ) : null
+            }
+          />
         )}
         {near && source === "missing" && (
           <p {...stylex.props(styles.missing)}>
@@ -658,6 +871,16 @@ const styles = stylex.create({
   },
   added: { color: tokens.green },
   removed: { color: tokens.red },
+  noteCount: {
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+    flexShrink: 0,
+    color: tokens.accent,
+    fontFamily: tokens.code,
+    fontSize: 11,
+    fontVariantNumeric: "tabular-nums",
+  },
   unchanged: { flexShrink: 0, color: tokens.faint, fontSize: 11 },
   jump: {
     display: "flex",

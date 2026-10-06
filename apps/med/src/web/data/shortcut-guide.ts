@@ -89,6 +89,7 @@ export const guideContexts: GuideContext[] = [
             command: "paste-brief",
           },
           { label: "Next / previous excerpt", keys: ["]", "["], note: "In the brief" },
+          { label: "Add a note to selected excerpt lines", keys: ["c"], note: "In the brief" },
           { label: "Open the cited lines", keys: ["Enter"], note: "On a link or an excerpt" },
         ],
       },
