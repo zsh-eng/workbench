@@ -22,6 +22,8 @@ import {
   orderedWorkspaces,
   overlayAddress,
   workspaceUrl,
+  type RepositoryWorkspace,
+  type ReviewWorkspace,
   type Workspace,
   type WorkspaceInput,
   type WorkspacePatch,
@@ -54,6 +56,8 @@ interface WorkspaceActions {
 const Actions = createContext<WorkspaceActions | null>(null);
 const Snapshot = createContext<WorkspaceSnapshot | null>(null);
 const Current = createContext<string | null>(null);
+/** Disposers that run when a workspace closes or leaves memory. */
+const Lifetime = createContext<Set<() => void> | null>(null);
 
 /** The workspace that renders this App, with the host's actions. Outside a
  * host, such as in a test of App alone, it is null. */
@@ -61,6 +65,19 @@ export function useWorkspace() {
   const actions = use(Actions);
   const id = use(Current);
   return useMemo(() => (actions && id ? { id, ...actions } : null), [actions, id]);
+}
+
+/**
+ * Disposes a long-lived object when its owner goes away for good. A hidden
+ * workspace runs effect cleanups too, and comes back with the same objects,
+ * so inside a workspace disposal waits until the workspace closes.
+ */
+export function useDisposeOnClose(dispose: () => void) {
+  const lifetime = use(Lifetime);
+  useEffect(() => {
+    if (!lifetime) return dispose;
+    lifetime.add(dispose);
+  }, [dispose, lifetime]);
 }
 
 const historyWorkspace = () => (history.state as { workspace?: unknown } | null)?.workspace;
@@ -274,49 +291,51 @@ export function WorkspaceHost({
   );
 }
 
-/** One controller per mounted workspace. Only the one on screen listens for
- * changes; the rest catch up when they are shown again. */
+/** One controller per mounted workspace, with the disposers of the objects
+ * its review owns. Only the one on screen listens for changes; the rest catch
+ * up when they are shown again. */
 function createControllerPool(options: ControllerOptions) {
-  const controllers = new Map<string, ReviewController>();
+  const live = new Map<string, { controller: ReviewController; disposers: Set<() => void> }>();
+  const end = (id: string) => {
+    const entry = live.get(id);
+    if (!entry) return;
+    live.delete(id);
+    entry.controller.dispose();
+    for (const dispose of entry.disposers) dispose();
+  };
   return {
-    get(workspace: Workspace) {
-      let controller = controllers.get(workspace.id);
-      if (!controller) {
-        controller = createReviewController(
+    get(workspace: RepositoryWorkspace | ReviewWorkspace) {
+      let entry = live.get(workspace.id);
+      if (!entry) {
+        const controller = createReviewController(
           workspace.kind === "review"
             ? { ...options, savedReviewId: workspace.reviewId }
-            : workspace.kind === "repository"
-              ? {
-                  ...options,
-                  start: {
-                    path: workspace.path,
-                    repositoryId: workspace.repositoryId,
-                    branch: workspace.branch,
-                  },
-                }
-              : options,
+            : {
+                ...options,
+                start: {
+                  path: workspace.path,
+                  repositoryId: workspace.repositoryId,
+                  branch: workspace.branch,
+                },
+              },
         );
-        controllers.set(workspace.id, controller);
+        entry = { controller, disposers: new Set() };
+        live.set(workspace.id, entry);
         void controller.initialize();
       }
-      return controller;
+      return entry;
     },
     retain(ids: readonly string[]) {
-      for (const [id, controller] of controllers)
-        if (!ids.includes(id)) {
-          controller.dispose();
-          controllers.delete(id);
-        }
+      for (const id of [...live.keys()]) if (!ids.includes(id)) end(id);
     },
     focus(id: string | null) {
-      for (const [key, controller] of controllers) {
+      for (const [key, { controller }] of live) {
         if (key === id) controller.resume();
         else controller.suspend();
       }
     },
     dispose() {
-      for (const controller of controllers.values()) controller.dispose();
-      controllers.clear();
+      for (const id of [...live.keys()]) end(id);
     },
   };
 }
@@ -358,10 +377,13 @@ export function WorkspaceViews({
   return mounted.flatMap((id) => {
     const workspace = snapshot.workspaces.find((entry) => entry.id === id);
     if (!workspace || workspace.kind === "vault") return [];
+    const { controller, disposers } = pool.get(workspace);
     return (
       <Activity key={id} mode={id === onScreen ? "visible" : "hidden"}>
         <Current value={id}>
-          <KeepScroll>{render(pool.get(workspace))}</KeepScroll>
+          <Lifetime value={disposers}>
+            <KeepScroll>{render(controller)}</KeepScroll>
+          </Lifetime>
         </Current>
       </Activity>
     );

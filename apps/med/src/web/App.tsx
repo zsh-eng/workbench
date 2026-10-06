@@ -42,7 +42,7 @@ import "./pierre-theme";
 import { useTheme } from "./themes";
 import { ThemePicker } from "./components/ThemePicker";
 import { BranchStrip, BranchSwitch, useBranchTabs } from "./components/BranchTabs";
-import { useWorkspace, WorkspaceList } from "./components/Workspaces";
+import { useDisposeOnClose, useWorkspace, WorkspaceList } from "./components/Workspaces";
 import type { BranchEntry } from "./components/BranchPicker";
 import { visibleElement } from "./data/palette-focus";
 import { BranchPicker } from "./components/BranchPicker";
@@ -224,7 +224,7 @@ export function App({
     ),
   );
   const browseApi = prefetch.api;
-  useEffect(() => () => prefetch.dispose(), [prefetch]);
+  useDisposeOnClose(prefetch.dispose);
   const [fileWorkspace] = useState(() => createFileWorkspace(browseApi));
   const [editorDrafts] = useState(createEditorDrafts);
   useSyncExternalStore(editorDrafts.subscribe, editorDrafts.getSnapshot);
@@ -285,7 +285,7 @@ export function App({
     state.savedTargetId,
     state.status,
   ]);
-  useEffect(() => () => fileWorkspace.dispose(), [fileWorkspace]);
+  useDisposeOnClose(fileWorkspace.dispose);
   const repositoryFiles = useBrowseFiles(
     browseSource,
     true,

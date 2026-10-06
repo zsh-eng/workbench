@@ -138,6 +138,17 @@ function createHost() {
           entries: [],
           truncated: false,
         });
+      case "/api/browse/read": {
+        const { source, path } = JSON.parse(String(init?.body));
+        return Response.json({
+          source,
+          path,
+          kind: "text",
+          size: 24,
+          identity: `${source.repo}:${path}`,
+          text: "export const after = 2;\n",
+        });
+      }
     }
     throw new Error(`Unexpected request: ${url.pathname}`);
   };
@@ -212,6 +223,11 @@ test("keeps branch workspaces live, switches by shortcut, and restores the list"
   await userEvent.keyboard("{Control>}2{/Control}");
   await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
   expect(shown()).toBe(mainView);
+  // Files still open after the review was hidden and shown again.
+  await page.getByRole("treeitem", { name: /alpha.ts/ }).dblClick();
+  await expect.poll(() => shown()?.dataset.activeFile).toBe("src/alpha.ts");
+  await page.getByRole("tab", { name: /^Changes/ }).click();
+  await expect.poll(() => shown()?.dataset.activeFile).toBe("");
   await expect
     .poll(() => [...host.streams].map((key) => key.split("#")[0]))
     .toEqual(["/test/repo"]);
