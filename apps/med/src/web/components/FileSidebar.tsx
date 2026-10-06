@@ -74,9 +74,7 @@ export function FileSidebar({
     <section {...stylex.props(styles.panel)} aria-label="Changed files">
       <div {...stylex.props(styles.heading)}>
         <span>Changes</span>
-        <span {...stylex.props(styles.count)}>
-          {filter ? `${files.length} / ${total}` : total}
-        </span>
+        <span {...stylex.props(styles.count)}>{filter ? `${files.length} / ${total}` : total}</span>
       </div>
       <div {...stylex.props(styles.filter)}>
         <Icon name="search" size={14} />

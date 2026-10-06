@@ -40,7 +40,8 @@ export interface Theme {
 // a one-pixel top highlight that separates raised surfaces from the canvas.
 const darkShadow =
   "0 1px 0 0 #ffffff08 inset, 0 2px 6px -1px #00000066, 0 16px 40px -12px #000000b3";
-const lightShadow = "0 1px 2px -1px #1b1f2a1f, 0 4px 10px -4px #1b1f2a1a, 0 18px 40px -16px #1b1f2a33";
+const lightShadow =
+  "0 1px 2px -1px #1b1f2a1f, 0 4px 10px -4px #1b1f2a1a, 0 18px 40px -16px #1b1f2a33";
 
 // Shell mappings use the named projects' public palettes. Syntax definitions are
 // loaded by Pierre from its bundled Shiki themes; they are not copied here.

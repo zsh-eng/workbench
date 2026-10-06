@@ -179,9 +179,9 @@ try {
   for (const name of ["backend", "frontend"])
     await dialog.getByRole("button", { name: `Remove repository ${name}`, exact: true }).click();
   await page.keyboard.press("Escape");
-  await page.getByText("Add a repository to start.", { exact: true }).waitFor();
+  await page.getByRole("heading", { name: "Add a repository to start", exact: true }).waitFor();
   await page.reload();
-  await page.getByText("Add a repository to start.", { exact: true }).waitFor();
+  await page.getByRole("heading", { name: "Add a repository to start", exact: true }).waitFor();
   await page.getByRole("button", { name: "Open branch", exact: true }).click();
   await dialog.getByRole("button", { name: "Add repository…", exact: true }).click();
   await dialog.getByRole("textbox", { name: "Repository path", exact: true }).fill(repositories[0]);
