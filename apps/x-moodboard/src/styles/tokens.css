@@ -1,0 +1,99 @@
+/* Cuttings design tokens.
+   Warm paper, dark ink, one cinnabar accent. Images supply the colour. */
+
+:root {
+  color-scheme: light;
+
+  --paper: #f4f1eb;
+  --paper-raised: #fbf9f5;
+  --paper-sunk: #e9e5dd;
+  --paper-veil: rgb(244 241 235 / 0.92);
+  --ink: #1d1c1a;
+  --ink-2: #4e4b45;
+  --ink-3: #6c685f;
+  --rule: rgb(29 28 26 / 0.1);
+  --rule-strong: rgb(29 28 26 / 0.2);
+  --accent: #b23d1c;
+  --accent-ink: #fff8f2;
+  --scrim: rgb(20 19 17 / 0.58);
+  --on-scrim: #fbf9f5;
+  --mark-fill: var(--ink);
+  --shadow-pop: 0 1px 2px rgb(29 28 26 / 0.06), 0 8px 24px rgb(29 28 26 / 0.1);
+
+  --font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-text: "Iowan Old Style", Charter, "New York", ui-serif, Georgia, "Noto Serif", serif;
+
+  --size-xs: 11.5px;
+  --size-s: 12.5px;
+  --size-m: 13.5px;
+  --size-l: 15px;
+  --size-card: 15px;
+  --size-read: 18px;
+  --size-title: 21px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+  --space-9: 56px;
+
+  --radius-1: 4px;
+  --radius-2: 6px;
+  --radius-3: 10px;
+
+  --bar-height: 56px;
+  --rail-width: 232px;
+  --aside-width: 408px;
+
+  /* One easing family: a long, soft deceleration and its symmetric partner. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --t-fast: 140ms;
+  --t-mid: 220ms;
+  --t-slow: 300ms;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --paper: #151413;
+    --paper-raised: #1d1c1a;
+    --paper-sunk: #0e0d0c;
+    --paper-veil: rgb(21 20 19 / 0.92);
+    --ink: #eeeae2;
+    --ink-2: #bdb8ae;
+    --ink-3: #979288;
+    --rule: rgb(238 234 226 / 0.1);
+    --rule-strong: rgb(238 234 226 / 0.2);
+    --accent: #ec6a43;
+    --accent-ink: #1a0d08;
+    --shadow-pop: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 28px rgb(0 0 0 / 0.45);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #151413;
+  --paper-raised: #1d1c1a;
+  --paper-sunk: #0e0d0c;
+  --paper-veil: rgb(21 20 19 / 0.92);
+  --ink: #eeeae2;
+  --ink-2: #bdb8ae;
+  --ink-3: #979288;
+  --rule: rgb(238 234 226 / 0.1);
+  --rule-strong: rgb(238 234 226 / 0.2);
+  --accent: #ec6a43;
+  --accent-ink: #1a0d08;
+  --shadow-pop: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 28px rgb(0 0 0 / 0.45);
+}
+
+@media (max-width: 1180px) {
+  :root {
+    --rail-width: 212px;
+    --aside-width: 360px;
+  }
+}

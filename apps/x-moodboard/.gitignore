@@ -1,0 +1,6 @@
+# Private library snapshots, derivatives, user state and traces.
+library.local/
+*.local
+dist/
+test-results/
+playwright-report/
