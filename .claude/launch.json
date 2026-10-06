@@ -12,6 +12,12 @@
       "runtimeExecutable": "node",
       "runtimeArgs": ["apps/med/scripts/dev.mjs", "."],
       "port": 5173
+    },
+    {
+      "name": "moodboard",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "--cwd", "apps/x-moodboard", "start"],
+      "port": 5296
     }
   ]
 }
