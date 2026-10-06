@@ -30,11 +30,15 @@ import {
   type WorkspacePatch,
   type WorkspaceSnapshot,
 } from "../data/workspaces";
+import { z } from "zod";
 import { tokens } from "../theme.stylex";
 import { Icon, type IconName } from "./Icon";
 import { ShortcutKeys } from "./ShortcutKeys";
 import { ActionTooltip } from "./ToolButton";
 import { visibleElement } from "../data/palette-focus";
+import { createApi } from "../data/api";
+import { readBrowserToken } from "../data/auth";
+import { readServerEvents } from "../data/sse";
 
 /** Workspaces kept mounted, most recently shown first. Older ones reload. */
 const MOUNTED = 4;
@@ -90,6 +94,60 @@ export function useDisposeOnClose(dispose: () => void) {
     if (!lifetime) return dispose;
     lifetime.add(dispose);
   }, [dispose, lifetime]);
+}
+
+/** The window used last shows the reviews that agents open. */
+const WINDOW_KEY = "med:window";
+/** The lock and broadcast channel that share the host's window channel. */
+const WINDOW_CHANNEL = "med:windows";
+const reviewEvent = z.object({ id: z.string(), title: z.string(), open: z.boolean() });
+type ReviewEvent = z.infer<typeof reviewEvent>;
+
+const pause = (ms: number, signal: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", done);
+  });
+
+/** Reads the host's window channel until `signal` aborts, and reconnects with
+ * backoff. It returns early from a host without the channel. */
+async function listenForReviews(
+  fetcher: typeof fetch,
+  signal: AbortSignal,
+  onReview: (review: ReviewEvent) => void,
+) {
+  const api = createApi(fetcher, readBrowserToken());
+  let delay = 1000;
+  while (!signal.aborted) {
+    try {
+      const response = await api.stream("/api/windows", signal);
+      if (response.status === 404) return;
+      if (!response.ok || !response.body) throw new Error("The window channel closed.");
+      delay = 1000;
+      await readServerEvents(
+        response.body,
+        (event) => {
+          if (event.event !== "review") return;
+          try {
+            const review = reviewEvent.safeParse(JSON.parse(event.data));
+            if (review.success) onReview(review.data);
+          } catch {
+            /* Ignore a malformed event. */
+          }
+        },
+        signal,
+      );
+    } catch {
+      /* Reconnect below. */
+    }
+    await pause(delay, signal);
+    delay = Math.min(delay * 2, 30_000);
+  }
 }
 
 const historyWorkspace = () => (history.state as { workspace?: unknown } | null)?.workspace;
@@ -192,6 +250,90 @@ export function WorkspaceHost({
     }),
     [rememberFocus, show, store],
   );
+
+  // Other windows' changes to the list, such as a review read there.
+  useEffect(() => store.syncAcrossWindows(), [store]);
+
+  // A switch the store makes itself, such as when another window closes the
+  // active workspace, moves the address too.
+  const addressed = useRef(snapshot.active);
+  useEffect(() => {
+    if (addressed.current === snapshot.active) return;
+    addressed.current = snapshot.active;
+    const workspace = snapshot.workspaces.find((entry) => entry.id === snapshot.active);
+    if (!workspace || showing(workspace) || overlayAddress(location.pathname)) return;
+    history.replaceState({ workspace: workspace.id }, "", workspaceUrl(workspace));
+    window.dispatchEvent(new PopStateEvent("popstate", { state: history.state }));
+  }, [snapshot]);
+
+  // Reviews that agents create arrive on the window channel. Each window lists
+  // them unread; with `open`, the window used last shows the review.
+  const [windowId] = useState(() => `window-${Math.random().toString(36).slice(2, 10)}`);
+  useEffect(() => {
+    const mark = () => {
+      try {
+        localStorage.setItem(WINDOW_KEY, windowId);
+      } catch {
+        /* Without storage, every visible window shows the review. */
+      }
+    };
+    // A closed window gives the choice back to the visible ones.
+    const leave = () => {
+      try {
+        if (localStorage.getItem(WINDOW_KEY) === windowId) localStorage.removeItem(WINDOW_KEY);
+      } catch {
+        /* Nothing to clear. */
+      }
+    };
+    if (document.hasFocus()) mark();
+    window.addEventListener("focus", mark);
+    window.addEventListener("pointerdown", mark, true);
+    window.addEventListener("pagehide", leave);
+    return () => {
+      window.removeEventListener("focus", mark);
+      window.removeEventListener("pointerdown", mark, true);
+      window.removeEventListener("pagehide", leave);
+    };
+  }, [windowId]);
+  useEffect(() => {
+    const stop = new AbortController();
+    const usedLast = () => {
+      try {
+        const last = localStorage.getItem(WINDOW_KEY);
+        return last ? last === windowId : document.visibilityState === "visible";
+      } catch {
+        return document.visibilityState === "visible";
+      }
+    };
+    const receive = ({ id, title, open }: ReviewEvent) => {
+      const here = open && usedLast();
+      const known = store.match({ kind: "review", reviewId: id });
+      const workspace = store.open(
+        { kind: "review", reviewId: id, title, ...(known || here ? {} : { unread: true }) },
+        false,
+      );
+      if (here) show(workspace);
+    };
+    const others = new BroadcastChannel(WINDOW_CHANNEL);
+    others.onmessage = (event: MessageEvent) => {
+      const review = reviewEvent.safeParse(event.data);
+      if (review.success) receive(review.data);
+    };
+    const listen = () =>
+      listenForReviews(fetcher, stop.signal, (review) => {
+        others.postMessage(review);
+        receive(review);
+      });
+    // One window holds the channel and passes reviews to the others, so each
+    // window keeps one stream of the six that the browser allows an origin.
+    if ("locks" in navigator)
+      navigator.locks.request(WINDOW_CHANNEL, { signal: stop.signal }, listen).catch(() => {});
+    else void listen();
+    return () => {
+      stop.abort();
+      others.close();
+    };
+  }, [fetcher, show, store, windowId]);
 
   // The address names the workspace: links, reloads, Back, and Forward.
   useEffect(() => {
@@ -524,15 +666,23 @@ export function WorkspaceList({ onNew }: { onNew?(): void }) {
                 {...stylex.props(styles.row, current && styles.current)}
               >
                 <Icon name={iconFor(workspace)} size={14} />
-                <span {...stylex.props(styles.name)}>
+                <span {...stylex.props(styles.name, workspace.unread && styles.unreadName)}>
                   {repository && <span {...stylex.props(styles.repository)}>{repository} / </span>}
                   {label}
+                  {workspace.unread && <span {...stylex.props(styles.hidden)}>, new</span>}
                 </span>
-                {workspace.detail && (
-                  <span {...stylex.props(styles.detail, closable && styles.detailHides)}>
-                    {workspace.detail}
-                    <span {...stylex.props(styles.hidden)}> changed files</span>
-                  </span>
+                {workspace.unread ? (
+                  <span
+                    aria-hidden="true"
+                    {...stylex.props(styles.dot, closable && styles.detailHides)}
+                  />
+                ) : (
+                  workspace.detail && (
+                    <span {...stylex.props(styles.detail, closable && styles.detailHides)}>
+                      {workspace.detail}
+                      <span {...stylex.props(styles.hidden)}> changed files</span>
+                    </span>
+                  )
                 )}
               </button>
               {closable && (
@@ -663,6 +813,7 @@ function WorkspaceSwitcher({
                   {repository && <span {...stylex.props(styles.repository)}>{repository} / </span>}
                   {labelFor(workspace)}
                 </span>
+                {workspace.unread && <span aria-hidden="true" {...stylex.props(styles.dot)} />}
                 {workspace.id === snapshot.active && (
                   <span {...stylex.props(styles.here)}>Current</span>
                 )}
@@ -683,6 +834,11 @@ const appear = stylex.keyframes({
 const settle = stylex.keyframes({
   from: { opacity: 0, transform: "translateY(-3px)" },
   to: { opacity: 1, transform: "none" },
+});
+const arrive = stylex.keyframes({
+  "0%": { opacity: 0, transform: "scale(0.4)" },
+  "60%": { opacity: 1, transform: "scale(1.25)" },
+  "100%": { opacity: 1, transform: "scale(1)" },
 });
 const reduced = "@media (prefers-reduced-motion: reduce)";
 
@@ -772,6 +928,19 @@ const styles = stylex.create({
     whiteSpace: "nowrap",
   },
   repository: { color: tokens.faint, fontWeight: 450 },
+  // New and not yet shown: a brighter name and an accent dot, like unread mail.
+  unreadName: { color: tokens.text, fontWeight: 550 },
+  dot: {
+    flexShrink: 0,
+    width: 6,
+    height: 6,
+    marginInline: 3,
+    borderRadius: "50%",
+    backgroundColor: tokens.accent,
+    animationName: { default: arrive, [reduced]: "none" },
+    animationDuration: "320ms",
+    animationTimingFunction: tokens.easeOut,
+  },
   detail: {
     flexShrink: 0,
     color: tokens.faint,

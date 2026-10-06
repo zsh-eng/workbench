@@ -10,6 +10,8 @@ interface WorkspaceBase {
   repository?: string;
   /** One quiet status, such as the number of changed files. */
   detail?: string;
+  /** Added in the background, such as by an agent, and not shown yet. */
+  unread?: boolean;
 }
 export interface ReviewWorkspace extends WorkspaceBase {
   kind: "review";
@@ -65,6 +67,7 @@ function parse(value: unknown): Workspace | null {
     title: optional(entry.title),
     repository: optional(entry.repository),
     detail: optional(entry.detail),
+    ...(entry.unread === true ? { unread: true } : {}),
   };
   if (entry.kind === "review" && optional(entry.reviewId))
     return { ...base, kind: "review", reviewId: entry.reviewId as string };
@@ -81,9 +84,9 @@ function parse(value: unknown): Workspace | null {
     };
   return null;
 }
-function read(): WorkspaceSnapshot {
+function read(text = storedText()): WorkspaceSnapshot {
   try {
-    const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null") as {
+    const raw = JSON.parse(text ?? "null") as {
       workspaces?: unknown[];
       active?: unknown;
       recent?: unknown[];
@@ -107,6 +110,13 @@ function read(): WorkspaceSnapshot {
     };
   } catch {
     return { workspaces: [], active: "", recent: [] };
+  }
+}
+function storedText() {
+  try {
+    return localStorage.getItem(STORAGE_KEY);
+  } catch {
+    return null;
   }
 }
 function write(snapshot: WorkspaceSnapshot) {
@@ -186,7 +196,15 @@ export function createWorkspaceStore(pathname: string, state?: unknown) {
         if (activate) store.activate(existing.id);
         return existing.id;
       }
-      const workspace = { ...input, id: newId() } as Workspace;
+      // A review or vault has one id in every window, so windows that add it
+      // at the same time agree.
+      const id =
+        input.kind === "review"
+          ? `review-${input.reviewId}`
+          : input.kind === "vault"
+            ? `vault-${input.sourceId}`
+            : newId();
+      const workspace = { ...input, id } as Workspace;
       let workspaces = [...snapshot.workspaces, workspace];
       let recent = activate
         ? [workspace.id, ...snapshot.recent]
@@ -203,11 +221,18 @@ export function createWorkspaceStore(pathname: string, state?: unknown) {
       publish({ workspaces, recent, active: activate ? workspace.id : snapshot.active });
       return workspace.id;
     },
+    /** Shows a workspace; showing it reads it. */
     activate(id: string) {
-      if (!find(id)) return;
-      if (snapshot.active === id && snapshot.recent[0] === id) return;
+      const workspace = find(id);
+      if (!workspace) return;
+      if (snapshot.active === id && snapshot.recent[0] === id && !workspace.unread) return;
       publish({
         ...snapshot,
+        workspaces: workspace.unread
+          ? snapshot.workspaces.map((entry) =>
+              entry.id === id ? ({ ...entry, unread: undefined } as Workspace) : entry,
+            )
+          : snapshot.workspaces,
         active: id,
         recent: [id, ...snapshot.recent.filter((entry) => entry !== id)],
       });
@@ -309,6 +334,22 @@ export function createWorkspaceStore(pathname: string, state?: unknown) {
           : snapshot.active,
       });
       if (!snapshot.active) store.follow("/");
+    },
+    /** Follows the list that another window saved. This window keeps its own
+     * active workspace and does not write back, so windows never echo. */
+    syncAcrossWindows() {
+      const adopt = (event: StorageEvent) => {
+        if (event.key !== STORAGE_KEY || event.storageArea !== localStorage) return;
+        const next = read(event.newValue);
+        const kept = next.workspaces.some((entry) => entry.id === snapshot.active);
+        snapshot = {
+          ...next,
+          active: kept ? snapshot.active : (next.recent[0] ?? next.workspaces[0]?.id ?? ""),
+        };
+        for (const listener of listeners) listener();
+      };
+      window.addEventListener("storage", adopt);
+      return () => window.removeEventListener("storage", adopt);
     },
     /** Selects the workspace that an address names. History entries made by a
      * workspace switch carry its id, because every branch shares "/". */

@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import { z } from "zod";
 import { DEFAULT_PORT, getStateDirectory } from "../host/runtime/connection";
 import { pullRequestUrlSchema, type SavedReviewCreate } from "../shared/saved-review";
-import { request } from "./review";
+import { openBrowser, request, showReview } from "./review";
 
 const exec = promisify(execFile);
 
@@ -238,21 +238,14 @@ export async function runPullRequestCommand(
   const url = `${connection.origin}/review/${created.id}`;
   const launch = `${url}#token=${connection.token}`;
   if (command.open) {
-    (options.openUrl ?? openBrowser)(launch);
+    // An open Med window shows the review; otherwise the browser opens it.
+    await showReview(connection, created.id, true, fetcher, options.openUrl ?? openBrowser);
     print(`Med review of #${pullRequest.number}: ${url}`);
   }
-  // --no-open asks for a launch URL, as med web --no-open does.
-  else print(launch);
-}
-
-function openBrowser(url: string) {
-  const opener =
-    process.platform === "darwin"
-      ? "open"
-      : process.platform === "win32"
-        ? "explorer.exe"
-        : "xdg-open";
-  const child = spawn(opener, [url], { stdio: "ignore", detached: true });
-  child.once("error", () => console.error("Could not open a browser. Use the review URL below."));
-  child.unref();
+  // --no-open asks for a launch URL, as med web --no-open does. Open windows
+  // still list the review, unread.
+  else {
+    await showReview(connection, created.id, false, fetcher);
+    print(launch);
+  }
 }

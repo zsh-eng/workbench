@@ -172,6 +172,49 @@ describe("agent review CLI through the production host", () => {
     ).rejects.toThrow("Invalid brief: Supply the brief text.");
   });
 
+  it("announces a review to open windows and opens its link when no window is open", async () => {
+    const f = await fixture();
+    const origin = `http://127.0.0.1:${f.host.port}`;
+    const headers = { authorization: `Bearer ${f.host.token}` };
+    const opened: string[] = [];
+    const create = async (title: string) => {
+      const output: string[] = [];
+      await runReviewCommand(
+        [
+          ...["create", "--title", title, "--repo", f.repos[0]!, "--working", "--open"],
+          ...["--state-dir", f.stateDir, "--port", String(f.host.port)],
+        ],
+        { print: (text) => output.push(text), openUrl: (url) => opened.push(url) },
+      );
+      return output.join("\n").match(/\/review\/(r_[a-z0-9]+)/)![1]!;
+    };
+
+    // An open window hears of the review; no browser opens.
+    const window = new AbortController();
+    const channel = await fetch(`${origin}/api/windows`, { headers, signal: window.signal });
+    const reader = channel.body!.pipeThrough(new TextDecoderStream()).getReader();
+    const shown = await create("Shown");
+    let text = "";
+    while (!/event: review\ndata: .*\n\n/.test(text)) text += (await reader.read()).value ?? "";
+    const data = /event: review\ndata: (.*)\n/.exec(text)![1]!;
+    expect(JSON.parse(data)).toEqual({ type: "review", id: shown, title: "Shown", open: true });
+    expect(opened).toEqual([]);
+
+    // With the window closed, the CLI opens the review link instead.
+    window.abort();
+    const listening = async () => {
+      const response = await fetch(`${origin}/api/windows/review`, {
+        method: "POST",
+        headers: { ...headers, "content-type": "application/json" },
+        body: JSON.stringify({ id: shown }),
+      });
+      return ((await response.json()) as { windows: number }).windows;
+    };
+    await expect.poll(listening).toBe(0);
+    const linked = await create("Linked");
+    expect(opened).toEqual([`${origin}/review/${linked}#token=${f.host.token}`]);
+  });
+
   it("reports invalid commands and missing repositories without printing a review link", async () => {
     const f = await fixture();
     const output: string[] = [];

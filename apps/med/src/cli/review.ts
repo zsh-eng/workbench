@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -24,6 +25,7 @@ export const reviewHelp = `Usage: med-diff review create --title <title> --repo 
 --pr <https-url> adds a clickable GitHub PR link. A matching PR is inferred for a single GitHub origin repository when gh is available; --no-pr skips lookup.
 --merge-base compares the common ancestor of --base and --head with --head (for pull requests and stacked branches).
 --brief <path|-> attaches a Markdown explanation; - reads standard input. Links such as [App.tsx:42](src/App.tsx:42) open the cited lines.
+Open Med windows add each new review to their workspaces, marked unread. --open also shows it in the window used last, or opens a browser when no window is open.
 Options: --port <port> (default ${DEFAULT_PORT}), --state-dir <path> (or MED_STATE_DIR)
 The running host must already have the target repositories registered.
 --working captures the current changes, including pre-existing changes.
@@ -37,6 +39,8 @@ export interface ReviewCommand {
   manifest?: ReviewManifest;
   keepTitle?: boolean;
   inferPullRequest?: boolean;
+  /** Show the review now, not only add it to open windows. */
+  open?: boolean;
 }
 
 async function readStandardInput() {
@@ -63,6 +67,7 @@ export async function parseReviewCommand(args: string[]): Promise<ReviewCommand>
       "merge-base": { type: "boolean" },
       manifest: { type: "string" },
       brief: { type: "string" },
+      open: { type: "boolean" },
     },
   });
   const port = values.port === undefined ? DEFAULT_PORT : Number(values.port);
@@ -166,6 +171,7 @@ export async function parseReviewCommand(args: string[]): Promise<ReviewCommand>
     manifest,
     keepTitle: values.title !== undefined || values.manifest !== undefined,
     inferPullRequest: !values["no-pr"],
+    open: !!values.open,
   };
 }
 
@@ -205,7 +211,11 @@ export async function request(
 
 export async function runReviewCommand(
   args: string[],
-  options: { fetcher?: typeof fetch; print?: (text: string) => void } = {},
+  options: {
+    fetcher?: typeof fetch;
+    print?: (text: string) => void;
+    openUrl?: (url: string) => void;
+  } = {},
 ): Promise<void> {
   const command = await parseReviewCommand(args);
   const print = options.print ?? console.log;
@@ -228,5 +238,37 @@ export async function runReviewCommand(
   const result = await request(connection, "/api/reviews", fetcher, manifest);
   const parsed = z.object({ id: z.string().regex(/^[A-Za-z0-9_-]+$/) }).safeParse(result);
   if (!parsed.success) throw new Error("Med returned an invalid review ID.");
+  await showReview(connection, parsed.data.id, !!command.open, fetcher, options.openUrl);
   print(`[Review changes here](${connection.origin}/review/${parsed.data.id})`);
+}
+
+/**
+ * Tells open Med windows about a saved review. Each adds it to its workspaces,
+ * marked unread; with `open`, the window used last shows it. With `open` and
+ * no window listening, the review opens in the browser instead.
+ */
+export async function showReview(
+  connection: RunningConnection,
+  id: string,
+  open: boolean,
+  fetcher: typeof fetch,
+  openUrl: (url: string) => void = openBrowser,
+) {
+  // An older server has no window channel; the link still works.
+  const windows = await request(connection, "/api/windows/review", fetcher, { id, open })
+    .then((data) => z.object({ windows: z.number() }).parse(data).windows)
+    .catch(() => 0);
+  if (open && !windows) openUrl(`${connection.origin}/review/${id}#token=${connection.token}`);
+}
+
+export function openBrowser(url: string) {
+  const opener =
+    process.platform === "darwin"
+      ? "open"
+      : process.platform === "win32"
+        ? "explorer.exe"
+        : "xdg-open";
+  const child = spawn(opener, [url], { stdio: "ignore", detached: true });
+  child.once("error", () => console.error("Could not open a browser. Use the review URL below."));
+  child.unref();
 }

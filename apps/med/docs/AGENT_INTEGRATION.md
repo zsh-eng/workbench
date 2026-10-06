@@ -54,6 +54,8 @@ The result is ready to paste into the final response:
 [Review changes here](http://127.0.0.1:4173/review/r_example)
 ```
 
+Open Med windows add the new review to their workspace lists, marked new. Add `--open` to also show it in the window the user used last; with no window open, the command opens the link in the browser. Use `--open` when the user asked to see the review.
+
 The base is the state before the task's changes, not the first changed commit. med resolves the endpoints and captures the comparison. It does not switch branches, stage files, or make commits. Do not commit solely to create a link unless the user has authorized commits.
 
 ### Titles and pull requests

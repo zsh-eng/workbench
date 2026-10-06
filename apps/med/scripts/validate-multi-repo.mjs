@@ -81,7 +81,8 @@ try {
     });
   });
   browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const page = await context.newPage();
   const pageErrors = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.goto(url);
@@ -193,10 +194,44 @@ try {
   await dialog.getByRole("group", { name: "frontend", exact: true }).waitFor();
   await page.keyboard.press("Escape");
   await page.getByRole("option").filter({ hasText: "frontend initial commit" }).waitFor();
+
+  // An agent's review reaches both windows over one shared channel. Each lists
+  // it as new; with `open`, the window used last shows it.
+  const other = await context.newPage();
+  other.on("pageerror", (error) => pageErrors.push(error.message));
+  await other.goto(url);
+  await other.locator('[data-review-status="ready"]:visible').waitFor();
+  const post = (path, body) =>
+    fetch(`${launch.origin}${path}`, {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }).then((response) => response.json());
+  const handoff = await post("/api/reviews", {
+    title: "Agent handoff",
+    targets: [{ repo: repositories[0], comparison: { kind: "working" } }],
+  });
+  assert.deepEqual(await post("/api/windows/review", { id: handoff.id }), { windows: 1 });
+  for (const window of [page, other])
+    await window
+      .getByRole("navigation", { name: "Workspaces" })
+      .getByRole("button", { name: /^Agent handoff\s*, new$/ })
+      .waitFor();
+  await page
+    .getByRole("navigation", { name: "Workspaces" })
+    .getByRole("button", { name: /^main/ })
+    .click();
+  assert.deepEqual(await post("/api/windows/review", { id: handoff.id, open: true }), {
+    windows: 1,
+  });
+  await page.waitForURL(`**/review/${handoff.id}`);
+  await page.locator('[data-review-status="ready"]:visible').waitFor();
+  assert.ok(!other.url().includes("/review/"));
+  await other.close();
   console.log(
     JSON.stringify({
       checks:
-        "multi-repo launch, new workspace from the picker, live workspace switching, add/remove, scoped search, empty reload and re-add",
+        "multi-repo launch, new workspace from the picker, live workspace switching, add/remove, scoped search, empty reload and re-add, agent reviews in two windows",
       repositories: after.repositories.map((repo) => repo.name),
       searchEngine: process.env.MED_VALIDATION_ZOEKT_BIN ? "zoekt" : "git",
       pageErrors,

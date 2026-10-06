@@ -39,10 +39,12 @@ let root: Root | undefined;
 let mount: HTMLDivElement | undefined;
 let address = "";
 const STORAGE_KEY = "med:workspaces:v1";
+const WINDOW_KEY = "med:window";
 
 beforeEach(() => {
   address = location.pathname + location.search;
   localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(WINDOW_KEY);
   localStorage.removeItem("med:zen");
 });
 afterEach(() => {
@@ -50,18 +52,78 @@ afterEach(() => {
   mount?.remove();
   root = mount = undefined;
   localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(WINDOW_KEY);
   // Workspaces move the address; the test page keeps its own.
   history.replaceState(null, "", address);
 });
 
+const reviewFor = (repo: string, comparison: Comparison, id = `review-${repo}`) => {
+  const patch = patchFor(repo);
+  return {
+    id,
+    repo,
+    comparison,
+    base: head,
+    head: "working",
+    label: "Working changes",
+    files: changed(repo).map((path) => ({
+      path: `src/${path}`,
+      status: "M",
+      additions: 1,
+      deletions: 1,
+      binary: false,
+    })),
+    patch,
+    warnings: [],
+    metrics: { gitMs: 1, totalMs: 1, patchBytes: patch.length, cacheHit: false },
+  };
+};
+/** Saved reviews that an agent can announce, each of the main worktree. */
+const savedTitles: Record<string, string> = { agent: "Agent review", second: "Second review" };
+const savedReview = (id: string) => ({
+  id,
+  title: savedTitles[id],
+  createdAt: "2026-10-01T00:00:00Z",
+  revision: 0,
+  commentCount: 0,
+  targets: [
+    {
+      id: `${id}-target`,
+      repositoryId: "repo-0",
+      repo: "/test/repo",
+      branch: "main",
+      label: "Captured",
+      comparison: { kind: "working" },
+      base: head,
+      head: "working",
+      captured: true,
+    },
+  ],
+});
+
 /** A review host with one repository, two branch worktrees, and a vault. It
- * counts session loads and the live-update streams that are open. */
+ * counts session loads and the live-update streams that are open, and
+ * announces saved reviews on the window channel. */
 function createHost() {
   const sessions: string[] = [];
   const streams = new Set<string>();
+  const windows = new Set<ReadableStreamDefaultController<Uint8Array>>();
+  const announce = (review: { id: string; open: boolean }) => {
+    const data = { type: "review", title: savedTitles[review.id], ...review };
+    const chunk = new TextEncoder().encode(`event: review\ndata: ${JSON.stringify(data)}\n\n`);
+    for (const window of windows) window.enqueue(chunk);
+  };
   const fetcher: typeof fetch = async (input, init) => {
     const url = new URL(String(input), "http://localhost");
     const repo = url.searchParams.get("repo") || "/test/repo";
+    const saved = /^\/api\/reviews\/(\w+)(?:\/targets\/[\w-]+\/(review|notes))?$/.exec(
+      url.pathname,
+    );
+    if (saved?.[2] === "review")
+      return Response.json(reviewFor("/test/repo", { kind: "working" }, `${saved[1]}-target`));
+    if (saved?.[2] === "notes")
+      return Response.json({ reviewId: `${saved[1]}-target`, revision: 0, notes: [] });
+    if (saved) return Response.json(savedReview(saved[1]!));
     switch (url.pathname) {
       case "/api/service/status":
         return Response.json({
@@ -92,25 +154,7 @@ function createHost() {
         return Response.json({ commits: [], cursor: null, hasMore: false });
       case "/api/review": {
         const body = JSON.parse(String(init?.body)) as { comparison: Comparison; repo: string };
-        const patch = patchFor(body.repo);
-        return Response.json({
-          id: `review-${body.repo}`,
-          repo: body.repo,
-          comparison: body.comparison,
-          base: head,
-          head: "working",
-          label: "Working changes",
-          files: changed(body.repo).map((path) => ({
-            path: `src/${path}`,
-            status: "M",
-            additions: 1,
-            deletions: 1,
-            binary: false,
-          })),
-          patch,
-          warnings: [],
-          metrics: { gitMs: 1, totalMs: 1, patchBytes: patch.length, cacheHit: false },
-        });
+        return Response.json(reviewFor(body.repo, body.comparison));
       }
       case "/api/notes":
         return Response.json({
@@ -126,6 +170,18 @@ function createHost() {
           start(controller) {
             init?.signal?.addEventListener("abort", () => {
               streams.delete(key);
+              controller.error(new DOMException("Aborted", "AbortError"));
+            });
+          },
+        });
+        return new Response(body, { headers: { "content-type": "text/event-stream" } });
+      }
+      case "/api/windows": {
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            windows.add(controller);
+            init?.signal?.addEventListener("abort", () => {
+              windows.delete(controller);
               controller.error(new DOMException("Aborted", "AbortError"));
             });
           },
@@ -152,7 +208,7 @@ function createHost() {
     }
     throw new Error(`Unexpected request: ${url.pathname}`);
   };
-  return { fetcher, sessions, streams };
+  return { fetcher, sessions, streams, windows, announce };
 }
 
 function render(host: ReturnType<typeof createHost>) {
@@ -250,4 +306,30 @@ test("keeps branch workspaces live, switches by shortcut, and restores the list"
   await page.getByRole("button", { name: "Close feature" }).click();
   await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
   await expect.poll(rowLabels).toEqual(["notes", "main 2 (current)"]);
+});
+
+test("lists reviews that agents announce and shows them in the window used last", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  await expect.poll(() => host.windows.size).toBe(1);
+
+  // Another window was used last: this one lists the review as new and keeps
+  // its own workspace on screen.
+  localStorage.setItem(WINDOW_KEY, "window-elsewhere");
+  host.announce({ id: "agent", open: true });
+  await expect.poll(rowLabels).toEqual(["notes", "main 2 (current)", "Agent review, new"]);
+  expect(shown()?.dataset.selectedBranch).toBe("main");
+
+  // Showing it marks it read, and the click makes this the window used last.
+  await page.getByRole("button", { name: /^Agent review/ }).click();
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("agent-target");
+  await expect.poll(() => rowLabels()[2]).toMatch(/^Agent review \d+ \(current\)$/);
+
+  // Now this window shows the next review that opens.
+  await page.getByRole("button", { name: /^main/ }).click();
+  await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
+  host.announce({ id: "second", open: true });
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("second-target");
+  await expect.poll(() => rowLabels()[3]).toMatch(/^Second review( \d+)? \(current\)$/);
 });

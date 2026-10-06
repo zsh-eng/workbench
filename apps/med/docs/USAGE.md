@@ -76,8 +76,9 @@ A workspace is one task: a branch or worktree, a saved review, or a registered v
 - `⌃Tab` shows recent workspaces. Hold Control and press Tab to step; release Control to go. A quick `⌃Tab` returns to the previous workspace. The palette command **Switch workspace…** does the same without a held key.
 - **+** in the list, or **New workspace…** in the palette, opens the branch picker for a new workspace. Opening a saved review link adds a workspace for that review.
 - Select a row and press `Delete`, or click its **×**, to close it. Vaults and the home workspace stay.
+- A review that an agent creates joins the list in every open Med window, marked new with an accent dot until you open it. An agent that passes `--open` also shows the review in the window you used last. See [agent integration](AGENT_INTEGRATION.md#create-a-review).
 
-The four most recently shown workspaces stay loaded; switching between them is immediate. Only the workspace on screen receives live updates; the others catch up when you return. Older workspaces load again when you open them. The list and the active workspace persist across reloads and restarts. The address follows the active workspace: a saved review keeps its `/review/<id>` link, and Back and Forward move between workspaces.
+The four most recently shown workspaces stay loaded; switching between them is immediate. Only the workspace on screen receives live updates; the others catch up when you return. Older workspaces load again when you open them. The list and the active workspace persist across reloads and restarts, and windows share the list; each window keeps its own workspace on screen. The address follows the active workspace: a saved review keeps its `/review/<id>` link, and Back and Forward move between workspaces.
 
 Browsers keep `⌘1`–`⌘9` and `⌃Tab` for their own tabs. Use the installed app window, `Ctrl+1`–`Ctrl+9`, or the palette in a browser tab.
 

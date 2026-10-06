@@ -163,6 +163,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     return stopped;
   };
   const streams = new Map<ServerResponse, string>();
+  // One stream per open Med window, for news that is not about a repository,
+  // such as a review an agent just created.
+  const windows = new Set<ServerResponse>();
   const activeRequests = new Map<AbortController, Set<string>>();
   let revision = 0;
   let closing = false;
@@ -424,6 +427,20 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           response.once("close", () => streams.delete(response));
           return;
         }
+        if (url.pathname === "/api/windows" && request.method === "GET") {
+          if (windows.size >= 16)
+            throw new HostError("too-many-windows", "Too many Med windows are open.", 503);
+          response.writeHead(200, {
+            "content-type": "text/event-stream",
+            "cache-control": "no-store",
+            connection: "keep-alive",
+            "x-accel-buffering": "no",
+          });
+          response.write(`event: ready\ndata: ${JSON.stringify({ type: "ready" })}\n\n`);
+          windows.add(response);
+          response.once("close", () => windows.delete(response));
+          return;
+        }
         if (expensiveRequests >= 8)
           throw new HostError("busy", "The host is processing other requests. Retry shortly.", 503);
         expensiveRequests++;
@@ -454,6 +471,22 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               "Content-Security-Policy": "default-src 'none'; sandbox",
             });
             response.end(image.bytes);
+            return;
+          }
+          // Tells open windows about a saved review: added to their workspace
+          // list, and shown in the window used last when `open` is set.
+          if (url.pathname === "/api/windows/review" && request.method === "POST") {
+            const input = z
+              .object({
+                id: z.string().regex(/^[A-Za-z0-9_-]+$/),
+                open: z.boolean().default(false),
+              })
+              .parse(await readBody(request));
+            const bundle = await savedReviews.get(input.id);
+            const event = { type: "review", id: bundle.id, title: bundle.title, open: input.open };
+            for (const window of windows)
+              window.write(`event: review\ndata: ${JSON.stringify(event)}\n\n`);
+            send({ windows: windows.size });
             return;
           }
           if (url.pathname === "/api/reviews" && request.method === "POST") {
@@ -1214,7 +1247,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     child.unref();
   }
   const heartbeat = setInterval(() => {
-    for (const stream of streams.keys()) stream.write(": heartbeat\n\n");
+    for (const stream of [...streams.keys(), ...windows]) stream.write(": heartbeat\n\n");
   }, 15_000);
   heartbeat.unref();
   return {
@@ -1226,8 +1259,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       closing = true;
       clearInterval(heartbeat);
       for (const abort of activeRequests.keys()) abort.abort();
-      for (const stream of streams.keys()) stream.end();
+      for (const stream of [...streams.keys(), ...windows]) stream.end();
       streams.clear();
+      windows.clear();
       await Promise.allSettled([...watchers.values()].map(async (stop) => (await stop)()));
       await Promise.allSettled(retiringWatchers);
       await options.service?.close();
