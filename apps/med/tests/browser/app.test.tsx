@@ -41,13 +41,17 @@ const commits = [
 let root: Root | undefined;
 let mount: HTMLDivElement | undefined;
 
-beforeEach(() => localStorage.removeItem("med:vim"));
+beforeEach(() => {
+  localStorage.removeItem("med:vim");
+  localStorage.removeItem("med:zen");
+});
 afterEach(() => {
   root?.unmount();
   mount?.remove();
   root = undefined;
   mount = undefined;
   localStorage.removeItem("med:vim");
+  localStorage.removeItem("med:zen");
 });
 
 function response(comparison: Comparison): ReviewResponse {
@@ -444,6 +448,58 @@ describe("graphical review", () => {
     await page.getByRole("combobox", { name: "Search commands" }).fill("Open branch");
     await page.getByRole("option", { name: /Open branch/ }).click();
     await expect.element(page.getByRole("combobox", { name: "Search branches" })).toBeVisible();
+  });
+
+  test("zen mode hides panels and toolbars, keeps tabs, and restores the layout", async () => {
+    await page.viewport(1400, 850);
+    await mountApp({ branches: true });
+    const sidebar = () => document.getElementById("review-sidebar")?.checkVisibility() ?? false;
+    const files = () =>
+      document.querySelector('[aria-label="Workspace files"]')?.checkVisibility() ?? false;
+    const altZ = () =>
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Ω", code: "KeyZ", altKey: true, bubbles: true }),
+      );
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "B", metaKey: true, shiftKey: true, bubbles: true }),
+    );
+    await expect.poll(files).toBe(true);
+    await page.getByRole("button", { name: "Enter zen mode", exact: true }).click();
+    await expect.element(page.getByRole("banner", { name: "Zen mode" })).toBeVisible();
+    expect(sidebar()).toBe(false);
+    expect(files()).toBe(false);
+    expect(document.querySelector('[aria-label="Branches and worktrees"]')?.checkVisibility()).toBe(
+      false,
+    );
+    await expect.element(page.getByRole("tab", { name: "Changes", exact: true })).toBeVisible();
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Exit zen mode");
+    altZ();
+    await expect.poll(sidebar).toBe(true);
+    expect(files()).toBe(true);
+    expect(localStorage.getItem("med:zen")).toBe("off");
+    altZ();
+    await expect.element(page.getByRole("banner", { name: "Zen mode" })).toBeVisible();
+    expect(localStorage.getItem("med:zen")).toBe("on");
+    // Asking for a panel leaves zen and shows it.
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "b", metaKey: true, bubbles: true }));
+    await expect.poll(sidebar).toBe(true);
+    await expect.element(page.getByRole("banner", { name: "Zen mode" })).not.toBeInTheDocument();
+  });
+
+  test("the shortcut guide opens on the current context and searches keys", async () => {
+    await mountApp({ branches: true });
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "?", bubbles: true }));
+    const guide = page.getByRole("dialog", { name: "Shortcuts & commands" });
+    await expect.element(guide.getByRole("tab", { name: /Review/, selected: true })).toBeVisible();
+    await page.getByRole("combobox", { name: "Search shortcuts and commands" }).fill("zz");
+    await expect
+      .element(guide.getByRole("option", { name: /Center the cursor line/ }))
+      .toBeVisible();
+    expect(guide.getByRole("option").elements()).toHaveLength(2);
+    await page.getByRole("combobox", { name: "Search shortcuts and commands" }).fill("zen");
+    await userEvent.keyboard("{Enter}");
+    await expect.element(page.getByRole("banner", { name: "Zen mode" })).toBeVisible();
+    await expect.element(guide).not.toBeInTheDocument();
   });
 
   test("file close shortcuts preserve Changes and close only the requested tabs", async () => {

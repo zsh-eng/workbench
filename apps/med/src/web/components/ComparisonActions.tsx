@@ -27,6 +27,7 @@ export function ComparisonActions({
   const [targets, setTargets] = useState<GitTargets>();
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
+  const filterRef = useRef<HTMLInputElement>(null);
   const [pushOpen, setPushOpen] = useState(false);
   const [remote, setRemote] = useState("");
   const [branch, setBranch] = useState("");
@@ -79,6 +80,9 @@ export function ComparisonActions({
         onOpenChange={(open) => {
           if (open) setQuery("");
         }}
+        onOpenChangeComplete={(open) => {
+          if (open) filterRef.current?.focus();
+        }}
       >
         <Menu.Trigger
           {...stylex.props(
@@ -103,29 +107,73 @@ export function ComparisonActions({
         <Menu.Portal>
           <Menu.Positioner sideOffset={6} {...stylex.props(styles.positioner)}>
             <Menu.Popup {...stylex.props(ui.popup, ui.pop, styles.menu)}>
-              <input
-                aria-label="Filter comparison branches"
-                placeholder="Find a base branch"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                {...stylex.props(ui.input)}
-              />
-              <p {...stylex.props(styles.hint)}>Changes since the common ancestor</p>
-              {refs.map((ref) => (
-                <Menu.Item
-                  key={ref.name}
-                  onClick={() => onCompare(ref.name, commitHead)}
-                  disabled={!commitHead}
-                  className={(state) =>
-                    stylex.props(ui.menuItem, state.highlighted && ui.menuHighlighted).className
-                  }
-                >
-                  {ref.label}
-                </Menu.Item>
-              ))}
-              {!targets && <p {...stylex.props(styles.hint)}>{error || "Loading branches…"}</p>}
+              <div {...stylex.props(styles.filter)}>
+                <Icon name="search" size={14} />
+                <input
+                  ref={filterRef}
+                  aria-label="Filter comparison branches"
+                  placeholder="Find a base branch"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    // Typing filters; it must not trigger the menu's type-ahead.
+                    if (event.key === "ArrowDown") {
+                      event.preventDefault();
+                      event.currentTarget
+                        .closest('[role="menu"]')
+                        ?.querySelector<HTMLElement>(
+                          '[role="menuitem"]:not([aria-disabled="true"])',
+                        )
+                        ?.focus();
+                    } else if (event.key !== "Escape" && event.key !== "Tab")
+                      event.stopPropagation();
+                  }}
+                  {...stylex.props(styles.filterInput)}
+                />
+              </div>
+              <p {...stylex.props(styles.menuHint)}>Changes since the common ancestor</p>
+              {(
+                [
+                  ["Local", refs.filter((ref) => !ref.name.startsWith("refs/remotes/"))],
+                  ["Remote", refs.filter((ref) => ref.name.startsWith("refs/remotes/"))],
+                ] as const
+              ).map(([title, group]) =>
+                group.length ? (
+                  <Menu.Group key={title}>
+                    <Menu.GroupLabel {...stylex.props(styles.groupLabel)}>{title}</Menu.GroupLabel>
+                    {group.map((ref) => {
+                      const current =
+                        comparison.kind === "range" &&
+                        !!comparison.mergeBase &&
+                        (comparison.base === ref.name || comparison.base === ref.label);
+                      return (
+                        <Menu.Item
+                          key={ref.name}
+                          onClick={() => onCompare(ref.name, commitHead)}
+                          disabled={!commitHead}
+                          className={(state) =>
+                            stylex.props(
+                              ui.menuItem,
+                              styles.ref,
+                              state.highlighted && ui.menuHighlighted,
+                            ).className
+                          }
+                        >
+                          <span {...stylex.props(styles.refName)}>{ref.label}</span>
+                          {current && (
+                            <span {...stylex.props(styles.current)}>
+                              <Icon name="check" size={14} />
+                            </span>
+                          )}
+                        </Menu.Item>
+                      );
+                    })}
+                  </Menu.Group>
+                ) : null,
+              )}
+              {!targets && <p {...stylex.props(styles.menuHint)}>{error || "Loading branches…"}</p>}
               {targets && !refs.length && (
-                <p {...stylex.props(styles.hint)}>No matching branches.</p>
+                <p {...stylex.props(styles.menuHint)}>No matching branches.</p>
               )}
             </Menu.Popup>
           </Menu.Positioner>
@@ -240,10 +288,43 @@ const styles = stylex.create({
   baseLabel: { color: tokens.faint, fontWeight: 450 },
   chevron: { display: "inline-flex", color: tokens.faint },
   push: { gap: 5, marginInlineStart: 2, paddingInlineStart: 7, paddingInlineEnd: 9 },
+  filter: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    height: 32,
+    marginBottom: 2,
+    paddingInline: 8,
+    borderRadius: 6,
+    backgroundColor: tokens.fill,
+    color: tokens.faint,
+  },
+  filterInput: {
+    flex: "1",
+    minWidth: 0,
+    borderWidth: 0,
+    outline: "none",
+    backgroundColor: "transparent",
+    color: tokens.text,
+    fontFamily: tokens.ui,
+    fontSize: 12.5,
+    "::placeholder": { color: tokens.faint },
+  },
+  groupLabel: {
+    paddingInline: 8,
+    paddingTop: 8,
+    paddingBottom: 3,
+    color: tokens.faint,
+    fontSize: 11,
+    fontWeight: 500,
+  },
+  ref: { gap: 12 },
+  refName: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  current: { display: "inline-flex", color: tokens.accent, flexShrink: 0 },
   menu: {
     display: "flex",
     flexDirection: "column",
-    gap: 2,
+    gap: 0,
     maxHeight: 380,
     overflowY: "auto",
     minWidth: 260,
@@ -270,7 +351,14 @@ const styles = stylex.create({
     fontFamily: tokens.ui,
   },
   title: { margin: 0, fontSize: 14, fontWeight: 550 },
-  hint: { fontSize: 12, color: tokens.muted, lineHeight: 1.5, marginBlock: 6, paddingInline: 4 },
+  hint: { fontSize: 12, color: tokens.muted, lineHeight: 1.5, marginBlock: 6 },
+  menuHint: {
+    fontSize: 11.5,
+    color: tokens.faint,
+    lineHeight: 1.5,
+    marginBlock: 6,
+    paddingInline: 8,
+  },
   repo: {
     fontFamily: tokens.code,
     fontSize: 11,

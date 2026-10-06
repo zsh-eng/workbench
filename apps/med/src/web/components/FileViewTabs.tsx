@@ -23,6 +23,7 @@ export function FileViewTabs({
   showChanges = true,
   changesCount,
   trailing,
+  quiet = false,
 }: {
   tabs: FileViewTab[];
   active: string;
@@ -32,6 +33,8 @@ export function FileViewTabs({
   changesCount?: number;
   /** Controls placed at the end of the tab row. */
   trailing?: ReactNode;
+  /** Text-only tabs for zen mode: no icons, counts, or row border. */
+  quiet?: boolean;
   onSelect(id: string): void;
   onClose(id: string): void;
   onPin(id: string): void;
@@ -48,19 +51,24 @@ export function FileViewTabs({
     <Tabs.Root
       value={active}
       onValueChange={(value) => onSelect(String(value))}
-      {...stylex.props(styles.root)}
+      {...stylex.props(styles.root, quiet && styles.quietRoot)}
     >
-      <Tabs.List aria-label="Open files" {...stylex.props(styles.list)}>
+      <Tabs.List aria-label="Open files" {...stylex.props(styles.list, quiet && styles.quietList)}>
         {showChanges && (
           <Tabs.Tab
             value="changes"
             aria-controls={panelId}
             aria-label="Changes"
-            {...stylex.props(styles.tab, styles.changes, active === "changes" && styles.active)}
+            {...stylex.props(
+              styles.tab,
+              styles.changes,
+              quiet && styles.quietTab,
+              active === "changes" && (quiet ? styles.quietActive : styles.active),
+            )}
           >
-            <Icon name="diff" size={14} />
+            {!quiet && <Icon name="diff" size={14} />}
             Changes
-            {changesCount !== undefined && (
+            {!quiet && changesCount !== undefined && (
               <span {...stylex.props(styles.count)}>{changesCount.toLocaleString()}</span>
             )}
           </Tabs.Tab>
@@ -75,11 +83,12 @@ export function FileViewTabs({
               {...stylex.props(
                 styles.tab,
                 styles.fileTab,
+                quiet && styles.quietTab,
                 !tab.pinned && styles.preview,
-                active === tab.id && styles.active,
+                active === tab.id && (quiet ? styles.quietActive : styles.active),
               )}
             >
-              <Icon name="file" size={14} />
+              {!quiet && <Icon name="file" size={14} />}
               <span {...stylex.props(styles.name)}>{labels[index]}</span>
               {tab.dirty && (
                 <span
@@ -105,6 +114,22 @@ export function FileViewTabs({
   );
 }
 const styles = stylex.create({
+  quietRoot: {
+    height: 30,
+    minHeight: 30,
+    paddingInline: 0,
+    borderBottomWidth: 0,
+    justifyContent: "center",
+  },
+  quietList: { flexGrow: 0, flexShrink: 1, flexBasis: "auto", gap: 0 },
+  // Zen tabs are typographic: color carries the selection, not a fill.
+  quietTab: {
+    height: 24,
+    paddingInlineStart: 8,
+    backgroundColor: { default: "transparent", ":hover": "transparent" },
+    color: { default: tokens.faint, ":hover": tokens.muted },
+  },
+  quietActive: { color: { default: tokens.text, ":hover": tokens.text } },
   root: {
     display: "flex",
     alignItems: "center",

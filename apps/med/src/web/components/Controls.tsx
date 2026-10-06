@@ -4,7 +4,7 @@ import * as stylex from "@stylexjs/stylex";
 import { Menu } from "@base-ui/react/menu";
 import { Select } from "@base-ui/react/select";
 import { Dialog } from "@base-ui/react/dialog";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { ShortcutKeys } from "./ShortcutKeys";
 export { ShortcutKeys } from "./ShortcutKeys";
 import { Icon, type IconName } from "./Icon";
@@ -14,6 +14,13 @@ export interface Choice {
   value: string;
   label: string;
   description?: string;
+}
+export interface MenuAction {
+  label: string;
+  shortcut?: string;
+  /** A toggle. Renders as a checkbox item with its state. */
+  checked?: boolean;
+  onClick(): void;
 }
 export interface ReviewCommand {
   managesFocus?: boolean;
@@ -66,13 +73,27 @@ export function ChoiceSelect({
                   key={choice.value}
                   value={choice.value}
                   className={(state) =>
-                    stylex.props(ui.menuItem, state.highlighted && ui.menuHighlighted).className
+                    stylex.props(
+                      ui.menuItem,
+                      styles.choice,
+                      !!choice.description && styles.describedChoice,
+                      state.highlighted && ui.menuHighlighted,
+                    ).className
                   }
                 >
-                  <Select.ItemText>{choice.label}</Select.ItemText>
-                  <Select.ItemIndicator {...stylex.props(styles.indicator)}>
-                    <Icon name="check" size={14} />
-                  </Select.ItemIndicator>
+                  <span {...stylex.props(styles.check)}>
+                    <Select.ItemIndicator {...stylex.props(styles.indicator)}>
+                      <Icon name="check" size={14} />
+                    </Select.ItemIndicator>
+                  </span>
+                  <span {...stylex.props(styles.choiceText)}>
+                    <Select.ItemText {...stylex.props(styles.choiceLabel)}>
+                      {choice.label}
+                    </Select.ItemText>
+                    {choice.description && (
+                      <span {...stylex.props(styles.choiceDescription)}>{choice.description}</span>
+                    )}
+                  </span>
                 </Select.Item>
               ))}
             </Select.List>
@@ -86,12 +107,16 @@ export function ChoiceSelect({
 export function ActionMenu({
   children,
   label = "View options",
-  actions,
+  sections,
 }: {
   children?: ReactNode;
   label?: string;
-  actions: { label: string; shortcut?: string; checked?: boolean; onClick(): void }[];
+  /** Groups of related actions, separated by rules. */
+  sections: MenuAction[][];
 }) {
+  const toggles = sections.some((section) =>
+    section.some((action) => action.checked !== undefined),
+  );
   return (
     <Menu.Root>
       <ActionTooltip label={label}>
@@ -104,26 +129,56 @@ export function ActionMenu({
       </ActionTooltip>
       <Menu.Portal>
         <Menu.Positioner align="end" sideOffset={6} {...stylex.props(styles.positioner)}>
-          <Menu.Popup {...stylex.props(ui.popup, ui.pop)}>
-            {actions.map((action) => (
-              <Menu.Item
-                key={action.label}
-                onClick={action.onClick}
-                className={(state) =>
-                  stylex.props(ui.menuItem, state.highlighted && ui.menuHighlighted).className
-                }
-              >
-                <span {...stylex.props(ui.row)}>
-                  {action.checked !== undefined && (
-                    <span {...stylex.props(styles.check)}>
-                      {action.checked ? <Icon name="check" size={14} /> : null}
-                    </span>
-                  )}
-                  {action.label}
-                </span>
-                <ShortcutKeys value={action.shortcut} />
-              </Menu.Item>
-            ))}
+          <Menu.Popup {...stylex.props(ui.popup, ui.pop, styles.menu)}>
+            {sections
+              .filter((section) => section.length)
+              .map((section, index) => (
+                <Fragment key={section.map((action) => action.label).join()}>
+                  {index > 0 && <Menu.Separator {...stylex.props(ui.separator)} />}
+                  <Menu.Group>
+                    {section.map((action) => {
+                      const content = (
+                        <>
+                          <span {...stylex.props(ui.row)}>
+                            {toggles && (
+                              <span {...stylex.props(styles.check)}>
+                                {action.checked !== undefined && (
+                                  <Menu.CheckboxItemIndicator {...stylex.props(styles.indicator)}>
+                                    <Icon name="check" size={14} />
+                                  </Menu.CheckboxItemIndicator>
+                                )}
+                              </span>
+                            )}
+                            {action.label}
+                          </span>
+                          <ShortcutKeys value={action.shortcut} />
+                        </>
+                      );
+                      const className = (state: { highlighted: boolean }) =>
+                        stylex.props(ui.menuItem, state.highlighted && ui.menuHighlighted)
+                          .className;
+                      return action.checked === undefined ? (
+                        <Menu.Item
+                          key={action.label}
+                          onClick={action.onClick}
+                          className={className}
+                        >
+                          {content}
+                        </Menu.Item>
+                      ) : (
+                        <Menu.CheckboxItem
+                          key={action.label}
+                          checked={action.checked}
+                          onCheckedChange={action.onClick}
+                          className={className}
+                        >
+                          {content}
+                        </Menu.CheckboxItem>
+                      );
+                    })}
+                  </Menu.Group>
+                </Fragment>
+              ))}
           </Menu.Popup>
         </Menu.Positioner>
       </Menu.Portal>
@@ -324,8 +379,14 @@ export function SegmentedControl<T extends string>({
 const styles = stylex.create({
   disabled: { opacity: 0.45 },
   positioner: { zIndex: 100, outline: "none" },
-  check: { display: "inline-flex", width: 14, color: tokens.accent },
+  check: { display: "inline-flex", flexShrink: 0, width: 14, color: tokens.accent },
   indicator: { display: "inline-flex", color: tokens.accent },
+  menu: { minWidth: 220 },
+  choice: { justifyContent: "flex-start", gap: 8, minWidth: 220 },
+  describedChoice: { alignItems: "flex-start", paddingBlock: 6 },
+  choiceText: { display: "flex", flexDirection: "column", gap: 2, minWidth: 0 },
+  choiceLabel: { fontSize: 12.5 },
+  choiceDescription: { color: tokens.faint, fontSize: 11, lineHeight: 1.35 },
   trigger: { gap: 4, paddingInlineEnd: 5 },
   chevron: { display: "inline-flex", color: tokens.faint },
   backdrop: { zIndex: 110 },

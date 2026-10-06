@@ -42,7 +42,8 @@ export type IconName =
   | "compare"
   | "pullRequest"
   | "github"
-  | "testFile";
+  | "testFile"
+  | "focus";
 
 const branch = (
   <>
@@ -55,6 +56,12 @@ const branch = (
 const frame = <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" />;
 
 const icons: Record<IconName, ReactNode> = {
+  focus: (
+    <>
+      <path d="M2.75 5.75v-1.5a1.5 1.5 0 0 1 1.5-1.5h1.5M10.25 2.75h1.5a1.5 1.5 0 0 1 1.5 1.5v1.5M13.25 10.25v1.5a1.5 1.5 0 0 1-1.5 1.5h-1.5M5.75 13.25h-1.5a1.5 1.5 0 0 1-1.5-1.5v-1.5" />
+      <circle cx="8" cy="8" r="1.25" fill="currentColor" stroke="none" />
+    </>
+  ),
   github: (
     <path
       fill="currentColor"

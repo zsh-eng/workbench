@@ -67,7 +67,8 @@ test("arrow preview updates the portal immediately; Escape restores the saved th
   const dialog = document.querySelector('[role="dialog"]');
   expect(dialog).not.toBeNull();
   const expected = document.createElement("div");
-  expected.style.backgroundColor = preview.palette.panel;
+  // Palettes use the raised surface; the previewed theme must reach the portal at once.
+  expected.style.backgroundColor = preview.palette.raised;
   expect(getComputedStyle(dialog!).backgroundColor).toBe(expected.style.backgroundColor);
   await userEvent.keyboard("{Escape}");
   await expect.poll(() => document.documentElement.dataset.theme).toBe("graphite-dark");

@@ -811,6 +811,14 @@ export function FullFileView(props: FullFileViewProps) {
         event.key.toLowerCase() !== "v"
       )
         return;
+      // Leave paste-as-plain-text to text fields and open dialogs. The editor
+      // itself keeps the toggle: its paste is already plain text.
+      const target = event.target;
+      if (
+        document.querySelector('[role="dialog"]') ||
+        (target instanceof HTMLElement && ["INPUT", "TEXTAREA"].includes(target.tagName))
+      )
+        return;
       const button = previewButton.current;
       // Retained workspaces stay mounted. Only the visible main file owns this shortcut.
       const visible = [

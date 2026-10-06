@@ -52,6 +52,10 @@ import { FullFileView, type BeginFileSymbolPreview } from "./components/FullFile
 import { FileViewTabs } from "./components/FileViewTabs";
 import { readBrowserToken } from "./data/auth";
 import { SavedReviewHeader } from "./components/SavedReviewHeader";
+import { ShortcutGuide } from "./components/ShortcutGuide";
+import { ZenBar } from "./components/ZenBar";
+import { platform } from "./data/keys";
+import type { GuideContextId } from "./data/shortcut-guide";
 import { ComparisonActions } from "./components/ComparisonActions";
 import { createBlameLoader, type BlameLoader } from "./data/blame";
 
@@ -80,6 +84,7 @@ const commonCommands = [
   "theme",
   "layout",
   "sidebar",
+  "zen",
 ];
 const commandRank = (id: string) => {
   const rank = commonCommands.indexOf(id);
@@ -115,6 +120,16 @@ export function App({
   const [themePickerOpen, setThemePickerOpen] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [filesVisible, setFilesVisible] = useState(false);
+  // Zen hides panels and toolbars without changing their saved visibility, so
+  // leaving it restores the previous layout exactly.
+  const [zen, setZen] = useState(() => readPreference("zen", "off", ["on", "off"]) === "on");
+  useEffect(() => {
+    try {
+      localStorage.setItem("med:zen", zen ? "on" : "off");
+    } catch {
+      /* Storage can be unavailable. */
+    }
+  }, [zen]);
   const [filePickerOpen, setFilePickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState<string | undefined>();
   const fileSelection = useRef<(() => string) | null>(null);
@@ -346,19 +361,45 @@ export function App({
     setFilePickerOpen(true);
   }, []);
   const showFiles = useCallback(() => {
+    setZen(false);
     setFilesVisible(true);
     if (window.innerWidth < 1100) setSidebarVisible(false);
   }, []);
+  // Asking for a panel in zen mode leaves zen and shows that panel.
   const toggleFilesSidebar = useCallback(() => {
-    if (filesVisible) setFilesVisible(false);
+    if (filesVisible && !zen) setFilesVisible(false);
     else showFiles();
-  }, [filesVisible, showFiles]);
+  }, [filesVisible, showFiles, zen]);
   const toggleReviewSidebar = useCallback(() => {
+    if (zen) {
+      setZen(false);
+      setSidebarVisible(true);
+      return;
+    }
     setSidebarVisible((visible) => {
       if (!visible && window.innerWidth < 1100) setFilesVisible(false);
       return !visible;
     });
-  }, []);
+  }, [zen]);
+  const zenToggle = useRef<HTMLButtonElement>(null);
+  const toggleZen = useCallback(() => setZen((value) => !value), []);
+  // Keep keyboard focus when the control that held it leaves with the chrome.
+  const previousZen = useRef(zen);
+  useLayoutEffect(() => {
+    if (previousZen.current === zen) return;
+    previousZen.current = zen;
+    const focused = document.activeElement;
+    // Hidden chrome stays mounted, so check visibility rather than connection.
+    if (focused instanceof HTMLElement && focused !== document.body && focused.checkVisibility())
+      return;
+    // The zen control keeps focus in both directions; a file keeps reading focus.
+    if (zen)
+      (
+        document.querySelector<HTMLElement>('[data-file-pane="main"]') ??
+        document.querySelector<HTMLElement>('[data-zen-bar] [aria-label="Exit zen mode"]')
+      )?.focus();
+    else zenToggle.current?.focus();
+  }, [zen]);
   const [mode, setMode] = useState<"split" | "unified">(() =>
     readPreference("mode", "split", ["split", "unified"]),
   );
@@ -872,7 +913,10 @@ export function App({
         event.key === "?" &&
         !editing &&
         !modal &&
-        !(event.target instanceof Element && event.target.closest('[data-file-pane="main"][tabindex="0"]')) &&
+        !(
+          event.target instanceof Element &&
+          event.target.closest('[data-file-pane="main"][tabindex="0"]')
+        ) &&
         !event.metaKey &&
         !event.ctrlKey &&
         !event.altKey
@@ -883,8 +927,8 @@ export function App({
         return;
       }
       const optionKey = event.code || `Key${event.key.toUpperCase()}`;
-      const closeFromEditor =
-        optionKey === "KeyW" &&
+      const fromEditor =
+        (optionKey === "KeyW" || optionKey === "KeyZ") &&
         event
           .composedPath()
           .some((node) => node instanceof HTMLElement && node.classList.contains("cm-content"));
@@ -892,12 +936,12 @@ export function App({
         event.altKey &&
         !event.metaKey &&
         !event.ctrlKey &&
-        (!editing || closeFromEditor) &&
+        (!editing || fromEditor) &&
         !modal &&
         !document.querySelector('[role="dialog"]')
       ) {
         const key = optionKey;
-        if (["KeyW", "KeyO", "KeyP", "KeyB", "KeyR"].includes(key)) {
+        if (["KeyW", "KeyO", "KeyP", "KeyB", "KeyR", "KeyZ"].includes(key)) {
           event.preventDefault();
           event.stopPropagation();
           if (event.repeat) return;
@@ -909,10 +953,25 @@ export function App({
           else if (key === "KeyB" && activeFile && fileState.file?.kind === "text")
             setBlameEnabled((value) => !value);
           else if (key === "KeyR" && browseSource) resumeFilePicker();
+          else if (key === "KeyZ" && !event.shiftKey) toggleZen();
           return;
         }
       }
       if (event.altKey) return;
+      // On macOS, Command runs Med shortcuts. Leave unshifted Control+B/F/O in
+      // the editor to Vim (page up/down, jump back) instead of Med's sidebar,
+      // find, and symbols.
+      if (
+        platform === "mac" &&
+        event.ctrlKey &&
+        !event.metaKey &&
+        !event.shiftKey &&
+        ["b", "f", "o"].includes(event.key.toLowerCase()) &&
+        event
+          .composedPath()
+          .some((node) => node instanceof HTMLElement && node.classList.contains("cm-content"))
+      )
+        return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
         if (event.shiftKey && !browseSource) return;
         event.preventDefault();
@@ -998,8 +1057,12 @@ export function App({
         event.preventDefault();
         event.stopPropagation();
         jumpHit(findIndex - 1);
-      } else if (event.key === "c") startNote();
-      else if (event.key === "Escape") {
+      } else if (event.key === "c" && selection) {
+        // Without this, the key that opens the composer is typed into it.
+        event.preventDefault();
+        event.stopPropagation();
+        startNote();
+      } else if (event.key === "Escape") {
         setFindOpen(false);
         setDraft(null);
         setSelection(null);
@@ -1020,9 +1083,11 @@ export function App({
     find,
     findIndex,
     jumpHit,
+    selection,
     startNote,
     toggleReviewSidebar,
     toggleFilesSidebar,
+    toggleZen,
     browseSource,
     openFilePicker,
     openContentSearch,
@@ -1091,6 +1156,9 @@ export function App({
       for (const key of keys) fileNavigation.current?.(key, control);
     });
   };
+  const activeEditing =
+    !!activeFile &&
+    !!editorDrafts.get(JSON.stringify([activeFile.source, activeFile.path]))?.editing;
   const fileMotions: [string, string, string, boolean?][] = [
     ["definition", "Go to definition", "gd"],
     ["jump-back", "Previous jump line in file", "''"],
@@ -1112,7 +1180,11 @@ export function App({
     ["line-start", "Start of file line", "0"],
     ["line-text", "First non-space character in file line", "^"],
     ["line-end", "End of file line", "$"],
-    ["line-end-a", "End of file line (Shift+A)", "A"],
+    [
+      "line-end-a",
+      activeEditing ? "Append at line end (Insert mode)" : "End of file line, without inserting",
+      "A",
+    ],
     ["paragraph-back", "Previous paragraph in file", "{"],
     ["paragraph-next", "Next paragraph in file", "}"],
     ["file-start", "Start of file", "gg"],
@@ -1225,14 +1297,14 @@ export function App({
     {
       id: "next-match",
       label: "Next diff search match",
-      shortcut: "N",
+      shortcut: "n",
       disabled: !find || !!activeFile,
       run: () => jumpHit(findIndex + 1),
     },
     {
       id: "previous-match",
       label: "Previous diff search match",
-      shortcut: "⇧ N",
+      shortcut: "N",
       disabled: !find || !!activeFile,
       run: () => jumpHit(findIndex - 1),
     },
@@ -1246,7 +1318,7 @@ export function App({
     {
       id: "help",
       managesFocus: true,
-      label: "Show all shortcuts and commands",
+      label: "Show keyboard shortcuts",
       shortcut: "?",
       run: () => setHelpOpen(true),
     },
@@ -1317,7 +1389,7 @@ export function App({
           },
           {
             id: "browse-files",
-            label: filesVisible ? "Hide files sidebar" : "Show files sidebar",
+            label: filesVisible && !zen ? "Hide files sidebar" : "Show files sidebar",
             shortcut: "⌘⇧B",
             run: toggleFilesSidebar,
           },
@@ -1394,9 +1466,15 @@ export function App({
       : []),
     {
       id: "sidebar",
-      label: sidebarVisible ? "Hide sidebar" : "Show sidebar",
+      label: sidebarVisible && !zen ? "Hide sidebar" : "Show sidebar",
       shortcut: "⌘ B",
       run: toggleReviewSidebar,
+    },
+    {
+      id: "zen",
+      label: zen ? "Leave zen mode" : "Enter zen mode",
+      shortcut: "⌥ Z",
+      run: toggleZen,
     },
     {
       id: "open-local-file",
@@ -1407,17 +1485,27 @@ export function App({
     {
       id: "note",
       label: "Add note to selected lines",
-      shortcut: "C",
+      shortcut: "c",
       run: startNote,
     },
   ];
+  const guideContext: GuideContextId =
+    activeFile && fileState.file?.kind === "text" ? (activeEditing ? "editor" : "file") : "review";
   const comparisonValue = state.comparison.kind;
   const comparisonChoices = [
     ...(workingAvailable
       ? [
-          { value: "working", label: "Working changes" },
-          { value: "staged", label: "Staged changes" },
-          { value: "unstaged", label: "Unstaged changes" },
+          {
+            value: "working",
+            label: "Working changes",
+            description: "HEAD to working files, including untracked",
+          },
+          { value: "staged", label: "Staged changes", description: "HEAD to the index" },
+          {
+            value: "unstaged",
+            label: "Unstaged changes",
+            description: "Index to working files",
+          },
         ]
       : []),
     ...(!["working", "staged", "unstaged"].includes(comparisonValue)
@@ -1432,6 +1520,14 @@ export function App({
                   : state.comparison.kind === "files"
                     ? "File comparison"
                     : "Revision range",
+            description:
+              state.comparison.kind === "commit"
+                ? "This commit against its first parent"
+                : state.comparison.kind === "range"
+                  ? state.comparison.mergeBase
+                    ? "Changes since the common ancestor"
+                    : "Between two revisions"
+                  : undefined,
           },
         ]
       : []),
@@ -1589,6 +1685,14 @@ export function App({
         <span {...stylex.props(styles.commandBarText)}>Search commands</span>
         <ShortcutKeys value="⌘ K" />
       </button>
+      <ToolButton
+        ref={zenToggle}
+        label="Zen mode"
+        shortcut="⌥ Z"
+        icon="focus"
+        aria-label="Enter zen mode"
+        onClick={toggleZen}
+      />
       {browseSource && (
         <ToolButton
           label={filesVisible ? "Hide files" : "Show files"}
@@ -1601,6 +1705,25 @@ export function App({
       )}
     </>
   );
+  const fileTabs = (quiet: boolean) =>
+    !!browseSource && (
+      <FileViewTabs
+        quiet={quiet}
+        tabs={fileState.tabs.map((tab) => ({
+          ...tab,
+          sourcePath: tab.source.repo,
+          dirty: !!editorDrafts.get(JSON.stringify([tab.source, tab.path]))?.dirty,
+        }))}
+        active={fileState.active}
+        changesCount={state.review ? state.files.length : undefined}
+        onSelect={fileWorkspace.select}
+        onClose={fileWorkspace.close}
+        onPin={fileWorkspace.pin}
+      />
+    );
+  const unsavedCount = fileState.tabs.filter(
+    (tab) => editorDrafts.get(JSON.stringify([tab.source, tab.path]))?.dirty,
+  ).length;
   const branchTabs = gitAvailable && (
     <BranchTabs
       leading={sidebarToggle}
@@ -1672,13 +1795,32 @@ export function App({
           }}
         />
       )}
-      {branchTabs || (
-        <header {...stylex.props(styles.plainTopbar)}>
-          {sidebarToggle}
-          <span {...stylex.props(ui.grow)} />
-          {topTrailing}
-        </header>
+      {zen && (
+        <ZenBar
+          repository={state.session?.repository.name}
+          branch={state.session ? (state.activeBranch ?? "detached") : undefined}
+          context={
+            fileState.active === "changes"
+              ? comparisonChoices.find((choice) => choice.value === comparisonValue)?.label
+              : undefined
+          }
+          tabs={fileTabs(true)}
+          unsaved={unsavedCount}
+          loading={state.status === "loading"}
+          onCommands={() => setCommandsOpen(true)}
+          onExit={toggleZen}
+        />
       )}
+      {/* Branch tabs stay mounted in zen mode so the branch picker still opens. */}
+      <div hidden={zen} {...stylex.props(styles.topbarSlot, zen && styles.hiddenSurface)}>
+        {branchTabs || (
+          <header {...stylex.props(styles.plainTopbar)}>
+            {sidebarToggle}
+            <span {...stylex.props(ui.grow)} />
+            {topTrailing}
+          </header>
+        )}
+      </div>
       <ThemePicker open={themePickerOpen} onOpenChange={setThemePickerOpen} />
       {definitions && (
         <SymbolPicker
@@ -1759,12 +1901,12 @@ export function App({
         }
       />
       <div
-        {...stylex.props(styles.workspace)}
+        {...stylex.props(styles.workspace, zen && styles.zenWorkspace)}
         id="review-workspace"
         role="tabpanel"
         aria-label={`${state.activeBranch ?? "Workspace"} review`}
       >
-        {sidebarVisible && (
+        {sidebarVisible && !zen && (
           <aside
             id="review-sidebar"
             className={stylex.props(styles.sidebar).className}
@@ -1825,7 +1967,7 @@ export function App({
             />
           </aside>
         )}
-        {sidebarVisible && (
+        {sidebarVisible && !zen && (
           <div
             role="separator"
             aria-label="Resize sidebar"
@@ -1865,20 +2007,7 @@ export function App({
               {fileLinkError}
             </div>
           )}
-          {!!browseSource && (
-            <FileViewTabs
-              tabs={fileState.tabs.map((tab) => ({
-                ...tab,
-                sourcePath: tab.source.repo,
-                dirty: !!editorDrafts.get(JSON.stringify([tab.source, tab.path]))?.dirty,
-              }))}
-              active={fileState.active}
-              changesCount={state.review ? state.files.length : undefined}
-              onSelect={fileWorkspace.select}
-              onClose={fileWorkspace.close}
-              onPin={fileWorkspace.pin}
-            />
-          )}
+          {!zen && fileTabs(false)}
           <div
             id="file-view-panel"
             role="tabpanel"
@@ -1892,7 +2021,7 @@ export function App({
               )}
               aria-hidden={fileState.active !== "changes"}
             >
-              <div {...stylex.props(styles.toolbar)}>
+              <div {...stylex.props(styles.toolbar, zen && styles.hiddenSurface)} hidden={zen}>
                 <ChoiceSelect
                   label="Comparison"
                   value={comparisonValue}
@@ -1966,7 +2095,7 @@ export function App({
                   aria-pressed={wrap}
                   onClick={() => setWrap(!wrap)}
                 />
-                <ActionTooltip label="Toggle comments" shortcut="C">
+                <ActionTooltip label={showNotes ? "Hide comments" : "Show comments"}>
                   <button
                     {...stylex.props(
                       ui.button,
@@ -1985,8 +2114,8 @@ export function App({
                   </button>
                 </ActionTooltip>
                 <ActionMenu
-                  actions={[
-                    ...(selectedFile && browseSource
+                  sections={[
+                    selectedFile && browseSource
                       ? [
                           {
                             label:
@@ -1997,18 +2126,25 @@ export function App({
                           },
                           { label: "Reveal in Files", onClick: showFiles },
                         ]
-                      : []),
-                    { label: "Find in diffs", shortcut: "⌘ F", onClick: openFind },
-                    ...(gitAvailable
-                      ? [{ label: "Compare revisions…", onClick: () => setRangeOpen(!rangeOpen) }]
-                      : []),
-                    {
-                      label: "Show review notes",
-                      checked: showNotes,
-                      onClick: () => setShowNotes(!showNotes),
-                    },
-                    { label: "Wrap long lines", checked: wrap, onClick: () => setWrap(!wrap) },
-                    { label: "Refresh review", onClick: () => void controller.refresh() },
+                      : [],
+                    [
+                      { label: "Find in diffs", shortcut: "⌘ F", onClick: openFind },
+                      ...(gitAvailable
+                        ? [{ label: "Compare revisions…", onClick: () => setRangeOpen(!rangeOpen) }]
+                        : []),
+                    ],
+                    [
+                      {
+                        label: "Show review notes",
+                        checked: showNotes,
+                        onClick: () => setShowNotes(!showNotes),
+                      },
+                      { label: "Wrap long lines", checked: wrap, onClick: () => setWrap(!wrap) },
+                    ],
+                    [
+                      { label: "Zen mode", shortcut: "⌥ Z", onClick: toggleZen },
+                      { label: "Refresh review", onClick: () => void controller.refresh() },
+                    ],
                   ]}
                 />
                 <ToolButton
@@ -2192,7 +2328,7 @@ export function App({
                     >
                       <Icon name="note" size={14} />
                       Add note
-                      <kbd {...stylex.props(styles.selectionKey)}>C</kbd>
+                      <kbd {...stylex.props(styles.selectionKey)}>c</kbd>
                     </button>
                     <button
                       {...stylex.props(ui.button, ui.iconButton, styles.selectionClose)}
@@ -2381,7 +2517,7 @@ export function App({
                       ) : (
                         <div {...stylex.props(styles.streamEnd)}>
                           <span {...stylex.props(styles.streamRule)} />
-                          End of review · {files.length} files
+                          End of review · {files.length} {files.length === 1 ? "file" : "files"}
                           <span {...stylex.props(styles.streamRule)} />
                         </div>
                       )
@@ -2477,9 +2613,9 @@ export function App({
         </main>
         {browseSource && (
           <aside
-            {...stylex.props(styles.filesSidebar, !filesVisible && styles.hiddenSurface)}
+            {...stylex.props(styles.filesSidebar, (!filesVisible || zen) && styles.hiddenSurface)}
             aria-label="Workspace files"
-            hidden={!filesVisible}
+            hidden={!filesVisible || zen}
           >
             <RepositoryFiles
               key={JSON.stringify([sourceKey(browseSource), repositoryFiles.ignored])}
@@ -2496,7 +2632,7 @@ export function App({
           </aside>
         )}
       </div>
-      <footer {...stylex.props(styles.statusbar)}>
+      <footer {...stylex.props(styles.statusbar, zen && styles.hiddenSurface)} hidden={zen}>
         <span {...stylex.props(styles.statusItem)}>
           <span
             key={state.sourceRevision}
@@ -2539,7 +2675,9 @@ export function App({
           </span>
         ) : (
           <span {...stylex.props(styles.statusItem)}>
-            <span>{state.files.length} files</span>
+            <span>
+              {state.files.length} {state.files.length === 1 ? "file" : "files"}
+            </span>
             <span {...stylex.props(ui.added)}>+{added.toLocaleString()}</span>
             <span {...stylex.props(ui.removed)}>−{deleted.toLocaleString()}</span>
           </span>
@@ -2575,11 +2713,10 @@ export function App({
         onOpenChange={setCommandsOpen}
         commands={[...commands].sort((a, b) => commandRank(a.id) - commandRank(b.id))}
       />
-      <CommandDialog
-        title="Shortcuts & commands"
-        searchLabel="Search shortcuts and commands"
+      <ShortcutGuide
         open={helpOpen}
         onOpenChange={setHelpOpen}
+        context={guideContext}
         commands={commands}
       />
     </div>
@@ -2670,6 +2807,8 @@ const styles = stylex.create({
   emptyAction: { marginTop: 14, paddingInline: 12 },
   // The frame holds both sidebars; the review sits on one inset card.
   workspace: { display: "flex", flex: "1", minHeight: 0, paddingInline: 6 },
+  zenWorkspace: { paddingBottom: 6 },
+  topbarSlot: { display: "contents" },
   sidebar: {
     display: "flex",
     flexDirection: "column",

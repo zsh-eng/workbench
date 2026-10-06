@@ -133,7 +133,13 @@ export function ThemePicker({ open, onOpenChange }: ThemePickerProps) {
 }
 
 const styles = stylex.create({
-  backdrop: { position: "fixed", inset: 0, backgroundColor: "#00000024", zIndex: 90 },
+  // Nearly clear: the whole app previews the highlighted theme behind the list.
+  backdrop: {
+    position: "fixed",
+    inset: 0,
+    backgroundColor: `color-mix(in srgb, ${tokens.panel} 16%, transparent)`,
+    zIndex: 90,
+  },
   popup: {
     position: "fixed",
     top: "15vh",
@@ -145,9 +151,9 @@ const styles = stylex.create({
     boxSizing: "border-box",
     borderWidth: 1,
     borderStyle: "solid",
-    borderColor: tokens.border,
-    borderRadius: 16,
-    backgroundColor: tokens.panel,
+    borderColor: tokens.lineStrong,
+    borderRadius: 12,
+    backgroundColor: tokens.raised,
     color: tokens.text,
     boxShadow: tokens.shadow,
     fontFamily: tokens.ui,
@@ -156,7 +162,7 @@ const styles = stylex.create({
     zIndex: 91,
   },
   heading: { display: "flex", alignItems: "center", gap: 10, paddingTop: 10, paddingInline: 16 },
-  title: { fontSize: 13, fontWeight: 600, margin: 0 },
+  title: { fontSize: 12.5, fontWeight: 550, margin: 0 },
   close: { marginLeft: "auto", fontSize: 10, minHeight: 24 },
   description: {
     position: "absolute",
@@ -178,7 +184,7 @@ const styles = stylex.create({
     color: tokens.muted,
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
-    borderBottomColor: tokens.border,
+    borderBottomColor: tokens.line,
   },
   input: {
     flex: "1",
@@ -208,7 +214,7 @@ const styles = stylex.create({
     cursor: "default",
     outline: "none",
   },
-  highlighted: { backgroundColor: tokens.selected },
+  highlighted: { backgroundColor: tokens.fillStrong },
   name: { flex: "1", fontSize: 12 },
   kind: { color: tokens.muted, fontSize: 10 },
   saved: { width: 12, color: tokens.accent, fontSize: 12 },
@@ -226,7 +232,7 @@ const styles = stylex.create({
     gap: 12,
     borderTopWidth: 1,
     borderTopStyle: "solid",
-    borderTopColor: tokens.border,
+    borderTopColor: tokens.line,
     paddingBlock: 8,
     paddingInline: 16,
     color: tokens.muted,
