@@ -293,6 +293,20 @@ and remaining unit regressions. `bun run --cwd apps/med test:e2e` builds med and
 exercises the real CLI and browser with temporary repositories. See
 [test design and coverage boundaries](TESTING.md) before adding tests.
 
+To run the login service from Workbench's latest `main` on macOS:
+
+```sh
+bun scripts/track-main.ts install
+```
+
+The script builds `main` in a separate worktree under `~/.local/share/med`,
+installs that executable as the login service, and adds a watcher. When `main`
+moves, the watcher builds the new commit and restarts the service. Uncommitted
+work in the checkout never reaches the service. A failed build keeps the previous
+executable and shows a notification; `~/.local/share/med/update.log` has the
+details. `bun scripts/track-main.ts uninstall` removes the watcher, the service,
+and the build. Sources and reviews remain.
+
 The UI uses React, [Pierre Diffs and Trees](https://pierre.computer/), Base UI, and StyleX. Vite 8 uses Rolldown and Oxc; Oxlint, Oxfmt, and Vitest provide checks. Zod validates the host protocol. [Architecture](../ARCHITECTURE.md) describes the boundaries and data flow.
 
 ## Limits and evidence

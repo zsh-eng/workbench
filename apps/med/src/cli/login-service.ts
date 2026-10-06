@@ -14,6 +14,11 @@ const escape = (text: string) =>
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
+/** The LaunchAgent label for one state directory. */
+export function serviceLabel(state: string) {
+  return `local.med.${createHash("sha256").update(state).digest("hex").slice(0, 12)}`;
+}
+
 /** Explicit CLI operation only; normal startup never changes login services. */
 export async function loginService(args: string[]) {
   const { values, positionals } = parseArgs({
@@ -41,7 +46,7 @@ export async function loginService(args: string[]) {
     port = Number(values.port ?? DEFAULT_PORT);
   if (!Number.isInteger(port) || port < 1 || port > 65535)
     throw new Error("Choose a port from 1 to 65535.");
-  const label = `local.med.${createHash("sha256").update(state).digest("hex").slice(0, 12)}`;
+  const label = serviceLabel(state);
   const directory = join(homedir(), "Library", "LaunchAgents"),
     path = join(directory, `${label}.plist`),
     domain = `gui/${process.getuid!()}`;
@@ -64,7 +69,10 @@ export async function loginService(args: string[]) {
   await mkdir(state, { recursive: true, mode: 0o700 });
   await mkdir(directory, { recursive: true });
   const command = selfCommand(["serve", "--state-dir", state, "--port", String(port)]);
-  const plist = `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>Label</key><string>${label}</string><key>ProgramArguments</key><array>${[command.executable, ...command.args].map((v) => `<string>${escape(v)}</string>`).join("")}</array><key>RunAtLoad</key><true/><key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict><key>ThrottleInterval</key><integer>10</integer><key>StandardOutPath</key><string>${escape(join(state, "service.log"))}</string><key>StandardErrorPath</key><string>${escape(join(state, "service.log"))}</string></dict></plist>`;
+  // launchd starts agents with the system PATH only. Keep the installer's PATH
+  // so the service finds the same Git and Go as a server started in a terminal.
+  const searchPath = process.env.PATH ?? "/usr/bin:/bin:/usr/sbin:/sbin";
+  const plist = `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>Label</key><string>${label}</string><key>ProgramArguments</key><array>${[command.executable, ...command.args].map((v) => `<string>${escape(v)}</string>`).join("")}</array><key>EnvironmentVariables</key><dict><key>PATH</key><string>${escape(searchPath)}</string></dict><key>RunAtLoad</key><true/><key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict><key>ThrottleInterval</key><integer>10</integer><key>StandardOutPath</key><string>${escape(join(state, "service.log"))}</string><key>StandardErrorPath</key><string>${escape(join(state, "service.log"))}</string></dict></plist>`;
   await writeFile(path, plist, { mode: 0o600 });
   await exec("launchctl", ["bootstrap", domain, path]);
   console.log("Installed Med login service. Keep the executable at its current path.");

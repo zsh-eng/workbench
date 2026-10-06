@@ -88,6 +88,8 @@ LaunchAgent; it starts at login and restarts after an abnormal exit. `med stop`
 is a clean stop. To disable future login starts, uninstall the service. Keep the
 executable at its installed path. Other systems can run `med serve` under their
 own service manager. Logs are in the selected state directory's `service.log`.
+The service keeps the `PATH` of the install command, so it finds the same Git and
+Go as a server started in a terminal. Install again after a toolchain moves.
 
 ## Single executable and offline docs
 
