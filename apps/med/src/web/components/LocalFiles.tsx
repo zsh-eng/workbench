@@ -21,6 +21,7 @@ import { createApi } from "../data/api";
 import { localReadSchema, type FileRead } from "../../shared/local-file";
 import { useTheme } from "../themes";
 import "./LocalFiles.css";
+import { visibleElement } from "../data/palette-focus";
 
 const api = createApi(globalThis.fetch.bind(globalThis), "");
 const request = (path: string, body: object) =>
@@ -304,7 +305,7 @@ export function LocalFiles({ children }: { children: ReactNode }) {
         !event.shiftKey &&
         event.code === "KeyW" &&
         active &&
-        !document.querySelector('[role="dialog"]')
+        !visibleElement('[role="dialog"]')
       ) {
         event.preventDefault();
         event.stopImmediatePropagation();

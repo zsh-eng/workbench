@@ -42,6 +42,7 @@ export function useBranchTabs({
           key: JSON.stringify([repository.id, "branch", branch.name]),
           repositoryId: repository.id,
           label: branch.name,
+          branch: branch.name,
           path: branch.worktreePath,
           head: branch.head,
           run: () => onBranch(branch.name, repository.id),

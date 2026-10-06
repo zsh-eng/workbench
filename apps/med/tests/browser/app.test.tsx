@@ -1399,7 +1399,8 @@ test("collapses history to a heading that names the selection, and remembers it"
   await toggle.click();
   await expect.element(toggle).toHaveAttribute("aria-expanded", "false");
   await expect.element(toggle).toHaveTextContent("HistoryWorking changes");
-  expect(document.getElementById("history-body")!.inert).toBe(true);
+  const body = toggle.element().getAttribute("aria-controls")!;
+  expect(document.getElementById(body)!.inert).toBe(true);
   expect(localStorage.getItem("med:history")).toBe("closed");
 
   root!.unmount();

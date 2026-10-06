@@ -48,7 +48,8 @@ export type IconName =
   | "selector"
   | "brief"
   | "more"
-  | "jump";
+  | "jump"
+  | "vault";
 
 const branch = (
   <>
@@ -83,6 +84,8 @@ const icons: Record<IconName, ReactNode> = {
   ),
   // Down and across: go to this place in the full diff.
   jump: <path d="M3.75 3v4.25a2 2 0 0 0 2 2h7M9.75 6.25l3 3-3 3" />,
+  // A bound book: the cover, and the page edges along its foot.
+  vault: <path d="M3.25 12.5V3.75a1.5 1.5 0 0 1 1.5-1.5h8v9.5h-8a1.5 1.5 0 0 0 0 3h8M6 5.5h3.75" />,
   github: (
     <path
       fill="currentColor"

@@ -29,6 +29,7 @@ import { NoteCard, NoteComposer, type NoteTarget } from "./NoteCard";
 import { diffSurfaceStyle } from "./diff-surface";
 import "./MarkdownPreview.css";
 import "./BriefView.css";
+import { visibleElement } from "../data/palette-focus";
 
 export interface BriefLocation {
   fileId: string;
@@ -216,7 +217,7 @@ export default function BriefView({
             node instanceof HTMLElement &&
             (node.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(node.tagName)),
         );
-      if (editing || document.querySelector('[role="dialog"]')) return;
+      if (editing || visibleElement('[role="dialog"]')) return;
       const scroller = pane.current;
       const cards = [
         ...(article.current?.querySelectorAll<HTMLElement>("[data-brief-excerpt]") ?? []),
@@ -246,7 +247,7 @@ export default function BriefView({
       if (event.key !== "c" || event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest("input, textarea, select, [contenteditable]")) return;
-      if (document.querySelector('[role="dialog"]')) return;
+      if (visibleElement('[role="dialog"]')) return;
       event.preventDefault();
       setDraft(selected);
     };

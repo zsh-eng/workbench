@@ -8,8 +8,8 @@ import { LocalFiles } from "./components/LocalFiles";
 import { App } from "./App";
 import { PierreThemeSync } from "./pierre-theme";
 import { UpdateNotice } from "./components/UpdateNotice";
+import { WorkspaceHost, WorkspaceViews } from "./components/Workspaces";
 import { authorizeBrowser } from "./data/auth";
-import { createReviewController } from "./data/controller";
 import { createPatchParser } from "./workers/client";
 import "./reset.css";
 
@@ -24,7 +24,7 @@ if (import.meta.env.DEV) {
 await authorizeBrowser().catch(() => {});
 initializeTheme();
 const parser = createPatchParser();
-const controller = createReviewController({ parsePatch: parser.parse });
+const controllerOptions = { parsePatch: parser.parse };
 const poolOptions = {
   workerFactory: () => new PierreWorker(),
   poolSize: Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 4) - 1)),
@@ -38,19 +38,16 @@ createRoot(root).render(
     <Tooltip.Provider delay={400} closeDelay={80} timeout={500}>
       <PierreThemeSync />
       <UpdateNotice />
-      <VaultWorkspace>
-        <LocalFiles>
-          <App controller={controller} />
-        </LocalFiles>
-      </VaultWorkspace>
+      <WorkspaceHost>
+        <VaultWorkspace>
+          <LocalFiles>
+            <WorkspaceViews options={controllerOptions}>
+              {(controller) => <App controller={controller} />}
+            </WorkspaceViews>
+          </LocalFiles>
+        </VaultWorkspace>
+      </WorkspaceHost>
     </Tooltip.Provider>
   </WorkerPoolContextProvider>,
 );
-window.addEventListener(
-  "pagehide",
-  () => {
-    controller.dispose();
-    parser.dispose();
-  },
-  { once: true },
-);
+window.addEventListener("pagehide", () => parser.dispose(), { once: true });

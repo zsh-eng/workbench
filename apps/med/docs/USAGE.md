@@ -63,9 +63,23 @@ bun run dev -- /path/to/frontend /path/to/backend
 
 Use the branch switcher at the top of the sidebar, or `⌘⇧G` / `Ctrl+Shift+G`, to search the registered repositories' branches and worktrees. The picker shows repository groups and worktree paths. Add another repository by entering its local path in the picker. Remove a repository there to close its views and release its resources; this does not delete files or Git branches.
 
-Opening the launch URL starts with only the selected branch or worktree, and no tab strip. Each branch you open from the switcher becomes a tab; the strip appears above the review once two are open and leaves when you close back to one. Branch tabs can belong to different repositories. Repository labels distinguish matching branch names. Each tab keeps its comparison and file navigation for the current browser session. The history, files, content search, and symbols all use that tab's repository and branch or worktree. Content search still reads committed content.
+Opening the launch URL starts with one workspace. In the branch picker, `↵` opens the branch in the current workspace, and `⌘↵` / `Ctrl+Enter` (or a ⌘-click) opens it as a new workspace. See [Workspaces](#workspaces). The history, files, content search, and symbols all use the workspace's repository and branch or worktree. Content search still reads committed content.
 
 Linked worktrees belong to one repository entry. Separate clones remain separate entries, even when they use the same remote. Managed service registration persists across restarts, including changes from the branch picker. Legacy foreground registration lasts for that server session. Patch and file-pair inputs remain separate launch modes.
+
+### Workspaces
+
+A workspace is one task: a branch or worktree, a saved review, or a registered vault. Each one keeps its own comparison, open files, notes, and scroll position.
+
+- The **Workspaces** list at the top of the left sidebar appears once two are open. Registered vaults are pinned first. Each row shows the number of changed files.
+- `⌘1`–`⌘9` / `Ctrl+1`–`Ctrl+9` show the workspace at that place in the list.
+- `⌃Tab` shows recent workspaces. Hold Control and press Tab to step; release Control to go. A quick `⌃Tab` returns to the previous workspace. The palette command **Switch workspace…** does the same without a held key.
+- **+** in the list, or **New workspace…** in the palette, opens the branch picker for a new workspace. Opening a saved review link adds a workspace for that review.
+- Select a row and press `Delete`, or click its **×**, to close it. Vaults stay.
+
+The four most recently shown workspaces stay loaded; switching between them is immediate. Only the workspace on screen receives live updates; the others catch up when you return. Older workspaces load again when you open them. The list and the active workspace persist across reloads and restarts. The address follows the active workspace: a saved review keeps its `/review/<id>` link, and Back and Forward move between workspaces.
+
+Browsers keep `⌘1`–`⌘9` and `⌃Tab` for their own tabs. Use the installed app window, `Ctrl+1`–`Ctrl+9`, or the palette in a browser tab.
 
 ### Pull requests
 
@@ -166,7 +180,7 @@ and previewing files never saves or changes their contents.
 
 1. Select a commit in the left history panel, or select working changes. Commit diffs compare with the first parent; merge commits are labeled accordingly. Click **History** to collapse the panel to one line that names the selection; med remembers this choice.
 2. Select a changed path to move to it in the diff stream. Double-click the path to open its current file in the selected worktree.
-3. Use the branch switcher (`⌘⇧G`) to open another branch; open branches show as tabs above the review. A branch with a worktree opens that directory; a branch without one opens committed content.
+3. Use the branch switcher (`⌘⇧G`) to open another branch here, or `⌘↵` to open it as a new [workspace](#workspaces). A branch with a worktree opens that directory; a branch without one opens committed content.
 4. Use the file picker or right Files sidebar to open unchanged files. A preview does not replace your current review until you open it.
 5. Toggle blame in a full file to show author and commit details beside the line numbers. Visible lines preload in the background after a file opens. Toggling blame reuses this cache. Hover a label for 250 ms to see the date and commit message; move to nearby labels for immediate updates. Open the command palette to change theme or find other actions.
 
@@ -183,6 +197,8 @@ Shift-click another commit to select an inclusive range. The comparison runs fro
 | Symbols in project commits        | `⌘⇧O`        | `Ctrl+Shift+O`            |
 | Search file contents              | `⌘⇧F`        | `Ctrl+Shift+F`            |
 | Open a branch or worktree         | `⌘⇧G`        | `Ctrl+Shift+G`            |
+| Show workspace 1–9                | `⌘1`–`⌘9`    | `Ctrl+1`–`Ctrl+9`         |
+| Switch to a recent workspace      | `⌃Tab`       | `Ctrl+Tab`                |
 | Toggle history / files sidebar    | `⌘B` / `⌘⇧B` | `Ctrl+B` / `Ctrl+Shift+B` |
 | Zen mode                          | `⌥Z`         | `Alt+Z`                   |
 | Add note to selected lines        | `c`          | `c`                       |

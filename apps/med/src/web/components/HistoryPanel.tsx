@@ -1,6 +1,6 @@
 import { Tooltip } from "@base-ui/react/tooltip";
 import * as stylex from "@stylexjs/stylex";
-import { useMemo, useState, useRef, useEffect, useLayoutEffect } from "react";
+import { useMemo, useState, useRef, useEffect, useLayoutEffect, useId } from "react";
 import type { Commit } from "../../shared/protocol";
 import { layoutHistory, type GraphRow } from "./history-layout";
 import { tokens, ui } from "../theme.stylex";
@@ -103,6 +103,7 @@ export function HistoryPanel({
   collapsed?: boolean;
   onCollapsedChange?(collapsed: boolean): void;
 }) {
+  const bodyId = useId();
   const tooltip = useMemo(() => Tooltip.createHandle<Commit>(), []);
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
@@ -190,7 +191,7 @@ export function HistoryPanel({
           <button
             {...stylex.props(styles.heading, styles.toggle, stylex.defaultMarker())}
             aria-expanded={!collapsed}
-            aria-controls="history-body"
+            aria-controls={bodyId}
             onClick={() => onCollapsedChange(!collapsed)}
           >
             <span {...stylex.props(styles.label)}>
@@ -214,7 +215,7 @@ export function HistoryPanel({
           </div>
         )}
         <div
-          id="history-body"
+          id={bodyId}
           inert={collapsed}
           {...stylex.props(styles.body, collapsed && styles.bodyHidden)}
         >

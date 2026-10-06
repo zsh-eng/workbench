@@ -1,5 +1,5 @@
 import { ShortcutKeys } from "./ShortcutKeys";
-import { focusPaletteInput } from "../data/palette-focus";
+import { focusPaletteInput, visibleElement } from "../data/palette-focus";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
 import { Combobox } from "@base-ui/react/combobox";
@@ -216,9 +216,7 @@ function SymbolPickerContents({
           />
           <Dialog.Popup
             initialFocus={() => focusPaletteInput(inputRef.current)}
-            finalFocus={() =>
-              document.querySelector<HTMLElement>('[data-file-pane="main"]') ?? true
-            }
+            finalFocus={() => visibleElement('[data-file-pane="main"]') ?? true}
             {...stylex.props(
               styles.popup,
               mode === "file" && styles.filePopup,

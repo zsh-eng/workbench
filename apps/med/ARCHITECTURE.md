@@ -9,11 +9,14 @@ Read-only full-file browsing now uses a right file sidebar and center file tabs 
 The `apps/med` workspace starts a local Node host and serves a compiled React application. A compact shell uses StyleX, Base UI, and Pierre Diffs/Trees. Selecting a commit reads its Git objects. It does not change HEAD or check out files.
 
 ```text
-┌ Repository / worktree     Working · Staged · Unstaged · Compare   ┐
-├ main ●       feature/review ●       release       +              ┤
+┌ Repository / branch ⌄   Brief · Changes · file tabs              ┐
 ├───────────────────┬──────────────────────────────────────────────┤
-│ Commit graph      │ Comparison title        Split / Unified      │
-│ Paged history     │                          Find · Wrap · Notes  │
+│ Workspaces     +  │ Comparison title        Split / Unified      │
+│ ▤ notes           │                                              │
+│ ⑂ main        12  │                                              │
+├───────────────────┤                                              │
+│ Commit graph      │                         Find · Wrap · Notes  │
+│ Paged history     │                                              │
 ├───────────────────┼──────────────────────────────────────────────┤
 │ Changed files     │ File A header                                │
 │ Path filter       │ Hunks · source selection · context · notes   │
@@ -33,13 +36,23 @@ Branch tabs map local refs to worktrees discovered by Git. An attached branch op
 
 ### Multiple repositories
 
-One host can register several local repositories. Open branch groups their branches and worktrees in one picker; branch tabs can span repositories. The tab strip renders only when two or more branches are open; the sidebar's branch switcher shows the current one either way, so opening a second branch adds a row without moving other controls. There is no separate repository navigation screen. The selected tab controls history, reviews, files, search, and symbols.
+One host can register several local repositories. Open branch groups their branches and worktrees in one picker; workspaces can span repositories. The sidebar's branch switcher shows the current workspace's repository and branch. There is no separate repository navigation screen. The workspace on screen controls history, reviews, files, search, and symbols.
 
 A repository family is identified by the canonical Git common directory. Linked worktrees share its opaque registry ID; separate clones have separate IDs. The Git command directory remains a checkout path. Browser tab identities combine the repository ID with a branch name or detached worktree path. File sources retain their exact repository path and, for committed content, object ID.
 
 The host validates registered paths before reads and routes search to the owning repository's service. Discovery replaces worktree membership so removed paths do not remain authorized. Removing a registration revokes its sources and review IDs and releases its watchers and search service. Registration and removal never change reviewed files or Git branches.
 
-Inactive browser tabs retain bounded navigation records. They do not mount separate review renderers. Switching cancels old requests, restores navigation, and reloads mutable content; request generations reject late responses. File navigation is retained for up to 32 workspaces, with up to 12 file tabs each, while only the active file retains loaded bytes in the workspace store.
+Within one workspace, a branch change replaces the review: it cancels old requests, restores that branch's navigation record, and reloads mutable content; request generations reject late responses. File navigation is retained for up to 32 branches, with up to 12 file tabs each, while only the active file retains loaded bytes in the workspace store.
+
+### Workspaces
+
+A workspace is a task: a branch or detached worktree, a saved review, or a registered vault. `data/workspaces.ts` keeps the list, the active workspace, and the recent order in `localStorage` (`med:workspaces:v1`, at most 24). It persists only identities and display text, such as the title and changed-file count. A branch workspace records its repository ID, worktree path, and branch once it loads, so a reload opens it directly.
+
+`WorkspaceHost` (`components/Workspaces.tsx`) sits above the vault and file surfaces. It owns the store, the address, `⌘1`–`⌘9`, and the `⌃Tab` switcher. `WorkspaceViews` gives each workspace its own review controller and `App`. The four most recently shown stay mounted inside React `<Activity>`; a hidden one keeps its state and DOM, and its effects, listeners, and dialogs stop. Older workspaces are disposed and load again when shown. The host also restores scroll offsets, because hidden elements lose them, and repeats the restore after Pierre's virtualizer measures again.
+
+Only the workspace on screen keeps its live-update stream. `suspend()` closes the stream; `resume()` reopens it and reconciles history, branches, and a mutable comparison, as a reconnect does. This keeps one stream per window within the browser's six connections per origin.
+
+The address follows the active workspace. A saved review keeps `/review/<id>`; a vault keeps `/vault/<id>` and its open file; branch workspaces share `/` and carry their ID in `history.state`. A switch pushes a history entry and dispatches `popstate`, so the vault and standalone-file surfaces follow it, and Back and Forward move between workspaces. The vault surface keeps the reviews mounted beneath it. Registered vaults come from the service status and are pinned first. Global DOM checks, such as for an open dialog or the main file pane, consider only visible elements, because hidden workspaces keep theirs in the document.
 
 Base UI supplies tabs and the searchable theme dialog. Theme selection previews the whole application; Enter saves locally, and dismissal restores the saved theme. Semantic CSS variables connect StyleX, Pierre Trees, and the diff theme. Geist fonts and Med's own 16-pixel icon set (with the GitHub mark for pull-request links) ship locally. No runtime dependency was added for these controls. See [theme sources](upstream/THEMES.md).
 

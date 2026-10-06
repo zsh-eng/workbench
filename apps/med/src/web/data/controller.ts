@@ -89,6 +89,8 @@ export interface ReviewControllerOptions {
   parsePatch?: (patch: string) => Promise<FileDiffMetadata[]>;
   cacheBytes?: number;
   events?: boolean;
+  /** A workspace's repository and branch; without it the host's default opens. */
+  start?: { path?: string; repositoryId?: string; branch?: string };
 }
 
 export interface ReviewController {
@@ -105,6 +107,10 @@ export interface ReviewController {
   saveReview(input: { title: string; brief?: string }): Promise<string>;
   selectComparison(comparison: Comparison): Promise<void>;
   refresh(): Promise<void>;
+  /** Stop live updates while the workspace is hidden. */
+  suspend(): void;
+  /** Restart live updates and reconcile what changed while hidden. */
+  resume(): void;
   loadMoreHistory(): Promise<void>;
   selectWorktree(path: string, repositoryId?: string): Promise<void>;
   selectBranch(name: string, repositoryId?: string): Promise<void>;
@@ -140,9 +146,10 @@ function query(values: Record<string, string>): string {
 
 export function createReviewController(options: ReviewControllerOptions = {}): ReviewController {
   const token = options.token ?? readBrowserToken();
+  // A workspace names its review or branch; otherwise the page address does.
   const savedReviewId =
     options.savedReviewId ??
-    (typeof location === "undefined"
+    (options.start || typeof location === "undefined"
       ? undefined
       : /^\/review\/([^/]+)\/?$/.exec(location.pathname)?.[1]);
   const api = createApi(options.fetch ?? globalThis.fetch.bind(globalThis), token);
@@ -225,6 +232,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
   let branchGeneration = 0;
   let branchAbort: AbortController | undefined;
   let disposed = false;
+  let suspended = false;
   let workspaceGeneration = 0;
   let reviewGeneration = 0;
   let historyGeneration = 0;
@@ -289,7 +297,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
   }
   let savedRefresh: Promise<void> | undefined;
   const refreshSavedOnFocus = () => {
-    if (disposed || !snapshot.savedReview || savedRefresh) return;
+    if (disposed || suspended || !snapshot.savedReview || savedRefresh) return;
     savedRefresh = refreshSavedMetadata()
       .catch(() => {})
       .finally(() => {
@@ -688,9 +696,19 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     clearTimeout(refreshTimer);
   }
 
+  /** Reload what live updates would have changed: sources, history, branches,
+   * and a mutable comparison. */
+  function reconcile() {
+    update({ sourceRevision: snapshot.sourceRevision + 1 });
+    void loadHistory(true);
+    void loadBranches(true);
+    if (!snapshot.savedView && !immutableComparison(snapshot.comparison))
+      void selectComparison(snapshot.comparison, true);
+  }
+
   function startEvents() {
     stopEvents();
-    if (options.events === false || disposed) return;
+    if (options.events === false || disposed || suspended) return;
     const workspace = workspaceGeneration;
     const repo = snapshot.session?.repository.path;
     let lastRevision: number | undefined;
@@ -735,13 +753,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
             reconnectDelay = 500;
             if (needsRefresh) {
               clearTimeout(refreshTimer);
-              refreshTimer = setTimeout(() => {
-                update({ sourceRevision: snapshot.sourceRevision + 1 });
-                void loadHistory(true);
-                void loadBranches(true);
-                if (!snapshot.savedView && !immutableComparison(snapshot.comparison))
-                  void selectComparison(snapshot.comparison, true);
-              }, 150);
+              refreshTimer = setTimeout(reconcile, 150);
             }
           },
           abort.signal,
@@ -1343,7 +1355,27 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       };
     },
     async initialize() {
-      if (!savedReviewId) return openWorkspace();
+      if (!savedReviewId) {
+        const start = options.start;
+        // A branch opens once, at its worktree or at its head commit, so the
+        // catalogue comes first.
+        if (start?.branch)
+          try {
+            const result = await api.json("/api/repositories", repositoriesSchema);
+            if (disposed) return;
+            hasRepositoryCatalogue = true;
+            update({ repositories: result.repositories });
+            const repository =
+              result.repositories.find((entry) => entry.id === start.repositoryId) ??
+              result.repositories.find((entry) => entry.path === start.path);
+            const branch = repository?.branches.find((entry) => entry.name === start.branch);
+            if (repository && branch)
+              return openWorkspace(branch.worktreePath ?? repository.path, branch, repository.id);
+          } catch {
+            /* The path alone still opens the repository. */
+          }
+        return openWorkspace(start?.path, undefined, start?.repositoryId);
+      }
       update({ status: "loading" });
       try {
         const savedReview = await api.json(
@@ -1493,6 +1525,19 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     removeRepository,
     selectComparison: (comparison) => selectComparison(comparison),
     refresh,
+    suspend() {
+      if (suspended || disposed) return;
+      suspended = true;
+      stopEvents();
+    },
+    resume() {
+      if (!suspended || disposed) return;
+      suspended = false;
+      if (!snapshot.session) return;
+      startEvents();
+      if (snapshot.savedReview) refreshSavedOnFocus();
+      reconcile();
+    },
     loadMoreHistory: () => loadHistory(false),
     loadSources,
     mutateNote,

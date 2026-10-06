@@ -42,6 +42,9 @@ import "./pierre-theme";
 import { useTheme } from "./themes";
 import { ThemePicker } from "./components/ThemePicker";
 import { BranchStrip, BranchSwitch, useBranchTabs } from "./components/BranchTabs";
+import { useWorkspace, WorkspaceList } from "./components/Workspaces";
+import type { BranchEntry } from "./components/BranchPicker";
+import { visibleElement } from "./data/palette-focus";
 import { BranchPicker } from "./components/BranchPicker";
 import type { BrowseSource } from "../shared/browse";
 import { createBrowseApi, useBrowseFiles, type BrowseApi } from "./data/browse";
@@ -117,7 +120,7 @@ export function App({
   controller,
   browseApi: providedBrowseApi,
   loadBlame: providedBlameLoader,
-  onOpenReview = (id) => location.assign(`/review/${encodeURIComponent(id)}`),
+  onOpenReview: providedOpenReview,
 }: {
   controller: ReviewController;
   browseApi?: BrowseApi;
@@ -126,6 +129,16 @@ export function App({
   onOpenReview?(id: string): void;
 }) {
   const state = useReviewController(controller);
+  // Inside a workspace host, the host owns the controller and the address.
+  const workspace = useWorkspace();
+  const onOpenReview =
+    providedOpenReview ??
+    ((id: string) =>
+      workspace
+        ? workspace.open({ kind: "review", reviewId: id })
+        : location.assign(`/review/${encodeURIComponent(id)}`));
+  // Several workspaces can be mounted; their landmarks need distinct ids.
+  const idPrefix = workspace ? `${workspace.id}-` : "";
   const gitAvailable = state.session?.repository.git !== false;
   const { active: activeTheme } = useTheme();
   const theme = activeTheme.appearance;
@@ -197,6 +210,7 @@ export function App({
   );
   const [blameEnabled, setBlameEnabled] = useState(false);
   const [branchPickerOpen, setBranchPickerOpen] = useState(false);
+  const [branchPickerNew, setBranchPickerNew] = useState(false);
   const workerPool = useWorkerPool();
   const [diagnostics] = useState(createRenderDiagnostics);
   const [rawBrowseApi] = useState(
@@ -436,10 +450,7 @@ export function App({
     if (before.isConnected && before.checkVisibility()) return;
     // The zen controls keep focus in both directions; a file keeps reading focus.
     if (zen)
-      (
-        document.querySelector<HTMLElement>('[data-file-pane="main"]') ??
-        document.querySelector<HTMLElement>("[data-zen-exit]")
-      )?.focus();
+      (visibleElement('[data-file-pane="main"]') ?? visibleElement("[data-zen-exit]"))?.focus();
     else zenToggle.current?.focus();
   }, [zen]);
   const [mode, setMode] = useState<"split" | "unified">(() =>
@@ -589,10 +600,12 @@ export function App({
   const visibleDraft = draftSaved ? null : draft;
   const selectedFile = files.find((file) => file.id === state.selectedFileId);
 
+  const managed = !workspace;
   useEffect(() => {
+    if (!managed) return;
     void controller.initialize();
     return () => controller.dispose();
-  }, [controller]);
+  }, [controller, managed]);
   useEffect(() => {
     try {
       localStorage.setItem("med:mode", mode);
@@ -718,7 +731,7 @@ export function App({
             node instanceof HTMLElement &&
             (node.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(node.tagName)),
         );
-      if (editing || document.querySelector('[role="dialog"]')) return;
+      if (editing || visibleElement('[role="dialog"]')) return;
       if (!controller.getSnapshot().savedReview && !canSaveReview) return;
       const text = clipboardBrief(event.clipboardData);
       if (!text) return;
@@ -1120,7 +1133,7 @@ export function App({
         !event.ctrlKey &&
         (!editing || fromEditor) &&
         !modal &&
-        !document.querySelector('[role="dialog"]')
+        !visibleElement('[role="dialog"]')
       ) {
         const key = optionKey;
         if (["KeyW", "KeyO", "KeyP", "KeyB", "KeyR", "KeyZ"].includes(key)) {
@@ -1201,6 +1214,7 @@ export function App({
         event.stopPropagation();
         if (event.repeat) return;
         setCommandsOpen(false);
+        setBranchPickerNew(false);
         setBranchPickerOpen((open) => !open);
         return;
       }
@@ -1222,7 +1236,7 @@ export function App({
       if (
         editing ||
         modal ||
-        Boolean(document.querySelector('[role="dialog"]')) ||
+        Boolean(visibleElement('[role="dialog"]')) ||
         fileState.active !== "changes" ||
         event.metaKey ||
         event.ctrlKey ||
@@ -1309,6 +1323,72 @@ export function App({
     onBranch: selectBranch,
     onWorktree: selectWorktree,
   });
+  const openBranchPicker = (newWorkspace: boolean) => {
+    setBranchPickerNew(newWorkspace);
+    setBranchPickerOpen(true);
+  };
+  // Plain ↵ opens a branch here, or shows the workspace that already has it;
+  // ⌘↵ opens it in a new workspace.
+  const openBranch = (entry: BranchEntry, newWorkspace: boolean) => {
+    if (!workspace) return branches.open(entry);
+    const repository = state.repositories.find((item) => item.id === entry.repositoryId);
+    const target = {
+      kind: "repository" as const,
+      repositoryId: entry.repositoryId,
+      path: entry.path ?? repository?.path,
+      branch: entry.branch,
+      title: entry.label,
+      repository: repository?.name,
+    };
+    const existing = workspace.match(target);
+    if (existing && existing !== workspace.id) workspace.activate(existing);
+    else if (!existing && newWorkspace) workspace.open(target);
+    else if (!existing) entry.run();
+  };
+  // The workspace list names each workspace and shows its changed-file count.
+  const reportTo = workspace?.update;
+  const workspaceId = workspace?.id;
+  const reportTitle = state.savedReview?.title ?? branches.current?.label ?? state.activeBranch;
+  const reportPath = state.session?.repository.path;
+  const reportRepository = state.session?.repository.name;
+  const reportReady = state.status === "ready";
+  const reportCount = state.files.length;
+  // With every repository removed, the workspace opens the host's default.
+  const reportEmpty =
+    !state.session && !state.repositories.length && state.status === "idle" && !state.error;
+  useEffect(() => {
+    if (!reportTo || !workspaceId) return;
+    if (reportEmpty)
+      return reportTo(workspaceId, {
+        path: undefined,
+        repositoryId: undefined,
+        branch: undefined,
+        detail: undefined,
+      });
+    reportTo(workspaceId, {
+      ...(reportTitle ? { title: reportTitle } : {}),
+      ...(reportReady ? { detail: reportCount ? String(reportCount) : undefined } : {}),
+      ...(reportPath
+        ? {
+            path: reportPath,
+            repository: reportRepository,
+            repositoryId: state.activeRepositoryId ?? undefined,
+            branch: state.activeBranch ?? undefined,
+          }
+        : {}),
+    });
+  }, [
+    reportTo,
+    workspaceId,
+    reportEmpty,
+    reportTitle,
+    reportReady,
+    reportCount,
+    reportPath,
+    reportRepository,
+    state.activeRepositoryId,
+    state.activeBranch,
+  ]);
   const workingAvailable = gitAvailable && !state.historyRef;
   const openWorkingFile = (path: string, pinned = true, background = false) =>
     fileWorkspace.open(path, { pinned, background });
@@ -1472,8 +1552,31 @@ export function App({
       label: "Open branch or worktree",
       shortcut: "⌘ ⇧ G",
       disabled: !gitAvailable,
-      run: () => setBranchPickerOpen(true),
+      run: () => openBranchPicker(false),
     },
+    ...(workspace
+      ? [
+          {
+            id: "new-workspace",
+            managesFocus: true,
+            label: "New workspace…",
+            disabled: !gitAvailable,
+            run: () => openBranchPicker(true),
+          },
+          {
+            id: "switch-workspace",
+            managesFocus: true,
+            label: "Switch workspace…",
+            shortcut: "⌃ ⇥",
+            run: workspace.openSwitcher,
+          },
+          {
+            id: "close-workspace",
+            label: "Close workspace",
+            run: () => workspace.close(workspace.id),
+          },
+        ]
+      : []),
     {
       id: "wrap",
       label: wrap ? "Disable line wrapping in diffs" : "Wrap lines in diffs",
@@ -1915,7 +2018,7 @@ export function App({
   const identity = (
     <div {...stylex.props(styles.identity)}>
       {sidebarToggle}
-      {gitAvailable && <BranchSwitch model={branches} onOpen={() => setBranchPickerOpen(true)} />}
+      {gitAvailable && <BranchSwitch model={branches} onOpen={() => openBranchPicker(false)} />}
     </div>
   );
   const viewControls = (
@@ -1956,6 +2059,7 @@ export function App({
   const mainHeader =
     browseSource || savedBrief ? (
       <FileViewTabs
+        panelId={`${idPrefix}file-view-panel`}
         leading={leading}
         trailing={viewControls}
         showBrief={!!savedBrief}
@@ -1983,9 +2087,15 @@ export function App({
       entries={branches.entries}
       open={branchPickerOpen}
       onOpenChange={setBranchPickerOpen}
-      onSelect={branches.open}
+      onSelect={(entry, newWorkspace) =>
+        workspace ? openBranch(entry, newWorkspace || branchPickerNew) : branches.open(entry)
+      }
+      workspaces={workspace ? (branchPickerNew ? "new" : "here") : undefined}
       onAddRepository={controller.addRepository}
-      onRemoveRepository={controller.removeRepository}
+      onRemoveRepository={async (id) => {
+        await controller.removeRepository(id);
+        workspace?.closeRepository(id, workspace.id);
+      }}
       onRefresh={controller.refreshRepositories}
     />
   );
@@ -2003,7 +2113,7 @@ export function App({
           </p>
           <button
             {...stylex.props(ui.button, ui.primary, ui.pressable, styles.emptyAction)}
-            onClick={() => setBranchPickerOpen(true)}
+            onClick={() => openBranchPicker(false)}
           >
             Choose repositories
           </button>
@@ -2042,7 +2152,11 @@ export function App({
           }}
         />
       )}
-      {zen ? <ZenHint loading={state.status === "loading"} /> : <BranchStrip model={branches} />}
+      {zen ? (
+        <ZenHint loading={state.status === "loading"} />
+      ) : (
+        !workspace && <BranchStrip model={branches} />
+      )}
       {branchPicker}
       <SaveReviewDialog
         brief={pendingBrief}
@@ -2138,20 +2252,23 @@ export function App({
       <div
         {...stylex.props(
           styles.workspace,
-          (zen || branches.visible.length < 2) && styles.workspaceTop,
+          (zen || workspace || branches.visible.length < 2) && styles.workspaceTop,
           zen && styles.zenWorkspace,
         )}
-        id="review-workspace"
+        id={`${idPrefix}review-workspace`}
         role="tabpanel"
         aria-label={`${state.activeBranch ?? "Workspace"} review`}
       >
         {leftVisible && (
           <aside
-            id="review-sidebar"
+            id={`${idPrefix}review-sidebar`}
             className={stylex.props(styles.sidebar).className}
             style={{ width: sidebarWidth }}
           >
             <div {...stylex.props(styles.sidebarHeader)}>{identity}</div>
+            {workspace && (
+              <WorkspaceList onNew={gitAvailable ? () => openBranchPicker(true) : undefined} />
+            )}
             {gitAvailable && (
               <HistoryPanel
                 key={JSON.stringify([state.session?.repository.path, state.activeBranch])}
@@ -2251,7 +2368,7 @@ export function App({
           )}
           {zen ? <ZenExit onExit={toggleZen} /> : mainHeader}
           <div
-            id="file-view-panel"
+            id={`${idPrefix}file-view-panel`}
             role="tabpanel"
             aria-label={
               activeFile

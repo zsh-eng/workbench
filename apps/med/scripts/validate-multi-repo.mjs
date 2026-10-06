@@ -85,7 +85,7 @@ try {
   const pageErrors = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.goto(url);
-  await page.locator('[data-review-status="ready"]').waitFor();
+  await page.locator('[data-review-status="ready"]:visible').waitFor();
   await page.getByRole("option").filter({ hasText: "frontend initial commit" }).waitFor();
 
   // UI-specific actions below also check request routing through the real host.
@@ -103,12 +103,13 @@ try {
   if (process.env.MED_VALIDATION_SCREENSHOT)
     await page.screenshot({ path: process.env.MED_VALIDATION_SCREENSHOT });
   const dialog = page.getByRole("dialog", { name: "Open branch" });
+  // ⌘-click opens the branch as a new workspace beside the first one.
   await dialog
     .getByRole("group", { name: "backend", exact: true })
     .getByRole("option")
     .filter({ hasText: "main" })
-    .click();
-  await page.locator('[data-review-status="ready"]').waitFor();
+    .click({ modifiers: ["ControlOrMeta"] });
+  await page.locator('[data-review-status="ready"]:visible').waitFor();
   await page.getByRole("option").filter({ hasText: "backend initial commit" }).waitFor();
   assert.equal(
     await page.getByRole("option").filter({ hasText: "frontend initial commit" }).count(),
@@ -116,10 +117,12 @@ try {
   );
   const backendCommit = page.getByRole("option").filter({ hasText: "backend initial commit" });
   await backendCommit.click();
-  await page.locator('[data-review-status="ready"]').waitFor();
-  await page.getByRole("tab", { name: /^frontend \/ main/ }).click();
+  await page.locator('[data-review-status="ready"]:visible').waitFor();
+  // Each workspace keeps its own selection while the other is on screen.
+  const workspaces = page.getByRole("navigation", { name: "Workspaces" });
+  await workspaces.getByRole("button", { name: /^frontend \/ main/ }).click();
   await page.getByRole("option").filter({ hasText: "frontend initial commit" }).waitFor();
-  await page.getByRole("tab", { name: /^backend \/ main/ }).click();
+  await workspaces.getByRole("button", { name: /^backend \/ main/ }).click();
   await backendCommit.waitFor();
   assert.equal(await backendCommit.getAttribute("aria-selected"), "true");
 
@@ -133,7 +136,7 @@ try {
   assert.equal(await release.count(), 1);
   await release.click();
   await page.getByRole("option").filter({ hasText: "shared initial commit" }).waitFor();
-  await page.locator('[data-review-status="ready"]').waitFor();
+  await page.locator('[data-review-status="ready"]:visible').waitFor();
 
   // Search is scoped to committed content in each repository, even with matching paths.
   for (const path of repositories) {
@@ -167,10 +170,11 @@ try {
   await page.getByRole("button", { name: "Open branch", exact: true }).click();
   await dialog.getByText("Manage repositories", { exact: true }).click();
   await dialog.getByRole("button", { name: "Remove repository shared", exact: true }).click();
+  // The workspace on the removed repository moves to another one.
   await page.waitForFunction(
     () =>
-      ![...document.querySelectorAll('[role="tab"]')].some((tab) =>
-        tab.textContent.includes("shared /"),
+      ![...document.querySelectorAll('nav[aria-label="Workspaces"] li > button')].some(
+        (row) => row.checkVisibility() && row.textContent.includes("shared /"),
       ),
   );
   const after = await fetch(`${launch.origin}/api/repositories`, { headers }).then((r) => r.json());
@@ -192,7 +196,7 @@ try {
   console.log(
     JSON.stringify({
       checks:
-        "multi-repo launch, picker selection, commit restoration, add/remove, scoped search, empty reload and re-add",
+        "multi-repo launch, new workspace from the picker, live workspace switching, add/remove, scoped search, empty reload and re-add",
       repositories: after.repositories.map((repo) => repo.name),
       searchEngine: process.env.MED_VALIDATION_ZOEKT_BIN ? "zoekt" : "git",
       pageErrors,

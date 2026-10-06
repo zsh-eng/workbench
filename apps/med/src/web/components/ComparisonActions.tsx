@@ -1,7 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { Menu } from "@base-ui/react/menu";
 import { Dialog } from "@base-ui/react/dialog";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { Comparison } from "../../shared/protocol";
 import { gitTargetsSchema, pushResultSchema, type GitTargets } from "../../shared/git-actions";
 import { createApi } from "../data/api";
@@ -24,6 +24,7 @@ export function ComparisonActions({
   comparison: Comparison;
   onCompare(base: string, head: string): void;
 }) {
+  const branchList = useId();
   const api = useMemo(() => createApi(fetch, readBrowserToken()), []);
   const [targets, setTargets] = useState<GitTargets>();
   const [error, setError] = useState("");
@@ -234,12 +235,12 @@ export function ComparisonActions({
                     aria-label="Destination branch"
                     value={branch}
                     disabled={pushing}
-                    list="push-branches"
+                    list={branchList}
                     onChange={(event) => setBranch(event.target.value)}
                     {...stylex.props(ui.input)}
                   />
                 </label>
-                <datalist id="push-branches">
+                <datalist id={branchList}>
                   {destination?.branches.map((name) => (
                     <option key={name} value={name}>
                       {name}

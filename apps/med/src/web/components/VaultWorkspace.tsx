@@ -22,8 +22,10 @@ import { CommandDialog, type ReviewCommand } from "./Controls";
 import { createEditorDrafts } from "../data/editor-drafts";
 import { ThemePicker } from "./ThemePicker";
 import { Icon } from "./Icon";
+import { WorkspaceList } from "./Workspaces";
 import { ui } from "../theme.stylex";
 import "./VaultWorkspace.css";
+import { visibleElement } from "../data/palette-focus";
 const api = createApi(globalThis.fetch.bind(globalThis), "");
 const request = async (action: string, body: object = {}, signal?: AbortSignal) =>
   api.json(`/api/service/${action}`, z.any(), {
@@ -49,8 +51,12 @@ const route = () => ({
   file: new URLSearchParams(location.search).get("file") ?? "",
 });
 
+/** The vault and sources pages. The review stays mounted beneath them, so
+ * returning to it keeps its place. */
 export function VaultWorkspace({ children }: { children: ReactNode }) {
   const [locationState, setLocationState] = useState(route);
+  const [reviewMounted, setReviewMounted] = useState(() => !route().visible);
+  if (!locationState.visible && !reviewMounted) setReviewMounted(true);
   const [sources, setSources] = useState<Source[]>([]);
   const [manifest, setManifest] = useState<{ id: string; entries: BrowseEntry[] }>({
     id: "",
@@ -100,6 +106,8 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
   const navigate = useCallback((url: string) => {
     if (location.pathname + location.search !== url) history.pushState(null, "", url);
     setLocationState(route());
+    // Workspaces remember the vault's address for the next visit.
+    window.dispatchEvent(new Event("med:location"));
   }, []);
   const open = useCallback(
     (path: string, at?: number, pinned = true) => {
@@ -310,7 +318,7 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
         event.altKey &&
         !event.metaKey &&
         !event.ctrlKey &&
-        !document.querySelector('[role="dialog"]')
+        !visibleElement('[role="dialog"]')
       ) {
         if (event.code === "KeyW" && currentFile) {
           event.preventDefault();
@@ -480,229 +488,242 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
       },
     },
   ];
-  if (!locationState.visible) return <>{children}</>;
-  return (
-    <div className="med-vault" data-standalone-files>
-      {error && (
-        <p className="med-vault-notice" role="alert">
-          {error}
-        </p>
-      )}
-      {!locationState.id ? (
-        <main className="med-vault-sources">
-          <h1>Your sources</h1>
-          <p>
-            Add a repository or vault with <code>med add /path/to/folder</code>.
-          </p>
-          {sources.map((s) => (
-            <a
-              key={s.id}
-              href={s.kind === "vault" ? `/vault/${s.id}` : "/"}
-              onClick={(e) => {
-                if (s.kind === "vault") {
-                  e.preventDefault();
-                  navigate(`/vault/${s.id}`);
-                }
-              }}
-            >
-              <strong>{s.name}</strong>
-              <span>{s.kind === "vault" ? "Obsidian vault" : "Repository"}</span>
-              <small>{s.path}</small>
-            </a>
-          ))}
-          <button {...stylex.props(ui.button)} onClick={() => setCommandsOpen(true)}>
-            Commands <span>⌘K</span>
-          </button>
-        </main>
-      ) : (
-        <div className="med-vault-layout">
-          <main className="med-vault-main">
-            <div className="med-vault-tabbar">
-              <FileViewTabs
-                showChanges={false}
-                tabs={currentTabs.map((tab) => ({
-                  id: tab.file.path,
-                  path: tab.file.vault!.path,
-                  pinned: tab.pinned,
-                  dirty: drafts.get(tab.file.path)?.dirty,
-                }))}
-                active={currentFile?.path ?? ""}
-                panelId="vault-file-panel"
-                onSelect={(id) => {
-                  const tab = currentTabs.find((t) => t.file.path === id);
-                  if (tab) open(tab.file.vault!.path, undefined, tab.pinned);
-                }}
-                onPin={pin}
-                onClose={(id) => closeTabs([id])}
-              />
-              <div className="med-vault-actions">
-                <ActionTooltip label="Toggle files sidebar" shortcut="⌘ ⇧ B">
-                  <button
-                    {...stylex.props(ui.button, ui.iconButton)}
-                    aria-label="Toggle files sidebar"
-                    onClick={() => setSidebar((value) => !value)}
-                  >
-                    <Icon name="panelLeft" size={14} style={{ transform: "scaleX(-1)" }} />
-                  </button>
-                </ActionTooltip>
-                <ToolButton
-                  label="Open command palette"
-                  shortcut="⌘ K"
-                  icon="command"
-                  onClick={() => setCommandsOpen(true)}
-                />
-              </div>
-            </div>
-            <div
-              id="vault-file-panel"
-              ref={surface}
-              className="med-vault-surface"
-              role="tabpanel"
-              aria-label={currentFile ? `File ${locationState.file}` : "Files"}
-            >
-              {currentFile ? (
-                <FullFileView
-                  key={currentFile.path}
-                  file={currentFile}
-                  loading={false}
-                  error={null}
-                  vimEnabled
-                  line={line}
-                  sourceLabel={source?.name ?? "Vault"}
-                  onClose={() => closeTabs([currentFile.path])}
-                  refreshAvailable
-                  onRefresh={() => setRefresh((value) => value + 1)}
-                  editor={{
-                    drafts,
-                    key: currentFile.path,
-                    write: async (current, text) => {
-                      const next = await api.json("/api/local-files/write", localReadSchema, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          path: current.path,
-                          expectedIdentity: current.identity,
-                          text,
-                        }),
-                      });
-                      const result = { ...next, vault: currentFile.vault };
-                      setError("");
-                      // Saving an inactive file must not replace the selected editor.
-                      if (route().id === result.vault?.id && route().file === result.vault?.path)
-                        setFile(result);
-                      updateTabs(
-                        retainedTabs.current.map((tab) =>
-                          tab.file.path === result.path
-                            ? { ...tab, file: result, pinned: true }
-                            : tab,
-                        ),
-                      );
-                      return result;
-                    },
-                  }}
-                />
-              ) : (
-                <div className="med-vault-empty">
-                  <button {...stylex.props(ui.button)} onClick={() => setPickerOpen(true)}>
-                    Find file… <span>⌘⇧K</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          </main>
-          {sidebar && (
-            <div
-              className="med-vault-resizer"
-              role="separator"
-              aria-label="Resize files sidebar"
-              aria-orientation="vertical"
-              aria-valuemin={200}
-              aria-valuemax={520}
-              aria-valuenow={sidebarWidth}
-              tabIndex={0}
-              onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
-              onPointerMove={(e) => {
-                if (e.currentTarget.hasPointerCapture(e.pointerId))
-                  setSidebarWidth(
-                    Math.max(
-                      200,
-                      Math.min(
-                        520,
-                        e.currentTarget.parentElement!.getBoundingClientRect().right - e.clientX,
-                      ),
-                    ),
-                  );
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-                  e.preventDefault();
-                  setSidebarWidth((value) =>
-                    Math.max(200, Math.min(520, value + (e.key === "ArrowLeft" ? 16 : -16))),
-                  );
-                }
-              }}
-            />
-          )}
-          <aside
-            className="med-vault-sidebar"
-            aria-label="Workspace files"
-            hidden={!sidebar}
-            style={{ width: sidebarWidth }}
-          >
-            <RepositoryFiles
-              key={locationState.id}
-              label="Vault files"
-              entries={entries}
-              loading={false}
-              error={null}
-              truncated={false}
-              sourceLabel={source?.name ?? "Vault"}
-              selectedPath={locationState.file || null}
-              onPreview={(path) => open(path, undefined, false)}
-              onPin={(path) => open(path)}
-              onRefresh={refreshFiles}
-              onClose={() => setSidebar(false)}
-            />
-            {locationState.file && (
-              <details className="med-vault-backlinks" open>
-                <summary>
-                  Backlinks <span>{backlinks.length}</span>
-                </summary>
-                <section aria-label="Backlinks">
-                  {source?.index?.error && <p>{source.index.error}</p>}
-                  {backlinks.map((link, i) => (
-                    <button
-                      key={`${link.source}:${link.line}:${i}`}
-                      {...stylex.props(ui.button)}
-                      onClick={() => open(link.source, link.line)}
-                      title={link.source}
-                    >
-                      <Icon name="file" size={13} />
-                      <span>{link.source}</span>
-                      <small>:{link.line}</small>
-                    </button>
-                  ))}
-                </section>
-              </details>
-            )}
-          </aside>
-        </div>
-      )}
-      <CommandDialog open={commandsOpen} onOpenChange={setCommandsOpen} commands={commands} />
-      <FilePicker
-        key={locationState.id}
-        open={pickerOpen}
-        onOpenChange={setPickerOpen}
-        entries={entries}
-        loading={false}
-        error={null}
-        sourceLabel={source?.name ?? "Vault"}
-        onOpen={(path, at) => open(path, at)}
-        previewReader={previewReader}
-        sourceRevision={source?.index?.revision ?? 0}
-        openPaths={currentTabs.map((tab) => tab.file.vault!.path)}
-      />
-      <ThemePicker open={themes} onOpenChange={setThemes} />
+  const review = reviewMounted && (
+    <div
+      inert={locationState.visible}
+      style={{ height: "100%", display: locationState.visible ? "none" : undefined }}
+    >
+      {children}
     </div>
+  );
+  // The same fragment in both states, so the review keeps its place.
+  if (!locationState.visible) return <>{review}</>;
+  return (
+    <>
+      {review}
+      <div className="med-vault" data-standalone-files>
+        {error && (
+          <p className="med-vault-notice" role="alert">
+            {error}
+          </p>
+        )}
+        {!locationState.id ? (
+          <main className="med-vault-sources">
+            <h1>Your sources</h1>
+            <p>
+              Add a repository or vault with <code>med add /path/to/folder</code>.
+            </p>
+            {sources.map((s) => (
+              <a
+                key={s.id}
+                href={s.kind === "vault" ? `/vault/${s.id}` : "/"}
+                onClick={(e) => {
+                  if (s.kind === "vault") {
+                    e.preventDefault();
+                    navigate(`/vault/${s.id}`);
+                  }
+                }}
+              >
+                <strong>{s.name}</strong>
+                <span>{s.kind === "vault" ? "Obsidian vault" : "Repository"}</span>
+                <small>{s.path}</small>
+              </a>
+            ))}
+            <button {...stylex.props(ui.button)} onClick={() => setCommandsOpen(true)}>
+              Commands <span>⌘K</span>
+            </button>
+          </main>
+        ) : (
+          <div className="med-vault-layout">
+            <main className="med-vault-main">
+              <div className="med-vault-tabbar">
+                <FileViewTabs
+                  showChanges={false}
+                  tabs={currentTabs.map((tab) => ({
+                    id: tab.file.path,
+                    path: tab.file.vault!.path,
+                    pinned: tab.pinned,
+                    dirty: drafts.get(tab.file.path)?.dirty,
+                  }))}
+                  active={currentFile?.path ?? ""}
+                  panelId="vault-file-panel"
+                  onSelect={(id) => {
+                    const tab = currentTabs.find((t) => t.file.path === id);
+                    if (tab) open(tab.file.vault!.path, undefined, tab.pinned);
+                  }}
+                  onPin={pin}
+                  onClose={(id) => closeTabs([id])}
+                />
+                <div className="med-vault-actions">
+                  <ActionTooltip label="Toggle files sidebar" shortcut="⌘ ⇧ B">
+                    <button
+                      {...stylex.props(ui.button, ui.iconButton)}
+                      aria-label="Toggle files sidebar"
+                      onClick={() => setSidebar((value) => !value)}
+                    >
+                      <Icon name="panelLeft" size={14} style={{ transform: "scaleX(-1)" }} />
+                    </button>
+                  </ActionTooltip>
+                  <ToolButton
+                    label="Open command palette"
+                    shortcut="⌘ K"
+                    icon="command"
+                    onClick={() => setCommandsOpen(true)}
+                  />
+                </div>
+              </div>
+              <div
+                id="vault-file-panel"
+                ref={surface}
+                className="med-vault-surface"
+                role="tabpanel"
+                aria-label={currentFile ? `File ${locationState.file}` : "Files"}
+              >
+                {currentFile ? (
+                  <FullFileView
+                    key={currentFile.path}
+                    file={currentFile}
+                    loading={false}
+                    error={null}
+                    vimEnabled
+                    line={line}
+                    sourceLabel={source?.name ?? "Vault"}
+                    onClose={() => closeTabs([currentFile.path])}
+                    refreshAvailable
+                    onRefresh={() => setRefresh((value) => value + 1)}
+                    editor={{
+                      drafts,
+                      key: currentFile.path,
+                      write: async (current, text) => {
+                        const next = await api.json("/api/local-files/write", localReadSchema, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            path: current.path,
+                            expectedIdentity: current.identity,
+                            text,
+                          }),
+                        });
+                        const result = { ...next, vault: currentFile.vault };
+                        setError("");
+                        // Saving an inactive file must not replace the selected editor.
+                        if (route().id === result.vault?.id && route().file === result.vault?.path)
+                          setFile(result);
+                        updateTabs(
+                          retainedTabs.current.map((tab) =>
+                            tab.file.path === result.path
+                              ? { ...tab, file: result, pinned: true }
+                              : tab,
+                          ),
+                        );
+                        return result;
+                      },
+                    }}
+                  />
+                ) : (
+                  <div className="med-vault-empty">
+                    <button {...stylex.props(ui.button)} onClick={() => setPickerOpen(true)}>
+                      Find file… <span>⌘⇧K</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </main>
+            {sidebar && (
+              <div
+                className="med-vault-resizer"
+                role="separator"
+                aria-label="Resize files sidebar"
+                aria-orientation="vertical"
+                aria-valuemin={200}
+                aria-valuemax={520}
+                aria-valuenow={sidebarWidth}
+                tabIndex={0}
+                onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
+                onPointerMove={(e) => {
+                  if (e.currentTarget.hasPointerCapture(e.pointerId))
+                    setSidebarWidth(
+                      Math.max(
+                        200,
+                        Math.min(
+                          520,
+                          e.currentTarget.parentElement!.getBoundingClientRect().right - e.clientX,
+                        ),
+                      ),
+                    );
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                    e.preventDefault();
+                    setSidebarWidth((value) =>
+                      Math.max(200, Math.min(520, value + (e.key === "ArrowLeft" ? 16 : -16))),
+                    );
+                  }
+                }}
+              />
+            )}
+            <aside
+              className="med-vault-sidebar"
+              aria-label="Workspace files"
+              hidden={!sidebar}
+              style={{ width: sidebarWidth }}
+            >
+              <WorkspaceList />
+              <RepositoryFiles
+                key={locationState.id}
+                label="Vault files"
+                entries={entries}
+                loading={false}
+                error={null}
+                truncated={false}
+                sourceLabel={source?.name ?? "Vault"}
+                selectedPath={locationState.file || null}
+                onPreview={(path) => open(path, undefined, false)}
+                onPin={(path) => open(path)}
+                onRefresh={refreshFiles}
+                onClose={() => setSidebar(false)}
+              />
+              {locationState.file && (
+                <details className="med-vault-backlinks" open>
+                  <summary>
+                    Backlinks <span>{backlinks.length}</span>
+                  </summary>
+                  <section aria-label="Backlinks">
+                    {source?.index?.error && <p>{source.index.error}</p>}
+                    {backlinks.map((link, i) => (
+                      <button
+                        key={`${link.source}:${link.line}:${i}`}
+                        {...stylex.props(ui.button)}
+                        onClick={() => open(link.source, link.line)}
+                        title={link.source}
+                      >
+                        <Icon name="file" size={13} />
+                        <span>{link.source}</span>
+                        <small>:{link.line}</small>
+                      </button>
+                    ))}
+                  </section>
+                </details>
+              )}
+            </aside>
+          </div>
+        )}
+        <CommandDialog open={commandsOpen} onOpenChange={setCommandsOpen} commands={commands} />
+        <FilePicker
+          key={locationState.id}
+          open={pickerOpen}
+          onOpenChange={setPickerOpen}
+          entries={entries}
+          loading={false}
+          error={null}
+          sourceLabel={source?.name ?? "Vault"}
+          onOpen={(path, at) => open(path, at)}
+          previewReader={previewReader}
+          sourceRevision={source?.index?.revision ?? 0}
+          openPaths={currentTabs.map((tab) => tab.file.vault!.path)}
+        />
+        <ThemePicker open={themes} onOpenChange={setThemes} />
+      </div>
+    </>
   );
 }

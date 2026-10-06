@@ -1,5 +1,5 @@
 import { ShortcutKeys } from "./ShortcutKeys";
-import { focusPaletteInput } from "../data/palette-focus";
+import { focusPaletteInput, visibleElement } from "../data/palette-focus";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
 import { Combobox } from "@base-ui/react/combobox";
@@ -451,9 +451,7 @@ function PickerContents({
           <Dialog.Popup
             initialFocus={() => focusPaletteInput(inputRef.current)}
             finalFocus={() =>
-              accepted.current
-                ? (document.querySelector<HTMLElement>('[data-file-pane="main"]') ?? false)
-                : true
+              accepted.current ? (visibleElement('[data-file-pane="main"]') ?? false) : true
             }
             {...stylex.props(styles.popup, ui.instant)}
           >

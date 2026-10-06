@@ -13,6 +13,8 @@ export interface BranchEntry {
   key: string;
   repositoryId: string;
   label: string;
+  /** The branch name; a detached worktree has none. */
+  branch?: string;
   path?: string;
   head: string;
   run(): void;
@@ -27,15 +29,19 @@ export function BranchPicker({
   onAddRepository,
   onRemoveRepository,
   onRefresh,
+  workspaces,
 }: {
   repositories: RegisteredRepository[];
   entries: BranchEntry[];
   open: boolean;
   onOpenChange(open: boolean): void;
-  onSelect(entry: BranchEntry): string | void;
+  /** `newWorkspace` is set by ⌘↵ or ⌘-click. */
+  onSelect(entry: BranchEntry, newWorkspace: boolean): string | void;
   onAddRepository(path: string): Promise<unknown>;
   onRemoveRepository(id: string): Promise<unknown>;
   onRefresh(): Promise<unknown>;
+  /** With workspaces, where a plain ↵ opens the branch: here, or in a new one. */
+  workspaces?: "here" | "new";
 }) {
   const input = useRef<HTMLInputElement>(null);
   const pathInput = useRef<HTMLInputElement>(null);
@@ -82,9 +88,9 @@ export function BranchPicker({
       setPending(false);
     }
   }
-  function select(entry: BranchEntry | undefined) {
+  function select(entry: BranchEntry | undefined, newWorkspace = false) {
     if (!entry || pending) return;
-    const failure = onSelect(entry);
+    const failure = onSelect(entry, newWorkspace);
     if (failure) {
       setError(failure);
       return;
@@ -102,7 +108,9 @@ export function BranchPicker({
           {...stylex.props(styles.dialog, ui.instant)}
         >
           <div {...stylex.props(styles.heading)}>
-            <Dialog.Title {...stylex.props(styles.title)}>Open branch</Dialog.Title>
+            <Dialog.Title {...stylex.props(styles.title)}>
+              {workspaces === "new" ? "New workspace" : "Open branch"}
+            </Dialog.Title>
             <span {...stylex.props(ui.grow)} />
             <ToolButton
               label="Refresh branches"
@@ -136,7 +144,7 @@ export function BranchPicker({
                   setActive(Math.max(0, selectedIndex - 1));
                 } else if (event.key === "Enter") {
                   event.preventDefault();
-                  select(results[selectedIndex]);
+                  select(results[selectedIndex], event.metaKey || event.ctrlKey);
                 }
               }}
               {...stylex.props(styles.field)}
@@ -187,11 +195,11 @@ export function BranchPicker({
                           onKeyDown={(event) => {
                             if (event.key === "Enter" || event.key === " ") {
                               event.preventDefault();
-                              select(entry);
+                              select(entry, event.metaKey || event.ctrlKey);
                             }
                           }}
                           aria-selected={index === selectedIndex}
-                          onClick={() => select(entry)}
+                          onClick={(event) => select(entry, event.metaKey || event.ctrlKey)}
                           onPointerMove={() => setActive(index)}
                           {...stylex.props(
                             styles.option,
@@ -216,6 +224,24 @@ export function BranchPicker({
               )}
             </div>
           </div>
+          {workspaces && (
+            <div {...stylex.props(styles.hints)}>
+              {workspaces === "new" ? (
+                <span {...stylex.props(styles.hint)}>
+                  <ShortcutKeys value="Enter" /> Open in a new workspace
+                </span>
+              ) : (
+                <>
+                  <span {...stylex.props(styles.hint)}>
+                    <ShortcutKeys value="Enter" /> Open here
+                  </span>
+                  <span {...stylex.props(styles.hint)}>
+                    <ShortcutKeys value="Mod+Enter" /> New workspace
+                  </span>
+                </>
+              )}
+            </div>
+          )}
           <div {...stylex.props(styles.management)}>
             <details>
               <summary {...stylex.props(styles.summary)}>Manage repositories</summary>
@@ -417,6 +443,19 @@ const styles = stylex.create({
     fontSize: 12.5,
   },
   notice: { padding: 8, color: tokens.muted, margin: 0 },
+  hints: {
+    display: "flex",
+    alignItems: "center",
+    gap: 16,
+    minHeight: 34,
+    paddingInline: 16,
+    borderTopWidth: 1,
+    borderTopStyle: "solid",
+    borderTopColor: tokens.line,
+    color: tokens.faint,
+    fontSize: 11.5,
+  },
+  hint: { display: "flex", alignItems: "center", gap: 6 },
   management: {
     display: "flex",
     flexDirection: "column",

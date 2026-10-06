@@ -58,8 +58,15 @@ export const guideContexts: GuideContext[] = [
           {
             label: "Open a branch or worktree",
             keys: ["Mod+Shift+G"],
-            note: "Opens beside the current branch as a tab",
+            note: "Enter opens it here; Mod+Enter opens a new workspace",
             command: "open-branch",
+          },
+          { label: "Show a workspace by its place in the list", keys: ["Mod+{1–9}"] },
+          {
+            label: "Switch to a recent workspace",
+            keys: ["Ctrl+Tab"],
+            note: "Hold Control and press Tab to step",
+            command: "switch-workspace",
           },
           { label: "Symbols in this file", keys: ["Mod+O"], command: "file-symbols" },
           { label: "Symbols in the project", keys: ["Mod+Shift+O"], command: "project-symbols" },
