@@ -202,66 +202,68 @@ export function ShortcutGuide({
             aria-label="Shortcuts"
             {...stylex.props(styles.body)}
           >
-            {sections.map((section) => (
-              <div
-                key={section.key}
-                role="group"
-                aria-labelledby={`${id}-${section.key}`}
-                {...stylex.props(styles.group)}
-              >
-                <div id={`${id}-${section.key}`} {...stylex.props(styles.groupTitle)}>
-                  {section.title}
-                </div>
-                {section.description && (
-                  <p {...stylex.props(styles.groupDescription)}>{section.description}</p>
-                )}
-                {section.entries.map((entry) => {
-                  const index = rowIndex++;
-                  const command = commandFor(entry);
-                  const runnable = !!command && !command.disabled;
-                  return (
-                    <div
-                      key={rows[index]!.id}
-                      id={rows[index]!.id}
-                      role="option"
-                      aria-selected={index === selectedIndex}
-                      aria-disabled={command?.disabled || undefined}
-                      tabIndex={-1}
-                      onMouseMove={() => setActive(index)}
-                      onClick={() => run(entry)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") run(entry);
-                      }}
-                      {...stylex.props(
-                        styles.row,
-                        runnable && styles.runnable,
-                        index === selectedIndex && styles.rowActive,
-                      )}
-                    >
-                      <span {...stylex.props(styles.text)}>
-                        <span
-                          {...stylex.props(styles.label, command?.disabled && styles.unavailable)}
-                        >
-                          {entry.label}
-                        </span>
-                        {entry.note && <span {...stylex.props(styles.note)}>{entry.note}</span>}
-                      </span>
-                      <span {...stylex.props(styles.keys)}>
-                        {entry.keys.map((value) =>
-                          entry.syntax ? (
-                            <code key={value} {...stylex.props(styles.syntax)}>
-                              {value}
-                            </code>
-                          ) : (
-                            <KeySequence key={value} value={value} />
-                          ),
+            <div {...stylex.props(styles.columns)}>
+              {sections.map((section) => (
+                <div
+                  key={section.key}
+                  role="group"
+                  aria-labelledby={`${id}-${section.key}`}
+                  {...stylex.props(styles.group)}
+                >
+                  <div id={`${id}-${section.key}`} {...stylex.props(styles.groupTitle)}>
+                    {section.title}
+                  </div>
+                  {section.description && (
+                    <p {...stylex.props(styles.groupDescription)}>{section.description}</p>
+                  )}
+                  {section.entries.map((entry) => {
+                    const index = rowIndex++;
+                    const command = commandFor(entry);
+                    const runnable = !!command && !command.disabled;
+                    return (
+                      <div
+                        key={rows[index]!.id}
+                        id={rows[index]!.id}
+                        role="option"
+                        aria-selected={index === selectedIndex}
+                        aria-disabled={command?.disabled || undefined}
+                        tabIndex={-1}
+                        onMouseMove={() => setActive(index)}
+                        onClick={() => run(entry)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") run(entry);
+                        }}
+                        {...stylex.props(
+                          styles.row,
+                          runnable && styles.runnable,
+                          index === selectedIndex && styles.rowActive,
                         )}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
+                      >
+                        <span {...stylex.props(styles.text)}>
+                          <span
+                            {...stylex.props(styles.label, command?.disabled && styles.unavailable)}
+                          >
+                            {entry.label}
+                          </span>
+                          {entry.note && <span {...stylex.props(styles.note)}>{entry.note}</span>}
+                        </span>
+                        <span {...stylex.props(styles.keys)}>
+                          {entry.keys.map((value) =>
+                            entry.syntax ? (
+                              <code key={value} {...stylex.props(styles.syntax)}>
+                                {value}
+                              </code>
+                            ) : (
+                              <KeySequence key={value} value={value} />
+                            ),
+                          )}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
             {!rows.length && (
               <div {...stylex.props(styles.empty)}>
                 <p {...stylex.props(styles.emptyTitle)}>No shortcuts match “{query.trim()}”</p>
@@ -366,10 +368,11 @@ const styles = stylex.create({
     overflowY: "auto",
     paddingBlock: 14,
     paddingInline: 14,
-    columnCount: { default: 2, "@media (max-width: 760px)": 1 },
-    columnGap: 28,
     scrollbarWidth: "thin",
   },
+  // Columns live in an unconstrained box; inside the fixed-height scroller
+  // they would overflow sideways into hidden extra columns.
+  columns: { columnCount: { default: 2, "@media (max-width: 760px)": 1 }, columnGap: 28 },
   group: { breakInside: "avoid", marginBottom: 18 },
   groupTitle: {
     paddingInline: 8,
@@ -433,7 +436,7 @@ const styles = stylex.create({
     fontSize: 11,
     lineHeight: "18px",
   },
-  empty: { columnSpan: "all", paddingBlock: 48, textAlign: "center" },
+  empty: { paddingBlock: 48, textAlign: "center" },
   emptyTitle: { margin: 0, color: tokens.text, fontSize: 13 },
   emptyHint: { marginBlock: 6, color: tokens.faint, fontSize: 12 },
   legend: { display: "inline-flex", alignItems: "center", gap: 5 },
