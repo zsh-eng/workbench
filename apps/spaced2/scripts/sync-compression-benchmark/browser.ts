@@ -1,4 +1,6 @@
 import Dexie from "dexie";
+import type { BenchmarkDatabase } from "../sync-benchmark/types";
+import type { SyncPullResponse, SyncRecord, SyncPushChange } from "@zsh-eng/local-sync";
 import { gunzipSync } from "../../cutover.local/compression/deps/node_modules/fflate";
 import { decompress } from "../../cutover.local/compression/deps/node_modules/fzstd";
 import {
@@ -6,10 +8,10 @@ import {
   createSyncClientState,
   createSyncClientStateStore,
 } from "@zsh-eng/local-sync";
-import { DexieSyncStorage } from "@zsh-eng/local-sync/dexie";
+import { DexieSyncStorage, type PreparedRemoteRecord } from "@zsh-eng/local-sync/dexie";
 import { syncTables } from "../../src/lib/sync/records";
 const status = document.querySelector("#status")!;
-const results: any[] = [];
+const results: Awaited<ReturnType<typeof run>>[] = [];
 const textDecoder = new TextDecoder();
 function decode(value: string, mode: string) {
   if (mode === "plain") return value;
@@ -18,7 +20,7 @@ function decode(value: string, mode: string) {
     mode.startsWith("gzip") ? gunzipSync(data) : decompress(data),
   );
 }
-async function* pages(mode: string, metrics: any) {
+async function* pages(mode: string, metrics: { decompressMs: number }) {
   const response = await fetch("/data/" + mode);
   if (!response.ok) throw Error("Fixture unavailable");
   const reader = response
@@ -35,7 +37,7 @@ async function* pages(mode: string, metrics: any) {
         const line = pending.slice(0, end);
         pending = pending.slice(end + 1);
         if (!line) continue;
-        const page = JSON.parse(line);
+        const page = JSON.parse(line) as SyncPullResponse;
         const t = performance.now();
         for (const r of page.records) r.value = decode(r.value, mode);
         metrics.decompressMs += performance.now() - t;
@@ -50,7 +52,7 @@ async function* pages(mode: string, metrics: any) {
 }
 async function run(mode: string, repeat: number) {
   const name = "SpacedCompressionBenchmark-" + crypto.randomUUID();
-  const db = new Dexie(name) as any;
+  const db = new Dexie(name) as BenchmarkDatabase;
   db.version(1).stores({
     operations: "id,type,timestamp",
     reviewLogOperations: "id,type,timestamp",
@@ -75,21 +77,23 @@ async function run(mode: string, repeat: number) {
     const client = new SyncClient({
       stateStore,
       storage: {
-        prepareRemoteRecords(records: any) {
+        prepareRemoteRecords(records: readonly SyncRecord[]) {
           const t = performance.now();
           const prepared = storage.prepareRemoteRecords(records);
           metrics.prepareMs += performance.now() - t;
           return prepared;
         },
-        async applyRemoteRecords(prepared: any, device: string) {
+        async applyRemoteRecords(prepared: readonly PreparedRemoteRecord[], device: string) {
           const t = performance.now();
           const r = await storage.applyRemoteRecords(prepared, device);
           metrics.writeMs += performance.now() - t;
           return r;
         },
         getPendingChanges: () => storage.getPendingChanges(),
-        reconcilePushResults: (a: any, b: any) =>
-          storage.reconcilePushResults(a, b),
+        reconcilePushResults: (
+          a: readonly SyncPushChange[],
+          b: readonly PreparedRemoteRecord[],
+        ) => storage.reconcilePushResults(a, b),
       },
       remote: {
         pull: async () => {

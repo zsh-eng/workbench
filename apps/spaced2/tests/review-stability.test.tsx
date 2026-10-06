@@ -38,7 +38,9 @@ afterEach(async () => {
   for (const c of MemoryDB.getCards())
     MemoryDB.putCard({ ...c, deleted: true });
   MemoryDB.notify();
-  while (MemoryDB.popUndoGrade()) {}
+  while (MemoryDB.popUndoGrade()) {
+    // Drain the undo stack between review scenarios.
+  }
   await Promise.all([
     rawDb.operations.clear(),
     rawDb.reviewLogOperations.clear(),

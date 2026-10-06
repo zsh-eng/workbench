@@ -1,7 +1,12 @@
 import "fake-indexeddb/auto";
 import { expect, test } from "bun:test";
-import Dexie from "dexie";
-import { frameSize, tagFrame, installPackedRows } from "./candidates";
+import Dexie, { type Table } from "dexie";
+import {
+  frameSize,
+  tagFrame,
+  installPackedRows,
+  type packRow,
+} from "./candidates";
 import { syncTables, toStoredOperation } from "../../src/lib/sync/records";
 
 test("parser metadata retains exact UTF-8 bytes without changing the page", () => {
@@ -14,7 +19,13 @@ test("parser metadata retains exact UTF-8 bytes without changing the page", () =
 });
 
 test("packed rows retain indexes and decode to the original domain row", async () => {
-  const db = new Dexie(crypto.randomUUID()) as any;
+  const db = new Dexie(crypto.randomUUID()) as Dexie & {
+    operations: Table<
+      ReturnType<typeof packRow>,
+      string,
+      ReturnType<typeof toStoredOperation>
+    >;
+  };
   db.version(1).stores({ operations: "id,type,timestamp" });
   installPackedRows(db);
   try {
@@ -22,7 +33,7 @@ test("packed rows retain indexes and decode to the original domain row", async (
       type: "deck",
       timestamp: 123,
       payload: { id: "test", name: "Example", deleted: false, description: "" },
-    } as any);
+    });
     await db.operations.bulkPut([row]);
     const [packed] = await db.operations
       .where("type")

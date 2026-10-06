@@ -1,12 +1,17 @@
 import "fake-indexeddb/auto";
 import { test, expect } from "bun:test";
-import Dexie from "dexie";
-import { DexieSyncStorage } from "@zsh-eng/local-sync/dexie";
+import Dexie, { type Table } from "dexie";
+import {
+  DexieSyncStorage,
+  type SyncDexieDatabase,
+} from "@zsh-eng/local-sync/dexie";
 import { encodeSyncKey } from "@zsh-eng/local-sync";
 import { createTrace } from "./trace";
 import { instrumentOutbox } from "./outbox";
 function fixture() {
-  const db = new Dexie(crypto.randomUUID()) as any;
+  const db = new Dexie(crypto.randomUUID()) as SyncDexieDatabase & {
+    items: Table<{ id: string; isDeleted: boolean; title: string }, string>;
+  };
   db.version(1).stores({ items: "id", _sync_outbox: "key" });
   const metrics = { outboxChecks: 0, outboxGets: 0 };
   instrumentOutbox(db, true, metrics);
@@ -38,7 +43,7 @@ test("empty outbox skips per-key reads in the library apply transaction", async 
       "local",
     );
     expect(f.metrics).toEqual({ outboxChecks: 1, outboxGets: 0 });
-    expect((await f.db.items.get("a")).title).toBe("remote");
+    expect((await f.db.items.get("a"))!.title).toBe("remote");
   } finally {
     await f.db.delete();
   }
@@ -59,7 +64,7 @@ test("pending newer local edit is preserved through the fallback", async () => {
       "local",
     );
     expect(result.skipped).toBe(1);
-    expect((await f.db.items.get("a")).title).toBe("local");
+    expect((await f.db.items.get("a"))!.title).toBe("local");
     expect(await f.db._sync_outbox.count()).toBe(1);
     expect(f.metrics.outboxGets).toBe(1);
   } finally {
@@ -85,7 +90,7 @@ test("outbox is checked again for each transaction, not cached as empty", async 
       f.storage.prepareRemoteRecords([record("a", 20)]),
       "local",
     );
-    expect((await f.db.items.get("a")).title).toBe("later-local");
+    expect((await f.db.items.get("a"))!.title).toBe("later-local");
     expect(f.metrics).toEqual({ outboxChecks: 2, outboxGets: 1 });
   } finally {
     await f.db.delete();
@@ -115,7 +120,7 @@ test("trace preserves apply transaction and records write phases", async () => {
       f.storage.prepareRemoteRecords([record()]),
       "local",
     );
-    expect((await f.db.items.get("a")).title).toBe("remote");
+    expect((await f.db.items.get("a"))!.title).toBe("remote");
     expect(trace.native.putCalls).toBe(1);
     for (const name of [
       "transaction-start",

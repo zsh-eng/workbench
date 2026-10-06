@@ -5,8 +5,12 @@ import {
   observeSyncHlcBatch,
   syncPullResponseSchema,
   type SyncPullResponse,
+  type SyncRecord,
 } from "@zsh-eng/local-sync";
-import { DexieSyncStorage } from "@zsh-eng/local-sync/dexie";
+import {
+  DexieSyncStorage,
+  type SyncDexieDatabase,
+} from "@zsh-eng/local-sync/dexie";
 import { syncTables } from "../../src/lib/sync/records";
 import { createRemote } from "../../src/lib/sync/server";
 import { instrumentOutbox } from "./outbox";
@@ -48,11 +52,17 @@ const configurations = [
 ];
 let stop = false;
 let active: AbortController | undefined;
-const results: any[] = [];
+const results: (Awaited<ReturnType<typeof run>> & {
+  host: { load: number[]; at: string };
+})[] = [];
 const now = () => performance.now();
-async function run(config: Candidate, repeat: number, meta: any) {
+async function run(
+  config: Candidate,
+  repeat: number,
+  meta: { records: number; head: number },
+) {
   const name = "SpacedOptimizationBenchmark-" + crypto.randomUUID();
-  const db = new Dexie(name) as any;
+  const db = new Dexie(name) as SyncDexieDatabase;
   db.version(1).stores({
     operations: config.noIndexes ? "id" : "id,type,timestamp",
     reviewLogOperations: config.noIndexes ? "id" : "id,type,timestamp",
@@ -246,15 +256,18 @@ async function run(config: Candidate, repeat: number, meta: any) {
     const measuredSpans = trace.spans.slice();
     status.textContent = `Verify ${config.name}, round ${repeat + 1}`;
     // Full saved-row comparison is outside timing. Fetch a separate plain fixture.
-    const expected = await (await fetch("/verify")).json();
+    const expected: SyncRecord[] = await (await fetch("/verify")).json();
     const actual = new Map<string, string>();
     const loadStarted = now();
-    const loaded: { table: string; rows: any[] }[] = [];
+    const loaded: { table: string; rows: Record<string, unknown>[] }[] = [];
     for (const table of ["operations", "reviewLogOperations"])
       loaded.push({
         table,
-        rows: (await db.table(table).toArray()).map((row: any) =>
-          config.packed ? syncTables[table].decode!(row.value) : row,
+        rows: (await db.table<Record<string, unknown>>(table).toArray()).map(
+          (row) =>
+            config.packed
+              ? syncTables[table].decode!(row.value as string)
+              : row,
         ),
       });
     const loadAndHydrateMs = now() - loadStarted;

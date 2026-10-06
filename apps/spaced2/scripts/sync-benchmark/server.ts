@@ -1,5 +1,5 @@
 /** Local-only, read-only snapshot benchmark. Never connects to production. */
-import { Database } from "bun:sqlite";
+import { Database, type SQLQueryBindings } from "bun:sqlite";
 import {
   createSyncHonoRoutes,
   type SyncD1Database,
@@ -11,18 +11,31 @@ if (!snapshot)
     "Usage: bun scripts/sync-benchmark/server.ts <snapshot.sqlite>",
   );
 const cleanupOnly = snapshot === "--cleanup-only";
-const rows: any[] = cleanupOnly
+interface SnapshotRow {
+  user_id: string;
+  key: string;
+  value: string;
+  is_deleted: number;
+  schema_version: number;
+  hlc_wall_time_ms: number;
+  hlc_counter: number;
+  device_id: string;
+  server_seq: number;
+}
+const rows: SnapshotRow[] = cleanupOnly
   ? []
   : (() => {
       const db = new Database(snapshot, { readonly: true });
       const owner = db
-        .query(
+        .query<{ user_id: string; n: number }, []>(
           "SELECT user_id, COUNT(*) n FROM sync_records GROUP BY user_id ORDER BY n DESC LIMIT 1",
         )
-        .get() as any;
+        .get()!;
       const snapshotRows = db
-        .query("SELECT * FROM sync_records WHERE user_id=? ORDER BY server_seq")
-        .all(owner.user_id) as any[];
+        .query<SnapshotRow, [string]>(
+          "SELECT * FROM sync_records WHERE user_id=? ORDER BY server_seq",
+        )
+        .all(owner.user_id);
       db.close();
       return snapshotRows;
     })();
@@ -33,10 +46,10 @@ const actualDb = cleanupOnly
   : new Database(snapshot, { readonly: true });
 const adapter: SyncD1Database = {
   prepare(sql) {
-    let values: any[] = [];
+    let values: SQLQueryBindings[] = [];
     return {
       bind(...bound: unknown[]) {
-        values = bound;
+        values = bound as SQLQueryBindings[];
         return this;
       },
       async first<T>() {

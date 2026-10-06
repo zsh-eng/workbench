@@ -1,4 +1,9 @@
 import Dexie from "dexie";
+import type {
+  BenchmarkDatabase,
+  BenchmarkMetadata,
+  BenchmarkResult,
+} from "./types";
 import { createRemote } from "../../src/lib/sync/server";
 import {
   SyncClient,
@@ -7,18 +12,25 @@ import {
   observeSyncHlcBatch,
   syncPullResponseSchema,
   type SyncPullResponse,
+  type SyncRecord,
+  type SyncPushChange,
 } from "@zsh-eng/local-sync";
-import { DexieSyncStorage } from "@zsh-eng/local-sync/dexie";
-import { syncTables } from "../../src/lib/sync/records";
+import { DexieSyncStorage, type PreparedRemoteRecord } from "@zsh-eng/local-sync/dexie";
+import { syncTables, type StoredOperation } from "../../src/lib/sync/records";
 const status = document.querySelector("#status")!;
 const output = document.querySelector("#results")!;
 const button = document.querySelector<HTMLButtonElement>("#run")!;
-const results: any[] = [];
+const results: BenchmarkResult[] = [];
 const now = () => performance.now();
 const encoder = new TextEncoder();
-async function run(mode: string, delay: number, repeat: number, meta: any) {
+async function run(
+  mode: string,
+  delay: number,
+  repeat: number,
+  meta: BenchmarkMetadata,
+) {
   const name = `SpacedSyncBenchmark-${crypto.randomUUID()}`;
-  const db = new Dexie(name) as any;
+  const db = new Dexie(name) as BenchmarkDatabase;
   db.version(1).stores({
     operations: "id,type,timestamp",
     reviewLogOperations: "id,type,timestamp",
@@ -33,7 +45,7 @@ async function run(mode: string, delay: number, repeat: number, meta: any) {
     : 0;
   const queueFrames = fixedSize ? Math.max(8, fixedSize / 500) : 8;
   const queueBytes = fixedSize ? 32 * 1024 * 1024 : 4 * 1024 * 1024;
-  const metrics = {
+  const metrics: BenchmarkResult = {
     mode,
     delay,
     repeat,
@@ -49,7 +61,7 @@ async function run(mode: string, delay: number, repeat: number, meta: any) {
     verified: false,
   };
   const storage = {
-    prepareRemoteRecords(records: any[]) {
+    prepareRemoteRecords(records: readonly SyncRecord[]) {
       const t = now();
       const p = realStorage.prepareRemoteRecords(records);
       const elapsed = now() - t;
@@ -57,7 +69,7 @@ async function run(mode: string, delay: number, repeat: number, meta: any) {
       metrics.maxPrepareMs = Math.max(metrics.maxPrepareMs, elapsed);
       return p;
     },
-    async applyRemoteRecords(p: any, device: string) {
+    async applyRemoteRecords(p: readonly PreparedRemoteRecord[], device: string) {
       const t = now();
       const r = await realStorage.applyRemoteRecords(p, device);
       const elapsed = now() - t;
@@ -67,8 +79,10 @@ async function run(mode: string, delay: number, repeat: number, meta: any) {
       return r;
     },
     getPendingChanges: () => realStorage.getPendingChanges(),
-    reconcilePushResults: (a: any, b: any) =>
-      realStorage.reconcilePushResults(a, b),
+    reconcilePushResults: (
+      a: readonly SyncPushChange[],
+      b: readonly PreparedRemoteRecord[],
+    ) => realStorage.reconcilePushResults(a, b),
   };
   const started = now();
   try {
@@ -305,10 +319,11 @@ async function run(mode: string, delay: number, repeat: number, meta: any) {
         const subset = prepared.filter((p) => p.tableName === table);
         const actual = await db
           .table(table)
-          .bulkGet(subset.map((p) => p.row.id));
+          // syncTables decodes these rows through toStoredOperation, which assigns string IDs.
+          .bulkGet(subset.map((p) => p.row.id as StoredOperation["id"]));
         if (
           actual.some(
-            (row: any, i: number) =>
+            (row: unknown, i: number) =>
               JSON.stringify(row) !== JSON.stringify(subset[i].row),
           )
         )
@@ -404,7 +419,7 @@ batchButton.onclick = async () => {
     packageButton,
   ])
     b.disabled = true;
-  const batchResults: any[] = [];
+  const batchResults: BenchmarkResult[] = [];
   try {
     const meta = await (await fetch("/meta")).json();
     const cases = [

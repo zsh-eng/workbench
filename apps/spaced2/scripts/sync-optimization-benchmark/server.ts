@@ -1,4 +1,4 @@
-import { Database } from "bun:sqlite";
+import { Database, type SQLQueryBindings } from "bun:sqlite";
 import {
   createSyncHonoRoutes,
   type SyncD1Database,
@@ -11,6 +11,16 @@ const cleanup = process.argv.includes("--cleanup-only");
 const db = cleanup
   ? null
   : new Database("cutover.local/converted/backend.sqlite", { readonly: true });
+interface SnapshotRow {
+  key: string;
+  value: string;
+  is_deleted: number;
+  schema_version: number;
+  hlc_wall_time_ms: number;
+  hlc_counter: number;
+  device_id: string;
+  server_seq: number;
+}
 const owner = cleanup
   ? null
   : (
@@ -18,13 +28,13 @@ const owner = cleanup
         .query(
           "SELECT user_id,COUNT(*) n FROM sync_records GROUP BY user_id ORDER BY n DESC LIMIT 1",
         )
-        .get() as any
+        .get() as { user_id: string }
     ).user_id;
 const rows = cleanup
   ? []
   : (db!
       .query("SELECT * FROM sync_records WHERE user_id=? ORDER BY server_seq")
-      .all(owner) as any[]);
+      .all(owner) as SnapshotRow[]);
 const records = rows.map((r) => ({
   key: r.key,
   value: r.value,
@@ -37,10 +47,10 @@ const records = rows.map((r) => ({
 const verify = gzipSync(JSON.stringify(records));
 const adapter: SyncD1Database = {
   prepare(sql) {
-    let values: any[] = [];
+    let values: SQLQueryBindings[] = [];
     return {
       bind(...v: unknown[]) {
-        values = v;
+        values = v as SQLQueryBindings[];
         return this;
       },
       async first<T>() {
@@ -58,7 +68,7 @@ const adapter: SyncD1Database = {
 const routes = createSyncHonoRoutes({
   requireAuth: async (_c, next) => next(),
   getIdentity: (c) => ({
-    userId: owner,
+    userId: owner!, // Cleanup-only requests return before reaching the routes.
     deviceId: c.req.header("X-Device-ID"),
   }),
   getDatabase: () => adapter,
