@@ -1,5 +1,5 @@
 import { useDocumentTitle } from "../data/document-title";
-import { ActionTooltip, ToolButton } from "./ToolButton";
+import { ToolButton } from "./ToolButton";
 import {
   useCallback,
   useEffect,
@@ -26,6 +26,7 @@ import { WorkspaceList } from "./Workspaces";
 import { ui } from "../theme.stylex";
 import "./VaultWorkspace.css";
 import { visibleElement } from "../data/palette-focus";
+import { platform } from "../data/keys";
 import { openWelcome } from "../data/setup";
 const api = createApi(globalThis.fetch.bind(globalThis), "");
 const request = async (action: string, body: object = {}, signal?: AbortSignal) =>
@@ -310,7 +311,21 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
             setPickerOpen(false);
             setCommandsOpen((value) => !value);
           }
-        } else if (key === "b" && event.shiftKey && locationState.id) {
+        } else if (
+          key === "b" &&
+          locationState.id &&
+          // On macOS, unshifted Control+B in the editor stays Vim's page up.
+          !(
+            platform === "mac" &&
+            event.ctrlKey &&
+            !event.metaKey &&
+            !event.shiftKey &&
+            event
+              .composedPath()
+              .some((node) => node instanceof HTMLElement && node.classList.contains("cm-content"))
+          )
+        ) {
+          // ⌘B, as in reviews; ⌘⇧B, the files sidebar's shortcut there.
           event.preventDefault();
           event.stopImmediatePropagation();
           setSidebar((value) => !value);
@@ -403,8 +418,8 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
     },
     {
       id: "browse-files",
-      label: sidebar ? "Hide files sidebar" : "Show files sidebar",
-      shortcut: "⌘⇧B",
+      label: sidebar ? "Hide sidebar" : "Show sidebar",
+      shortcut: "⌘B",
       disabled: !locationState.id,
       run: () => setSidebar((value) => !value),
     },
@@ -490,6 +505,22 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
       },
     },
   ];
+  const identity = (
+    <div className="med-vault-identity">
+      <ToolButton
+        label={sidebar ? "Hide sidebar" : "Show sidebar"}
+        shortcut="⌘ B"
+        icon="panelLeft"
+        aria-label="Toggle sidebar"
+        aria-pressed={sidebar}
+        onClick={() => setSidebar((value) => !value)}
+      />
+      <span className="med-vault-name" title={source?.path}>
+        <Icon name="vault" size={14} />
+        <span>{source?.name ?? "Vault"}</span>
+      </span>
+    </div>
+  );
   const review = reviewMounted && (
     <div
       inert={locationState.visible}
@@ -541,9 +572,92 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
             </div>
           </main>
         ) : (
+          // The review's frame: workspaces and files on the left at the same
+          // width and height, so switching workspaces moves nothing.
           <div className="med-vault-layout">
+            {sidebar && (
+              <aside
+                className="med-vault-sidebar"
+                aria-label="Workspace files"
+                style={{ width: sidebarWidth }}
+              >
+                <div className="med-vault-sidebar-header">{identity}</div>
+                <WorkspaceList />
+                <RepositoryFiles
+                  key={locationState.id}
+                  label="Vault files"
+                  entries={entries}
+                  loading={false}
+                  error={null}
+                  truncated={false}
+                  sourceLabel={source?.name ?? "Vault"}
+                  selectedPath={locationState.file || null}
+                  onPreview={(path) => open(path, undefined, false)}
+                  onPin={(path) => open(path)}
+                  onRefresh={refreshFiles}
+                  onClose={() => setSidebar(false)}
+                />
+                {locationState.file && (
+                  <details className="med-vault-backlinks" open>
+                    <summary>
+                      Backlinks <span>{backlinks.length}</span>
+                    </summary>
+                    <section aria-label="Backlinks">
+                      {source?.index?.error && <p>{source.index.error}</p>}
+                      {backlinks.length === 0 && !source?.index?.error && (
+                        <p>No notes link here.</p>
+                      )}
+                      {backlinks.map((link, i) => (
+                        <button
+                          key={`${link.source}:${link.line}:${i}`}
+                          {...stylex.props(ui.button)}
+                          onClick={() => open(link.source, link.line)}
+                          title={link.source}
+                        >
+                          <Icon name="file" size={13} />
+                          <span>{link.source}</span>
+                          <small>:{link.line}</small>
+                        </button>
+                      ))}
+                    </section>
+                  </details>
+                )}
+              </aside>
+            )}
+            {sidebar && (
+              <div
+                className="med-vault-resizer"
+                role="separator"
+                aria-label="Resize sidebar"
+                aria-orientation="vertical"
+                aria-valuemin={220}
+                aria-valuemax={520}
+                aria-valuenow={sidebarWidth}
+                tabIndex={0}
+                onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
+                onPointerMove={(e) => {
+                  if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+                  const left = e.currentTarget.previousElementSibling?.getBoundingClientRect().left;
+                  setSidebarWidth(Math.max(220, Math.min(520, e.clientX - (left ?? 0))));
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                    e.preventDefault();
+                    setSidebarWidth((value) =>
+                      Math.max(220, Math.min(520, value + (e.key === "ArrowLeft" ? -16 : 16))),
+                    );
+                  }
+                }}
+              />
+            )}
             <main className="med-vault-main">
               <div className="med-vault-tabbar">
+                {!sidebar && (
+                  <>
+                    {identity}
+                    <span className="med-vault-divider" />
+                  </>
+                )}
                 <FileViewTabs
                   showChanges={false}
                   tabs={currentTabs.map((tab) => ({
@@ -562,19 +676,11 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
                   onClose={(id) => closeTabs([id])}
                 />
                 <div className="med-vault-actions">
-                  <ActionTooltip label="Toggle files sidebar" shortcut="⌘ ⇧ B">
-                    <button
-                      {...stylex.props(ui.button, ui.iconButton)}
-                      aria-label="Toggle files sidebar"
-                      onClick={() => setSidebar((value) => !value)}
-                    >
-                      <Icon name="panelLeft" size={14} style={{ transform: "scaleX(-1)" }} />
-                    </button>
-                  </ActionTooltip>
                   <ToolButton
-                    label="Open command palette"
+                    label="Commands"
                     shortcut="⌘ K"
-                    icon="command"
+                    icon="search"
+                    aria-label="Open command palette"
                     onClick={() => setCommandsOpen(true)}
                   />
                 </div>
@@ -636,83 +742,6 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
                 )}
               </div>
             </main>
-            {sidebar && (
-              <div
-                className="med-vault-resizer"
-                role="separator"
-                aria-label="Resize files sidebar"
-                aria-orientation="vertical"
-                aria-valuemin={200}
-                aria-valuemax={520}
-                aria-valuenow={sidebarWidth}
-                tabIndex={0}
-                onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
-                onPointerMove={(e) => {
-                  if (e.currentTarget.hasPointerCapture(e.pointerId))
-                    setSidebarWidth(
-                      Math.max(
-                        200,
-                        Math.min(
-                          520,
-                          e.currentTarget.parentElement!.getBoundingClientRect().right - e.clientX,
-                        ),
-                      ),
-                    );
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-                    e.preventDefault();
-                    setSidebarWidth((value) =>
-                      Math.max(200, Math.min(520, value + (e.key === "ArrowLeft" ? 16 : -16))),
-                    );
-                  }
-                }}
-              />
-            )}
-            <aside
-              className="med-vault-sidebar"
-              aria-label="Workspace files"
-              hidden={!sidebar}
-              style={{ width: sidebarWidth }}
-            >
-              <WorkspaceList />
-              <RepositoryFiles
-                key={locationState.id}
-                label="Vault files"
-                entries={entries}
-                loading={false}
-                error={null}
-                truncated={false}
-                sourceLabel={source?.name ?? "Vault"}
-                selectedPath={locationState.file || null}
-                onPreview={(path) => open(path, undefined, false)}
-                onPin={(path) => open(path)}
-                onRefresh={refreshFiles}
-                onClose={() => setSidebar(false)}
-              />
-              {locationState.file && (
-                <details className="med-vault-backlinks" open>
-                  <summary>
-                    Backlinks <span>{backlinks.length}</span>
-                  </summary>
-                  <section aria-label="Backlinks">
-                    {source?.index?.error && <p>{source.index.error}</p>}
-                    {backlinks.map((link, i) => (
-                      <button
-                        key={`${link.source}:${link.line}:${i}`}
-                        {...stylex.props(ui.button)}
-                        onClick={() => open(link.source, link.line)}
-                        title={link.source}
-                      >
-                        <Icon name="file" size={13} />
-                        <span>{link.source}</span>
-                        <small>:{link.line}</small>
-                      </button>
-                    ))}
-                  </section>
-                </details>
-              )}
-            </aside>
           </div>
         )}
         <CommandDialog open={commandsOpen} onOpenChange={setCommandsOpen} commands={commands} />

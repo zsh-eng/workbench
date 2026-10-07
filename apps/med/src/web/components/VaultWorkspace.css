@@ -3,7 +3,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--med-canvas);
+  background: var(--med-panel);
   color: var(--med-text);
   font:
     12px "Geist",
@@ -12,34 +12,94 @@
     "Segoe UI",
     sans-serif;
 }
+/* The review's frame: a 6px inset, a sidebar on the panel, and the file card. */
 .med-vault-layout {
   display: flex;
   flex: 1;
   min-height: 0;
+  padding: 6px 6px 6px;
 }
 .med-vault-sidebar {
   flex: none;
   display: flex;
   flex-direction: column;
+  min-width: 180px;
+  max-width: 45vw;
   min-height: 0;
-  background: var(--med-panel);
-}
-.med-vault-sidebar[hidden] {
-  display: none;
 }
 .med-vault-sidebar > aside {
   height: auto;
+  flex: 1;
+  min-height: 0;
 }
-.med-vault-resizer {
-  width: 4px;
+.med-vault-sidebar-header {
+  display: flex;
+  align-items: center;
   flex: none;
-  background: var(--med-border);
+  height: 38px;
+  padding: 0 8px 0 2px;
+}
+.med-vault-identity {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  flex: none;
+}
+.med-vault-tabbar > .med-vault-identity {
+  padding-left: 2px;
+}
+.med-vault-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 0 6px;
+  color: var(--med-text);
+  font-size: 13px;
+  font-weight: 500;
+}
+.med-vault-name svg {
+  flex: none;
+  color: var(--med-muted);
+}
+.med-vault-name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.med-vault-divider {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  margin: 0 6px;
+  align-self: center;
+  background: color-mix(in srgb, var(--med-text) 14%, transparent);
+}
+/* A hairline that shows on hover, like the review's sidebar divider. */
+.med-vault-resizer {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  flex: none;
+  width: 6px;
   cursor: col-resize;
+  outline: none;
   touch-action: none;
 }
-.med-vault-resizer:hover,
-.med-vault-resizer:focus-visible {
-  background: var(--med-accent);
+.med-vault-resizer::after {
+  content: "";
+  width: 2px;
+  height: 100%;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--med-accent) 55%, transparent);
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.med-vault-resizer:hover::after,
+.med-vault-resizer:focus-visible::after,
+.med-vault-resizer:active::after {
+  opacity: 1;
 }
 .med-vault-main {
   flex: 1;
@@ -47,20 +107,31 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  background: var(--med-canvas);
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--med-text) 8%, transparent),
+    0 1px 3px #0000000f;
 }
 .med-vault-tabbar {
   display: flex;
+  align-items: center;
   flex: none;
   min-width: 0;
-  background: var(--med-panel);
+  height: 38px;
+  border-bottom: 1px solid color-mix(in srgb, var(--med-text) 8%, transparent);
 }
-.med-vault-tabbar > :first-child {
+.med-vault-tabbar > [role="tablist"],
+.med-vault-tabbar > :not(.med-vault-identity, .med-vault-divider, .med-vault-actions) {
   flex: 1;
+  min-width: 0;
 }
 .med-vault-actions {
   display: flex;
   align-items: center;
-  border-bottom: 1px solid var(--med-border);
+  flex: none;
+  padding-right: 4px;
 }
 .med-vault-surface {
   flex: 1;
@@ -71,22 +142,37 @@
 }
 .med-vault-backlinks {
   flex: none;
-  max-height: 28%;
+  max-height: 32%;
   overflow: auto;
-  border-top: 1px solid var(--med-border);
+  border-top: 1px solid color-mix(in srgb, var(--med-text) 8%, transparent);
 }
 .med-vault-backlinks summary {
-  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 34px;
+  padding: 0 14px;
+  list-style: none;
   cursor: pointer;
   color: var(--med-muted);
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.med-vault-backlinks summary::-webkit-details-marker {
+  display: none;
 }
 .med-vault-backlinks summary span {
-  margin-left: 8px;
   color: var(--med-faint);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
 }
 .med-vault-backlinks section {
-  padding: 0 7px 8px;
+  padding: 0 6px 8px;
+}
+.med-vault-backlinks p {
+  margin: 0;
+  padding: 2px 8px 6px;
+  color: var(--med-faint);
 }
 .med-vault-backlinks button {
   width: 100%;

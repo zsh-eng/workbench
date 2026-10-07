@@ -23,11 +23,12 @@ and `stop` do not. The default port is 4173; an occupied port is an error. Use t
 same `--port` and `--state-dir` on each command for a separate setup. The default
 state directory is `~/.local/state/med`, or `MED_STATE_DIR`. Keep it outside vaults.
 
-Open a vault from the Sources page. The right file tree and top file tabs use the
-same controls as repository browsing. Click to preview; double-click to keep a
+Open a vault from the Sources page. The left sidebar has the same place and width
+as a review's: workspaces at the top, then the file tree and backlinks. The file
+tree and top file tabs use the same controls as repository browsing. Click to preview; double-click to keep a
 tab open. Edited files stay open, and dirty tabs cannot be closed without saving
 or discarding. **Cmd+K** opens the normal command palette; **Cmd+Shift+K** finds a
-file with a preview. **Cmd+Shift+B** toggles the sidebar. Use Ctrl instead of Cmd
+file with a preview. **Cmd+B** or **Cmd+Shift+B** toggles the sidebar. Use Ctrl instead of Cmd
 on Windows/Linux. Follow wiki or Markdown links, and use the collapsible backlinks
 below the file tree. **Preview** shows
 rendered Markdown with image embeds. The normal Vim editor, explicit save,

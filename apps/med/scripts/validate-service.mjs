@@ -149,12 +149,13 @@ try {
     .getByRole("complementary", { name: "Workspace files", exact: true })
     .boundingBox();
   const mainBox = await page.locator(".med-vault-main").boundingBox();
-  assert.ok(mainBox.x + mainBox.width <= sidebarBox.x + 1, "Vault files stay on the right");
-  const resizer = page.getByRole("separator", { name: "Resize files sidebar", exact: true });
+  // Workspaces and files keep the review sidebar's place on the left.
+  assert.ok(sidebarBox.x + sidebarBox.width <= mainBox.x + 1, "Vault files stay on the left");
+  const resizer = page.getByRole("separator", { name: "Resize sidebar", exact: true });
   await resizer.focus();
-  await page.keyboard.press("ArrowLeft");
-  assert.equal(Number(await resizer.getAttribute("aria-valuenow")), sidebarBox.width + 16);
   await page.keyboard.press("ArrowRight");
+  assert.equal(Number(await resizer.getAttribute("aria-valuenow")), sidebarBox.width + 16);
+  await page.keyboard.press("ArrowLeft");
   assert.equal(Number(await resizer.getAttribute("aria-valuenow")), sidebarBox.width);
   await tree.getByRole("treeitem", { name: "Nested.md", exact: true }).click();
   await page.getByRole("tab", { name: "Nested.md", exact: true }).waitFor();
@@ -223,6 +224,10 @@ try {
   );
   await page.getByRole("img", { name: "Saved", exact: true }).waitFor();
   await page.getByRole("button", { name: "Close Notes/Nested.md", exact: true }).click();
+  await page.keyboard.press("Meta+b");
+  assert.equal(await tree.isVisible(), false);
+  await page.getByRole("button", { name: "Toggle sidebar", exact: true }).click();
+  await tree.waitFor();
   await page.keyboard.press("Meta+Shift+b");
   assert.equal(await tree.isVisible(), false);
   await page.keyboard.press("Meta+Shift+b");
