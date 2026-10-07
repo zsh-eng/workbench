@@ -14,7 +14,7 @@ import { createApi } from "../data/api";
 import { z } from "zod";
 import { localReadSchema, type LocalRead } from "../../shared/local-file";
 import type { BrowseEntry } from "../../shared/browse";
-import { FullFileView } from "./FullFileView";
+import { FullFileView, preloadFileEditor } from "./FullFileView";
 import { FileViewTabs } from "./FileViewTabs";
 import { RepositoryFiles } from "./RepositoryFiles";
 import { FilePicker } from "./FilePicker";
@@ -53,6 +53,13 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
   const [locationState, setLocationState] = useState(route);
   const [reviewMounted, setReviewMounted] = useState(() => !route().visible);
   if (!locationState.visible && !reviewMounted) setReviewMounted(true);
+  // Notes open in the editor; load it while the vault is idle.
+  const vaultShown = Boolean(locationState.id);
+  useEffect(() => {
+    if (!vaultShown) return;
+    const timer = setTimeout(preloadFileEditor, 200);
+    return () => clearTimeout(timer);
+  }, [vaultShown]);
   const [sources, setSources] = useState<Source[]>([]);
   const [home, setHome] = useState<string>();
   const [sourcesLoaded, setSourcesLoaded] = useState(false);

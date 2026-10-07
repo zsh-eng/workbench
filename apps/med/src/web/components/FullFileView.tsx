@@ -24,6 +24,7 @@ import {
 } from "react";
 import { createMarkdownModel, type MarkdownModel } from "../markdown/model";
 import "./MarkdownPreview.css";
+import { preloadable } from "./preloadable";
 import { createEditorDrafts, type EditorDrafts } from "../data/editor-drafts";
 import { isBrowseFile, type FileRead as BrowseRead, type FileWrite } from "../../shared/local-file";
 import type { BlameLoader } from "../data/blame";
@@ -759,7 +760,9 @@ const styles = stylex.create({
 });
 
 const MarkdownPreview = lazy(() => import("./MarkdownPreview"));
-const EditableFile = lazy(() => import("./FileEditor"));
+const EditableFile = preloadable(() => import("./FileEditor"));
+/** Loads the editor early, such as once a vault opens, so its first note opens at once. */
+export const preloadFileEditor = EditableFile.preload;
 const noDrafts = createEditorDrafts();
 export function FullFileView(props: FullFileViewProps) {
   const store = props.editor?.drafts ?? noDrafts;
