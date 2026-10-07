@@ -51,7 +51,7 @@ test("comment keyboard save retains failed text and blocks repeated submission",
     />,
   );
   await expect
-    .element(page.getByText("Local comment on lines R1557 to R1560", { exact: true }))
+    .element(page.getByRole("form", { name: "Local comment on lines R1557 to R1560", exact: true }))
     .toBeVisible();
   await page.getByRole("textbox", { name: "Review note text" }).fill("Keep this feedback");
   await page.getByRole("button", { name: "Save note" }).click();

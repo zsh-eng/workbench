@@ -2,7 +2,9 @@ import { ShortcutKeys } from "./ShortcutKeys";
 import * as stylex from "@stylexjs/stylex";
 import { useEffect, useRef, useState } from "react";
 import type { Note, NoteInput, NoteMutation } from "../../shared/protocol";
+import { relativeTime } from "../data/relative-time";
 import { tokens, ui } from "../theme.stylex";
+import { Icon } from "./Icon";
 
 export interface NoteTarget {
   path: string;
@@ -18,23 +20,28 @@ function lineLabel(target: NoteTarget) {
     : `line ${side}${target.line}`;
 }
 
-function CommentHeading({ target, reply = false }: { target: NoteTarget; reply?: boolean }) {
+function Timestamp({ note }: { note: Note }) {
+  const created = Date.parse(note.createdAt);
+  if (Number.isNaN(created)) return null;
+  const edited = Date.parse(note.updatedAt) - created > 1000;
   return (
-    <div {...stylex.props(styles.heading)}>
-      <span aria-hidden="true" {...stylex.props(styles.avatar)}>
-        Y
-      </span>
-      <span>You</span>
-      <span {...stylex.props(ui.grow)} />
-      <span {...stylex.props(styles.location)}>
-        {reply ? "Reply" : `Local comment on ${lineLabel(target)}`}
-      </span>
-    </div>
+    <time
+      dateTime={note.createdAt}
+      title={new Date(created).toLocaleString(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      })}
+      {...stylex.props(styles.meta)}
+    >
+      {relativeTime(created, Date.now())}
+      {edited && " · edited"}
+    </time>
   );
 }
 
 function CommentEditor({
   label,
+  formLabel,
   initialText = "",
   initialError = "",
   closeOnSave = true,
@@ -43,6 +50,7 @@ function CommentEditor({
   onCancel,
 }: {
   label: string;
+  formLabel?: string;
   initialText?: string;
   initialError?: string;
   closeOnSave?: boolean;
@@ -76,6 +84,7 @@ function CommentEditor({
   };
   return (
     <form
+      aria-label={formLabel}
       onSubmit={(event) => {
         event.preventDefault();
         void submit();
@@ -91,7 +100,7 @@ function CommentEditor({
           readOnly={saving}
           rows={1}
           aria-label={label}
-          placeholder={label === "Reply text" ? "Write a reply…" : "Leave a comment…"}
+          placeholder={label === "Reply text" ? "Reply…" : "Add a comment…"}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
             if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
@@ -114,7 +123,9 @@ function CommentEditor({
         </p>
       )}
       <div {...stylex.props(styles.actions)}>
-        <ShortcutKeys value={/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘ ↵" : "Ctrl ↵"} />
+        <span {...stylex.props(styles.hint)}>
+          <ShortcutKeys value={/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘ ↵" : "Ctrl ↵"} />
+        </span>
         <span {...stylex.props(ui.grow)} />
         <button
           type="button"
@@ -159,9 +170,9 @@ export function NoteComposer({
 }) {
   return (
     <div data-comment-card {...stylex.props(styles.card, !!parentId && styles.embedded)}>
-      <CommentHeading target={target} reply={!!parentId} />
       <CommentEditor
         label={parentId ? "Reply text" : "Review note text"}
+        formLabel={parentId ? "Reply" : `Local comment on ${lineLabel(target)}`}
         submitLabel={parentId ? "Reply" : "Save note"}
         initialText={initialText}
         initialError={initialError}
@@ -202,8 +213,7 @@ function ThreadMessage({
     }
   };
   return (
-    <div {...stylex.props(reply && styles.reply)}>
-      <CommentHeading target={note} reply={reply} />
+    <div {...stylex.props(reply && styles.reply, stylex.defaultMarker())}>
       {note.resolution && note.resolution !== "active" && (
         <p {...stylex.props(styles.stale)}>
           {note.resolution === "orphaned"
@@ -241,36 +251,43 @@ function ThreadMessage({
         <>
           <p {...stylex.props(styles.content)}>{note.text}</p>
           <div {...stylex.props(styles.actions)}>
+            <Timestamp note={note} />
             <span {...stylex.props(ui.grow)} />
-            {onReply && (
+            <span {...stylex.props(styles.tools)}>
+              {onReply && (
+                <button
+                  type="button"
+                  title="Reply"
+                  {...stylex.props(ui.button, ui.iconButton, styles.tool)}
+                  aria-label="Reply"
+                  onClick={onReply}
+                >
+                  <Icon name="reply" size={14} />
+                </button>
+              )}
               <button
                 type="button"
-                {...stylex.props(ui.button, ui.pressable, styles.smallButton)}
-                onClick={onReply}
+                title="Edit"
+                {...stylex.props(ui.button, ui.iconButton, styles.tool)}
+                aria-label={reply ? "Edit reply" : "Edit"}
+                onClick={() => {
+                  editSession.current++;
+                  setEditText(note.text);
+                  setEditing(true);
+                }}
               >
-                Reply
+                <Icon name="edit" size={14} />
               </button>
-            )}
-            <button
-              type="button"
-              {...stylex.props(ui.button, ui.pressable, styles.smallButton)}
-              aria-label={reply ? "Edit reply" : "Edit"}
-              onClick={() => {
-                editSession.current++;
-                setEditText(note.text);
-                setEditing(true);
-              }}
-            >
-              Edit
-            </button>
-            <button
-              type="button"
-              {...stylex.props(ui.button, ui.pressable, styles.smallButton)}
-              aria-label={reply ? "Delete reply" : "Delete review note"}
-              onClick={() => void remove()}
-            >
-              Delete
-            </button>
+              <button
+                type="button"
+                title="Delete"
+                {...stylex.props(ui.button, ui.iconButton, styles.tool, styles.danger)}
+                aria-label={reply ? "Delete reply" : "Delete review note"}
+                onClick={() => void remove()}
+              >
+                <Icon name="trash" size={14} />
+              </button>
+            </span>
           </div>
         </>
       )}
@@ -352,16 +369,20 @@ export function NoteCard({
 }
 
 const styles = stylex.create({
+  // A quiet card: the text leads, the time is faint, and the actions show on
+  // hover or keyboard focus.
   card: {
     boxSizing: "border-box",
-    marginBlock: 8,
+    marginBlock: 6,
     marginInline: 10,
-    maxWidth: 760,
-    padding: 16,
+    maxWidth: 600,
+    paddingBlock: 10,
+    paddingInline: 12,
+    paddingBottom: 6,
     borderWidth: 1,
     borderStyle: "solid",
-    borderColor: { default: tokens.border, ":focus-within": tokens.muted },
-    borderRadius: 12,
+    borderColor: { default: tokens.line, ":focus-within": tokens.lineStrong },
+    borderRadius: 10,
     color: tokens.text,
     backgroundColor: tokens.panel,
     fontFamily: tokens.ui,
@@ -372,48 +393,28 @@ const styles = stylex.create({
     borderTopWidth: 1,
     borderRadius: 0,
     margin: 0,
-    marginTop: 12,
+    marginTop: 6,
     paddingInline: 0,
+    paddingTop: 10,
     paddingBottom: 0,
+    backgroundColor: "transparent",
   },
-  heading: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    minHeight: 28,
-    color: tokens.muted,
-  },
-  avatar: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    width: 28,
-    height: 28,
-    flexShrink: 0,
-    borderRadius: "50%",
-    color: tokens.canvas,
-    backgroundColor: tokens.muted,
-    fontSize: 11,
-  },
-  location: { color: tokens.muted, fontSize: 12, textAlign: "right" },
   // Use identical text geometry for drafts, edits, and saved comments.
   content: {
     boxSizing: "border-box",
     minWidth: 0,
     width: "100%",
-    minHeight: 76,
     margin: 0,
-    paddingBlock: 14,
-    paddingInline: 0,
+    padding: 0,
     whiteSpace: "pre-wrap",
     overflowWrap: "anywhere",
     fontFamily: tokens.ui,
     fontSize: 13,
     fontWeight: 400,
-    lineHeight: "22px",
+    lineHeight: "20px",
     letterSpacing: "normal",
   },
-  editorBody: { display: "grid" },
+  editorBody: { display: "grid", minHeight: 40 },
   mirror: { gridRowStart: 1, gridColumnStart: 1, visibility: "hidden", pointerEvents: "none" },
   textarea: {
     gridRowStart: 1,
@@ -426,28 +427,44 @@ const styles = stylex.create({
     backgroundColor: "transparent",
     color: tokens.text,
     outline: "none",
+    "::placeholder": { color: tokens.faint },
   },
-  actions: { display: "flex", alignItems: "center", gap: 6, minHeight: 30 },
-  hint: { fontSize: 10, color: tokens.faint },
-  smallButton: { minHeight: 30, paddingBlock: 3, fontSize: 12 },
+  actions: { display: "flex", alignItems: "center", gap: 4, minHeight: 28, marginTop: 4 },
+  meta: { color: tokens.faint, fontSize: 11, whiteSpace: "nowrap" },
+  hint: { opacity: 0.7 },
+  tools: {
+    display: "inline-flex",
+    gap: 2,
+    marginInlineEnd: -6,
+    opacity: {
+      default: 0,
+      [stylex.when.ancestor(":hover")]: 1,
+      [stylex.when.ancestor(":focus-within")]: 1,
+    },
+    transitionProperty: "opacity",
+    transitionDuration: { default: "120ms", "@media (prefers-reduced-motion: reduce)": "0ms" },
+  },
+  tool: { width: 26, minWidth: 26, minHeight: 26, color: tokens.faint },
+  danger: { color: { default: tokens.faint, ":hover": tokens.red } },
+  smallButton: { minHeight: 26, paddingBlock: 2, fontSize: 12 },
   submit: {
-    minHeight: 30,
-    paddingBlock: 3,
-    paddingInline: 14,
-    borderRadius: 9,
+    minHeight: 26,
+    paddingBlock: 2,
+    paddingInline: 10,
+    borderRadius: 7,
     fontSize: 12,
-    fontWeight: 600,
+    fontWeight: 550,
     color: tokens.canvas,
     backgroundColor: tokens.text,
-    opacity: { default: 1, ":hover": 0.85, ":disabled": 0.45 },
+    opacity: { default: 1, ":hover": 0.85, ":disabled": 0.35 },
   },
   reply: {
-    marginTop: 12,
-    paddingTop: 16,
+    marginTop: 6,
+    paddingTop: 10,
     borderTopWidth: 1,
     borderTopStyle: "solid",
-    borderTopColor: tokens.border,
+    borderTopColor: tokens.line,
   },
-  stale: { color: tokens.warning, fontSize: 11, lineHeight: 1.6, marginBlock: 5 },
+  stale: { color: tokens.warning, fontSize: 11, lineHeight: 1.6, marginTop: 0, marginBottom: 6 },
   error: { color: tokens.red, fontSize: 11, marginBlock: 5 },
 });

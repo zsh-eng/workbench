@@ -938,7 +938,9 @@ describe("graphical review", () => {
       .toBeVisible();
     await number("2").click();
     await expect.element(page.getByRole("textbox", { name: "Review note text" })).toHaveValue("");
-    await expect.element(page.getByText("Local comment on line R2", { exact: true })).toBeVisible();
+    await expect
+      .element(page.getByRole("form", { name: "Local comment on line R2", exact: true }))
+      .toBeVisible();
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect
       .element(page.getByRole("button", { name: "Clear line selection" }))
