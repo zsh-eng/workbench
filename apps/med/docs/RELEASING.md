@@ -10,11 +10,11 @@ From `apps/med`:
 
 ```sh
 bun scripts/release-macos.ts /tmp/med-release
-MED_EXECUTABLE=/tmp/med-release/med-v0.1.5-macos-arm64/med node scripts/validate-editor-interactions.mjs
-MED_EXECUTABLE=/tmp/med-release/med-v0.1.5-macos-arm64/med node scripts/validate-media.mjs
-MED_EXECUTABLE=/tmp/med-release/med-v0.1.5-macos-arm64/med node scripts/validate-service.mjs
-MED_EXECUTABLE=/tmp/med-release/med-v0.1.5-macos-arm64/med node scripts/validate-markdown-links.mjs
-MED_EXECUTABLE=/tmp/med-release/med-v0.1.5-macos-arm64/med node scripts/validate-review-links.mjs
+MED_EXECUTABLE=/tmp/med-release/med-v0.1.6-macos-arm64/med node scripts/validate-editor-interactions.mjs
+MED_EXECUTABLE=/tmp/med-release/med-v0.1.6-macos-arm64/med node scripts/validate-media.mjs
+MED_EXECUTABLE=/tmp/med-release/med-v0.1.6-macos-arm64/med node scripts/validate-service.mjs
+MED_EXECUTABLE=/tmp/med-release/med-v0.1.6-macos-arm64/med node scripts/validate-markdown-links.mjs
+MED_EXECUTABLE=/tmp/med-release/med-v0.1.6-macos-arm64/med node scripts/validate-review-links.mjs
 ```
 
 The script checks types, builds the UI, compiles the executable, checks its
@@ -29,7 +29,7 @@ Inspect the archive and `BUILD.json`. Verify `codesign --verify med` and the
 minimum macOS version with `otool -l med`. The script replaces Bun's linker signature
 after compilation with a verified ad-hoc signature. It is not Developer ID signed or notarized. Do not describe it as such.
 
-Publish only when authorized. Use Med-specific tags (`med-v0.1.5`) because this
+Publish only when authorized. Use Med-specific tags (`med-v0.1.6`) because this
 repository also releases other apps. Tag the exact `BUILD.json` commit, push the
 tag without force, and attach the tarball and `SHA256SUMS` to a GitHub release.
 Set `--latest=false` so a Med release does not replace another app's latest marker.
