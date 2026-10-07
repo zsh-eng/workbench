@@ -247,6 +247,13 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
   let historyGeneration = 0;
   let historyCursor: string | null = null;
   let reviewAbort: AbortController | undefined;
+  // A saved review's first diff loads and parses while the repository checks run.
+  let prefetched: {
+    reviewId: string;
+    targetId: string;
+    abort: AbortController;
+    work: ReturnType<typeof fetchSavedTarget>;
+  } | null = null;
   let sessionAbort: AbortController | undefined;
   let historyAbort: AbortController | undefined;
   let eventAbort: AbortController | undefined;
@@ -972,9 +979,32 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     }
   }
 
+  async function fetchSavedTarget(reviewId: string, targetId: string, signal: AbortSignal) {
+    const start = performance.now();
+    const response = await api.json(
+      `/api/reviews/${encodeURIComponent(reviewId)}/targets/${encodeURIComponent(targetId)}/review`,
+      reviewSchema,
+      { signal },
+    );
+    const parseStart = performance.now();
+    const parsed = await parse(response.patch);
+    return {
+      response,
+      parsed,
+      requestMs: parseStart - start,
+      parseMs: performance.now() - parseStart,
+    };
+  }
+
   async function loadSavedTarget(target: SavedReviewTarget): Promise<void> {
     const saved = snapshot.savedReview;
     if (!saved || disposed) return;
+    const early =
+      prefetched?.reviewId === saved.id && prefetched.targetId === target.id
+        ? prefetched.work
+        : undefined;
+    if (!early) prefetched?.abort.abort();
+    prefetched = null;
     const generation = ++reviewGeneration;
     reviewAbort?.abort();
     reviewAbort = new AbortController();
@@ -986,13 +1016,12 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       status: "loading",
       error: null,
     });
-    const start = performance.now();
     try {
-      const response = await api.json(
-        `/api/reviews/${encodeURIComponent(saved.id)}/targets/${encodeURIComponent(target.id)}/review`,
-        reviewSchema,
-        { signal: reviewAbort.signal },
-      );
+      // A prefetch that failed, such as before its repository was added, is retried.
+      const signal = reviewAbort.signal;
+      const { response, parsed, requestMs, parseMs } = await (early?.catch(() =>
+        fetchSavedTarget(saved.id, target.id, signal),
+      ) ?? fetchSavedTarget(saved.id, target.id, signal));
       if (!isCurrent(generation)) return;
       if (
         response.repo !== target.repo ||
@@ -1001,13 +1030,10 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         comparisonKey(response.comparison) !== comparisonKey(target.comparison)
       )
         throw new Error("The saved comparison does not match this review target.");
-      const parseStart = performance.now();
-      const parsed = await parse(response.patch);
-      if (!isCurrent(generation)) return;
       const { files, document } = projectResponse(response, parsed);
       publishReview({ response, files, document }, generation, {
-        requestMs: parseStart - start,
-        parseMs: performance.now() - parseStart,
+        requestMs,
+        parseMs,
         cacheHit: false,
       });
     } catch (error) {
@@ -1411,11 +1437,17 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         );
         if (disposed) return;
         update({ savedReview });
+        const first = currentTargets(savedReview)[0] ?? savedReview.targets[0];
+        if (first) {
+          const abort = new AbortController();
+          const work = fetchSavedTarget(savedReview.id, first.id, abort.signal);
+          work.catch(() => {});
+          prefetched = { reviewId: savedReview.id, targetId: first.id, abort, work };
+        }
         const result = await api.json("/api/repositories", repositoriesSchema);
         if (disposed) return;
         hasRepositoryCatalogue = true;
         update({ repositories: result.repositories });
-        const first = currentTargets(savedReview)[0] ?? savedReview.targets[0];
         if (!first) throw new Error("This review has no targets.");
         await selectSavedTarget(first.id);
       } catch (error) {
@@ -1593,6 +1625,8 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     },
     dispose() {
       disposed = true;
+      prefetched?.abort.abort();
+      prefetched = null;
       if (typeof window !== "undefined") {
         window.removeEventListener("focus", refreshSavedOnFocus);
         document.removeEventListener("visibilitychange", refreshSavedOnVisibility);
