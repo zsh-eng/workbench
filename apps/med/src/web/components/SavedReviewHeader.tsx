@@ -35,6 +35,7 @@ export function SavedReviewHeader({
     iterations.find((iteration) => iteration.targetIds.includes(id))?.number;
   const option = (entry: (typeof saved.targets)[number]) => (
     <option key={entry.id} value={entry.id}>
+      {iterations.length > 1 && iterationOf(entry.id) ? `#${iterationOf(entry.id)} · ` : ""}
       {entry.repo.split(/[\\/]/).at(-1)} · {entry.branch ?? "detached"} · {entry.label}
     </option>
   );
