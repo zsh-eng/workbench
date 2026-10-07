@@ -379,10 +379,6 @@ export function HistoryPanel({
   );
 }
 
-const summaryEnter = stylex.keyframes({
-  from: { opacity: 0, transform: "translateY(3px)" },
-  to: { opacity: 1, transform: "none" },
-});
 const styles = stylex.create({
   time: { flexShrink: 0, whiteSpace: "nowrap" },
   tooltipPositioner: { zIndex: 100 },
@@ -412,9 +408,6 @@ const styles = stylex.create({
     flexShrink: 0,
     minHeight: 140,
     height: "43%",
-    transitionProperty: "height, min-height",
-    transitionDuration: { default: "280ms", "@media (prefers-reduced-motion: reduce)": "0s" },
-    transitionTimingFunction: tokens.easeInOut,
   },
   collapsed: { height: 36, minHeight: 36 },
   body: {
@@ -423,10 +416,8 @@ const styles = stylex.create({
     flex: "1",
     minHeight: 0,
     overflow: "hidden",
-    transitionProperty: "opacity",
-    transitionDuration: { default: "180ms", "@media (prefers-reduced-motion: reduce)": "0s" },
-    transitionTimingFunction: tokens.easeOut,
   },
+  // Folding is immediate, like the sidebars.
   bodyHidden: { opacity: 0 },
   heading: {
     display: "flex",
@@ -470,9 +461,8 @@ const styles = stylex.create({
       [stylex.when.ancestor(":focus-visible")]: 1,
     },
     transform: "none",
-    transitionProperty: "opacity, transform",
-    transitionDuration: { default: "200ms", "@media (prefers-reduced-motion: reduce)": "0s" },
-    transitionTimingFunction: tokens.easeOut,
+    transitionProperty: "opacity",
+    transitionDuration: { default: "120ms", "@media (prefers-reduced-motion: reduce)": "0s" },
   },
   chevronClosed: {
     opacity: {
@@ -488,9 +478,6 @@ const styles = stylex.create({
     justifyContent: "flex-end",
     gap: 8,
     minWidth: 0,
-    animationName: { default: summaryEnter, "@media (prefers-reduced-motion: reduce)": "none" },
-    animationDuration: "240ms",
-    animationTimingFunction: tokens.easeOut,
   },
   summaryText: {
     minWidth: 0,
