@@ -371,6 +371,33 @@ line background must remain translucent. Default yanks mirror Vim register 0 to
 the clipboard in the input task; named registers are left unchanged.
 
 
+### First-run setup
+
+`main.tsx` asks a managed server for its setup status before the first render on
+`/` or `/sources`. With nothing registered, the address becomes `/welcome` and
+`Root` shows the welcome in place of the app; leaving it starts the app. A browser
+that finds sources records `med:welcomed` and skips the check later. A foreground
+server has no setup actions, so the check fails quietly.
+
+The welcome (`components/welcome/`) loads lazily with three.js. One canvas covers
+the window. Each step names a pose for the Med tile and gives an anchor element;
+the scene fits the pose's bounds into the anchor's box and springs every tile
+and bar to its place, so the layout stays in CSS. Without WebGL, the anchor shows
+the app icon. Reduced motion stops the float and makes each change immediate.
+
+The service adds three actions. `setup` returns the registered sources, the
+login item, and the shell command and options that reach this server, for the
+agent prompt; the page polls it, so an agent's `med add` appears live. `discover`
+searches the home folder breadth first to depth 4, at most 40,000 folders and
+six seconds. It reads folder names and Git metadata only, skips hidden,
+dependency, and build folders, does not follow links, and leaves out linked
+worktrees and submodules. Desktop, Documents, and Downloads need `deep`,
+because macOS asks permission for them. Obsidian's own vault list adds vaults
+outside the search. `login` writes or removes the LaunchAgent plist only; launchd
+loads it at the next login, so the running server is not replaced.
+`med service install` still bootstraps the agent at once. `MED_HOME_DIR` points
+the search and the login item at a fixture home in tests.
+
 ## Media viewing
 
 File reads classify supported media from its extension after source/path checks.

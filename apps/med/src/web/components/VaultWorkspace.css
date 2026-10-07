@@ -139,3 +139,8 @@
 .med-vault-sources p {
   color: var(--med-muted);
 }
+.med-vault-sources-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}

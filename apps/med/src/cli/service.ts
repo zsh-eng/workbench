@@ -118,6 +118,7 @@ export async function serve(stateDir: string, port: number) {
       stateDir,
       service: manager,
     });
+    manager.port = host.port;
     let closing = false;
     const close = (next?: () => Promise<unknown>) => {
       if (closing) return;

@@ -145,7 +145,10 @@ const reviewPath = (pathname: string) => /^\/review\/([^/]+)\/?$/.exec(pathname)
 const vaultPath = (pathname: string) => /^\/vault\/([^/]+)/.exec(pathname)?.[1];
 /** Addresses that cover the workspaces without choosing one. */
 export const overlayAddress = (pathname: string) =>
-  pathname === "/sources" || pathname === "/files" || pathname === "/file";
+  pathname === "/sources" ||
+  pathname === "/welcome" ||
+  pathname === "/files" ||
+  pathname === "/file";
 
 /** The workspace's address. A saved review keeps its link; branches use "/". */
 export const workspaceUrl = (workspace: Workspace) =>

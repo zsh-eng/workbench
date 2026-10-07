@@ -31,7 +31,9 @@ med add /path/to/obsidian-vault
 med web
 ```
 
-`med web` starts one local background server and opens your browser. Use
+`med web` starts one local background server and opens your browser. With
+nothing registered, it opens Med's welcome, which finds your repositories and
+Obsidian vaults and can open Med at login. Use
 `med status` to inspect it and `med stop` to stop it. Closing the browser does
 not stop the server. Registration and saved reviews persist in
 `~/.local/state/med`; the default address is `http://127.0.0.1:4173`.

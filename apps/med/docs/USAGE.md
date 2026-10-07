@@ -29,13 +29,35 @@ or browser does not stop it. Use `med status` and `med stop`. Sources persist in
 `~/.local/state/med`; the default port is **4173**. Use matching `--port` and
 `--state-dir` options for another profile. Med does not silently choose another
 port. `med serve` runs in the foreground. Optional macOS login startup requires
-an explicit `med service install`.
+an explicit choice: **Open at login** in setup, `med service login on`, or
+`med service install`.
 
 After a rebuild, an open page tells you when Med is out of date. **Restart**
 replaces a server that runs older code; **Reload** loads a newer page. Med first
 checks that the new build starts. If it does not, the current server keeps
 running and the notice shows the error. A server started with `med serve` or
 `med-diff` in a terminal asks you to restart it there.
+
+### First run
+
+When `med web` opens a server with nothing registered, Med shows a welcome: a
+short tour, then one setup page. Use `→` and `←` or the bar at the bottom to move;
+**Skip to setup** goes straight to the setup page.
+
+- **Repositories** and **Obsidian vaults** list what Med finds in your home
+  folder, most recently used first. Ones used in the last three weeks (vaults:
+  two months) start selected. Linked worktrees, dependency folders, and hidden
+  folders are left out. Desktop, Documents, and Downloads are searched only when
+  you choose **Search them too**, because macOS asks permission first.
+- **Another folder** adds any repository or vault by path.
+- **Open at login** starts Med in the background when you log in. It takes
+  effect at the next login and leaves the running server as it is.
+- **Copy prompt** gives an agent the same setup to do with Med's CLI. The page
+  shows each source as the agent adds it.
+
+Open the welcome again with **Set up Med…** on the Sources page or in its command
+palette. Setup reads folder names and Git metadata only; it does not read or
+change your files.
 
 ### Install as an app
 

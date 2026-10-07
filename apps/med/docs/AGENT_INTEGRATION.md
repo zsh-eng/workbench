@@ -16,6 +16,13 @@ med web
 Use `node /path/to/workbench/apps/med/dist/cli.js` in place of `med` for a built
 checkout. See `med docs vaults` for executable build and service setup.
 
+Med's welcome can copy a setup prompt for an agent. It names the exact command
+and options for that server. The agent finds the repositories and Obsidian
+vaults that the user works in, asks which to add, and runs `med add <path>` for
+each. `med service login on` opens Med at the next login without restarting the
+running server; `med service login off` removes it. The welcome page shows each
+source as it is added.
+
 The default address is `http://127.0.0.1:4173`. An occupied port produces an error; med does not silently change the address. Use `--port` to choose another port. Keep the host running while using review links.
 
 Open the launch URL once in the browser where you will review changes. med exchanges its token for a browser cookie and removes the token from the address. Links such as `http://127.0.0.1:4173/review/r_…` then work in new tabs in that browser. A different browser must open the launch URL once too. Do not put launch tokens in agent instructions or review links.

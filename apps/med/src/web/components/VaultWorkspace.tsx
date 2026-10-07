@@ -26,6 +26,7 @@ import { WorkspaceList } from "./Workspaces";
 import { ui } from "../theme.stylex";
 import "./VaultWorkspace.css";
 import { visibleElement } from "../data/palette-focus";
+import { openWelcome } from "../data/setup";
 const api = createApi(globalThis.fetch.bind(globalThis), "");
 const request = async (action: string, body: object = {}, signal?: AbortSignal) =>
   api.json(`/api/service/${action}`, z.any(), {
@@ -473,6 +474,7 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
       run: refreshFiles,
     },
     { id: "sources", label: "Open registered sources", run: () => navigate("/sources") },
+    { id: "welcome", label: "Set up Med…", run: openWelcome },
     {
       id: "repositories",
       label: "Go to repositories",
@@ -529,9 +531,14 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
                 <small>{s.path}</small>
               </a>
             ))}
-            <button {...stylex.props(ui.button)} onClick={() => setCommandsOpen(true)}>
-              Commands <span>⌘K</span>
-            </button>
+            <div className="med-vault-sources-actions">
+              <button {...stylex.props(ui.button, ui.outlined)} onClick={openWelcome}>
+                Set up Med…
+              </button>
+              <button {...stylex.props(ui.button)} onClick={() => setCommandsOpen(true)}>
+                Commands <span>⌘K</span>
+              </button>
+            </div>
           </main>
         ) : (
           <div className="med-vault-layout">
