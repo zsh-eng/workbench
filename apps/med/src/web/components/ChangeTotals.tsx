@@ -43,16 +43,15 @@ export function ChangeTotals({
     <Tooltip.Root>
       <Tooltip.Trigger
         render={
-          <span
-            role="group"
-            tabIndex={0}
+          <button
+            type="button"
             aria-label={`Comparison total: ${additions} lines added, ${deletions} lines deleted`}
             data-change-totals=""
             {...stylex.props(styles.totals)}
           >
             <span {...stylex.props(ui.added)}>+{additions.toLocaleString()}</span>
             <span {...stylex.props(ui.removed)}>−{deletions.toLocaleString()}</span>
-          </span>
+          </button>
         }
       />
       <Tooltip.Portal>
@@ -69,8 +68,11 @@ export function ChangeTotals({
                 {rows.map((row) => (
                   <span
                     key={row.kind}
-                    {...stylex.props(styles.segment, styles[row.kind])}
-                    style={{ flexGrow: row.additions + row.deletions }}
+                    {...stylex.props(
+                      styles.segment,
+                      styles[row.kind],
+                      styles.grow(row.additions + row.deletions),
+                    )}
                   />
                 ))}
               </div>
@@ -116,6 +118,8 @@ const styles = stylex.create({
     fontSize: 11,
     whiteSpace: "nowrap",
     flexShrink: 0,
+    borderWidth: 0,
+    color: "inherit",
     cursor: "default",
     outline: "none",
     backgroundColor: {
@@ -162,6 +166,7 @@ const styles = stylex.create({
     overflow: "hidden",
   },
   segment: { minWidth: 3, flexBasis: 0 },
+  grow: (share: number) => ({ flexGrow: share }),
   dot: { width: 6, height: 6, borderRadius: 2, flexShrink: 0 },
   code: { backgroundColor: tokens.accent },
   tests: { backgroundColor: tokens.warning },

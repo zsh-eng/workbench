@@ -21,6 +21,8 @@ function lineLabel(target: NoteTarget) {
 }
 
 function Timestamp({ note }: { note: Note }) {
+  // Read once per card; the age shown updates when the card mounts again.
+  const [now] = useState(Date.now);
   const created = Date.parse(note.createdAt);
   if (Number.isNaN(created)) return null;
   const edited = Date.parse(note.updatedAt) - created > 1000;
@@ -33,7 +35,7 @@ function Timestamp({ note }: { note: Note }) {
       })}
       {...stylex.props(styles.meta)}
     >
-      {relativeTime(created, Date.now())}
+      {relativeTime(created, now)}
       {edited && " · edited"}
     </time>
   );

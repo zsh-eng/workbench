@@ -27,7 +27,6 @@ export function SavedReviewHeader({
   const busy = operation !== null;
   const [copied, setCopied] = useState<{ count: number } | null>(null);
   const [clearRevision, setClearRevision] = useState<number | null>(null);
-  const repositoryCount = new Set(saved.targets.map((entry) => entry.repositoryId)).size;
   const target = saved.targets.find((entry) => entry.id === state.savedTargetId);
   const outside = !state.savedView || browsing;
   const iterations = saved.iterations ?? [];

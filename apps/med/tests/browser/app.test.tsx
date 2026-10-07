@@ -848,7 +848,7 @@ describe("graphical review", () => {
 
   test("filters the full file set, switches layout, and finds across both files", async () => {
     const { controller } = await mountApp();
-    const totals = page.getByRole("group", {
+    const totals = page.getByRole("button", {
       name: "Comparison total: 2 lines added, 2 lines deleted",
     });
     await expect.element(totals).toBeVisible();
@@ -948,7 +948,7 @@ describe("graphical review", () => {
       review: { paths, patch: file(paths[0], 2) + file(paths[1], 3) + file(paths[2], 40) },
     });
     // The fixture reports one added and one deleted line for each file.
-    const totals = page.getByRole("group", { name: /^Comparison total:/ });
+    const totals = page.getByRole("button", { name: /^Comparison total:/ });
     await expect.element(totals).toHaveTextContent("+3−3");
     totals.element().focus();
     const tooltip = page.getByRole("table");
