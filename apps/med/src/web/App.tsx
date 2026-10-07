@@ -45,6 +45,7 @@ import { BranchStrip, BranchSwitch, useBranchTabs } from "./components/BranchTab
 import { useDisposeOnClose, useWorkspace, WorkspaceList } from "./components/Workspaces";
 import type { BranchEntry } from "./components/BranchPicker";
 import { visibleElement } from "./data/palette-focus";
+import { setFilePreviewShown, useFilePreviewShown } from "./data/picker-preferences";
 import { BranchPicker } from "./components/BranchPicker";
 import type { BrowseSource } from "../shared/browse";
 import { createBrowseApi, useBrowseFiles, type BrowseApi } from "./data/browse";
@@ -147,6 +148,7 @@ export function App({
   const [filesVisible, setFilesVisible] = useState(false);
   // Zen hides every bar. The sidebars keep their own state in and out of zen.
   const [zen, setZenState] = useState(() => readPreference("zen", "off", ["on", "off"]) === "on");
+  const filePreviewShown = useFilePreviewShown();
   const focusBeforeZen = useRef<Element | null>(null);
   const setZen = useCallback((next: boolean | ((value: boolean) => boolean)) => {
     focusBeforeZen.current = document.activeElement;
@@ -1797,6 +1799,11 @@ export function App({
       label: zen ? "Leave zen mode" : "Enter zen mode",
       shortcut: "⌥ Z",
       run: toggleZen,
+    },
+    {
+      id: "picker-preview",
+      label: filePreviewShown ? "Hide file preview in Find file" : "Show file preview in Find file",
+      run: () => setFilePreviewShown(!filePreviewShown),
     },
     {
       id: "open-local-file",

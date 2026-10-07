@@ -606,6 +606,61 @@ test("committed search previews and opens the exact result commit, while Files s
   expect(onOpen).toHaveBeenLastCalledWith("src/main.ts", undefined);
 });
 
+test("the preview toggle narrows Find file and the next picker keeps the choice", async () => {
+  localStorage.removeItem("med:picker-preview");
+  const source: BrowseSource = { kind: "worktree", repo: "/feature" };
+  const api: BrowseApi = {
+    list: vi.fn<BrowseApi["list"]>(),
+    read: vi.fn<BrowseApi["read"]>(async (source, path) => ({
+      source,
+      path,
+      kind: "text",
+      size: 6,
+      identity: path,
+      text: "first\n",
+    })),
+  };
+  const picker = (
+    <FilePicker
+      open
+      onOpenChange={() => {}}
+      entries={entries}
+      loading={false}
+      error={null}
+      sourceLabel="Feature worktree"
+      source={source}
+      api={api}
+      onOpen={() => {}}
+    />
+  );
+  render(picker);
+  const dialog = page.getByRole("dialog");
+  await expect.element(page.getByLabelText("File preview")).toBeVisible();
+  const wide = dialog.element().getBoundingClientRect().width;
+  const toggle = page.getByRole("button", { name: "Show preview" });
+  await expect.element(toggle).toHaveAttribute("aria-pressed", "true");
+  await toggle.click();
+  await expect.element(page.getByLabelText("File preview")).not.toBeInTheDocument();
+  await expect.element(toggle).toHaveAttribute("aria-pressed", "false");
+  expect(dialog.element().getBoundingClientRect().width).toBeLessThan(wide * 0.7);
+  await expect.element(page.getByRole("combobox", { name: "Find file" })).toHaveFocus();
+  const reads = vi.mocked(api.read).mock.calls.length;
+  await page.getByRole("combobox", { name: "Find file" }).fill("menu");
+  await expect.element(page.getByRole("option", { name: "menu.ts src" })).toBeVisible();
+  expect(api.read).toHaveBeenCalledTimes(reads);
+
+  root?.unmount();
+  mount?.remove();
+  render(picker);
+  await expect
+    .element(page.getByRole("button", { name: "Show preview" }))
+    .toHaveAttribute("aria-pressed", "false");
+  await expect.element(page.getByLabelText("File preview")).not.toBeInTheDocument();
+  await page.getByRole("button", { name: "Show preview" }).click();
+  await expect.element(page.getByLabelText("File preview")).toBeVisible();
+  localStorage.removeItem("med:picker-preview");
+});
+
 test("content search retains previews, blocks stale opens, and ignores late responses", async () => {
   const source: BrowseSource = { kind: "worktree", repo: "/feature" };
   const resultSource: BrowseSource = { kind: "commit", repo: source.repo, oid: "a".repeat(40) };

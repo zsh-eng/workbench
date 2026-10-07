@@ -196,6 +196,11 @@ Escape closes the picker and restores focus. Opening a result keeps the review
 in place and opens a file tab with the selected repository identity. Picking
 and previewing files never saves or changes their contents.
 
+The panel button beside **Esc** hides the file preview. The picker then shows
+a narrow list and stops reading files for the preview. Med remembers the choice
+for every picker and window. The command palette also has **Hide file preview
+in Find file**.
+
 ## First review
 
 1. Select a commit in the left history panel, or select working changes. Commit diffs compare with the first parent; merge commits are labeled accordingly. Click **History** to collapse the panel to one line that names the selection; med remembers this choice.

@@ -10,6 +10,7 @@ import { Icon } from "./Icon";
 import { FullFileView } from "./FullFileView";
 import { browseSourceKey, useBrowseFiles, type BrowseApi } from "../data/browse";
 import { usePickerPreview, type FilePreviewReader } from "../data/picker-preview";
+import { setFilePreviewShown, useFilePreviewShown } from "../data/picker-preferences";
 import type { BrowseSearch } from "../../shared/inspect";
 
 import type { RegisteredRepository } from "../../shared/protocol";
@@ -385,10 +386,12 @@ function PickerContents({
   const previewSource = resultSource ?? source;
   const previewSourceKey = previewSource ? browseSourceKey(previewSource) : "";
   const previewScrollKey = JSON.stringify([previewSourceKey, selectedResult?.id]);
+  const previewShown = useFilePreviewShown();
+  const previewAvailable = !!((api && source) || previewReader);
   const preview = usePickerPreview(
     api,
     previewSource,
-    selectedResult?.repository ? undefined : selectedResult?.path,
+    selectedResult?.repository || !previewShown ? undefined : selectedResult?.path,
     `${sourceRevision}:${refresh}`,
     previewReader,
   );
@@ -453,7 +456,11 @@ function PickerContents({
             finalFocus={() =>
               accepted.current ? (visibleElement('[data-file-pane="main"]') ?? false) : true
             }
-            {...stylex.props(styles.popup, ui.instant)}
+            {...stylex.props(
+              styles.popup,
+              (!previewShown || !previewAvailable) && styles.popupCompact,
+              ui.instant,
+            )}
           >
             <div {...stylex.props(styles.heading)}>
               <Dialog.Title {...stylex.props(styles.title)}>
@@ -505,6 +512,29 @@ function PickerContents({
                     Content
                   </button>
                 </div>
+              )}
+              {previewAvailable && (
+                <button
+                  type="button"
+                  aria-pressed={previewShown}
+                  aria-label="Show preview"
+                  title={previewShown ? "Hide the file preview" : "Show the file preview"}
+                  // Keep focus and the caret in the query.
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    setFilePreviewShown(!previewShown);
+                    inputRef.current?.focus();
+                  }}
+                  {...stylex.props(
+                    ui.button,
+                    ui.iconButton,
+                    styles.previewToggle,
+                    !api?.search && styles.pushRight,
+                    previewShown && ui.active,
+                  )}
+                >
+                  <Icon name="panelRight" size={15} />
+                </button>
               )}
               <Dialog.Close
                 aria-label="Close file picker"
@@ -756,7 +786,7 @@ function PickerContents({
                   </>
                 )}
               </div>
-              {((api && source) || previewReader) && (
+              {previewAvailable && previewShown && (
                 <div {...stylex.props(styles.preview)} aria-label="File preview">
                   {selectedResult && !selectedResult.repository ? (
                     <FullFileView
@@ -916,6 +946,13 @@ const styles = stylex.create({
     overflow: "hidden",
     outline: "none",
   },
+  // Without the preview, Find file is a narrow list.
+  popupCompact: {
+    width: "min(640px, calc(100vw - 32px))",
+    height: "min(420px, 64vh)",
+  },
+  previewToggle: { color: { default: tokens.faint, ":hover:not(:disabled)": tokens.text } },
+  pushRight: { marginLeft: "auto" },
   heading: {
     display: "flex",
     alignItems: "center",
