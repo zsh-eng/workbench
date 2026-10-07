@@ -88,6 +88,8 @@ async function mountApp(
     brief?: string;
     readOnly?: boolean;
     noteMutation?: () => Promise<Response | undefined>;
+    /** Replaces the two small files with these, as path and unified patch. */
+    review?: { paths: string[]; patch: string };
   } = {},
 ) {
   initializeTheme();
@@ -260,6 +262,16 @@ async function mountApp(
       const { comparison, repo } = JSON.parse(String(init?.body));
       requests.push(comparison);
       const review = { ...response(comparison), repo };
+      if (options.review) {
+        review.patch = options.review.patch;
+        review.files = options.review.paths.map((path) => ({
+          path,
+          status: "M",
+          additions: 1,
+          deletions: 1,
+          binary: false,
+        }));
+      }
       if (options.metadataFile)
         review.files.push({
           path: "assets/model.bin",
@@ -319,7 +331,7 @@ async function mountApp(
     .toBe("ready");
   await expect
     .poll(() => document.querySelectorAll("diffs-container").length)
-    .toBeGreaterThanOrEqual(2);
+    .toBeGreaterThanOrEqual(options.review ? 1 : 2);
   return { controller, requests, fileRequests };
 }
 
@@ -848,6 +860,70 @@ describe("graphical review", () => {
     await expect.element(page.getByText("1 / 2 hunks", { exact: true })).toBeVisible();
     await userEvent.keyboard("{Shift>}{Enter}{/Shift}");
     await expect.element(page.getByText("2 / 2 hunks", { exact: true })).toBeVisible();
+  });
+
+  test("find in diffs centers matches in other files, collapsed ones too", async () => {
+    await page.viewport(1280, 800);
+    // Long files, so a match starts far outside the viewport and the
+    // virtualized list must measure rows it has not drawn yet.
+    const paths = [0, 1, 2, 3, 4].map((index) => `src/long${index}.ts`);
+    const body = (index: number) =>
+      Array.from({ length: 140 }, (_, line) =>
+        index === 3 && line === 100
+          ? "const needleLater = 1;"
+          : index === 0 && line === 120
+            ? "const needleCollapsed = 1;"
+            : `const value${line} = ${index};`,
+      );
+    const reviewPatch = paths
+      .map(
+        (path, index) =>
+          `diff --git a/${path} b/${path}\nindex 1111111..2222222 100644\n--- a/${path}\n+++ b/${path}\n@@ -1,140 +1,140 @@\n` +
+          body(index)
+            .map((line) => `-${line.replace(/= \d+;$/, "= -1;")}\n+${line}\n`)
+            .join(""),
+      )
+      .join("");
+    await mountApp({ review: { paths, patch: reviewPatch } });
+    await page.getByRole("button", { name: "Collapse src/long0.ts", exact: true }).click();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
+    await page.getByRole("combobox", { name: "Search commands" }).fill("Find in diff");
+    await page.getByRole("option", { name: /Find in diff contents/ }).click();
+    await page.getByRole("textbox", { name: "Find in diff contents" }).fill("needle");
+    await expect.element(page.getByText("1 / 2 hunks", { exact: true })).toBeVisible();
+    const stream = page.getByRole("main", { name: "Continuous review" }).element();
+    const line = (text: string) => {
+      for (const host of document.querySelectorAll("diffs-container")) {
+        const walker = document.createTreeWalker(host.shadowRoot!, NodeFilter.SHOW_TEXT);
+        while (walker.nextNode())
+          if (walker.currentNode.textContent?.includes(text))
+            return walker.currentNode.parentElement!.getBoundingClientRect();
+      }
+      return null;
+    };
+    const centered = async (text: string) => {
+      const near = () => {
+        const rect = line(text);
+        const view = stream.getBoundingClientRect();
+        return (
+          !!rect &&
+          Math.abs((rect.top + rect.bottom) / 2 - (view.top + view.bottom) / 2) < view.height / 4
+        );
+      };
+      await expect.poll(near).toBe(true);
+      // It stays there once the rows around it have been measured.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(near()).toBe(true);
+    };
+    await userEvent.keyboard("{Enter}");
+    await expect.element(page.getByText("2 / 2 hunks", { exact: true })).toBeVisible();
+    await centered("needleLater");
+    await userEvent.keyboard("{Enter}");
+    await expect.element(page.getByText("1 / 2 hunks", { exact: true })).toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: "Collapse src/long0.ts", exact: true }))
+      .toBeInTheDocument();
+    await centered("needleCollapsed");
   });
 
   test("the full diff header toggles collapse while its filename opens the file", async () => {

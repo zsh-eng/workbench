@@ -614,6 +614,38 @@ export function App({
     },
     [controller, fileWorkspace],
   );
+  // The file whose line a jump is about to show. Selecting that file must not
+  // scroll to the file as well, or the file scroll replaces the line scroll.
+  const lineJump = useRef<{ id: string; serial: number } | null>(null);
+  const revealLine = useCallback(
+    (id: string, start: number, end: number, side: "additions" | "deletions") => {
+      const serial = (lineJump.current?.serial ?? 0) + 1;
+      lineJump.current = { id, serial };
+      explicitReveal.current = fileWorkspace.getSnapshot().active !== "changes";
+      fileWorkspace.select("changes");
+      controller.revealFile(id);
+      setCollapsed((current) => {
+        if (!current.has(id)) return current;
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+      setSelection({ id, range: { start, end, side } });
+      const scroll = () =>
+        viewer.current?.scrollTo({ type: "line", id, lineNumber: start, side, align: "center" });
+      scroll();
+      // Changes becomes visible, or a collapsed file opens, in this frame;
+      // the rows around the line are measured in the next. Scroll again then.
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          if (lineJump.current?.serial !== serial) return;
+          lineJump.current = null;
+          scroll();
+        }),
+      );
+    },
+    [controller, fileWorkspace],
+  );
 
   // A brief explains a saved review. Paste one with Command-V; its links open
   // the cited lines in Changes.
@@ -732,30 +764,17 @@ export function App({
         reveal(location.fileId);
         return;
       }
-      const id = location.fileId;
-      const start = location.start;
-      const side = location.side === "old" ? "deletions" : "additions";
-      explicitReveal.current = fileWorkspace.getSnapshot().active !== "changes";
-      fileWorkspace.select("changes");
-      controller.revealFile(id);
-      setCollapsed((current) => {
-        if (!current.has(id)) return current;
-        const next = new Set(current);
-        next.delete(id);
-        return next;
-      });
-      setSelection({ id, range: { start, end: location.end ?? start, side } });
-      // Changes becomes visible in this frame and measures in the next.
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() =>
-          viewer.current?.scrollTo({ type: "line", id, lineNumber: start, side, align: "center" }),
-        ),
+      revealLine(
+        location.fileId,
+        location.start,
+        location.end ?? location.start,
+        location.side === "old" ? "deletions" : "additions",
       );
     },
-    [controller, fileWorkspace, reveal],
+    [controller, reveal, revealLine],
   );
   useEffect(() => {
-    if (!state.selectedFileId) return;
+    if (!state.selectedFileId || lineJump.current?.id === state.selectedFileId) return;
     const row = metadataRows.current.get(state.selectedFileId);
     if (row) row.scrollIntoView({ block: "nearest" });
     else viewer.current?.scrollTo({ type: "item", id: state.selectedFileId, align: "nearest" });
@@ -994,17 +1013,9 @@ export function App({
       const next = (index + hits.length) % hits.length;
       setFindIndex(next);
       const hit = hits[next];
-      controller.revealFile(hit.id);
-      setSelection({ id: hit.id, range: { start: hit.line, end: hit.line, side: hit.side } });
-      viewer.current?.scrollTo({
-        type: "line",
-        id: hit.id,
-        lineNumber: hit.line,
-        side: hit.side,
-        align: "center",
-      });
+      revealLine(hit.id, hit.line, hit.line, hit.side);
     },
-    [controller, hits],
+    [hits, revealLine],
   );
   const startNote = useCallback(() => {
     if (!selection) return;
