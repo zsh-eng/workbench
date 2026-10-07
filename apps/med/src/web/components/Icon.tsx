@@ -25,6 +25,7 @@ export type IconName =
   | "folder"
   | "arrowDown"
   | "arrowUp"
+  | "arrowLeft"
   | "command"
   | "copy"
   | "external"
@@ -238,6 +239,7 @@ const icons: Record<IconName, ReactNode> = {
   ),
   arrowDown: <path d="M8 2.75v10.5M3.75 9 8 13.25 12.25 9" />,
   arrowUp: <path d="M8 13.25V2.75M3.75 7 8 2.75 12.25 7" />,
+  arrowLeft: <path d="M13.25 8H2.75M7 3.75 2.75 8 7 12.25" />,
   command: (
     <path d="M5.75 10.25v-6a1.5 1.5 0 1 0-1.5 1.5h7.5a1.5 1.5 0 1 0-1.5-1.5v7.5a1.5 1.5 0 1 0 1.5-1.5h-7.5a1.5 1.5 0 1 0 1.5 1.5z" />
   ),

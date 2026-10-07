@@ -197,36 +197,3 @@
   padding: 8px 14px;
   border-bottom: 1px solid var(--med-border);
 }
-.med-vault-sources {
-  max-width: 850px;
-  width: calc(100% - 64px);
-  margin: 48px auto;
-  overflow: auto;
-}
-.med-vault-sources h1 {
-  font-size: 28px;
-  font-weight: 400;
-}
-.med-vault-sources > a {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  padding: 16px;
-  border: 1px solid var(--med-border);
-  border-radius: 10px;
-  margin: 10px 0;
-  gap: 8px;
-  color: inherit;
-  text-decoration: none;
-}
-.med-vault-sources small {
-  grid-column: 1/-1;
-  color: var(--med-muted);
-}
-.med-vault-sources p {
-  color: var(--med-muted);
-}
-.med-vault-sources-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 16px;
-}

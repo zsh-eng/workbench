@@ -83,6 +83,11 @@ export function useWorkspace() {
 }
 const noSubscription = () => () => {};
 
+/** The host's actions, for pages that cover every workspace, such as Sources. */
+export function useWorkspaceActions() {
+  return use(Actions);
+}
+
 /**
  * Disposes a long-lived object when its owner goes away for good. A hidden
  * workspace runs effect cleanups too, and comes back with the same objects,

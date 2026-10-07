@@ -52,9 +52,14 @@ When `med web` opens a server with nothing registered, Med shows one setup page.
 - **Open at login** starts Med in the background when you log in. It takes
   effect at the next login and leaves the running server as it is.
 
-Open the welcome again with **Set up Med…** on the Sources page or in its command
-palette. Setup reads folder names and Git metadata only; it does not read or
-change your files.
+Open the welcome again with **Add sources…** on the Sources page, or **Set up
+Med…** in the command palette. Setup reads folder names and Git metadata only;
+it does not read or change your files.
+
+The **Sources** page (**Open registered sources** in the command palette) lists
+repositories and vaults. Click a row to open it as a workspace. Its **⋯** menu
+can index a vault again, copy the path, or remove the source from Med; removal
+keeps the folder. Escape returns to the workspace.
 
 ### Install as an app
 

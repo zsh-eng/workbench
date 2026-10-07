@@ -23,6 +23,7 @@ import { createEditorDrafts } from "../data/editor-drafts";
 import { ThemePicker } from "./ThemePicker";
 import { Icon } from "./Icon";
 import { WorkspaceList } from "./Workspaces";
+import { SourcesPage, type Source } from "./SourcesPage";
 import { ui } from "../theme.stylex";
 import "./VaultWorkspace.css";
 import { visibleElement } from "../data/palette-focus";
@@ -36,13 +37,6 @@ const request = async (action: string, body: object = {}, signal?: AbortSignal) 
     body: JSON.stringify(body),
     signal,
   });
-interface Source {
-  id: string;
-  name: string;
-  path: string;
-  kind: "repo" | "vault";
-  index?: { state: string; revision: number; error?: string };
-}
 interface VaultTab {
   file: LocalRead;
   pinned: boolean;
@@ -60,6 +54,9 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
   const [reviewMounted, setReviewMounted] = useState(() => !route().visible);
   if (!locationState.visible && !reviewMounted) setReviewMounted(true);
   const [sources, setSources] = useState<Source[]>([]);
+  const [home, setHome] = useState<string>();
+  const [sourcesLoaded, setSourcesLoaded] = useState(false);
+  const [statusTick, setStatusTick] = useState(0);
   const [manifest, setManifest] = useState<{ id: string; entries: BrowseEntry[] }>({
     id: "",
     entries: [],
@@ -195,7 +192,11 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
       busy = true;
       try {
         const result = await request("status");
-        if (!cancelled) setSources(result.sources);
+        if (!cancelled) {
+          setSources(result.sources);
+          setHome(typeof result.home === "string" ? result.home : undefined);
+          setSourcesLoaded(true);
+        }
       } catch (e) {
         if (!cancelled) setError(String(e));
       } finally {
@@ -210,7 +211,7 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [locationState.visible]);
+  }, [locationState.visible, statusTick]);
   useEffect(() => {
     if (!locationState.id) return;
     const abort = new AbortController();
@@ -541,36 +542,17 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
           </p>
         )}
         {!locationState.id ? (
-          <main className="med-vault-sources">
-            <h1>Your sources</h1>
-            <p>
-              Add a repository or vault with <code>med add /path/to/folder</code>.
-            </p>
-            {sources.map((s) => (
-              <a
-                key={s.id}
-                href={s.kind === "vault" ? `/vault/${s.id}` : "/"}
-                onClick={(e) => {
-                  if (s.kind === "vault") {
-                    e.preventDefault();
-                    navigate(`/vault/${s.id}`);
-                  }
-                }}
-              >
-                <strong>{s.name}</strong>
-                <span>{s.kind === "vault" ? "Obsidian vault" : "Repository"}</span>
-                <small>{s.path}</small>
-              </a>
-            ))}
-            <div className="med-vault-sources-actions">
-              <button {...stylex.props(ui.button, ui.outlined)} onClick={openWelcome}>
-                Set up Med…
-              </button>
-              <button {...stylex.props(ui.button)} onClick={() => setCommandsOpen(true)}>
-                Commands <span>⌘K</span>
-              </button>
-            </div>
-          </main>
+          <SourcesPage
+            sources={sources}
+            home={home}
+            loaded={sourcesLoaded}
+            onOpenVault={(id) => navigate(`/vault/${id}`)}
+            onCommands={() => setCommandsOpen(true)}
+            onRequest={async (action, body) => {
+              await request(action, body);
+              setStatusTick((value) => value + 1);
+            }}
+          />
         ) : (
           // The review's frame: workspaces and files on the left at the same
           // width and height, so switching workspaces moves nothing.

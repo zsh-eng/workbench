@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { watch, type FSWatcher } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { realpath, stat } from "node:fs/promises";
+import { homedir } from "node:os";
 import { z } from "zod";
 import { SourceCatalogue, type SavedSource } from "../vault/sources";
 import { VaultIndex } from "../vault/index";
@@ -167,7 +168,13 @@ export class ServiceManager {
   }
   async request(action: string, body: unknown) {
     if (action === "status")
-      return { service: "med", version: 1, pid: process.pid, sources: this.snapshot() };
+      return {
+        service: "med",
+        version: 1,
+        pid: process.pid,
+        home: homedir(),
+        sources: this.snapshot(),
+      };
     // First-run setup: what is registered, where to find more, and the login item.
     if (action === "setup")
       return {
