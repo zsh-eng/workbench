@@ -1389,6 +1389,10 @@ export function App({
   const reportRepository = state.session?.repository.name;
   const reportReady = state.status === "ready";
   const reportCount = state.files.length;
+  // Compared as text, so a reloaded review with the same sessions reports nothing.
+  const reportSessions = state.savedReview?.sessions?.length
+    ? JSON.stringify(state.savedReview.sessions)
+    : undefined;
   // With every repository removed, the workspace opens the host's default.
   const reportEmpty =
     !state.session && !state.repositories.length && state.status === "idle" && !state.error;
@@ -1403,6 +1407,7 @@ export function App({
       });
     reportTo(workspaceId, {
       ...(reportTitle ? { title: reportTitle } : {}),
+      ...(reportSessions ? { sessions: JSON.parse(reportSessions) } : {}),
       ...(reportReady ? { detail: reportCount ? String(reportCount) : undefined } : {}),
       ...(reportPath
         ? {
@@ -1418,6 +1423,7 @@ export function App({
     workspaceId,
     reportEmpty,
     reportTitle,
+    reportSessions,
     reportReady,
     reportCount,
     reportPath,

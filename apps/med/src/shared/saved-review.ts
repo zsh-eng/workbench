@@ -46,12 +46,26 @@ export const reviewKeySchema = z
     /^[\w./@:+#-]+$/,
     "Use letters, digits, and . / @ : + # _ - in a review key, such as a branch name.",
   );
+/** An agent session that worked on a review, so a terminal can resume it.
+ * `cwd` is the directory the session started in, where resume finds it. */
+export const agentSessionSchema = z.object({
+  agent: z.enum(["claude", "codex"]),
+  id: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/, "Session IDs use letters, digits, _ and -."),
+  cwd: z
+    .string()
+    .min(1)
+    .max(4096)
+    .regex(/^(?:\/|[A-Za-z]:[\\/])/, "A session directory must be absolute."),
+});
+export type AgentSession = z.infer<typeof agentSessionSchema>;
+export const MAX_SESSIONS = 32;
 /** At most this many iterations; the oldest briefs and comparisons stay. */
 export const MAX_ITERATIONS = 64;
 
 export const savedReviewCreateSchema = z.object({
   title: z.string().trim().min(1).max(200),
   key: reviewKeySchema.optional(),
+  sessions: z.array(agentSessionSchema).max(MAX_SESSIONS).optional(),
   pullRequestUrl: pullRequestUrlSchema.optional(),
   brief: briefTextSchema.optional(),
   targets: z
@@ -93,6 +107,8 @@ export type SavedIteration = z.infer<typeof savedIterationSchema>;
 export const savedReviewDetailsSchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
   pullRequestUrl: pullRequestUrlSchema.nullable().optional(),
+  /** Added to the review's sessions. */
+  sessions: z.array(agentSessionSchema).max(MAX_SESSIONS).optional(),
 });
 export const savedReviewSchema = z.object({
   id: z.string(),
@@ -104,6 +120,7 @@ export const savedReviewSchema = z.object({
   revision: z.number().int().nonnegative(),
   commentCount: z.number().int().nonnegative(),
   targets: z.array(savedReviewTargetSchema),
+  sessions: z.array(agentSessionSchema).optional(),
   /** Present once a key is used; the last one is current. */
   iterations: z.array(savedIterationSchema).optional(),
   totals: z

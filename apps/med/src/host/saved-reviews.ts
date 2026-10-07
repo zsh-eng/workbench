@@ -38,8 +38,11 @@ import {
   pullRequestUrlSchema,
   briefTextSchema,
   savedReviewDetailsSchema,
+  agentSessionSchema,
   MAX_BRIEF_LENGTH,
   MAX_ITERATIONS,
+  MAX_SESSIONS,
+  type AgentSession,
   type SavedReview,
   type SavedReviewCreate,
   type CapturedReviewTarget,
@@ -108,6 +111,7 @@ const savedSchema = z.object({
   title: text,
   pullRequestUrl: pullRequestUrlSchema.optional(),
   brief: briefSchema.optional(),
+  sessions: z.array(agentSessionSchema).max(MAX_SESSIONS).optional(),
   iterations: z
     .array(
       z.object({
@@ -252,6 +256,19 @@ function patchCoversSelection(file: FileDiffMetadata, note: Note): boolean {
     if (next > end) return true;
   }
   return false;
+}
+
+/** Adds sessions that the review does not have yet; the newest are kept. */
+function addSessions(saved: { sessions?: AgentSession[] }, sessions: AgentSession[] = []) {
+  const all = [...(saved.sessions ?? [])];
+  for (const session of sessions) {
+    const index = all.findIndex(
+      (entry) => entry.agent === session.agent && entry.id === session.id,
+    );
+    if (index >= 0) all.splice(index, 1);
+    all.push(session);
+  }
+  if (all.length) saved.sessions = all.slice(-MAX_SESSIONS);
 }
 
 /** Disk records own frozen sources and notes; live repository services are never consulted. */
@@ -567,6 +584,7 @@ export class SavedReviewStore {
         const result = await capture(requested);
         this.appendCapture(record, result);
       }
+      addSessions(record.saved, input.sessions);
       if (input.key) {
         record.saved.key = input.key;
         record.saved.iterations = [
@@ -624,6 +642,7 @@ export class SavedReviewStore {
     saved.title = input.title.trim();
     if (brief) saved.brief = brief;
     if (input.pullRequestUrl) saved.pullRequestUrl = input.pullRequestUrl;
+    addSessions(saved, input.sessions);
     this.fit(record);
     await this.write(record, beforeCommit);
     return this.describe(record);
@@ -710,6 +729,7 @@ export class SavedReviewStore {
       if (parsed.data.title) record.saved.title = parsed.data.title;
       if (parsed.data.pullRequestUrl === null) delete record.saved.pullRequestUrl;
       else if (parsed.data.pullRequestUrl) record.saved.pullRequestUrl = parsed.data.pullRequestUrl;
+      addSessions(record.saved, parsed.data.sessions);
       await this.write(record, beforeCommit);
       return this.describe(record);
     }, beforeCommit);

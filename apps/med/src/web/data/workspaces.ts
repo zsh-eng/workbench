@@ -12,6 +12,13 @@ interface WorkspaceBase {
   detail?: string;
   /** Added in the background, such as by an agent, and not shown yet. */
   unread?: boolean;
+  /** Agent sessions that worked on it, to resume from a terminal. */
+  sessions?: WorkspaceSession[];
+}
+export interface WorkspaceSession {
+  agent: "claude" | "codex";
+  id: string;
+  cwd: string;
 }
 export interface ReviewWorkspace extends WorkspaceBase {
   kind: "review";
@@ -39,6 +46,7 @@ export type WorkspaceInput =
   | Omit<VaultWorkspace, "id">;
 export interface WorkspacePatch {
   title?: string;
+  sessions?: WorkspaceSession[];
   repository?: string;
   detail?: string;
   path?: string;
@@ -61,6 +69,28 @@ const LIMIT = 24;
 const newId = () => `w_${Math.random().toString(36).slice(2, 10)}`;
 const optional = (value: unknown) => (typeof value === "string" && value ? value : undefined);
 
+function sessionsOf(value: unknown): WorkspaceSession[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const sessions = value.flatMap((entry) =>
+    entry &&
+    typeof entry === "object" &&
+    (entry.agent === "claude" || entry.agent === "codex") &&
+    optional(entry.id) &&
+    optional(entry.cwd)
+      ? [{ agent: entry.agent, id: entry.id, cwd: entry.cwd } as WorkspaceSession]
+      : [],
+  );
+  return sessions.length ? sessions : undefined;
+}
+
+/** A shell command that resumes the session in its own directory. */
+export function resumeCommand(session: WorkspaceSession) {
+  const directory = `'${session.cwd.replaceAll("'", `'\\''`)}'`;
+  return session.agent === "claude"
+    ? `cd ${directory} && claude --resume ${session.id}`
+    : `cd ${directory} && codex resume ${session.id}`;
+}
+
 function parse(value: unknown): Workspace | null {
   if (!value || typeof value !== "object") return null;
   const entry = value as Record<string, unknown>;
@@ -72,6 +102,7 @@ function parse(value: unknown): Workspace | null {
     repository: optional(entry.repository),
     detail: optional(entry.detail),
     ...(entry.unread === true ? { unread: true } : {}),
+    ...(sessionsOf(entry.sessions) ? { sessions: sessionsOf(entry.sessions) } : {}),
   };
   if (entry.kind === "review" && optional(entry.reviewId))
     return { ...base, kind: "review", reviewId: entry.reviewId as string };
@@ -244,15 +275,15 @@ export function createWorkspaceStore(pathname: string, state?: unknown) {
         recent: [id, ...snapshot.recent.filter((entry) => entry !== id)],
       });
     },
-    /** Marks a workspace as unread, as an agent's new work does. It clears
-     * the next time the workspace is shown. */
-    markUnread(id: string) {
+    /** Marks a workspace as unread, as an agent's new work does, or as read.
+     * Unread clears the next time the workspace is shown. */
+    setUnread(id: string, unread: boolean) {
       const workspace = find(id);
-      if (!workspace || workspace.unread) return;
+      if (!workspace || !!workspace.unread === unread) return;
       publish({
         ...snapshot,
         workspaces: snapshot.workspaces.map((entry) =>
-          entry.id === id ? ({ ...entry, unread: true } as Workspace) : entry,
+          entry.id === id ? ({ ...entry, unread: unread || undefined } as Workspace) : entry,
         ),
       });
     },
@@ -284,11 +315,15 @@ export function createWorkspaceStore(pathname: string, state?: unknown) {
       const allowed: (keyof WorkspacePatch)[] =
         current.kind === "repository"
           ? ["title", "repository", "detail", "path", "repositoryId", "branch"]
-          : ["title", "repository", "detail"];
+          : current.kind === "review"
+            ? ["title", "repository", "detail", "sessions"]
+            : ["title", "repository", "detail"];
+      const same = (key: keyof WorkspacePatch) =>
+        key === "sessions"
+          ? JSON.stringify(current.sessions ?? []) === JSON.stringify(patch.sessions ?? [])
+          : (current as WorkspacePatch)[key] === patch[key];
       const changes = Object.fromEntries(
-        allowed
-          .filter((key) => key in patch && (current as WorkspacePatch)[key] !== patch[key])
-          .map((key) => [key, patch[key]]),
+        allowed.filter((key) => key in patch && !same(key)).map((key) => [key, patch[key]]),
       );
       if (!Object.keys(changes).length) return;
       const next = { ...current, ...changes } as Workspace;

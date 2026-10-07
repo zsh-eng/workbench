@@ -1,4 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
+import { ContextMenu } from "@base-ui/react/context-menu";
 import {
   Activity,
   createContext,
@@ -22,6 +23,7 @@ import {
   orderedWorkspaces,
   overlayAddress,
   pinned,
+  resumeCommand,
   REVIEW_UPDATED,
   workspaceUrl,
   type RepositoryWorkspace,
@@ -32,7 +34,7 @@ import {
   type WorkspaceSnapshot,
 } from "../data/workspaces";
 import { z } from "zod";
-import { tokens } from "../theme.stylex";
+import { tokens, ui } from "../theme.stylex";
 import { Icon, type IconName } from "./Icon";
 import { ShortcutKeys } from "./ShortcutKeys";
 import { ActionTooltip } from "./ToolButton";
@@ -50,7 +52,7 @@ interface WorkspaceActions {
   /** Shows a workspace and moves the address to it. */
   activate(id: string): void;
   close(id: string): void;
-  markUnread(id: string): void;
+  setUnread(id: string, unread: boolean): void;
   /** Shows the workspace for this task, opening it first if needed. */
   open(input: WorkspaceInput): void;
   match(input: WorkspaceInput): string | undefined;
@@ -112,6 +114,9 @@ const reviewEvent = z.object({
   title: z.string(),
   open: z.boolean(),
   updated: z.boolean().default(false),
+  sessions: z
+    .array(z.object({ agent: z.enum(["claude", "codex"]), id: z.string(), cwd: z.string() }))
+    .default([]),
 });
 
 type ReviewEvent = z.infer<typeof reviewEvent>;
@@ -252,7 +257,7 @@ export function WorkspaceHost({
       },
       open: (input) => show(store.open(input, false)),
       match: store.match,
-      markUnread: store.markUnread,
+      setUnread: store.setUnread,
       closeRepository: store.closeRepository,
       update: store.update,
       openSwitcher() {
@@ -319,7 +324,7 @@ export function WorkspaceHost({
         return document.visibilityState === "visible";
       }
     };
-    const receive = ({ id, title, open, updated }: ReviewEvent) => {
+    const receive = ({ id, title, open, updated, sessions }: ReviewEvent) => {
       const here = open && usedLast();
       const known = store.match({ kind: "review", reviewId: id });
       const workspace = store.open(
@@ -331,10 +336,10 @@ export function WorkspaceHost({
         },
         false,
       );
+      store.update(workspace, { title, ...(sessions.length ? { sessions } : {}) });
       // A new iteration: the review marks itself unread again and reloads.
       if (known && updated) {
-        store.update(workspace, { title });
-        if (!here && store.getSnapshot().active !== workspace) store.markUnread(workspace);
+        if (!here && store.getSnapshot().active !== workspace) store.setUnread(workspace, true);
         window.dispatchEvent(new CustomEvent(REVIEW_UPDATED, { detail: { id } }));
       }
       if (here) show(workspace);
@@ -610,7 +615,12 @@ function KeepScroll({ children }: { children: ReactNode }) {
   );
 }
 
+/** Claude's terracotta, so an agent's reviews read at a glance. */
+const agentColor = (icon: IconName) => (icon === "claude" ? { color: "#d97757" } : undefined);
 function iconFor(workspace: Workspace): IconName {
+  // An agent's review shows the agent that made it.
+  const agent = workspace.sessions?.at(-1)?.agent;
+  if (agent) return agent;
   return workspace.kind === "vault"
     ? "vault"
     : workspace.kind === "review"
@@ -643,6 +653,9 @@ function qualifiers(rows: Workspace[]) {
 export function WorkspaceList({ onNew }: { onNew?(): void }) {
   const snapshot = use(Snapshot);
   const actions = use(Actions);
+  // The row whose resume command was just copied says so for a moment.
+  const [copied, setCopied] = useState<string | null>(null);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   if (!snapshot || !actions) return null;
   const rows = orderedWorkspaces(snapshot);
   if (rows.length < 2) return null;
@@ -671,7 +684,20 @@ export function WorkspaceList({ onNew }: { onNew?(): void }) {
           const repository = qualifier(workspace);
           const closable = !pinned(workspace);
           return (
-            <li key={workspace.id} {...stylex.props(styles.item, stylex.defaultMarker())}>
+            <WorkspaceMenu
+              key={workspace.id}
+              workspace={workspace}
+              label={label}
+              closable={closable}
+              copied={copied === workspace.id}
+              onCopy={(command) => {
+                void navigator.clipboard.writeText(command).then(() => {
+                  setCopied(workspace.id);
+                  clearTimeout(copiedTimer.current);
+                  copiedTimer.current = setTimeout(() => setCopied(null), 1600);
+                });
+              }}
+            >
               <button
                 type="button"
                 aria-current={current ? "page" : undefined}
@@ -690,13 +716,20 @@ export function WorkspaceList({ onNew }: { onNew?(): void }) {
                 }}
                 {...stylex.props(styles.row, current && styles.current)}
               >
-                <Icon name={iconFor(workspace)} size={14} />
+                <Icon name={iconFor(workspace)} size={14} style={agentColor(iconFor(workspace))} />
                 <span {...stylex.props(styles.name, workspace.unread && styles.unreadName)}>
                   {repository && <span {...stylex.props(styles.repository)}>{repository} / </span>}
                   {label}
                   {workspace.unread && <span {...stylex.props(styles.hidden)}>, new</span>}
                 </span>
-                {workspace.unread ? (
+                {copied === workspace.id ? (
+                  <span
+                    role="status"
+                    {...stylex.props(styles.detail, closable && styles.clearClose)}
+                  >
+                    Copied
+                  </span>
+                ) : workspace.unread ? (
                   <span
                     aria-hidden="true"
                     {...stylex.props(styles.dot, closable && styles.detailHides)}
@@ -722,11 +755,89 @@ export function WorkspaceList({ onNew }: { onNew?(): void }) {
                   <Icon name="close" size={12} />
                 </button>
               )}
-            </li>
+            </WorkspaceMenu>
           );
         })}
       </ul>
     </nav>
+  );
+}
+
+/** A workspace row with its right-click menu: resume its agent sessions in a
+ * terminal, mark it unread or read, or close it. */
+function WorkspaceMenu({
+  workspace,
+  label,
+  closable,
+  copied,
+  onCopy,
+  children,
+}: {
+  workspace: Workspace;
+  label: string;
+  closable: boolean;
+  copied: boolean;
+  onCopy(command: string): void;
+  children: ReactNode;
+}) {
+  const actions = use(Actions)!;
+  const sessions = workspace.sessions ?? [];
+  const item = (state: { highlighted: boolean }, ...extra: stylex.StyleXStyles[]) =>
+    stylex.props(ui.menuItem, ...extra, state.highlighted && ui.menuHighlighted).className;
+  const agentName = (agent: "claude" | "codex") => (agent === "claude" ? "Claude Code" : "Codex");
+  return (
+    <ContextMenu.Root>
+      <ContextMenu.Trigger
+        render={<li data-copied={copied || undefined} />}
+        {...stylex.props(styles.item, stylex.defaultMarker())}
+      >
+        {children}
+      </ContextMenu.Trigger>
+      <ContextMenu.Portal>
+        <ContextMenu.Positioner {...stylex.props(styles.menuPositioner)}>
+          <ContextMenu.Popup
+            aria-label={`${label} actions`}
+            {...stylex.props(ui.popup, styles.menu)}
+          >
+            <ContextMenu.Item
+              onClick={() => actions.activate(workspace.id)}
+              className={(state) => item(state)}
+            >
+              Open
+            </ContextMenu.Item>
+            {sessions.length > 0 && <ContextMenu.Separator {...stylex.props(styles.separator)} />}
+            {[...sessions].reverse().map((session) => (
+              <ContextMenu.Item
+                key={`${session.agent}:${session.id}`}
+                onClick={() => onCopy(resumeCommand(session))}
+                className={(state) => item(state)}
+              >
+                <span {...stylex.props(styles.menuLabel)}>
+                  <Icon name={session.agent} size={13} style={agentColor(session.agent)} />
+                  Copy {agentName(session.agent)} resume command
+                </span>
+                <span {...stylex.props(styles.menuHint)}>{session.id.slice(0, 8)}</span>
+              </ContextMenu.Item>
+            ))}
+            <ContextMenu.Separator {...stylex.props(styles.separator)} />
+            <ContextMenu.Item
+              onClick={() => actions.setUnread(workspace.id, !workspace.unread)}
+              className={(state) => item(state)}
+            >
+              {workspace.unread ? "Mark as read" : "Mark as unread"}
+            </ContextMenu.Item>
+            {closable && (
+              <ContextMenu.Item
+                onClick={() => actions.close(workspace.id)}
+                className={(state) => item(state)}
+              >
+                Close workspace
+              </ContextMenu.Item>
+            )}
+          </ContextMenu.Popup>
+        </ContextMenu.Positioner>
+      </ContextMenu.Portal>
+    </ContextMenu.Root>
   );
 }
 
@@ -917,6 +1028,13 @@ const styles = stylex.create({
     scrollbarWidth: "thin",
   },
   item: { position: "relative", display: "flex" },
+  // Clear of the close control, which shows while the row is hovered.
+  clearClose: { marginInlineEnd: 18 },
+  menuPositioner: { zIndex: 60 },
+  menu: { minWidth: 220 },
+  menuLabel: { display: "inline-flex", alignItems: "center", gap: 8 },
+  menuHint: { color: tokens.faint, fontFamily: tokens.code, fontSize: 11 },
+  separator: { height: 1, marginBlock: 4, marginInline: 4, backgroundColor: tokens.line },
   row: {
     display: "flex",
     alignItems: "center",

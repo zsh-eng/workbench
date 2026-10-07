@@ -491,6 +491,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               title: bundle.title,
               open: input.open,
               updated: input.updated,
+              sessions: bundle.sessions ?? [],
             };
             for (const window of windows)
               window.write(`event: review\ndata: ${JSON.stringify(event)}\n\n`);

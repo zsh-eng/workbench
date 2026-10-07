@@ -3,7 +3,12 @@ import { readFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { z } from "zod";
-import { reviewKeySchema, savedReviewCreateSchema } from "../shared/saved-review";
+import {
+  reviewKeySchema,
+  savedReviewCreateSchema,
+  type AgentSession,
+} from "../shared/saved-review";
+import { agentSessions } from "./agent-sessions";
 import {
   DEFAULT_PORT,
   getStateDirectory,
@@ -19,11 +24,12 @@ export type ReviewManifest = z.infer<typeof reviewManifestSchema>;
 export const reviewHelp = `Usage: med-diff review create --title <title> --repo <path> --base <ref> --head <ref>
        med-diff review create --title <title> --repo <path> --working
        med-diff review create --manifest <json-path>
-       med-diff review update --key <key> [--pr <https-url>] [--title <title>]
+       med-diff review update --key <key> [--pr <https-url>] [--title <title>] [--session <agent:id>]
        med-diff review repos
 
 --key <key> names your task, such as its branch. Create with the same key again to add an iteration to that review: its workspace stays, earlier briefs and comments stay, and the new comparison and brief become current.
 update sets the title or the PR link of the review with that key, such as after you open the PR.
+A Claude Code session that runs the command is recorded with the review, so Med can copy its resume command; --session codex:<id> or claude:<id> adds others, and --no-session records none.
 
 --title sets the review and browser tab title. Without it, use the matching PR title or a comparison label.
 --pr <https-url> adds a clickable GitHub PR link. A matching PR is inferred for a single GitHub origin repository when gh is available; --no-pr skips lookup.
@@ -39,7 +45,7 @@ The create command prints a Markdown review link without an access token.`;
 export interface ReviewCommand {
   kind: "help" | "repos" | "create" | "update";
   /** For update: the review's key and its new details. */
-  update?: { key: string; title?: string; pullRequestUrl?: string };
+  update?: { key: string; title?: string; pullRequestUrl?: string; sessions?: AgentSession[] };
   port: number;
   stateDir: string;
   manifest?: ReviewManifest;
@@ -55,7 +61,10 @@ async function readStandardInput() {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-export async function parseReviewCommand(args: string[]): Promise<ReviewCommand> {
+export async function parseReviewCommand(
+  args: string[],
+  sessionOptions: { environment?: NodeJS.ProcessEnv; home?: string } = {},
+): Promise<ReviewCommand> {
   const { values, positionals } = parseArgs({
     args,
     allowPositionals: true,
@@ -75,8 +84,12 @@ export async function parseReviewCommand(args: string[]): Promise<ReviewCommand>
       brief: { type: "string" },
       open: { type: "boolean" },
       key: { type: "string" },
+      session: { type: "string", multiple: true },
+      "no-session": { type: "boolean" },
     },
   });
+  const sessions = () =>
+    agentSessions(values.session, { ...sessionOptions, detect: !values["no-session"] });
   const port = values.port === undefined ? DEFAULT_PORT : Number(values.port);
   if (!Number.isInteger(port) || port < 1 || port > 65535)
     throw new Error("Review connection port must be between 1 and 65535.");
@@ -86,9 +99,11 @@ export async function parseReviewCommand(args: string[]): Promise<ReviewCommand>
     throw new Error(reviewHelp);
   if (positionals[0] === "update") {
     if (!values.key) throw new Error("Use update with --key, the key the review was created with.");
-    if (!values.pr && !values.title) throw new Error("Supply --pr, --title, or both.");
+    if (!values.pr && !values.title && !values.session?.length)
+      throw new Error("Supply --pr, --title, or --session.");
     const key = reviewKeySchema.safeParse(values.key);
     if (!key.success) throw new Error(key.error.issues[0]!.message);
+    const found = await sessions();
     return {
       ...common,
       kind: "update",
@@ -96,6 +111,7 @@ export async function parseReviewCommand(args: string[]): Promise<ReviewCommand>
         key: key.data,
         ...(values.title ? { title: values.title } : {}),
         ...(values.pr ? { pullRequestUrl: values.pr } : {}),
+        ...(found.length ? { sessions: found } : {}),
       },
     };
   }
@@ -178,6 +194,12 @@ export async function parseReviewCommand(args: string[]): Promise<ReviewCommand>
     input = { ...(input as object), brief };
   }
   if (values.key !== undefined) input = { ...(input as object), key: values.key };
+  const found = await sessions();
+  if (found.length)
+    input = {
+      ...(input as object),
+      sessions: [...((input as { sessions?: unknown[] }).sessions ?? []), ...found],
+    };
   const result = reviewManifestSchema.safeParse(input);
   if (!result.success)
     throw new Error(
@@ -241,9 +263,12 @@ export async function runReviewCommand(
     fetcher?: typeof fetch;
     print?: (text: string) => void;
     openUrl?: (url: string) => void;
+    /** Where agent sessions are found: the environment and home directory. */
+    environment?: NodeJS.ProcessEnv;
+    home?: string;
   } = {},
 ): Promise<void> {
-  const command = await parseReviewCommand(args);
+  const command = await parseReviewCommand(args, options);
   const print = options.print ?? console.log;
   if (command.kind === "help") {
     print(reviewHelp);

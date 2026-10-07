@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { createRoot, type Root } from "react-dom/client";
 import { App } from "../../src/web/App";
@@ -108,7 +108,11 @@ function createHost() {
   const sessions: string[] = [];
   const streams = new Set<string>();
   const windows = new Set<ReadableStreamDefaultController<Uint8Array>>();
-  const announce = (review: { id: string; open: boolean }) => {
+  const announce = (review: {
+    id: string;
+    open: boolean;
+    sessions?: { agent: "claude" | "codex"; id: string; cwd: string }[];
+  }) => {
     const data = { type: "review", title: savedTitles[review.id], ...review };
     const chunk = new TextEncoder().encode(`event: review\ndata: ${JSON.stringify(data)}\n\n`);
     for (const window of windows) window.enqueue(chunk);
@@ -332,4 +336,33 @@ test("lists reviews that agents announce and shows them in the window used last"
   host.announce({ id: "second", open: true });
   await expect.poll(() => shown()?.dataset.reviewId).toBe("second-target");
   await expect.poll(() => rowLabels()[3]).toMatch(/^Second review( \d+)? \(current\)$/);
+});
+
+test("a workspace's menu copies its agent's resume command and marks it unread", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  await expect.poll(() => host.windows.size).toBe(1);
+  host.announce({
+    id: "agent",
+    open: false,
+    sessions: [{ agent: "claude", id: "abc-123", cwd: "/work/it's here" }],
+  });
+  await expect.poll(() => rowLabels()[2]).toBe("Agent review, new");
+  const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+  const row = page.getByRole("button", { name: /^Agent review/ });
+  await row.click({ button: "right" });
+  await page.getByRole("menuitem", { name: /Copy Claude Code resume command/ }).click();
+  // The directory is quoted for the shell, so the command pastes as is.
+  expect(copy).toHaveBeenCalledWith(`cd '/work/it'\\''s here' && claude --resume abc-123`);
+  const copied = page.getByRole("status").filter({ hasText: "Copied" });
+  await expect.element(copied).toBeVisible();
+  await expect.element(copied, { timeout: 3000 }).not.toBeInTheDocument();
+  await row.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Mark as read" }).click();
+  await expect.poll(() => rowLabels()[2]).toBe("Agent review");
+  await row.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Mark as unread" }).click();
+  await expect.poll(() => rowLabels()[2]).toBe("Agent review, new");
+  copy.mockRestore();
 });

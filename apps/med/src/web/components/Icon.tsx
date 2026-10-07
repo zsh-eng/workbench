@@ -26,6 +26,8 @@ export type IconName =
   | "arrowDown"
   | "arrowUp"
   | "arrowLeft"
+  | "claude"
+  | "codex"
   | "command"
   | "copy"
   | "external"
@@ -240,6 +242,20 @@ const icons: Record<IconName, ReactNode> = {
   arrowDown: <path d="M8 2.75v10.5M3.75 9 8 13.25 12.25 9" />,
   arrowUp: <path d="M8 13.25V2.75M3.75 7 8 2.75 12.25 7" />,
   arrowLeft: <path d="M13.25 8H2.75M7 3.75 2.75 8 7 12.25" />,
+  // Claude's spark: eight rays from the centre.
+  claude: (
+    <path
+      d="M8 2.25v3.5M8 10.25v3.5M2.25 8h3.5M10.25 8h3.5M3.95 3.95l2.45 2.45M9.6 9.6l2.45 2.45M12.05 3.95 9.6 6.4M6.4 9.6l-2.45 2.45"
+      strokeWidth="1.6"
+    />
+  ),
+  // Codex works in a terminal: a prompt in a window.
+  codex: (
+    <>
+      <rect x="2.25" y="3" width="11.5" height="10" rx="2.25" />
+      <path d="m5 6.5 1.75 1.5L5 9.5M8.25 10h2.75" />
+    </>
+  ),
   command: (
     <path d="M5.75 10.25v-6a1.5 1.5 0 1 0-1.5 1.5h7.5a1.5 1.5 0 1 0-1.5-1.5v7.5a1.5 1.5 0 1 0 1.5-1.5h-7.5a1.5 1.5 0 1 0 1.5 1.5z" />
   ),

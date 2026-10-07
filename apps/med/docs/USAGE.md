@@ -101,6 +101,7 @@ A workspace is one task: a branch or worktree, a saved review, or a registered v
 - **+** in the list, or **New workspace…** in the palette, opens the branch picker for a new workspace. Opening a saved review link adds a workspace for that review.
 - Select a row and press `Delete`, or click its **×**, to close it. Vaults and the home workspace stay.
 - A review that an agent creates joins the list in every open Med window, marked new with an accent dot until you open it. An agent that passes `--open` also shows the review in the window you used last. See [agent integration](AGENT_INTEGRATION.md#create-a-review).
+- A review that a Claude Code or Codex session made shows that agent's icon. Right-click a row to open it, copy a command that resumes the agent's session in its directory, mark it as read or unread, or close it.
 
 The four most recently shown workspaces stay loaded; switching between them is immediate. Only the workspace on screen receives live updates; the others catch up when you return. Older workspaces load again when you open them. The list and the active workspace persist across reloads and restarts, and windows share the list; each window keeps its own workspace on screen. The address follows the active workspace: a saved review keeps its `/review/<id>` link, and Back and Forward move between workspaces.
 

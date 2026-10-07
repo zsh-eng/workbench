@@ -3,7 +3,7 @@ import { createServer, type Server } from "node:http";
 import { mkdtemp, mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runReviewCommand } from "../../src/cli/review";
 import { startHost, type RunningHost } from "../../src/host/server";
 import {
@@ -12,6 +12,13 @@ import {
   readConnection,
 } from "../../src/host/runtime/connection";
 
+// The agent running these tests has its own session; reviews here record none.
+beforeEach(() => {
+  vi.stubEnv("CLAUDE_CODE_SESSION_ID", "");
+});
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 const temporary: string[] = [];
 const servers: Server[] = [];
 const hosts: RunningHost[] = [];
@@ -203,6 +210,7 @@ describe("agent review CLI through the production host", () => {
       title: "Shown",
       open: true,
       updated: false,
+      sessions: [],
     });
     expect(opened).toEqual([]);
 
@@ -313,6 +321,69 @@ describe("agent review CLI through the production host", () => {
       "No review has this key",
     );
     await expect(create("Bad", "has space")).rejects.toThrow("Invalid key");
+  });
+
+  it("records the agent sessions that made a review, with the directories they started in", async () => {
+    const f = await fixture();
+    const home = join(f.root, "home");
+    const claude = join(home, ".claude", "projects", "-work-app");
+    await mkdir(claude, { recursive: true });
+    await writeFile(
+      join(claude, "claude-1.jsonl"),
+      `{"type":"user","cwd":"/work/app","sessionId":"claude-1"}\n`,
+    );
+    const codex = join(home, ".codex", "sessions", "2026", "10", "07");
+    await mkdir(codex, { recursive: true });
+    await writeFile(
+      join(codex, "rollout-2026-10-07T10-00-00-codex-9.jsonl"),
+      `{"type":"session_meta","payload":{"id":"codex-9","cwd":"/work/codex"}}\n`,
+    );
+    const connection = ["--state-dir", f.stateDir, "--port", String(f.host.port)];
+    const run = async (environment: NodeJS.ProcessEnv, ...command: string[]) => {
+      const output: string[] = [];
+      await runReviewCommand([...command, ...connection], {
+        print: (text) => output.push(text),
+        environment,
+        home,
+      });
+      return output[0]!;
+    };
+    const create = ["create", "--title", "Agents", "--key", "feat/agents"];
+    const target = ["--repo", f.repos[0]!, "--working", "--no-pr"];
+    // The Claude Code session that runs the command is found on its own.
+    const bundle = await f.saved(
+      await run(
+        { CLAUDE_CODE_SESSION_ID: "claude-1" },
+        ...create,
+        ...target,
+        "--session",
+        "codex:codex-9",
+      ),
+    );
+    expect(bundle.sessions).toEqual([
+      { agent: "codex", id: "codex-9", cwd: "/work/codex" },
+      { agent: "claude", id: "claude-1", cwd: "/work/app" },
+    ]);
+    // A session joins once; using it again moves it last.
+    await run({}, "update", "--key", "feat/agents", "--session", "codex:codex-9");
+    expect((await f.api(`/api/reviews/${bundle.id}`)).sessions).toEqual([
+      { agent: "claude", id: "claude-1", cwd: "/work/app" },
+      { agent: "codex", id: "codex-9", cwd: "/work/codex" },
+    ]);
+    const quiet = await f.saved(
+      await run(
+        { CLAUDE_CODE_SESSION_ID: "claude-1" },
+        "create",
+        "--title",
+        "None",
+        ...target,
+        "--no-session",
+      ),
+    );
+    expect(quiet.sessions).toBeUndefined();
+    await expect(run({}, ...create, ...target, "--session", "gpt:1")).rejects.toThrow(
+      "Use --session claude:<session-id>",
+    );
   });
 
   it("reports invalid commands and missing repositories without printing a review link", async () => {

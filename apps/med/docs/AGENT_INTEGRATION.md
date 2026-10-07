@@ -110,6 +110,23 @@ med review update --key feat/parser --pr https://github.com/owner/repository/pul
 The next `review create` with the key also finds a matching PR on its own, as
 described above. Keys use letters, digits, and `. / @ : + # _ -`.
 
+### Link your session
+
+Med records the agent sessions that worked on a review. The reviewer can
+right-click the workspace and copy a command that resumes a session in its
+directory, such as `cd '/path/to/worktree' && claude --resume <id>`.
+
+- Claude Code sets `CLAUDE_CODE_SESSION_ID`; `review create` records that
+  session on its own.
+- Other sessions need `--session codex:<id>` or `--session claude:<id>`. Repeat
+  the option for more than one. `review update --key <name> --session …` adds a
+  session later.
+- `--no-session` records no session from the environment.
+
+Med reads the session's directory from its transcript in `~/.claude` or
+`~/.codex`. When it finds no transcript, it records the command's directory. A
+review keeps the 32 newest sessions.
+
 ### Attach a brief
 
 A brief explains the change to the reviewer. Write it in Markdown and cite code
