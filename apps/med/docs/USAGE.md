@@ -244,12 +244,11 @@ elsewhere.
 
 Press `⌥Z` / `Alt+Z`, use the focus button at the top right, or run **Enter zen
 mode** from the command palette. Zen mode hides every bar: branch and file tabs,
-the Changes toolbar, and the status bar. Only the diff or file remains. `⌘B` and
-`⌘⇧B` still show the history and files sidebars inside zen mode, so you can move
-between files. To leave, press `⌥Z` again or move the pointer to the top-right
-corner and click **Leave zen**. Escape does not leave zen mode, so it stays free
-for search, Vim, and dialogs. Leaving restores the previous layout; the setting
-is remembered in this browser.
+the Changes toolbar, and the status bar. The sidebars stay as they are: `⌘B` and
+`⌘⇧B` show or hide the history and files sidebars in and out of zen mode. To
+leave, press `⌥Z` again or move the pointer to the top-right corner and click
+**Leave zen**. Escape does not leave zen mode, so it stays free for search, Vim,
+and dialogs. The setting is remembered in this browser.
 
 ## Symbols and Vim navigation
 

@@ -491,7 +491,7 @@ describe("graphical review", () => {
     await expect.element(page.getByRole("combobox", { name: "Search branches" })).toBeVisible();
   });
 
-  test("zen mode hides every bar, shows panels on request, and restores the layout", async () => {
+  test("zen mode hides every bar and leaves the sidebars as they are", async () => {
     await page.viewport(1400, 850);
     await mountApp({ branches: true });
     const sidebar = () => document.getElementById("review-sidebar")?.checkVisibility() ?? false;
@@ -510,29 +510,28 @@ describe("graphical review", () => {
     await expect.poll(files).toBe(true);
     await page.getByRole("button", { name: "Enter zen mode", exact: true }).click();
     await expect.element(exit).toBeInTheDocument();
-    expect([sidebar(), files(), bars()]).toEqual([false, false, false]);
+    expect([sidebar(), files(), bars()]).toEqual([true, true, false]);
     // The toggle left with the chrome, so focus moves to the way out.
     expect(document.activeElement?.getAttribute("aria-label")).toBe("Exit zen mode");
-    // Panel keys show panels without leaving zen.
-    key("KeyB", { metaKey: true });
-    await expect.poll(sidebar).toBe(true);
-    key("KeyB", { metaKey: true, shiftKey: true });
-    await expect.poll(files).toBe(true);
+    // Panel keys work as usual inside zen, and the choice outlasts it.
     key("KeyB", { metaKey: true });
     await expect.poll(sidebar).toBe(false);
+    key("KeyB", { metaKey: true, shiftKey: true });
+    await expect.poll(files).toBe(false);
     expect(bars()).toBe(false);
     await expect.element(exit).toBeInTheDocument();
-    // Leaving restores the saved layout, not the zen panels.
     key("KeyZ", { altKey: true });
-    await expect.poll(sidebar).toBe(true);
-    expect([files(), bars()]).toEqual([true, true]);
+    await expect.poll(bars).toBe(true);
+    expect([sidebar(), files()]).toEqual([false, false]);
     expect(localStorage.getItem("med:zen")).toBe("off");
+    key("KeyB", { metaKey: true });
+    await expect.poll(sidebar).toBe(true);
     key("KeyZ", { altKey: true });
     await expect.element(exit).toBeInTheDocument();
-    expect([sidebar(), files()]).toEqual([false, false]);
+    expect([sidebar(), files()]).toEqual([true, false]);
     expect(localStorage.getItem("med:zen")).toBe("on");
     await exit.click();
-    await expect.poll(sidebar).toBe(true);
+    await expect.poll(bars).toBe(true);
     expect(document.activeElement?.getAttribute("aria-label")).toBe("Enter zen mode");
   });
 

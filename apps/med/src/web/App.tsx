@@ -145,18 +145,15 @@ export function App({
   const [themePickerOpen, setThemePickerOpen] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [filesVisible, setFilesVisible] = useState(false);
-  // Zen hides every bar. Its panels have their own visibility, which starts
-  // hidden, so leaving zen restores the previous layout exactly.
+  // Zen hides every bar. The sidebars keep their own state in and out of zen.
   const [zen, setZenState] = useState(() => readPreference("zen", "off", ["on", "off"]) === "on");
-  const [zenPanels, setZenPanels] = useState({ sidebar: false, files: false });
   const focusBeforeZen = useRef<Element | null>(null);
   const setZen = useCallback((next: boolean | ((value: boolean) => boolean)) => {
     focusBeforeZen.current = document.activeElement;
-    setZenPanels({ sidebar: false, files: false });
     setZenState(next);
   }, []);
-  const leftVisible = zen ? zenPanels.sidebar : sidebarVisible;
-  const rightVisible = zen ? zenPanels.files : filesVisible;
+  const leftVisible = sidebarVisible;
+  const rightVisible = filesVisible;
   useEffect(() => {
     try {
       localStorage.setItem("med:zen", zen ? "on" : "off");
@@ -406,37 +403,20 @@ export function App({
     setFilePickerOpen(true);
   }, []);
   const showFiles = useCallback(() => {
-    if (zen) {
-      setZenPanels((panels) => ({
-        sidebar: window.innerWidth < 1100 ? false : panels.sidebar,
-        files: true,
-      }));
-      return;
-    }
     setFilesVisible(true);
     if (window.innerWidth < 1100) setSidebarVisible(false);
-  }, [zen]);
-  // In zen mode the panel keys show panels without leaving zen.
+  }, []);
   const toggleFilesSidebar = useCallback(() => {
-    if (rightVisible) {
-      if (zen) setZenPanels((panels) => ({ ...panels, files: false }));
-      else setFilesVisible(false);
-    } else showFiles();
-  }, [rightVisible, showFiles, zen]);
+    if (rightVisible) setFilesVisible(false);
+    else showFiles();
+  }, [rightVisible, showFiles]);
   const toggleReviewSidebar = useCallback(() => {
     const narrow = window.innerWidth < 1100;
-    if (zen) {
-      setZenPanels((panels) => ({
-        sidebar: !panels.sidebar,
-        files: !panels.sidebar && narrow ? false : panels.files,
-      }));
-      return;
-    }
     setSidebarVisible((visible) => {
       if (!visible && narrow) setFilesVisible(false);
       return !visible;
     });
-  }, [zen]);
+  }, []);
   const zenToggle = useRef<HTMLButtonElement>(null);
   const toggleZen = useCallback(() => setZen((value) => !value), [setZen]);
   // Keep keyboard focus when the control that held it leaves with the chrome.
