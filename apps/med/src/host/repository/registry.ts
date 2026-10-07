@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { realpath, stat } from "node:fs/promises";
-import { resolve } from "node:path";
+import { lstat, realpath, stat } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import type { RegisteredRepository } from "../../shared/protocol";
 import { HostError } from "../runtime/errors";
 import { git } from "../runtime/process";
@@ -25,6 +25,9 @@ export class RepositoryRegistry {
   private closed = false;
   private clock = 0;
   private indexQueue: Promise<unknown> = Promise.resolve();
+  // A checkout keeps its common directory while its .git entry is the same
+  // file, so most requests check one stat instead of starting Git.
+  private checkouts = new Map<string, { marker: string; commonDir: string }>();
   constructor(
     private searchOptions?: SearchOptions,
     private onRemove?: (id: string, paths: ReadonlySet<string>) => Promise<void>,
@@ -40,6 +43,21 @@ export class RepositoryRegistry {
   }
 
   private async commonDirectory(path: string, signal?: AbortSignal) {
+    const marker = await lstat(join(path, ".git")).then(
+      (info) => `${info.dev}:${info.ino}:${info.birthtimeMs}:${info.mtimeMs}:${info.size}`,
+      () => undefined,
+    );
+    const known = this.checkouts.get(path);
+    if (marker && known?.marker === marker) return known.commonDir;
+    const commonDir = await this.findCommonDirectory(path, signal);
+    if (marker) {
+      if (this.checkouts.size >= 1024) this.checkouts.clear();
+      this.checkouts.set(path, { marker, commonDir });
+    }
+    return commonDir;
+  }
+
+  private async findCommonDirectory(path: string, signal?: AbortSignal) {
     return realpath(
       (
         await git(path, ["rev-parse", "--path-format=absolute", "--git-common-dir"], {

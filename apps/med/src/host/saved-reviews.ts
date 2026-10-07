@@ -55,6 +55,8 @@ const MAX_TOTAL_BYTES = 512 * 1024 * 1024;
 const MAX_REVIEWS = 128;
 const MAX_NOTES = 500;
 const MAX_FEEDBACK_BYTES = 8 * 1024 * 1024;
+// Parsed records stay in memory up to this many file bytes, four at most.
+const CACHED_RECORD_BYTES = 64 * 1024 * 1024;
 const text = z.string();
 const natural = z.number().int().nonnegative();
 const responseSchema = z.object({
@@ -274,6 +276,9 @@ function addSessions(saved: { sessions?: AgentSession[] }, sessions: AgentSessio
 /** Disk records own frozen sources and notes; live repository services are never consulted. */
 export class SavedReviewStore {
   private pending: Promise<unknown> = Promise.resolve();
+  // Reads skip the parse while the file keeps its identity. A write renames a
+  // new file into place, so its next read parses again.
+  private cache = new Map<string, { identity: string; size: number; record: SavedRecord }>();
   constructor(private readonly directory: string) {}
 
   private serial<T>(work: () => Promise<T>): Promise<T> {
@@ -362,13 +367,33 @@ export class SavedReviewStore {
     return join(this.directory, `${id}.json`);
   }
 
-  private async read(id: string): Promise<SavedRecord> {
+  private remember(id: string, identity: string, size: number, record: SavedRecord) {
+    this.cache.delete(id);
+    if (size > CACHED_RECORD_BYTES) return;
+    this.cache.set(id, { identity, size, record });
+    let total = 0;
+    for (const entry of this.cache.values()) total += entry.size;
+    for (const [key, entry] of this.cache) {
+      if (total <= CACHED_RECORD_BYTES && this.cache.size <= 4) break;
+      this.cache.delete(key);
+      total -= entry.size;
+    }
+  }
+
+  /** Writers ask for a `fresh` copy to change; the cached copy stays as on disk. */
+  private async read(id: string, fresh = false): Promise<SavedRecord> {
     const file = this.file(id);
     let handle;
     try {
       handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
       const info = await handle.stat();
       if (!info.isFile() || info.size > MAX_RECORD_BYTES) throw new Error("Invalid record size.");
+      const identity = `${info.dev}:${info.ino}:${info.size}:${info.mtimeMs}`;
+      const cached = this.cache.get(id);
+      if (!fresh && cached?.identity === identity) {
+        this.remember(id, identity, info.size, cached.record);
+        return cached.record;
+      }
       const record = recordSchema.parse(JSON.parse(await handle.readFile("utf8")));
       if (record.saved.id !== id || record.saved.targets.length !== record.captures.length)
         throw new Error("Record identity does not match.");
@@ -408,6 +433,7 @@ export class SavedReviewStore {
         record.captures.reduce((sum, capture) => sum + capture.notes.notes.length, 0)
       )
         throw new Error("Comment count does not match.");
+      if (!fresh) this.remember(id, identity, info.size, record);
       return record;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT")
@@ -464,6 +490,7 @@ export class SavedReviewStore {
       }
       beforeCommit?.();
       await rename(temporary, this.file(record.saved.id));
+      this.cache.delete(record.saved.id);
     } finally {
       await unlink(temporary).catch(() => undefined);
     }
@@ -561,7 +588,7 @@ export class SavedReviewStore {
       const parsed = savedReviewCreateSchema.safeParse(input);
       if (!parsed.success) throw new HostError("invalid-saved-review", parsed.error.message);
       input = parsed.data;
-      const known = input.key ? await this.findKey(input.key) : undefined;
+      const known = input.key ? await this.findKey(input.key, true) : undefined;
       if (known) return this.iterate(known, input, capture, beforeCommit);
       const id = `r_${randomBytes(12).toString("hex")}`;
       const record: SavedRecord = {
@@ -698,11 +725,11 @@ export class SavedReviewStore {
       await unlink(temporary).catch(() => undefined);
     }
   }
-  private async findKey(key: string): Promise<SavedRecord | undefined> {
+  private async findKey(key: string, fresh = false): Promise<SavedRecord | undefined> {
     const id = (await this.readKeys())[key];
     if (!id) return undefined;
     try {
-      const record = await this.read(id);
+      const record = await this.read(id, fresh);
       return record.saved.key === key ? record : undefined;
     } catch (error) {
       if (error instanceof HostError && error.code === "saved-review-not-found") return undefined;
@@ -725,7 +752,7 @@ export class SavedReviewStore {
       const parsed = savedReviewDetailsSchema.safeParse(input);
       if (!parsed.success)
         throw new HostError("invalid-saved-review", parsed.error.issues[0]!.message);
-      const record = await this.read(id);
+      const record = await this.read(id, true);
       if (parsed.data.title) record.saved.title = parsed.data.title;
       if (parsed.data.pullRequestUrl === null) delete record.saved.pullRequestUrl;
       else if (parsed.data.pullRequestUrl) record.saved.pullRequestUrl = parsed.data.pullRequestUrl;
@@ -809,7 +836,7 @@ export class SavedReviewStore {
     commentCapture?: () => Promise<CapturedReviewTarget>,
   ): Promise<NoteState> {
     return this.writing(async () => {
-      const record = await this.read(id);
+      const record = await this.read(id, true);
       if (commentCapture) {
         let attached = record.saved.targets.find((item) => item.commentReviewId === targetId);
         if (!attached) {
@@ -896,7 +923,7 @@ export class SavedReviewStore {
   /** Replace or remove the brief. Comments and their revision stay unchanged. */
   setBrief(id: string, brief: string | null, beforeCommit?: () => void): Promise<SavedReview> {
     return this.writing(async () => {
-      const record = await this.read(id);
+      const record = await this.read(id, true);
       if (brief === null) delete record.saved.brief;
       else {
         const parsed = briefTextSchema.safeParse(brief);
@@ -917,7 +944,7 @@ export class SavedReviewStore {
 
   clear(id: string, expectedRevision: number, beforeCommit?: () => void): Promise<SavedReview> {
     return this.writing(async () => {
-      const record = await this.read(id);
+      const record = await this.read(id, true);
       if (record.saved.revision !== expectedRevision)
         throw new HostError(
           "stale-notes",
