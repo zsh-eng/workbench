@@ -88,6 +88,28 @@ These values are saved with the review and remain available offline and after
 restart. A review spanning several repositories should use a task title and
 only attach a PR link if it represents the whole review.
 
+### Keep one review per task
+
+Add `--key <name>` to name your task, such as its branch. Create the review
+again with the same key after each round of work: Med adds an iteration to that
+review instead of a new workspace. The workspace is marked new again, and the
+new comparison and brief become current. Earlier briefs stay as numbered
+iterations on the Brief tab, and comments stay on their comparisons.
+
+```sh
+med review create --key feat/parser --title "Fix the parser" \
+  --repo /path/to/worktree --base origin/main --head HEAD --merge-base --brief -
+```
+
+After you open the pull request, link it to the same review:
+
+```sh
+med review update --key feat/parser --pr https://github.com/owner/repository/pull/123
+```
+
+The next `review create` with the key also finds a matching PR on its own, as
+described above. Keys use letters, digits, and `. / @ : + # _ -`.
+
 ### Attach a brief
 
 A brief explains the change to the reviewer. Write it in Markdown and cite code
@@ -205,6 +227,7 @@ When handing off code changes, provide a med review link if the user's med host 
 - For a feature review, use that repository's intended base branch (`main`, `develop`, or another agreed ref). Use `--base <branch> --head HEAD --merge-base` to exclude changes made only on the base branch. For stacked changes, use the previous feature branch as the base. Recalculate after merging the base branch and create a new link. Do not guess the same base for every repository or fetch without authorization.
 - Use a concise `--title`, or omit it for a matching GitHub PR title. Supply `--pr` when known; do not invent a PR URL.
 - Use `review create` for one target, or `review create --manifest` for several repositories or comparisons. Include its Markdown link in the final response.
+- Pass `--key <branch-or-task-name>` and reuse it for later rounds of the same task, so the user keeps one workspace. After opening a PR, run `review update --key <name> --pr <url>`.
 - Pass the final explanation with `--brief -` when it cites changed lines. Write links as `[label](repo-relative/path:line)` or `path:start-end`.
 - Do not commit, switch branches, add unrelated repositories, or edit AGENTS.md just to generate a link. Follow the user's authorization for those actions.
 - If the host is unavailable or a relevant repository is missing, state what is needed. Do not invent a URL or print the host's access token.

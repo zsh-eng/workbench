@@ -1,4 +1,5 @@
 import { readBrowserToken } from "./auth";
+import { REVIEW_UPDATED } from "./workspaces";
 import {
   savedReviewSchema,
   savedFeedbackSchema,
@@ -142,6 +143,14 @@ function message(error: unknown): string {
 }
 function query(values: Record<string, string>): string {
   return new URLSearchParams(values).toString();
+}
+
+/** The comparisons of a saved review's current iteration, or all of its own
+ * comparisons when it has no iterations. Commented commits are not included. */
+export function currentTargets(saved: SavedReview) {
+  const ids = saved.iterations?.at(-1)?.targetIds;
+  const own = saved.targets.filter((target) => !target.commentReviewId);
+  return ids ? own.filter((target) => ids.includes(target.id)) : own;
 }
 
 export function createReviewController(options: ReviewControllerOptions = {}): ReviewController {
@@ -1341,9 +1350,27 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     });
   }
 
+  // An agent added an iteration: show its brief, and its comparison unless
+  // the review shows an earlier one on purpose.
+  const reloadSaved = async (event: Event) => {
+    const id = (event as CustomEvent<{ id?: string }>).detail?.id;
+    const before = snapshot.savedReview;
+    if (disposed || !before || id !== before.id) return;
+    const shown = snapshot.savedTargetId;
+    const wasCurrent = !shown || currentTargets(before).some((target) => target.id === shown);
+    const savedReview = await api
+      .json(`/api/reviews/${encodeURIComponent(before.id)}`, savedReviewSchema)
+      .catch(() => null);
+    if (!savedReview || disposed || snapshot.savedReview?.id !== before.id) return;
+    update({ savedReview });
+    const next = currentTargets(savedReview)[0];
+    if (wasCurrent && snapshot.savedView && next && next.id !== snapshot.savedTargetId)
+      await selectSavedTarget(next.id);
+  };
   if (savedReviewId && typeof window !== "undefined") {
     window.addEventListener("focus", refreshSavedOnFocus);
     document.addEventListener("visibilitychange", refreshSavedOnVisibility);
+    window.addEventListener(REVIEW_UPDATED, reloadSaved);
   }
 
   return {
@@ -1388,8 +1415,9 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         if (disposed) return;
         hasRepositoryCatalogue = true;
         update({ repositories: result.repositories });
-        if (!savedReview.targets[0]) throw new Error("This review has no targets.");
-        await selectSavedTarget(savedReview.targets[0].id);
+        const first = currentTargets(savedReview)[0] ?? savedReview.targets[0];
+        if (!first) throw new Error("This review has no targets.");
+        await selectSavedTarget(first.id);
       } catch (error) {
         update({
           status: "error",
@@ -1568,6 +1596,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       if (typeof window !== "undefined") {
         window.removeEventListener("focus", refreshSavedOnFocus);
         document.removeEventListener("visibilitychange", refreshSavedOnVisibility);
+        window.removeEventListener(REVIEW_UPDATED, reloadSaved);
       }
       ++catalogueGeneration;
       catalogueAbort?.abort();

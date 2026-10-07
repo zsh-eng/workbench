@@ -30,6 +30,14 @@ export function SavedReviewHeader({
   const repositoryCount = new Set(saved.targets.map((entry) => entry.repositoryId)).size;
   const target = saved.targets.find((entry) => entry.id === state.savedTargetId);
   const outside = !state.savedView || browsing;
+  const iterations = saved.iterations ?? [];
+  const iterationOf = (id: string) =>
+    iterations.find((iteration) => iteration.targetIds.includes(id))?.number;
+  const option = (entry: (typeof saved.targets)[number]) => (
+    <option key={entry.id} value={entry.id}>
+      {entry.repo.split(/[\\/]/).at(-1)} · {entry.branch ?? "detached"} · {entry.label}
+    </option>
+  );
   const saving = target?.captured ? "Captured working changes" : "Saved commit comparison";
   const details = [
     saved.title,
@@ -114,11 +122,27 @@ export function SavedReviewHeader({
           }}
         >
           {!state.savedTargetId && <option value="">Select target</option>}
-          {saved.targets.map((entry) => (
-            <option key={entry.id} value={entry.id}>
-              {entry.repo.split(/[\\/]/).at(-1)} · {entry.branch ?? "detached"} · {entry.label}
-            </option>
-          ))}
+          {iterations.length > 1 ? (
+            <>
+              {[...iterations].reverse().map((iteration) => (
+                <optgroup
+                  key={iteration.number}
+                  label={`Iteration ${iteration.number}${iteration === iterations.at(-1) ? " · current" : ""}`}
+                >
+                  {saved.targets
+                    .filter((entry) => iteration.targetIds.includes(entry.id))
+                    .map(option)}
+                </optgroup>
+              ))}
+              {saved.targets.some((entry) => !iterationOf(entry.id)) && (
+                <optgroup label="Commented commits">
+                  {saved.targets.filter((entry) => !iterationOf(entry.id)).map(option)}
+                </optgroup>
+              )}
+            </>
+          ) : (
+            saved.targets.map(option)
+          )}
         </select>
       )}
       <span {...stylex.props(styles.grow)} />

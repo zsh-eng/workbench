@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { z } from "zod";
-import { savedReviewCreateSchema } from "../shared/saved-review";
+import { reviewKeySchema, savedReviewCreateSchema } from "../shared/saved-review";
 import {
   DEFAULT_PORT,
   getStateDirectory,
@@ -19,7 +19,11 @@ export type ReviewManifest = z.infer<typeof reviewManifestSchema>;
 export const reviewHelp = `Usage: med-diff review create --title <title> --repo <path> --base <ref> --head <ref>
        med-diff review create --title <title> --repo <path> --working
        med-diff review create --manifest <json-path>
+       med-diff review update --key <key> [--pr <https-url>] [--title <title>]
        med-diff review repos
+
+--key <key> names your task, such as its branch. Create with the same key again to add an iteration to that review: its workspace stays, earlier briefs and comments stay, and the new comparison and brief become current.
+update sets the title or the PR link of the review with that key, such as after you open the PR.
 
 --title sets the review and browser tab title. Without it, use the matching PR title or a comparison label.
 --pr <https-url> adds a clickable GitHub PR link. A matching PR is inferred for a single GitHub origin repository when gh is available; --no-pr skips lookup.
@@ -33,7 +37,9 @@ A manifest is {"title":"Review title","targets":[{"repo":"/absolute/path","compa
 The create command prints a Markdown review link without an access token.`;
 
 export interface ReviewCommand {
-  kind: "help" | "repos" | "create";
+  kind: "help" | "repos" | "create" | "update";
+  /** For update: the review's key and its new details. */
+  update?: { key: string; title?: string; pullRequestUrl?: string };
   port: number;
   stateDir: string;
   manifest?: ReviewManifest;
@@ -68,6 +74,7 @@ export async function parseReviewCommand(args: string[]): Promise<ReviewCommand>
       manifest: { type: "string" },
       brief: { type: "string" },
       open: { type: "boolean" },
+      key: { type: "string" },
     },
   });
   const port = values.port === undefined ? DEFAULT_PORT : Number(values.port);
@@ -75,8 +82,23 @@ export async function parseReviewCommand(args: string[]): Promise<ReviewCommand>
     throw new Error("Review connection port must be between 1 and 65535.");
   const common = { port, stateDir: getStateDirectory(values["state-dir"]) };
   if (values.help) return { ...common, kind: "help" };
-  if (positionals.length !== 1 || !["repos", "create"].includes(positionals[0]!))
+  if (positionals.length !== 1 || !["repos", "create", "update"].includes(positionals[0]!))
     throw new Error(reviewHelp);
+  if (positionals[0] === "update") {
+    if (!values.key) throw new Error("Use update with --key, the key the review was created with.");
+    if (!values.pr && !values.title) throw new Error("Supply --pr, --title, or both.");
+    const key = reviewKeySchema.safeParse(values.key);
+    if (!key.success) throw new Error(key.error.issues[0]!.message);
+    return {
+      ...common,
+      kind: "update",
+      update: {
+        key: key.data,
+        ...(values.title ? { title: values.title } : {}),
+        ...(values.pr ? { pullRequestUrl: values.pr } : {}),
+      },
+    };
+  }
   const targetOptions = [
     values.title,
     values.pr,
@@ -91,6 +113,7 @@ export async function parseReviewCommand(args: string[]): Promise<ReviewCommand>
       values["no-pr"] !== undefined ||
       values.manifest !== undefined ||
       values.brief !== undefined ||
+      values.key !== undefined ||
       targetOptions.some((value) => value !== undefined)
     )
       throw new Error("The repos command accepts only --port and --state-dir.");
@@ -154,12 +177,15 @@ export async function parseReviewCommand(args: string[]): Promise<ReviewCommand>
     }
     input = { ...(input as object), brief };
   }
+  if (values.key !== undefined) input = { ...(input as object), key: values.key };
   const result = reviewManifestSchema.safeParse(input);
   if (!result.success)
     throw new Error(
       result.error.issues.some((issue) => issue.path[0] === "brief")
         ? `Invalid brief: ${result.error.issues.find((issue) => issue.path[0] === "brief")!.message}`
-        : "Invalid review manifest. Supply a title and 1–16 targets, each with repo and a Git comparison.",
+        : result.error.issues.some((issue) => issue.path[0] === "key")
+          ? `Invalid key: ${result.error.issues.find((issue) => issue.path[0] === "key")!.message}`
+          : "Invalid review manifest. Supply a title and 1–16 targets, each with repo and a Git comparison.",
     );
   const manifest = {
     ...result.data,
@@ -225,6 +251,16 @@ export async function runReviewCommand(
   }
   const connection = await readConnection(command.stateDir, command.port);
   const fetcher = options.fetcher ?? fetch;
+  if (command.kind === "update") {
+    const { key, ...details } = command.update!;
+    const found = z
+      .object({ id: z.string().regex(/^[A-Za-z0-9_-]+$/) })
+      .parse(await request(connection, "/api/reviews/by-key", fetcher, { key }));
+    await request(connection, `/api/reviews/${found.id}/details`, fetcher, details);
+    await showReview(connection, found.id, false, fetcher, options.openUrl, true);
+    print(`[Review changes here](${connection.origin}/review/${found.id})`);
+    return;
+  }
   const repositories = await request(connection, "/api/repositories", fetcher);
   if (command.kind === "repos") {
     print(JSON.stringify(repositories, null, 2));
@@ -236,10 +272,24 @@ export async function runReviewCommand(
     !!command.inferPullRequest,
   );
   const result = await request(connection, "/api/reviews", fetcher, manifest);
-  const parsed = z.object({ id: z.string().regex(/^[A-Za-z0-9_-]+$/) }).safeParse(result);
+  const parsed = z
+    .object({
+      id: z.string().regex(/^[A-Za-z0-9_-]+$/),
+      iterations: z.array(z.object({ number: z.number() })).optional(),
+    })
+    .safeParse(result);
   if (!parsed.success) throw new Error("Med returned an invalid review ID.");
-  await showReview(connection, parsed.data.id, !!command.open, fetcher, options.openUrl);
+  const iteration = parsed.data.iterations?.at(-1)?.number ?? 1;
+  await showReview(
+    connection,
+    parsed.data.id,
+    !!command.open,
+    fetcher,
+    options.openUrl,
+    iteration > 1,
+  );
   print(`[Review changes here](${connection.origin}/review/${parsed.data.id})`);
+  if (iteration > 1) print(`Added iteration ${iteration} to the review with this key.`);
 }
 
 /**
@@ -253,9 +303,10 @@ export async function showReview(
   open: boolean,
   fetcher: typeof fetch,
   openUrl: (url: string) => void = openBrowser,
+  updated = false,
 ) {
   // An older server has no window channel; the link still works.
-  const windows = await request(connection, "/api/windows/review", fetcher, { id, open })
+  const windows = await request(connection, "/api/windows/review", fetcher, { id, open, updated })
     .then((data) => z.object({ windows: z.number() }).parse(data).windows)
     .catch(() => 0);
   if (open && !windows) openUrl(`${connection.origin}/review/${id}#token=${connection.token}`);

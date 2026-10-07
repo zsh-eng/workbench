@@ -7,6 +7,7 @@ import {
   readdir,
   rename,
   rm,
+  readFile,
   rmdir,
   stat,
   unlink,
@@ -36,7 +37,9 @@ import {
   savedReviewCreateSchema,
   pullRequestUrlSchema,
   briefTextSchema,
+  savedReviewDetailsSchema,
   MAX_BRIEF_LENGTH,
+  MAX_ITERATIONS,
   type SavedReview,
   type SavedReviewCreate,
   type CapturedReviewTarget,
@@ -98,11 +101,24 @@ const targetSchema = z.object({
   captured: z.boolean(),
   commentReviewId: text.optional(),
 });
+const briefSchema = z.object({ text: text.max(MAX_BRIEF_LENGTH), updatedAt: text });
 const savedSchema = z.object({
   id: z.string().regex(REVIEW_ID),
+  key: text.optional(),
   title: text,
   pullRequestUrl: pullRequestUrlSchema.optional(),
-  brief: z.object({ text: text.max(MAX_BRIEF_LENGTH), updatedAt: text }).optional(),
+  brief: briefSchema.optional(),
+  iterations: z
+    .array(
+      z.object({
+        number: z.number().int().positive(),
+        createdAt: text,
+        targetIds: z.array(z.string().regex(TARGET_ID)),
+        brief: briefSchema.optional(),
+      }),
+    )
+    .max(MAX_ITERATIONS)
+    .optional(),
   createdAt: text,
   revision: natural,
   commentCount: natural,
@@ -453,6 +469,7 @@ export class SavedReviewStore {
     record: SavedRecord,
     result: CapturedReviewTarget,
     commentReviewId?: string,
+    limit = true,
   ) {
     const id = record.saved.id;
     const targetId = `t_${randomBytes(12).toString("hex")}`;
@@ -508,7 +525,8 @@ export class SavedReviewStore {
       images,
       notes: { reviewId, revision: 0, notes: [] },
     });
-    if (Buffer.byteLength(JSON.stringify(record)) > MAX_RECORD_BYTES)
+    // An iteration checks once all its comparisons are in; see fit().
+    if (limit && Buffer.byteLength(JSON.stringify(record)) > MAX_RECORD_BYTES)
       throw new HostError(
         "saved-review-limit",
         "This review exceeds the 64 MiB snapshot limit.",
@@ -526,6 +544,8 @@ export class SavedReviewStore {
       const parsed = savedReviewCreateSchema.safeParse(input);
       if (!parsed.success) throw new HostError("invalid-saved-review", parsed.error.message);
       input = parsed.data;
+      const known = input.key ? await this.findKey(input.key) : undefined;
+      if (known) return this.iterate(known, input, capture, beforeCommit);
       const id = `r_${randomBytes(12).toString("hex")}`;
       const record: SavedRecord = {
         version: 1,
@@ -547,6 +567,149 @@ export class SavedReviewStore {
         const result = await capture(requested);
         this.appendCapture(record, result);
       }
+      if (input.key) {
+        record.saved.key = input.key;
+        record.saved.iterations = [
+          {
+            number: 1,
+            createdAt: record.saved.createdAt,
+            targetIds: record.saved.targets.map((target) => target.id),
+            ...(record.saved.brief ? { brief: record.saved.brief } : {}),
+          },
+        ];
+      }
+      await this.write(record, beforeCommit);
+      if (input.key) await this.setKey(input.key, id);
+      return this.describe(record);
+    }, beforeCommit);
+  }
+
+  /** The agent's next round on a keyed review: new comparisons and brief as a
+   * new iteration. Comments, earlier briefs, and earlier comparisons stay. */
+  private async iterate(
+    record: SavedRecord,
+    input: SavedReviewCreate,
+    capture: (target: SavedReviewCreate["targets"][number]) => Promise<CapturedReviewTarget>,
+    beforeCommit?: () => void,
+  ): Promise<SavedReview> {
+    const saved = record.saved;
+    const iterations = saved.iterations ?? [
+      {
+        number: 1,
+        createdAt: saved.createdAt,
+        targetIds: saved.targets.filter((target) => !target.commentReviewId).map((t) => t.id),
+        ...(saved.brief ? { brief: saved.brief } : {}),
+      },
+    ];
+    if (iterations.length >= MAX_ITERATIONS)
+      throw new HostError(
+        "saved-review-limit",
+        `A review can have at most ${MAX_ITERATIONS} iterations. Use a new key.`,
+        413,
+      );
+    const targetIds: string[] = [];
+    for (const requested of input.targets) {
+      const result = await capture(requested);
+      targetIds.push(this.appendCapture(record, result, undefined, false).id);
+    }
+    const now = new Date().toISOString();
+    const brief = input.brief ? { text: input.brief, updatedAt: now } : undefined;
+    iterations.push({
+      number: iterations.at(-1)!.number + 1,
+      createdAt: now,
+      targetIds,
+      ...(brief ? { brief } : {}),
+    });
+    saved.iterations = iterations;
+    saved.title = input.title.trim();
+    if (brief) saved.brief = brief;
+    if (input.pullRequestUrl) saved.pullRequestUrl = input.pullRequestUrl;
+    this.fit(record);
+    await this.write(record, beforeCommit);
+    return this.describe(record);
+  }
+
+  /** Keeps a record under its size and target limits by dropping the oldest
+   * earlier comparisons that have no comments. Their briefs stay. */
+  private fit(record: SavedRecord) {
+    const latest = new Set(record.saved.iterations?.at(-1)?.targetIds);
+    const fits = () =>
+      record.captures.length <= 128 &&
+      Buffer.byteLength(JSON.stringify(record)) <= MAX_RECORD_BYTES;
+    for (const capture of [...record.captures]) {
+      if (fits()) return;
+      const target = record.saved.targets.find((item) => item.id === capture.targetId);
+      if (!target || latest.has(target.id) || target.commentReviewId || capture.notes.notes.length)
+        continue;
+      record.captures.splice(record.captures.indexOf(capture), 1);
+      record.saved.targets.splice(record.saved.targets.indexOf(target), 1);
+      for (const iteration of record.saved.iterations ?? [])
+        iteration.targetIds = iteration.targetIds.filter((id) => id !== target.id);
+    }
+    if (!fits())
+      throw new HostError(
+        "saved-review-limit",
+        "This review exceeds the 64 MiB snapshot limit. Use a new key.",
+        413,
+      );
+  }
+
+  /** Keys map to review IDs in a small index beside the records. */
+  private keysFile() {
+    return join(this.directory, ".keys.json");
+  }
+  private async readKeys(): Promise<Record<string, string>> {
+    try {
+      const parsed = z
+        .record(z.string(), z.string().regex(REVIEW_ID))
+        .safeParse(JSON.parse(await readFile(this.keysFile(), "utf8")));
+      return parsed.success ? parsed.data : {};
+    } catch {
+      return {};
+    }
+  }
+  private async setKey(key: string, id: string) {
+    const keys = await this.readKeys();
+    keys[key] = id;
+    const temporary = join(this.directory, `.keys-${randomUUID()}.tmp`);
+    try {
+      await writeFile(temporary, JSON.stringify(keys), { mode: 0o600, flag: "wx" });
+      await rename(temporary, this.keysFile());
+    } finally {
+      await unlink(temporary).catch(() => undefined);
+    }
+  }
+  private async findKey(key: string): Promise<SavedRecord | undefined> {
+    const id = (await this.readKeys())[key];
+    if (!id) return undefined;
+    try {
+      const record = await this.read(id);
+      return record.saved.key === key ? record : undefined;
+    } catch (error) {
+      if (error instanceof HostError && error.code === "saved-review-not-found") return undefined;
+      throw error;
+    }
+  }
+
+  /** The review that an agent created with this key. */
+  byKey(key: string): Promise<SavedReview> {
+    return this.serial(async () => {
+      const record = await this.findKey(key);
+      if (!record) throw new HostError("saved-review-not-found", "No review has this key.", 404);
+      return this.describe(record);
+    });
+  }
+
+  /** Changes the title or the pull request link, such as once a PR is open. */
+  details(id: string, input: unknown, beforeCommit?: () => void): Promise<SavedReview> {
+    return this.writing(async () => {
+      const parsed = savedReviewDetailsSchema.safeParse(input);
+      if (!parsed.success)
+        throw new HostError("invalid-saved-review", parsed.error.issues[0]!.message);
+      const record = await this.read(id);
+      if (parsed.data.title) record.saved.title = parsed.data.title;
+      if (parsed.data.pullRequestUrl === null) delete record.saved.pullRequestUrl;
+      else if (parsed.data.pullRequestUrl) record.saved.pullRequestUrl = parsed.data.pullRequestUrl;
       await this.write(record, beforeCommit);
       return this.describe(record);
     }, beforeCommit);
@@ -554,8 +717,12 @@ export class SavedReviewStore {
 
   private describe(record: SavedRecord): SavedReview {
     // Browsed commits are retained for comments, not added to the review scope.
+    // With iterations, the totals are the current iteration's.
+    const current = record.saved.iterations?.at(-1)?.targetIds;
     const targets = new Set(
-      record.saved.targets.filter((target) => !target.commentReviewId).map((target) => target.id),
+      record.saved.targets
+        .filter((target) => !target.commentReviewId && (!current || current.includes(target.id)))
+        .map((target) => target.id),
     );
     const totals = { additions: 0, deletions: 0, files: 0, comparisons: targets.size };
     for (const capture of record.captures) {
@@ -716,6 +883,12 @@ export class SavedReviewStore {
         if (!parsed.success)
           throw new HostError("invalid-brief", parsed.error.issues[0]!.message, 400);
         record.saved.brief = { text: parsed.data, updatedAt: new Date().toISOString() };
+      }
+      // A pasted brief replaces the current iteration's.
+      const iteration = record.saved.iterations?.at(-1);
+      if (iteration) {
+        if (record.saved.brief) iteration.brief = record.saved.brief;
+        else delete iteration.brief;
       }
       await this.write(record, beforeCommit);
       return this.describe(record);

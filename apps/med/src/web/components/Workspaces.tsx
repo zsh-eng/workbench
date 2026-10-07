@@ -22,6 +22,7 @@ import {
   orderedWorkspaces,
   overlayAddress,
   pinned,
+  REVIEW_UPDATED,
   workspaceUrl,
   type RepositoryWorkspace,
   type ReviewWorkspace,
@@ -49,6 +50,7 @@ interface WorkspaceActions {
   /** Shows a workspace and moves the address to it. */
   activate(id: string): void;
   close(id: string): void;
+  markUnread(id: string): void;
   /** Shows the workspace for this task, opening it first if needed. */
   open(input: WorkspaceInput): void;
   match(input: WorkspaceInput): string | undefined;
@@ -105,7 +107,13 @@ export function useDisposeOnClose(dispose: () => void) {
 const WINDOW_KEY = "med:window";
 /** The lock and broadcast channel that share the host's window channel. */
 const WINDOW_CHANNEL = "med:windows";
-const reviewEvent = z.object({ id: z.string(), title: z.string(), open: z.boolean() });
+const reviewEvent = z.object({
+  id: z.string(),
+  title: z.string(),
+  open: z.boolean(),
+  updated: z.boolean().default(false),
+});
+
 type ReviewEvent = z.infer<typeof reviewEvent>;
 
 const pause = (ms: number, signal: AbortSignal) =>
@@ -244,6 +252,7 @@ export function WorkspaceHost({
       },
       open: (input) => show(store.open(input, false)),
       match: store.match,
+      markUnread: store.markUnread,
       closeRepository: store.closeRepository,
       update: store.update,
       openSwitcher() {
@@ -310,13 +319,24 @@ export function WorkspaceHost({
         return document.visibilityState === "visible";
       }
     };
-    const receive = ({ id, title, open }: ReviewEvent) => {
+    const receive = ({ id, title, open, updated }: ReviewEvent) => {
       const here = open && usedLast();
       const known = store.match({ kind: "review", reviewId: id });
       const workspace = store.open(
-        { kind: "review", reviewId: id, title, ...(known || here ? {} : { unread: true }) },
+        {
+          kind: "review",
+          reviewId: id,
+          title,
+          ...((known && !updated) || here ? {} : { unread: true }),
+        },
         false,
       );
+      // A new iteration: the review marks itself unread again and reloads.
+      if (known && updated) {
+        store.update(workspace, { title });
+        if (!here && store.getSnapshot().active !== workspace) store.markUnread(workspace);
+        window.dispatchEvent(new CustomEvent(REVIEW_UPDATED, { detail: { id } }));
+      }
       if (here) show(workspace);
     };
     const others = new BroadcastChannel(WINDOW_CHANNEL);

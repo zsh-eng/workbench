@@ -265,6 +265,8 @@ export function App({
       ? `Commit ${browseSource.oid.slice(0, 7)} · ${state.activeBranch ?? "snapshot"}`
       : `Working files · ${state.activeBranch ?? "detached worktree"}`;
   const pendingSavedChanges = useRef<string | null>(null);
+  // An iteration chosen in the brief: its comparison loads, then the brief shows.
+  const pendingIteration = useRef<string | null>(null);
   useEffect(() => {
     fileWorkspace.configure(workspaceKey, browseSource, sourceLabel);
     if (
@@ -275,6 +277,15 @@ export function App({
     ) {
       fileWorkspace.select("changes");
       pendingSavedChanges.current = null;
+    }
+    if (
+      pendingIteration.current &&
+      state.savedView &&
+      state.status === "ready" &&
+      state.savedTargetId === pendingIteration.current
+    ) {
+      fileWorkspace.select("brief");
+      pendingIteration.current = null;
     }
   }, [
     fileWorkspace,
@@ -650,7 +661,38 @@ export function App({
 
   // A brief explains a saved review. Paste one with Command-V; its links open
   // the cited lines in Changes.
-  const savedBrief = state.savedView ? state.savedReview?.brief : undefined;
+  // An agent's review can have iterations, each with its comparisons and
+  // brief. The brief follows the shown comparison's iteration; choosing an
+  // iteration in the brief shows its comparison too.
+  const iterations = state.savedReview?.iterations ?? [];
+  const [briefIteration, setBriefIteration] = useState<number | null>(null);
+  const [briefTarget, setBriefTarget] = useState(state.savedTargetId);
+  if (briefTarget !== state.savedTargetId) {
+    setBriefTarget(state.savedTargetId);
+    setBriefIteration(null);
+  }
+  const shownIteration =
+    briefIteration ??
+    iterations.find((entry) => state.savedTargetId && entry.targetIds.includes(state.savedTargetId))
+      ?.number ??
+    iterations.at(-1)?.number;
+  // An iteration without a brief keeps the one before it.
+  const briefSource = shownIteration
+    ? iterations.findLast((entry) => entry.number <= shownIteration && entry.brief)
+    : undefined;
+  const savedBrief = !state.savedView
+    ? undefined
+    : shownIteration
+      ? briefSource?.brief
+      : state.savedReview?.brief;
+  const showIteration = (number: number) => {
+    setBriefIteration(number);
+    const first = iterations.find((entry) => entry.number === number)?.targetIds[0];
+    if (!first || first === state.savedTargetId) return;
+    pendingIteration.current = first;
+    pendingSavedChanges.current = null;
+    void controller.selectSavedTarget(first);
+  };
   // Keep the brief mounted once shown, so its scroll position survives tab changes.
   const [briefMounted, setBriefMounted] = useState(false);
   if (fileState.active === "brief" && !briefMounted) setBriefMounted(true);
@@ -2357,6 +2399,7 @@ export function App({
               }}
               onTarget={(id) => {
                 pendingSavedChanges.current = id;
+                pendingIteration.current = null;
                 fileWorkspace.select("changes");
                 void controller.selectSavedTarget(id);
               }}
@@ -2881,8 +2924,13 @@ export function App({
               >
                 <Suspense fallback={null}>
                   <BriefView
-                    key={state.savedReview.id}
+                    key={`${state.savedReview.id}:${shownIteration ?? ""}`}
                     brief={savedBrief}
+                    iterations={iterations
+                      .filter((entry) => entry.brief)
+                      .map(({ number, createdAt }) => ({ number, createdAt }))}
+                    iteration={briefSource?.number}
+                    onIteration={showIteration}
                     files={state.files}
                     root={state.review?.repo}
                     active={fileState.active === "brief"}

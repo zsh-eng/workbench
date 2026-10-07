@@ -45,7 +45,7 @@ import { FileSymbolService } from "./search/symbols";
 import { type SearchOptions } from "./search/service";
 import { RepositoryRegistry } from "./repository/registry";
 import { SavedReviewStore } from "./saved-reviews";
-import { savedReviewCreateSchema } from "../shared/saved-review";
+import { reviewKeySchema, savedReviewCreateSchema } from "../shared/saved-review";
 import { getPersistentToken, publishConnection } from "./runtime/connection";
 
 import type { ServiceManager } from "./service/manager";
@@ -480,10 +480,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               .object({
                 id: z.string().regex(/^[A-Za-z0-9_-]+$/),
                 open: z.boolean().default(false),
+                // A new iteration of a review the windows may already have.
+                updated: z.boolean().default(false),
               })
               .parse(await readBody(request));
             const bundle = await savedReviews.get(input.id);
-            const event = { type: "review", id: bundle.id, title: bundle.title, open: input.open };
+            const event = {
+              type: "review",
+              id: bundle.id,
+              title: bundle.title,
+              open: input.open,
+              updated: input.updated,
+            };
             for (const window of windows)
               window.write(`event: review\ndata: ${JSON.stringify(event)}\n\n`);
             send({ windows: windows.size });
@@ -674,8 +682,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             send({ ...state, reviewId });
             return;
           }
+          if (url.pathname === "/api/reviews/by-key" && request.method === "POST") {
+            const { key } = z.object({ key: reviewKeySchema }).parse(await readBody(request));
+            send(await savedReviews.byKey(key));
+            return;
+          }
           const savedRoute =
-            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes)|\/(feedback|clear|brief))?$/.exec(
+            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes)|\/(feedback|clear|brief|details))?$/.exec(
               url.pathname,
             );
           if (savedRoute) {
@@ -746,6 +759,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 .parse(await readBody(request, MAX_BRIEF_BODY));
               assertRequestAccess();
               send(await savedReviews.setBrief(id!, input.brief, assertRequestAccess));
+              return;
+            }
+            if (request.method === "POST" && action === "details") {
+              const input = await readBody(request);
+              assertRequestAccess();
+              send(await savedReviews.details(id!, input, assertRequestAccess));
               return;
             }
             if (request.method === "POST" && action === "clear") {

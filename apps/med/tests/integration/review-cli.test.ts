@@ -197,7 +197,13 @@ describe("agent review CLI through the production host", () => {
     let text = "";
     while (!/event: review\ndata: .*\n\n/.test(text)) text += (await reader.read()).value ?? "";
     const data = /event: review\ndata: (.*)\n/.exec(text)![1]!;
-    expect(JSON.parse(data)).toEqual({ type: "review", id: shown, title: "Shown", open: true });
+    expect(JSON.parse(data)).toEqual({
+      type: "review",
+      id: shown,
+      title: "Shown",
+      open: true,
+      updated: false,
+    });
     expect(opened).toEqual([]);
 
     // With the window closed, the CLI opens the review link instead.
@@ -213,6 +219,100 @@ describe("agent review CLI through the production host", () => {
     await expect.poll(listening).toBe(0);
     const linked = await create("Linked");
     expect(opened).toEqual([`${origin}/review/${linked}#token=${f.host.token}`]);
+  });
+
+  it("updates one review by key: iterations keep comments and briefs, and the PR link comes later", async () => {
+    const f = await fixture();
+    const repo = f.repos[0]!;
+    const brief = async (name: string, text: string) => {
+      const path = join(f.root, name);
+      await writeFile(path, text);
+      return path;
+    };
+    const create = (title: string, key: string, ...more: string[]) =>
+      f.run(
+        "create",
+        "--title",
+        title,
+        "--key",
+        key,
+        "--repo",
+        repo,
+        "--working",
+        "--no-pr",
+        ...more,
+      );
+    const first = await f.saved(
+      await create("Round one", "feat/x", "--brief", await brief("one.md", "First round")),
+    );
+    expect(first.iterations).toMatchObject([{ number: 1, brief: { text: "First round" } }]);
+    const post = (path: string, body: unknown) =>
+      fetch(`http://127.0.0.1:${f.host.port}${path}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${f.host.token}`, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    const noted = await post(`/api/reviews/${first.id}/targets/${first.targets[0].id}/notes`, {
+      expectedRevision: 0,
+      mutation: {
+        type: "add",
+        note: { path: "file.txt", side: "new", line: 1, text: "Keep this" },
+      },
+    });
+    expect(noted.status).toBe(200);
+
+    await writeFile(join(repo, "file.txt"), "after again\n");
+    const output = await create(
+      "Round two",
+      "feat/x",
+      "--brief",
+      await brief("two.md", "Second round"),
+    );
+    const [link, note] = output.split("\n");
+    expect(note).toBe("Added iteration 2 to the review with this key.");
+    const second = await f.saved(link!);
+    expect(second).toMatchObject({
+      id: first.id,
+      key: "feat/x",
+      title: "Round two",
+      commentCount: 1,
+      brief: { text: "Second round" },
+      totals: { comparisons: 1 },
+    });
+    expect(
+      second.iterations.map((entry: { number: number; brief: { text: string } }) => [
+        entry.number,
+        entry.brief.text,
+      ]),
+    ).toEqual([
+      [1, "First round"],
+      [2, "Second round"],
+    ]);
+    const current = second.iterations[1].targetIds[0];
+    expect((await f.api(`/api/reviews/${first.id}/targets/${current}/review`)).patch).toContain(
+      "+after again",
+    );
+    const earlier = await f.api(`/api/reviews/${first.id}/targets/${first.targets[0].id}/notes`);
+    expect(earlier.notes.map((entry: { text: string }) => entry.text)).toEqual(["Keep this"]);
+
+    // The pull request opens after the review; its link joins the same review.
+    const updated = await f.run(
+      "update",
+      "--key",
+      "feat/x",
+      "--pr",
+      "https://github.com/example/repo/pull/7",
+    );
+    expect(updated).toContain(`/review/${first.id}`);
+    expect((await f.api(`/api/reviews/${first.id}`)).pullRequestUrl).toBe(
+      "https://github.com/example/repo/pull/7",
+    );
+    const other = await f.saved(await create("Other", "feat/y"));
+    expect(other.id).not.toBe(first.id);
+    await expect(f.run("update", "--key", "missing", "--title", "Nope")).rejects.toThrow(
+      "No review has this key",
+    );
+    await expect(create("Bad", "has space")).rejects.toThrow("Invalid key");
   });
 
   it("reports invalid commands and missing repositories without printing a review link", async () => {

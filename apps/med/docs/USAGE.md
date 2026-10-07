@@ -120,7 +120,9 @@ signed in. Pass `gh pr checkout` options through, such as `--force` or
 
 An agent can use the running host to save a commit range or capture working changes, then return a clean local review link. Open the launch URL once in the browser to authorize access. Saved links in that browser then use the same local session.
 
-A saved review opens its first target. Select other repositories or ranges from **Review target**. The saved diff and comment context stay fixed even when agents make more changes. **Copy comments** includes comments from all targets in that review, with repository paths, revisions, line numbers, selected source, and adjacent lines. Open **Review** for details. **Clear**, next to **Copy comments**, clears only that review after confirmation. Copying does not clear comments.
+A saved review opens its first target. Select other repositories or ranges from **Review target**. The saved diff and comment context stay fixed even when agents make more changes. **Copy comments** includes comments from all targets in that review, with repository paths, revisions, line numbers, selected source, and adjacent lines. Hover the title for the save time and repository. **Clear**, next to **Copy comments**, clears only that review after confirmation. Copying does not clear comments.
+
+An agent that names its task with a key updates one review over several rounds. Each round is an iteration: the review opens on the latest one and is marked new again. The Brief tab numbers the iterations; choose one to read its brief beside its comparison. **Review target** groups the comparisons by iteration. Comments on earlier iterations stay.
 
 Saved reviews and their comments persist in `~/.local/state/med`. Normal branch review notes still end with the host process. See [agent integration](AGENT_INTEGRATION.md) for commands, state settings, limits, and suggested `AGENTS.md` guidance.
 

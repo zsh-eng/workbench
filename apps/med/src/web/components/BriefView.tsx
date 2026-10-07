@@ -52,6 +52,10 @@ export interface BriefViewProps {
   onPaste(): void;
   onCopy(): void;
   onRemove(): void;
+  /** An agent's iterations that have a brief, oldest first, and the shown one. */
+  iterations?: readonly { number: number; createdAt: string }[];
+  iteration?: number;
+  onIteration?(number: number): void;
   /** Notes of the open comparison; excerpts show those on their lines. */
   notes: readonly Note[];
   onMutateNote(mutation: NoteMutation): Promise<void>;
@@ -97,6 +101,9 @@ export default function BriefView({
   onPaste,
   onCopy,
   onRemove,
+  iterations,
+  iteration,
+  onIteration,
   notes,
   onMutateNote,
 }: BriefViewProps) {
@@ -325,6 +332,26 @@ export default function BriefView({
               <Icon name="brief" size={14} />
               Brief
             </span>
+            {iterations && iterations.length > 1 && (
+              <span role="group" aria-label="Iterations" {...stylex.props(styles.iterations)}>
+                {iterations.map((entry) => (
+                  <button
+                    key={entry.number}
+                    type="button"
+                    aria-pressed={entry.number === iteration}
+                    aria-label={`Iteration ${entry.number}`}
+                    title={`Iteration ${entry.number} · ${new Date(entry.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`}
+                    onClick={() => onIteration?.(entry.number)}
+                    {...stylex.props(
+                      styles.iteration,
+                      entry.number === iteration && styles.iterationOn,
+                    )}
+                  >
+                    {entry.number}
+                  </button>
+                ))}
+              </span>
+            )}
             {annotated && files.length > 0 && (
               <span
                 {...stylex.props(styles.coverage)}
@@ -789,6 +816,37 @@ const styles = stylex.create({
     fontWeight: 500,
   },
   coverage: { display: "flex", alignItems: "center", gap: 8, color: tokens.faint },
+  // The agent's rounds, as small numbered keys; the shown one is filled.
+  iterations: {
+    display: "inline-flex",
+    gap: 2,
+    padding: 2,
+    borderRadius: 7,
+    backgroundColor: tokens.fill,
+  },
+  iteration: {
+    minWidth: 22,
+    height: 20,
+    paddingInline: 5,
+    borderWidth: 0,
+    borderRadius: 5,
+    backgroundColor: { default: "transparent", ":hover": tokens.fill },
+    color: { default: tokens.faint, ":hover": tokens.text },
+    fontFamily: tokens.ui,
+    fontSize: 11.5,
+    fontVariantNumeric: "tabular-nums",
+    cursor: "pointer",
+    outline: "none",
+    boxShadow: { default: "none", ":focus-visible": `0 0 0 2px ${tokens.accentLine}` },
+  },
+  iterationOn: {
+    color: { default: tokens.text, ":hover": tokens.text },
+    backgroundColor: { default: tokens.raised, ":hover": tokens.raised },
+    boxShadow: {
+      default: `0 0 0 1px ${tokens.line}, 0 1px 2px #0000001a`,
+      ":focus-visible": `0 0 0 2px ${tokens.accentLine}`,
+    },
+  },
   meter: {
     display: "block",
     width: 40,

@@ -52,6 +52,10 @@ export interface WorkspaceSnapshot {
   recent: string[];
 }
 
+/** Tells the workspace of a saved review that the review has new content,
+ * such as an agent's next iteration. The event detail is `{ id }`. */
+export const REVIEW_UPDATED = "med:review-updated";
+
 const STORAGE_KEY = "med:workspaces:v1";
 const LIMIT = 24;
 const newId = () => `w_${Math.random().toString(36).slice(2, 10)}`;
@@ -238,6 +242,18 @@ export function createWorkspaceStore(pathname: string, state?: unknown) {
           : snapshot.workspaces,
         active: id,
         recent: [id, ...snapshot.recent.filter((entry) => entry !== id)],
+      });
+    },
+    /** Marks a workspace as unread, as an agent's new work does. It clears
+     * the next time the workspace is shown. */
+    markUnread(id: string) {
+      const workspace = find(id);
+      if (!workspace || workspace.unread) return;
+      publish({
+        ...snapshot,
+        workspaces: snapshot.workspaces.map((entry) =>
+          entry.id === id ? ({ ...entry, unread: true } as Workspace) : entry,
+        ),
       });
     },
     /** Closes a workspace; the most recent other one takes its place. Vaults

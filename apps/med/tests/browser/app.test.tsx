@@ -88,6 +88,8 @@ async function mountApp(
     brief?: string;
     readOnly?: boolean;
     noteMutation?: () => Promise<Response | undefined>;
+    /** Each saved target is one agent iteration, with these briefs. */
+    iterationBriefs?: [string, string];
     /** Replaces the two small files with these, as path and unified patch. */
     review?: { paths: string[]; patch: string };
   } = {},
@@ -128,6 +130,17 @@ async function mountApp(
     commentCount: 0,
     targets: savedTargets,
     ...(brief ? { brief: { text: brief, updatedAt: "2026-09-20T00:00:00Z" } } : {}),
+    ...(options.iterationBriefs
+      ? {
+          key: "feat/agent",
+          iterations: options.iterationBriefs.map((text, index) => ({
+            number: index + 1,
+            createdAt: `2026-09-2${index}T00:00:00Z`,
+            targetIds: [savedTargets[index]!.id],
+            brief: { text, updatedAt: `2026-09-2${index}T00:00:00Z` },
+          })),
+        }
+      : {}),
   });
   const fetcher: typeof fetch = async (input, init) => {
     const url = new URL(String(input), "http://localhost");
@@ -1444,6 +1457,32 @@ describe("review brief", () => {
     await expect
       .element(page.getByRole("button", { name: "Clear line selection" }))
       .toBeInTheDocument();
+  });
+
+  test("an agent's iterations switch the brief and its comparison together", async () => {
+    const { controller } = await mountApp({
+      savedReview: true,
+      iterationBriefs: ["# First round\n", "# Second round\n"],
+    });
+    // The current iteration opens: its brief and its comparison.
+    await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
+    expect(controller.getSnapshot().savedTargetId).toBe("target-1");
+    await expect
+      .element(page.getByRole("button", { name: "Iteration 2" }))
+      .toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "Iteration 1" }).click();
+    await expect.element(page.getByRole("heading", { name: "First round" })).toBeVisible();
+    await expect.poll(() => controller.getSnapshot().savedTargetId).toBe("target-0");
+    await expect
+      .element(page.getByRole("combobox", { name: "Review target" }))
+      .toHaveValue("target-0");
+    // Choosing a comparison shows it, and the brief follows its iteration.
+    await page.getByRole("combobox", { name: "Review target" }).selectOptions("target-1");
+    await expect
+      .element(page.getByRole("tab", { name: "Changes" }))
+      .toHaveAttribute("aria-selected", "true");
+    await page.getByRole("tab", { name: "Brief" }).click();
+    await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
   });
 
   test("draws a Mermaid diagram in the brief", async () => {
