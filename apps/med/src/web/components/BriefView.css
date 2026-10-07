@@ -37,3 +37,7 @@
 .med-brief-prose li > [data-brief-slot] {
   margin-block: 10px 14px;
 }
+/* Code and diagrams reach past the text column, as excerpts do. */
+.med-brief-prose .med-md-block > pre {
+  margin-inline: calc(-1 * var(--med-brief-bleed, 0px));
+}

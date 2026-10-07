@@ -23,6 +23,7 @@ import RenderWorker from "../markdown/render.worker?worker";
 import { useTheme } from "../themes";
 import { tokens } from "../theme.stylex";
 import { ActionMenu } from "./Controls";
+import { DiagramBlock } from "./DiagramBlock";
 import { DiffStat } from "./DiffStat";
 import { Icon } from "./Icon";
 import { NoteCard, NoteComposer, type NoteTarget } from "./NoteCard";
@@ -354,9 +355,13 @@ export default function BriefView({
               {error}
             </div>
           )}
-          {annotated?.blocks.map((block, index) => (
-            <Block key={index} html={block.html} start={block.start} end={block.end} />
-          ))}
+          {annotated?.blocks.map((block, index) =>
+            block.diagram !== undefined ? (
+              <DiagramBlock key={index} block={block} dark={theme.appearance === "dark"} />
+            ) : (
+              <Block key={index} html={block.html} start={block.start} end={block.end} />
+            ),
+          )}
         </article>
         {annotated && files.length > 0 && (
           // Outside the prose, so Markdown heading and list styles do not apply.

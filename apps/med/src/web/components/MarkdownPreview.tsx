@@ -6,6 +6,7 @@ import type { MarkdownModel, MarkdownBlock, MarkdownResult } from "../markdown/m
 import { connectPreviewScroll } from "../markdown/scroll";
 import RenderWorker from "../markdown/render.worker?worker";
 import { renderDiagram } from "../markdown/diagrams";
+import { DiagramBlock } from "./DiagramBlock";
 import "katex/dist/katex.min.css";
 import "./MarkdownPreview.css";
 import { relativeFileLink } from "../markdown/file-link";
@@ -26,62 +27,6 @@ function imageUrl(raw: string, source: FileRead["source"], path: string, vault =
   if (vault)
     return `/api/vault/image?${new URLSearchParams({ document: path, href: raw, syntax: "markdown" })}`;
   return `/api/markdown/image?${new URLSearchParams({ source: JSON.stringify(source), document: path, href: raw })}`;
-}
-function DiagramBlock({ block, dark }: { block: MarkdownBlock; dark: boolean }) {
-  const host = useRef<HTMLDivElement>(null);
-  const [svg, setSvg] = useState("");
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    let cancelled = false;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (!entries.some((entry) => entry.isIntersecting)) return;
-        observer.disconnect();
-        void renderDiagram(block.diagram!, dark)
-          .then((next) => {
-            if (!cancelled) {
-              setSvg(next);
-              setFailed(false);
-            }
-          })
-          .catch(() => {
-            if (!cancelled) setFailed(true);
-          });
-      },
-      { rootMargin: "300px" },
-    );
-    observer.observe(host.current!);
-    return () => {
-      cancelled = true;
-      observer.disconnect();
-    };
-  }, [block.diagram, dark]);
-  return (
-    <div
-      ref={host}
-      className="med-md-block"
-      data-block-line={block.start}
-      data-block-end={block.end}
-    >
-      <pre
-        data-mermaid="true"
-        data-language="mermaid"
-        data-rendered={svg && !failed ? "true" : undefined}
-        data-diagram-error={failed ? "true" : undefined}
-      >
-        {svg && !failed ? (
-          <div
-            className="med-md-diagram"
-            role="img"
-            aria-label="Mermaid diagram"
-            dangerouslySetInnerHTML={{ __html: svg }}
-          />
-        ) : (
-          <code>{block.diagram}</code>
-        )}
-      </pre>
-    </div>
-  );
 }
 const Block = memo(
   function Block({

@@ -178,7 +178,8 @@
 }
 .med-md-diagram {
   display: flex;
-  justify-content: center;
+  justify-content: safe center;
+  overflow-x: auto;
 }
 .med-md-diagram svg {
   max-width: 100%;

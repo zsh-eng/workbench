@@ -1342,6 +1342,15 @@ describe("review brief", () => {
       .toBeInTheDocument();
   });
 
+  test("draws a Mermaid diagram in the brief", async () => {
+    await mountApp({
+      savedReview: true,
+      brief: "# Flow\n\n```mermaid\nflowchart LR\n  Edit --> Journal\n```\n",
+    });
+    await expect.element(page.getByRole("img", { name: "Mermaid diagram" })).toBeInTheDocument();
+    expect(document.querySelector(".med-md-diagram svg")?.textContent).toContain("Journal");
+  });
+
   test("adds a note on excerpt lines that also shows in Changes", async () => {
     const { controller } = await mountApp({
       savedReview: true,
