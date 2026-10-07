@@ -5,6 +5,7 @@ import { FileTree, useFileTree } from "@pierre/trees/react";
 import { useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
 import type { BrowseEntry } from "../../shared/browse";
 import { tokens, ui } from "../theme.stylex";
+import { treeIcons } from "./tree-icons";
 
 export interface RepositoryFilesProps {
   entries: BrowseEntry[];
@@ -60,6 +61,7 @@ export function RepositoryFiles(props: RepositoryFilesProps) {
     initialExpansion: 1,
     flattenEmptyDirectories: true,
     density: "compact",
+    icons: treeIcons,
     onSelectionChange(paths) {
       if (syncing.current) return;
       const path = paths.at(-1);

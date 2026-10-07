@@ -5,6 +5,7 @@ import { useEffect, useLayoutEffect, useRef, type CSSProperties } from "react";
 import type { ParsedReviewFile } from "../data/controller";
 import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
+import { treeIcons } from "./tree-icons";
 
 export function FileSidebar({
   files,
@@ -40,6 +41,7 @@ export function FileSidebar({
     initialExpansion: "open",
     flattenEmptyDirectories: true,
     density: "compact",
+    icons: treeIcons,
     onSelectionChange: (paths) => {
       if (syncing.current || pointer.current) return;
       const file = latest.current.files.find((entry) => entry.path === paths.at(-1));
