@@ -25,13 +25,24 @@ enable `group.com.zsheng.ArticleReader` in App Groups for both targets. Both use
   unarchived article with a Reader checkpoint between 1% and 95%. Continue restores
   its Reader position, including offline. A copied link takes priority. Dismissal
   survives relaunch until the next visit to that article. The prompt stays
-  hidden during search and selection; it does not fetch article metadata.
-- Cards use an inset Open Graph image, a source badge at the upper left, and a
-  material caption at the bottom. A one-line title can include one subtitle line;
-  longer titles use at most two balanced lines with an ellipsis and no subtitle. Links without images use a compact
-  text card. The previous gradient design remains in `GradientArticleCard` as an
-  unused alternative. A failed preview does not prevent opening the link.
-- Tap an article to open a full reading page. Use the native Back button or swipe from the left edge to return.
+  hidden during search and selection; it does not fetch article metadata. It
+  shows the position as a short progress bar and a percentage.
+- Cards show the Open Graph image at 2:1 above the text, untreated, with
+  continuous rounded corners. Below it are the favicon and site, a star for
+  favourites, and a serif title. A one-line title can include one subtitle line;
+  longer titles use at most two balanced lines with an ellipsis and no subtitle.
+  Links without images use a compact text card. Titles hide a trailing
+  publisher name when it matches the site (`ArticleTitle`); the stored title
+  does not change. The previous gradient design remains in `GradientArticleCard`
+  as an unused alternative. A failed preview does not prevent opening the link.
+  Cards and rows compress slightly when pressed.
+- Tap an article to open a full reading page. On iOS 18 and later the page
+  zooms out of the tapped card or row and back into it; other entry points and
+  Reduce Motion use the standard push. Use the native Back button or swipe from
+  the left edge to return.
+- Until the first document is ready, an uncached article shows a preface with
+  its site, title, subtitle, image and placeholder lines in the Reader palette,
+  then fades to the page. A 2.5-point accent line shows publisher load progress.
 - The bottom controls provide Back, Forward, the lightning Reader / Website icon,
   a bookmark toggle to save or unsave, and Aa for Reader appearance. Unsave keeps
   history, tags and cached Reader content; Remove link deletes the record and copy.
@@ -39,19 +50,24 @@ enable `group.com.zsheng.ArticleReader` in App Groups for both targets. Both use
   a bold title, optional subtitle/byline/avatar, and lead image before the body.
   Missing metadata is omitted. Reader uses bundled Defuddle and DOMPurify. Website restores
   the live page without reloading it. Tap the **Aa** icon beside Reader to open
-  live Reader appearance controls (five fonts, size, side padding, line spacing,
-  and System/White/Paper/Ink/Night palettes). Tap minus or plus for precise steps.
-  The article remains visible and scrollable.
+  live Reader appearance controls: System/White/Paper/Ink/Night swatches, five
+  typeface chips set in their own fonts, text size, margins and line spacing.
+  Tap minus or plus for precise steps. The article remains visible and
+  scrollable. The page and the area under the bars use the palette background,
+  so no band of system colour shows under the bars. The panel takes its light
+  or dark appearance from the palette, not from the content behind it.
   Aa also enters Reader mode when opened from the publisher's page. Reader keeps
   the system text-selection menu; Copy writes the selected plain text through UIKit.
-- Search titles, descriptions and domains. Results use compact rows with matched
-  text highlighted. A one-line title allows up to two subtitle lines; longer titles
+- Search titles, descriptions and domains. Results use compact rows with serif
+  titles and matched text highlighted. A one-line title allows up to two subtitle lines; longer titles
   use two lines alone. Clearing or cancelling restores the library.
 - **Saved** is the default inbox. The top folder strip switches between Saved,
   Favourites, Downloaded, article tags, History, then Archive. History and Archive use compact
-  search-style rows; Saved, Favourites, Downloaded and tags retain image cards. Tapping any folder crossfades directly. Swipe horizontally to move between adjacent folders. The bottom has one native search field in a glass capsule, with a soft scroll edge on iOS 26 and a material fallback on older iOS. The field stays mounted from launch so the first tap can focus it directly.
+  search-style rows; Saved, Favourites, Downloaded and tags retain image cards. Tapping any folder crossfades directly while the selection capsule slides to it, with a selection haptic. Swipe horizontally to move between adjacent folders. The bottom has one native search field in a glass capsule, with a soft scroll edge on iOS 26 and a material fallback on older iOS. The field stays mounted from launch so the first tap can focus it directly.
 - **History** records each URL you view, most recently viewed first, including links
   followed inside articles. Opening does not save a link. Preloading does not add history.
+  In date order, rows are grouped under Today, Yesterday, a weekday for the last
+  week, then the date.
 - **Favourites** includes favourite saved articles, including archived ones. In a tag,
   tap the star beside the folder strip to show only favourites, including archived
   matches. The ordinary tag view remains limited to the inbox. Favourites are a
@@ -59,8 +75,9 @@ enable `group.com.zsheng.ArticleReader` in App Groups for both targets. Both use
 - Long-press a saved article to **Favourite** or **Unfavourite**, edit **Tags**, archive, or remove it. Archived links
   retain their tags and history. **Move to Saved** restores them to the inbox.
   Both actions show a six-second **Undo** banner, including bulk changes and
-  archiving from Reader. Undo changes only archive status. VoiceOver users can
-  dismiss it explicitly; its timer pauses while the app is inactive.
+  archiving from Reader. Undo changes only archive status. A ring and digit
+  count down the remaining seconds. VoiceOver users can dismiss it explicitly;
+  its timer pauses while the app is inactive.
   Select supports bulk archiving and confirmed deletion. Tags use a compact sheet
   that grows with the tag list, up to 360 points.
 - Reader controls use the native navigation bar, safe-area bars and soft scroll-edge

@@ -83,10 +83,22 @@ struct ContinueReadingBanner: View {
         Image(systemName: "book.pages").font(.title3).foregroundStyle(ArcticBrand.accent)
       }
       VStack(alignment: .leading, spacing: 3) {
-        Text(article.title).font(ReaderTheme.sans(14, weight: .medium)).lineLimit(2)
+        Text(article.displayTitle).font(ReaderTheme.sans(14, weight: .medium)).lineLimit(2)
           .accessibilityIdentifier("continue-reading-title")
-        Text("Continue reading · \(Int(progress * 100))%")
-          .font(ReaderTheme.sans(12)).foregroundStyle(ReaderTheme.muted).lineLimit(1)
+        HStack(spacing: 8) {
+          // The bar shows how much remains; the label states it for VoiceOver.
+          Capsule().fill(ReaderTheme.foreground.opacity(0.12))
+            .overlay(alignment: .leading) {
+              GeometryReader { bar in
+                Capsule().fill(ArcticBrand.accent).frame(width: bar.size.width * progress)
+              }
+            }
+            .frame(width: 56, height: 3)
+            .accessibilityHidden(true)
+          Text("\(Int(progress * 100))% read")
+            .font(ReaderTheme.sans(12)).foregroundStyle(ReaderTheme.muted).lineLimit(1)
+            .accessibilityLabel("Continue reading, \(Int(progress * 100)) percent read")
+        }
       }
       Spacer(minLength: 0)
       Button("Continue", action: open).font(ReaderTheme.sans(14, weight: .semibold))

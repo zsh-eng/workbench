@@ -246,6 +246,8 @@ final class DiscoveryShelfView: UIView {
       label.adjustsFontForContentSizeCategory = true
       label.textAlignment = .center
       label.lineBreakMode = .byTruncatingTail
+      label.adjustsFontSizeToFitWidth = true
+      label.minimumScaleFactor = 0.78
       button.addSubview(icon)
       button.addSubview(label)
       scroller.addSubview(button)

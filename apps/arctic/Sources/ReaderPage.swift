@@ -21,11 +21,21 @@ struct ReaderPage: View {
   @AppStorage("reader-leading") private var leading = 1.55
   @AppStorage("reader-palette") private var paletteName = "System"
   private var palette: ReadingPalette { ReadingPalette(rawValue: paletteName) ?? .system }
+  /// System follows the device with the White and Ink documents.
+  private var documentPalette: ReadingPalette {
+    palette != .system ? palette : (systemScheme == .dark ? .dark : .light)
+  }
   private var article: SavedArticle? {
     store.articles.first { $0.url == browser.libraryURL }
       ?? store.articles.first { $0.url == browser.sourceURL }
   }
   private var isSaved: Bool { article?.saved == true }
+  /// Publisher pages can take seconds to paint. Show the article's own title
+  /// and image at once instead of a blank page; stored Reader views skip it.
+  private var showsPreface: Bool {
+    !browser.hasPresentedContent && browser.websiteFailure == nil && browser.errorMessage == nil
+      && article?.downloadedAt == nil
+  }
   private var canArchive: Bool { isSaved && article?.isArchived != true }
   init(browser: ArticleBrowser, store: ArticleStore) {
     _browser = State(initialValue: browser)
@@ -151,7 +161,7 @@ struct ReaderPage: View {
 
   private var readingPage: some View {
     pageContent
-      .background(palette.background)
+      .background(documentPalette.background)
       .navigationTitle("")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar(.visible, for: .navigationBar)
@@ -199,9 +209,16 @@ struct ReaderPage: View {
         )
         .ignoresSafeArea(.container, edges: .vertical)
       }
-      if (browser.isLoading && !browser.isReader) || browser.isOpeningWebsite {
-        ProgressView().padding(8).background(.regularMaterial, in: Capsule()).padding(8)
+      if showsPreface {
+        ReaderPreface(
+          article: article, host: browser.sourceURL.host, palette: documentPalette,
+          padding: padding, reduceMotion: reduceMotion
+        )
+        .transition(.opacity.animation(.easeOut(duration: reduceMotion ? 0.1 : 0.35)))
       }
+      ReaderLoadingBar(
+        progress: browser.loadProgress,
+        active: (browser.isLoading && !browser.isReader) || browser.isOpeningWebsite)
       if let failed = browser.annotations.first(where: { AnnotationStore.shared.failedNotes[$0.id] != nil }) {
         Button("Note not saved · Retry") { AnnotationStore.shared.retryNote(failed.id) }
           .font(.subheadline).padding(12).readerGlass().padding(.top, 8)
@@ -226,7 +243,7 @@ struct ReaderPage: View {
               .buttonStyle(.borderedProminent).accessibilityIdentifier("reader-retry")
           }
           .frame(maxWidth: .infinity, maxHeight: .infinity)
-          .background(palette.background)
+          .background(documentPalette.background)
         }
       }
     }
@@ -282,9 +299,15 @@ struct ReaderPage: View {
               .offset(y: -1).frame(width: 54, height: 54)
           }
           .readerGlass().accessibilityLabel("Add note").accessibilityIdentifier("reader-add-note")
-        }.padding(.horizontal, 12).padding(.bottom, 6)
+        }
+        .padding(.horizontal, 12).padding(.bottom, 6)
+        .transition(.opacity)
       }
     }
+    .animation(
+      reduceMotion ? .easeOut(duration: 0.1) : .spring(response: 0.42, dampingFraction: 0.86),
+      value: appearance
+    )
     .animation(
       .timingCurve(0.23, 1, 0.32, 1, duration: reduceMotion ? 0.1 : 0.18), value: nearEnd
     )
@@ -314,8 +337,10 @@ struct ReaderPage: View {
       Button(action: toggleSaved) {
         Image(systemName: isSaved ? "bookmark.fill" : "bookmark").frame(width: 44, height: 44)
           .contentTransition(.symbolEffect(.replace))
+          .symbolEffect(.bounce.down, options: .speed(1.4), value: isSaved && !reduceMotion)
           .animation(.easeOut(duration: reduceMotion ? 0.1 : 0.2), value: isSaved)
       }
+      .sensoryFeedback(.impact(weight: .medium, intensity: 0.8), trigger: isSaved)
       .accessibilityLabel(isSaved ? "Unsave article" : "Save article")
       .accessibilityValue(isSaved ? "Saved" : "Not saved")
       .accessibilityIdentifier("reader-save").frame(maxWidth: .infinity)
@@ -349,70 +374,21 @@ struct ReaderPage: View {
   }
 
   private var appearanceControls: some View {
-    VStack(spacing: 12) {
-      HStack {
-        Text("Reader appearance").font(.headline)
-        Spacer()
-        Button("Done") { appearance = false }.font(.subheadline.weight(.semibold))
-      }
-      HStack {
-        Picker("Typeface", selection: $font) {
-          ForEach(["System", "DM Sans", "EB Garamond", "Georgia", "Palatino"], id: \.self) {
-            Text($0)
-          }
-        }.pickerStyle(.menu).accessibilityIdentifier("reader-font")
-        Spacer()
-        Picker("Theme", selection: $paletteName) {
-          ForEach(ReadingPalette.allCases, id: \.rawValue) { Text($0.rawValue).tag($0.rawValue) }
-        }.pickerStyle(.menu).accessibilityIdentifier("reader-theme")
-      }
-      adjustment(
-        "Text size", value: $fontSize, range: 16...30, step: 1, display: "\(Int(fontSize))")
-      adjustment(
-        "Side padding", value: $padding, range: 8...36, step: 2, display: "\(Int(padding))")
-      adjustment(
-        "Line spacing", value: $leading, range: 1.25...1.95, step: 0.05,
-        display: String(format: "%.2f", leading))
+    ReaderAppearancePanel(
+      font: $font, paletteName: $paletteName, fontSize: $fontSize, padding: $padding,
+      leading: $leading, palette: documentPalette
+    ) {
+      appearance = false
     }
-    .padding(18).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 26))
+    // Bar content adapts to the content behind it; the panel follows the page.
+    .environment(\.colorScheme, documentPalette.scheme ?? systemScheme)
     .padding(.horizontal, 12).padding(.bottom, 6)
-    .accessibilityElement(children: .contain)
-  }
-
-  private func adjustment(
-    _ name: String, value: Binding<Double>, range: ClosedRange<Double>, step: Double,
-    display: String
-  ) -> some View {
-    HStack(spacing: 12) {
-      Text(name).font(.subheadline)
-      Spacer(minLength: 8)
-      HStack(spacing: 0) {
-        Button {
-          value.wrappedValue = max(
-            range.lowerBound, ((value.wrappedValue - step) / step).rounded() * step)
-        } label: {
-          Image(systemName: "minus").frame(width: 44, height: 44)
-        }
-        .disabled(value.wrappedValue <= range.lowerBound + 0.001)
-        .accessibilityLabel("Decrease " + name.lowercased())
-        .accessibilityIdentifier(
-          "reader-decrease-" + name.lowercased().replacingOccurrences(of: " ", with: "-"))
-        Text(display).font(.subheadline.monospacedDigit()).frame(width: 44)
-          .accessibilityLabel(name).accessibilityValue(display)
-        Button {
-          value.wrappedValue = min(
-            range.upperBound, ((value.wrappedValue + step) / step).rounded() * step)
-        } label: {
-          Image(systemName: "plus").frame(width: 44, height: 44)
-        }
-        .disabled(value.wrappedValue >= range.upperBound - 0.001)
-        .accessibilityLabel("Increase " + name.lowercased())
-        .accessibilityIdentifier(
-          "reader-increase-" + name.lowercased().replacingOccurrences(of: " ", with: "-"))
-      }
-      .font(.subheadline.weight(.semibold))
-      .background(palette.foreground.opacity(0.06), in: Capsule())
-    }
+    .transition(
+      reduceMotion
+        ? .opacity
+        : .asymmetric(
+          insertion: .offset(y: 40).combined(with: .opacity),
+          removal: .offset(y: 24).combined(with: .opacity)))
   }
 
   private func updateAppearance() {
@@ -482,9 +458,11 @@ struct ReaderNavigationBar: View {
         }
         .disabled(article?.saved != true || article?.isArchived == true)
         .accessibilityIdentifier("reader-archive-menu")
-        Button("Refresh Reader", systemImage: "arrow.clockwise.document", action: browser.refreshReader)
-          .disabled(browser.isExtracting || browser.isOpeningWebsite)
-          .accessibilityIdentifier("reader-refresh")
+        Button(
+          "Refresh Reader", systemImage: "arrow.clockwise.circle", action: browser.refreshReader
+        )
+        .disabled(browser.isExtracting || browser.isOpeningWebsite)
+        .accessibilityIdentifier("reader-refresh")
         Button("Reload", systemImage: "arrow.clockwise", action: browser.reload)
         Button("Open in browser", systemImage: "safari") { openURL(browser.libraryURL) }
           .accessibilityIdentifier("reader-open-browser")
@@ -494,7 +472,8 @@ struct ReaderNavigationBar: View {
       }.readerGlass().accessibilityLabel("Page options")
     }
     .overlay {
-      Text(browser.sourceURL.host ?? "Article").font(.headline).lineLimit(1)
+      Text(browser.sourceURL.host?.replacingOccurrences(of: "www.", with: "") ?? "Article")
+        .font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.85)
         .padding(.horizontal, 108).allowsHitTesting(false)
     }
     .padding(.horizontal, 16)
@@ -504,5 +483,323 @@ struct ReaderNavigationBar: View {
     )) {
       ReadingStatsView(articleURL: browser.libraryURL, articleTitle: article?.title)
     }
+  }
+}
+
+/// The article's own front matter, set like Reader, while the publisher loads.
+/// Text lines stand in for the body; the image is the card's cached cover.
+private struct ReaderPreface: View {
+  let article: SavedArticle?
+  let host: String?
+  let palette: ReadingPalette
+  let padding: Double
+  let reduceMotion: Bool
+  private let metrics = UIFontMetrics(forTextStyle: .body)
+
+  var body: some View {
+    GeometryReader { geometry in
+      VStack(alignment: .leading, spacing: 0) {
+        HStack(spacing: 8) {
+          if let favicon = article?.faviconURL {
+            ArticleThumbnail(url: favicon, label: "Site icon", pixels: 96)
+              .frame(width: 16, height: 16).clipShape(Circle())
+          }
+          Text((host ?? "").replacingOccurrences(of: "www.", with: "").uppercased())
+            .font(.system(size: metrics.scaledValue(for: 12), weight: .semibold))
+            .tracking(0.8).opacity(0.65).lineLimit(1)
+        }
+        if let article {
+          Text(article.displayTitle)
+            .font(.system(size: metrics.scaledValue(for: 34), weight: .bold))
+            .tracking(-1.1).lineLimit(4).minimumScaleFactor(0.8)
+            .padding(.vertical, 16)
+          if !article.subtitle.isEmpty {
+            Text(article.subtitle)
+              .font(.system(size: metrics.scaledValue(for: 18)))
+              .lineSpacing(5).opacity(0.65).lineLimit(3)
+              .padding(.bottom, 26)
+          }
+        } else {
+          ReaderTextPlaceholder(
+            widths: [0.92, 0.7], lineHeight: 26, pitch: 40, reduceMotion: reduceMotion
+          )
+          .padding(.vertical, 18)
+        }
+        if let image = article?.imageURL {
+          ArticleThumbnail(url: image)
+            .frame(width: geometry.size.width, height: min(geometry.size.width / 1.6, 260))
+            .clipped()
+            .padding(.horizontal, -(padding + 4))
+            .padding(.bottom, 30)
+        }
+        ReaderTextPlaceholder(
+          widths: [1, 0.97, 0.99, 0.94, 0.98, 0.62], lineHeight: 11, pitch: 31,
+          reduceMotion: reduceMotion)
+        Spacer(minLength: 0)
+      }
+      .padding(.horizontal, padding + 4)
+      .padding(.top, 28)
+      .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+    }
+    .foregroundStyle(palette.foreground)
+    .background(palette.background.ignoresSafeArea())
+    .allowsHitTesting(false)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("Loading " + (article?.displayTitle ?? host ?? "article"))
+    .accessibilityIdentifier("reader-preface")
+  }
+}
+
+/// Rounded bars at body rhythm. One soft highlight passes over them while the
+/// page loads; Reduce Motion keeps them still.
+private struct ReaderTextPlaceholder: View {
+  let widths: [CGFloat]
+  let lineHeight: CGFloat
+  let pitch: CGFloat
+  let reduceMotion: Bool
+  @State private var sweep = false
+
+  var body: some View {
+    GeometryReader { geometry in
+      let bars = VStack(alignment: .leading, spacing: pitch - lineHeight) {
+        ForEach(widths.indices, id: \.self) { index in
+          Capsule().frame(width: geometry.size.width * widths[index], height: lineHeight)
+        }
+      }
+      bars.opacity(0.08)
+        .overlay {
+          if !reduceMotion {
+            LinearGradient(
+              colors: [.clear, .primary.opacity(0.1), .clear], startPoint: .leading,
+              endPoint: .trailing
+            )
+            .frame(width: geometry.size.width * 0.6)
+            .offset(x: sweep ? geometry.size.width * 1.2 : -geometry.size.width * 0.8)
+            .frame(width: geometry.size.width, alignment: .leading)
+            .mask(bars)
+          }
+        }
+    }
+    .frame(height: pitch * CGFloat(widths.count - 1) + lineHeight)
+    .onAppear {
+      guard !reduceMotion else { return }
+      withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: false).delay(0.2)) {
+        sweep = true
+      }
+    }
+  }
+}
+
+/// A hairline under the controls, in place of a spinner over the article.
+private struct ReaderLoadingBar: View {
+  let progress: Double
+  let active: Bool
+
+  var body: some View {
+    GeometryReader { geometry in
+      Capsule().fill(ArcticBrand.accent)
+        .frame(width: geometry.size.width * max(0.08, min(1, progress)), height: 2.5)
+        .animation(.easeOut(duration: 0.3), value: progress)
+    }
+    .frame(height: 2.5)
+    .padding(.horizontal, 20)
+    .opacity(active ? 1 : 0)
+    .animation(.easeOut(duration: active ? 0.15 : 0.4).delay(active ? 0.25 : 0), value: active)
+    .allowsHitTesting(false)
+    .accessibilityHidden(true)
+  }
+}
+
+/// Live appearance controls. Each choice is shown as itself: themes as their
+/// colours, typefaces in their own letterforms, sizes as numbers.
+private struct ReaderAppearancePanel: View {
+  @Binding var font: String
+  @Binding var paletteName: String
+  @Binding var fontSize: Double
+  @Binding var padding: Double
+  @Binding var leading: Double
+  let palette: ReadingPalette
+  let done: () -> Void
+  @Namespace private var selection
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  private static let fonts = ["System", "DM Sans", "EB Garamond", "Georgia", "Palatino"]
+
+  private var choice: Animation? {
+    reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.8)
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      HStack {
+        Text("Reader appearance").font(.headline)
+        Spacer()
+        Button("Done", action: done).font(.subheadline.weight(.semibold))
+      }
+      themes
+      typefaces
+      HStack {
+        Text("Text size").font(.subheadline)
+        Spacer(minLength: 8)
+        stepper(
+          "Text size", value: $fontSize, range: 16...30, step: 1, display: "\(Int(fontSize))",
+          decrease: "textformat.size.smaller", increase: "textformat.size.larger")
+      }
+      HStack(alignment: .bottom, spacing: 10) {
+        VStack(alignment: .leading, spacing: 4) {
+          Text("Margins").font(.caption).foregroundStyle(.secondary).padding(.leading, 12)
+          stepper(
+            "Side padding", value: $padding, range: 8...36, step: 2, display: "\(Int(padding))")
+        }
+        Spacer(minLength: 0)
+        VStack(alignment: .leading, spacing: 4) {
+          Text("Line spacing").font(.caption).foregroundStyle(.secondary).padding(.leading, 12)
+          stepper(
+            "Line spacing", value: $leading, range: 1.25...1.95, step: 0.05,
+            display: String(format: "%.2f", leading))
+        }
+      }
+    }
+    .padding(18)
+    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: 28, style: .continuous)
+        .strokeBorder(palette.foreground.opacity(0.08), lineWidth: 0.5)
+    }
+    .shadow(color: .black.opacity(0.1), radius: 20, y: 8)
+    .accessibilityElement(children: .contain)
+    .sensoryFeedback(.selection, trigger: paletteName)
+    .sensoryFeedback(.selection, trigger: font)
+  }
+
+  private var themes: some View {
+    HStack(spacing: 0) {
+      ForEach(ReadingPalette.allCases, id: \.rawValue) { theme in
+        let selected = paletteName == theme.rawValue
+        Button {
+          withAnimation(choice) { paletteName = theme.rawValue }
+        } label: {
+          VStack(spacing: 6) {
+            swatch(theme)
+              .frame(width: 38, height: 38)
+              .padding(4)
+              .overlay {
+                if selected {
+                  Circle().strokeBorder(palette.foreground, lineWidth: 2)
+                    .matchedGeometryEffect(id: "theme", in: selection)
+                }
+              }
+            Text(theme.rawValue).font(.caption2.weight(selected ? .semibold : .regular))
+              .foregroundStyle(palette.foreground.opacity(selected ? 1 : 0.55))
+          }
+          .frame(maxWidth: .infinity).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(theme.rawValue)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+      }
+    }
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("reader-theme")
+  }
+
+  @ViewBuilder private func swatch(_ theme: ReadingPalette) -> some View {
+    let edge = Circle().strokeBorder(.primary.opacity(0.14), lineWidth: 0.5)
+    if theme == .system {
+      // System follows the device, so it shows both halves.
+      Circle()
+        .fill(
+          LinearGradient(
+            stops: [
+              .init(color: ReadingPalette.light.background, location: 0.5),
+              .init(color: ReadingPalette.dark.background, location: 0.5),
+            ], startPoint: .leading, endPoint: .trailing)
+        )
+        .overlay(edge)
+    } else {
+      Circle().fill(theme.background)
+        .overlay {
+          Text("Aa").font(.system(size: 13, weight: .semibold)).foregroundStyle(theme.foreground)
+        }
+        .overlay(edge)
+    }
+  }
+
+  private var typefaces: some View {
+    HStack(spacing: 6) {
+      ForEach(Self.fonts, id: \.self) { name in
+        let selected = font == name
+        Button {
+          withAnimation(choice) { font = name }
+        } label: {
+          VStack(spacing: 2) {
+            Text("Aa").font(Self.sample(name, size: 21))
+            Text(name == "EB Garamond" ? "Garamond" : name)
+              .font(.system(size: 10, weight: selected ? .semibold : .regular))
+              .lineLimit(1).minimumScaleFactor(0.8)
+              .foregroundStyle(palette.foreground.opacity(selected ? 1 : 0.55))
+          }
+          .frame(maxWidth: .infinity, minHeight: 54)
+          .background {
+            if selected {
+              RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(palette.foreground.opacity(0.08))
+                .overlay {
+                  RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(palette.foreground.opacity(0.5), lineWidth: 1)
+                }
+                .matchedGeometryEffect(id: "font", in: selection)
+            }
+          }
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(name)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+      }
+    }
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("reader-font")
+  }
+
+  private static func sample(_ name: String, size: CGFloat) -> Font {
+    switch name {
+    case "System": .system(size: size, weight: .regular)
+    case "Palatino": .custom("Palatino", size: size)
+    default: .custom(name, size: size)
+    }
+  }
+
+  private func stepper(
+    _ name: String, value: Binding<Double>, range: ClosedRange<Double>, step: Double,
+    display: String, decrease: String = "minus", increase: String = "plus"
+  ) -> some View {
+    let identifier = name.lowercased().replacingOccurrences(of: " ", with: "-")
+    return HStack(spacing: 0) {
+      Button {
+        value.wrappedValue = max(
+          range.lowerBound, ((value.wrappedValue - step) / step).rounded() * step)
+      } label: {
+        Image(systemName: decrease).frame(width: 42, height: 44)
+      }
+      .disabled(value.wrappedValue <= range.lowerBound + 0.001)
+      .accessibilityLabel("Decrease " + name.lowercased())
+      .accessibilityIdentifier("reader-decrease-" + identifier)
+      Text(display).font(.subheadline.monospacedDigit()).frame(minWidth: 40)
+        .contentTransition(.numericText(value: value.wrappedValue))
+        .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: display)
+        .accessibilityLabel(name).accessibilityValue(display)
+      Button {
+        value.wrappedValue = min(
+          range.upperBound, ((value.wrappedValue + step) / step).rounded() * step)
+      } label: {
+        Image(systemName: increase).frame(width: 42, height: 44)
+      }
+      .disabled(value.wrappedValue >= range.upperBound - 0.001)
+      .accessibilityLabel("Increase " + name.lowercased())
+      .accessibilityIdentifier("reader-increase-" + identifier)
+    }
+    .font(.subheadline.weight(.semibold))
+    .background(palette.foreground.opacity(0.06), in: Capsule())
+    .sensoryFeedback(.selection, trigger: value.wrappedValue)
   }
 }

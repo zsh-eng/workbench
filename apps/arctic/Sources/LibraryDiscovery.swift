@@ -97,7 +97,7 @@ struct WeeklyFavouritesSheet: View {
                   ArticleThumbnail(url: image, pixels: 960).frame(height: 190)
                     .clipShape(RoundedRectangle(cornerRadius: 20))
                 }
-                Text(article.title).font(.system(size: 23, weight: .medium, design: .serif))
+                Text(article.displayTitle).font(.system(size: 23, weight: .medium, design: .serif))
                   .lineLimit(3)
                   .frame(maxWidth: .infinity, alignment: .leading)
                 Text(article.url.host ?? "").font(.caption).foregroundStyle(.secondary)

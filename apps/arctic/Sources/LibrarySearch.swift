@@ -391,11 +391,11 @@ struct ArticleSearchRow: View {
         .frame(width: Self.thumbnailWidth, height: thumbnailHeight).clipShape(
           RoundedRectangle(cornerRadius: 10))
       VStack(alignment: .leading, spacing: 4) {
-        Text(article.url.host?.replacingOccurrences(of: "www.", with: "") ?? "")
+        Text(article.siteName)
           .font(ReaderTheme.sans(11, weight: .medium, relativeTo: .caption))
           .foregroundStyle(ReaderTheme.muted).lineLimit(1)
         SearchResultText(
-          title: article.title,
+          title: article.displayTitle,
           subtitle: article.subtitle.isEmpty ? article.url.absoluteString : article.subtitle,
           query: query
         )
@@ -483,7 +483,7 @@ final class SearchResultTextView: UIView {
     configuration = next
     measurements.removeAll(keepingCapacity: true)
     titleLabel.font = LibraryTextFormatting.font(
-      style: .body, pointSize: 16, weight: .medium, category: category)
+      style: .body, pointSize: 16, weight: .medium, design: .serif, category: category)
     subtitleLabel.font = LibraryTextFormatting.font(
       style: .subheadline, pointSize: 13, weight: .regular, category: category)
     LibraryTextFormatting.apply(title, query: query, to: titleLabel)

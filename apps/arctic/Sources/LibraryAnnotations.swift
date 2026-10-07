@@ -247,24 +247,22 @@ struct LibraryGlass: ViewModifier {
   }
 }
 
-/// A short scroll-edge fade keeps the title readable as cards pass beneath it;
-/// the lower edge is transparent, without a full-width opaque header slab.
+/// A short scroll-edge fade keeps the title readable as cards pass beneath it.
+/// It is a wash of the page colour, not material, so it never shows a tinted
+/// band against the background; the lower edge is transparent.
 struct LibraryScrollEdge: View {
   @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
   var body: some View {
-    Rectangle()
-      .fill(
-        reduceTransparency ? AnyShapeStyle(ReaderTheme.background) : AnyShapeStyle(.regularMaterial)
-      )
-      .mask {
-        LinearGradient(
-          stops: [
-            .init(color: .black, location: 0),
-            .init(color: .black.opacity(0.9), location: 0.45),
-            .init(color: .clear, location: 1),
-          ], startPoint: .top, endPoint: .bottom)
-      }
-      .allowsHitTesting(false)
+    LinearGradient(
+      stops: [
+        .init(color: ReaderTheme.background, location: 0),
+        .init(color: ReaderTheme.background.opacity(reduceTransparency ? 1 : 0.94), location: 0.5),
+        .init(
+          color: ReaderTheme.background.opacity(reduceTransparency ? 0.7 : 0.55), location: 0.78),
+        .init(color: ReaderTheme.background.opacity(0), location: 1),
+      ], startPoint: .top, endPoint: .bottom
+    )
+    .allowsHitTesting(false)
   }
 }
 

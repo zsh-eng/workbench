@@ -136,6 +136,11 @@ struct LibraryView: View {
   @State private var sort = "Newest first"
   @State private var confirmDelete = false
   @State private var browsers = BrowserPool()
+  /// A card opened from the library; other entry points use the native push.
+  @State private var zoomSource: UUID?
+  @Namespace private var articleZoom
+  @Namespace private var folderIndicator
+  @State private var indicatorFolder = ArticleFolder.saved
   @State private var projection = LibraryProjection()
   @State private var discoveryMotion = DiscoveryMotion()
   @State private var headerHeight: CGFloat = 48
@@ -165,6 +170,24 @@ struct LibraryView: View {
     return favouriteTags.contains(name)
   }
 
+  /// Banners rise from the search bar they sit on, and sink back into it.
+  private var bannerTransition: AnyTransition {
+    reduceMotion
+      ? .opacity
+      : .asymmetric(
+        insertion: .offset(y: 24).combined(with: .opacity)
+          .combined(with: .scale(scale: 0.96, anchor: .bottom)),
+        removal: .offset(y: 16).combined(with: .opacity))
+  }
+
+  private var bannerIdentity: String {
+    [
+      clipboard.url?.absoluteString ?? "", continuation.article?.id.uuidString ?? "",
+      store.importSummary == nil ? "" : "import", searching ? "search" : "",
+      selecting ? "select" : "",
+    ].joined(separator: "|")
+  }
+
   private var searchTransition: Animation {
     .timingCurve(0.23, 1, 0.32, 1, duration: reduceMotion ? 0.1 : 0.18)
   }
@@ -181,6 +204,9 @@ struct LibraryView: View {
         ) {
           if let selected {
             ReaderPage(browser: selected, store: store).id(ObjectIdentifier(selected))
+              .modifier(
+                ArticleZoomDestination(
+                  source: appReduceMotion ? nil : zoomSource, namespace: articleZoom))
           }
         }
     }
@@ -275,6 +301,7 @@ struct LibraryView: View {
         ["https", "http"].contains(target.scheme?.lowercased() ?? ""),
         let host = target.host, host.contains(".")
       else { return }
+      zoomSource = nil
       selected = browsers.open(target, store: store)
     }
     .task(id: scenePhase) {
@@ -353,6 +380,7 @@ struct LibraryView: View {
         passageToOpen = nil
         let browser = browsers.open(passage.articleURL, store: store)
         browser.revealAnnotation(passage.id)
+        zoomSource = nil
         selected = browser
       }
     ) {
@@ -364,6 +392,7 @@ struct LibraryView: View {
     .sheet(isPresented: $showingWeeklyFavourites, onDismiss: {
       if let url = weeklyArticleToOpen {
         weeklyArticleToOpen = nil
+        zoomSource = nil
         selected = browsers.open(url, store: store)
       }
     }) {
@@ -546,12 +575,16 @@ struct LibraryView: View {
               Button {
                 selectFolder(item)
               } label: {
+                // The indicator glides between tabs; the pages themselves only crossfade.
                 Text(item.title).font(.subheadline.weight(.semibold))
-                  .foregroundStyle(folder == item ? ReaderTheme.foreground : ReaderTheme.muted)
+                  .foregroundStyle(
+                    indicatorFolder == item ? ReaderTheme.foreground : ReaderTheme.muted
+                  )
                   .padding(.horizontal, 16).frame(minHeight: 44)
                   .background {
-                    if folder == item {
+                    if indicatorFolder == item {
                       Capsule().fill(ReaderTheme.foreground.opacity(0.08))
+                        .matchedGeometryEffect(id: "folder-indicator", in: folderIndicator)
                     }
                   }
                   .contentShape(Capsule())
@@ -561,15 +594,27 @@ struct LibraryView: View {
             }
           }.padding(4)
         }
+        .mask {
+          // Tabs leaving the strip fade out instead of meeting a hard cut.
+          HStack(spacing: 0) {
+            LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
+              .frame(width: 10)
+            Rectangle()
+            LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+              .frame(width: 10)
+          }
+        }
         .accessibilityIdentifier("library-folders")
         .clipShape(Capsule())
         .modifier(LibraryGlass())
         .onChange(of: folder) { _, value in
           selection.removeAll()
-          withAnimation(reduceMotion ? nil : .smooth(duration: 0.2)) {
+          withAnimation(reduceMotion ? nil : .spring(response: 0.36, dampingFraction: 0.84)) {
+            indicatorFolder = value
             proxy.scrollTo(value, anchor: .center)
           }
         }
+        .sensoryFeedback(.selection, trigger: folder)
       }
       if case .tag(let name) = folder {
         let active = favouriteTags.contains(name)
@@ -651,6 +696,7 @@ struct LibraryView: View {
               .labelStyle(.iconOnly).frame(width: 36, height: 44)
               .accessibilityIdentifier("import-summary-dismiss")
           }.padding(.horizontal, 16).readerGlass().padding(.horizontal, 20).padding(.bottom, 8)
+            .transition(bannerTransition)
         }
         if let url = clipboard.url, !searching, !selecting {
           ClipboardBanner(
@@ -670,22 +716,30 @@ struct LibraryView: View {
               guard let preview = try? await ArticlePreviewCache.shared.load(url) else { return }
               store.prepareTagging(url: url, preview: preview)
             }
+            zoomSource = nil
             selected = browsers.open(url, store: store)
             clipboard.dismiss()
           } dismiss: {
             clipboard.dismiss()
           }
+          .transition(bannerTransition)
         } else if let article = continuation.article, !searching, !selecting {
           ContinueReadingBanner(article: article, progress: continuation.progress) {
             let browser = browsers.open(article.url, store: store)
             browser.showReader()
+            zoomSource = nil
             selected = browser
           } dismiss: {
             continuation.dismiss()
           }
+          .transition(bannerTransition)
         }
       }
+      .animation(
+        reduceMotion ? .easeOut(duration: 0.1) : .spring(response: 0.42, dampingFraction: 0.86),
+        value: bannerIdentity)
     }
+    .sensoryFeedback(.selection, trigger: selection)
     .modifier(LibrarySearchChrome(query: $query, active: $searching, obscured: showingAnnotations))
     .confirmationDialog(
       "Delete \(selection.count) links?", isPresented: $confirmDelete, titleVisibility: .visible
@@ -825,6 +879,7 @@ struct LibraryView: View {
     LibraryDiscovery(motion: discoveryMotion) { url in
       discoveryMotion.close()
       // A publisher shortcut is a website destination, never a cached Reader article.
+      zoomSource = nil
       selected = browsers.open(url, store: store, preferWebsite: true)
     } weekly: {
       discoveryMotion.close()
@@ -834,16 +889,28 @@ struct LibraryView: View {
 
   private func library(in item: ArticleFolder) -> some View {
     let compact = item == .history || item == .archive
-    return LazyVStack(alignment: .leading, spacing: compact ? 0 : 18) {
-      ForEach(matches(in: item)) { article in
-        articleButton(article) {
+    let rows = matches(in: item)
+    let days = item == .history && sort != "Title"
+    return LazyVStack(alignment: .leading, spacing: compact ? 0 : 26) {
+      ForEach(Array(rows.enumerated()), id: \.element.id) { index, article in
+        if days, let day = HistoryDay.heading(rows, at: index) {
+          Text(day).font(.footnote.weight(.semibold)).foregroundStyle(ReaderTheme.muted)
+            .padding(.leading, ArticleSearchRow.horizontalInset)
+            .padding(.top, index == 0 ? 0 : 22).padding(.bottom, 4)
+            .accessibilityAddTraits(.isHeader)
+        }
+        articleButton(article, compact: compact) {
           if compact {
             ArticleSearchRow(article: article, query: "")
           } else {
             ArticleCard(article: article)
           }
         }
-        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: compact ? 16 : 24))
+        .contentShape(
+          .contextMenuPreview,
+          RoundedRectangle(
+            cornerRadius: compact ? 16 : ArticleCard.cornerRadius + 4, style: .continuous)
+        )
         .modifier(
           LibraryRowVisibility(
             row: LibraryVisibleRow(articleID: article.id, folder: item, search: false),
@@ -854,7 +921,7 @@ struct LibraryView: View {
               .trailing, ArticleSearchRow.horizontalInset)
         }
       }
-    }.padding(.horizontal, compact ? 8 : 16).padding(.bottom, 20)
+    }.padding(.horizontal, compact ? 8 : 18).padding(.bottom, 20)
   }
 
   private var searchSummary: some View {
@@ -876,7 +943,7 @@ struct LibraryView: View {
         ).padding(.top, 36)
       }
       ForEach(matches) { article in
-        articleButton(article) { ArticleSearchRow(article: article, query: query) }
+        articleButton(article, compact: true) { ArticleSearchRow(article: article, query: query) }
           .modifier(
             LibraryRowVisibility(
               row: LibraryVisibleRow(articleID: article.id, folder: item, search: true),
@@ -889,7 +956,7 @@ struct LibraryView: View {
   }
 
   private func articleButton<Content: View>(
-    _ article: SavedArticle, @ViewBuilder content: () -> Content
+    _ article: SavedArticle, compact: Bool, @ViewBuilder content: () -> Content
   ) -> some View {
     Button {
       if selecting {
@@ -899,18 +966,34 @@ struct LibraryView: View {
           selection.insert(article.id)
         }
       } else {
+        zoomSource = article.id
         selected = browsers.open(article.url, store: store)
       }
     } label: {
       content()
+        .modifier(
+          ArticleZoomSource(
+            id: article.id, namespace: articleZoom,
+            cornerRadius: compact ? 16 : ArticleCard.cornerRadius))
     }
-    .buttonStyle(.plain)
-    .overlay(alignment: .topTrailing) {
+    .buttonStyle(LibraryPressStyle())
+    .overlay(alignment: compact ? .bottomLeading : .topTrailing) {
+      // Marks sit on the image, never over the title or its highlights.
       if selecting {
-        Image(systemName: selection.contains(article.id) ? "checkmark.circle.fill" : "circle")
-          .font(.title2).padding(8).background(.regularMaterial, in: Circle())
+        SelectionMark(selected: selection.contains(article.id))
+          .padding(
+            compact
+              ? EdgeInsets(
+                top: 0,
+                leading: ArticleSearchRow.horizontalInset + ArticleSearchRow.thumbnailWidth - 30,
+                bottom: 12, trailing: 0)
+              : EdgeInsets(top: 14, leading: 0, bottom: 0, trailing: 10)
+          )
+          .allowsHitTesting(false)
+          .transition(.scale(scale: 0.6).combined(with: .opacity))
       }
     }
+    .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.75), value: selecting)
     .accessibilityIdentifier("article-\(article.url.lastPathComponent)")
     .contextMenu {
       if article.saved {
@@ -1033,5 +1116,84 @@ private struct ImportSummarySheet: View {
       }
     }
     .tint(ArcticBrand.accent)
+  }
+}
+
+/// Cards grow into the Reader page on iOS 18 and later. Other entry points keep
+/// the native push, because they have no on-screen source to grow from.
+private struct ArticleZoomDestination: ViewModifier {
+  let source: UUID?
+  let namespace: Namespace.ID
+
+  func body(content: Content) -> some View {
+    if #available(iOS 18.0, *), let source {
+      content.navigationTransition(.zoom(sourceID: source, in: namespace))
+    } else {
+      content
+    }
+  }
+}
+
+private struct ArticleZoomSource: ViewModifier {
+  let id: UUID
+  let namespace: Namespace.ID
+  let cornerRadius: CGFloat
+
+  func body(content: Content) -> some View {
+    if #available(iOS 18.0, *) {
+      content.matchedTransitionSource(id: id, in: namespace) { source in
+        source.clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+          .background(ReaderTheme.background)
+      }
+    } else {
+      content
+    }
+  }
+}
+
+/// A selection mark with its own contrast ring, legible on any cover.
+private struct SelectionMark: View {
+  let selected: Bool
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  var body: some View {
+    ZStack {
+      Circle().fill(
+        selected ? AnyShapeStyle(ArcticBrand.accent) : AnyShapeStyle(.black.opacity(0.22)))
+      Circle().strokeBorder(.white, lineWidth: 2)
+      if selected {
+        Image(systemName: "checkmark").font(.system(size: 12, weight: .bold))
+          .foregroundStyle(.white).transition(.scale(scale: 0.4).combined(with: .opacity))
+      }
+    }
+    .frame(width: 26, height: 26)
+    .shadow(color: .black.opacity(0.18), radius: 4, y: 1)
+    .scaleEffect(selected && !reduceMotion ? 1.08 : 1)
+    .animation(reduceMotion ? nil : .spring(response: 0.26, dampingFraction: 0.55), value: selected)
+    .accessibilityHidden(true)
+  }
+}
+
+/// History reads as a diary: one quiet heading where the visit day changes.
+enum HistoryDay {
+  static func heading(
+    _ rows: [SavedArticle], at index: Int, now: Date = .now, calendar: Calendar = .current
+  ) -> String? {
+    guard let date = rows[index].lastVisitedAt else { return nil }
+    if index > 0, let previous = rows[index - 1].lastVisitedAt,
+      calendar.isDate(previous, inSameDayAs: date)
+    {
+      return nil
+    }
+    if calendar.isDateInToday(date) { return "Today" }
+    if calendar.isDateInYesterday(date) { return "Yesterday" }
+    let start = calendar.startOfDay(for: date)
+    let today = calendar.startOfDay(for: now)
+    let days = calendar.dateComponents([.day], from: start, to: today).day ?? 0
+    if (2..<7).contains(days) { return date.formatted(.dateTime.weekday(.wide)) }
+    if calendar.isDate(date, equalTo: now, toGranularity: .year) {
+      return date.formatted(.dateTime.day().month(.wide))
+    }
+    return date.formatted(.dateTime.day().month(.wide).year())
   }
 }

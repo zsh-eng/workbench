@@ -288,6 +288,10 @@ enum ArticleRouting {
   private var historyIndex = 0
   @ObservationIgnored private var refreshWhenReady = false
   var hasLoaded = false
+  /// The first document this browser shows, Reader or website, has painted.
+  /// Until then the page shows a typographic preface built from saved metadata.
+  private(set) var hasPresentedContent = false
+  private(set) var loadProgress = 0.0
   var errorMessage: String?
   private(set) var websiteFailure: String?
   @ObservationIgnored private var requestedWebsiteURL: URL?
@@ -394,6 +398,9 @@ enum ArticleRouting {
       },
       webView.observe(\.isLoading, options: [.new]) { [weak self] view, _ in
         Task { @MainActor in self?.isLoading = view.isLoading }
+      },
+      webView.observe(\.estimatedProgress, options: [.new]) { [weak self] view, _ in
+        Task { @MainActor in self?.loadProgress = view.estimatedProgress }
       },
     ]
     if let downloadedFile { loadCachedReader(downloadedFile) }
@@ -988,6 +995,7 @@ enum ArticleRouting {
         }
       #endif
       self.readerReady = true
+      self.hasPresentedContent = true
       self.restoreReaderPositionIfNeeded()
       self.isExtracting = false
       self.applyReaderMedia()
@@ -1087,6 +1095,7 @@ enum ArticleRouting {
     guard view === webView, committedURL != nil, !suspendedPublisher else { return }
     websiteReady = true
     hasLoaded = true
+    hasPresentedContent = true
     if refreshWhenReady {
       refreshWhenReady = false
       isOpeningWebsite = false
@@ -1139,6 +1148,7 @@ enum ArticleRouting {
     failedWebsiteURL = requestedWebsiteURL ?? sourceURL
     websiteFailure = error.localizedDescription
     websiteReady = false
+    hasPresentedContent = true
     isOpeningWebsite = false
     isLoading = false
     hasLoaded = readerReady
@@ -1225,6 +1235,11 @@ enum ArticleRouting {
     let theme = palette == .system ? (darkAppearance ? "Ink" : "White") : palette.rawValue
     // The document palette can differ from the app's system appearance.
     readerView.scrollView.indicatorStyle = ["Ink", "Night"].contains(theme) ? .white : .black
+    // The inset under the navigation bar and the overscroll areas are outside
+    // the document. Paint them with its colour so no band of system colour shows.
+    let surface = UIColor((ReadingPalette(rawValue: theme) ?? .light).background)
+    readerView.backgroundColor = surface
+    readerView.underPageBackgroundColor = surface
     readerView.scrollView.showsVerticalScrollIndicator = true
     // Serialize strings as JSON; never interpolate page-supplied values into script.
     let options: [String: Any] = [

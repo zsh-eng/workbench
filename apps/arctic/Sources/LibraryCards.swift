@@ -1,50 +1,43 @@
 import SwiftUI
 import UIKit
 
-/// The image stays intact. Small material panels keep text readable on any cover.
+/// An editorial card: the publisher's photograph stays untreated above the
+/// text, so no cover can reduce title contrast. Titles use the system serif.
 struct ArticleCard: View {
+  static let cornerRadius: CGFloat = 22
   let article: SavedArticle
+  private var shape: RoundedRectangle {
+    RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+  }
 
   var body: some View {
     Group {
       // Imports start with a title. Reserve the eventual cover's space while
       // metadata is pending so arriving images do not push cards under a finger.
       if article.imageURL != nil || (article.taggingText == nil && !article.previewFailed) {
-        ArticleThumbnail(url: article.imageURL)
-          .aspectRatio(1.65, contentMode: .fit)
-          .overlay(alignment: .topLeading) {
-            source.padding(.horizontal, 10).padding(.vertical, 7)
-              .background(.regularMaterial, in: Capsule()).padding(10)
-          }
-          .overlay(alignment: .bottomLeading) {
-            GeometryReader { geometry in
-              caption(width: geometry.size.width - 40).padding(10)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-                .padding(10)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-            }
-          }
-          .clipShape(RoundedRectangle(cornerRadius: 18)).padding(6)
+        VStack(alignment: .leading, spacing: 12) {
+          ArticleThumbnail(url: article.imageURL)
+            .aspectRatio(2, contentMode: .fit)
+            .clipShape(shape)
+            .overlay { shape.strokeBorder(ReaderTheme.foreground.opacity(0.07), lineWidth: 0.5) }
+          VStack(alignment: .leading, spacing: 6) {
+            source
+            caption(subtitleLines: 1)
+          }.padding(.horizontal, 4)
+        }
       } else {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 14) {
           source
-          ViewThatFits(in: .horizontal) {
-            VStack(alignment: .leading, spacing: 6) {
-              Text(article.title).font(.title3.weight(.semibold))
-                .fixedSize(horizontal: true, vertical: false)
-              if !article.subtitle.isEmpty {
-                Text(article.subtitle).font(.subheadline).foregroundStyle(ReaderTheme.muted)
-                  .lineLimit(2).accessibilityIdentifier("card-caption-subtitle")
-              }
-            }
-            LibraryTitle(text: article.title, style: .title3)
-          }
-          .frame(maxWidth: .infinity, alignment: .leading)
-        }.padding(20)
+          caption(subtitleLines: 2)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(ReaderTheme.secondary, in: shape)
       }
     }
-    .background(ReaderTheme.secondary, in: RoundedRectangle(cornerRadius: 24))
-    .contentShape(RoundedRectangle(cornerRadius: 24))
+    .padding(.vertical, 4)
+    .background(ReaderTheme.background)
+    .contentShape(Rectangle())
   }
 
   private var source: some View {
@@ -53,24 +46,82 @@ struct ArticleCard: View {
         ArticleThumbnail(url: favicon, label: "Site icon", pixels: 96)
           .frame(width: 16, height: 16).clipShape(Circle())
       }
-      Text(article.url.host?.replacingOccurrences(of: "www.", with: "") ?? "")
-        .font(.caption.weight(.medium)).lineLimit(1)
-    }.foregroundStyle(ReaderTheme.foreground)
+      Text(article.siteName)
+        .font(.footnote.weight(.medium)).foregroundStyle(ReaderTheme.muted).lineLimit(1)
+      if article.favourite {
+        Image(systemName: "star.fill").font(.caption2).foregroundStyle(ArcticBrand.accent)
+          .accessibilityLabel("Favourite")
+      }
+    }
   }
 
-  private func caption(width: CGFloat) -> some View {
+  private func caption(subtitleLines: Int) -> some View {
     ViewThatFits(in: .horizontal) {
       // Only keep the subtitle when the entire title fits on one line.
       VStack(alignment: .leading, spacing: 4) {
-        Text(article.title).font(.headline).fixedSize(horizontal: true, vertical: false)
+        Text(article.displayTitle).font(LibraryCardType.title)
+          .fixedSize(horizontal: true, vertical: false)
         if !article.subtitle.isEmpty {
           Text(article.subtitle).font(.subheadline).foregroundStyle(ReaderTheme.muted)
-            .lineLimit(1).accessibilityIdentifier("card-caption-subtitle")
-            .frame(width: width, alignment: .leading)
+            .lineLimit(subtitleLines).fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("card-caption-subtitle")
+            // A zero ideal width lets ViewThatFits measure the title alone.
+            .frame(minWidth: 0, idealWidth: 0, maxWidth: .infinity, alignment: .leading)
         }
       }
-      LibraryTitle(text: article.title)
+      LibraryTitle(text: article.displayTitle, style: .title3, design: .serif)
     }.frame(maxWidth: .infinity, alignment: .leading)
+  }
+}
+
+enum LibraryCardType {
+  static let title = Font.system(.title3, design: .serif, weight: .semibold)
+}
+
+extension SavedArticle {
+  /// The source appears beside every title, so a matching publisher suffix is
+  /// display noise. Stored titles, search and tagging input are unchanged.
+  var displayTitle: String { ArticleTitle.display(title, host: url.host) }
+  var siteName: String { url.host?.replacingOccurrences(of: "www.", with: "") ?? "" }
+}
+
+enum ArticleTitle {
+  static func display(_ title: String, host: String?) -> String {
+    guard let site = host.map(siteKey), site.count >= 3 else { return title }
+    for separator in [" | ", " – ", " — ", " · ", " - ", " :: "] {
+      guard let range = title.range(of: separator, options: .backwards) else { continue }
+      let suffix = title[range.upperBound...].lowercased()
+      var key = suffix.filter { $0.isLetter || $0.isNumber }
+      if key.hasPrefix("the"), !site.hasPrefix("the") { key.removeFirst(3) }
+      let head = title[..<range.lowerBound].trimmingCharacters(in: .whitespaces)
+      guard key.count >= 3, key.count <= 40, head.count >= 3 else { continue }
+      if site.hasPrefix(key) || key.hasPrefix(site) { return head }
+    }
+    return title
+  }
+
+  /// The registrable label: "quantamagazine" for www.quantamagazine.org,
+  /// "bbc" for bbc.co.uk. A short second-level label marks a country suffix.
+  private static func siteKey(_ host: String) -> String {
+    let labels = host.lowercased().split(separator: ".").map(String.init)
+    guard labels.count >= 2 else { return labels.first ?? "" }
+    let second = labels[labels.count - 2]
+    if labels.count >= 3, second.count <= 3 { return labels[labels.count - 3] }
+    return second
+  }
+}
+
+/// Cards answer a touch immediately and settle with a short spring.
+struct LibraryPressStyle: ButtonStyle {
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+      .opacity(configuration.isPressed && reduceMotion ? 0.7 : 1)
+      .animation(
+        configuration.isPressed
+          ? .easeOut(duration: 0.12) : .spring(response: 0.34, dampingFraction: 0.68),
+        value: configuration.isPressed)
   }
 }
 
@@ -81,6 +132,7 @@ struct LibraryTitle: UIViewRepresentable {
   var style: UIFont.TextStyle = .headline
   var pointSize: CGFloat? = nil
   var weight: UIFont.Weight = .semibold
+  var design: UIFontDescriptor.SystemDesign = .default
   var query = ""
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @Environment(\.colorScheme) private var colourScheme
@@ -91,6 +143,7 @@ struct LibraryTitle: UIViewRepresentable {
     var style: UIFont.TextStyle
     var pointSize: CGFloat?
     var weight: UIFont.Weight
+    var design: UIFontDescriptor.SystemDesign
     var category: UIContentSizeCategory
     var colourScheme: ColorScheme
   }
@@ -113,12 +166,14 @@ struct LibraryTitle: UIViewRepresentable {
   func updateUIView(_ label: UILabel, context: Context) {
     let configuration = Configuration(
       text: text, query: query, style: style, pointSize: pointSize, weight: weight,
-      category: LibraryTextFormatting.category(dynamicTypeSize), colourScheme: colourScheme)
+      design: design, category: LibraryTextFormatting.category(dynamicTypeSize),
+      colourScheme: colourScheme)
     guard context.coordinator.configuration != configuration else { return }
     context.coordinator.configuration = configuration
     context.coordinator.sizes.removeAll(keepingCapacity: true)
     label.font = LibraryTextFormatting.font(
-      style: style, pointSize: pointSize, weight: weight, category: configuration.category)
+      style: style, pointSize: pointSize, weight: weight, design: design,
+      category: configuration.category)
     label.textColor = .label
     LibraryTextFormatting.apply(text, query: query, to: label)
     label.accessibilityLabel = text
@@ -166,15 +221,21 @@ enum LibraryTextFormatting {
 
   static func font(
     style: UIFont.TextStyle, pointSize: CGFloat?, weight: UIFont.Weight,
-    category: UIContentSizeCategory
+    design: UIFontDescriptor.SystemDesign = .default, category: UIContentSizeCategory
   ) -> UIFont {
     let traits = UITraitCollection(preferredContentSizeCategory: category)
+    func system(_ size: CGFloat) -> UIFont {
+      let font = UIFont.systemFont(ofSize: size, weight: weight)
+      guard design != .default, let descriptor = font.fontDescriptor.withDesign(design) else {
+        return font
+      }
+      return UIFont(descriptor: descriptor, size: size)
+    }
     guard let pointSize else {
-      let size = UIFont.preferredFont(forTextStyle: style, compatibleWith: traits).pointSize
-      return .systemFont(ofSize: size, weight: weight)
+      return system(UIFont.preferredFont(forTextStyle: style, compatibleWith: traits).pointSize)
     }
     return UIFontMetrics(forTextStyle: style).scaledFont(
-      for: .systemFont(ofSize: pointSize, weight: weight), compatibleWith: traits)
+      for: system(pointSize), compatibleWith: traits)
   }
 
   static func category(_ size: DynamicTypeSize) -> UIContentSizeCategory {
