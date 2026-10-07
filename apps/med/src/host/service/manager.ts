@@ -11,13 +11,9 @@ import { markdownAsset } from "../markdown-assets";
 import type { RepositoryRegistry } from "../repository/registry";
 import { selfCommand } from "./self";
 import { HostError } from "../runtime/errors";
-import { DEFAULT_PORT, getStateDirectory } from "../runtime/connection";
+import { DEFAULT_PORT } from "../runtime/connection";
 import { discoverSources } from "./discover";
 import { loginItem, setLoginItem } from "./login-item";
-
-/** Quotes a word for a POSIX shell when it needs quoting. */
-const shellWord = (word: string) =>
-  /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`;
 
 interface Job {
   state: "queued" | "indexing" | "ready" | "error";
@@ -40,7 +36,7 @@ export class ServiceManager {
   onStop: () => void = () => {};
   /** Set by a managed server that can replace itself with the code on disk. */
   onRestart?: () => Promise<void>;
-  /** The port this server listens on, for the login item and agent commands. */
+  /** The port this server listens on, for the login item. */
   port = DEFAULT_PORT;
   get canRestart() {
     return Boolean(this.onRestart);
@@ -51,18 +47,6 @@ export class ServiceManager {
   ) {}
   static async open(stateDir: string) {
     return new ServiceManager(await SourceCatalogue.open(stateDir), stateDir);
-  }
-  /** The shell command that runs this Med, and the options that select this
-   * server. Options follow the subcommand: `<command> add <path> <options>`. */
-  private cli() {
-    const self = selfCommand([]);
-    const options: string[] = [];
-    if (this.stateDir !== getStateDirectory()) options.push("--state-dir", this.stateDir);
-    if (this.port !== DEFAULT_PORT) options.push("--port", String(this.port));
-    return {
-      command: [self.executable, ...self.args].map(shellWord).join(" "),
-      options: options.map(shellWord).join(" "),
-    };
   }
   async attach(registry: RepositoryRegistry) {
     this.registry = registry;
@@ -189,7 +173,6 @@ export class ServiceManager {
       return {
         sources: this.snapshot(),
         login: await loginItem(this.stateDir),
-        cli: this.cli(),
       };
     if (action === "discover") {
       const { deep } = z.object({ deep: z.boolean().default(false) }).parse(body ?? {});

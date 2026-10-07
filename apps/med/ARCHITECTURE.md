@@ -250,7 +250,6 @@ checkout files are changed. Requests are cancellable and temporary files are
 removed. The browser indexes hunk spans once and paints only mounted Pierre
 number cells. Stale file views drop their markers until refresh.
 
-
 ## Live Markdown preview
 
 `FullFileView` keeps the Preview preference in browser storage and lazy-loads
@@ -370,7 +369,6 @@ virtual Visual selection). CodeMirror selections paint below text, so the active
 line background must remain translucent. Default yanks mirror Vim register 0 to
 the clipboard in the input task; named registers are left unchanged.
 
-
 ### First-run setup
 
 `main.tsx` asks a managed server for its setup status before the first render on
@@ -379,15 +377,16 @@ the clipboard in the input task; named registers are left unchanged.
 that finds sources records `med:welcomed` and skips the check later. A foreground
 server has no setup actions, so the check fails quietly.
 
-The welcome (`components/welcome/`) loads lazily with three.js. One canvas covers
-the window. Each step names a pose for the Med tile and gives an anchor element;
-the scene fits the pose's bounds into the anchor's box and springs every tile
-and bar to its place, so the layout stays in CSS. Without WebGL, the anchor shows
-the app icon. Reduced motion stops the float and makes each change immediate.
+The welcome (`components/welcome/`) loads lazily and is one page: the found
+sources, the login switch, and one action. `field.ts` draws the backdrop with
+one WebGL 2 fragment shader: code lines on a plane that recedes from the viewer,
+with changed lines in the accent as in Med's icon. Each added source sends a
+wave across the lines. The shader takes the theme's colors, pauses while the
+tab is hidden, and draws one still frame for reduced motion. Without WebGL 2,
+the page keeps its CSS background.
 
-The service adds three actions. `setup` returns the registered sources, the
-login item, and the shell command and options that reach this server, for the
-agent prompt; the page polls it, so an agent's `med add` appears live. `discover`
+The service adds three actions. `setup` returns the registered sources and the
+login item; the page reads it again when the window gets focus. `discover`
 searches the home folder breadth first to depth 4, at most 40,000 folders and
 six seconds. It reads folder names and Git metadata only, skips hidden,
 dependency, and build folders, does not follow links, and leaves out linked

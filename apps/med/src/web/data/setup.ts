@@ -15,7 +15,6 @@ const loginSchema = z.object({ available: z.boolean(), enabled: z.boolean() });
 export const setupSchema = z.object({
   sources: z.array(registered),
   login: loginSchema,
-  cli: z.object({ command: z.string(), options: z.string() }),
 });
 export type SetupStatus = z.infer<typeof setupSchema>;
 const found = z.object({
@@ -54,27 +53,6 @@ export function createSetupApi(fetcher: typeof fetch = fetch) {
   };
 }
 export type SetupApi = ReturnType<typeof createSetupApi>;
-
-/** Instructions that let a coding agent do the setup with Med's own CLI. */
-export function agentPrompt(status: SetupStatus, origin: string) {
-  const { command, options } = status.cli;
-  const run = (args: string) => [command, args, options].filter(Boolean).join(" ");
-  const added = status.sources.map((source) => `- ${source.path}`);
-  return [
-    `Set up Med for me. Med is the local review app that runs at ${origin}.`,
-    "",
-    "1. Find the Git repositories that I work in now. Look in my home folder (for example ~/code, ~/src, ~/Developer, and ~/Projects), at recent projects in my editors, and at my shell history. Prefer repositories with commits or changes in the last 30 days. Skip dependency checkouts, forks that I do not change, and linked worktrees: Med finds worktrees from their main repository.",
-    '2. Find my Obsidian vaults. Read "~/Library/Application Support/obsidian/obsidian.json": each entry in "vaults" has a "path".',
-    "3. Show me what you found, most recently used first, and ask which ones to add.",
-    `4. Add each one that I choose: ${run("add '<path>'")}`,
-    "   Med detects a vault from its .obsidian folder.",
-    `5. If I want Med to open when I log in, run: ${run("service login on")}`,
-    `6. Run ${run("list")} to confirm, and tell me what you added.`,
-    "",
-    ...(added.length ? ["Already added:", ...added, ""] : []),
-    "Do not change files in these folders. Med's setup page shows each one as you add it.",
-  ].join("\n");
-}
 
 /** The welcome's address. */
 export const WELCOME_PATH = "/welcome";

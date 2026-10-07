@@ -1,6 +1,6 @@
 // Walks the first-run welcome against the built CLI: discovery in a fixture
-// home, the agent prompt with a CLI add that the page follows, the login
-// item, adding the selection, and the hand-off to the app. The login item is
+// home, a CLI add that the page picks up, the login item, adding the
+// selection, and the hand-off to the app. The login item is
 // written inside the fixture home only. Set MED_VALIDATION_SCREENSHOTS to a
 // directory to keep a screenshot of each step.
 import assert from "node:assert/strict";
@@ -121,41 +121,23 @@ try {
   const url = await run("web", "--no-open");
   browser = await chromium.launch();
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   const page = await context.newPage();
   const pageErrors = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
 
-  // A server with nothing registered opens the welcome.
+  // A server with nothing registered opens the welcome, drawn over the shader.
   await page.goto(url);
   await page.waitForURL("**/welcome");
   await page.getByRole("heading", { name: "Welcome to Med" }).waitFor();
-  await page.waitForTimeout(1200);
-  await shoot(page, "1-welcome");
-  await page.keyboard.press("Enter");
-  await page.getByRole("heading", { name: "See every change clearly" }).waitFor();
-  for (const title of [
-    "Agents hand you their work",
-    "Every task, one key away",
-    "Your notes, next to your code",
-  ]) {
-    await page.keyboard.press("ArrowRight");
-    await page.getByRole("heading", { name: title }).waitFor();
-  }
-  await page.getByRole("button", { name: "Step 1: Review" }).click();
-  await page.getByRole("heading", { name: "See every change clearly" }).waitFor();
-  await page.waitForTimeout(1200);
-  await shoot(page, "2-review");
-  await page.getByRole("button", { name: "Skip to setup" }).click();
+  await page.locator('canvas[data-field="on"]').waitFor();
 
   // Recent repositories first, with worktrees, dependencies, and Documents left out.
   const rows = (kind) =>
     page.locator(`[data-sources="${kind}"] li label`).evaluateAll((labels) =>
       labels.map((label) => ({
-        name: label.querySelector("span span")?.textContent,
-        path: label.title,
-        shown: label.querySelector("span span + span")?.textContent,
-        state: label.dataset.state,
+        name: label.querySelector('[data-row="name"]')?.textContent,
+        shown: label.querySelector('[data-row="path"]')?.textContent,
+        branch: label.querySelector('[data-row="branch"]')?.textContent ?? "",
         checked: label.querySelector("input").checked,
       })),
     );
@@ -171,7 +153,7 @@ try {
       ["old-blog", false],
     ],
   );
-  assert.equal(repos[1].shown, "~/code/readerfeature/sync");
+  assert.deepEqual([repos[1].shown, repos[1].branch], ["~/code/reader", "feature/sync"]);
   const vaults = await rows("vault");
   assert.deepEqual(
     vaults.map((row) => [row.name, row.shown, row.checked]),
@@ -180,7 +162,7 @@ try {
       ["Research", "iCloud › Obsidian › Research", true],
     ],
   );
-  await page.getByText("Desktop, Documents, Downloads not searched.").waitFor();
+  await page.getByText("Not searched: Desktop, Documents, and Downloads.").waitFor();
   await page.getByRole("button", { name: "Search them too" }).click();
   await page.locator('[data-sources="repo"] li', { hasText: "thesis" }).waitFor();
   assert.equal((await rows("repo")).find((row) => row.name === "thesis")?.checked, true);
@@ -190,28 +172,17 @@ try {
   assert.equal(await appRow.locator("input").isChecked(), false);
   await appRow.click();
   assert.equal(await appRow.locator("input").isChecked(), true);
-  await page.waitForTimeout(1000);
-  await shoot(page, "3-setup");
+  await page.waitForTimeout(2800);
+  await shoot(page, "1-setup");
 
-  // The prompt names this server's command and options; an agent's add shows up live.
-  await page.getByRole("button", { name: "Copy prompt" }).click();
-  await page.getByRole("button", { name: "Copied" }).waitFor();
-  const prompt = await page.evaluate(() => navigator.clipboard.readText());
-  for (const text of [
-    `add '<path>' --state-dir ${state} --port ${port}`,
-    `service login on --state-dir ${state} --port ${port}`,
-    "obsidian.json",
-  ])
-    assert.ok(prompt.includes(text), `The prompt must include ${text}`);
+  // A source added with the CLI shows as added when the window gets focus again.
   await run("add", join(home, "Projects", "old-blog"));
-  const oldBlog = page.locator('[data-sources="repo"] label', { hasText: "old-blog" });
+  await page.evaluate(() => dispatchEvent(new Event("focus")));
   await page.waitForFunction(
     () =>
       document.querySelector('[data-sources="repo"] label[title$="/old-blog"]')?.dataset.state ===
       "added",
   );
-  assert.equal(await oldBlog.getAttribute("data-state"), "added");
-  await page.getByRole("status").filter({ hasText: "1 added so far" }).waitFor();
 
   // The login item goes to the fixture home's LaunchAgents and nowhere else.
   const agents = join(home, "Library", "LaunchAgents");
@@ -240,7 +211,7 @@ try {
 
   // Adding the selection finishes the setup.
   await page.getByRole("button", { name: "Add 7 sources" }).click();
-  await page.getByRole("heading", { name: "You're set" }).waitFor();
+  await page.getByRole("heading", { name: "You're all set" }).waitFor();
   await page.getByText("6 repositories and 2 vaults are ready to review.").waitFor();
   const listed = JSON.parse(await run("list"))
     .map((source) => source.path)
@@ -259,7 +230,7 @@ try {
     ].sort(),
   );
   await page.waitForTimeout(1500);
-  await shoot(page, "4-done");
+  await shoot(page, "2-done");
   await page.getByRole("button", { name: "Open Med" }).click();
   await page.waitForURL((address) => address.pathname === "/");
   await page.locator('[data-review-status="ready"]:visible').waitFor();
@@ -274,23 +245,21 @@ try {
   await narrow.setViewportSize({ width: 390, height: 844 });
   await narrow.goto(new URL("/welcome", url).href);
   await narrow.getByRole("heading", { name: "Welcome to Med" }).waitFor();
-  await narrow.getByRole("button", { name: "Skip the tour" }).click();
   await narrow.locator('[data-sources="repo"] li').first().waitFor();
   const overflow = await narrow.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   assert.ok(overflow <= 0, `The narrow setup must not scroll sideways (${overflow}px)`);
   await narrow.waitForTimeout(800);
-  await shoot(narrow, "5-narrow-setup");
+  await shoot(narrow, "3-narrow");
 
   console.log(
     JSON.stringify({
       passed: true,
       checks: [
-        "first-run-route",
-        "tour-keys-and-steps",
+        "first-run-route-and-shader",
         "discovery-order-and-exclusions",
         "icloud-vault-paths",
         "guarded-folders-on-request",
-        "agent-prompt-and-live-add",
+        "cli-add-on-focus",
         "login-item-in-fixture-home",
         "add-selection",
         "hand-off-to-app",
