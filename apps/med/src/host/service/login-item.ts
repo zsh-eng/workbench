@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { userHome } from "./discover";
+import { CRASH_REPORTS_OFF } from "../runtime/crash-reports";
 import { selfCommand } from "./self";
 
 const escape = (text: string) =>
@@ -28,7 +29,13 @@ export function loginPlist(state: string, port: number) {
   // so the service finds the same Git and Go as a server started in a terminal.
   const searchPath = process.env.PATH ?? "/usr/bin:/bin:/usr/sbin:/sbin";
   const log = escape(join(state, "service.log"));
-  return `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>Label</key><string>${label}</string><key>ProgramArguments</key><array>${[command.executable, ...command.args].map((v) => `<string>${escape(v)}</string>`).join("")}</array><key>EnvironmentVariables</key><dict><key>PATH</key><string>${escape(searchPath)}</string></dict><key>RunAtLoad</key><true/><key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict><key>ThrottleInterval</key><integer>10</integer><key>StandardOutPath</key><string>${log}</string><key>StandardErrorPath</key><string>${log}</string></dict></plist>`;
+  return `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>Label</key><string>${label}</string><key>ProgramArguments</key><array>${[command.executable, ...command.args].map((v) => `<string>${escape(v)}</string>`).join("")}</array><key>EnvironmentVariables</key><dict><key>PATH</key><string>${escape(searchPath)}</string>${Object.entries(
+    CRASH_REPORTS_OFF,
+  )
+    .map(([name, value]) => `<key>${name}</key><string>${value}</string>`)
+    .join(
+      "",
+    )}</dict><key>RunAtLoad</key><true/><key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict><key>ThrottleInterval</key><integer>10</integer><key>StandardOutPath</key><string>${log}</string><key>StandardErrorPath</key><string>${log}</string></dict></plist>`;
 }
 
 export interface LoginItem {

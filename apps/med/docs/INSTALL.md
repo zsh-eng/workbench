@@ -19,6 +19,10 @@ Add `~/.local/bin` to your shell's PATH to use `med` directly. The executable
 includes Bun, the browser UI, fonts, workers, and offline documentation. No
 checkout, Node, or separate Bun install is needed.
 
+Med sends nothing to any server. Bun uploads crash reports to bun.report on
+macOS by default; Med turns that off with `BUN_ENABLE_CRASH_REPORTING=0` for
+itself, the processes it starts, and its login item.
+
 This build is not Developer ID signed or notarized. macOS may block its first
 launch; approve it in **System Settings → Privacy & Security** if you trust the
 download. Keep the archive's `licenses` folder with redistributed copies.

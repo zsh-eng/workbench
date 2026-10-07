@@ -10,12 +10,14 @@ import type { Comparison } from "../shared/protocol";
 import { ctagsSetupMessage, discoverCtags } from "../host/search/symbols";
 import { installSearchTools } from "../host/search/install";
 import { DEFAULT_PORT, getStateDirectory } from "../host/runtime/connection";
+import { disableCrashReports } from "../host/runtime/crash-reports";
 import { runOpenCommand } from "./open";
 import { reviewHelp, runReviewCommand } from "./review";
 
 import { version } from "../../package.json";
 
 async function main() {
+  await disableCrashReports();
   if (process.argv.length === 3 && ["--version", "-v"].includes(process.argv[2]!)) {
     console.log(`med ${version}`);
     return;
