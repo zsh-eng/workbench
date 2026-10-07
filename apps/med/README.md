@@ -74,7 +74,7 @@ node apps/med/dist/cli.js review create --title "Agent changes" \
   --repo /path/to/repository --base <start-commit> --head <end-commit>
 ```
 
-The command prints a clickable review link. Use `--working` instead of `--base` and `--head` to capture current working changes. The compact review bar has **Copy comments** and **Clear** side by side. A checkmark confirms a successful copy. The **Review** menu contains the review details.
+The command prints a clickable review link. Use `--working` instead of `--base` and `--head` to capture current working changes. The compact review bar has **Copy comments** and **Clear** side by side. A checkmark confirms a successful copy. The bar shows the review title, the compared branch, and whole-review totals when the review has more than one comparison. Hover the title for the save time and repository.
 
 To compare a feature branch with its base branch, use `--base main --head HEAD` (or `develop`, `origin/main`, or another local Git ref). This compares the two tips directly. For a pull-request-style diff, use their common ancestor as the base; see [branch comparisons](docs/AGENT_INTEGRATION.md#compare-with-a-base-branch). Saved links capture exact commits. Create a new link after a merge or new commits.
 

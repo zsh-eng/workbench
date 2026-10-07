@@ -26,11 +26,16 @@ export function SavedReviewHeader({
   const inFlight = useRef(false);
   const busy = operation !== null;
   const [copied, setCopied] = useState<{ count: number } | null>(null);
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const [clearRevision, setClearRevision] = useState<number | null>(null);
   const repositoryCount = new Set(saved.targets.map((entry) => entry.repositoryId)).size;
   const target = saved.targets.find((entry) => entry.id === state.savedTargetId);
   const outside = !state.savedView || browsing;
+  const saving = target?.captured ? "Captured working changes" : "Saved commit comparison";
+  const details = [
+    saved.title,
+    `${saving} · ${new Date(saved.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`,
+    ...(target ? [target.repo] : []),
+  ].join("\n");
   useEffect(() => {
     if (!notice || notice.error) return;
     const timer = setTimeout(() => setNotice(null), 4000);
@@ -62,90 +67,38 @@ export function SavedReviewHeader({
   };
   return (
     <section aria-label="Saved review" {...stylex.props(styles.header)}>
-      <Popover.Root
-        open={detailsOpen}
-        onOpenChange={(open) => {
-          setDetailsOpen(open);
-        }}
-      >
-        <Popover.Trigger
-          {...stylex.props(ui.button, ui.pressable, styles.fixed)}
-          aria-label="Review details"
-        >
-          <span {...stylex.props(styles.desktop)}>Review</span>
-          <Icon name="note" size={14} />
-          <Icon name="chevron" size={10} />
-        </Popover.Trigger>
-        <Popover.Portal>
-          <Popover.Positioner
-            align="start"
-            sideOffset={5}
-            {...stylex.props(styles.positioner, ui.instant)}
-          >
-            <Popover.Popup {...stylex.props(ui.popup, styles.details, ui.instant)}>
-              <Popover.Title {...stylex.props(styles.title)}>{saved.title}</Popover.Title>
-              {saved.pullRequestUrl && (
-                <a
-                  href={saved.pullRequestUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  {...stylex.props(styles.prLink)}
-                >
-                  <Icon name="github" size={14} /> Open pull request{" "}
-                  <Icon name="external" size={12} />
-                </a>
-              )}
-              <p {...stylex.props(styles.detailText)}>
-                {repositoryCount} {repositoryCount === 1 ? "repository" : "repositories"} ·{" "}
-                {saved.commentCount} comments
-              </p>
-              {target && (
-                <p {...stylex.props(styles.detailText)}>
-                  {target.repo}
-                  <br />
-                  {target.branch ?? "Detached HEAD"} · {target.label}
-                </p>
-              )}
-              <p {...stylex.props(styles.detailText)}>
-                {target?.captured ? "Captured working changes" : "Saved commit comparison"}
-                <br />
-                {new Date(saved.createdAt).toLocaleString()}
-              </p>
-              {outside && (
-                <p {...stylex.props(styles.detailText)}>
-                  {browsing
-                    ? `Browsing files · ${browsingSourceLabel ?? "Current files"}.`
-                    : "Browsing outside the saved comparison."}{" "}
-                  Comments across all tabs and comparisons in this review are copied.
-                </p>
-              )}
-            </Popover.Popup>
-          </Popover.Positioner>
-        </Popover.Portal>
-      </Popover.Root>
       {saved.pullRequestUrl ? (
         <a
           href={saved.pullRequestUrl}
           target="_blank"
           rel="noopener noreferrer"
           aria-label={`Open pull request: ${saved.title}`}
+          title={details}
           {...stylex.props(styles.reviewTitle, styles.prLink)}
         >
-          <Icon name="github" size={14} /> {saved.title} <Icon name="external" size={12} />
+          <Icon name="github" size={14} />
+          <span {...stylex.props(styles.ellipsis)}>{saved.title}</span>
+          <Icon name="external" size={12} />
         </a>
       ) : (
-        <span title={saved.title} {...stylex.props(styles.reviewTitle)}>
-          {saved.title}
+        <span title={details} {...stylex.props(styles.reviewTitle)}>
+          <span {...stylex.props(styles.ellipsis)}>{saved.title}</span>
         </span>
       )}
-      {saved.totals && (
+      {target && saved.targets.length === 1 && (
+        <span title={target.repo} {...stylex.props(styles.comparison)}>
+          {target.branch ?? "Detached HEAD"} · {target.label}
+        </span>
+      )}
+      {/* With one comparison, the toolbar below shows the same totals. */}
+      {saved.totals && saved.totals.comparisons > 1 && (
         <span
-          {...stylex.props(ui.row)}
+          {...stylex.props(ui.row, styles.fixed)}
           role="group"
           aria-label={`Whole review: ${saved.totals.additions} lines added, ${saved.totals.deletions} lines deleted`}
           title={`All ${saved.totals.comparisons} saved comparisons · ${saved.totals.files} files. Totals use the captured comparison endpoints, including the resolved merge base.`}
         >
-          <span {...stylex.props(styles.totalLabel)}>Review</span>
+          <span {...stylex.props(styles.totalLabel)}>Total</span>
           <span {...stylex.props(ui.added)}>+{saved.totals.additions.toLocaleString()}</span>
           <span {...stylex.props(ui.removed)}>−{saved.totals.deletions.toLocaleString()}</span>
         </span>
@@ -173,7 +126,11 @@ export function SavedReviewHeader({
         <button
           {...stylex.props(ui.button, ui.active, styles.fixed)}
           aria-label="Return to review"
-          title="Return to the original saved comparison."
+          title={
+            browsing
+              ? `Browsing ${browsingSourceLabel ?? "current files"}. Return to the saved comparison.`
+              : "Return to the saved comparison."
+          }
           onClick={onReturn}
         >
           Return<span {...stylex.props(styles.desktop)}>to review</span>
@@ -355,13 +312,25 @@ const styles = stylex.create({
   fixed: { flexShrink: 0 },
   desktop: { display: { default: "inline", "@media (max-width: 600px)": "none" } },
   reviewTitle: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    minWidth: 0,
+    maxWidth: 360,
+    paddingInlineStart: 6,
+    color: tokens.text,
+    fontSize: 13,
+    fontWeight: 500,
+  },
+  ellipsis: { minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+  comparison: {
     display: { default: "block", "@media (max-width: 900px)": "none" },
     minWidth: 0,
-    maxWidth: 320,
+    flexShrink: 1000,
     whiteSpace: "nowrap",
     overflow: "hidden",
     textOverflow: "ellipsis",
-    color: tokens.muted,
+    color: tokens.faint,
     fontSize: 12,
   },
   prLink: { color: tokens.accent, textDecoration: { default: "none", ":hover": "underline" } },
