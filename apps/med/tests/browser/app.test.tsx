@@ -412,6 +412,19 @@ describe("graphical review", () => {
     await expect.element(editor).toBeVisible();
     await expect.poll(() => document.activeElement).toBe(editor.element());
   });
+  test("a click on the selected changes-tree file shows it in Changes again", async () => {
+    await mountApp();
+    const alpha = page.getByRole("treeitem", { name: /alpha.ts/ });
+    await alpha.click();
+    await page.getByRole("link", { name: "src/alpha.ts", exact: true }).click();
+    await expect
+      .element(page.getByRole("tab", { name: "alpha.ts", exact: true }))
+      .toHaveAttribute("aria-selected", "true");
+    await alpha.click();
+    await expect
+      .element(page.getByRole("tab", { name: "Changes", exact: true }))
+      .toHaveAttribute("aria-selected", "true");
+  });
   test("a fresh launch opens read-only files with a visible Vim cursor and keyboard focus", async () => {
     await mountApp({ readOnly: true });
     await page.getByRole("link", { name: "src/alpha.ts", exact: true }).click();

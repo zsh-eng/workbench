@@ -32,13 +32,16 @@ export function FileSidebar({
     latest.current = { files, selected, onSelect };
   }, [files, selected, onSelect]);
   const syncing = useRef(false);
+  // A pointer click reveals its file even when the row is already selected, so
+  // selection changes from a pointer leave the reveal to the click handler.
+  const pointer = useRef(false);
   const { model } = useFileTree({
     paths: [],
     initialExpansion: "open",
     flattenEmptyDirectories: true,
     density: "compact",
     onSelectionChange: (paths) => {
-      if (syncing.current) return;
+      if (syncing.current || pointer.current) return;
       const file = latest.current.files.find((entry) => entry.path === paths.at(-1));
       if (file) latest.current.onSelect(file.id);
     },
@@ -99,6 +102,7 @@ export function FileSidebar({
       <FileTree
         model={model}
         onPointerDownCapture={(event) => {
+          pointer.current = true;
           if (!onOpen || (!event.metaKey && !event.ctrlKey)) return;
           if (
             !event.nativeEvent
@@ -110,7 +114,7 @@ export function FileSidebar({
           event.stopPropagation();
         }}
         onClickCapture={(event) => {
-          if (!onOpen || (!event.metaKey && !event.ctrlKey)) return;
+          pointer.current = false;
           const row = event.nativeEvent
             .composedPath()
             .find((node) => node instanceof HTMLElement && node.dataset.itemType === "file") as
@@ -118,9 +122,14 @@ export function FileSidebar({
             | undefined;
           const file = files.find((item) => item.path === row?.dataset.itemPath);
           if (!file) return;
-          event.preventDefault();
-          event.stopPropagation();
-          onOpen(file.id, true);
+          if (onOpen && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault();
+            event.stopPropagation();
+            onOpen(file.id, true);
+          } else if (!event.shiftKey) onSelect(file.id);
+        }}
+        onKeyDownCapture={() => {
+          pointer.current = false;
         }}
         onPointerOver={(event) => {
           const row = event.nativeEvent
