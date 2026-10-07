@@ -34,6 +34,7 @@ import {
   type ReviewCommand,
 } from "./components/Controls";
 import { DiffStat } from "./components/DiffStat";
+import { ChangeTotals } from "./components/ChangeTotals";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { FileSidebar } from "./components/FileSidebar";
 import { NoteCard, NoteComposer, type NoteTarget } from "./components/NoteCard";
@@ -1927,8 +1928,6 @@ export function App({
       : (state.branches.find((branch) => branch.name === state.activeBranch)?.head ??
         state.session?.repository.head ??
         "");
-  const added = state.review?.files.reduce((sum, file) => sum + file.additions, 0) ?? 0;
-  const deleted = state.review?.files.reduce((sum, file) => sum + file.deletions, 0) ?? 0;
   const skipped = files.filter((file) => !file.metadata || mediaType(file.path)?.kind === "image");
   const orphaned = notes.filter(
     (note) =>
@@ -2419,15 +2418,10 @@ export function App({
                     />
                   )}
                 {state.review && (
-                  <span
-                    {...stylex.props(styles.reviewTotals)}
-                    role="group"
-                    aria-label={`Comparison total: ${added} lines added, ${deleted} lines deleted`}
-                    title={`${shortRevision(state.review.base)} → ${shortRevision(state.review.head)}`}
-                  >
-                    <span {...stylex.props(ui.added)}>+{added.toLocaleString()}</span>
-                    <span {...stylex.props(ui.removed)}>−{deleted.toLocaleString()}</span>
-                  </span>
+                  <ChangeTotals
+                    files={state.review.files}
+                    range={`${shortRevision(state.review.base)} → ${shortRevision(state.review.head)}`}
+                  />
                 )}
                 <span {...stylex.props(ui.grow)} />
                 <SegmentedControl<"split" | "unified">
@@ -3304,16 +3298,6 @@ const styles = stylex.create({
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
     borderBottomColor: tokens.line,
-  },
-  reviewTotals: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 6,
-    marginInlineStart: 8,
-    fontFamily: tokens.code,
-    fontSize: 11,
-    whiteSpace: "nowrap",
-    flexShrink: 0,
   },
   notesButton: { gap: 5, minWidth: 28, paddingInline: 6 },
   notesCount: { fontFamily: tokens.code, fontSize: 10.5, fontVariantNumeric: "tabular-nums" },

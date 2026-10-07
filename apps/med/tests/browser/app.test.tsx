@@ -926,6 +926,32 @@ describe("graphical review", () => {
     await centered("needleCollapsed");
   });
 
+  test("the comparison totals split lines into code, tests, and lockfiles", async () => {
+    const file = (path: string, lines: number) =>
+      `diff --git a/${path} b/${path}\nindex 1111111..2222222 100644\n--- a/${path}\n+++ b/${path}\n@@ -1,1 +1,${lines + 1} @@\n const kept = 1;\n` +
+      Array.from({ length: lines }, (_, line) => `+const added${line} = ${line};\n`).join("");
+    const paths = ["src/app.ts", "src/app.test.ts", "bun.lock"];
+    await mountApp({
+      review: { paths, patch: file(paths[0], 2) + file(paths[1], 3) + file(paths[2], 40) },
+    });
+    // The fixture reports one added and one deleted line for each file.
+    const totals = page.getByRole("group", { name: /^Comparison total:/ });
+    await expect.element(totals).toHaveTextContent("+3−3");
+    totals.element().focus();
+    const tooltip = page.getByRole("table");
+    await expect.element(tooltip).toBeVisible();
+    expect(
+      [...tooltip.element().querySelectorAll("tr")].map((row) => [
+        row.dataset.kind,
+        row.textContent,
+      ]),
+    ).toEqual([
+      ["code", "Code1 file+1−1"],
+      ["tests", "Tests1 file+1−1"],
+      ["lockfiles", "Lockfiles1 file+1−1"],
+    ]);
+  });
+
   test("the full diff header toggles collapse while its filename opens the file", async () => {
     await mountApp();
     const toggle = page.getByRole("button", { name: "Collapse src/alpha.ts", exact: true });

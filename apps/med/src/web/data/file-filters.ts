@@ -54,3 +54,29 @@ export function matchesFileFilters(path: string, filters: ReturnType<typeof pars
       filters.extensions.some((ext) => path.toLowerCase().endsWith(`.${ext}`)))
   );
 }
+
+// Package manager lockfiles have no shared format, so they are known by name:
+// the common ones, plus the `*.lock` and `*-lock.json|yaml` conventions.
+const lockfiles = new Set([
+  "package-lock.json",
+  "npm-shrinkwrap.json",
+  "go.sum",
+  "Package.resolved",
+  "gradle.lockfile",
+  "packages.lock.json",
+  ".terraform.lock.hcl",
+  "conda-lock.yml",
+]);
+export function isLockfile(path: string): boolean {
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  return lockfiles.has(name) || /\.lockb?$|-lock\.(?:json|ya?ml)$/i.test(name);
+}
+
+export type ChangeKind = "code" | "tests" | "docs" | "lockfiles" | "other";
+/** The kind of change a file makes, for the totals breakdown. */
+export function changeKind(path: string): ChangeKind {
+  if (isLockfile(path)) return "lockfiles";
+  if (isTestFile(path)) return "tests";
+  if (docs.test(path)) return "docs";
+  return code.test(path) ? "code" : "other";
+}

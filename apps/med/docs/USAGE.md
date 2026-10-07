@@ -216,6 +216,11 @@ in Find file**.
 
 Drag the gutter **+** across lines to start a note for the whole range. You can also drag over line numbers, or click the first number and Shift-click the last number on the same diff side, then click **Add note**. The saved comment keeps the full range.
 
+Hover or focus the **+/−** totals in the Changes toolbar to split them by kind:
+code, tests, docs, config and data, and lockfiles. Lockfiles are known by name,
+such as `bun.lock`, `package-lock.json`, `Cargo.lock`, `go.sum`, and other
+`*.lock` or `*-lock.json` files.
+
 Shift-click another commit to select an inclusive range. The comparison runs from the oldest selected commit's first parent to the newest selected commit. A root commit uses the empty tree. This compares endpoint snapshots; it does not add individual patches across merged branches. Shift+Up/Down extends the selection; a plain click resets it.
 
 | Action                            | macOS        | Omarchy Linux             |
