@@ -3,6 +3,7 @@ import type { TokenizeResult } from "@twinkleplop/core";
 const loaders = {
   java: () => import("./languages/java"),
   cpp: () => import("./languages/cpp"),
+  xml: () => import("./languages/xml"),
   javascript: () => import("@twinkleplop/javascript"),
   typescript: () => import("@twinkleplop/typescript"),
   tsx: () => import("@twinkleplop/tsx"),
@@ -43,6 +44,7 @@ const aliases: Record<string, Language> = {
   py: "python",
   rs: "rust",
   env: "dotenv",
+  xsl: "xml",
 };
 export function supportedLanguage(name: string): Language | undefined {
   return Object.hasOwn(loaders, name)

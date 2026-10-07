@@ -168,6 +168,7 @@ const languageSamples = {
   dotenv:
     '# 😀 comment\nAPI_URL="https://example.com"\nexport NAME=reader\nMESSAGE="Hello ${NAME}"\n',
   shellsession: '$ echo "😀"\n😀\n$ pwd\n/tmp/project\n',
+  xml: '<?xml version="1.0"?>\n<!-- 😀 -->\n<note xs:id="1">Fish &amp; chips<![CDATA[ a < b ]]></note>\n',
 };
 
 describe("shipped tokenizer adapter smoke checks", () => {
