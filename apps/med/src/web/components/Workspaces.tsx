@@ -12,7 +12,9 @@ import {
   useState,
   useSyncExternalStore,
   type ReactNode,
+  type RefObject,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   createReviewController,
   type ReviewController,
@@ -77,6 +79,10 @@ const Snapshot = createContext<WorkspaceSnapshot | null>(null);
 const Current = createContext<string | null>(null);
 /** Disposers that run when a workspace closes or leaves memory. */
 const Lifetime = createContext<Set<() => void> | null>(null);
+/** Moves the window's one workspace list into a sidebar. */
+const ListSlot = createContext<((slot: HTMLElement, onNew?: () => void) => () => void) | null>(
+  null,
+);
 
 /** The workspace that renders this App, with the host's actions. Outside a
  * host, such as in a test of App alone, it is null. */
@@ -463,10 +469,40 @@ export function WorkspaceHost({
     return () => window.removeEventListener("keydown", keydown, true);
   }, [rememberFocus, show, store]);
 
+  // One workspace list serves every workspace, as a browser's tab strip does:
+  // a copy in each sidebar showed again on each switch, so it replayed its
+  // entrance and lost its hover state.
+  const [list] = useState(() => {
+    const element = document.createElement("div");
+    element.style.display = "contents";
+    return element;
+  });
+  const [owner, setOwner] = useState<{ slot: HTMLElement; onNew?: () => void } | null>(null);
+  const settling = useRef(0);
+  const claimList = useCallback(
+    (slot: HTMLElement, onNew?: () => void) => {
+      if (list.parentElement !== slot) {
+        list.style.setProperty(MOTION, "0s");
+        cancelAnimationFrame(settling.current);
+        settling.current = requestAnimationFrame(() => {
+          settling.current = requestAnimationFrame(() => list.style.removeProperty(MOTION));
+        });
+        // moveBefore keeps focus and running animations; appendChild resets them.
+        const move = (slot as HTMLElement & { moveBefore?: HTMLElement["insertBefore"] })
+          .moveBefore;
+        if (move && list.isConnected) move.call(slot, list, null);
+        else slot.append(list);
+      }
+      setOwner({ slot, onNew });
+      return () => setOwner((current) => (current?.slot === slot ? null : current));
+    },
+    [list],
+  );
   return (
     <Actions value={actions}>
       <Snapshot value={snapshot}>
-        {children}
+        <ListSlot value={claimList}>{children}</ListSlot>
+        {createPortal(<WorkspaceRows onNew={owner?.onNew} />, list)}
         {switcher && (
           <WorkspaceSwitcher
             snapshot={snapshot}
@@ -724,10 +760,79 @@ function qualifiers(rows: Workspace[]) {
 }
 
 /**
- * The open workspaces, at the top of a sidebar. It appears with the second
- * workspace; one workspace needs no list.
+ * The place of the open workspaces, at the top of a sidebar. The window has
+ * one list; the sidebar on screen holds it, and its "New workspace" button
+ * runs `onNew`. Outside a workspace host, it is empty.
  */
 export function WorkspaceList({ onNew }: { onNew?(): void }) {
+  const claim = use(ListSlot);
+  const slot = useRef<HTMLDivElement>(null);
+  const latest = useRef(onNew);
+  useLayoutEffect(() => {
+    latest.current = onNew;
+  });
+  const canAdd = !!onNew;
+  // Effects run only in the workspace on screen, so the last one shown holds
+  // the list. It moves before the frame paints.
+  useLayoutEffect(
+    () => claim?.(slot.current!, canAdd ? () => latest.current?.() : undefined),
+    [claim, canAdd],
+  );
+  return claim && <div ref={slot} {...stylex.props(styles.slot)} />;
+}
+
+const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+/** Plays an entrance once, when the element mounts. A CSS animation would
+ * play again each time a hidden workspace shows or the list moves. */
+function useEntrance<T extends HTMLElement>(
+  keyframes: Keyframe[],
+  duration: number,
+  ref: RefObject<T | null>,
+) {
+  useLayoutEffect(() => {
+    if (!reducedMotion())
+      ref.current?.animate(keyframes, { duration, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
+    // Only the first mount plays it.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+}
+function UnreadDot({ hides }: { hides: boolean }) {
+  const dot = useRef<HTMLSpanElement>(null);
+  useEntrance(
+    [
+      { opacity: 0, transform: "scale(0.4)" },
+      { opacity: 1, transform: "scale(1.25)", offset: 0.6 },
+      { opacity: 1, transform: "scale(1)" },
+    ],
+    320,
+    dot,
+  );
+  return (
+    <span ref={dot} aria-hidden="true" {...stylex.props(styles.dot, hides && styles.detailHides)} />
+  );
+}
+function WorkspaceNav({ children }: { children: ReactNode }) {
+  const nav = useRef<HTMLElement>(null);
+  useEntrance(
+    [
+      { opacity: 0, transform: "translateY(-3px)" },
+      { opacity: 1, transform: "none" },
+    ],
+    180,
+    nav,
+  );
+  return (
+    <nav ref={nav} aria-label="Workspaces" {...stylex.props(styles.list)}>
+      {children}
+    </nav>
+  );
+}
+
+/**
+ * The open workspaces. They appear with the second workspace; one workspace
+ * needs no list.
+ */
+function WorkspaceRows({ onNew }: { onNew?(): void }) {
   const snapshot = use(Snapshot);
   const actions = use(Actions);
   // The row whose resume command was just copied says so for a moment.
@@ -738,7 +843,7 @@ export function WorkspaceList({ onNew }: { onNew?(): void }) {
   if (rows.length < 2) return null;
   const qualifier = qualifiers(rows);
   return (
-    <nav aria-label="Workspaces" {...stylex.props(styles.list)}>
+    <WorkspaceNav>
       <div {...stylex.props(styles.heading)}>
         <span>Workspaces</span>
         {onNew && (
@@ -807,10 +912,7 @@ export function WorkspaceList({ onNew }: { onNew?(): void }) {
                     Copied
                   </span>
                 ) : workspace.unread ? (
-                  <span
-                    aria-hidden="true"
-                    {...stylex.props(styles.dot, closable && styles.detailHides)}
-                  />
+                  <UnreadDot hides={closable} />
                 ) : (
                   workspace.detail && (
                     <span {...stylex.props(styles.detail, closable && styles.detailHides)}>
@@ -836,7 +938,7 @@ export function WorkspaceList({ onNew }: { onNew?(): void }) {
           );
         })}
       </ul>
-    </nav>
+    </WorkspaceNav>
   );
 }
 
@@ -1026,7 +1128,9 @@ function WorkspaceSwitcher({
                   {repository && <span {...stylex.props(styles.repository)}>{repository} / </span>}
                   {labelFor(workspace)}
                 </span>
-                {workspace.unread && <span aria-hidden="true" {...stylex.props(styles.dot)} />}
+                {workspace.unread && (
+                  <span aria-hidden="true" {...stylex.props(styles.dot, styles.dotArrives)} />
+                )}
                 {workspace.id === snapshot.active && (
                   <span {...stylex.props(styles.here)}>Current</span>
                 )}
@@ -1044,18 +1148,20 @@ const appear = stylex.keyframes({
   from: { opacity: 0, transform: "translateY(-4px) scale(0.985)" },
   to: { opacity: 1, transform: "none" },
 });
-const settle = stylex.keyframes({
-  from: { opacity: 0, transform: "translateY(-3px)" },
-  to: { opacity: 1, transform: "none" },
-});
 const arrive = stylex.keyframes({
   "0%": { opacity: 0, transform: "scale(0.4)" },
   "60%": { opacity: 1, transform: "scale(1.25)" },
   "100%": { opacity: 1, transform: "scale(1)" },
 });
 const reduced = "@media (prefers-reduced-motion: reduce)";
+/** The list's hover transitions. They stop while the list moves to another
+ * sidebar, because the row under the pointer loses its hover state for a
+ * frame, and would fade its controls out and in again. */
+const MOTION = "--workspace-list-motion";
+const listMotion = `var(${MOTION}, 120ms)`;
 
 const styles = stylex.create({
+  slot: { display: "contents" },
   // The list sits under the sidebar's identity row and above History. It
   // appears with the second workspace, so it settles in rather than sliding.
   list: {
@@ -1063,9 +1169,6 @@ const styles = stylex.create({
     flexDirection: "column",
     flexShrink: 0,
     paddingBottom: 6,
-    animationName: { default: settle, [reduced]: "none" },
-    animationDuration: "180ms",
-    animationTimingFunction: tokens.easeOut,
   },
   heading: {
     display: "flex",
@@ -1133,7 +1236,7 @@ const styles = stylex.create({
     outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
     outlineOffset: -2,
     transitionProperty: "background-color, color",
-    transitionDuration: "120ms",
+    transitionDuration: listMotion,
   },
   current: {
     color: { default: tokens.text, ":hover": tokens.text },
@@ -1157,6 +1260,8 @@ const styles = stylex.create({
     marginInline: 3,
     borderRadius: "50%",
     backgroundColor: tokens.accent,
+  },
+  dotArrives: {
     animationName: { default: arrive, [reduced]: "none" },
     animationDuration: "320ms",
     animationTimingFunction: tokens.easeOut,
@@ -1167,7 +1272,7 @@ const styles = stylex.create({
     fontSize: 11,
     fontVariantNumeric: "tabular-nums",
     transitionProperty: "opacity",
-    transitionDuration: "120ms",
+    transitionDuration: listMotion,
   },
   // The close control takes the status's place while the row is hovered.
   detailHides: {
@@ -1198,7 +1303,7 @@ const styles = stylex.create({
       [stylex.when.ancestor(":focus-within")]: 1,
     },
     transitionProperty: "opacity",
-    transitionDuration: "120ms",
+    transitionDuration: listMotion,
   },
   scrim: { position: "fixed", inset: 0, zIndex: 120 },
   switcher: {

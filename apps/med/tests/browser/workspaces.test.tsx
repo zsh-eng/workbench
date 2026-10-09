@@ -283,6 +283,12 @@ test("keeps branch workspaces live, switches by shortcut, and restores the list"
   await userEvent.keyboard("{Control>}2{/Control}");
   await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
   expect(shown()).toBe(mainView);
+  // The window has one workspace list. It moves to the sidebar on screen and
+  // does not play its entrance again.
+  const lists = document.querySelectorAll('nav[aria-label="Workspaces"]');
+  expect(lists).toHaveLength(1);
+  expect(mainView!.contains(lists[0]!)).toBe(true);
+  expect(lists[0]!.getAnimations({ subtree: true })).toEqual([]);
   // Files still open after the review was hidden and shown again.
   await page.getByRole("treeitem", { name: /alpha.ts/ }).dblClick();
   await expect.poll(() => shown()?.dataset.activeFile).toBe("src/alpha.ts");
