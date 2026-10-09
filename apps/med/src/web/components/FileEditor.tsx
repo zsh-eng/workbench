@@ -386,7 +386,7 @@ export default function FileEditor({
             fontSize: "12px",
           },
           ".cm-scroller": {
-            fontFamily: '"Geist Mono", "SFMono-Regular", Consolas, monospace',
+            fontFamily: '"Paper Mono", "SFMono-Regular", Consolas, monospace',
             lineHeight: "20px",
             overflow: "auto",
           },

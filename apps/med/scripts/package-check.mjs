@@ -58,7 +58,7 @@ for (const [command, args] of runners) {
     if (!response.ok || !page.ok || !html.includes('<div id="root">'))
       throw new Error("Package did not serve its application");
     const fontBytes = [];
-    for (const name of ["Geist-Variable.woff2", "GeistMono-Variable.woff2"]) {
+    for (const name of ["Geist-Variable.woff2", "PaperMono-Variable.woff2"]) {
       const font = await fetch(new URL(`/fonts/${name}`, url));
       const bytes = Buffer.from(await font.arrayBuffer());
       if (!font.ok || bytes.subarray(0, 4).toString() !== "wOF2")

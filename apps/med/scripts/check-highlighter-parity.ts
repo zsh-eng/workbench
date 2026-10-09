@@ -101,7 +101,7 @@ const browser = await chromium.launch({ headless: true });
 let server: ReturnType<typeof createServer> | undefined;
 const escape = (s: string) =>
   s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-const font = (await readFile("public/fonts/GeistMono-Variable.woff2")).toString("base64");
+const font = (await readFile("public/fonts/PaperMono-Variable.woff2")).toString("base64");
 const fontCSS = `@font-face{font-family:MedMono;src:url(data:font/woff2;base64,${font}) format('woff2')} .code{font-family:MedMono,monospace;font-variant-ligatures:none}`;
 const panels: string[] = [];
 let failures = 0;

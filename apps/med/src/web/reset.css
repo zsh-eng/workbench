@@ -5,9 +5,9 @@
   font-display: swap;
 }
 @font-face {
-  font-family: "Geist Mono";
-  src: url("/fonts/GeistMono-Variable.woff2") format("woff2");
-  font-weight: 100 900;
+  font-family: "Paper Mono";
+  src: url("/fonts/PaperMono-Variable.woff2") format("woff2");
+  font-weight: 100 800;
   font-display: swap;
 }
 /* Document reset only. Application styling is compiled from StyleX. */
@@ -37,7 +37,7 @@ svg {
 }
 
 /* Keep code on a character grid, including across syntax-token boundaries.
-   Geist Mono's shaped <> pair can paint over the preceding token. */
+   A shaped pair such as <> can paint over the preceding token. */
 code,
 pre,
 diffs-container,

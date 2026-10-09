@@ -133,7 +133,7 @@
   margin: 2.7em 0;
 }
 .med-md-prose code {
-  font-family: "Geist Mono", monospace;
+  font-family: "Paper Mono", monospace;
   font-size: 0.86em;
   background: var(--med-panel);
   border: 1px solid var(--med-border);

@@ -30,7 +30,7 @@ export const tokens = stylex.defineVars({
   // Strong ease-out for entering UI; ease-in-out for elements that move on screen.
   easeOut: "cubic-bezier(0.23, 1, 0.32, 1)",
   easeInOut: "cubic-bezier(0.77, 0, 0.175, 1)",
-  code: '"Geist Mono", "SFMono-Regular", Consolas, monospace',
+  code: '"Paper Mono", "SFMono-Regular", Consolas, monospace',
   ui: '"Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
 });
 

@@ -116,7 +116,7 @@ See the [usage guide](docs/USAGE.md) for all shortcuts, search setup, patch and 
 | [React](https://react.dev/) and [StyleX](https://stylexjs.com/)    | UI components and styles                               |
 | [Chokidar](https://github.com/paulmillr/chokidar)                  | Watch repository changes                               |
 | [Zod](https://zod.dev/)                                            | Validate messages between the browser and local server |
-| [Geist and Geist Mono](upstream/GEIST.md)                          | Locally loaded fonts                                   |
+| [Geist](upstream/GEIST.md), [Paper Mono](upstream/PAPER-MONO.md)   | Locally loaded fonts                                   |
 
 Build and test tools: TypeScript, Vite, Vitest, Playwright, Oxlint, and Oxfmt. See [package.json](package.json) for the full list and pinned versions.
 
@@ -142,7 +142,6 @@ Open files outside Git with `med-diff open /absolute/path/file --line 42`, or us
 **Open standalone file** in the command palette. Drop text files for read-only
 previews. Full-file views show added, deleted, and working changes in the gutter.
 See [file workspace usage](docs/USAGE.md#standalone-files-and-dropped-previews).
-
 
 ### Write with a live Markdown preview
 

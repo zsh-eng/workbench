@@ -211,7 +211,7 @@ export function FoundationsSection({ onPickTheme }: { onPickTheme(id: string): v
       </Specimen>
       <Specimen
         title="Type"
-        note="Geist for UI and Geist Mono for code. Sizes in use; 10–10.5, 11–11.5, and 12–12.5 are candidates to merge."
+        note="Geist for UI and Paper Mono for code. Sizes in use; 10–10.5, 11–11.5, and 12–12.5 are candidates to merge."
         span="half"
       >
         <div {...stylex.props(styles.type)}>
