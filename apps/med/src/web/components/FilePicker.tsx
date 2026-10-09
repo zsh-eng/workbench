@@ -16,7 +16,18 @@ import type { BrowseSearch } from "../../shared/inspect";
 import type { RegisteredRepository } from "../../shared/protocol";
 import { isTestFile, matchesFileFilters, parsePickerFilters } from "../data/file-filters";
 
-type RepositoryScope = { id: string; name: string; path: string; source: BrowseSource };
+/** A registered worktree. Only its source holds the absolute path: the picker
+ * shows and matches the short name and the repository-relative location. */
+type RepositoryScope = { id: string; name: string; location: string; source: BrowseSource };
+/** A worktree's place in its repository; a worktree elsewhere shows its folder name. */
+function repositoryLocation(repository: string, path: string) {
+  if (path === repository) return "";
+  if (path.startsWith(`${repository}/`)) return path.slice(repository.length + 1);
+  return path.slice(path.lastIndexOf("/") + 1);
+}
+function scopeLabel(scope: RepositoryScope) {
+  return scope.location ? `${scope.name} · ${scope.location}` : scope.name;
+}
 export interface FilePickerProps {
   repositories?: RegisteredRepository[];
   repositoryScopes?: RepositoryScope[];
@@ -28,7 +39,7 @@ export interface FilePickerProps {
   loading: boolean;
   error: string | null;
   sourceLabel: string;
-  onOpen(path: string, line?: number, source?: BrowseSource): void;
+  onOpen(path: string, line?: number, source?: BrowseSource, sourceLabel?: string): void;
   source?: BrowseSource | null;
   api?: BrowseApi;
   sourceRevision?: number | string;
@@ -129,7 +140,7 @@ export function FilePicker(props: FilePickerProps) {
         return paths.map((path) => ({
           id: `${repo.id}:${path}`,
           name: repo.name,
-          path,
+          location: repositoryLocation(repo.path, path),
           source: { kind: "worktree" as const, repo: path },
         }));
       }),
@@ -149,7 +160,7 @@ export function FilePicker(props: FilePickerProps) {
     ? {
         ...props,
         source: remote ? selectedRepository.source : props.source,
-        sourceLabel: selectedRepository.path,
+        sourceLabel: `Working files · ${scopeLabel(selectedRepository)}`,
         ...(remote
           ? {
               entries: files.entries,
@@ -311,7 +322,7 @@ function PickerContents({
         repository,
         score: Math.max(
           matchScore(repository.name, filters.text),
-          matchScore(repository.path, filters.text),
+          matchScore(repository.location, filters.text),
         ),
       }))
       .filter((entry) => entry.score > -Infinity)
@@ -319,7 +330,7 @@ function PickerContents({
       .slice(0, 8)
       .map(({ repository }) => ({
         id: `repo:${repository.id}`,
-        path: repository.path,
+        path: repository.location,
         repository,
       }));
   }, [repositoryScopes, scopedRepository, filters.text, repositoryMode, mode]);
@@ -416,7 +427,7 @@ function PickerContents({
     if (busy || failure) return;
     accepted.current = true;
     if (resultSource) onOpen(entry.path, entry.line, resultSource);
-    else if (source && scopedRepository) onOpen(entry.path, entry.line, source);
+    else if (source && scopedRepository) onOpen(entry.path, entry.line, source, sourceLabel);
     else onOpen(entry.path, entry.line);
     onOpenChange(false);
   };
@@ -553,7 +564,7 @@ function PickerContents({
                 <button
                   type="button"
                   {...stylex.props(styles.token)}
-                  title={`${scopedRepository.path}\nBackspace in an empty query returns to the current repository`}
+                  title={`${scopeLabel(scopedRepository)}\nBackspace in an empty query returns to the current repository`}
                   aria-label="Back to current repository"
                   onClick={() => {
                     selectRepository();
@@ -720,7 +731,7 @@ function PickerContents({
                             disabled={busy && !entry.repository}
                             aria-label={
                               entry.repository
-                                ? `Repository ${entry.repository.name} · ${entry.path}`
+                                ? `Repository ${scopeLabel(entry.repository)}`
                                 : undefined
                             }
                             className={(state) =>
@@ -815,9 +826,11 @@ function PickerContents({
                       <p {...stylex.props(styles.repositoryName)}>
                         {selectedResult.repository.name}
                       </p>
-                      <p {...stylex.props(styles.repositoryPath)}>
-                        {selectedResult.repository.path}
-                      </p>
+                      {selectedResult.repository.location && (
+                        <p {...stylex.props(styles.repositoryPath)}>
+                          {selectedResult.repository.location}
+                        </p>
+                      )}
                       <p {...stylex.props(styles.repositoryHint)}>
                         Press <ShortcutKeys value="Tab" /> to search its files. Filters stay.
                       </p>

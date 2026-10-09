@@ -2371,15 +2371,13 @@ export function App({
         initialMode={pickerMode}
         initialQuery={pickerQuery}
         resume={pickerResume}
-        onOpen={(path, line, source) =>
+        onOpen={(path, line, source, label) =>
           fileWorkspace.open(
             path,
             false,
             line,
             source,
-            source?.kind === "commit"
-              ? `Commit ${source.oid.slice(0, 8)}`
-              : (source?.repo ?? sourceLabel),
+            source?.kind === "commit" ? `Commit ${source.oid.slice(0, 8)}` : (label ?? sourceLabel),
           )
         }
       />
