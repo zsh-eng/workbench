@@ -235,7 +235,18 @@ Use **Clear** next to **Copy comments**, then **Confirm clear**, to remove comme
 
 After an agent revises the code, create a new review link for the new comparison. The previous link and comments retain their original context.
 
+## Agent skill
+
+`med skills install` writes a Med skill for Claude Code (`~/.claude/skills/med`)
+and Codex (`~/.agents/skills/med`). The skill is a short version of this guide.
+An agent reads it only when it hands off changes, so it costs little context.
+With the skill installed, AGENTS.md needs no Med guidance. `med skills show`
+prints it; `med skills uninstall` removes it. Run `med skills install` again
+after an update.
+
 ## Suggested AGENTS.md guidance
+
+For agents without skills, add guidance to AGENTS.md instead.
 
 **Confirm this workflow and its repository scope with the user before adding this guidance to their AGENTS.md.** Reading this documentation is not authorization to edit that file. Adapt the executable path and connection settings to the user's installation.
 

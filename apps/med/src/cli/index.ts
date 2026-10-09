@@ -46,6 +46,11 @@ async function main() {
     runDocsCommand(process.argv.slice(3));
     return;
   }
+  if (process.argv[2] === "skills") {
+    const { runSkillsCommand } = await import("./skills");
+    await runSkillsCommand(process.argv.slice(3));
+    return;
+  }
   if (process.argv[2] === "sources" || process.argv[2] === "vault") {
     const { runSourcesCommand } = await import("./sources");
     await runSourcesCommand(process.argv[2], process.argv.slice(3));
@@ -85,7 +90,7 @@ async function main() {
     console.log(
       "Usage: med-diff [repository ...] [--port <port>] [--no-open]\n       med-diff --patch <path|-> [--no-open]\n       med-diff --files <old> <new> [--no-open]\n       med-diff --editor [--no-open]\n       med-diff open <file> [--line N] [--edit]\n       med-diff --setup-search\n\nOpen a local, read-only review. Use --patch - to read a patch from stdin.\nSetup search builds pinned Zoekt binaries once; it requires Go during setup only.\nDefault port: 4173. Use --state-dir <path> or MED_STATE_DIR to select saved review state.\n\n" +
         reviewHelp +
-        "\n\nRegister folders: med-diff sources --help\nOpen saved repositories: med-diff --registered\nOffline guides: med-diff docs",
+        "\n\nRegister folders: med-diff sources --help\nOpen saved repositories: med-diff --registered\nOffline guides: med-diff docs\nTeach Claude Code and Codex to hand off reviews: med skills install",
     );
   } else if (values["setup-search"]) {
     console.log("Setting up pinned Zoekt search tools…");
