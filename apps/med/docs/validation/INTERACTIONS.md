@@ -95,7 +95,7 @@ What the data does not support:
 
 - `tests/browser/workspaces.test.tsx`: the shown review keeps its rendered `diffs-container` elements after a switch away and back.
 - `tests/browser/app.test.tsx`: `⌘B` hides and shows the sidebar, and its panels are the same elements after the show.
-- The browser (188 tests), integration (134 passed, 6 skipped), and unit (324) projects pass. Two browser tests failed in earlier runs at load averages above 12 and failed on `main` at the same load: the history tooltip scan timing and the Mermaid diagram in the brief. They passed in the final run.
+- After a merge of `main` at `c9233198`, the browser (190 tests), integration (136 passed, 6 skipped), and unit (324) projects pass. Two browser tests failed in earlier runs at load averages above 12 and failed on `main` at the same load: the history tooltip scan timing and the Mermaid diagram in the brief. They passed in the final run.
 
 ## Reproduce
 
