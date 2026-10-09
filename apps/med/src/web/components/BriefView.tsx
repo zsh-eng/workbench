@@ -28,7 +28,7 @@ import { markdownImageUrl } from "../markdown/images";
 import { DiffStat } from "./DiffStat";
 import { Icon } from "./Icon";
 import { NoteCard, NoteComposer, type NoteTarget } from "./NoteCard";
-import { diffSurfaceStyle } from "./diff-surface";
+import { diffSurfaceStyle, EXPANSION_LINES } from "./diff-surface";
 import "./MarkdownPreview.css";
 import "./BriefView.css";
 import { visibleElement } from "../data/palette-focus";
@@ -675,6 +675,7 @@ function ExcerptCard({
       lineDiffType: "word-alt",
       disableFileHeader: true,
       hunkSeparators: "line-info",
+      expansionLineCount: EXPANSION_LINES,
       // Select lines on the numbers, or drag the gutter + to start a note.
       enableLineSelection: true,
       enableGutterUtility: true,

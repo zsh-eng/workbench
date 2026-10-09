@@ -85,7 +85,7 @@ import type { BriefLocation } from "./components/BriefView";
 import { SaveReviewDialog } from "./components/SaveReviewDialog";
 import { requestServerRestart } from "./components/UpdateNotice";
 import type { PathActions } from "./components/PathMenu";
-import { diffSurfaceStyle } from "./components/diff-surface";
+import { diffSurfaceStyle, EXPANSION_LINES } from "./components/diff-surface";
 import { highlightRules } from "./code-colors";
 import { createDiffFindHighlights } from "./data/diff-find-highlights";
 
@@ -1071,6 +1071,7 @@ export function App({
         });
       },
       hunkSeparators: "line-info",
+      expansionLineCount: EXPANSION_LINES,
       layout: { gap: 0, paddingTop: 0, paddingBottom: 0 },
       loadDiffFiles: async (metadata: FileDiffMetadata) => {
         try {
