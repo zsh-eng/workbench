@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { FileTree, useFileTree } from "@pierre/trees/react";
+import { StableFileTree, useStableFileTree } from "./StableFileTree";
 import type { GitStatusEntry } from "@pierre/trees";
 import { useEffect, useLayoutEffect, useRef, type CSSProperties } from "react";
 import type { ParsedReviewFile } from "../data/controller";
@@ -42,7 +42,7 @@ export function FileSidebar({
   // A pointer click reveals its file even when the row is already selected, so
   // selection changes from a pointer leave the reveal to the click handler.
   const pointer = useRef(false);
-  const { model } = useFileTree({
+  const model = useStableFileTree({
     paths: [],
     initialExpansion: "open",
     flattenEmptyDirectories: true,
@@ -54,7 +54,11 @@ export function FileSidebar({
       if (file) latest.current.onSelect(file.id);
     },
   });
+  // Effects run again when a hidden workspace shows; the same files keep the tree.
+  const applied = useRef<ParsedReviewFile[] | null>(null);
   useEffect(() => {
+    if (applied.current === files) return;
+    applied.current = files;
     syncing.current = true;
     model.resetPaths(files.map((file) => file.path));
     const statuses: GitStatusEntry[] = files.map((file) => ({
@@ -116,7 +120,7 @@ export function FileSidebar({
           return path ? { repo, path } : null;
         }}
       >
-        <FileTree
+        <StableFileTree
           model={model}
           onPointerDownCapture={(event) => {
             pointer.current = true;

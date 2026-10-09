@@ -42,11 +42,19 @@ import { visibleElement } from "../data/palette-focus";
 import { createApi } from "../data/api";
 import { readBrowserToken } from "../data/auth";
 import { readServerEvents } from "../data/sse";
+import { renderBrief } from "../markdown/brief-render";
+import { themeController } from "../themes";
 
 /** Workspaces kept mounted, most recently shown first. Older ones reload. */
 const MOUNTED = 4;
 
 type ControllerOptions = Omit<ReviewControllerOptions, "savedReviewId" | "start">;
+/** A patch parser keeps only its latest request, so each workspace has its own:
+ * one workspace's load never cancels another's. */
+type ParserFactory = () => {
+  parse: NonNullable<ReviewControllerOptions["parsePatch"]>;
+  dispose(): void;
+};
 
 interface WorkspaceActions {
   /** Shows a workspace and moves the address to it. */
@@ -480,7 +488,7 @@ export function WorkspaceHost({
 /** One controller per mounted workspace, with the disposers of the objects
  * its review owns. Only the one on screen listens for changes; the rest catch
  * up when they are shown again. */
-function createControllerPool(options: ControllerOptions) {
+function createControllerPool(options: ControllerOptions, createParser?: ParserFactory) {
   const live = new Map<string, { controller: ReviewController; disposers: Set<() => void> }>();
   const end = (id: string) => {
     const entry = live.get(id);
@@ -493,11 +501,13 @@ function createControllerPool(options: ControllerOptions) {
     get(workspace: RepositoryWorkspace | ReviewWorkspace) {
       let entry = live.get(workspace.id);
       if (!entry) {
+        const parser = createParser?.();
+        const own = parser ? { ...options, parsePatch: parser.parse } : options;
         const controller = createReviewController(
           workspace.kind === "review"
-            ? { ...options, savedReviewId: workspace.reviewId }
+            ? { ...own, savedReviewId: workspace.reviewId }
             : {
-                ...options,
+                ...own,
                 start: {
                   path: workspace.path,
                   repositoryId: workspace.repositoryId,
@@ -505,7 +515,7 @@ function createControllerPool(options: ControllerOptions) {
                 },
               },
         );
-        entry = { controller, disposers: new Set() };
+        entry = { controller, disposers: new Set(parser ? [parser.dispose] : []) };
         live.set(workspace.id, entry);
         void controller.initialize();
       }
@@ -532,14 +542,16 @@ function createControllerPool(options: ControllerOptions) {
  */
 export function WorkspaceViews({
   options,
+  createParser,
   children: render,
 }: {
   options: ControllerOptions;
+  createParser?: ParserFactory;
   children(controller: ReviewController): ReactNode;
 }) {
   const snapshot = use(Snapshot);
   if (!snapshot) throw new Error("WorkspaceViews needs a WorkspaceHost.");
-  const [pool] = useState(() => createControllerPool(options));
+  const [pool] = useState(() => createControllerPool(options, createParser));
   const [mounted, setMounted] = useState<string[]>([]);
   const active = snapshot.workspaces.find((entry) => entry.id === snapshot.active);
   const onScreen = active && active.kind !== "vault" ? active.id : null;
@@ -551,6 +563,62 @@ export function WorkspaceViews({
 
   useEffect(() => pool.retain(mounted), [pool, mounted]);
   useEffect(() => pool.focus(onScreen), [pool, onScreen, mounted]);
+
+  // When every mounted workspace has loaded, the next one in the list loads
+  // hidden while the browser is idle, until MOUNTED are ready. A first visit
+  // then shows a rendered review instead of loading in front of the reviewer,
+  // as a browser keeps a pool of warm tabs.
+  const cold = orderedWorkspaces(snapshot).find(
+    (entry) => entry.kind !== "vault" && !mounted.includes(entry.id),
+  )?.id;
+  useEffect(() => {
+    if (!cold || !onScreen || mounted.length >= MOUNTED) return;
+    const controllers = mounted.flatMap((id) => {
+      const workspace = snapshot.workspaces.find((entry) => entry.id === id);
+      return workspace && workspace.kind !== "vault" ? [pool.get(workspace).controller] : [];
+    });
+    let cancel: (() => void) | undefined;
+    const check = () => {
+      if (cancel) return;
+      if (controllers.some((controller) => controller.getSnapshot().status === "loading")) return;
+      cancel = whenIdle(() =>
+        setMounted((current) => (current.includes(cold) ? current : [...current, cold])),
+      );
+    };
+    const stops = controllers.map((controller) => controller.subscribe(check));
+    check();
+    return () => {
+      for (const stop of stops) stop();
+      cancel?.();
+    };
+  }, [cold, onScreen, mounted, pool, snapshot.workspaces]);
+
+  // A hidden workspace runs no effects, so its brief renders here, ahead of
+  // its first visit, with the briefs of its other iterations.
+  useEffect(() => {
+    const stops = mounted.flatMap((id) => {
+      const workspace = snapshot.workspaces.find((entry) => entry.id === id);
+      if (id === onScreen || workspace?.kind !== "review") return [];
+      const { controller } = pool.get(workspace);
+      let warmed: unknown;
+      const warm = () => {
+        const saved = controller.getSnapshot().savedReview;
+        if (!saved || saved === warmed) return;
+        warmed = saved;
+        const theme = themeController.getSnapshot().active.pierreTheme;
+        for (const brief of [
+          saved.brief,
+          ...(saved.iterations ?? []).toReversed().map((entry) => entry.brief),
+        ].slice(0, 7))
+          if (brief) renderBrief(theme, brief.text, false).catch(() => {});
+      };
+      warm();
+      return [controller.subscribe(warm)];
+    });
+    return () => {
+      for (const stop of stops) stop();
+    };
+  }, [mounted, onScreen, pool, snapshot.workspaces]);
   useEffect(() => {
     const leave = () => pool.dispose();
     window.addEventListener("pagehide", leave, { once: true });
@@ -574,6 +642,15 @@ export function WorkspaceViews({
       </Activity>
     );
   });
+}
+
+function whenIdle(run: () => void) {
+  if (!("requestIdleCallback" in globalThis)) {
+    const timer = setTimeout(run, 300);
+    return () => clearTimeout(timer);
+  }
+  const id = requestIdleCallback(run, { timeout: 2000 });
+  return () => cancelIdleCallback(id);
 }
 
 /** Hidden workspaces have no layout, so the browser forgets their scroll

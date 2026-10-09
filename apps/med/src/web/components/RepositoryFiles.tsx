@@ -1,7 +1,7 @@
 import { ToolButton } from "./ToolButton";
 import * as stylex from "@stylexjs/stylex";
 import { prepareFileTreeInput } from "@pierre/trees";
-import { FileTree, useFileTree } from "@pierre/trees/react";
+import { StableFileTree, useStableFileTree } from "./StableFileTree";
 import { useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
 import type { BrowseEntry } from "../../shared/browse";
 import { tokens, ui } from "../theme.stylex";
@@ -62,7 +62,7 @@ export function RepositoryFiles(props: RepositoryFilesProps) {
     [entries],
   );
   const appliedInput = useRef(preparedInput);
-  const { model } = useFileTree({
+  const model = useStableFileTree({
     preparedInput,
     initialExpansion: 1,
     flattenEmptyDirectories: true,
@@ -144,7 +144,7 @@ export function RepositoryFiles(props: RepositoryFilesProps) {
             return path ? { repo, path } : null;
           }}
         >
-          <FileTree
+          <StableFileTree
             model={model}
             onPointerOver={(event) => {
               const row = event.nativeEvent

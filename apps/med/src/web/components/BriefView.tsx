@@ -1,5 +1,4 @@
 import * as stylex from "@stylexjs/stylex";
-import { resolveTheme } from "@pierre/diffs";
 import {
   FileDiff,
   type DiffLineAnnotation,
@@ -19,7 +18,7 @@ import {
   type Excerpt,
 } from "../data/brief";
 import type { MarkdownResult } from "../markdown/model";
-import RenderWorker from "../markdown/render.worker?worker";
+import { renderBrief, renderedBrief } from "../markdown/brief-render";
 import { useTheme } from "../themes";
 import { tokens } from "../theme.stylex";
 import { ActionMenu } from "./Controls";
@@ -53,6 +52,8 @@ export interface BriefViewProps {
   onPaste(): void;
   onCopy(): void;
   onRemove(): void;
+  /** Brief texts to render in the background, such as other iterations. */
+  prerender?: readonly string[];
   /** An agent's iterations that have a brief, oldest first, and the shown one. */
   iterations?: readonly { number: number; createdAt: string }[];
   iteration?: number;
@@ -75,6 +76,15 @@ type Annotation = { note?: Note; draft?: NoteTarget };
 
 const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+/** The brief on screen, with the comparison it was annotated with. */
+interface Shown {
+  key: string;
+  text: string;
+  result: MarkdownResult;
+  files: ParsedReviewFile[];
+  root?: string;
+}
+
 const Block = memo(
   function Block({ html, start, end }: { html: string; start: number; end: number }) {
     return (
@@ -93,8 +103,9 @@ const Block = memo(
  * the sentence that cites it, and the changed files it never mentions. */
 export default function BriefView({
   brief,
-  files,
-  root,
+  files: nextFiles,
+  root: nextRoot,
+  prerender,
   active,
   loadSource,
   onOpen,
@@ -109,10 +120,30 @@ export default function BriefView({
   onMutateNote,
 }: BriefViewProps) {
   const { active: theme } = useTheme();
-  const [result, setResult] = useState<MarkdownResult>();
+  const key = `${theme.pierreTheme}\0${brief.text}`;
+  // A new brief or comparison replaces the one on screen only when its
+  // Markdown is ready, so both change in one frame and the page never blanks.
+  const [rendered, setRendered] = useState<{ key: string; result: MarkdownResult } | null>(null);
+  const available =
+    renderedBrief(theme.pierreTheme, brief.text) ??
+    (rendered?.key === key ? rendered.result : undefined);
+  const [shown, setShown] = useState<Shown | undefined>(() =>
+    available
+      ? { key, text: brief.text, result: available, files: nextFiles, root: nextRoot }
+      : undefined,
+  );
+  if (
+    available &&
+    (shown?.key !== key ||
+      shown.result !== available ||
+      shown.files !== nextFiles ||
+      shown.root !== nextRoot)
+  )
+    setShown({ key, text: brief.text, result: available, files: nextFiles, root: nextRoot });
+  const result = shown?.result;
+  const files = shown?.files ?? nextFiles;
+  const root = shown?.root ?? nextRoot;
   const [error, setError] = useState("");
-  const worker = useRef<Worker | null>(null);
-  const sequence = useRef(0);
   const pane = useRef<HTMLDivElement>(null);
   const article = useRef<HTMLElement>(null);
   const [slots, setSlots] = useState<Map<string, HTMLElement>>(() => new Map());
@@ -135,33 +166,48 @@ export default function BriefView({
         note.line === draft.target.line,
     );
   const visibleDraft = draftSaved ? null : draft;
+  // Another brief starts without the last one's note draft, selection, or scroll.
+  const [shownText, setShownText] = useState(shown?.text);
+  if (shown && shown.text !== shownText) {
+    setShownText(shown.text);
+    setDraft(null);
+    setSelected(null);
+    setSubmitted(null);
+    setLinked(null);
+  }
+  const lastText = useRef(shownText);
+  useLayoutEffect(() => {
+    if (lastText.current === shownText) return;
+    const first = lastText.current === undefined;
+    lastText.current = shownText;
+    if (!first) pane.current?.scrollTo({ top: 0, behavior: "instant" });
+  }, [shownText]);
 
   useEffect(() => {
-    const instance = new RenderWorker();
-    worker.current = instance;
-    instance.onmessage = ({ data }) => {
-      if (data.id !== sequence.current) return;
-      if (data.error) setError(data.error);
-      else {
-        setResult(data);
+    if (renderedBrief(theme.pierreTheme, brief.text)) return;
+    let current = true;
+    renderBrief(theme.pierreTheme, brief.text).then(
+      (result) => {
+        if (!current) return;
+        setRendered({ key, result });
         setError("");
-      }
-    };
-    instance.onerror = () => setError("The brief could not render. Reload the review to retry.");
+      },
+      (reason: unknown) => {
+        if (current) setError(reason instanceof Error ? reason.message : String(reason));
+      },
+    );
     return () => {
-      instance.terminate();
-      worker.current = null;
+      current = false;
     };
-  }, []);
+  }, [key, brief.text, theme.pierreTheme]);
+  // Other iterations render after this one, so choosing one shows it at once.
+  const prerenderKey = JSON.stringify(prerender ?? []);
+  const hasShown = !!shown;
   useEffect(() => {
-    const id = ++sequence.current;
-    void resolveTheme(theme.pierreTheme)
-      .then((resolved) => {
-        if (id === sequence.current)
-          worker.current?.postMessage({ id, text: brief.text, theme: resolved, briefLinks: true });
-      })
-      .catch(() => setError("The brief theme could not load."));
-  }, [brief.text, theme.pierreTheme]);
+    if (!hasShown) return;
+    for (const text of JSON.parse(prerenderKey) as string[])
+      renderBrief(theme.pierreTheme, text, false).catch(() => {});
+  }, [hasShown, prerenderKey, theme.pierreTheme]);
 
   const annotated = useMemo(
     () => (result ? annotateBrief(result.blocks, files, root) : null),
@@ -580,9 +626,18 @@ function ExcerptCard({
   const host = useRef<HTMLElement>(null);
   const [near, setNear] = useState(false);
   const [source, setSource] = useState<Excerpt | "missing" | null>(null);
-  // Mount the diff only near the viewport; long briefs stay cheap to open.
-  useEffect(() => {
+  // Mount the diff only near the viewport; long briefs stay cheap to open. An
+  // excerpt already near it mounts before the first paint, so a new brief
+  // never shows an empty card for a frame.
+  useLayoutEffect(() => {
     const node = host.current!;
+    const { top, bottom } = node.getBoundingClientRect();
+    if (node.checkVisibility() && top < innerHeight + 900 && bottom > -900) {
+      // The position is known only after layout.
+      // oxlint-disable-next-line react/set-state-in-effect
+      setNear(true);
+      return;
+    }
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;

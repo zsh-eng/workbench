@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { FilePicker, findFiles, parseFileQuery } from "../../src/web/components/FilePicker";
 import { RepositoryFiles } from "../../src/web/components/RepositoryFiles";
@@ -366,7 +366,7 @@ test("an externally opened deep file expands its parent folders and becomes visi
   let select = () => {};
   function Harness() {
     const [selected, setSelected] = useState<string | null>(null);
-    useEffect(() => {
+    useLayoutEffect(() => {
       select = () => setSelected("src/js/node/_http_client.ts");
     }, []);
     return (

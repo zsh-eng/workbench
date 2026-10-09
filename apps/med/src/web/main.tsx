@@ -1,5 +1,5 @@
 import { Tooltip } from "@base-ui/react/tooltip";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, memo, Suspense, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { WorkerPoolContextProvider } from "@pierre/diffs/react";
 import PierreWorker from "@pierre/diffs/worker/worker.js?worker";
@@ -26,8 +26,7 @@ if (import.meta.env.DEV) {
 await authorizeBrowser().catch(() => {});
 await routeFirstRun();
 initializeTheme();
-const parser = createPatchParser();
-const controllerOptions = { parsePatch: parser.parse };
+const controllerOptions = {};
 const poolOptions = {
   workerFactory: () => new PierreWorker(),
   poolSize: Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 4) - 1)),
@@ -35,6 +34,9 @@ const poolOptions = {
 };
 const highlighterOptions = { theme: themeController.getSnapshot().active.pierreTheme };
 const Welcome = lazy(() => import("./components/welcome/Welcome"));
+// The workspace list renders its views again on every switch. A review renders
+// again only for its own state, so showing a hidden one does not render it.
+const WorkspaceApp = memo(App);
 const ElementsPage = lazy(() => import("./components/elements/ElementsPage"));
 
 /** The welcome replaces the app while it shows; leaving it starts the app. */
@@ -67,8 +69,8 @@ function Root() {
     <WorkspaceHost>
       <VaultWorkspace>
         <LocalFiles>
-          <WorkspaceViews options={controllerOptions}>
-            {(controller) => <App controller={controller} />}
+          <WorkspaceViews options={controllerOptions} createParser={createPatchParser}>
+            {(controller) => <WorkspaceApp controller={controller} />}
           </WorkspaceViews>
         </LocalFiles>
       </VaultWorkspace>
@@ -87,4 +89,3 @@ createRoot(root).render(
     </Tooltip.Provider>
   </WorkerPoolContextProvider>,
 );
-window.addEventListener("pagehide", () => parser.dispose(), { once: true });

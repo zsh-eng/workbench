@@ -3084,8 +3084,11 @@ export function App({
               >
                 <Suspense fallback={null}>
                   <BriefView
-                    key={`${state.savedReview.id}:${shownIteration ?? ""}`}
+                    key={state.savedReview.id}
                     brief={savedBrief}
+                    prerender={iterations.flatMap((entry) =>
+                      entry.brief && entry.brief.text !== savedBrief.text ? [entry.brief.text] : [],
+                    )}
                     iterations={iterations
                       .filter((entry) => entry.brief)
                       .map(({ number, createdAt }) => ({ number, createdAt }))}

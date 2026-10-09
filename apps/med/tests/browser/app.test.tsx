@@ -96,6 +96,8 @@ async function mountApp(
     noteMutation?: () => Promise<Response | undefined>;
     /** Each saved target is one agent iteration, with these briefs. */
     iterationBriefs?: [string, string];
+    /** Both iterations are commits on the main branch of one repository. */
+    oneBranch?: boolean;
     /** Replaces the two small files with these, as path and unified patch. */
     review?: { paths: string[]; patch: string };
     /** GitHub comments; the first saved target compares the pull request head. */
@@ -109,21 +111,29 @@ async function mountApp(
   const fileRequests: { source: BrowseSource; path: string }[] = [];
   let notes = options.notes ?? [];
   let revision = 0;
-  const savedTargets = ["/test/repo", "/test/feature"].map((repo, index) => ({
-    id: `target-${index}`,
-    repositoryId: `repo-${index}`,
-    repo,
-    branch: index ? "feature" : "main",
-    label: `Captured ${index}`,
-    comparison: (options.pullRequest && !index
-      ? { kind: "commit", commit: options.pullRequest.head }
-      : { kind: "working" }) as Comparison,
-    base: secondCommit,
-    head: options.pullRequest && !index ? options.pullRequest.head : "working",
-    captured: !(options.pullRequest && !index),
-  }));
+  const savedTargets = (
+    options.oneBranch ? ["/test/repo", "/test/repo"] : ["/test/repo", "/test/feature"]
+  ).map((repo, index) => {
+    const commit =
+      options.pullRequest && !index
+        ? options.pullRequest.head
+        : options.oneBranch
+          ? [firstCommit, secondCommit][index]
+          : undefined;
+    return {
+      id: `target-${index}`,
+      repositoryId: options.oneBranch ? "repo-0" : `repo-${index}`,
+      repo,
+      branch: index && !options.oneBranch ? "feature" : "main",
+      label: `Captured ${index}`,
+      comparison: (commit ? { kind: "commit", commit } : { kind: "working" }) as Comparison,
+      base: secondCommit,
+      head: commit ?? "working",
+      captured: !(options.pullRequest && !index),
+    };
+  });
   const pullRequestReads: string[] = [];
-  const savedRepositories = savedTargets.map((target) => ({
+  const savedRepositories = savedTargets.slice(0, options.oneBranch ? 1 : 2).map((target) => ({
     id: target.repositoryId,
     path: target.repo,
     name: target.repo.split("/").at(-1)!,
@@ -1566,6 +1576,31 @@ describe("review brief", () => {
       .toHaveAttribute("aria-selected", "true");
     await page.getByRole("tab", { name: "Brief" }).click();
     await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
+  });
+
+  test("an iteration on the same branch replaces the brief without reloading the review", async () => {
+    await mountApp({
+      savedReview: true,
+      oneBranch: true,
+      iterationBriefs: ["# First round\n", "# Second round\n"],
+    });
+    await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
+    // Record each state that the window shows, from the click to the new brief.
+    const shown = new Set<string>();
+    const record = () => {
+      const app = document.querySelector<HTMLElement>("[data-review-status]");
+      const tab = document.querySelector('[role="tab"][aria-selected="true"]');
+      const heading = document.querySelector(".med-brief-prose h1")?.textContent;
+      shown.add(`${app?.dataset.reviewStatus} ${tab?.textContent} ${heading}`);
+    };
+    const observer = new MutationObserver(record);
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true });
+    await page.getByRole("button", { name: "Iteration 1" }).click();
+    await expect.element(page.getByRole("heading", { name: "First round" })).toBeVisible();
+    observer.disconnect();
+    expect([...shown].filter((state) => !/^ready Brief (First|Second) round$/.test(state))).toEqual(
+      [],
+    );
   });
 
   test("draws a Mermaid diagram in the brief", async () => {
