@@ -24,6 +24,7 @@ import {
   createWorkspaceStore,
   orderedWorkspaces,
   overlayAddress,
+  lazygitCommand,
   pinned,
   resumeCommand,
   REVIEW_UPDATED,
@@ -961,6 +962,7 @@ function WorkspaceMenu({
 }) {
   const actions = use(Actions)!;
   const sessions = workspace.sessions ?? [];
+  const checkout = workspace.kind === "repository" ? workspace.path : undefined;
   const item = (state: { highlighted: boolean }, ...extra: stylex.StyleXStyles[]) =>
     stylex.props(ui.menuItem, ...extra, state.highlighted && ui.menuHighlighted).className;
   const agentName = (agent: "claude" | "codex") => (agent === "claude" ? "Claude Code" : "Codex");
@@ -984,7 +986,20 @@ function WorkspaceMenu({
             >
               Open
             </ContextMenu.Item>
-            {sessions.length > 0 && <ContextMenu.Separator {...stylex.props(styles.separator)} />}
+            {(sessions.length > 0 || checkout) && (
+              <ContextMenu.Separator {...stylex.props(styles.separator)} />
+            )}
+            {checkout && (
+              <ContextMenu.Item
+                onClick={() => onCopy(lazygitCommand(checkout))}
+                className={(state) => item(state)}
+              >
+                <span {...stylex.props(styles.menuLabel)}>
+                  <Icon name="command" size={13} />
+                  Copy lazygit command
+                </span>
+              </ContextMenu.Item>
+            )}
             {[...sessions].reverse().map((session) => (
               <ContextMenu.Item
                 key={`${session.agent}:${session.id}`}

@@ -22,7 +22,7 @@ import type { ReviewHunkSpan } from "../../shared/hunk/geometry";
 export const MAX_PATCH_BYTES = 16 * 1024 * 1024;
 export const MAX_SOURCE_BYTES = 8 * 1024 * 1024;
 const ZERO_OID = /^0+$/;
-const DIFF_FLAGS = [
+export const DIFF_FLAGS = [
   "--no-ext-diff",
   "--no-textconv",
   "--no-color",
@@ -70,7 +70,7 @@ async function fingerprint(repo: string, path: string) {
 }
 
 /** Read symlink text, never follow a link outside the selected worktree. */
-async function readWorkingFile(repo: string, path: string) {
+export async function readWorkingFile(repo: string, path: string) {
   const absolute = safeRepoPath(repo, path);
   const [realRepo, realParent] = await Promise.all([realpath(repo), realpath(dirname(absolute))]);
   const parentRelative = relative(realRepo, realParent);
@@ -170,7 +170,7 @@ function applyPatchStats(files: SourceFile[], patch: string) {
 }
 
 const quotedPath = (path: string) => (/[\s"\\]/.test(path) ? JSON.stringify(path) : path);
-function addedPatch(path: string, text: string) {
+export function addedPatch(path: string, text: string) {
   const lines = text ? text.split("\n") : [];
   const hasFinalNewline = text.endsWith("\n");
   if (hasFinalNewline) lines.pop();

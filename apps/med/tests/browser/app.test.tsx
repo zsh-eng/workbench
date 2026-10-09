@@ -17,6 +17,8 @@ import { layoutHistory } from "../../src/web/components/history-layout";
 import { createBrowseApi } from "../../src/web/data/browse";
 import type { BrowseSource } from "../../src/shared/browse";
 import type { BlameLoader } from "../../src/web/data/blame";
+import type { CommitApi } from "../../src/web/data/commit";
+import { createFakeRepository } from "../../src/web/components/elements/commit-fixture";
 
 const firstCommit = "a".repeat(40);
 const secondCommit = "b".repeat(40);
@@ -103,6 +105,8 @@ async function mountApp(
     /** GitHub comments; the first saved target compares the pull request head. */
     pullRequest?: PullRequestComments;
     loadBlame?: BlameLoader;
+    /** The Commit tab's repository. */
+    commitApi?: CommitApi;
   } = {},
 ) {
   initializeTheme();
@@ -365,6 +369,7 @@ async function mountApp(
       controller={controller}
       browseApi={{ ...browse, write: options.readOnly ? undefined : browse.write }}
       loadBlame={options.loadBlame}
+      commitApi={options.commitApi && (() => options.commitApi!)}
     />,
   );
   await expect
@@ -1517,6 +1522,84 @@ describe("graphical review", () => {
       .poll(() => controller.getSnapshot().notes?.notes.find((note) => note.id === "inline")?.text)
       .toBe("Checked against the current source");
     await expect.element(page.getByText("Preserve this concern", { exact: true })).toBeVisible();
+  });
+  test("q opens the Commit tab, where keys stage, commit, and push a new branch", async () => {
+    // An unsent message is kept per checkout; start without one.
+    for (const key of Object.keys(localStorage))
+      if (key.startsWith("med:commit-message:")) localStorage.removeItem(key);
+    const repository = createFakeRepository({
+      upstream: false,
+      hookFails: true,
+      pushRejected: false,
+      slow: false,
+    });
+    await mountApp({ commitApi: repository.api });
+    await userEvent.keyboard("q");
+    await expect
+      .element(page.getByRole("tab", { name: "Commit", exact: true }))
+      .toHaveAttribute("aria-selected", "true");
+    const files = page.getByRole("listbox", { name: "Changed files" });
+    await expect.element(files).toHaveFocus();
+    const row = (path: string) => files.getByRole("option", { name: new RegExp(`^${path}, `) });
+    const rows = () =>
+      files
+        .getByRole("option")
+        .elements()
+        .map((element) => element.getAttribute("aria-label"));
+    await expect
+      .element(row("docs/USAGE.md"))
+      .toHaveAccessibleName("docs/USAGE.md, not staged, modified");
+
+    // Space stages the focused file; j moves to the next one.
+    await userEvent.keyboard(" ");
+    await expect
+      .element(row("docs/USAGE.md"))
+      .toHaveAccessibleName("docs/USAGE.md, staged, modified");
+    await userEvent.keyboard("j");
+    await expect
+      .element(row("scripts/obsolete-check.mjs"))
+      .toHaveAttribute("aria-selected", "true");
+
+    // A failed hook keeps the message and shows its output.
+    await userEvent.keyboard("c");
+    const message = page.getByRole("textbox", { name: "Commit message" });
+    await expect.element(message).toHaveFocus();
+    await userEvent.keyboard("docs: explain the Commit tab");
+    await userEvent.keyboard("{Control>}{Enter}{/Control}");
+    await expect
+      .element(page.getByRole("alert").filter({ hasText: "lint-staged" }))
+      .toMatchTextContent("Missing semicolon");
+    await expect.element(message).toHaveValue("docs: explain the Commit tab");
+    repository.configure({ upstream: false, hookFails: false, pushRejected: false, slow: false });
+    await userEvent.keyboard("{Control>}{Enter}{/Control}");
+    await expect
+      .element(page.getByRole("status").filter({ hasText: "Committed " }))
+      .toMatchTextContent(/^Committed [0-9a-f]{7} docs: explain the Commit tab$/);
+    await expect.element(message).toHaveValue("");
+    // Staged files left the list; the unstaged half of App.tsx stayed.
+    await expect
+      .poll(rows)
+      .toEqual([
+        "src/web/App.tsx, not staged, modified",
+        "src/web/components/CommitView.tsx, not staged, untracked",
+      ]);
+
+    // A branch without an upstream asks before it pushes and tracks.
+    await userEvent.keyboard("{Shift>}P{/Shift}");
+    const confirm = page.getByRole("group", { name: "Track a new upstream" });
+    await expect
+      .element(confirm)
+      .toMatchTextContent("Push to origin/feature/commit-tab and track it?");
+    await expect.element(confirm.getByRole("button", { name: "Push and track" })).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    await expect
+      .element(page.getByRole("status").filter({ hasText: "Pushed " }))
+      .toMatchTextContent(/^Pushed [0-9a-f]{7} to origin\/feature\/commit-tab$/);
+
+    await userEvent.keyboard("q");
+    await expect
+      .element(page.getByRole("tab", { name: "Changes", exact: true }))
+      .toHaveAttribute("aria-selected", "true");
   });
 });
 

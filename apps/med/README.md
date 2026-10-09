@@ -32,7 +32,7 @@ Open an agent's review link, leave line comments, then copy comments from all it
 
 _Example saved review in med · Rosé Pine Dawn_
 
-med runs in your browser with a local server. Working files can be edited in Vim mode, with an unsaved dot and conflict-checked saves. Commit snapshots and saved reviews remain read-only. med does not stage changes, switch branches, or run code from the repository. See [editing](docs/USAGE.md#edit-working-files). Normal review notes stay on the local host for the session. Saved agent reviews keep captured source and comments across restarts.
+med runs in your browser with a local server. Working files can be edited in Vim mode, with an unsaved dot and conflict-checked saves. Commit snapshots and saved reviews remain read-only. The [Commit tab](docs/USAGE.md#commit-and-push) (`q`) stages files, commits them, and pushes the branch; a commit runs the repository's Git hooks. Otherwise med does not switch branches or run code from the repository. See [editing](docs/USAGE.md#edit-working-files). Normal review notes stay on the local host for the session. Saved agent reviews keep captured source and comments across restarts.
 
 ## Get started
 

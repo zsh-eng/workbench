@@ -101,6 +101,28 @@ export const guideContexts: GuideContext[] = [
         ],
       },
       {
+        title: "Commit",
+        description: "Stage files, commit them, and push the branch, as in lazygit.",
+        entries: [
+          {
+            label: "Open or close the Commit tab",
+            keys: ["q"],
+            note: "Live changes, outside text fields and files",
+            command: "commit",
+          },
+          { label: "Next / previous file", keys: ["j", "k"], note: "In the Commit tab" },
+          { label: "Stage or unstage the file", keys: ["Space"], note: "Or click its mark" },
+          { label: "Stage or unstage every change", keys: ["a"] },
+          { label: "Write the commit message", keys: ["c"], note: "Esc returns to the files" },
+          { label: "Commit the staged files", keys: ["Mod+Enter"] },
+          {
+            label: "Push the branch",
+            keys: ["Shift+P"],
+            note: "A branch without an upstream asks first",
+          },
+        ],
+      },
+      {
         title: "Layout",
         entries: [
           { label: "Toggle the sidebar", keys: ["Mod+B"], command: "sidebar" },

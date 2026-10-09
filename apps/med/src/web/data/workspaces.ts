@@ -83,13 +83,19 @@ function sessionsOf(value: unknown): WorkspaceSession[] | undefined {
   return sessions.length ? sessions : undefined;
 }
 
+const quoted = (path: string) => `'${path.replaceAll("'", `'\\''`)}'`;
+
 /** A shell command that resumes the session in its own directory. */
 export function resumeCommand(session: WorkspaceSession) {
-  const directory = `'${session.cwd.replaceAll("'", `'\\''`)}'`;
+  const directory = quoted(session.cwd);
   return session.agent === "claude"
     ? `cd ${directory} && claude --resume ${session.id}`
     : `cd ${directory} && codex resume ${session.id}`;
 }
+
+/** A shell command that opens lazygit in a checkout, for Git work beyond the
+ * Commit tab, such as a rebase or a stash. */
+export const lazygitCommand = (path: string) => `cd ${quoted(path)} && lazygit`;
 
 function parse(value: unknown): Workspace | null {
   if (!value || typeof value !== "object") return null;

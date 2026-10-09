@@ -111,7 +111,7 @@ The port retains review actions, anchors, document projection, geometry, identit
 
 The original proposal considered retaining Hunk's daemon transport and publication protocol. The implemented host uses a smaller direct HTTP contract instead. It does not claim compatibility with Hunk agents, extensions, producer protocols, or publication deltas. The host owns source snapshots and notes. Selection, filtering, scroll, and presentation remain browser-local. There is no shared cursor or cross-client note push.
 
-JJ/Sapling, rich STML, terminal modes, extension execution, local branch mutation, merge editing, Zed theme import, and native desktop installation remain outside this version.
+JJ/Sapling, rich STML, terminal modes, extension execution, local branch mutation other than the Commit tab's stage, commit, and push, merge editing, Zed theme import, and native desktop installation remain outside this version.
 
 ## Requests, identity, and invalidation
 
@@ -173,6 +173,8 @@ Range means a direct endpoint comparison by default. `mergeBase: true` resolves 
 
 An explicit Push dialog publishes one exact commit to a named branch of a configured remote. The host validates refs, preserves push hooks, and disables force, mirror, tag following, and recursive submodule pushes. It rejects remotes with multiple push URLs and does not expose remote diagnostics that can contain credentials. No browsing or comparison action pushes.
 
+The Commit tab (`src/host/repository/commit-flow.ts`) is the only part of Med that changes the index or makes commits. `GET /api/git/status` reads `git status --porcelain=v2` with renames and every untracked file. It also returns an index key: a hash of HEAD and `git ls-files --stage`. Stage and unstage take whole files, and every path is a literal name (`GIT_LITERAL_PATHSPECS`); a rename moves both of its names. A commit sends its message on standard input with the index key that the view showed. If the index or HEAD changed after that, the host returns 409 and commits nothing. Hooks run as they do in a terminal, without an editor or a credential prompt. When a hook stops the commit, the 422 response contains the last 8,000 characters of its output, without ANSI colors. Push uses the same exact-commit push as the Push dialog, to the branch's upstream. A branch without an upstream pushes only after the user agrees. The remote is `branch.<name>.pushRemote`, `remote.pushDefault`, `origin`, or the only remote, in that order; after the push, Med records the upstream in `branch.<name>.remote` and `branch.<name>.merge`. The tab has no force push, amend, hunk staging, or branch switch. The elements page runs the same view on an in-memory repository.
+
 Review and source caches have byte and entry bounds. Browser canonical parsed reviews and sources have separate budgets. Pierre receives a separate render copy because context hydration mutates metadata. These cache limits are not a total-process memory cap; active hydrated render models need separate profiling. Host requests, event streams, file inputs, note text, and total notes also have bounds. Large or non-text files keep explicit metadata. Output limits, source limits, parsing, syntax work, and DOM virtualization are separate controls.
 
 The Bun test exposed a real watcher cost: opening watchers across the checkout exhausted file descriptors. The host now keeps immutable commit browsing on metadata watchers and uses native recursive observation for live files where supported. The validation report separates first host request, warm cache, browser parse, and first rendered-frame timing. It does not infer sustained frame rate or cold-disk performance from HTTP latency.
@@ -227,7 +229,8 @@ content and file metadata again, then atomically replaces the target. It checks
 repository authorization again before replacement. Detected changes return 409
 and preserve the draft. This is not a filesystem transaction against arbitrary
 external writers: another process can still write after the final check or save.
-There is no forced overwrite, automatic merge, staging, or commit.
+There is no forced overwrite or automatic merge. A save does not stage or commit;
+the Commit tab does that.
 
 Browser unload warns when drafts are dirty or saving. Drafts are memory-only;
 closing a tab retains them, but browser reload does not. Closing the editing

@@ -23,6 +23,7 @@ export function FileViewTabs({
   panelId = "file-view-panel",
   showChanges = true,
   showBrief = false,
+  showCommit = false,
   changesCount,
   leading,
   trailing,
@@ -35,6 +36,8 @@ export function FileViewTabs({
   showChanges?: boolean;
   /** A saved review's brief comes first, before Changes. */
   showBrief?: boolean;
+  /** Stage, commit, and push a live checkout. */
+  showCommit?: boolean;
   /** Changed-file count shown beside the Changes tab. */
   changesCount?: number;
   /** Controls placed before the tabs and at the end of the tab row. */
@@ -88,6 +91,18 @@ export function FileViewTabs({
             {changesCount !== undefined && (
               <span {...stylex.props(styles.count)}>{changesCount.toLocaleString()}</span>
             )}
+          </Tabs.Tab>
+        )}
+        {showCommit && (
+          <Tabs.Tab
+            value="commit"
+            aria-controls={panelId}
+            aria-label="Commit"
+            title="Stage, commit, and push (q)"
+            {...stylex.props(styles.tab, styles.changes, active === "commit" && styles.active)}
+          >
+            <Icon name="commit" size={14} />
+            Commit
           </Tabs.Tab>
         )}
         {tabs.map((tab, index) => (

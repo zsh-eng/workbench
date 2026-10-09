@@ -25,8 +25,8 @@ interface FileWorkspaceSnapshot extends Workspace {
   stale: boolean;
   error: string | null;
 }
-/** Tabs that are not files: the diff stream and a saved review's brief. */
-export const isFileTab = (id: string) => id !== "changes" && id !== "brief";
+/** Tabs that are not files: the diff stream, a saved review's brief, and Commit. */
+export const isFileTab = (id: string) => id !== "changes" && id !== "brief" && id !== "commit";
 
 export function sourceKey(source: BrowseSource) {
   return JSON.stringify(

@@ -7,6 +7,7 @@ import { Icon } from "../Icon";
 import { ToolButton } from "../ToolButton";
 import { BriefSection } from "./BriefSection";
 import { CodeSection } from "./CodeSection";
+import { CommitSection } from "./CommitSection";
 import { ControlsSection } from "./ControlsSection";
 import { FoundationsSection } from "./FoundationsSection";
 import { Inspector } from "./Inspector";
@@ -20,6 +21,7 @@ const sections = [
   { id: "review", label: "Review parts" },
   { id: "code", label: "Code colors" },
   { id: "brief", label: "Brief" },
+  { id: "commit", label: "Commit flow" },
 ] as const;
 
 type Zoom = "1" | "2" | "3";
@@ -137,6 +139,7 @@ export default function ElementsPage() {
             <ReviewSection />
             <CodeSection />
             <BriefSection />
+            <CommitSection />
           </StageContext.Provider>
         </main>
       </div>

@@ -57,6 +57,8 @@ import { SymbolPicker } from "./components/SymbolPicker";
 import { FullFileView, type BeginFileSymbolPreview } from "./components/FullFileView";
 import { FileViewTabs } from "./components/FileViewTabs";
 import { readBrowserToken } from "./data/auth";
+import { createApi } from "./data/api";
+import { createCommitApi, type CommitApi } from "./data/commit";
 import {
   PullRequestThreadCard,
   usePullRequestComments,
@@ -91,6 +93,7 @@ import { createDiffFindHighlights } from "./data/diff-find-highlights";
 
 // The brief loads its Markdown worker and excerpt renderer only when shown.
 const BriefView = lazy(() => import("./components/BriefView"));
+const CommitView = lazy(() => import("./components/CommitView"));
 
 type Annotation = { note?: Note; draft?: NoteTarget; thread?: PullRequestThread };
 type Selection = {
@@ -138,8 +141,11 @@ export function App({
   loadBlame: providedBlameLoader,
   loadCommit: providedCommitLoader,
   onOpenReview: providedOpenReview,
+  commitApi: providedCommitApi,
 }: {
   controller: ReviewController;
+  /** The Commit tab's Git writes for a checkout; tests pass a fake repository. */
+  commitApi?: (repo: string) => CommitApi;
   browseApi?: BrowseApi;
   loadBlame?: BlameLoader;
   loadCommit?: CommitLoader;
@@ -158,6 +164,19 @@ export function App({
   // Several workspaces can be mounted; their landmarks need distinct ids.
   const idPrefix = workspace ? `${workspace.id}-` : "";
   const gitAvailable = state.session?.repository.git !== false;
+  // Staging and commits need a live checkout, not a branch snapshot.
+  const commitRepo = gitAvailable && !state.historyRef ? state.session?.repository.path : undefined;
+  const commitApi = useMemo(
+    () =>
+      commitRepo
+        ? (providedCommitApi?.(commitRepo) ??
+          createCommitApi(
+            createApi(globalThis.fetch.bind(globalThis), readBrowserToken()),
+            commitRepo,
+          ))
+        : null,
+    [commitRepo, providedCommitApi],
+  );
   const { active: activeTheme } = useTheme();
   const theme = activeTheme.appearance;
   const [themePickerOpen, setThemePickerOpen] = useState(false);
@@ -788,6 +807,22 @@ export function App({
   // Keep the brief mounted once shown, so its scroll position survives tab changes.
   const [briefMounted, setBriefMounted] = useState(false);
   if (fileState.active === "brief" && !briefMounted) setBriefMounted(true);
+  // The Commit tab also stays mounted once shown, with its message and place.
+  const [commitMounted, setCommitMounted] = useState(false);
+  if (fileState.active === "commit" && commitApi && !commitMounted) setCommitMounted(true);
+  const commitReturn = useRef("changes");
+  /** q: open the Commit tab, or go back to the tab it came from. */
+  const toggleCommit = useCallback(() => {
+    if (fileState.active !== "commit") {
+      commitReturn.current = fileState.active;
+      fileWorkspace.select("commit");
+      return;
+    }
+    const back = commitReturn.current;
+    fileWorkspace.select(
+      !isFileTab(back) || fileState.tabs.some((tab) => tab.id === back) ? back : "changes",
+    );
+  }, [fileState.active, fileState.tabs, fileWorkspace]);
   const [pendingBrief, setPendingBrief] = useState<string | null>(null);
   // Undo puts back the brief text that a change replaced; null removes the brief.
   const [toast, setToast] = useState<{
@@ -825,6 +860,9 @@ export function App({
     briefShown.current = state.savedReview.id;
     fileWorkspace.select("brief");
   }, [savedBrief, state.savedReview, state.status, fileState.active, fileWorkspace]);
+  useEffect(() => {
+    if (fileState.active === "commit" && !commitApi) fileWorkspace.select("changes");
+  }, [commitApi, fileState.active, fileWorkspace]);
   const canSaveReview =
     gitAvailable &&
     !!state.session &&
@@ -1280,6 +1318,25 @@ export function App({
         setHelpOpen(true);
         return;
       }
+      if (
+        event.key === "q" &&
+        commitApi &&
+        !editing &&
+        !modal &&
+        !visibleElement('[role="dialog"]') &&
+        !(
+          event.target instanceof Element &&
+          event.target.closest('[data-file-pane="main"][tabindex="0"]')
+        ) &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleCommit();
+        return;
+      }
       const optionKey = event.code || `Key${event.key.toUpperCase()}`;
       const fromEditor =
         (optionKey === "KeyW" || optionKey === "KeyZ") &&
@@ -1463,6 +1520,8 @@ export function App({
     fileWorkspace,
     gitAvailable,
     toggleBlame,
+    commitApi,
+    toggleCommit,
   ]);
 
   const selectBranch = useCallback(
@@ -1852,6 +1911,9 @@ export function App({
           { id: "copy-brief", label: "Copy the brief text", run: copyBrief },
           { id: "remove-brief", label: "Remove the brief", run: removeBrief },
         ]
+      : []),
+    ...(commitApi
+      ? [{ id: "commit", label: "Stage and commit changes", shortcut: "q", run: toggleCommit }]
       : []),
     {
       id: "paste-brief",
@@ -2250,6 +2312,7 @@ export function App({
         leading={leading}
         trailing={viewControls}
         showBrief={!!savedBrief}
+        showCommit={!!commitApi}
         tabs={fileState.tabs.map((tab) => ({
           ...tab,
           sourcePath: tab.source.repo,
@@ -2570,7 +2633,9 @@ export function App({
                 ? `File ${activeFile.path}`
                 : fileState.active === "brief"
                   ? "Brief"
-                  : "Changes"
+                  : fileState.active === "commit"
+                    ? "Commit"
+                    : "Changes"
             }
             {...stylex.props(styles.reviewSurface)}
           >
@@ -3105,6 +3170,24 @@ export function App({
                     onRemove={removeBrief}
                     notes={notes}
                     onMutateNote={(mutation) => controller.mutateNote(mutation)}
+                  />
+                </Suspense>
+              </div>
+            )}
+            {commitApi && commitMounted && (
+              <div
+                {...stylex.props(
+                  styles.reviewSurface,
+                  fileState.active !== "commit" && styles.hiddenSurface,
+                )}
+                aria-hidden={fileState.active !== "commit"}
+              >
+                <Suspense fallback={null}>
+                  <CommitView
+                    api={commitApi}
+                    revision={state.sourceRevision}
+                    active={fileState.active === "commit"}
+                    draftKey={`med:commit-message:${commitRepo}`}
                   />
                 </Suspense>
               </div>

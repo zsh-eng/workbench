@@ -105,7 +105,7 @@ A workspace is one task: a branch or worktree, a saved review, or a registered v
 - **+** in the list, or **New workspace…** in the palette, opens the branch picker for a new workspace. Opening a saved review link adds a workspace for that review.
 - Select a row and press `Delete`, or click its **×**, to close it. Vaults and the home workspace stay.
 - A review that an agent creates joins the list in every open Med window, marked new with an accent dot until you open it. An agent that passes `--open` also shows the review in the window you used last. See [agent integration](AGENT_INTEGRATION.md#create-a-review).
-- A review that a Claude Code or Codex session made shows that agent's icon. Right-click a row to open it, copy a command that resumes the agent's session in its directory, mark it as read or unread, or close it.
+- A review that a Claude Code or Codex session made shows that agent's icon. Right-click a row to open it, copy a command that resumes the agent's session in its directory, mark it as read or unread, or close it. On a branch or worktree row, **Copy lazygit command** copies `cd <checkout> && lazygit` for the Git operations that the [Commit tab](#commit-and-push) does not have.
 
 The four most recently shown workspaces stay loaded; switching between them is immediate. Only the workspace on screen receives live updates; the others catch up when you return. Older workspaces load again when you open them. The list and the active workspace persist across reloads and restarts, and windows share the list; each window keeps its own workspace on screen. The address follows the active workspace: a saved review keeps its `/review/<id>` link, and Back and Forward move between workspaces.
 
@@ -348,7 +348,8 @@ Escape returns to Normal mode. `:w`, ⌘S / Ctrl+S, or **Save** writes the file.
 A hollow dot means saved. A filled dot means the draft differs from the last
 saved contents. Dirty tabs also show a dot. Undo after saving can make the file
 dirty again. **Close file** / `:q` closes the tab; unsaved text requires an explicit
-**Discard draft** or **Keep editing** choice. Saving does not stage or commit.
+**Discard draft** or **Keep editing** choice. Saving does not stage or commit; use
+the [Commit tab](#commit-and-push).
 
 Drafts and undo history stay in memory across tab switches and tab closes. Open
 the same working file to resume. Up to 24 drafts are retained; clean drafts can
@@ -374,6 +375,29 @@ http://127.0.0.1:4173/file?repo=%2Fpath%2Fto%2Frepo&path=src%2Fexample.ts&edit=1
 with the host's launch URL, as for saved review links. A file link opens live
 working content; it does not freeze a review or register another repository.
 
+## Commit and push
+
+Press `q` in a review of live changes, or click the **Commit** tab, to stage
+files, commit them, and push the branch. It is the part of lazygit that a review
+needs. Press `q` again to return to the review.
+
+- **Files.** The list shows each changed file: ● staged, ◐ partly staged, ○ not
+  staged. `j` / `k` move. The right side shows the file's staged and unstaged
+  changes.
+- **Stage.** `Space` or a click on the mark stages or unstages the whole file.
+  `a` stages every change, or unstages every change when all are staged.
+- **Commit.** `c` moves to the message. `⌘↵` / `Ctrl+Enter` commits the staged
+  files; `Esc` returns to the list. An unsent message stays across reloads.
+  Hooks run. If a hook stops the commit, its output shows below the message, and
+  nothing is committed.
+- **Push.** `⇧P` pushes the branch to its upstream. A branch without an upstream
+  asks first, then pushes to the push remote (usually `origin`) and tracks it.
+  Med never force-pushes.
+
+If the staged files change outside Med after the tab read them, the commit stops
+and the tab reads them again. For hunks, amends, rebases, and branch switches,
+use lazygit: right-click the workspace and choose **Copy lazygit command**.
+
 ## Development
 
 med lives in `apps/med`. Install dependencies from the Workbench root with `bun install --frozen-lockfile`. The commands below run from `apps/med`; root shortcuts include `bun run dev:med`, `bun run build:med`, and `bun run check:med`.
@@ -396,7 +420,9 @@ matches, and the editor. The theme menu previews any theme on the page without
 saving it; **Use in Med** saves it. Zoom enlarges the non-code specimens, outline
 mode draws every box, and inspect mode lists the clicked element's size, type,
 and colors as theme tokens with its text contrast. Each specimen can sit on the
-frame, card, or popover surface.
+frame, card, or popover surface. The **Commit flow** section runs the Commit tab
+on a pretend repository, with switches for a failing hook, a rejected push, a
+branch without an upstream, and slow commands.
 
 Run the complete check from the Workbench root:
 
