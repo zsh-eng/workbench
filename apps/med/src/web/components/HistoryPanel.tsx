@@ -301,51 +301,67 @@ export function HistoryPanel({
             }}
           >
             <div style={{ height: rows.length * rowHeight, position: "relative" }}>
-              {rows.slice(start, end).map((row, offset) => (
-                <Tooltip.Trigger
-                  handle={tooltip}
-                  payload={{ commit: row.commit, color: colors[row.lane % colors.length]! }}
-                  onPointerEnter={() => prefetch(row.commit.id)}
-                  onFocus={() => prefetch(row.commit.id)}
-                  id={`commit-${row.commit.id}`}
-                  key={row.commit.id}
-                  role="option"
-                  aria-selected={isSelected(row.commit.id, start + offset)}
-                  tabIndex={-1}
-                  onClick={(event) => selectCommit(row.commit.id, event.shiftKey)}
-                  className={
-                    stylex.props(
-                      styles.commit,
-                      isSelected(row.commit.id, start + offset) && styles.selected,
-                    ).className
-                  }
-                  style={{ top: (start + offset) * rowHeight }}
-                >
-                  <Graph row={row} working={workingAvailable && start + offset === 0} />
-                  <span {...stylex.props(styles.commitText)}>
-                    <span {...stylex.props(styles.subjectLine)}>
-                      <span {...stylex.props(styles.subject)}>
-                        {row.commit.subject || "(no commit message)"}
-                      </span>
-                      <span {...stylex.props(styles.commitHash)}>{row.commit.id.slice(0, 7)}</span>
-                    </span>
-                    <span {...stylex.props(styles.metadata)}>
-                      {row.commit.refs.length > 0 && (
-                        <span {...stylex.props(styles.refs)} title={row.commit.refs.join(" · ")}>
-                          {row.commit.refs.join(" · ")}
+              {rows.slice(start, end).map((row, offset) => {
+                const index = start + offset;
+                const chosen = isSelected(row.commit.id, index);
+                // A range reads as one band: rows inside it join without
+                // corners, and a hairline under the text separates them.
+                const joinsAbove =
+                  chosen && index > 0 && isSelected(rows[index - 1]!.commit.id, index - 1);
+                const joinsBelow =
+                  chosen &&
+                  index + 1 < rows.length &&
+                  isSelected(rows[index + 1]!.commit.id, index + 1);
+                return (
+                  <Tooltip.Trigger
+                    handle={tooltip}
+                    payload={{ commit: row.commit, color: colors[row.lane % colors.length]! }}
+                    onPointerEnter={() => prefetch(row.commit.id)}
+                    onFocus={() => prefetch(row.commit.id)}
+                    id={`commit-${row.commit.id}`}
+                    key={row.commit.id}
+                    role="option"
+                    aria-selected={chosen}
+                    tabIndex={-1}
+                    onClick={(event) => selectCommit(row.commit.id, event.shiftKey)}
+                    className={
+                      stylex.props(
+                        styles.commit,
+                        chosen && styles.selected,
+                        joinsAbove && styles.joinsAbove,
+                        joinsBelow && styles.joinsBelow,
+                      ).className
+                    }
+                    style={{ top: index * rowHeight }}
+                  >
+                    <Graph row={row} working={workingAvailable && index === 0} />
+                    <span {...stylex.props(styles.commitText, joinsAbove && styles.divided)}>
+                      <span {...stylex.props(styles.subjectLine)}>
+                        <span {...stylex.props(styles.subject)}>
+                          {row.commit.subject || "(no commit message)"}
                         </span>
-                      )}
-                      <span {...stylex.props(ui.truncate)}>{row.commit.author}</span>
-                      <time
-                        {...stylex.props(styles.time)}
-                        dateTime={new Date(row.commit.timestamp).toISOString()}
-                      >
-                        {relativeTime(row.commit.timestamp, now)}
-                      </time>
+                        <span {...stylex.props(styles.commitHash)}>
+                          {row.commit.id.slice(0, 7)}
+                        </span>
+                      </span>
+                      <span {...stylex.props(styles.metadata)}>
+                        {row.commit.refs.length > 0 && (
+                          <span {...stylex.props(styles.refs)} title={row.commit.refs.join(" · ")}>
+                            {row.commit.refs.join(" · ")}
+                          </span>
+                        )}
+                        <span {...stylex.props(ui.truncate)}>{row.commit.author}</span>
+                        <time
+                          {...stylex.props(styles.time)}
+                          dateTime={new Date(row.commit.timestamp).toISOString()}
+                        >
+                          {relativeTime(row.commit.timestamp, now)}
+                        </time>
+                      </span>
                     </span>
-                  </span>
-                </Tooltip.Trigger>
-              ))}
+                  </Tooltip.Trigger>
+                );
+              })}
             </div>
             {commits.length === 0 && !loading && !error && (
               <div {...stylex.props(styles.empty)}>No commits yet</div>
@@ -545,8 +561,31 @@ const styles = stylex.create({
     cursor: "pointer",
   },
   selected: { backgroundColor: { default: tokens.selected, ":hover": tokens.selected } },
+  joinsAbove: { borderTopLeftRadius: 0, borderTopRightRadius: 0 },
+  joinsBelow: { borderBottomLeftRadius: 0, borderBottomRightRadius: 0 },
+  divided: {
+    "::before": {
+      content: '""',
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: -10,
+      height: 1,
+      backgroundColor: `color-mix(in oklab, ${tokens.text} 9%, transparent)`,
+    },
+  },
   graph: { flexShrink: 0, maxWidth: 94, overflow: "hidden" },
-  commitText: { flex: "1", minWidth: 0, display: "flex", flexDirection: "column", gap: 3 },
+  // It fills the row's height so the range hairline sits on the row edge.
+  commitText: {
+    position: "relative",
+    flex: "1",
+    alignSelf: "stretch",
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
+    gap: 3,
+  },
   subjectLine: { display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 },
   subject: {
     flex: "1",

@@ -22,6 +22,7 @@ import { Section, Specimen } from "./Specimen";
 
 function History() {
   const [selected, setSelected] = useState(commits[3]!.id);
+  const [range, setRange] = useState<{ base: string; head: string }>();
   const [working, setWorking] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   return (
@@ -31,12 +32,18 @@ function History() {
         <HistoryPanel
           commits={commits}
           selected={working ? undefined : selected}
+          selectedRange={working ? undefined : range}
           loading={false}
           hasMore={false}
           error={null}
           onSelect={(id) => {
             setWorking(false);
+            setRange(undefined);
             setSelected(id);
+          }}
+          onSelectRange={(base, head) => {
+            setWorking(false);
+            setRange({ base, head });
           }}
           onLoadMore={() => {}}
           onWorking={() => setWorking(true)}
