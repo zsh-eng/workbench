@@ -140,7 +140,7 @@ export function SessionSection() {
       </Specimen>
       <Specimen
         title="Every part"
-        note="Sample updates: a plan, a background shell, a failed test, a subagent, a notice, and a compaction."
+        note="Sample updates: a plan, a dev server in the background, a failed test, a subagent, a notice, and a compaction."
         padded={false}
         zoomable={false}
         span="half"

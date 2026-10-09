@@ -124,7 +124,12 @@ export const ToolCall = memo(function ToolCall({
   const duration = item.endedAt !== undefined ? item.endedAt - item.at : undefined;
 
   return (
-    <div {...stylex.props(styles.call)} data-tool-kind={call.kind} data-status={call.status}>
+    <div
+      {...stylex.props(styles.call)}
+      data-tool-call-id={call.toolCallId}
+      data-tool-kind={call.kind}
+      data-status={call.status}
+    >
       <button
         type="button"
         aria-expanded={hasDetails ? expanded : undefined}

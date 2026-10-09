@@ -66,10 +66,18 @@ test("the sample thread shows a plan, a failed test, and a subagent's own steps"
   await expect
     .element(gallery.getByRole("region", { name: "Tasks" }).getByText("1 of 4"))
     .toBeVisible();
+  // The dev server runs in the background; its address comes from its output.
+  const background = gallery.getByRole("region", { name: "Background tasks" });
+  await expect.element(background.getByText("1 running")).toBeVisible();
+  await expect
+    .element(background.getByRole("link", { name: "localhost:5173" }))
+    .toHaveAttribute("href", "http://localhost:5173");
   await expect
     .element(gallery.getByRole("button", { name: /Run the branch tests.*Failed/ }))
     .toBeVisible();
-  await userEvent.click(gallery.getByRole("button", { name: /Find every place that fetches/ }));
+  await userEvent.click(
+    gallery.getByRole("log").getByRole("button", { name: /Find every place that fetches/ }),
+  );
   await expect.element(gallery.getByText(/Two paths fetch/)).toBeVisible();
 });
 

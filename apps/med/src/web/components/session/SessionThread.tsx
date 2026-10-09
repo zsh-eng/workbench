@@ -5,6 +5,7 @@ import type { SessionItem, SessionSnapshot } from "../../data/session-store";
 import { tokens } from "../../theme.stylex";
 import { Icon } from "../Icon";
 import { motion, rowStyles } from "./session-styles";
+import { BackgroundDock } from "./BackgroundDock";
 import { SessionMarkdown } from "./SessionMarkdown";
 import { formatSeconds, ToolCall } from "./ToolCall";
 import "./SessionThread.css";
@@ -407,6 +408,7 @@ export function SessionThread({
           </button>
         )}
       </div>
+      <BackgroundDock items={snapshot.items} now={now ?? snapshot.updatedAt} />
       {snapshot.plan.length > 0 && <PlanDock entries={snapshot.plan} />}
     </div>
   );

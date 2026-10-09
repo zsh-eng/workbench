@@ -164,7 +164,7 @@ const updates: [seconds: number, SessionUpdate][] = [
       title: "Find every place that fetches",
       kind: "other",
       status: "in_progress",
-      _meta: { med: { tool: "Agent" } },
+      _meta: { med: { tool: "Agent", background: { id: "a3", kind: "agent" } } },
     },
   ],
   [
