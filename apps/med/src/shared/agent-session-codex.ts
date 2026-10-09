@@ -21,7 +21,8 @@ const text = (value: unknown) => (typeof value === "string" ? value : undefined)
 const list = (value: unknown) => (Array.isArray(value) ? value : []);
 
 /** Context that Codex adds to the user's turn; the user did not write it. */
-const CONTEXT = /^\s*<(environment_context|user_instructions|user_shell_command|turn_aborted)>/;
+const CONTEXT =
+  /^\s*<(environment_context|user_instructions|user_shell_command|turn_aborted|codex_delegation|[a-z_]+_context)>/;
 
 function parseJson(value: unknown): Json | undefined {
   if (typeof value !== "string") return record(value);
@@ -90,9 +91,88 @@ export function patchDiffs(patch: string): DiffContent[] {
   return diffs;
 }
 
+/** The JavaScript string literals passed as `key: "…"` or as the first argument. */
+function literals(source: string, pattern: RegExp) {
+  const values: string[] = [];
+  for (const match of source.matchAll(pattern)) {
+    const start = match.index + match[0].length - 1;
+    const quote = source[start];
+    let end = start + 1;
+    while (end < source.length && source[end] !== quote) end += source[end] === "\\" ? 2 : 1;
+    const literal = source.slice(start, end + 1);
+    try {
+      values.push(quote === '"' ? (JSON.parse(literal) as string) : literal.slice(1, -1));
+    } catch {
+      values.push(literal.slice(1, -1));
+    }
+  }
+  return values;
+}
+
+/** Codex Desktop runs tools from a short JavaScript program (`exec`) that calls
+ * `tools.exec_command`, `tools.apply_patch`, and other tools. */
+export function execProgram(source: string) {
+  const tools = [...source.matchAll(/tools\.(\w+)\(/g)].map((match) => match[1]!);
+  return {
+    tools,
+    commands: literals(source, /tools\.exec_command\(\s*\{\s*cmd\s*:\s*["']/g),
+    patches: literals(source, /tools\.apply_patch\(\s*["']/g),
+  };
+}
+
+/** Text of an output that Codex wrote as a list of content parts. */
+function outputText(raw: unknown) {
+  const parts = Array.isArray(raw)
+    ? raw
+    : typeof raw === "string" && raw.startsWith("[")
+      ? (() => {
+          try {
+            return JSON.parse(raw) as unknown[];
+          } catch {
+            return undefined;
+          }
+        })()
+      : undefined;
+  if (!parts) return undefined;
+  // Each part is a block; most do not end with a newline.
+  return parts
+    .map((part) => text(record(part)?.text) ?? "")
+    .map((part, index, all) =>
+      index < all.length - 1 && !part.endsWith("\n") ? `${part}\n` : part,
+    )
+    .join("");
+}
+
+/** One tool result that an exec program printed: a command's output and exit
+ * code, an MCP result, or a settled promise around either. */
+function execResult(result: Json): { output?: string; exit: number; rejected: boolean } {
+  if (result.status === "rejected") {
+    const reason = result.reason;
+    return {
+      output: text(reason) ?? text(record(reason)?.message) ?? "",
+      exit: 1,
+      rejected: true,
+    };
+  }
+  const inner = record(result.result) ?? record(result.value);
+  if (inner) return execResult(inner);
+  if (typeof result.value === "string") return { output: result.value, exit: 0, rejected: false };
+  const content = list(result.content)
+    .map((part) => text(record(part)?.text))
+    .filter((part) => part !== undefined);
+  return {
+    output: text(result.output) ?? (content.length ? content.join("\n") : undefined),
+    exit: Number(result.exit_code ?? 0),
+    rejected: false,
+  };
+}
+
 /** Converts rollout lines to session updates, one line at a time. */
 export function createCodexRolloutReader() {
-  const calls = new Map<string, { kind: ToolKind; name: string }>();
+  const calls = new Map<
+    string,
+    { kind: ToolKind; name: string; diffs?: DiffContent[]; command?: boolean }
+  >();
   let at = 0;
   let cwd: string | undefined;
   let sequence = 0;
@@ -100,7 +180,13 @@ export function createCodexRolloutReader() {
   const relative = (path: string) =>
     cwd && path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path;
 
-  function call(id: string, name: string, args: Json, raw: unknown): SessionUpdate[] {
+  function call(
+    id: string,
+    name: string,
+    args: Json,
+    raw: unknown,
+    namespace?: string,
+  ): SessionUpdate[] {
     if (name === "update_plan") {
       calls.set(id, { kind: "think", name });
       const entries: PlanEntry[] = list(args.plan).map((step) => {
@@ -135,7 +221,7 @@ export function createCodexRolloutReader() {
     }
     if (name === "apply_patch") {
       const diffs = patchDiffs(typeof raw === "string" ? raw : (text(args.input) ?? ""));
-      calls.set(id, { kind: "edit", name });
+      calls.set(id, { kind: "edit", name, diffs });
       const title =
         diffs.length === 1
           ? `${diffs[0]!.oldText === null ? "Write" : "Edit"} ${relative(diffs[0]!.path)}`
@@ -153,12 +239,69 @@ export function createCodexRolloutReader() {
         },
       ];
     }
+    if (name === "exec" && typeof args.input === "string") {
+      const program = execProgram(args.input);
+      const diffs = program.patches.flatMap(patchDiffs);
+      const kinds = program.commands.map(shellKind);
+      // A patch is the main step of a program that also formats or checks it,
+      // so the row is an edit; its commands show in the details.
+      const kind: ToolKind = diffs.length
+        ? "edit"
+        : program.commands.length === 0
+          ? program.tools.includes("web__run")
+            ? "fetch"
+            : "other"
+          : kinds.includes("execute")
+            ? "execute"
+            : kinds.includes("read")
+              ? "read"
+              : "search";
+      const first = program.commands[0]?.split("\n")[0];
+      const title =
+        diffs.length === 1
+          ? `${diffs[0]!.oldText === null ? "Write" : "Edit"} ${relative(diffs[0]!.path)}`
+          : diffs.length
+            ? `Edit ${diffs.length} files`
+            : first
+              ? `${first}${program.commands.length > 1 ? ` (+${program.commands.length - 1} more)` : ""}`
+              : program.tools.includes("write_stdin")
+                ? "Write to a running command"
+                : program.tools.includes("view_image")
+                  ? "View an image"
+                  : program.tools.includes("web__run")
+                    ? "Search the web"
+                    : (program.tools[0]
+                        ?.replace(/^mcp__(.+?)__(.+)$/, "$2 · $1")
+                        .replaceAll("_", " ") ?? "Run a script");
+      calls.set(id, { kind, name, diffs, command: program.commands.length > 0 });
+      return [
+        {
+          sessionUpdate: "tool_call",
+          toolCallId: id,
+          title,
+          kind,
+          status: "in_progress",
+          ...(program.commands.length
+            ? { rawInput: { command: program.commands.join("\n") } }
+            : {}),
+          ...(diffs.length
+            ? { content: diffs, locations: diffs.map((diff) => ({ path: diff.path })) }
+            : {}),
+          _meta: { med: { tool: name } },
+        },
+      ];
+    }
     calls.set(id, { kind: "other", name });
+    const described = text(args.title) ?? text(args.description);
     return [
       {
         sessionUpdate: "tool_call",
         toolCallId: id,
-        title: name,
+        title:
+          described ??
+          (namespace
+            ? `${name.replaceAll("_", " ")} · ${namespace.replace(/^mcp__/, "").replaceAll("_", " ")}`
+            : name),
         kind: "other",
         status: "in_progress",
         rawInput: args,
@@ -172,30 +315,58 @@ export function createCodexRolloutReader() {
     if (!known || known.name === "update_plan") return [];
     // Older rollouts wrap the output as JSON with its exit code; newer ones write
     // "Exit code: N" and the output as text.
-    const parsed = parseJson(raw);
-    const body = text(parsed?.output) ?? text(raw) ?? "";
-    const code = Number(
+    const listed = outputText(raw);
+    const parsed = listed === undefined ? parseJson(raw) : undefined;
+    const body = listed ?? text(parsed?.output) ?? text(raw) ?? "";
+    let code = Number(
       record(parsed?.metadata)?.exit_code ?? /^Exit code: (\d+)/m.exec(body)?.[1] ?? 0,
     );
-    const shown = body
-      .replace(/^(Exit code: \d+|Wall time: .*|Total output lines: \d+)\n/gm, "")
-      .replace(/^Output:\n/m, "");
+    let shown = body
+      .replace(
+        /^(Exit code: \d+|Wall time:? .*|Total output lines: \d+|Script (completed|failed))\n?/gm,
+        "",
+      )
+      .replace(/^Output:\n?/m, "");
+    // An exec program prints one JSON result per tool call: its output and exit
+    // code. Outputs written as parts can hold the same results.
+    if (known.name === "exec" || listed !== undefined) {
+      let rejected = /^Script failed/m.test(body);
+      shown = shown
+        .split("\n")
+        .map((line) => {
+          const value = parseJson(line.trim().startsWith("{") ? line : undefined);
+          if (!value) return line;
+          const result = execResult(value);
+          if (result.rejected) rejected = true;
+          if (result.exit) code = result.exit;
+          // A patch's report repeats the diff that the row shows.
+          if (result.output?.startsWith("Success. Updated the following files:")) return undefined;
+          // An empty result, such as `{}`, adds no line; an unknown one shows as it is.
+          if (result.output === undefined) return Object.keys(value).length ? line : undefined;
+          return result.output ? result.output.replace(/\n$/, "") : undefined;
+        })
+        .filter((line) => line !== undefined)
+        .join("\n");
+      if (rejected && !code) code = 1;
+    }
     const failed = code !== 0 || /^(apply_patch )?(verification )?failed/i.test(shown.trim());
     return [
       {
         sessionUpdate: "tool_call_update",
         toolCallId: id,
         status: failed ? "failed" : "completed",
-        // An edit keeps its diff; a failed edit adds the message.
-        ...(known.kind !== "edit"
-          ? {
-              content: shown.trim()
-                ? [{ type: "content", content: { type: "text", text: shown.trimEnd() } }]
-                : [],
-            }
-          : failed
-            ? { content: [{ type: "content", content: { type: "text", text: shown.trim() } }] }
-            : {}),
+        // A call keeps its diffs; output follows them, except a patch's own report.
+        content: [
+          ...(known.diffs ?? []),
+          ...(shown.trim() && (known.kind !== "edit" || known.command || failed)
+            ? [
+                {
+                  type: "content" as const,
+                  content: { type: "text" as const, text: shown.trimEnd() },
+                },
+              ]
+            : []),
+        ],
         rawOutput: raw,
       },
     ];
@@ -263,7 +434,13 @@ export function createCodexRolloutReader() {
         const id = text(payload.call_id);
         const name = text(payload.name);
         return id && name
-          ? call(id, name, parseJson(payload.arguments) ?? {}, payload.arguments)
+          ? call(
+              id,
+              name,
+              parseJson(payload.arguments) ?? {},
+              payload.arguments,
+              text(payload.namespace),
+            )
           : [];
       }
       case "custom_tool_call": {
@@ -281,6 +458,14 @@ export function createCodexRolloutReader() {
         const id = text(payload.call_id);
         return id ? output(id, payload.output) : [];
       }
+      case "compaction":
+        return [
+          {
+            sessionUpdate: "compaction_update",
+            compactionId: text(payload.id) ?? `compaction-${++sequence}`,
+            status: "completed",
+          },
+        ];
       case "web_search_call": {
         const query = text(record(payload.action)?.query);
         return [

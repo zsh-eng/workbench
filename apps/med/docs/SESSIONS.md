@@ -78,8 +78,15 @@ the line then keeps `thinkingDurationMs`. The reader:
 lines, because Codex writes most messages twice. Shell calls whose first
 program is `rg`, `grep`, `ls`, or `find` are searches; `cat`, `sed`, and
 `head` are reads, so they join an "Explored" group as in Codex. `apply_patch`
-becomes one diff per file. `task_complete` ends the turn. No Codex CLI is
-installed here, so its test uses a fixture written to the format.
+becomes one diff per file. `task_complete` ends the turn.
+
+Codex Desktop runs its tools from short JavaScript programs (an `exec` call)
+that call `tools.exec_command`, `tools.apply_patch`, and MCP tools. The reader
+takes the commands and patches from the program's string literals. A program
+with a patch is an edit row, and its commands show in the details. The output
+is a list of parts: a status, then one JSON result per tool call, which the
+reader turns back into text and exit codes. The tests use small rollouts
+written to both formats.
 
 ## Host stream
 
