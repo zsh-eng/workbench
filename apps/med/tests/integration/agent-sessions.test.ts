@@ -4,7 +4,7 @@ import {
   createClaudeTranscriptReader,
   readClaudeTranscript,
 } from "../../src/shared/agent-session-claude";
-import { readCodexRollout } from "../../src/shared/agent-session-codex";
+import { createCodexRolloutReader, readCodexRollout } from "../../src/shared/agent-session-codex";
 import { createSessionStore, type SessionItem } from "../../src/web/data/session-store";
 
 const fixture = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
@@ -274,5 +274,132 @@ describe("Codex rollouts", () => {
         content: { type: "text", text: "✗ summarizes each trail\n1 fail, 2 pass" },
       },
     ]);
+  });
+
+  test("Codex Desktop's tool programs become searches, edits, and commands", () => {
+    const at = (second: number) => `2026-10-10T09:00:${String(second).padStart(2, "0")}.000Z`;
+    const item = (second: number, payload: unknown) => ({
+      timestamp: at(second),
+      type: "response_item",
+      payload,
+    });
+    // Codex Desktop writes each output as parts: a status, then one JSON result per tool call.
+    const parts = (...texts: string[]) => texts.map((text) => ({ type: "input_text", text }));
+    const patch = [
+      "*** Begin Patch",
+      "*** Update File: src/summary.ts",
+      "@@",
+      "-  return `${trail.bestTimeMs} ms`;",
+      "+  return formatDuration(trail.bestTimeMs);",
+      "*** End Patch",
+    ].join("\n");
+    const lines = [
+      { timestamp: at(0), type: "session_meta", payload: { id: "s1", cwd: "/work/trail-notes" } },
+      { timestamp: at(0), type: "event_msg", payload: { type: "task_started" } },
+      item(0, {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: "Show durations as minutes." }],
+      }),
+      item(1, {
+        type: "custom_tool_call",
+        call_id: "find",
+        name: "exec",
+        input:
+          'const found = await tools.exec_command({ cmd: "rg -n bestTimeMs src" });\ntext(found);',
+      }),
+      item(2, {
+        type: "custom_tool_call_output",
+        call_id: "find",
+        output: parts(
+          "Script completed\nWall time 0.1 seconds\nOutput:\n",
+          JSON.stringify({ chunk_id: "a1", exit_code: 0, output: "src/summary.ts:5:  return\n" }),
+          "{}",
+        ),
+      }),
+      item(3, {
+        type: "custom_tool_call",
+        call_id: "patch",
+        name: "exec",
+        input: `await tools.apply_patch(${JSON.stringify(patch)});\nconst check = await tools.exec_command({ cmd: "bun test" });\ntext(check);`,
+      }),
+      item(5, {
+        type: "custom_tool_call_output",
+        call_id: "patch",
+        output: parts(
+          "Script completed\nWall time 1.2 seconds\nOutput:\n",
+          JSON.stringify({
+            status: "fulfilled",
+            value: "Success. Updated the following files:\nM src/summary.ts\n",
+          }),
+          JSON.stringify({ chunk_id: "b2", exit_code: 0, output: "3 pass\n" }),
+        ),
+      }),
+      item(6, {
+        type: "custom_tool_call",
+        call_id: "lint",
+        name: "exec",
+        input: 'await tools.exec_command({ cmd: "bun run lint" });',
+      }),
+      item(7, {
+        type: "custom_tool_call_output",
+        call_id: "lint",
+        output: parts(
+          "Script failed\nWall time 0.0 seconds\nOutput:\n",
+          JSON.stringify({ status: "rejected", reason: "exec_command failed: sandbox denied" }),
+        ),
+      }),
+      item(8, {
+        type: "function_call",
+        call_id: "look",
+        name: "screenshot",
+        namespace: "mcp__computer_use",
+        arguments: JSON.stringify({ title: "Look at the summary page" }),
+      }),
+      item(9, {
+        type: "function_call",
+        call_id: "wait",
+        name: "sleep",
+        namespace: "clock",
+        arguments: "{}",
+      }),
+      item(10, { type: "compaction", id: "c1" }),
+      { timestamp: at(11), type: "event_msg", payload: { type: "task_complete" } },
+    ];
+    const reader = createCodexRolloutReader();
+    const idle: boolean[] = [];
+    const events = lines.flatMap((line) => {
+      const read = reader.line(JSON.stringify(line));
+      idle.push(reader.idle());
+      return read;
+    });
+    expect(idle.indexOf(false)).toBe(1);
+    expect(idle.at(-1)).toBe(true);
+
+    const session = thread(events);
+    const calls = tools(session.items).map((entry) => entry.kind === "tool" && entry.call);
+    expect(calls.map((call) => call && [call.kind, call.status, call.title])).toEqual([
+      ["search", "completed", "rg -n bestTimeMs src"],
+      ["edit", "completed", "Edit src/summary.ts"],
+      ["execute", "failed", "bun run lint"],
+      ["other", "in_progress", "Look at the summary page"],
+      ["other", "in_progress", "sleep · clock"],
+    ]);
+    const output = (call: (typeof calls)[number]) =>
+      call &&
+      call.content.flatMap((part) =>
+        part.type === "content" && part.content.type === "text" ? [part.content.text] : [],
+      );
+    expect(output(calls[0])).toEqual(["src/summary.ts:5:  return"]);
+    // The patch shows as a diff; the program's command and its output stay with it.
+    expect(calls[1] && calls[1].rawInput).toEqual({ command: "bun test" });
+    expect(calls[1] && calls[1].content[0]).toMatchObject({
+      type: "diff",
+      path: "src/summary.ts",
+      newText: expect.stringContaining("formatDuration(trail.bestTimeMs)"),
+    });
+    expect(output(calls[1])).toEqual(["3 pass"]);
+    expect(output(calls[2])).toEqual(["exec_command failed: sandbox denied"]);
+    expect(session.items.at(-1)).toMatchObject({ kind: "compaction" });
   });
 });
