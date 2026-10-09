@@ -50,6 +50,7 @@ import { visibleElement } from "./data/palette-focus";
 import { setFilePreviewShown, useFilePreviewShown } from "./data/picker-preferences";
 import { BranchPicker } from "./components/BranchPicker";
 import type { BrowseSource } from "../shared/browse";
+import type { AgentSession } from "../shared/saved-review";
 import { createBrowseApi, useBrowseFiles, type BrowseApi } from "./data/browse";
 import { createFileWorkspace, isFileTab, sourceKey, useFileWorkspace } from "./data/file-workspace";
 import { RepositoryFiles } from "./components/RepositoryFiles";
@@ -99,6 +100,10 @@ const BriefView = lazy(() => import("./components/BriefView"));
 const CommitView = lazy(() =>
   import("./components/CommitView").then((module) => ({ default: memo(module.default) })),
 );
+const SessionPanel = lazy(() =>
+  import("./components/session/SessionPanel").then((module) => ({ default: module.SessionPanel })),
+);
+const NO_SESSIONS: AgentSession[] = [];
 // Pierre's view renders its file headers and comments again whenever it renders.
 const ReviewCodeView = memo(CodeView) as typeof CodeView;
 
@@ -149,8 +154,11 @@ export function App({
   loadCommit: providedCommitLoader,
   onOpenReview: providedOpenReview,
   commitApi: providedCommitApi,
+  sessionFetch,
 }: {
   controller: ReviewController;
+  /** Reads agent session streams; tests pass a fake host. */
+  sessionFetch?: typeof fetch;
   /** The Commit tab's Git writes for a checkout; tests pass a fake repository. */
   commitApi?: (repo: string) => CommitApi;
   browseApi?: BrowseApi;
@@ -189,6 +197,10 @@ export function App({
   const [themePickerOpen, setThemePickerOpen] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [filesVisible, setFilesVisible] = useState(false);
+  // The agent session sidebar mounts when first shown and keeps its thread.
+  const [sessionVisible, setSessionVisible] = useState(false);
+  const [sessionMounted, setSessionMounted] = useState(false);
+  if (sessionVisible && !sessionMounted) setSessionMounted(true);
   // Zen hides every bar. The sidebars keep their own state in and out of zen.
   const [zen, setZenState] = useState(() => readPreference("zen", "off", ["on", "off"]) === "on");
   const filePreviewShown = useFilePreviewShown();
@@ -492,6 +504,13 @@ export function App({
     if (rightVisible) setFilesVisible(false);
     else showFiles();
   }, [rightVisible, showFiles]);
+  const toggleSession = useCallback(() => {
+    setSessionVisible((visible) => {
+      // Two right sidebars leave too little room for the diff.
+      if (!visible && window.innerWidth < 1300) setFilesVisible(false);
+      return !visible;
+    });
+  }, []);
   const toggleReviewSidebar = useCallback(() => {
     const narrow = window.innerWidth < 1100;
     setSidebarVisible((visible) => {
@@ -648,6 +667,7 @@ export function App({
   const files = state.visibleFiles;
   const fileInfoById = useMemo(() => new Map(files.map((file) => [file.id, file.info])), [files]);
   const notes = state.notes?.notes ?? emptyNotes;
+  const agentSessions = state.savedReview?.sessions ?? NO_SESSIONS;
   const savedTarget = state.savedReview?.targets.find(
     (target) => target.id === state.savedTargetId,
   );
@@ -2137,6 +2157,15 @@ export function App({
             shortcut: "⌘⇧B",
             run: toggleFilesSidebar,
           },
+          ...(agentSessions.length
+            ? [
+                {
+                  id: "agent-session",
+                  label: sessionVisible ? "Hide agent session" : "Show agent session",
+                  run: toggleSession,
+                },
+              ]
+            : []),
           ...(selectedFile
             ? [
                 {
@@ -2612,6 +2641,16 @@ export function App({
         aria-label="Enter zen mode"
         onClick={toggleZen}
       />
+      {agentSessions.length > 0 && (
+        <ToolButton
+          label={sessionVisible ? "Hide agent session" : "Show agent session"}
+          icon={agentSessions.at(-1)!.agent}
+          aria-label="Toggle agent session"
+          aria-pressed={sessionVisible}
+          active={sessionVisible}
+          onClick={toggleSession}
+        />
+      )}
       {browseSource && (
         <ToolButton
           label={rightVisible ? "Hide files" : "Show files"}
@@ -3413,6 +3452,25 @@ export function App({
             />
           </aside>
         )}
+        {agentSessions.length > 0 && state.savedReview && sessionMounted && (
+          <aside
+            {...stylex.props(styles.sessionSidebar, !sessionVisible && styles.hiddenSurface)}
+            aria-label="Agent session"
+            hidden={!sessionVisible}
+          >
+            <Suspense fallback={null}>
+              <SessionPanel
+                key={state.savedReview.id}
+                reviewId={state.savedReview.id}
+                sessions={agentSessions}
+                root={state.review?.repo}
+                fetcher={sessionFetch}
+                onOpenPath={(path, line) => fileWorkspace.open(path, true, line)}
+                onClose={() => setSessionVisible(false)}
+              />
+            </Suspense>
+          </aside>
+        )}
       </div>
       <footer
         {...stylex.props(styles.statusbar, stylex.defaultMarker(), zen && styles.hiddenSurface)}
@@ -3692,6 +3750,18 @@ const styles = stylex.create({
     opacity: { default: 0, [stylex.when.ancestor(":hover")]: 1 },
     transitionProperty: "opacity",
     transitionDuration: "160ms",
+  },
+  sessionSidebar: {
+    width: 440,
+    maxWidth: "46vw",
+    minWidth: 320,
+    flexShrink: 0,
+    display: "flex",
+    marginInlineStart: 6,
+    overflow: "hidden",
+    borderRadius: `calc(10px * ${tokens.round})`,
+    backgroundColor: tokens.canvas,
+    boxShadow: `inset 0 0 0 1px ${tokens.line}`,
   },
   filesSidebar: {
     width: 280,

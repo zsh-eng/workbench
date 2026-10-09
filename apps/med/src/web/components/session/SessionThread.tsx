@@ -301,9 +301,12 @@ export function PlanDock({ entries }: { entries: PlanEntry[] }) {
 export function SessionThread({
   snapshot,
   now,
+  before,
   onOpenLink,
 }: {
   snapshot: SessionSnapshot;
+  /** Shown above the first item, such as a note that earlier work is left out. */
+  before?: ReactNode;
   /** The clock for the elapsed time of a running session. */
   now?: number;
   onOpenLink?(href: string): void;
@@ -365,6 +368,7 @@ export function SessionThread({
             aria-live="polite"
             aria-busy={snapshot.running}
           >
+            {before}
             <Thread items={snapshot.items} live={snapshot.running} onOpenLink={onOpenLink} />
             {snapshot.running ? (
               <div {...stylex.props(rowStyles.row, styles.status)}>

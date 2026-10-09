@@ -107,6 +107,8 @@ async function mountApp(
     loadBlame?: BlameLoader;
     /** The Commit tab's repository. */
     commitApi?: CommitApi;
+    /** A Claude Code session recorded with the saved review, as server events. */
+    session?: string;
   } = {},
 ) {
   initializeTheme();
@@ -155,6 +157,7 @@ async function mountApp(
     revision: 0,
     commentCount: 0,
     targets: savedTargets,
+    ...(options.session ? { sessions: [{ agent: "claude", id: "s1", cwd: "/test/repo" }] } : {}),
     ...(options.pullRequest
       ? { pullRequestUrl: options.pullRequest.url, pullRequestTitle: "Read pull request threads" }
       : {}),
@@ -180,6 +183,8 @@ async function mountApp(
     const url = new URL(String(input), "http://localhost");
     if (options.savedReview) {
       if (url.pathname === "/api/reviews/saved") return Response.json(savedBundle());
+      if (url.pathname === "/api/reviews/saved/sessions/s1/events" && options.session)
+        return new Response(options.session, { headers: { "content-type": "text/event-stream" } });
       if (url.pathname === "/api/reviews/saved/pull-request" && options.pullRequest) {
         pullRequestReads.push(url.search);
         return Response.json(options.pullRequest);
@@ -377,6 +382,7 @@ async function mountApp(
       browseApi={{ ...browse, write: options.readOnly ? undefined : browse.write }}
       loadBlame={options.loadBlame}
       commitApi={options.commitApi && (() => options.commitApi!)}
+      sessionFetch={fetcher}
     />,
   );
   await expect
@@ -2061,4 +2067,50 @@ test("collapses history to a heading that names the selection, and remembers it"
   await expect
     .element(page.getByRole("option", { name: /Improve the review stream/ }))
     .toBeVisible();
+});
+
+describe("agent session", () => {
+  test("a saved review shows its agent's session beside the review and opens files from it", async () => {
+    const events = [
+      {
+        at: 0,
+        update: {
+          sessionUpdate: "user_message_chunk",
+          content: { type: "text", text: "Rename the export." },
+        },
+      },
+      {
+        at: 1000,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: "t1",
+          title: "Run the tests",
+          kind: "execute",
+          status: "completed",
+          rawInput: { command: "bun test" },
+        },
+      },
+      {
+        at: 2000,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "Renamed in [alpha.ts:1](src/alpha.ts:1)." },
+        },
+      },
+    ];
+    await mountApp({
+      savedReview: true,
+      session: `event: reset\ndata: ${JSON.stringify({ events, idle: true, modifiedAt: 0, truncated: false })}\n\n`,
+    });
+    await page.getByRole("button", { name: "Toggle agent session" }).click();
+    const panel = page.getByRole("complementary", { name: "Agent session" });
+    await expect.element(panel.getByText("Rename the export.")).toBeVisible();
+    await expect.element(panel.getByRole("button", { name: /Run the tests/ })).toBeVisible();
+    await expect.element(panel.getByText("Idle")).toBeVisible();
+
+    await panel.getByText("alpha.ts:1").click();
+    await expect.element(page.getByRole("tab", { name: "alpha.ts", exact: true })).toBeVisible();
+    await panel.getByRole("button", { name: "Hide session" }).click();
+    await expect.element(panel).not.toBeInTheDocument();
+  });
 });
