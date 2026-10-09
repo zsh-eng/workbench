@@ -15,7 +15,8 @@ import type { Plugin } from "vite";
  *
  * A view with `display: none` has no box. Pierre measured it as zero height
  * and replaced the rendered rows; it now skips that work until the view has a
- * box again, and its resize observer reports the size.
+ * box again. When the view shows again, its resize observer reports the new
+ * size and renders it once; a second render on reattach cost a full layout.
  */
 export function pierreKeepAlive(): Plugin {
   function replace(source: string, from: string, to: string) {
@@ -82,7 +83,6 @@ function CodeViewInner(props, ref) {`,
 		}
 		if (kept != null && node === kept.getContainerElement()) {
 			detachedViews.delete(kept);
-			kept.render();
 			assignRef(containerRef, node);
 			return;
 		}
