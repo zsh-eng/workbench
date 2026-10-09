@@ -10,7 +10,7 @@ const labels: Record<keyof CommitSwitches, string> = {
   upstream: "Branch has an upstream",
   hookFails: "Pre-commit hook fails",
   pushRejected: "Remote rejects the push",
-  slow: "Slow commit and push",
+  slow: "Slow Git",
 };
 
 /** The Commit tab on an in-memory repository, with switches for each failure. */
@@ -32,7 +32,7 @@ export function CommitSection() {
     >
       <Specimen
         title="Commit tab"
-        note="j/k move, Space stages a file, a stages all, c writes the message, ⌘↵ commits, ⇧P pushes."
+        note="j/k move, Space stages a file, a stages all, / filters, c writes the message, ⌘↵ commits, ⇧P pushes."
         padded={false}
         zoomable={false}
       >

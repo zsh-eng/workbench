@@ -110,9 +110,14 @@ export const guideContexts: GuideContext[] = [
             note: "Live changes, outside text fields and files",
             command: "commit",
           },
-          { label: "Next / previous file", keys: ["j", "k"], note: "In the Commit tab" },
+          {
+            label: "Next / previous file",
+            keys: ["j", "k"],
+            note: "In the Commit tab; the diffs scroll with it",
+          },
+          { label: "Filter the files", keys: ["/"], note: "Esc clears the filter" },
           { label: "Stage or unstage the file", keys: ["Space"], note: "Or click its mark" },
-          { label: "Stage or unstage every change", keys: ["a"] },
+          { label: "Stage or unstage every file shown", keys: ["a"] },
           { label: "Write the commit message", keys: ["c"], note: "Esc returns to the files" },
           { label: "Commit the staged files", keys: ["Mod+Enter"] },
           {

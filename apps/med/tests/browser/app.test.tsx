@@ -1550,11 +1550,36 @@ describe("graphical review", () => {
       .element(row("docs/USAGE.md"))
       .toHaveAccessibleName("docs/USAGE.md, not staged, modified");
 
-    // Space stages the focused file; j moves to the next one.
+    // / filters the list and the diff stream; Esc shows every file again.
+    const stream = page.getByRole("region", { name: "Changes to commit" });
+    await userEvent.keyboard("/");
+    await expect
+      .element(page.getByRole("textbox", { name: "Filter files to commit" }))
+      .toHaveFocus();
+    await userEvent.keyboard("src/web");
+    await expect
+      .poll(rows)
+      .toEqual([
+        "src/web/App.tsx, partly staged, modified",
+        "src/web/components/CommitView.tsx, not staged, untracked",
+      ]);
+    await expect
+      .element(stream.getByRole("button", { name: /stage docs\/USAGE\.md$/i }))
+      .not.toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    await expect.element(files).toHaveFocus();
+    await expect.poll(() => rows().length).toBe(5);
+
+    // Space stages the focused file at once, before Git answers; j moves on.
+    repository.configure({ upstream: false, hookFails: true, pushRejected: false, slow: true });
     await userEvent.keyboard(" ");
     await expect
-      .element(row("docs/USAGE.md"))
+      .element(row("docs/USAGE.md"), { timeout: 400 })
       .toHaveAccessibleName("docs/USAGE.md, staged, modified");
+    await expect
+      .element(stream.getByRole("button", { name: "Unstage docs/USAGE.md" }), { timeout: 400 })
+      .toBeVisible();
+    repository.configure({ upstream: false, hookFails: true, pushRejected: false, slow: false });
     await userEvent.keyboard("j");
     await expect
       .element(row("scripts/obsolete-check.mjs"))

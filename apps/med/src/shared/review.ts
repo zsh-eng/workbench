@@ -32,7 +32,8 @@ export function parseReviewPatch(patch: string): FileDiffMetadata[] {
   return parsePatchFiles(patch, undefined, true).flatMap((entry) => entry.files);
 }
 
-function emptyMetadata(info: ReviewFile): FileDiffMetadata {
+/** Metadata without hunks, for a file whose changes are not shown. */
+export function emptyMetadata(info: ReviewFile): FileDiffMetadata {
   return {
     name: info.path,
     prevName: info.previousPath,

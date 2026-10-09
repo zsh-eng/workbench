@@ -33,36 +33,32 @@ const kinds: Record<string, ChangeKind> = {
 const kind = (code: string | undefined) =>
   !code || code === "." ? null : (kinds[code] ?? "modified");
 
-/** HEAD and every index entry, so a commit can prove it saw the same state. */
-async function stateKey(repo: string, head: string, signal?: AbortSignal) {
-  const index = await git(repo, ["ls-files", "--stage", "-z"], {
-    signal,
-    maxBytes: 64 * 1024 * 1024,
-  });
-  return createHash("sha256").update(head).update("\0").update(index).digest("hex");
+const STATUS = ["-c", "status.renames=true", "status", "--porcelain=v2", "-z", "--branch"];
+
+interface ParsedStatus {
+  head: string;
+  branch: string;
+  tracked: boolean;
+  ahead: number;
+  behind: number;
+  files: WorkingFile[];
+  /** HEAD and every index entry that differs from it, so a commit can prove
+   * that it saw the same index. Entries equal to HEAD are HEAD's. */
+  indexKey: string;
 }
 
-export async function workingStatus(repo: string, signal?: AbortSignal): Promise<WorkingStatus> {
-  const data = await git(
-    repo,
-    [
-      "-c",
-      "status.renames=true",
-      "status",
-      "--porcelain=v2",
-      "-z",
-      "--branch",
-      "--untracked-files=all",
-    ],
-    { signal, maxBytes: 16 * 1024 * 1024 },
-  );
+function parseStatus(data: Buffer): ParsedStatus {
   const fields = data.toString("utf8").split("\0");
-  let head = "";
-  let branch = "";
-  let ahead = 0;
-  let behind = 0;
-  let tracked = false;
-  const files: WorkingFile[] = [];
+  const key = createHash("sha256");
+  const result: ParsedStatus = {
+    head: "",
+    branch: "",
+    tracked: false,
+    ahead: 0,
+    behind: 0,
+    files: [],
+    indexKey: "",
+  };
   // Porcelain v2: fixed fields separated by spaces, then the path, which may
   // contain spaces. A rename's original path is the next NUL-separated field.
   const path = (field: string, skip: number) => field.split(" ").slice(skip).join(" ");
@@ -70,94 +66,124 @@ export async function workingStatus(repo: string, signal?: AbortSignal): Promise
     const field = fields[index]!;
     if (field.startsWith("# branch.oid ")) {
       const oid = field.slice(13);
-      head = oid === "(initial)" ? "" : oid;
+      result.head = oid === "(initial)" ? "" : oid;
     } else if (field.startsWith("# branch.head ")) {
       const name = field.slice(14);
-      branch = name === "(detached)" ? "" : name;
-    } else if (field.startsWith("# branch.upstream ")) tracked = true;
+      result.branch = name === "(detached)" ? "" : name;
+    } else if (field.startsWith("# branch.upstream ")) result.tracked = true;
     else if (field.startsWith("# branch.ab ")) {
       const counts = /^\+(\d+) -(\d+)$/.exec(field.slice(12));
-      ahead = Number(counts?.[1] ?? 0);
-      behind = Number(counts?.[2] ?? 0);
-    } else if (field.startsWith("1 "))
-      files.push({ path: path(field, 8), staged: kind(field[2]), unstaged: kind(field[3]) });
-    else if (field.startsWith("2 "))
-      files.push({
+      result.ahead = Number(counts?.[1] ?? 0);
+      result.behind = Number(counts?.[2] ?? 0);
+    } else if (field.startsWith("1 ")) {
+      // X, then HEAD's and the index's modes and objects: never the worktree's.
+      const [, xy, , modeHead, modeIndex, , objectHead, objectIndex] = field.split(" ");
+      if (xy![0] !== ".")
+        key.update(
+          `1 ${xy![0]} ${modeHead} ${modeIndex} ${objectHead} ${objectIndex} ${path(field, 8)}\0`,
+        );
+      result.files.push({ path: path(field, 8), staged: kind(field[2]), unstaged: kind(field[3]) });
+    } else if (field.startsWith("2 ")) {
+      const previousPath = fields[++index];
+      const [, xy, , modeHead, modeIndex, , objectHead, objectIndex, score] = field.split(" ");
+      if (xy![0] !== ".")
+        key.update(
+          `2 ${xy![0]} ${modeHead} ${modeIndex} ${objectHead} ${objectIndex} ${score} ${path(field, 9)}\0${previousPath}\0`,
+        );
+      result.files.push({
         path: path(field, 9),
-        previousPath: fields[++index],
+        previousPath,
         staged: kind(field[2]),
         unstaged: kind(field[3]),
       });
-    else if (field.startsWith("u "))
-      files.push({ path: path(field, 10), staged: "conflicted", unstaged: "conflicted" });
-    else if (field.startsWith("? "))
-      files.push({ path: field.slice(2), staged: null, unstaged: "untracked" });
-    if (files.length > MAX_FILES)
+    } else if (field.startsWith("u ")) {
+      // The three stages of a conflict, without the worktree's mode.
+      const parts = field.split(" ");
+      key.update(`u ${[...parts.slice(3, 6), ...parts.slice(7)].join(" ")}\0`);
+      result.files.push({ path: path(field, 10), staged: "conflicted", unstaged: "conflicted" });
+    } else if (field.startsWith("? "))
+      result.files.push({ path: field.slice(2), staged: null, unstaged: "untracked" });
+    if (result.files.length > MAX_FILES)
       throw new HostError("too-many-files", "This checkout has more than 10,000 changes.", 413);
   }
+  result.indexKey = key.update(`HEAD ${result.head}`).digest("hex");
+  return result;
+}
+
+export async function workingStatus(repo: string, signal?: AbortSignal): Promise<WorkingStatus> {
+  // One status and one config read, side by side: each Git process costs
+  // about 10 ms to start, and staging waits for this answer.
+  const [data, config] = await Promise.all([
+    git(repo, [...STATUS, "--untracked-files=all"], { signal, maxBytes: 16 * 1024 * 1024 }),
+    remoteConfig(repo, signal),
+  ]);
+  const status = parseStatus(data);
   // A path removed from the index but still on disk is two entries: one row.
   const rows = new Map<string, WorkingFile>();
-  for (const file of files) {
+  for (const file of status.files) {
     const row = rows.get(file.path);
     if (row) {
       row.staged ??= file.staged;
       row.unstaged ??= file.unstaged;
     } else rows.set(file.path, file);
   }
-  const merged = [...rows.values()].sort((a, b) =>
-    a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
+  const files = [...rows.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  const { branch, head, ahead, behind, indexKey } = status;
+  return {
+    repo,
+    branch,
+    head,
+    upstream: status.tracked && branch ? config.upstream(branch) : null,
+    ahead,
+    behind,
+    pushRemote: branch ? config.pushRemote(branch) : null,
+    indexKey,
+    files,
+  };
+}
+
+/** The remotes and the branch settings that choose where a push goes. */
+async function remoteConfig(repo: string, signal?: AbortSignal) {
+  const data = await git(
+    repo,
+    [
+      "config",
+      "-z",
+      "--get-regexp",
+      "^(branch\\..*\\.(remote|merge|pushremote)|remote\\.pushdefault|remote\\..*\\.(url|pushurl))$",
+    ],
+    { signal, maxBytes: 1024 * 1024, acceptedExitCodes: [0, 1] },
   );
-  const [upstream, pushRemote, indexKey] = await Promise.all([
-    tracked && branch ? upstreamOf(repo, branch, signal) : null,
-    branch ? pushRemoteOf(repo, branch, signal) : null,
-    stateKey(repo, head, signal),
-  ]);
-  return { repo, branch, head, upstream, ahead, behind, pushRemote, indexKey, files: merged };
-}
-
-async function upstreamOf(repo: string, branch: string, signal?: AbortSignal) {
-  const [remote, ref] = (
-    await git(
-      repo,
-      [
-        "for-each-ref",
-        "--format=%(upstream:remotename)%00%(upstream:remoteref)",
-        `refs/heads/${branch}`,
-      ],
-      { signal, maxBytes: 64 * 1024 },
-    )
-  )
-    .toString("utf8")
-    .trim()
-    .split("\0");
-  // A local upstream (remote ".") has no remote to push to.
-  return remote && remote !== "." && ref?.startsWith("refs/heads/")
-    ? { remote, branch: ref.slice("refs/heads/".length) }
-    : null;
-}
-
-/** Git's own choice for a branch without an upstream: its push remote, the
- * default push remote, then origin, then the only remote. */
-async function pushRemoteOf(repo: string, branch: string, signal?: AbortSignal) {
-  const config = async (key: string) =>
-    (
-      await git(repo, ["config", "--get", key], {
-        signal,
-        maxBytes: 4096,
-        acceptedExitCodes: [0, 1],
-      })
-    )
-      .toString("utf8")
-      .trim();
-  const remotes = (await git(repo, ["remote"], { signal, maxBytes: 64 * 1024 }))
-    .toString("utf8")
-    .split("\n")
-    .filter(Boolean);
-  const chosen =
-    (await config(`branch.${branch}.pushRemote`)) || (await config("remote.pushDefault"));
-  if (chosen && remotes.includes(chosen)) return chosen;
-  if (remotes.includes("origin")) return "origin";
-  return remotes.length === 1 ? remotes[0]! : null;
+  // Each entry is the key, a newline, and the value. Git lowercases section and
+  // variable names; branch and remote names keep their case.
+  const values = new Map<string, string>();
+  const remotes = new Set<string>();
+  for (const entry of data.toString("utf8").split("\0")) {
+    const newline = entry.indexOf("\n");
+    if (newline < 0) continue;
+    const key = entry.slice(0, newline);
+    if (!values.has(key)) values.set(key, entry.slice(newline + 1));
+    const remote = /^remote\.(.+)\.(url|pushurl)$/.exec(key);
+    if (remote) remotes.add(remote[1]!);
+  }
+  return {
+    upstream(branch: string) {
+      const remote = values.get(`branch.${branch}.remote`);
+      const ref = values.get(`branch.${branch}.merge`);
+      // A local upstream (remote ".") has no remote to push to.
+      return remote && remote !== "." && ref?.startsWith("refs/heads/")
+        ? { remote, branch: ref.slice("refs/heads/".length) }
+        : null;
+    },
+    /** Git's own choice for a branch without an upstream: its push remote, the
+     * default push remote, then origin, then the only remote. */
+    pushRemote(branch: string) {
+      const chosen = values.get(`branch.${branch}.pushremote`) || values.get("remote.pushdefault");
+      if (chosen && remotes.has(chosen)) return chosen;
+      if (remotes.has("origin")) return "origin";
+      return remotes.size === 1 ? [...remotes][0]! : null;
+    },
+  };
 }
 
 function checkedPaths(repo: string, paths: readonly string[]) {
@@ -226,22 +252,28 @@ export async function stagePaths(input: StageRequest, signal?: AbortSignal) {
     await git(input.repo, ["add", "--all", "--", ...(paths ?? [])], options);
     return;
   }
-  const born =
-    (
-      await git(input.repo, ["rev-parse", "--verify", "--quiet", "HEAD"], {
-        ...options,
-        acceptedExitCodes: [0, 1],
-      })
-    ).length > 0;
+  // Almost every checkout has a first commit; ask Git about HEAD only when the
+  // usual command fails.
+  try {
+    if (paths) await git(input.repo, ["restore", "--staged", "--", ...paths], options);
+    else await git(input.repo, ["reset", "--quiet"], options);
+    return;
+  } catch (error) {
+    const born =
+      (
+        await git(input.repo, ["rev-parse", "--verify", "--quiet", "HEAD"], {
+          ...options,
+          acceptedExitCodes: [0, 1],
+        })
+      ).length > 0;
+    if (born) throw error;
+  }
   // Before the first commit, the index is all there is to unstage from.
-  if (!born)
-    await git(
-      input.repo,
-      ["rm", "--cached", "-r", "--quiet", "--ignore-unmatch", "--", ...(paths ?? ["."])],
-      options,
-    );
-  else if (paths) await git(input.repo, ["restore", "--staged", "--", ...paths], options);
-  else await git(input.repo, ["reset", "--quiet"], options);
+  await git(
+    input.repo,
+    ["rm", "--cached", "-r", "--quiet", "--ignore-unmatch", "--", ...(paths ?? ["."])],
+    options,
+  );
 }
 
 // Hook output keeps its text, not its terminal colors.
@@ -255,26 +287,20 @@ export async function commitStaged(
 ): Promise<CommitResult> {
   const message = input.message.replace(/\s+$/, "");
   if (!message.trim()) throw new HostError("empty-message", "Write a commit message.", 422);
-  const head = (
-    await git(input.repo, ["rev-parse", "--verify", "--quiet", "HEAD"], {
+  const status = parseStatus(
+    await git(input.repo, [...STATUS, "--untracked-files=no"], {
       signal,
-      maxBytes: 1024,
-      acceptedExitCodes: [0, 1],
-    })
-  )
-    .toString("utf8")
-    .trim();
-  if ((await stateKey(input.repo, head, signal)) !== input.indexKey)
+      maxBytes: 16 * 1024 * 1024,
+    }),
+  );
+  if (status.indexKey !== input.indexKey)
     throw new HostError(
       "index-changed",
       "The staged files or the branch changed since this view loaded. Check them, then commit again.",
       409,
     );
-  const staged = await git(input.repo, ["diff", "--cached", "--name-only", "-z"], {
-    signal,
-    maxBytes: 16 * 1024 * 1024,
-  });
-  if (!staged.length) throw new HostError("nothing-staged", "Stage the changes to commit.", 422);
+  if (!status.files.some((file) => file.staged))
+    throw new HostError("nothing-staged", "Stage the changes to commit.", 422);
   const result = await runProcess(
     "git",
     ["-c", "core.fsmonitor=false", "commit", "--quiet", "--file=-"],

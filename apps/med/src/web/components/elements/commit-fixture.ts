@@ -1,4 +1,10 @@
-import type { CommitApi, FileChanges, WorkingFile, WorkingStatus } from "../../data/commit";
+import type {
+  CommitApi,
+  FileChanges,
+  WorkingDiff,
+  WorkingFile,
+  WorkingStatus,
+} from "../../data/commit";
 
 /** Failures and branch states to try on the elements page. */
 export interface CommitSwitches {
@@ -98,6 +104,10 @@ function initialFiles(): FakeFile[] {
   ];
 }
 
+const count = (patch: string, sign: "+" | "-") =>
+  patch.split("\n").filter((line) => line.startsWith(sign) && !line.startsWith(sign.repeat(3)))
+    .length;
+
 const hex = (seed: number) =>
   Array.from({ length: 40 }, (_, index) => "0123456789abcdef"[(seed * 7 + index * 13) % 16]).join(
     "",
@@ -115,6 +125,8 @@ export function createFakeRepository(initial: CommitSwitches) {
   let ahead = 1;
   let pushedTracking = false;
   let version = 0;
+  // Names the working files' content; only commits and resets change it.
+  let content = 0;
   const wait = () => new Promise((resolve) => setTimeout(resolve, switches().slow ? 1400 : 180));
   const tracked = () => switches().upstream || pushedTracking;
   const row = (file: FakeFile): WorkingFile => ({
@@ -149,7 +161,23 @@ export function createFakeRepository(initial: CommitSwitches) {
             : fake.partial!;
       return { path: file.path, ...parts, binary: false, tooLarge: false };
     },
+    async diff(): Promise<WorkingDiff> {
+      return {
+        id: `fake-${content}`,
+        files: files.map((file) => ({
+          path: file.path,
+          status: file.kind === "added" ? "A" : file.kind === "deleted" ? "D" : "M",
+          additions: count(file.patch, "+"),
+          deletions: count(file.patch, "-"),
+          binary: false,
+          untracked: file.kind === "added" && file.state === "none",
+        })),
+        patch: files.map((file) => file.patch).join(""),
+      };
+    },
     async stage(paths, stage) {
+      // The view shows a stage at once; a slow answer makes that visible.
+      if (switches().slow) await wait();
       for (const file of files)
         if (!paths || paths.includes(file.path)) file.state = stage ? "all" : "none";
       version += 1;
@@ -180,6 +208,7 @@ export function createFakeRepository(initial: CommitSwitches) {
       commits += 1;
       ahead += 1;
       version += 1;
+      content += 1;
       return { head: hex(commits + 1), summary: message.trim().split("\n", 1)[0]! };
     },
     async push(head, track) {
@@ -206,6 +235,7 @@ export function createFakeRepository(initial: CommitSwitches) {
       ahead = 1;
       pushedTracking = false;
       version += 1;
+      content += 1;
     },
   };
 }

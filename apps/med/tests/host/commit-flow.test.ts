@@ -162,6 +162,8 @@ test("commits only the staged state the view saw, and reports hook output", asyn
   expect(failed.body.error?.message).toContain("lint: a.ts needs a semicolon");
   await rm(hook);
 
+  // An edit to the working file after staging leaves the index as the view saw it.
+  await write(repo, "a.ts", "a\nstaged\nlater\n");
   const done = await commit("feat: a\n\nThe body stays.\n", seen.indexKey);
   expect(done.status).toBe(200);
   expect(done.body.summary).toBe("feat: a");
@@ -169,8 +171,9 @@ test("commits only the staged state the view saw, and reports hook output", asyn
     `${done.body.head}\nfeat: a\n\nThe body stays.`,
   );
   expect(git(repo, "show", "--name-only", "--format=", "HEAD")).toBe("a.ts");
+  expect(git(repo, "show", "HEAD:a.ts")).toBe("a\nstaged");
   // Unstaged work stays where it was.
-  expect(summary(await status())).toEqual(["b.ts: - / untracked"]);
+  expect(summary(await status())).toEqual(["a.ts: - / modified", "b.ts: - / untracked"]);
   expect(await commit("again", (await status()).indexKey)).toMatchObject({ status: 422 });
 });
 
