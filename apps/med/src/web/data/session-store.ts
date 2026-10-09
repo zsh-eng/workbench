@@ -1,0 +1,302 @@
+import type {
+  ContentBlock,
+  PlanEntry,
+  SessionEvent,
+  SessionUpdate,
+  ToolCallContent,
+  ToolCallLocation,
+  ToolCallStatus,
+  ToolKind,
+} from "../../shared/agent-session";
+
+export interface ToolCallState {
+  toolCallId: string;
+  title: string;
+  kind: ToolKind;
+  status: ToolCallStatus;
+  content: ToolCallContent[];
+  locations: ToolCallLocation[];
+  rawInput?: unknown;
+  rawOutput?: unknown;
+  /** The agent's own name for the tool, such as Bash. */
+  tool?: string;
+  background?: { id: string; kind: "shell" | "agent" };
+}
+
+/** One row of a thread. Items never change in place; an update replaces the item. */
+export type SessionItem =
+  | { kind: "user"; id: string; at: number; content: ContentBlock[]; queued?: boolean }
+  | { kind: "agent"; id: string; at: number; text: string }
+  | { kind: "thought"; id: string; at: number; text: string; durationMs?: number }
+  | {
+      kind: "tool";
+      id: string;
+      at: number;
+      endedAt?: number;
+      call: ToolCallState;
+      /** The thread of a subagent that this call started. */
+      items: SessionItem[];
+      plan?: PlanEntry[];
+    }
+  | {
+      kind: "notice";
+      id: string;
+      at: number;
+      title: string;
+      severity: "info" | "warning" | "error";
+      description?: string | null;
+    }
+  | { kind: "compaction"; id: string; at: number; summary?: string; failed?: boolean };
+
+export interface SessionSnapshot {
+  items: SessionItem[];
+  plan: PlanEntry[];
+  title?: string;
+  usage?: { size: number; used: number };
+  startedAt?: number;
+  updatedAt?: number;
+  /** The agent is working: the last turn has not ended. */
+  running: boolean;
+  toolCalls: number;
+}
+
+const ROOT = "";
+const empty: SessionSnapshot = { items: [], plan: [], running: false, toolCalls: 0 };
+const textOf = (block: ContentBlock) => (block.type === "text" ? block.text : "");
+
+/**
+ * Holds one session as a list of items that a thread renders. Updates arrive
+ * one at a time, from a transcript, a replay, or a live agent. Each update
+ * replaces only the items it changes, so a row that did not change keeps its
+ * object and memoized rows do not render again.
+ */
+export function createSessionStore() {
+  let snapshot = empty;
+  // Each thread is the root or the subagent thread of one tool call.
+  let threads = new Map<string, SessionItem[]>([[ROOT, []]]);
+  let where = new Map<string, { thread: string; index: number }>();
+  let sequence = 0;
+  const listeners = new Set<() => void>();
+  let batch = 0;
+  let changed = false;
+
+  function setThread(key: string, items: SessionItem[]) {
+    threads.set(key, items);
+    if (key === ROOT) {
+      snapshot = { ...snapshot, items };
+      return;
+    }
+    const parent = itemOf(key);
+    if (parent?.kind === "tool") setItem({ ...parent, items });
+  }
+  function itemOf(id: string) {
+    const place = where.get(id);
+    return place ? threads.get(place.thread)![place.index] : undefined;
+  }
+  function setItem(item: SessionItem) {
+    const place = where.get(item.id)!;
+    const items = threads.get(place.thread)!.slice();
+    items[place.index] = item;
+    setThread(place.thread, items);
+  }
+  function append(thread: string, item: SessionItem) {
+    const items = [...(threads.get(thread) ?? []), item];
+    where.set(item.id, { thread, index: items.length - 1 });
+    setThread(thread, items);
+  }
+
+  function chunk(
+    thread: string,
+    kind: "user" | "agent" | "thought",
+    at: number,
+    update: SessionUpdate,
+  ) {
+    if (!("content" in update) || Array.isArray(update.content) || !update.content) return;
+    const block = update.content as ContentBlock;
+    const messageId = "messageId" in update ? update.messageId : undefined;
+    const meta = update._meta?.med;
+    const items = threads.get(thread) ?? [];
+    const last = items.at(-1);
+    // Chunks of one message share its ID; chunks without one join the message before them.
+    const current = messageId ? itemOf(messageId) : last?.kind === kind ? last : undefined;
+    if (current && current.kind === kind) {
+      if (current.kind === "user") setItem({ ...current, content: [...current.content, block] });
+      else if (current.kind === "agent")
+        setItem({ ...current, text: current.text + textOf(block) });
+      else if (current.kind === "thought")
+        setItem({
+          ...current,
+          text: current.text + textOf(block),
+          durationMs: meta?.durationMs ?? current.durationMs,
+        });
+      return;
+    }
+    const id = messageId ?? `${kind}-${++sequence}`;
+    if (kind === "user")
+      append(thread, { kind, id, at, content: [block], ...(meta?.queued ? { queued: true } : {}) });
+    else if (kind === "agent") append(thread, { kind, id, at, text: textOf(block) });
+    else
+      append(thread, {
+        kind,
+        id,
+        at,
+        text: textOf(block),
+        ...(meta?.durationMs !== undefined ? { durationMs: meta.durationMs } : {}),
+      });
+  }
+
+  function apply({ at, update }: SessionEvent) {
+    const parent = update._meta?.med?.parentToolCallId;
+    const thread = parent && where.has(parent) ? parent : ROOT;
+    snapshot = {
+      ...snapshot,
+      startedAt: snapshot.startedAt ?? at,
+      updatedAt: Math.max(snapshot.updatedAt ?? at, at),
+    };
+    switch (update.sessionUpdate) {
+      case "user_message_chunk":
+        return chunk(thread, "user", at, update);
+      case "agent_message_chunk":
+        return chunk(thread, "agent", at, update);
+      case "agent_thought_chunk":
+        return chunk(thread, "thought", at, update);
+      case "tool_call":
+      case "tool_call_update": {
+        const existing = itemOf(update.toolCallId);
+        const meta = update._meta?.med;
+        const previous: ToolCallState =
+          existing?.kind === "tool"
+            ? existing.call
+            : {
+                toolCallId: update.toolCallId,
+                title: "",
+                kind: "other",
+                status: "pending",
+                content: [],
+                locations: [],
+              };
+        const call: ToolCallState = {
+          ...previous,
+          ...(update.title !== undefined ? { title: update.title } : {}),
+          ...(update.kind ? { kind: update.kind } : {}),
+          ...(update.status ? { status: update.status } : {}),
+          ...(update.content ? { content: update.content } : {}),
+          ...(update.locations ? { locations: update.locations } : {}),
+          ...("rawInput" in update && update.rawInput !== undefined
+            ? { rawInput: update.rawInput }
+            : {}),
+          ...("rawOutput" in update && update.rawOutput !== undefined
+            ? { rawOutput: update.rawOutput }
+            : {}),
+          ...(meta?.tool ? { tool: meta.tool } : {}),
+          ...(meta?.background ? { background: meta.background } : {}),
+        };
+        const ended = call.status === "completed" || call.status === "failed";
+        if (existing?.kind === "tool") {
+          setItem({ ...existing, call, endedAt: ended ? (existing.endedAt ?? at) : undefined });
+          return;
+        }
+        threads.set(update.toolCallId, []);
+        snapshot = { ...snapshot, toolCalls: snapshot.toolCalls + 1 };
+        append(thread, {
+          kind: "tool",
+          id: update.toolCallId,
+          at,
+          call,
+          items: [],
+          ...(ended ? { endedAt: at } : {}),
+        });
+        return;
+      }
+      case "plan": {
+        const item = parent ? itemOf(parent) : undefined;
+        if (item?.kind === "tool") setItem({ ...item, plan: update.entries });
+        else snapshot = { ...snapshot, plan: update.entries };
+        return;
+      }
+      case "session_info_update":
+        if (update.title !== undefined)
+          snapshot = { ...snapshot, title: update.title ?? undefined };
+        return;
+      case "usage_update":
+        snapshot = { ...snapshot, usage: { size: update.size, used: update.used } };
+        return;
+      case "notice":
+        append(thread, {
+          kind: "notice",
+          id: `notice-${++sequence}`,
+          at,
+          title: update.title,
+          severity: update.severity,
+          description: update.description,
+        });
+        return;
+      case "compaction_update": {
+        const summary = update.summary?.map(textOf).join("") || undefined;
+        const existing = itemOf(update.compactionId);
+        if (existing?.kind === "compaction")
+          setItem({
+            ...existing,
+            summary: summary ?? existing.summary,
+            failed: update.status === "failed",
+          });
+        else
+          append(thread, {
+            kind: "compaction",
+            id: update.compactionId,
+            at,
+            summary,
+            failed: update.status === "failed",
+          });
+        return;
+      }
+    }
+  }
+
+  function emit() {
+    if (batch) {
+      changed = true;
+      return;
+    }
+    for (const listener of listeners) listener();
+  }
+
+  return {
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    getSnapshot: () => snapshot,
+    apply(event: SessionEvent) {
+      apply(event);
+      emit();
+    },
+    /** Applies many updates and notifies once, as when a transcript loads. */
+    applyAll(events: Iterable<SessionEvent>) {
+      batch++;
+      try {
+        for (const event of events) apply(event);
+        changed = true;
+      } finally {
+        batch--;
+      }
+      if (changed && !batch) {
+        changed = false;
+        emit();
+      }
+    },
+    setRunning(running: boolean) {
+      if (snapshot.running === running) return;
+      snapshot = { ...snapshot, running };
+      emit();
+    },
+    reset() {
+      snapshot = empty;
+      threads = new Map([[ROOT, []]]);
+      where = new Map();
+      emit();
+    },
+  };
+}
+
+export type SessionStore = ReturnType<typeof createSessionStore>;
