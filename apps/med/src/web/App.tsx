@@ -1715,6 +1715,10 @@ export function App({
     [openWorkingFile],
   );
   const hideFilesSidebar = useCallback(() => setFilesVisible(false), []);
+  const openCommitFile = useCallback(
+    (path: string, background: boolean) => openWorkingFile(path, true, background),
+    [openWorkingFile],
+  );
   const openChangedFile = useCallback(
     (id: string, background?: boolean) => {
       const file = files.find((item) => item.id === id);
@@ -3334,7 +3338,7 @@ export function App({
                     revision={state.sourceRevision}
                     active={fileState.active === "commit"}
                     draftKey={`med:commit-message:${commitRepo}`}
-                    onOpenFile={(path, background) => openWorkingFile(path, true, background)}
+                    onOpenFile={openCommitFile}
                   />
                 </Suspense>
               </div>
