@@ -1159,6 +1159,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       const appRoute =
         path === "/sources" ||
         path === "/welcome" ||
+        path === "/elements" ||
         path.startsWith("/vault/") ||
         path === "/file" ||
         path.startsWith("/file/") ||

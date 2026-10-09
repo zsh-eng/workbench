@@ -535,6 +535,10 @@ describe("HTTP boundary", () => {
     hosts.push(host);
     const response = await fetch(`http://127.0.0.1:${host.port}/`);
     expect(await response.text()).toBe("<title>Review</title>");
+    // The elements page is an app route, not a file in the web root.
+    expect(await (await fetch(`http://127.0.0.1:${host.port}/elements`)).text()).toBe(
+      "<title>Review</title>",
+    );
     expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
   });
   test("serves the install manifest and its icons without a token", async () => {

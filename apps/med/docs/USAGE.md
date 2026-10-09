@@ -357,6 +357,19 @@ bun run dev -- /path/to/repository
 
 Open the Vite URL with the `#token=…` fragment printed by the API host. Vite proxies API requests to that host. Production builds need no proxy.
 
+### Elements page
+
+Open `/elements` (or run **Open elements page** from the command palette) to
+inspect Med's own components on fixed sample data: the palette and derived
+layers, type, shape, icons, controls, review parts such as the history panel and
+commit card, and every code color state. Code states include diff lines and
+changed words, line selection over context, additions, and removals, find
+matches, and the editor. The theme menu previews any theme on the page without
+saving it; **Use in Med** saves it. Zoom enlarges the non-code specimens, outline
+mode draws every box, and inspect mode lists the clicked element's size, type,
+and colors as theme tokens with its text contrast. Each specimen can sit on the
+frame, card, or popover surface.
+
 Run the complete check from the Workbench root:
 
 ```sh

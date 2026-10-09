@@ -1697,6 +1697,11 @@ export function App({
       run: () => setHelpOpen(true),
     },
     {
+      id: "elements",
+      label: "Open elements page",
+      run: () => location.assign("/elements"),
+    },
+    {
       id: "close-file",
       label: "Close current file",
       shortcut: "⌥ W",

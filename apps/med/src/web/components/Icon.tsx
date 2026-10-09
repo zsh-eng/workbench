@@ -279,6 +279,9 @@ const icons: Record<IconName, ReactNode> = {
   ),
 };
 
+/** Every icon name, for the elements page. */
+export const iconNames = Object.keys(icons) as IconName[];
+
 export function Icon({
   name,
   size = 16,

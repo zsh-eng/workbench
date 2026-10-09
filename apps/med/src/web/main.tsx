@@ -35,6 +35,7 @@ const poolOptions = {
 };
 const highlighterOptions = { theme: themeController.getSnapshot().active.pierreTheme };
 const Welcome = lazy(() => import("./components/welcome/Welcome"));
+const ElementsPage = lazy(() => import("./components/elements/ElementsPage"));
 
 /** The welcome replaces the app while it shows; leaving it starts the app. */
 function Root() {
@@ -44,6 +45,12 @@ function Root() {
     addEventListener("popstate", follow);
     return () => removeEventListener("popstate", follow);
   }, []);
+  if (location.pathname === "/elements")
+    return (
+      <Suspense fallback={null}>
+        <ElementsPage />
+      </Suspense>
+    );
   if (welcome)
     return (
       <Suspense fallback={null}>

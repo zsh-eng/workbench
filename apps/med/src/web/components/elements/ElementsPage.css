@@ -1,0 +1,5 @@
+/* Outline mode draws every box inside a specimen. Shadow roots keep their own styles. */
+[data-outlines] [data-specimen-content] * {
+  outline: 1px solid color-mix(in srgb, var(--med-accent) 45%, transparent);
+  outline-offset: -1px;
+}
