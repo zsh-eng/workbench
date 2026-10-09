@@ -151,6 +151,21 @@ export const guideContexts: GuideContext[] = [
           { label: "Close all files", keys: ["Alt+Shift+W"], command: "close-files" },
           { label: "Close other files", keys: ["Alt+Shift+O"], command: "close-others" },
           { label: "Keep a preview tab open", keys: ["Alt+P"], command: "pin-file" },
+          {
+            label: "Open a found file and keep it open",
+            keys: ["Mod+Enter"],
+            note: "In Find file; Enter opens the preview tab",
+          },
+          {
+            label: "Show a tab by its place in the row",
+            keys: ["Alt+{1–9}"],
+            note: "9 shows the last",
+          },
+          {
+            label: "Previous / next tab",
+            keys: ["Mod+Shift+[", "Mod+Shift+]"],
+            note: "In the installed app; a browser tab keeps these keys",
+          },
           { label: "Toggle Git blame", keys: ["Alt+B"], command: "blame" },
           { label: "Toggle Markdown preview", keys: ["Mod+Shift+V"], note: "Markdown files" },
           { label: "Save the file", keys: ["Mod+S"], note: "Editor" },

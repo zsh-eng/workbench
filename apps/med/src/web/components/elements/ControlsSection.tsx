@@ -91,7 +91,7 @@ const commands: ReviewCommand[] = [
   { id: "next-hunk", label: "Go to next hunk", shortcut: "]", run: noop },
   { id: "open-branch", label: "Open branch or worktree", shortcut: "Mod+Shift+G", run: noop },
   { id: "zen", label: "Enter zen mode", shortcut: "Alt+Z", run: noop },
-  { id: "theme", label: "Change color theme", run: noop },
+  { id: "theme", label: "Change theme", run: noop },
   { id: "help", label: "Show keyboard shortcuts", shortcut: "?", run: noop },
   { id: "close-file", label: "Close current file", shortcut: "Alt+W", disabled: true, run: noop },
 ];

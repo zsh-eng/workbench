@@ -17,7 +17,7 @@ File browsing is read-only and stays in the review workspace. It uses the existi
 
 - The right Files sidebar starts closed. Use Command–Shift–B or the command guide (`?`) to open it. On narrow windows, opening one sidebar closes the other.
 - The permanent Changes tab keeps the continuous diff view and its scroll position while a file is open.
-- A single click in Files opens a reusable preview tab. A double-click, or Enter on a selected file, keeps that tab open. Opening another preview replaces only the previous unpinned preview.
+- A single click in Files opens a reusable preview tab. A double-click, or Enter on a selected file, keeps that tab open. Opening another preview replaces only the previous unpinned preview. In Find file, Enter opens the preview tab and ⌘Enter opens a tab that stays open.
 - A single click in Changes reveals its diff. A double-click opens the current file from the selected workspace. The view menu also provides an explicit open-file action.
 - File tabs and the active tab are kept separately for each workspace during the session. There are at most 12 file tabs per workspace and eight retained workspaces. Only the active file's bytes are retained by the workspace controller.
 - The full-file header shows its source, read-only state, and a refresh action. Detected working-file changes mark a loaded file stale; refresh it to load new bytes.
@@ -46,17 +46,17 @@ The picker searches only the active workspace's file manifest. It uses filename-
 
 ## Bounds and metadata-only states
 
-| Input                                                                        | Current behavior                                       |
-| ---------------------------------------------------------------------------- | ------------------------------------------------------ |
-| Browser-supported image / video | Rendered image / native video player; 32 MiB / 4 GiB limits |
-| Other recognized binary content | Metadata only; no content renderer |
-| Invalid UTF-8                                                                | Unsupported-encoding message; no content renderer      |
-| Symlink, submodule, or unsupported filesystem object                         | Metadata only; no traversal into another source        |
-| Text above 8 MiB                                                             | Metadata only                                          |
-| Text above 200,000 lines                                                     | Metadata only                                          |
-| A line above 250,000 characters                                              | Metadata only                                          |
-| Otherwise supported text above 1 MiB, or with a line above 20,000 characters | Plain-text rendering with syntax highlighting disabled |
-| Smaller supported text                                                       | Syntax-highlighted rendering                           |
+| Input                                                                        | Current behavior                                            |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| Browser-supported image / video                                              | Rendered image / native video player; 32 MiB / 4 GiB limits |
+| Other recognized binary content                                              | Metadata only; no content renderer                          |
+| Invalid UTF-8                                                                | Unsupported-encoding message; no content renderer           |
+| Symlink, submodule, or unsupported filesystem object                         | Metadata only; no traversal into another source             |
+| Text above 8 MiB                                                             | Metadata only                                               |
+| Text above 200,000 lines                                                     | Metadata only                                               |
+| A line above 250,000 characters                                              | Metadata only                                               |
+| Otherwise supported text above 1 MiB, or with a line above 20,000 characters | Plain-text rendering with syntax highlighting disabled      |
+| Smaller supported text                                                       | Syntax-highlighted rendering                                |
 
 The line-length limits use JavaScript string length. Plain-text mode still loads and decodes the bounded file; it is not a streaming byte preview. File size alone is not a guarantee of rendering speed.
 

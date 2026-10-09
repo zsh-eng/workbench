@@ -496,7 +496,7 @@ export function LocalFiles({ children }: { children: ReactNode }) {
               {
                 id: "theme",
                 managesFocus: true,
-                label: "Change color theme",
+                label: "Change theme",
                 run: () => setThemes(true),
               },
               {

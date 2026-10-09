@@ -70,7 +70,7 @@ test("picker opens only a scoped result with an optional line", async () => {
   await page.getByRole("combobox", { name: "Find file" }).fill("main.ts:42");
   await expect.element(page.getByRole("option", { name: "main.ts src" })).toBeVisible();
   await userEvent.keyboard("{Enter}");
-  await expect.poll(() => onOpen.mock.calls).toEqual([["src/main.ts", 42]]);
+  await expect.poll(() => onOpen.mock.calls).toEqual([["src/main.ts", 42, undefined, false]]);
   await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
 });
 
@@ -328,7 +328,7 @@ test("Enter opens the first match after an async manifest and an empty query res
   await input.fill("src/main.ts:120");
   await expect.element(page.getByRole("option", { name: "menu.ts src" })).not.toBeInTheDocument();
   await userEvent.keyboard("{Enter}");
-  await expect.poll(() => onOpen.mock.calls).toEqual([["src/main.ts", 120]]);
+  await expect.poll(() => onOpen.mock.calls).toEqual([["src/main.ts", 120, undefined, false]]);
 });
 
 test("Enter preserves the option selected with arrow keys", async () => {
@@ -353,7 +353,9 @@ test("Enter preserves the option selected with arrow keys", async () => {
     .element(page.getByRole("option", { name: "menu.ts src" }))
     .toHaveAttribute("data-highlighted");
   await userEvent.keyboard("{Enter}");
-  await expect.poll(() => onOpen.mock.calls).toEqual([["src/menu.ts", undefined]]);
+  await expect
+    .poll(() => onOpen.mock.calls)
+    .toEqual([["src/menu.ts", undefined, undefined, false]]);
 });
 
 test("an externally opened deep file expands its parent folders and becomes visible", async () => {
@@ -481,7 +483,7 @@ test("preview follows selection, cancels stale reads, and Escape leaves the curr
   await expect.poll(() => requests.length).toBe(3);
   expect(requests[2]!.path).toBe("src/menu.ts");
   await userEvent.keyboard("{Enter}");
-  expect(onOpen).toHaveBeenCalledWith("src/menu.ts", undefined);
+  expect(onOpen).toHaveBeenCalledWith("src/menu.ts", undefined, undefined, false);
 });
 
 test("content search is scoped, previews the matching line, and resumes its last mode", async () => {
@@ -547,7 +549,7 @@ test("content search is scoped, previews the matching line, and resumes its last
     .toHaveValue("needle");
   await expect.element(page.getByRole("option", { name: "main.ts:2 src needle" })).toBeVisible();
   await userEvent.keyboard("{Enter}");
-  expect(onOpen).toHaveBeenCalledWith("src/main.ts", 2);
+  expect(onOpen).toHaveBeenCalledWith("src/main.ts", 2, undefined, false);
 });
 
 test("committed search previews and opens the exact result commit, while Files stays in the worktree", async () => {
@@ -596,14 +598,14 @@ test("committed search previews and opens the exact result commit, while Files s
     .poll(() => api.read)
     .toHaveBeenCalledWith(resultSource, "src/main.ts", expect.any(AbortSignal));
   await userEvent.keyboard("{Enter}");
-  expect(onOpen).toHaveBeenCalledWith("src/main.ts", 2, resultSource);
+  expect(onOpen).toHaveBeenCalledWith("src/main.ts", 2, resultSource, false);
   await page.getByRole("button", { name: "Files", exact: true }).click();
   await expect
     .poll(() => api.read)
     .toHaveBeenCalledWith(source, "src/main.ts", expect.any(AbortSignal));
   await page.getByRole("combobox", { name: "Find file" }).fill("main.ts");
   await userEvent.keyboard("{Enter}");
-  expect(onOpen).toHaveBeenLastCalledWith("src/main.ts", undefined);
+  expect(onOpen).toHaveBeenLastCalledWith("src/main.ts", undefined, undefined, false);
 });
 
 test("the preview toggle narrows Find file and the next picker keeps the choice", async () => {
@@ -736,7 +738,7 @@ test("content search retains previews, blocks stale opens, and ignores late resp
   resolve("second");
   await expect.element(page.getByRole("option", { name: "third.ts:1 src third" })).toBeVisible();
   await userEvent.keyboard("{Enter}");
-  expect(onOpen).toHaveBeenCalledWith("src/third.ts", 1, resultSource);
+  expect(onOpen).toHaveBeenCalledWith("src/third.ts", 1, resultSource, false);
 
   await input.fill("   ");
   await expect.element(page.getByRole("option")).not.toBeInTheDocument();
@@ -800,7 +802,7 @@ test("resume restores the content query after Enter opens an immutable result", 
     .element(page.getByRole("option", { name: "main.ts:1 src rewriteForProxiedHttp();" }))
     .toBeVisible();
   await userEvent.keyboard("{Enter}");
-  expect(onOpen).toHaveBeenCalledWith("src/main.ts", 1, resultSource);
+  expect(onOpen).toHaveBeenCalledWith("src/main.ts", 1, resultSource, false);
   await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
   reopen();
   await expect

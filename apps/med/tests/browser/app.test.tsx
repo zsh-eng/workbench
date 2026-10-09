@@ -722,6 +722,51 @@ describe("graphical review", () => {
       .not.toBeInTheDocument();
     await expect.element(page.getByRole("tab", { name: "Changes", exact: true })).toBeVisible();
   });
+  test("Find file opens a preview tab with Enter and a kept tab with Mod+Enter; tab keys move along the row", async () => {
+    await mountApp();
+    const find = async (name: string, keys: string) => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "K", metaKey: true, shiftKey: true, bubbles: true }),
+      );
+      await page.getByRole("combobox", { name: "Find file", exact: true }).fill(name);
+      await expect.element(page.getByRole("option", { name: new RegExp(name) })).toBeVisible();
+      await userEvent.keyboard(keys);
+      await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+    };
+    const tab = (name: string) => page.getByRole("tab", { name, exact: true });
+    // A preview tab's tooltip says so.
+    const title = (name: string) => tab(name).query()?.getAttribute("title");
+    await find("alpha.ts", "{Enter}");
+    await expect.poll(() => title("alpha.ts")).toMatch(/Preview/);
+    await find("beta.ts", "{Control>}{Enter}{/Control}");
+    await expect.poll(() => title("beta.ts")).toMatch(/^src\/beta\.ts(?!.*Preview)/);
+    // The kept tab replaced the preview tab, as a double-click in Files does.
+    await expect.element(tab("alpha.ts")).not.toBeInTheDocument();
+    await find("alpha.ts", "{Enter}");
+    // The row is Changes, Commit, beta.ts, alpha.ts.
+    const key = (init: KeyboardEventInit, target: EventTarget = window) =>
+      target.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }),
+      );
+    const selected = async (name: string) => {
+      await expect.element(tab(name)).toHaveAttribute("aria-selected", "true");
+    };
+    // From alpha.ts's editor too, where Option+3 would otherwise type £.
+    const editor = page.getByRole("textbox", { name: "Edit src/alpha.ts", exact: true });
+    await expect.element(editor).toBeVisible();
+    key({ key: "£", code: "Digit3", altKey: true }, editor.element());
+    await selected("beta.ts");
+    key({ key: "¡", code: "Digit1", altKey: true });
+    await selected("Changes");
+    key({ key: "}", code: "BracketRight", metaKey: true, shiftKey: true });
+    await selected("Commit");
+    key({ key: "ª", code: "Digit9", altKey: true });
+    await selected("alpha.ts");
+    key({ key: "}", code: "BracketRight", metaKey: true, shiftKey: true });
+    await selected("Changes");
+    key({ key: "{", code: "BracketLeft", ctrlKey: true, shiftKey: true });
+    await selected("alpha.ts");
+  });
   test("opens working contents from a historical diff and keeps the diff mounted", async () => {
     await page.viewport(1400, 850);
     const { fileRequests } = await mountApp({ branches: true });
@@ -894,8 +939,8 @@ describe("graphical review", () => {
     await page.viewport(1280, 800);
     const { requests } = await mountApp();
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
-    await page.getByRole("combobox", { name: "Search commands" }).fill("Change color theme");
-    await page.getByRole("option", { name: /Change color theme/ }).click();
+    await page.getByRole("combobox", { name: "Search commands" }).fill("Change theme");
+    await page.getByRole("option", { name: /Change theme/ }).click();
     await page.getByRole("combobox", { name: "Search themes" }).fill("Tokyo");
     await page.getByRole("option", { name: /Tokyo Night/ }).click();
     await expect
