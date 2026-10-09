@@ -271,7 +271,7 @@ try {
       await page.keyboard.press("Meta+k");
       await page
         .getByRole("combobox", { name: "Search commands", exact: true })
-        .fill("color theme");
+        .fill("Change theme");
       await page.keyboard.press("Enter");
       const themes = page.getByRole("combobox", { name: "Search themes" });
       await themes.waitFor();

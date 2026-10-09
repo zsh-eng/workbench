@@ -28,7 +28,8 @@ export interface FilePickerProps {
   loading: boolean;
   error: string | null;
   sourceLabel: string;
-  onOpen(path: string, line?: number, source?: BrowseSource): void;
+  /** `keep` opens a tab that stays open; otherwise the file opens in the preview tab. */
+  onOpen(path: string, line?: number, source?: BrowseSource, keep?: boolean): void;
   source?: BrowseSource | null;
   api?: BrowseApi;
   sourceRevision?: number | string;
@@ -408,16 +409,16 @@ function PickerContents({
         .join(" ")
         .trim() ?? "",
     );
-  const choose = (entry: PickerResult) => {
+  const choose = (entry: PickerResult, keep = false) => {
     if (entry.repository) {
       selectRepository(entry.repository);
       return;
     }
     if (busy || failure) return;
     accepted.current = true;
-    if (resultSource) onOpen(entry.path, entry.line, resultSource);
-    else if (source && scopedRepository) onOpen(entry.path, entry.line, source);
-    else onOpen(entry.path, entry.line);
+    if (resultSource) onOpen(entry.path, entry.line, resultSource, keep);
+    else if (source && scopedRepository) onOpen(entry.path, entry.line, source, keep);
+    else onOpen(entry.path, entry.line, undefined, keep);
     onOpenChange(false);
   };
   return (
@@ -611,7 +612,8 @@ function PickerContents({
                   ) {
                     event.preventDefault();
                     event.preventBaseUIHandler();
-                    choose(selectedResult);
+                    // ⌘↵ keeps the tab open; ↵ opens the file in the preview tab.
+                    choose(selectedResult, event.metaKey || event.ctrlKey);
                   }
                 }}
                 {...stylex.props(styles.input)}
@@ -851,7 +853,10 @@ function PickerContents({
                 ) : (
                   <>
                     <span {...stylex.props(styles.hint)}>
-                      <ShortcutKeys value="↵" /> Open
+                      <ShortcutKeys value="↵" /> Preview
+                    </span>
+                    <span {...stylex.props(styles.hint)}>
+                      <ShortcutKeys value="Mod+Enter" /> Keep open
                     </span>
                     {repoMatches.length > 0 && (
                       <span {...stylex.props(styles.hint)}>

@@ -823,6 +823,21 @@ export function App({
   if (fileState.active === "commit" && commitApi && !commitMounted) setCommitMounted(true);
   const commitReturn = useRef("changes");
   /** q: open the Commit tab, or go back to the tab it came from. */
+  // The tab row in order, for Alt+number and ⌘⇧[ / ⌘⇧]; empty when the row is hidden.
+  // Keys read the store at event time, so a quick second key sees the first one's tab.
+  const tabRow = useCallback(() => {
+    if (!browseSource && !savedBrief) return { order: [] as string[], active: "" };
+    const { tabs, active } = fileWorkspace.getSnapshot();
+    return {
+      order: [
+        ...(savedBrief ? ["brief"] : []),
+        "changes",
+        ...(commitApi ? ["commit"] : []),
+        ...tabs.map((tab) => tab.id),
+      ],
+      active,
+    };
+  }, [browseSource, savedBrief, commitApi, fileWorkspace]);
   const toggleCommit = useCallback(() => {
     if (fileState.active !== "commit") {
       commitReturn.current = fileState.active;
@@ -1349,8 +1364,9 @@ export function App({
         return;
       }
       const optionKey = event.code || `Key${event.key.toUpperCase()}`;
+      // These Alt keys also work from the editor, so ⌥W, ⌥Z, and ⌥1–9 do not type there.
       const fromEditor =
-        (optionKey === "KeyW" || optionKey === "KeyZ") &&
+        (optionKey === "KeyW" || optionKey === "KeyZ" || /^Digit[1-9]$/.test(optionKey)) &&
         event
           .composedPath()
           .some((node) => node instanceof HTMLElement && node.classList.contains("cm-content"));
@@ -1363,6 +1379,16 @@ export function App({
         !visibleElement('[role="dialog"]')
       ) {
         const key = optionKey;
+        // Alt+1–8 show that tab; Alt+9 shows the last, as in browsers.
+        const row = tabRow();
+        if (/^Digit[1-9]$/.test(key) && !event.shiftKey && row.order.length) {
+          event.preventDefault();
+          event.stopPropagation();
+          const place = Number(key.slice(5));
+          const id = place === 9 ? row.order.at(-1) : row.order[place - 1];
+          if (id && id !== row.active) fileWorkspace.select(id);
+          return;
+        }
         if (["KeyW", "KeyO", "KeyP", "KeyB", "KeyR", "KeyZ"].includes(key)) {
           event.preventDefault();
           event.stopPropagation();
@@ -1403,6 +1429,33 @@ export function App({
         return;
       }
       if (themePickerOpen || filePickerOpen || symbolPickerOpen || helpOpen || rangeOpen) return;
+      // ⌘⇧[ and ⌘⇧] show the previous and next tab, also from the editor. A
+      // browser tab keeps these keys; the installed app receives them.
+      const bracket =
+        event.code || (event.key === "{" ? "BracketLeft" : event.key === "}" ? "BracketRight" : "");
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.shiftKey &&
+        (bracket === "BracketLeft" || bracket === "BracketRight")
+      ) {
+        const inEditor = event
+          .composedPath()
+          .some((node) => node instanceof HTMLElement && node.classList.contains("cm-content"));
+        const { order, active } = tabRow();
+        if (
+          order.length < 2 ||
+          modal ||
+          visibleElement('[role="dialog"]') ||
+          (editing && !inEditor)
+        )
+          return;
+        event.preventDefault();
+        event.stopPropagation();
+        const step = bracket === "BracketRight" ? 1 : -1;
+        const index = Math.max(0, order.indexOf(active));
+        fileWorkspace.select(order[(index + step + order.length) % order.length]!);
+        return;
+      }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "o") {
         if (event.shiftKey ? !browseSource : !activeFile || fileState.file?.kind !== "text") return;
         event.preventDefault();
@@ -1533,6 +1586,7 @@ export function App({
     toggleBlame,
     commitApi,
     toggleCommit,
+    tabRow,
   ]);
 
   const selectBranch = useCallback(
@@ -2118,7 +2172,7 @@ export function App({
     {
       id: "theme",
       managesFocus: true,
-      label: "Change color theme",
+      label: "Change theme",
       run: () => setThemePickerOpen(true),
     },
     {
@@ -2731,10 +2785,10 @@ export function App({
         initialMode={pickerMode}
         initialQuery={pickerQuery}
         resume={pickerResume}
-        onOpen={(path, line, source) =>
+        onOpen={(path, line, source, keep) =>
           fileWorkspace.open(
             path,
-            false,
+            keep,
             line,
             source,
             source?.kind === "commit"

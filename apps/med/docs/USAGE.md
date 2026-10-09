@@ -252,31 +252,34 @@ such as `bun.lock`, `package-lock.json`, `Cargo.lock`, `go.sum`, and other
 
 Shift-click another commit to select an inclusive range. The comparison runs from the oldest selected commit's first parent to the newest selected commit. A root commit uses the empty tree. This compares endpoint snapshots; it does not add individual patches across merged branches. Shift+Up/Down extends the selection; a plain click resets it.
 
-| Action                            | macOS        | Omarchy Linux             |
-| --------------------------------- | ------------ | ------------------------- |
-| Keyboard shortcuts guide          | `?`          | `?`                       |
-| Command palette                   | `⌘K`         | `Ctrl+K`                  |
-| Find a file                       | `⌘⇧K`        | `Ctrl+Shift+K`            |
-| Symbols in current file           | `⌘O`         | `Ctrl+O`                  |
-| Symbols in project commits        | `⌘⇧O`        | `Ctrl+Shift+O`            |
-| Search file contents              | `⌘⇧F`        | `Ctrl+Shift+F`            |
-| Find in diff contents             | `⌘F`         | `Ctrl+F`                  |
-| Open a branch or worktree         | `⌘⇧G`        | `Ctrl+Shift+G`            |
-| Show workspace 1–9                | `⌘1`–`⌘9`    | `Ctrl+1`–`Ctrl+9`         |
-| Switch to a recent workspace      | `⌃Tab`       | `Ctrl+Tab`                |
-| Toggle history / files sidebar    | `⌘B` / `⌘⇧B` | `Ctrl+B` / `Ctrl+Shift+B` |
-| Zen mode                          | `⌥Z`         | `Alt+Z`                   |
-| Add note to selected lines        | `c`          | `c`                       |
-| Paste a brief                     | `⌘V`         | `Ctrl+V`                  |
-| Next / previous brief excerpt     | `]` / `[`    | `]` / `[`                 |
-| Resume search                     | `⌥R`         | `Alt+R`                   |
-| Keep preview tab                  | `⌥P`         | `Alt+P`                   |
-| Toggle gutter blame               | `⌥B`         | `Alt+B`                   |
-| Close current file                | `⌥W`         | `Alt+W`                   |
-| Close all files in this workspace | `⌥⇧W`        | `Alt+Shift+W`             |
-| Close other files                 | `⌥⇧O`        | `Alt+Shift+O`             |
+| Action                            | macOS         | Omarchy Linux             |
+| --------------------------------- | ------------- | ------------------------- |
+| Keyboard shortcuts guide          | `?`           | `?`                       |
+| Command palette                   | `⌘K`          | `Ctrl+K`                  |
+| Find a file                       | `⌘⇧K`         | `Ctrl+Shift+K`            |
+| Symbols in current file           | `⌘O`          | `Ctrl+O`                  |
+| Symbols in project commits        | `⌘⇧O`         | `Ctrl+Shift+O`            |
+| Search file contents              | `⌘⇧F`         | `Ctrl+Shift+F`            |
+| Find in diff contents             | `⌘F`          | `Ctrl+F`                  |
+| Open a branch or worktree         | `⌘⇧G`         | `Ctrl+Shift+G`            |
+| Show workspace 1–9                | `⌘1`–`⌘9`     | `Ctrl+1`–`Ctrl+9`         |
+| Switch to a recent workspace      | `⌃Tab`        | `Ctrl+Tab`                |
+| Toggle history / files sidebar    | `⌘B` / `⌘⇧B`  | `Ctrl+B` / `Ctrl+Shift+B` |
+| Zen mode                          | `⌥Z`          | `Alt+Z`                   |
+| Add note to selected lines        | `c`           | `c`                       |
+| Paste a brief                     | `⌘V`          | `Ctrl+V`                  |
+| Next / previous brief excerpt     | `]` / `[`     | `]` / `[`                 |
+| Resume search                     | `⌥R`          | `Alt+R`                   |
+| Keep preview tab                  | `⌥P`          | `Alt+P`                   |
+| Open a found file and keep it     | `⌘↵`          | `Ctrl+Enter`              |
+| Show tab 1–8 / the last tab       | `⌥1`–`⌥9`     | `Alt+1`–`Alt+9`           |
+| Previous / next tab               | `⌘⇧[` / `⌘⇧]` | `Ctrl+Shift+[` / `]`      |
+| Toggle gutter blame               | `⌥B`          | `Alt+B`                   |
+| Close current file                | `⌥W`          | `Alt+W`                   |
+| Close all files in this workspace | `⌥⇧W`         | `Alt+Shift+W`             |
+| Close other files                 | `⌥⇧O`         | `Alt+Shift+O`             |
 
-Close actions preserve the Changes tab and other workspaces. Desktop or browser shortcuts can take priority over a web app; the command palette provides the same actions.
+Close actions preserve the Changes tab and other workspaces. In Find file, `↵` opens the file in the preview tab, which the next preview replaces; `⌘↵` opens a tab that stays open. Tab keys count Brief, Changes, and Commit with the file tabs. A browser tab keeps `⌘⇧[` and `⌘⇧]` for its own tabs; the installed app receives them. Desktop or browser shortcuts can take priority over a web app; the command palette provides the same actions.
 
 `?` opens the shortcuts guide on your current context: Review, a read-only File,
 the Editor, or Pickers. Type to search every context by action or by key, such
