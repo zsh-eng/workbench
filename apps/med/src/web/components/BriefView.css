@@ -20,9 +20,9 @@
 }
 .med-brief-prose {
   /* Excerpts and code reach past the text column when the pane has room. */
-  --med-brief-bleed: clamp(0px, calc((100cqw - 38em) / 2 - 24px), 36px);
+  --med-brief-bleed: clamp(0px, calc((100cqw - var(--med-measure, 38em)) / 2 - 24px), 36px);
   /* Tables and images can use more of a wide pane. */
-  --med-brief-wide: clamp(0px, calc((100cqw - 38em) / 2 - 32px), 9em);
+  --med-brief-wide: clamp(0px, calc((100cqw - var(--med-measure, 38em)) / 2 - 32px), 9em);
 }
 .med-brief-prose a.med-brief-ref {
   color: var(--med-accent);

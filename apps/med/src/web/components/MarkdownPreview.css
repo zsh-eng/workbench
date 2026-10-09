@@ -46,7 +46,7 @@
   --med-md-gutter: clamp(24px, 4cqw, 48px);
   /* Keep the reading measure independent of the surrounding page padding. */
   width: 100%;
-  max-width: calc(38em + 2 * var(--med-md-gutter));
+  max-width: calc(var(--med-measure, 38em) + 2 * var(--med-md-gutter));
   margin: 0 auto;
   padding: 38px var(--med-md-gutter) 48px;
   font-family: var(--med-font-prose);

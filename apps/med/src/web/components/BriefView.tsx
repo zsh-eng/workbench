@@ -1082,7 +1082,7 @@ const styles = stylex.create({
   column: {
     boxSizing: "border-box",
     width: "100%",
-    maxWidth: "calc(38em + 2 * clamp(24px, 4cqw, 48px))",
+    maxWidth: "calc(var(--med-measure, 38em) + 2 * clamp(24px, 4cqw, 48px))",
     marginInline: "auto",
     paddingInlineStart: "clamp(24px, 4cqw, 48px)",
     paddingInlineEnd: "clamp(24px, 4cqw, 48px)",
