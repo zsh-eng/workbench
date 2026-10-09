@@ -47,7 +47,7 @@ export function useNotebookDeletion({
       const undoDeletion = () => void undo(deletion);
       if (notify) deletion.dismiss = notify(undoDeletion);
       else {
-        const toastId = toast("Deleted note.", {
+        const toastId = toast("Note deleted", {
           duration: 8000,
           action: {
             label: "Undo",

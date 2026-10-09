@@ -573,6 +573,7 @@ export function Reader() {
                   isMobile && (
                     <NotesCapsule
                       bookId={book.id}
+                      highlights={sessionState.highlights}
                       draft={noteDraftPresent}
                       disabled={
                         !displayReady ||

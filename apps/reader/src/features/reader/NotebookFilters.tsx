@@ -31,7 +31,7 @@ export function NotebookFilters({
         onValueChange={(value) => {
           if (value) onKindChange(value as NotebookKindFilter);
         }}
-        className="h-8 rounded-full bg-secondary/50 p-0.5"
+        className="h-8 shrink-0 overflow-visible rounded-full bg-secondary/50 p-0.5"
       >
         {(
           [
@@ -45,7 +45,7 @@ export function NotebookFilters({
             value={value}
             // Distinct from the sidebar's Notes and Highlights tabs.
             aria-label={`Show ${label.toLowerCase()}`}
-            className="h-7 rounded-full px-3 text-xs font-medium text-muted-foreground data-[pressed]:text-foreground"
+            className="relative h-7 flex-none rounded-full px-3 text-xs font-medium before:absolute before:content-[''] before:-inset-y-2 text-muted-foreground data-[pressed]:text-foreground"
           >
             {label}
           </SegmentedToggleGroupItem>
@@ -54,7 +54,7 @@ export function NotebookFilters({
       <div
         role="group"
         aria-label="Filter by colour"
-        className="ml-auto flex items-center gap-3"
+        className="ml-auto flex items-center gap-4"
       >
         {HIGHLIGHT_COLORS.map(({ name }) => {
           const selected = colors.includes(name);
@@ -62,7 +62,7 @@ export function NotebookFilters({
             <button
               key={name}
               type="button"
-              aria-label={`Only ${name}`}
+              aria-label={`${name[0].toUpperCase()}${name.slice(1)} highlights`}
               aria-pressed={selected}
               onClick={() =>
                 onColorsChange(
@@ -72,8 +72,8 @@ export function NotebookFilters({
                 )
               }
               className={cn(
-                // The pseudo element widens the touch target to 30 px.
-                "relative size-[18px] shrink-0 rounded-full before:absolute before:-inset-1.5 before:content-[''] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_10%,transparent)] transition-opacity duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+                // The pseudo element widens the touch target to 34 × 44 px.
+                "relative size-[18px] shrink-0 rounded-full before:absolute before:-inset-x-2 before:-inset-y-[13px] before:content-[''] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_10%,transparent)] transition-opacity duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
                 "after:pointer-events-none after:absolute after:-inset-[3px] after:rounded-full after:border-[1.5px] after:border-foreground/70 after:opacity-0 after:transition-opacity after:duration-150",
                 selected && "after:opacity-100",
                 colors.length > 0 && !selected && "opacity-40",

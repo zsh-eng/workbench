@@ -44,7 +44,7 @@ export function MobileHighlightBar({
                 : `Highlight with ${color.name}`
             }
             className={cn(
-              "relative size-7 shrink-0 cursor-pointer rounded-full shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_10%,transparent)] transition-transform duration-150 active:scale-90 motion-reduce:active:scale-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "relative size-7 shrink-0 cursor-pointer rounded-full before:absolute before:content-[''] before:-inset-1.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_10%,transparent)] transition-transform duration-150 active:scale-90 motion-reduce:active:scale-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               "after:pointer-events-none after:absolute after:-inset-1 after:rounded-full after:border-[1.5px] after:border-foreground/70 after:opacity-0 after:transition-opacity after:duration-150",
               isCurrentColor && "after:opacity-100",
             )}

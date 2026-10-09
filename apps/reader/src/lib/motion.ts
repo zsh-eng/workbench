@@ -1,8 +1,8 @@
 /**
  * One motion vocabulary for the app's floating surfaces and the Reader's
- * chrome. Surfaces animate only opacity and transform; they leave faster than
- * they arrive, so the page stays primary. Use these instead of local durations
- * and curves.
+ * chrome. Surfaces animate opacity and transform; only the Notes Island also
+ * changes its size, with `shape`. Surfaces leave faster than they arrive, so
+ * the page stays primary. Use these instead of local durations and curves.
  */
 
 /** Settles quickly; for anything that appears. */

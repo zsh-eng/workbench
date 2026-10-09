@@ -15,6 +15,8 @@ import {
   type ReactNode,
 } from "react";
 import type { AnnotationColor } from "@/lib/highlight-constants";
+import type { Highlight } from "@/types/highlight";
+import type { Note } from "@/types/note";
 import { useBookNotesQuery } from "@/hooks/use-notes-query";
 import { MOTION } from "@/lib/motion";
 import { NotebookCountIcon } from "./shared/NotebookCountIcon";
@@ -30,23 +32,51 @@ import { NotebookCountIcon } from "./shared/NotebookCountIcon";
 export const ISLAND_SURFACE =
   "border border-border/70 bg-popover/95 text-popover-foreground shadow-lg backdrop-blur-xl";
 
+/** The highlights that join the notebook: visible ones without a note. A
+ * note on a highlight already shows its passage. */
+export function notebookHighlights(notes: Note[], highlights: Highlight[]) {
+  const noted = new Set(
+    notes.flatMap((note) =>
+      note.kind === "note" && note.highlightId ? [note.highlightId] : [],
+    ),
+  );
+  return highlights.filter(
+    (highlight) => highlight.color !== "invisible" && !noted.has(highlight.id),
+  );
+}
+
+const plural = (count: number, word: string) =>
+  `${count} ${count === 1 ? word : `${word}s`}`;
+
 /** Resting state, docked on the footer where Jot a note was. It reads the
- * book's notes itself, so a saved note does not render the Reader. */
+ * book's notes itself, so a saved note does not render the Reader. Its count
+ * is the notebook's: notes, and highlights without a note. */
 export function NotesCapsule({
   bookId,
+  highlights,
   draft,
   disabled,
   onOpenNotebook,
   onJot,
 }: {
   bookId: string;
+  highlights: Highlight[];
   draft: boolean;
   disabled: boolean;
   onOpenNotebook: () => void;
   onJot: () => void;
 }) {
-  const notes = useBookNotesQuery(bookId).data;
-  const count = notes?.filter((note) => note.kind === "note").length ?? 0;
+  const notes = useBookNotesQuery(bookId).data ?? [];
+  const noteCount = notes.filter((note) => note.kind === "note").length;
+  const highlightCount = notebookHighlights(notes, highlights).length;
+  const count = noteCount + highlightCount;
+  const description = `${
+    highlightCount === 0
+      ? plural(noteCount, "note")
+      : noteCount === 0
+        ? plural(highlightCount, "highlight")
+        : `${plural(noteCount, "note")} and ${plural(highlightCount, "highlight")}`
+  } in this book`;
   return (
     <div
       data-notes-capsule=""
@@ -58,10 +88,10 @@ export function NotesCapsule({
       <button
         type="button"
         aria-label="Open notebook"
-        aria-description={`${count} ${count === 1 ? "note" : "notes"} in this book`}
+        aria-description={description}
         disabled={disabled}
         onClick={onOpenNotebook}
-        className="flex h-9 items-center rounded-full px-2 text-foreground hover:bg-secondary focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-40"
+        className="relative flex h-9 items-center rounded-full px-2 text-foreground before:absolute before:content-[''] before:-inset-y-1 hover:bg-secondary focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-40"
       >
         <NotebookCountIcon count={count} />
       </button>
@@ -72,7 +102,7 @@ export function NotesCapsule({
         title={draft ? "Continue draft" : "Jot a note"}
         disabled={disabled}
         onClick={onJot}
-        className="relative flex h-9 items-center gap-1.5 rounded-full pr-3.5 pl-3 text-[13px] font-medium text-foreground hover:bg-secondary focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-40"
+        className="relative flex h-9 items-center gap-1.5 rounded-full pr-3.5 pl-3 before:absolute before:content-[''] before:-inset-y-1 text-[13px] font-medium text-foreground hover:bg-secondary focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-40"
       >
         <PencilLine className="size-4" aria-hidden="true" />
         {draft ? "Draft" : "Jot"}
@@ -242,13 +272,13 @@ export function IslandNote({
       <p className="max-h-40 overflow-y-auto text-[15px] leading-relaxed break-words whitespace-pre-wrap text-foreground">
         {text}
       </p>
-      <footer className="mt-2 -mr-2 flex items-center gap-1 text-[11px] text-muted-foreground">
+      <footer className="mt-1 -mr-2.5 flex items-center text-[11px] text-muted-foreground">
         <span className="min-w-0 truncate">{meta}</span>
         <span className="flex-1" />
         <button
           type="button"
           onClick={onEdit}
-          className="flex h-8 items-center gap-1 rounded-full px-2.5 hover:bg-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+          className="flex h-10 items-center gap-1 rounded-full px-3 hover:bg-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
         >
           <PencilLine className="size-3.5" aria-hidden="true" />
           Edit
@@ -258,7 +288,7 @@ export function IslandNote({
           aria-label="Show highlight tools"
           onPointerDown={(event) => event.preventDefault()}
           onClick={onShowTools}
-          className="flex size-8 items-center justify-center rounded-full hover:bg-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+          className="flex size-10 items-center justify-center rounded-full hover:bg-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
         >
           <Palette className="size-3.5" aria-hidden="true" />
         </button>
@@ -266,7 +296,7 @@ export function IslandNote({
           type="button"
           aria-label="Delete note"
           onClick={onDelete}
-          className="flex size-8 items-center justify-center rounded-full hover:bg-secondary hover:text-destructive focus-visible:outline-2 focus-visible:outline-ring"
+          className="flex size-10 items-center justify-center rounded-full hover:bg-secondary hover:text-destructive focus-visible:outline-2 focus-visible:outline-ring"
         >
           <Trash2 className="size-3.5" aria-hidden="true" />
         </button>
@@ -274,7 +304,7 @@ export function IslandNote({
           type="button"
           aria-label="Close note"
           onClick={onClose}
-          className="flex size-8 items-center justify-center rounded-full hover:bg-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+          className="flex size-10 items-center justify-center rounded-full hover:bg-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
         >
           <X className="size-3.5" aria-hidden="true" />
         </button>
@@ -324,7 +354,7 @@ export function IslandNotice({
         <button
           type="button"
           onClick={onUndo}
-          className="ml-1 h-8 rounded-full bg-secondary px-3.5 text-[13px] font-medium focus-visible:outline-2 focus-visible:outline-ring"
+          className="relative ml-1 h-8 rounded-full bg-secondary px-3.5 before:absolute before:content-[''] before:-inset-y-1.5 text-[13px] font-medium focus-visible:outline-2 focus-visible:outline-ring"
         >
           Undo
         </button>

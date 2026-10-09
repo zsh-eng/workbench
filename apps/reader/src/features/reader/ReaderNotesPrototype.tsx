@@ -18,6 +18,7 @@ import {
   IslandNotice,
   IslandSurface,
   IslandTools,
+  notebookHighlights,
   type IslandNoticeState,
 } from "./NotesIsland";
 import type {
@@ -32,7 +33,7 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
 } from "@/components/ui/dropdown-menu";
-import { ArrowUp, Check, SlidersHorizontal, X } from "lucide-react";
+import { ArrowUp, ArrowUpDown, Check, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { MOTION } from "@/lib/motion";
 import {
@@ -216,27 +217,20 @@ export function ReaderNotesPrototype({
     [notes.notes, resolver, pagination.status, pagination.spread],
   );
   // A highlight with a note is already shown by that note's quote.
-  const notebookHighlights = useMemo(() => {
-    const noted = new Set(
-      notes.notes.flatMap((note) =>
-        note.kind === "note" && note.highlightId ? [note.highlightId] : [],
-      ),
-    );
-    return highlights.filter(
-      (highlight) =>
-        highlight.color !== "invisible" && !noted.has(highlight.id),
-    );
-  }, [highlights, notes.notes]);
+  const unnotedHighlights = useMemo(
+    () => notebookHighlights(notes.notes, highlights),
+    [highlights, notes.notes],
+  );
   const resolvedHighlights = useMemo(
     () =>
       (!pagination.spread || pagination.status === "idle"
         ? []
-        : notebookHighlights
+        : unnotedHighlights
       ).map((highlight) => ({
         highlight,
         anchor: resolver.resolve(highlightNoteTarget(highlight, true).anchor),
       })),
-    [notebookHighlights, resolver, pagination.status, pagination.spread],
+    [unnotedHighlights, resolver, pagination.status, pagination.spread],
   );
   useEffect(() => {
     if (!resolvedHighlights.length) return;
@@ -406,9 +400,17 @@ export function ReaderNotesPrototype({
     seenAnnotation.current = annotationIdentity;
     setToolsRequested(false);
     if (!annotationIdentity) return;
+    // The island owns the bottom edge; the reading chrome steps aside.
+    onReturnToReading();
     setNotice(null);
     if (composing) onActiveChange(false);
-  }, [desktop, annotationIdentity, composing, onActiveChange]);
+  }, [
+    desktop,
+    annotationIdentity,
+    composing,
+    onActiveChange,
+    onReturnToReading,
+  ]);
   const composer = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const sidebarInput = useRef<HTMLTextAreaElement>(null);
@@ -719,7 +721,7 @@ export function ReaderNotesPrototype({
         }
         onPointerDown={(event) => event.preventDefault()}
         onClick={() => send()}
-        className={`${desktop || island ? "relative" : "absolute right-0 bottom-0"} ${island ? "mb-0.5" : ""} flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transform-none ${hasDraftText ? "[transform:scale(1)] opacity-100 disabled:opacity-30" : "pointer-events-none [transform:scale(0.9)] opacity-0"}`}
+        className={`${desktop || island ? "relative" : "absolute right-0 bottom-0"} ${island ? "mb-0.5" : ""} flex size-8 shrink-0 items-center justify-center rounded-full bg-primary before:absolute before:content-[''] before:-inset-1.5 text-primary-foreground transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transform-none ${hasDraftText ? "[transform:scale(1)] opacity-100 disabled:opacity-30" : "pointer-events-none [transform:scale(0.9)] opacity-0"}`}
       >
         {editingInComposer ? <Check size={20} /> : <ArrowUp size={20} />}
       </button>
@@ -813,7 +815,7 @@ export function ReaderNotesPrototype({
                 aria-label="Cancel editing"
                 disabled={notes.saving}
                 onPointerDown={(event) => event.preventDefault()}
-                className="h-7 rounded-full px-2.5 hover:bg-secondary hover:text-foreground"
+                className="relative h-7 rounded-full px-2.5 hover:bg-secondary hover:text-foreground before:absolute before:content-[''] before:-inset-y-2"
                 onClick={() => notes.cancelEdit()}
               >
                 Cancel
@@ -923,26 +925,26 @@ export function ReaderNotesPrototype({
           <DropdownMenu>
             <DropdownMenuTrigger
               aria-label="Notebook order"
-              className="flex size-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"
+              className="relative flex size-8 items-center justify-center rounded-full before:absolute before:content-[''] before:-inset-1.5 text-muted-foreground hover:bg-muted"
             >
-              <SlidersHorizontal size={15} />
+              <ArrowUpDown size={15} />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuRadioGroup value={order} onValueChange={changeOrder}>
-                <DropdownMenuRadioItem value="time">
+                <DropdownMenuRadioItem value="time" closeOnClick>
                   By time
                 </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="chapter">
+                <DropdownMenuRadioItem value="chapter" closeOnClick>
                   By chapter
                 </DropdownMenuRadioItem>
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>
-          {!desktop && (
+          {!desktop && !embeddedNotebook && (
             <button
               aria-label="Close notebook"
               onClick={close}
-              className="flex size-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"
+              className="relative flex size-8 items-center justify-center rounded-full before:absolute before:content-[''] before:-inset-1.5 text-muted-foreground hover:bg-muted"
             >
               <X size={15} />
             </button>

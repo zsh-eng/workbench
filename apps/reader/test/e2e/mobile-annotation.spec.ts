@@ -283,8 +283,19 @@ test("the notebook gathers highlights and filters them by type and colour", asyn
 }) => {
   await openLocalBook(page, localBook.id);
   for (let i = 0; i < 8; i++) await nextSpread(page);
-  // A plain yellow highlight, and a green highlight with a note.
-  await selectPassage(page);
+  // Selecting text hides the reading chrome; the island owns the bottom edge.
+  await showChrome(page);
+  const back = page.getByRole("button", { name: "Back to library" });
+  await expect(back).toBeInViewport();
+  // A plain yellow highlight, and a green highlight with a note. The reveal
+  // tap clears selections for a moment, so retry until one holds.
+  await expect(async () => {
+    await selectPassage(page);
+    await expect(page.locator('[data-notes-island="tools"]')).toBeVisible({
+      timeout: 500,
+    });
+  }).toPass();
+  await expect(back).not.toBeInViewport();
   await page.getByRole("button", { name: "Highlight with yellow" }).click();
   await selectPassage(page, 2);
   await page.getByRole("button", { name: "Highlight with green" }).click();
@@ -298,9 +309,13 @@ test("the notebook gathers highlights and filters them by type and colour", asyn
     .fill("Green thought.");
   await page.getByRole("button", { name: "Save note", exact: true }).click();
   await showChrome(page);
-  await page
-    .getByRole("button", { name: "Open notebook", exact: true })
-    .click();
+  // The capsule counts what the notebook shows.
+  const open = page.getByRole("button", { name: "Open notebook", exact: true });
+  await expect(open).toHaveAttribute(
+    "aria-description",
+    "1 note and 1 highlight in this book",
+  );
+  await open.click();
   const notebook = page.getByRole("region", { name: "Book notebook" });
   const heading = notebook.getByRole("heading", { level: 2 });
   await expect(heading).toHaveText(/Notebook\s*2$/);
@@ -319,7 +334,7 @@ test("the notebook gathers highlights and filters them by type and colour", asyn
     animations: "disabled",
   });
   await show.getByRole("button", { name: "Show all" }).click();
-  await notebook.getByRole("button", { name: "Only green" }).click();
+  await notebook.getByRole("button", { name: "Green highlights" }).click();
   await expect(heading).toHaveText(/1 of 2$/);
   await expect(notebook).toContainText("Green thought.");
   await show.getByRole("button", { name: "Show highlights" }).click();
