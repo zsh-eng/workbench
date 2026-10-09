@@ -47,6 +47,8 @@ test("the replay plays a recorded session into the thread and stops when paused"
   await userEvent.click(replay.getByRole("button", { name: "Play" }));
   await expect.element(replay.getByText(/Worked for \d+s/), { timeout: 10000 }).toBeVisible();
   await expect.element(replay.getByText("summary.ts:5", { exact: true })).toBeVisible();
+  // Rows that fold into a group make the thread shorter; the view still followed to the end.
+  await expect.element(replay.getByRole("button", { name: "Latest" })).not.toBeInTheDocument();
 });
 
 test("a tool call opens to show its command and output", async () => {
@@ -69,4 +71,16 @@ test("the sample thread shows a plan, a failed test, and a subagent's own steps"
     .toBeVisible();
   await userEvent.click(gallery.getByRole("button", { name: /Find every place that fetches/ }));
   await expect.element(gallery.getByText(/Two paths fetch/)).toBeVisible();
+});
+
+test("scrolling up stops following, and Latest returns to the newest item", async () => {
+  const replay = await setup();
+  const scroller = replay.getByRole("log").element().parentElement!;
+  await expect
+    .poll(() => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight)
+    .toBeLessThan(32);
+  scroller.scrollTop = 0;
+  await userEvent.click(replay.getByRole("button", { name: "Latest" }));
+  await expect.element(replay.getByRole("button", { name: "Latest" })).not.toBeInTheDocument();
+  expect(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight).toBeLessThan(32);
 });

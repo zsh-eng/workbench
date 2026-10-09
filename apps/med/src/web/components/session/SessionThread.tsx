@@ -177,6 +177,7 @@ function Explore({
   const running = items.some(
     (item) => item.call.status === "pending" || item.call.status === "in_progress",
   );
+  const failed = items.filter((item) => item.call.status === "failed").length;
   const reads = items.filter((item) => item.call.kind === "read").length;
   const searches = items.length - reads;
   const parts = [
@@ -198,6 +199,7 @@ function Explore({
           <span {...stylex.props(styles.verb)}>{running ? "Exploring" : "Explored"} </span>
           {parts.join(", ")}
         </span>
+        {failed > 0 && <span {...stylex.props(styles.groupFailed)}>{failed} failed</span>}
         <span {...stylex.props(styles.chevron, open && styles.chevronOpen)}>
           <Icon name="chevron" size={12} />
         </span>
@@ -315,19 +317,26 @@ export function SessionThread({
     const node = scroller.current;
     const inner = content.current;
     if (!node || !inner) return;
-    // The view follows new items while the reader stays at the bottom. A
-    // move up since the last follow stops it, even before its scroll event.
+    // The view follows new items while the reader stays at the bottom. Only
+    // a move up stops it: a scroll event can arrive after the thread grew and
+    // before the view followed, and rows that fold into a group make the
+    // thread shorter, which moves the view up but leaves it at the end.
     let top = node.scrollTop;
-    const follow = () => {
-      if (node.scrollTop + 1 < top) stuck.current = false;
-      if (stuck.current) node.scrollTop = node.scrollHeight;
+    const atEnd = () => node.scrollHeight - node.scrollTop - node.clientHeight < 32;
+    const check = () => {
+      if (atEnd()) stuck.current = true;
+      else if (node.scrollTop + 1 < top) stuck.current = false;
       top = node.scrollTop;
     };
-    const onScroll = () => {
-      const bottom = node.scrollHeight - node.scrollTop - node.clientHeight < 32;
-      stuck.current = bottom;
+    const follow = () => {
+      check();
+      if (stuck.current) node.scrollTop = node.scrollHeight;
       top = node.scrollTop;
-      setAtBottom(bottom);
+      setAtBottom(stuck.current);
+    };
+    const onScroll = () => {
+      check();
+      setAtBottom(stuck.current);
     };
     const observer = new ResizeObserver(follow);
     observer.observe(inner);
@@ -351,6 +360,8 @@ export function SessionThread({
           <div
             ref={content}
             {...stylex.props(styles.content)}
+            role="log"
+            aria-label="Session"
             aria-live="polite"
             aria-busy={snapshot.running}
           >
@@ -465,6 +476,7 @@ const styles = stylex.create({
     whiteSpace: "pre-wrap",
   },
   groupHead: { cursor: "pointer" },
+  groupFailed: { color: tokens.red, fontSize: 11.5 },
   group: { display: "flex", flexDirection: "column", paddingInlineStart: 12 },
   chevron: {
     display: "flex",
