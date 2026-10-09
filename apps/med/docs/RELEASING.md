@@ -29,6 +29,11 @@ Inspect the archive and `BUILD.json`. Verify `codesign --verify med` and the
 minimum macOS version with `otool -l med`. The script replaces Bun's linker signature
 after compilation with a verified ad-hoc signature. It is not Developer ID signed or notarized. Do not describe it as such.
 
+`install.sh` downloads `med-v<version>-macos-arm64.tar.gz` and `SHA256SUMS`
+from the release with tag `med-v<version>`. It takes the newest plain
+`med-v<x.y.z>` tag from the release list, so a release-candidate tag such as
+`med-v0.2.0-rc.1` is skipped. Keep these names when changing the release script.
+
 Publish only when authorized. Use Med-specific tags (`med-v0.1.7`) because this
 repository also releases other apps. Tag the exact `BUILD.json` commit, push the
 tag without force, and attach the tarball and `SHA256SUMS` to a GitHub release.
