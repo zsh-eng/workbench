@@ -656,6 +656,8 @@ export function Reader() {
                           }
                         : undefined
                     }
+                    highlights={sessionState.highlights}
+                    onVisitHighlight={sessionActions.goToHighlight}
                     chapters={sessionState.chapters.entries}
                     chapterAccess={sessionResources.chapterAccess}
                     pagination={sessionState.pagination}

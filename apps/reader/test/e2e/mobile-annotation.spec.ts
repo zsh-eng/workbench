@@ -270,3 +270,63 @@ test("a noted highlight opens its note on the island, with Undo for deletion", a
     page.getByRole("button", { name: "Remove highlight", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
 });
+
+test("the notebook gathers highlights and filters them by type and colour", async ({
+  page,
+  localBook,
+}) => {
+  await openLocalBook(page, localBook.id);
+  for (let i = 0; i < 8; i++) await nextSpread(page);
+  // A plain yellow highlight, and a green highlight with a note.
+  await selectPassage(page);
+  await page.getByRole("button", { name: "Highlight with yellow" }).click();
+  await selectPassage(page, 2);
+  await page.getByRole("button", { name: "Highlight with green" }).click();
+  await page
+    .locator('[data-reader-spread-layer="current"] mark[data-color="green"]')
+    .first()
+    .click();
+  await page.getByRole("button", { name: "Add note" }).click();
+  await page
+    .getByRole("textbox", { name: "Write a note" })
+    .fill("Green thought.");
+  await page.getByRole("button", { name: "Save note", exact: true }).click();
+  await showChrome(page);
+  await page
+    .getByRole("button", { name: "Open notebook", exact: true })
+    .click();
+  const notebook = page.getByRole("region", { name: "Book notebook" });
+  const heading = notebook.getByRole("heading", { level: 2 });
+  await expect(heading).toHaveText(/Notebook\s*2$/);
+  const show = notebook.getByRole("group", { name: "Show" });
+  const height = (await notebook.boundingBox())!.height;
+  await show.getByRole("button", { name: "Show highlights" }).click();
+  await expect(heading).toHaveText(/1 of 2$/);
+  await expect(
+    notebook.getByRole("button", { name: /^Go to highlight:/ }),
+  ).toHaveCount(1);
+  await expect(notebook).not.toContainText("Green thought.");
+  // Filtering does not move the filters under the finger.
+  expect((await notebook.boundingBox())!.height).toBeCloseTo(height, 0);
+  await page.screenshot({
+    path: "diagnostics/interface-review/notes-island/notebook-filters.png",
+    animations: "disabled",
+  });
+  await show.getByRole("button", { name: "Show all" }).click();
+  await notebook.getByRole("button", { name: "Only green" }).click();
+  await expect(heading).toHaveText(/1 of 2$/);
+  await expect(notebook).toContainText("Green thought.");
+  await show.getByRole("button", { name: "Show highlights" }).click();
+  await expect(notebook).toContainText("Nothing matches these filters.");
+  await notebook.getByRole("button", { name: "Show everything" }).click();
+  await expect(heading).toHaveText(/Notebook\s*2$/);
+  // A highlight opens its page and returns to reading.
+  const yellow = notebook.getByRole("button", { name: /^Go to highlight:/ });
+  await yellow.click();
+  await expect(notebook).not.toBeVisible();
+  await expect(
+    page.locator(
+      '[data-reader-spread-layer="current"] mark[data-color="yellow"]',
+    ),
+  ).toBeVisible();
+});

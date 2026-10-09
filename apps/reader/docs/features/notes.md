@@ -18,6 +18,14 @@ New-note and edit drafts are separate. Editing never overwrites a compose draft.
 Saving or cancelling an edit removes only that edit draft. A received remote edit
 returns a conflict; a received deletion cannot be undone by ordinary submission.
 
+## Notebook
+
+The notebook gathers the book's notes and the highlights that have no note; a
+note on a highlight already shows that passage. It filters by type (All, Notes,
+Highlights) and by any number of highlight colours. A note takes the current
+colour of its highlight. Choosing a highlight opens its page. Filters stay set
+while the book is open.
+
 ## Phone: Notes Island
 
 On phones one surface owns note capture. It never floats over plain reading.

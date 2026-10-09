@@ -3,9 +3,16 @@ import { NotebookNote } from "./NotebookNote";
 import { DesktopNotebookNote, NotebookNoteBody } from "./DesktopNotebookNote";
 import { ReaderSheet } from "./shared/ReaderSheet";
 import type { Note, NoteTarget } from "@/types/note";
+import type { Highlight } from "@/types/highlight";
+import type { HighlightColor } from "@/lib/highlight-constants";
+import { NotebookFilters, type NotebookKindFilter } from "./NotebookFilters";
 import { useReaderNotes } from "./hooks/use-reader-notes";
 import { useNotebookDeletion } from "./hooks/use-notebook-deletion";
-import { createNoteLocationResolver, noteMarginTop } from "./note-locations";
+import {
+  createNoteLocationResolver,
+  highlightNoteTarget,
+  noteMarginTop,
+} from "./note-locations";
 import {
   IslandNote,
   IslandNotice,
@@ -52,6 +59,8 @@ export function ReaderNotesPrototype({
   chapterAccess,
   pagination,
   locateAnchors,
+  highlights,
+  onVisitHighlight,
   location,
   children,
   notebook,
@@ -79,6 +88,9 @@ export function ReaderNotesPrototype({
     close: () => void;
   };
   bookId: string;
+  /** The book's highlights. Those without a note join the notebook. */
+  highlights: Highlight[];
+  onVisitHighlight: (highlight: Highlight) => void;
   chapters: ChapterEntry[];
   chapterAccess: ReaderSessionResources["chapterAccess"];
   pagination: ReaderSessionState["pagination"];
@@ -105,6 +117,8 @@ export function ReaderNotesPrototype({
   const composerOpen = open || Boolean(mobileAnnotation);
   const reduceMotion = useReducedMotion();
   const [order, setOrder] = useState<"time" | "chapter">("time");
+  const [kindFilter, setKindFilter] = useState<NotebookKindFilter>("all");
+  const [colorFilter, setColorFilter] = useState<HighlightColor[]>([]);
   const [notice, setNotice] = useState<IslandNoticeState | null>(null);
   // A tapped passage with a note shows the note; Palette asks for its colours.
   const [toolsRequested, setToolsRequested] = useState(false);
@@ -199,6 +213,38 @@ export function ReaderNotesPrototype({
       })),
     [notes.notes, resolver, pagination.status, pagination.spread],
   );
+  // A highlight with a note is already shown by that note's quote.
+  const notebookHighlights = useMemo(() => {
+    const noted = new Set(
+      notes.notes.flatMap((note) =>
+        note.kind === "note" && note.highlightId ? [note.highlightId] : [],
+      ),
+    );
+    return highlights.filter(
+      (highlight) =>
+        highlight.color !== "invisible" && !noted.has(highlight.id),
+    );
+  }, [highlights, notes.notes]);
+  const resolvedHighlights = useMemo(
+    () =>
+      (!pagination.spread || pagination.status === "idle"
+        ? []
+        : notebookHighlights
+      ).map((highlight) => ({
+        highlight,
+        anchor: resolver.resolve(highlightNoteTarget(highlight, true).anchor),
+      })),
+    [notebookHighlights, resolver, pagination.status, pagination.spread],
+  );
+  useEffect(() => {
+    if (!resolvedHighlights.length) return;
+    locateAnchors(
+      resolvedHighlights.flatMap(({ highlight, anchor }) =>
+        anchor ? [{ id: highlight.id, anchor }] : [],
+      ),
+      "notebook-highlights",
+    );
+  }, [resolvedHighlights, locateAnchors]);
   useEffect(() => {
     if (!resolved.length) return;
     locateAnchors(
@@ -244,11 +290,98 @@ export function ReaderNotesPrototype({
         createdAt: note.createdAt,
         quote:
           note.kind === "note" && note.quote
-            ? { selectedText: note.quote.text, color: note.quote.color }
+            ? {
+                selectedText: note.quote.text,
+                // A highlight's colour can change after the note was written.
+                color:
+                  (note.highlightId &&
+                    highlights.find(
+                      (highlight) => highlight.id === note.highlightId,
+                    )?.color) ||
+                  note.quote.color,
+              }
             : undefined,
+        highlight: undefined as Highlight | undefined,
         top: noteMarginTop(anchor),
       })),
-    [resolved, pagination.anchorPages, pagination.status, chapters],
+    [resolved, pagination.anchorPages, pagination.status, chapters, highlights],
+  );
+  // The notebook gathers notes and the highlights that have no note.
+  const notebookEntries = useMemo(() => {
+    const pages = pagination.highlightAnchorPages;
+    return [
+      ...entries,
+      ...resolvedHighlights.map(({ highlight, anchor }) => ({
+        id: highlight.id,
+        kind: "highlight" as const,
+        text: "",
+        location: {
+          page:
+            anchor && pagination.status !== "recalculating"
+              ? (pages[highlight.id] ?? 0)
+              : 0,
+          chapter:
+            chapters.find(
+              (chapter) => chapter.spineItemId === highlight.spineItemId,
+            )?.title ?? "Unknown chapter",
+        },
+        chapterIndex: chapters.findIndex(
+          (chapter) => chapter.spineItemId === highlight.spineItemId,
+        ),
+        offset: highlight.startOffset,
+        createdAt: highlight.createdAt,
+        quote: { selectedText: highlight.selectedText, color: highlight.color },
+        highlight,
+        top: 0,
+      })),
+    ].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+  }, [
+    entries,
+    resolvedHighlights,
+    pagination.highlightAnchorPages,
+    pagination.status,
+    chapters,
+  ]);
+  const filtering = kindFilter !== "all" || colorFilter.length > 0;
+  // While filters are set, the phone notebook keeps the tallest list height it
+  // has had, so the filter controls stay under the finger.
+  const [filterHeight, setFilterHeight] = useState<number | null>(null);
+  const holdListHeight = useCallback((active: boolean) => {
+    setFilterHeight((height) =>
+      active
+        ? Math.max(
+            height ?? 0,
+            list.current?.getBoundingClientRect().height ?? 0,
+          )
+        : null,
+    );
+  }, []);
+  const changeKindFilter = useCallback(
+    (kind: NotebookKindFilter) => {
+      holdListHeight(kind !== "all" || colorFilter.length > 0);
+      setKindFilter(kind);
+    },
+    [colorFilter.length, holdListHeight],
+  );
+  const changeColorFilter = useCallback(
+    (colors: HighlightColor[]) => {
+      holdListHeight(kindFilter !== "all" || colors.length > 0);
+      setColorFilter(colors);
+    },
+    [kindFilter, holdListHeight],
+  );
+  const shownEntries = useMemo(
+    () =>
+      notebookEntries.filter(
+        (entry) =>
+          (kindFilter === "all" ||
+            (kindFilter === "highlights"
+              ? entry.kind === "highlight"
+              : entry.kind !== "highlight")) &&
+          (!colorFilter.length ||
+            colorFilter.includes(entry.quote?.color as HighlightColor)),
+      ),
+    [notebookEntries, kindFilter, colorFilter],
   );
 
   const [keyboardOpen, setKeyboardOpen] = useState(false);
@@ -494,18 +627,18 @@ export function ReaderNotesPrototype({
   const orderedEntries = useMemo(
     () =>
       order === "time"
-        ? entries
-        : [...entries].sort(
+        ? shownEntries
+        : [...shownEntries].sort(
             (a, b) =>
               a.chapterIndex - b.chapterIndex ||
               a.offset - b.offset ||
               a.createdAt - b.createdAt ||
               a.id.localeCompare(b.id),
           ),
-    [order, entries],
+    [order, shownEntries],
   );
   const groupLabel = useCallback(
-    (entry: (typeof entries)[number]) => {
+    (entry: (typeof notebookEntries)[number]) => {
       if (order === "chapter") return entry.location.chapter;
       const date = new Date(entry.createdAt);
       if (date.toDateString() === new Date().toDateString()) return "Today";
@@ -738,7 +871,9 @@ export function ReaderNotesPrototype({
           <h2 className="flex flex-1 items-center gap-2 text-sm font-medium">
             <span>Notebook</span>{" "}
             <span className="text-xs font-normal text-muted-foreground font-numeric tabular-nums">
-              {entries.length}
+              {filtering
+                ? `${shownEntries.length} of ${notebookEntries.length}`
+                : notebookEntries.length}
             </span>
           </h2>
           <DropdownMenu>
@@ -769,15 +904,44 @@ export function ReaderNotesPrototype({
             </button>
           )}
         </header>
+        {notebookEntries.length > 0 && (
+          <NotebookFilters
+            kind={kindFilter}
+            colors={colorFilter}
+            onKindChange={changeKindFilter}
+            onColorsChange={changeColorFilter}
+          />
+        )}
         <div
           ref={list}
           className={`relative min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain p-4 ${desktop ? "flex-1" : ""}`}
           style={{
-            minHeight: "min(9rem, 24dvh)",
+            minHeight:
+              !desktop && !keyboardOpen && filterHeight
+                ? filterHeight
+                : "min(9rem, 24dvh)",
             maxHeight: desktop ? undefined : keyboardOpen ? "24dvh" : "48dvh",
           }}
         >
-          {!entries.length && (
+          {notebookEntries.length > 0 && !shownEntries.length && (
+            <div className="absolute inset-x-4 top-4 px-4 py-10 text-center">
+              <p className="font-serif text-lg text-muted-foreground">
+                Nothing matches these filters.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterHeight(null);
+                  setKindFilter("all");
+                  setColorFilter([]);
+                }}
+                className="mt-3 h-8 rounded-full px-3 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+              >
+                Show everything
+              </button>
+            </div>
+          )}
+          {!notebookEntries.length && (
             <motion.p
               initial={desktop ? false : { opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -851,74 +1015,94 @@ export function ReaderNotesPrototype({
                 }}
                 className="flow-root overflow-hidden"
               >
-                <NotebookCard
-                  text={entry.text}
-                  dimmed={inlineEditing && notes.editingId !== entry.id}
-                  disabled={!notes.ready || notes.saving}
-                  canEdit={entry.kind === "note"}
-                  editing={notes.editingId === entry.id}
-                  onEdit={() => void startEdit(entry.id)}
-                  onDelete={() => deleteNote(entry.id)}
-                >
-                  {entry.quote && (
-                    <blockquote
-                      className="mb-2 whitespace-pre-wrap break-words border-l-[3px] pl-2 text-xs leading-relaxed text-muted-foreground"
-                      style={{
-                        borderColor:
-                          entry.quote.color === "invisible"
-                            ? "var(--muted-foreground)"
-                            : `var(--${entry.quote.color}-secondary)`,
-                      }}
-                    >
-                      {entry.quote.selectedText}
-                    </blockquote>
-                  )}
-                  <NotebookNoteBody
-                    content={entry.text}
-                    edit={
-                      desktop && notes.editingId === entry.id
-                        ? {
-                            value: notes.draft?.content ?? "",
-                            saving: notes.saving,
-                            onChange: (value) => {
-                              if (notes.draft)
-                                notes.change(value, notes.draft.target);
-                            },
-                            onSave: notes.send,
-                            onCancel: () => {
-                              void notes.cancelEdit();
-                            },
-                          }
-                        : undefined
-                    }
+                {entry.highlight ? (
+                  <HighlightEntry
+                    desktop={desktop}
+                    text={entry.highlight.selectedText}
+                    color={entry.highlight.color}
+                    location={`${order === "time" ? `${entry.location.chapter} · ` : ""}${
+                      entry.location.page
+                        ? `p. ${entry.location.page}`
+                        : "Location unavailable"
+                    }`}
+                    createdAt={entry.createdAt}
+                    onSelect={() => {
+                      onVisitHighlight(entry.highlight!);
+                      close();
+                    }}
+                  />
+                ) : (
+                  <NotebookCard
+                    text={entry.text}
+                    dimmed={inlineEditing && notes.editingId !== entry.id}
+                    disabled={!notes.ready || notes.saving}
+                    canEdit={entry.kind === "note"}
+                    editing={notes.editingId === entry.id}
+                    onEdit={() => void startEdit(entry.id)}
+                    onDelete={() => deleteNote(entry.id)}
                   >
-                    <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
-                      <button
-                        disabled={!entry.location.page}
-                        className="min-w-0 truncate text-left hover:text-foreground"
-                        onClick={() => {
-                          onVisit(entry.location.page);
-                          close();
+                    {entry.quote && (
+                      <blockquote
+                        className="mb-2 whitespace-pre-wrap break-words border-l-[3px] pl-2 text-xs leading-relaxed text-muted-foreground"
+                        style={{
+                          borderColor:
+                            entry.quote.color === "invisible"
+                              ? "var(--muted-foreground)"
+                              : `var(--${entry.quote.color}-secondary)`,
                         }}
                       >
-                        {order === "time" ? `${entry.location.chapter} · ` : ""}
-                        {entry.location.page
-                          ? `p. ${entry.location.page}`
-                          : "Location unavailable"}
-                      </button>
-                      <time
-                        dateTime={new Date(entry.createdAt).toISOString()}
-                        title={new Date(entry.createdAt).toLocaleString()}
-                        className="shrink-0"
-                      >
-                        {new Date(entry.createdAt).toLocaleTimeString([], {
-                          hour: "numeric",
-                          minute: "2-digit",
-                        })}
-                      </time>
-                    </div>
-                  </NotebookNoteBody>
-                </NotebookCard>
+                        {entry.quote.selectedText}
+                      </blockquote>
+                    )}
+                    <NotebookNoteBody
+                      content={entry.text}
+                      edit={
+                        desktop && notes.editingId === entry.id
+                          ? {
+                              value: notes.draft?.content ?? "",
+                              saving: notes.saving,
+                              onChange: (value) => {
+                                if (notes.draft)
+                                  notes.change(value, notes.draft.target);
+                              },
+                              onSave: notes.send,
+                              onCancel: () => {
+                                void notes.cancelEdit();
+                              },
+                            }
+                          : undefined
+                      }
+                    >
+                      <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+                        <button
+                          disabled={!entry.location.page}
+                          className="min-w-0 truncate text-left hover:text-foreground"
+                          onClick={() => {
+                            onVisit(entry.location.page);
+                            close();
+                          }}
+                        >
+                          {order === "time"
+                            ? `${entry.location.chapter} · `
+                            : ""}
+                          {entry.location.page
+                            ? `p. ${entry.location.page}`
+                            : "Location unavailable"}
+                        </button>
+                        <time
+                          dateTime={new Date(entry.createdAt).toISOString()}
+                          title={new Date(entry.createdAt).toLocaleString()}
+                          className="shrink-0"
+                        >
+                          {new Date(entry.createdAt).toLocaleTimeString([], {
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })}
+                        </time>
+                      </div>
+                    </NotebookNoteBody>
+                  </NotebookCard>
+                )}
               </motion.div>,
             ])}
           </AnimatePresence>
@@ -926,7 +1110,15 @@ export function ReaderNotesPrototype({
       </motion.section>
     ),
     [
-      entries,
+      notebookEntries,
+      shownEntries,
+      filtering,
+      kindFilter,
+      colorFilter,
+      filterHeight,
+      changeKindFilter,
+      changeColorFilter,
+      onVisitHighlight,
       restoredEntries,
       orderedEntries,
       startEdit,
@@ -1188,4 +1380,54 @@ function noteMeta(page: number, createdAt: number) {
       ? "Today"
       : date.toLocaleDateString([], { month: "short", day: "numeric" });
   return page ? `p. ${page} · ${day}` : day;
+}
+
+/** A highlight without a note, in the notebook. Choosing it opens its page. */
+function HighlightEntry({
+  desktop,
+  text,
+  color,
+  location,
+  createdAt,
+  onSelect,
+}: {
+  desktop: boolean;
+  text: string;
+  color: string;
+  location: string;
+  createdAt: number;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={`Go to highlight: ${text}`}
+      onClick={onSelect}
+      className="group relative mb-2 block w-full rounded-2xl text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+    >
+      <div
+        className={`rounded-2xl px-4 py-3 ${desktop ? "bg-secondary/40 transition-colors duration-150 group-hover:bg-secondary/70 group-focus-visible:bg-secondary/70" : "bg-secondary"}`}
+      >
+        <blockquote
+          className="border-l-[3px] pl-3 text-[15px] leading-relaxed break-words whitespace-pre-wrap"
+          style={{ borderColor: `var(--${color}-secondary)` }}
+        >
+          {text}
+        </blockquote>
+        <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+          <span className="min-w-0 truncate">{location}</span>
+          <time
+            dateTime={new Date(createdAt).toISOString()}
+            title={new Date(createdAt).toLocaleString()}
+            className="shrink-0"
+          >
+            {new Date(createdAt).toLocaleTimeString([], {
+              hour: "numeric",
+              minute: "2-digit",
+            })}
+          </time>
+        </div>
+      </div>
+    </button>
+  );
 }

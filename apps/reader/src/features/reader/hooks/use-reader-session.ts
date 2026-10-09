@@ -64,6 +64,8 @@ export interface ReaderSessionNavigationState {
 export interface ReaderSessionPaginationState {
   anchorPages: Record<string, number | null>;
   historyAnchorPages: Record<string, number | null>;
+  /** Pages of the notebook's highlights, located in their own scope. */
+  highlightAnchorPages: Record<string, number | null>;
   spread: ResolvedSpread | null;
   spreadWindow: ResolvedSpreadWindow | null;
   status: PaginationStatus;
@@ -184,6 +186,9 @@ export function useReaderSession(
         anchorPages: core.pagination.anchorPages,
         historyAnchorPages:
           core.pagination.anchorPagesByScope.history ?? EMPTY_HISTORY_PAGES,
+        highlightAnchorPages:
+          core.pagination.anchorPagesByScope["notebook-highlights"] ??
+          EMPTY_HISTORY_PAGES,
         spread: core.pagination.spread,
         spreadWindow: core.pagination.spreadWindow,
         status: core.pagination.status,
