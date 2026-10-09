@@ -74,6 +74,8 @@ import { clipboardBrief } from "./data/brief";
 import type { BriefLocation } from "./components/BriefView";
 import { SaveReviewDialog } from "./components/SaveReviewDialog";
 import { diffSurfaceStyle } from "./components/diff-surface";
+import { highlightRules } from "./code-colors";
+import { createDiffFindHighlights } from "./data/diff-find-highlights";
 
 // The brief loads its Markdown worker and excerpt renderer only when shown.
 const BriefView = lazy(() => import("./components/BriefView"));
@@ -455,6 +457,11 @@ export function App({
   const [findOpen, setFindOpen] = useState(false);
   const [find, setFind] = useState("");
   const [findIndex, setFindIndex] = useState(0);
+  const findHighlights = useMemo(
+    () => createDiffFindHighlights("med-diff-find", "med-diff-find-current"),
+    [],
+  );
+  useEffect(() => () => findHighlights.dispose(), [findHighlights]);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [draft, setDraft] = useState<NoteTarget | null>(null);
   const draftRef = useRef(draft);
@@ -915,7 +922,8 @@ export function App({
       pointerEventsOnScroll: true,
       enableGutterUtility: true,
       unsafeCSS: `[data-utility-button]::before { inset: 0; }
-        [data-separator-content] { font-size: 11.5px; letter-spacing: 0.01em; }`,
+        [data-separator-content] { font-size: 11.5px; letter-spacing: 0.01em; }
+        ${highlightRules(activeTheme, { match: "med-diff-find", current: "med-diff-find-current" })}`,
       onLineEnter(_line, context) {
         context.element?.shadowRoot
           ?.querySelector("[data-utility-button]")
@@ -995,6 +1003,7 @@ export function App({
           ?.querySelector("[data-utility-button]")
           ?.setAttribute("aria-label", "Add note to line");
         const rendered = "fileDiff" in instance ? instance.fileDiff : undefined;
+        findHighlights.rendered(node, phase === "unmount" ? undefined : rendered?.name);
         if (phase !== "unmount")
           diagnostics.rendered(
             node,
@@ -1021,7 +1030,7 @@ export function App({
         );
       },
     }),
-    [controller, theme, activeTheme.pierreTheme, mode, wrap, reviewId, diagnostics, draft],
+    [controller, theme, activeTheme, mode, wrap, reviewId, diagnostics, draft, findHighlights],
   );
 
   const hits = useMemo(() => {
@@ -1050,6 +1059,14 @@ export function App({
     }
     return result;
   }, [files, find]);
+  useEffect(() => {
+    const hit = findOpen ? hits[findIndex] : undefined;
+    const path = hit && files.find((file) => file.id === hit.id)?.path;
+    findHighlights.set(
+      findOpen ? find : "",
+      hit && path ? { path, side: hit.side, line: hit.line } : null,
+    );
+  }, [findHighlights, findOpen, find, hits, findIndex, files]);
   const jumpHit = useCallback(
     (index: number) => {
       if (!hits.length) return;

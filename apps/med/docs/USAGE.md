@@ -234,6 +234,7 @@ Shift-click another commit to select an inclusive range. The comparison runs fro
 | Symbols in current file           | `⌘O`         | `Ctrl+O`                  |
 | Symbols in project commits        | `⌘⇧O`        | `Ctrl+Shift+O`            |
 | Search file contents              | `⌘⇧F`        | `Ctrl+Shift+F`            |
+| Find in diff contents             | `⌘F`         | `Ctrl+F`                  |
 | Open a branch or worktree         | `⌘⇧G`        | `Ctrl+Shift+G`            |
 | Show workspace 1–9                | `⌘1`–`⌘9`    | `Ctrl+1`–`Ctrl+9`         |
 | Switch to a recent workspace      | `⌃Tab`       | `Ctrl+Tab`                |

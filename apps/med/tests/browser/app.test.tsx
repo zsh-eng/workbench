@@ -867,12 +867,19 @@ describe("graphical review", () => {
     await page.getByRole("option", { name: /Find in diff contents/ }).click();
     await page.getByRole("textbox", { name: "Find in diff contents" }).fill("after");
     await expect.element(page.getByText("1 / 2 hunks", { exact: true })).toBeVisible();
+    // Every match is marked; the current hit's matches are marked on top.
+    await expect.poll(() => CSS.highlights.get("med-diff-find")?.size ?? 0).toBeGreaterThan(1);
+    await expect
+      .poll(() => [...(CSS.highlights.get("med-diff-find-current") ?? [])].map(String))
+      .toContain("after");
     await userEvent.keyboard("{Enter}");
     await expect.element(page.getByText("2 / 2 hunks", { exact: true })).toBeVisible();
     await userEvent.keyboard("{Enter}");
     await expect.element(page.getByText("1 / 2 hunks", { exact: true })).toBeVisible();
     await userEvent.keyboard("{Shift>}{Enter}{/Shift}");
     await expect.element(page.getByText("2 / 2 hunks", { exact: true })).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => CSS.highlights.has("med-diff-find")).toBe(false);
   });
 
   test("find in diffs centers matches in other files, collapsed ones too", async () => {
