@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{title}}</title>
+    <meta name="description" content="{{description}}" />
+    <meta property="og:title" content="{{title}}" />
+    <meta property="og:description" content="{{description}}" />
+    <meta property="og:type" content="website" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="theme-color"
+      media="(prefers-color-scheme: light)"
+      content="#ffffff"
+    />
+    <meta
+      name="theme-color"
+      media="(prefers-color-scheme: dark)"
+      content="#141416"
+    />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link
+      rel="preload"
+      href="{{asset:/fonts/geist.woff2}}"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="{{asset:/fonts/paper-mono.woff2}}"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <style data-inline="src/styles.css"></style>
+    <noscript>
+      <style>
+        .tabs,
+        .copy {
+          display: none;
+        }
+        .panel[hidden] {
+          display: block;
+          border-top: 1px solid var(--line);
+        }
+      </style>
+    </noscript>
+  </head>
+  <body>
+    <header class="wrap top">
+      <a class="brand" href="/">
+        <svg viewBox="0 0 32 32" aria-hidden="true">
+          <rect width="32" height="32" rx="7.5" fill="#18181c" />
+          <g fill="none" stroke-linecap="round" stroke-width="3.2">
+            <path stroke="#62626d" d="M11.5 10H22M11.5 22H17" />
+            <path stroke="#8f9cff" d="M15.5 16H24" />
+            <path stroke="#8f9cff" stroke-width="2.2" d="M7 14.6V17.4" />
+          </g>
+        </svg>
+        Med
+      </a>
+      <nav aria-label="Project">
+        <a href="{{links.github}}">GitHub</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="wrap hero" aria-labelledby="title">
+        <h1 id="title">{{heading}}</h1>
+        <p class="lede">{{subtitle}}</p>
+
+        <div class="install">
+          <div class="tabs" role="tablist" aria-label="Install Med">
+            <button
+              type="button"
+              role="tab"
+              id="tab-terminal"
+              aria-controls="panel-terminal"
+              aria-selected="true"
+            >
+              Terminal
+            </button>
+            <button
+              type="button"
+              role="tab"
+              id="tab-agent"
+              aria-controls="panel-agent"
+              aria-selected="false"
+              tabindex="-1"
+            >
+              Ask your agent
+            </button>
+          </div>
+          <div
+            class="panel"
+            role="tabpanel"
+            id="panel-terminal"
+            aria-labelledby="tab-terminal"
+          >
+            <button
+              type="button"
+              class="copy"
+              data-copy="install-command"
+              data-done="Copied the install command."
+            >
+              <span class="copy-label">Copy</span
+              ><span class="sr-only"> the install command</span>
+            </button>
+            <pre><code id="install-command">{{installCommand}}</code></pre>
+          </div>
+          <div
+            class="panel"
+            role="tabpanel"
+            id="panel-agent"
+            aria-labelledby="tab-agent"
+            hidden
+          >
+            <button
+              type="button"
+              class="copy"
+              data-copy="agent-prompt"
+              data-done="Copied the agent prompt."
+            >
+              <span class="copy-label">Copy</span
+              ><span class="sr-only"> the agent prompt</span>
+            </button>
+            <pre><code id="agent-prompt">{{agentPrompt}}</code></pre>
+          </div>
+        </div>
+        <p class="note">
+          {{requirements}}
+          <a href="{{links.installDocs}}">Install by hand</a>
+        </p>
+        <p class="sr-only" role="status" id="copy-status"></p>
+      </section>
+
+      <!-- Product demos. An interactive demo and an agent chat demo come later. -->
+      <section class="wrap demo" id="demo" aria-label="Screenshots">
+        <figure class="shot">
+          <picture data-shot="review"></picture>
+          <figcaption>
+            A review from an agent: its history and changed files beside one
+            continuous diff, with your comment on line 29.
+          </figcaption>
+        </figure>
+        <div class="pair">
+          <figure class="shot">
+            <picture data-shot="brief"></picture>
+            <figcaption>
+              The brief cites changed lines. Each citation opens as a short diff
+              below its sentence.
+            </figcaption>
+          </figure>
+          <figure class="shot">
+            <picture data-shot="search"></picture>
+            <figcaption>
+              Find a file with <kbd>⌘⇧K</kbd> and read it in the preview.
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="wrap facts" aria-labelledby="facts-title">
+        <h2 id="facts-title">What Med does</h2>
+        <ul>
+          <li>
+            <h3>Runs on your machine</h3>
+            <p>
+              Med is a local server that you use in your browser. It has no
+              account and no cloud. For pull requests, it reads GitHub through
+              your own gh sign-in.
+            </p>
+          </li>
+          <li>
+            <h3>Review links from agents</h3>
+            <p>
+              An agent runs <code>med review create</code> and gives you a link.
+              Its brief cites the changed lines.
+            </p>
+          </li>
+          <li>
+            <h3>One review per task</h3>
+            <p>
+              Later rounds of the same task become iterations of one review.
+              Earlier briefs and comments stay.
+            </p>
+          </li>
+          <li>
+            <h3>Comments go back</h3>
+            <p>
+              Comment on a line or a range. <strong>Copy comments</strong> gives
+              you Markdown to paste into the agent.
+            </p>
+          </li>
+          <li>
+            <h3>One continuous diff</h3>
+            <p>
+              Read commits and working changes as one split or unified diff,
+              with history, files, search, and themes.
+            </p>
+          </li>
+          <li>
+            <h3>One executable</h3>
+            <p>
+              The download includes Bun, the browser UI, and offline docs. You
+              do not need to install Node or Bun.
+            </p>
+          </li>
+        </ul>
+        <p class="more"><a href="{{links.agentDocs}}">How agents use Med</a></p>
+      </section>
+    </main>
+
+    <footer class="wrap foot">
+      <p>
+        Med is open source under the
+        <a href="{{links.license}}">{{license}}</a>.
+        <a href="{{links.github}}">Source on GitHub</a>.
+      </p>
+      <p>
+        Set in Geist and Paper Mono under the SIL Open Font License 1.1 (<a
+          href="/fonts/GEIST-OFL.txt"
+          >Geist</a
+        >, <a href="/fonts/PAPER-MONO-OFL.txt">Paper Mono</a>).
+      </p>
+    </footer>
+
+    <script data-inline="src/main.js"></script>
+  </body>
+</html>

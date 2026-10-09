@@ -145,6 +145,13 @@ A saved review opens its first target. Select other repositories or ranges from 
 
 An agent that names its task with a key updates one review over several rounds. Each round is an iteration: the review opens on the latest one and is marked new again. The Brief tab numbers the iterations; choose one to read its brief beside its comparison. **Review target** groups the comparisons by iteration. Comments on earlier iterations stay.
 
+A review that records its agent session has a Claude or Codex button in the
+toolbar, and **Show agent session** in the command palette. They open the
+Session sidebar: the prompts, replies, thoughts, tool calls with their output
+and diffs, the plan, and background shells and agents. The sidebar follows the
+session while the agent works and shows **Working** or **Idle**. A file link in
+a reply opens the file. See [agent sessions](SESSIONS.md).
+
 Saved reviews and their comments persist in `~/.local/state/med`. Normal branch review notes still end with the host process. See [agent integration](AGENT_INTEGRATION.md) for commands, state settings, limits, and suggested `AGENTS.md` guidance.
 
 ### Briefs
@@ -387,7 +394,9 @@ needs. Press `q` again to return to the review.
 - **Files and diffs.** The list shows each changed file: ● staged, ◐ partly
   staged, ○ not staged. The diffs of all files follow in the same order. `j` /
   `k` move through the files and scroll the diffs; scrolling the diffs moves the
-  list. A partly staged file shows its staged and unstaged parts.
+  list. A partly staged file shows its staged and unstaged parts. As in
+  Changes, `Enter` opens the focused file in a tab, and a click on a file name
+  in the diffs opens it too (`⌘`-click opens it behind the Commit tab).
 - **Filter.** `/` filters the list and the diffs by path. `↑` / `↓` move while
   you type; `Enter` keeps the filter. `Esc` clears it, in the field or in the
   list, as in a search.
@@ -431,7 +440,9 @@ mode draws every box, and inspect mode lists the clicked element's size, type,
 and colors as theme tokens with its text contrast. Each specimen can sit on the
 frame, card, or popover surface. The **Commit flow** section runs the Commit tab
 on a pretend repository, with switches for a failing hook, a rejected push, a
-branch without an upstream, and slow commands.
+branch without an upstream, and slow commands. The **Agent session** section
+replays a recorded Claude Code session at 1×, 4×, or 16×, and shows every part
+of the thread on sample updates.
 
 Run the complete check from the Workbench root:
 
@@ -477,6 +488,7 @@ This is a browser app backed by a local server. Native desktop packaging, shared
 - [Twinkleplop integration and timed comparison videos](validation/HIGHLIGHTER_INTEGRATION.md)
 - [Baseline diff performance](validation/RESULTS.md)
 - [Theme and workspace validation](validation/UI_UPDATE.md)
+- [Everyday interaction latency](validation/INTERACTIONS.md)
 - [Feature status and navigation behavior](SNACKS_REVIEW.md)
 
 Hunk's retained semantic source and tests carry their original [MIT notice](../upstream/HUNK-LICENSE). [Source provenance](../upstream/HUNK.md) records the pinned revision and adaptations.
@@ -619,9 +631,11 @@ file links are unavailable there. Missing files use the normal file-open error.
 
 ### Review titles and PR links
 
-`med review create --title "Fix navigation" ...` uses that title in the browser
-tab and review header. Add `--pr https://github.com/owner/repo/pull/123` to make
-the heading a link. Without `--title`, med uses the matching PR title when `gh`
-can resolve it. Single-repository GitHub branch reviews can infer the link;
-`--no-pr` skips lookup. See [agent guidance](AGENT_INTEGRATION.md#titles-and-pull-requests)
+`med review create --title "Navigation fix" ...` uses that title in the
+workspace list and browser tab. Keep it to 2–4 words; the workspace list is
+narrow. Add `--pr https://github.com/owner/repo/pull/123` to make the review
+header a link. Once the review has a PR, the header shows the PR title, read
+with `gh`; the workspace keeps the short title. Without `--title`, med uses the
+matching PR title when `gh` can resolve it. Single-repository GitHub branch
+reviews can infer the link; `--no-pr` skips lookup. See [agent guidance](AGENT_INTEGRATION.md#titles-and-pull-requests)
 for scope and fallback behavior. File tabs use the filename in the browser title.

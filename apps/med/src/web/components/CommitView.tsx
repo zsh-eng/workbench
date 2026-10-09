@@ -49,6 +49,8 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 const aborted = (error: unknown) => error instanceof DOMException && error.name === "AbortError";
 const short = (id: string) => id.slice(0, 7);
 const change = (file: WorkingFile) => file.unstaged ?? file.staged;
+/** A file that is still on disk, so it can open in a tab. */
+const onDisk = (file: WorkingFile) => change(file) !== "deleted";
 
 const readDraft = (key: string) => {
   try {
@@ -184,6 +186,7 @@ export default function CommitView({
   active,
   draftKey,
   keys = "window",
+  onOpenFile,
 }: {
   api: CommitApi;
   /** Changes when the checkout changes; the view reads its status again. */
@@ -191,6 +194,8 @@ export default function CommitView({
   active: boolean;
   /** Keeps an unsent message across reloads. */
   draftKey?: string;
+  /** Opens a working file in a tab, as a file name in Changes does. */
+  onOpenFile?(path: string, background: boolean): void;
   /** "view" takes keys only while focus is inside, as on the elements page. */
   keys?: "window" | "view";
 }) {
@@ -559,6 +564,7 @@ export default function CommitView({
         k: () => move(-1),
         ArrowUp: () => move(-1),
         " ": () => focusedFile && void toggle(focusedFile),
+        Enter: () => focusedFile && onDisk(focusedFile) && onOpenFile?.(focusedFile.path, false),
         a: () => void toggleShown(),
         "/": () => search.current?.focus(),
         c: compose,
@@ -568,12 +574,14 @@ export default function CommitView({
       const name = event.shiftKey && event.key.length === 1 ? event.key.toUpperCase() : event.key;
       const action = bindings[name];
       if (!action) return;
+      // Enter on a focused button or link presses it.
+      if (name === "Enter" && target?.closest("button, a, [role='button'], [role='link']")) return;
       event.preventDefault();
       action();
     };
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
-  }, [active, compose, filter, focusedFile, keys, move, push, toggle, toggleShown]);
+  }, [active, compose, filter, focusedFile, keys, move, onOpenFile, push, toggle, toggleShown]);
 
   const options = useMemo<CodeViewReactOptions<undefined, undefined>>(
     () => ({
@@ -835,12 +843,30 @@ export default function CommitView({
                       >
                         {marks[state].glyph}
                       </button>
-                      <span {...stylex.props(styles.path, styles.headerPath)}>
-                        <span {...stylex.props(ui.faint)}>{entry.file.path.slice(0, slash)}</span>
-                        <span {...stylex.props(styles.fileName)}>
-                          {entry.file.path.slice(slash)}
+                      {onOpenFile && onDisk(entry.file) ? (
+                        <button
+                          type="button"
+                          role="link"
+                          aria-label={entry.file.path}
+                          title={`Open full file · ${entry.file.path}`}
+                          onClick={(event) =>
+                            onOpenFile(entry.file.path, event.metaKey || event.ctrlKey)
+                          }
+                          {...stylex.props(styles.path, styles.headerPath, styles.fileLink)}
+                        >
+                          <span {...stylex.props(ui.faint)}>{entry.file.path.slice(0, slash)}</span>
+                          <span {...stylex.props(styles.fileName)}>
+                            {entry.file.path.slice(slash)}
+                          </span>
+                        </button>
+                      ) : (
+                        <span {...stylex.props(styles.path, styles.headerPath)}>
+                          <span {...stylex.props(ui.faint)}>{entry.file.path.slice(0, slash)}</span>
+                          <span {...stylex.props(styles.fileName)}>
+                            {entry.file.path.slice(slash)}
+                          </span>
                         </span>
-                      </span>
+                      )}
                       {entry.part && (
                         <span {...stylex.props(styles.part)}>
                           {entry.part === "staged" ? "Staged" : "Not staged"}
@@ -1201,6 +1227,21 @@ const styles = stylex.create({
     cursor: "pointer",
   },
   headerPath: { flexGrow: 0, flexShrink: 1, flexBasis: "auto" },
+  // As the file names in Changes: plain text that underlines on hover.
+  fileLink: {
+    padding: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    color: tokens.text,
+    fontFamily: tokens.ui,
+    fontSize: "inherit",
+    textAlign: "left",
+    cursor: "pointer",
+    textDecoration: { default: "none", ":hover": "underline" },
+    textDecorationColor: tokens.lineStrong,
+    textUnderlineOffset: 3,
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+  },
   fileName: { fontWeight: 550 },
   part: {
     flexShrink: 0,

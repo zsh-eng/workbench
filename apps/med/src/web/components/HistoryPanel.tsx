@@ -1,6 +1,6 @@
 import { Tooltip } from "@base-ui/react/tooltip";
 import * as stylex from "@stylexjs/stylex";
-import { useMemo, useState, useRef, useEffect, useLayoutEffect, useId } from "react";
+import { memo, useMemo, useState, useRef, useEffect, useLayoutEffect, useId } from "react";
 import type { Commit, CommitDetails } from "../../shared/protocol";
 import { layoutHistory, type GraphRow } from "./history-layout";
 import { picked, tokens, ui } from "../theme.stylex";
@@ -68,7 +68,8 @@ function Graph({ row, working }: { row: GraphRow; working?: boolean }) {
   );
 }
 
-export function HistoryPanel({
+/** Memoized: the review renders again for unrelated state, such as a palette. */
+export const HistoryPanel = memo(function HistoryPanel({
   commits,
   selected,
   selectedRange,
@@ -157,9 +158,12 @@ export function HistoryPanel({
   useEffect(() => {
     const node = container.current;
     if (!node) return;
-    const observer = new ResizeObserver(() =>
-      setViewport((value) => ({ ...value, height: node.clientHeight })),
-    );
+    const observer = new ResizeObserver(() => {
+      // A hidden sidebar has no box; keep the rows it shows again.
+      if (node.getClientRects().length === 0) return;
+      const height = node.clientHeight;
+      setViewport((value) => (value.height === height ? value : { ...value, height }));
+    });
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
@@ -408,7 +412,7 @@ export function HistoryPanel({
       </Tooltip.Root>
     </Tooltip.Provider>
   );
-}
+});
 
 const styles = stylex.create({
   time: { flexShrink: 0, whiteSpace: "nowrap" },

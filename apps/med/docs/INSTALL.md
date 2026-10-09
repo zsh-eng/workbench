@@ -1,10 +1,33 @@
 # Install med on macOS
 
 Med v0.1.7 supports Apple Silicon (M1 or newer), macOS 13 or newer.
-Download `med-v0.1.7-macos-arm64.tar.gz` and `SHA256SUMS` from the
-[GitHub release](https://github.com/zsh-eng/workbench/releases/tag/med-v0.1.7).
 Intel Macs are not included in this release.
 
+```sh
+curl -fsSL https://raw.githubusercontent.com/zsh-eng/workbench/main/apps/med/install.sh | sh
+```
+
+The script finds the newest Med release on GitHub, downloads its archive and
+`SHA256SUMS`, and stops if the checksum does not match. It installs `med` to
+`~/.local/bin`, keeps the license notices in `~/.local/share/med`, and adds
+`~/.local/bin` to PATH in your shell's startup file. Files that curl downloads
+have no quarantine flag, so macOS does not hold the first launch for approval.
+Options go after `sh -s --`: `--version <x.y.z>`, `--dir <path>`,
+`--no-modify-path`, and `--force`. Run the same command to update.
+
+Then teach your coding agents to hand off reviews in Med:
+
+```sh
+med skills install
+```
+
+This writes the Med skill for Claude Code (`~/.claude/skills/med`) and Codex
+(`~/.agents/skills/med`). `med skills uninstall` removes it.
+
+## Manual install
+
+Download `med-v0.1.7-macos-arm64.tar.gz` and `SHA256SUMS` from the
+[GitHub release](https://github.com/zsh-eng/workbench/releases/tag/med-v0.1.7).
 In the download directory:
 
 ```sh
@@ -23,9 +46,9 @@ Med sends nothing to any server. Bun uploads crash reports to bun.report on
 macOS by default; Med turns that off with `BUN_ENABLE_CRASH_REPORTING=0` for
 itself, the processes it starts, and its login item.
 
-This build is not Developer ID signed or notarized. macOS may block its first
-launch; approve it in **System Settings → Privacy & Security** if you trust the
-download. Keep the archive's `licenses` folder with redistributed copies.
+This build is not Developer ID signed or notarized. After a browser download,
+macOS may block its first launch; approve it in **System Settings → Privacy &
+Security** if you trust the download. Keep the archive's `licenses` folder with redistributed copies.
 
 ## Start
 
@@ -57,8 +80,9 @@ med docs vaults
 med docs agents
 ```
 
-For an update, run `med stop`, install the new executable at the same path,
-then run `med web`. Your sources and saved reviews stay in the state directory.
+For an update, run the install command again, or install the new executable at
+the same path. Then run `med stop` and `med web`, and `med skills install` to
+refresh the agent skill. Your sources and saved reviews stay in the state directory.
 To start at login, opt in with `med service install` after installing at a stable
 path. Remove that setting with `med service uninstall`.
 

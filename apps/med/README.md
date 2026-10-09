@@ -36,14 +36,19 @@ med runs in your browser with a local server. Working files can be edited in Vim
 
 ## Get started
 
-[Download Med for macOS Apple Silicon](https://github.com/zsh-eng/workbench/releases/tag/med-v0.1.7).
-The executable includes the runtime and offline docs. See [installation](docs/INSTALL.md)
-for checksums, setup, and optional tools. macOS 13 or newer; not notarized.
+Install Med for macOS 13 or newer on Apple Silicon:
 
 ```sh
+curl -fsSL https://raw.githubusercontent.com/zsh-eng/workbench/main/apps/med/install.sh | sh
 med add /path/to/repository
 med web
+med skills install
 ```
+
+The executable includes the runtime and offline docs. `med skills install`
+teaches Claude Code and Codex to hand off reviews in Med. See
+[installation](docs/INSTALL.md) for the manual download, checksums, and optional
+tools.
 
 ### Build from source
 

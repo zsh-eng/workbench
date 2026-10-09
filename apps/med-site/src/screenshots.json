@@ -1,0 +1,18 @@
+{
+  "med": "med 0.1.7",
+  "review": {
+    "width": 1440,
+    "height": 900,
+    "widths": [720, 1120, 1680, 2240]
+  },
+  "brief": {
+    "width": 734,
+    "height": 376,
+    "widths": [560, 1120]
+  },
+  "search": {
+    "width": 688,
+    "height": 384,
+    "widths": [560, 1120]
+  }
+}

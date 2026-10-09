@@ -58,6 +58,8 @@ import { FileSymbolService } from "./search/symbols";
 import { type SearchOptions } from "./search/service";
 import { RepositoryRegistry } from "./repository/registry";
 import { SavedReviewStore } from "./saved-reviews";
+import { followTranscript, findTranscript } from "./agent-transcripts";
+import type { SessionEvent } from "../shared/agent-session";
 import { reviewKeySchema, savedReviewCreateSchema } from "../shared/saved-review";
 import { getPersistentToken, publishConnection } from "./runtime/connection";
 
@@ -197,6 +199,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   // One stream per open Med window, for news that is not about a repository,
   // such as a review an agent just created.
   const windows = new Set<ServerResponse>();
+  const sessionStreams = new Set<ServerResponse>();
+  /** Session updates per server event; the browser reads events up to 4 MiB. */
+  const SESSION_EVENT_BYTES = 1024 * 1024;
   const activeRequests = new Map<AbortController, Set<string>>();
   let revision = 0;
   let closing = false;
@@ -456,6 +461,66 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           );
           streams.set(response, eventRepo);
           response.once("close", () => streams.delete(response));
+          return;
+        }
+        // An agent session of a saved review: its transcript's updates, then
+        // new ones as the agent writes them.
+        const sessionRoute =
+          /^\/api\/reviews\/([A-Za-z0-9_-]+)\/sessions\/([A-Za-z0-9_-]+)\/events$/.exec(
+            url.pathname,
+          );
+        if (sessionRoute && request.method === "GET") {
+          const bundle = await savedReviews.get(sessionRoute[1]!);
+          const session = bundle.sessions?.find((entry) => entry.id === sessionRoute[2]);
+          if (!session)
+            throw new HostError("session-not-found", "This review has no such agent session.", 404);
+          const path = await findTranscript(session);
+          if (!path)
+            throw new HostError(
+              "transcript-not-found",
+              "The session's transcript is not on this computer.",
+              404,
+            );
+          if (sessionStreams.size >= 8)
+            throw new HostError("too-many-streams", "Too many session streams are open.", 503);
+          response.writeHead(200, {
+            "content-type": "text/event-stream",
+            "cache-control": "no-store",
+            connection: "keep-alive",
+            "x-accel-buffering": "no",
+          });
+          sessionStreams.add(response);
+          response.once("close", () => sessionStreams.delete(response));
+          const write = (event: string, data: unknown) =>
+            response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+          // The first view goes in parts, so no event is larger than the client reads.
+          const parts = (events: SessionEvent[]) => {
+            const result: SessionEvent[][] = [[]];
+            let size = 0;
+            for (const event of events) {
+              const bytes = JSON.stringify(event).length;
+              if (size + bytes > SESSION_EVENT_BYTES && result.at(-1)!.length) {
+                result.push([]);
+                size = 0;
+              }
+              result.at(-1)!.push(event);
+              size += bytes;
+            }
+            return result;
+          };
+          void followTranscript(
+            session,
+            path,
+            {
+              onFeed: ({ events, ...state }) =>
+                parts(events).forEach((part, index) =>
+                  write(index ? "updates" : "reset", { ...state, events: part }),
+                ),
+              onEvents: (events, state) =>
+                parts(events).forEach((part) => write("updates", { ...state, events: part })),
+            },
+            abort.signal,
+          ).catch(() => response.end());
           return;
         }
         if (url.pathname === "/api/windows" && request.method === "GET") {

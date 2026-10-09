@@ -1,5 +1,5 @@
 import { fileChangesSchema } from "../../shared/file-changes";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   browseListResponseSchema,
   browseReadResponseSchema,
@@ -194,6 +194,8 @@ export function useBrowseFiles(
       });
     return () => controller.abort();
   }, [api, sourceKey, ignored, requestKey, listKey, enabled, cached]);
+  // Stable, so a memoized file tree does not render again for each parent render.
+  const refresh = useCallback(() => setRefreshRevision((value) => value + 1), []);
   return {
     entries: current || stale ? state.entries : emptyEntries,
     loading: enabled && !!source && !current && !stale,
@@ -201,6 +203,6 @@ export function useBrowseFiles(
     truncated: (current || stale) && state.truncated,
     ignored,
     setIgnored,
-    refresh: () => setRefreshRevision((value) => value + 1),
+    refresh,
   };
 }

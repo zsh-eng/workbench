@@ -10,6 +10,7 @@ import {
 } from "@pierre/diffs/react";
 import {
   lazy,
+  memo,
   Suspense,
   useCallback,
   useEffect,
@@ -819,7 +820,8 @@ const EditableFile = preloadable(() => import("./FileEditor"));
 /** Loads the editor early, such as once a vault opens, so its first note opens at once. */
 export const preloadFileEditor = EditableFile.preload;
 const noDrafts = createEditorDrafts();
-export function FullFileView(props: FullFileViewProps) {
+/** Memoized: the review renders again for unrelated state, such as a palette. */
+export const FullFileView = memo(function FullFileView(props: FullFileViewProps) {
   const store = props.editor?.drafts ?? noDrafts;
   useSyncExternalStore(store.subscribe, store.getSnapshot);
   const draft = props.editor ? store.get(props.editor.key) : undefined;
@@ -983,4 +985,4 @@ export function FullFileView(props: FullFileViewProps) {
       />
     </div>,
   );
-}
+});

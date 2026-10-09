@@ -261,6 +261,9 @@ test("keeps branch workspaces live, switches by shortcut, and restores the list"
   // The registered vault is pinned first.
   await expect.poll(rowLabels).toEqual(["notes", "main 2 (current)"]);
   const mainView = shown();
+  const mainDiffs = () => [...mainView!.querySelectorAll("diffs-container")];
+  await expect.poll(() => mainDiffs().length).toBe(2);
+  const renderedDiffs = mainDiffs();
 
   // ⌘↵ in the branch picker opens the branch as a new workspace.
   await page.getByRole("button", { name: "Open branch", exact: true }).click();
@@ -283,6 +286,11 @@ test("keeps branch workspaces live, switches by shortcut, and restores the list"
   await userEvent.keyboard("{Control>}2{/Control}");
   await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
   expect(shown()).toBe(mainView);
+  // Its diffs stay rendered while hidden; showing it does not build them again.
+  expect(mainDiffs().map((element, index) => element === renderedDiffs[index])).toEqual([
+    true,
+    true,
+  ]);
   // The window has one workspace list. It moves to the sidebar on screen and
   // does not play its entrance again.
   const lists = document.querySelectorAll('nav[aria-label="Workspaces"]');
