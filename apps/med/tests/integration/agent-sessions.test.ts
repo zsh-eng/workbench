@@ -57,9 +57,14 @@ describe("Claude Code transcripts", () => {
   test("reading a growing transcript line by line gives the same thread", () => {
     const reader = createClaudeTranscriptReader();
     const store = createSessionStore();
-    for (const line of claude.split("\n"))
+    const idle: boolean[] = [];
+    for (const line of claude.split("\n")) {
       for (const event of reader.line(line)) store.apply(event);
+      idle.push(reader.idle());
+    }
     expect(store.getSnapshot()).toEqual(thread(readClaudeTranscript(claude)));
+    // The subagent works from its prompt until its report ends the turn.
+    expect(idle.indexOf(true, 1)).toBe(claude.trim().split("\n").length - 2);
   });
 
   test("background work, subagents, plans, and compaction attach to their calls", () => {

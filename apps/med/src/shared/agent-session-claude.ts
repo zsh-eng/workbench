@@ -176,7 +176,8 @@ export function createClaudeTranscriptReader(options: ClaudeReaderOptions = {}) 
     const path = text(input.file_path);
     const diff = editDiff(name, input, path ? files.get(path) : undefined);
     tools.set(id, { name, input, diff });
-    // The agent's report to its caller reads as its last message.
+    // A subagent's report to its caller is its last message and ends its turn.
+    if (name === "SubagentHandback") idle = true;
     if (name === "SubagentHandback" && text(input.message))
       return [
         {
