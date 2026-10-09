@@ -119,6 +119,11 @@ export const guideContexts: GuideContext[] = [
           { label: "Stage or unstage the file", keys: ["Space"], note: "Or click its mark" },
           { label: "Stage or unstage every file shown", keys: ["a"] },
           {
+            label: "Open the focused file",
+            keys: ["Enter"],
+            note: "Or click its name in the diff",
+          },
+          {
             label: "Write the commit message",
             keys: ["c"],
             note: "Opens in the middle; Esc keeps it as a draft",

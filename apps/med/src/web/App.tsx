@@ -3248,6 +3248,7 @@ export function App({
                     revision={state.sourceRevision}
                     active={fileState.active === "commit"}
                     draftKey={`med:commit-message:${commitRepo}`}
+                    onOpenFile={(path, background) => openWorkingFile(path, true, background)}
                   />
                 </Suspense>
               </div>

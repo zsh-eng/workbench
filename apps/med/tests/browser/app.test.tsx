@@ -1727,6 +1727,21 @@ describe("graphical review", () => {
     await expect
       .element(page.getByRole("tab", { name: "Changes", exact: true }))
       .toHaveAttribute("aria-selected", "true");
+
+    // As in Changes, a file name in the stream opens the file (Command-click
+    // behind this tab), and Enter opens the focused file.
+    await userEvent.keyboard("q");
+    const tab = (name: string) => page.getByRole("tab", { name, exact: true });
+    await expect.element(tab("Commit")).toHaveAttribute("aria-selected", "true");
+    stream
+      .getByRole("link", { name: "src/web/components/CommitView.tsx", exact: true })
+      .element()
+      .dispatchEvent(new MouseEvent("click", { bubbles: true, metaKey: true }));
+    await expect.element(tab("CommitView.tsx")).toBeVisible();
+    await expect.element(tab("Commit")).toHaveAttribute("aria-selected", "true");
+    await row("src/web/App.tsx").click();
+    await userEvent.keyboard("{Enter}");
+    await expect.element(tab("App.tsx")).toHaveAttribute("aria-selected", "true");
   });
 });
 

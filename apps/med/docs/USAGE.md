@@ -387,7 +387,9 @@ needs. Press `q` again to return to the review.
 - **Files and diffs.** The list shows each changed file: ● staged, ◐ partly
   staged, ○ not staged. The diffs of all files follow in the same order. `j` /
   `k` move through the files and scroll the diffs; scrolling the diffs moves the
-  list. A partly staged file shows its staged and unstaged parts.
+  list. A partly staged file shows its staged and unstaged parts. As in
+  Changes, `Enter` opens the focused file in a tab, and a click on a file name
+  in the diffs opens it too (`⌘`-click opens it behind the Commit tab).
 - **Filter.** `/` filters the list and the diffs by path. `↑` / `↓` move while
   you type; `Enter` keeps the filter. `Esc` clears it, in the field or in the
   list, as in a search.
