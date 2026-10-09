@@ -5,6 +5,7 @@ import { themeController, themes, useTheme } from "../../themes";
 import { ChoiceSelect, SegmentedControl } from "../Controls";
 import { Icon } from "../Icon";
 import { ToolButton } from "../ToolButton";
+import { BriefSection } from "./BriefSection";
 import { CodeSection } from "./CodeSection";
 import { ControlsSection } from "./ControlsSection";
 import { FoundationsSection } from "./FoundationsSection";
@@ -18,6 +19,7 @@ const sections = [
   { id: "controls", label: "Controls" },
   { id: "review", label: "Review parts" },
   { id: "code", label: "Code colors" },
+  { id: "brief", label: "Brief" },
 ] as const;
 
 type Zoom = "1" | "2" | "3";
@@ -134,6 +136,7 @@ export default function ElementsPage() {
             <ControlsSection />
             <ReviewSection />
             <CodeSection />
+            <BriefSection />
           </StageContext.Provider>
         </main>
       </div>

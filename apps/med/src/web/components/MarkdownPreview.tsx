@@ -10,24 +10,8 @@ import { DiagramBlock } from "./DiagramBlock";
 import "katex/dist/katex.min.css";
 import "./MarkdownPreview.css";
 import { relativeFileLink } from "../markdown/file-link";
+import { markdownImageUrl } from "../markdown/images";
 
-function imageUrl(raw: string, source: FileRead["source"], path: string, vault = false) {
-  if (vault && raw.startsWith("med-vault:wiki:"))
-    return `/api/vault/image?${new URLSearchParams({ document: path, href: decodeURIComponent(raw.replace(/^med-vault:wiki:/, "")), syntax: "wiki" })}`;
-  if (/^https?:\/\//i.test(raw)) {
-    const url = new URL(raw);
-    return url.origin !== location.origin ? url.href : undefined;
-  }
-  if (
-    /^data:image\/(png|jpeg|gif|webp|avif);base64,[a-z\d+/=\s]+$/i.test(raw) &&
-    raw.length < 2_000_000
-  )
-    return raw;
-  if (source.kind === "drop" || /^(?:[a-z][\w+.-]*:|\/)/i.test(raw)) return;
-  if (vault)
-    return `/api/vault/image?${new URLSearchParams({ document: path, href: raw, syntax: "markdown" })}`;
-  return `/api/markdown/image?${new URLSearchParams({ source: JSON.stringify(source), document: path, href: raw })}`;
-}
 const Block = memo(
   function Block({
     block,
@@ -51,7 +35,7 @@ const Block = memo(
         const raw = image.dataset.imageSource ?? "";
         let url: string | undefined;
         try {
-          url = imageUrl(raw, source, path, vault);
+          url = markdownImageUrl(raw, source, path, vault);
         } catch {
           /* Display the alt text. */
         }

@@ -1499,6 +1499,18 @@ describe("review brief", () => {
     });
     await expect.element(page.getByRole("img", { name: "Mermaid diagram" })).toBeInTheDocument();
     expect(document.querySelector(".med-md-diagram svg")?.textContent).toContain("Journal");
+    // Flat shapes: Mermaid's default look adds grey drop shadows.
+    const shapes = document.querySelectorAll(".med-md-diagram svg :is(rect, path, polygon)");
+    expect([...shapes].filter((shape) => getComputedStyle(shape).filter !== "none")).toEqual([]);
+  });
+
+  test("loads a brief image from the repository", async () => {
+    await mountApp({ savedReview: true, brief: "# Screens\n\n![The review](docs/review.png)\n" });
+    await expect.element(page.getByRole("img", { name: "The review" })).toBeInTheDocument();
+    const source = new URL(document.querySelector<HTMLImageElement>("img[alt='The review']")!.src);
+    expect(source.pathname).toBe("/api/markdown/image");
+    expect(source.searchParams.get("href")).toBe("docs/review.png");
+    expect(JSON.parse(source.searchParams.get("source")!)).toMatchObject({ kind: "worktree" });
   });
 
   test("adds a note on excerpt lines that also shows in Changes", async () => {

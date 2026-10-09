@@ -169,9 +169,12 @@
   background: transparent;
   font-size: inherit;
 }
+/* A rendered diagram needs no language label; it sits on the code surface. */
 .med-md-prose pre[data-rendered="true"] {
-  padding: 28px 14px 14px;
-  background: transparent;
+  padding: 24px 16px;
+}
+.med-md-prose pre[data-rendered="true"]::before {
+  content: none;
 }
 .med-md-prose pre[data-diagram-error="true"]::before {
   content: "Mermaid · check syntax";
@@ -205,6 +208,10 @@
   padding: 10px 14px;
   border-bottom: 1px solid var(--med-border);
   text-align: left;
+  vertical-align: top;
+  /* "anywhere" would let a column shrink to one letter; break-word breaks a
+     word only when it cannot fit. */
+  overflow-wrap: break-word;
 }
 .med-md-prose th {
   color: var(--med-muted);

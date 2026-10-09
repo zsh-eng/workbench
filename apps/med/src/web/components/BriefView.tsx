@@ -24,6 +24,7 @@ import { useTheme } from "../themes";
 import { tokens } from "../theme.stylex";
 import { ActionMenu } from "./Controls";
 import { DiagramBlock } from "./DiagramBlock";
+import { markdownImageUrl } from "../markdown/images";
 import { DiffStat } from "./DiffStat";
 import { Icon } from "./Icon";
 import { NoteCard, NoteComposer, type NoteTarget } from "./NoteCard";
@@ -321,6 +322,30 @@ export default function BriefView({
       host.removeEventListener("pointerleave", leave);
     };
   }, []);
+
+  // Images load as in a file preview; relative paths start at the repository root.
+  useEffect(() => {
+    const host = article.current;
+    if (!host || !annotated) return;
+    const source = root
+      ? { kind: "worktree" as const, repo: root }
+      : { kind: "drop" as const, id: "brief" };
+    for (const image of host.querySelectorAll<HTMLImageElement>("img[data-image-source]")) {
+      if (image.src) continue;
+      const raw = image.dataset.imageSource ?? "";
+      let url: string | undefined;
+      try {
+        url = markdownImageUrl(raw, source, "BRIEF.md");
+      } catch {
+        /* Display the alt text. */
+      }
+      if (url) image.src = url;
+      else image.title = "This image URL is not supported.";
+      image.onerror = () => {
+        image.title = `Image unavailable: ${raw}`;
+      };
+    }
+  }, [annotated, root]);
 
   const citedCount = annotated?.cited.length ?? 0;
   return (
@@ -1006,7 +1031,8 @@ const styles = stylex.create({
     paddingInlineStart: "clamp(24px, 4cqw, 48px)",
     paddingInlineEnd: "clamp(24px, 4cqw, 48px)",
     paddingBottom: 64,
-    fontSize: 14,
+    // The prose's font size, so this em-based column matches its width.
+    fontSize: 16,
   },
   uncited: {
     paddingTop: 18,

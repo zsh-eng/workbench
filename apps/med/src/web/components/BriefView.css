@@ -2,9 +2,27 @@
 .med-brief-scroll {
   scroll-padding-top: 56px;
 }
+/* Registered, so each length is computed once on the prose, in its font
+   size, and children such as 13px code inherit the same pixels. */
+@property --med-brief-bleed {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+@property --med-brief-wide {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+.med-md-prose.med-brief-prose {
+  /* A brief is read at length, so its text is a step larger than a preview's. */
+  font-size: 16px;
+}
 .med-brief-prose {
-  /* Excerpts reach past the text column when the pane has room. */
+  /* Excerpts and code reach past the text column when the pane has room. */
   --med-brief-bleed: clamp(0px, calc((100cqw - 38em) / 2 - 24px), 36px);
+  /* Tables and images can use more of a wide pane. */
+  --med-brief-wide: clamp(0px, calc((100cqw - 38em) / 2 - 32px), 9em);
 }
 .med-brief-prose a.med-brief-ref {
   color: var(--med-accent);
@@ -40,4 +58,23 @@
 /* Code and diagrams reach past the text column, as excerpts do. */
 .med-brief-prose .med-md-block > pre {
   margin-inline: calc(-1 * var(--med-brief-bleed, 0px));
+}
+/* A table or a lone image widens its block on both sides. */
+.med-brief-prose > .med-md-block:has(> table),
+.med-brief-prose > .med-md-block:has(> p > img:only-child) {
+  margin-inline: calc(-1 * var(--med-brief-wide));
+}
+.med-brief-prose > .med-md-block:has(> table) {
+  overflow-x: auto;
+}
+/* A table takes the width its content needs, up to the widened block. The
+   browser then gives long text columns more room, so rows stay short. */
+.med-brief-prose .med-md-block > table {
+  display: table;
+  width: max-content;
+  max-width: 100%;
+  margin-inline: auto;
+}
+.med-brief-prose img {
+  box-shadow: 0 0 0 1px var(--med-border);
 }

@@ -2,8 +2,22 @@ let serial = Promise.resolve();
 let sequence = 0;
 const cache = new Map<string, string>();
 
+/** `from` moved toward `to` by `amount`, for hex colors. */
+function mix(from: string, to: string, amount: number) {
+  const channel = (hex: string, index: number) =>
+    parseInt(hex.slice(1 + index * 2, 3 + index * 2), 16);
+  return `#${[0, 1, 2]
+    .map((index) =>
+      Math.round(channel(from, index) + (channel(to, index) - channel(from, index)) * amount)
+        .toString(16)
+        .padStart(2, "0"),
+    )
+    .join("")}`;
+}
+
 /** Mermaid's base theme in the current Med theme's colors, so diagrams match
- * the page instead of Mermaid's own dark or neutral palette. */
+ * the page instead of Mermaid's own dark or neutral palette. A diagram sits
+ * on the code-block surface; nodes are raised cards on it. */
 function themeVariables(dark: boolean) {
   const root = getComputedStyle(document.documentElement);
   const color = (name: string, fallback: string) => {
@@ -14,37 +28,59 @@ function themeVariables(dark: boolean) {
   const raised = color("raised", dark ? "#1b1b1e" : "#ffffff");
   const border = color("border", dark ? "#28282d" : "#e1e1e5");
   const muted = color("muted", dark ? "#9d9da6" : "#5f5f68");
-  const canvas = color("canvas", dark ? "#141416" : "#ffffff");
+  const accent = color("accent", dark ? "#8f9cff" : "#4f5bd5");
+  const ground = color("panel", dark ? "#0d0d0f" : "#f7f7f8");
+  const edge = mix(ground, text, dark ? 0.42 : 0.36);
+  const outline = mix(ground, text, dark ? 0.2 : 0.16);
   return {
     darkMode: dark,
     fontFamily: "Geist, sans-serif",
     fontSize: "13px",
-    background: canvas,
+    background: ground,
+    mainBkg: raised,
     primaryColor: raised,
     primaryTextColor: text,
-    primaryBorderColor: border,
-    secondaryColor: color("hover", raised),
-    tertiaryColor: color("panel", canvas),
-    lineColor: muted,
+    primaryBorderColor: outline,
+    nodeBorder: outline,
+    secondaryColor: raised,
+    tertiaryColor: ground,
+    lineColor: edge,
     textColor: text,
-    edgeLabelBackground: canvas,
-    clusterBkg: color("panel", canvas),
+    titleColor: muted,
+    edgeLabelBackground: ground,
+    clusterBkg: mix(ground, text, dark ? 0.035 : 0.025),
     clusterBorder: border,
-    noteBkgColor: color("selected", raised),
+    noteBkgColor: mix(ground, accent, dark ? 0.16 : 0.1),
     noteTextColor: text,
-    noteBorderColor: border,
+    noteBorderColor: mix(ground, accent, dark ? 0.42 : 0.34),
     actorBkg: raised,
-    actorBorder: border,
+    actorBorder: outline,
     actorTextColor: text,
     actorLineColor: border,
-    signalColor: muted,
+    signalColor: edge,
     signalTextColor: text,
+    activationBkgColor: mix(ground, accent, dark ? 0.2 : 0.14),
+    activationBorderColor: mix(ground, accent, 0.45),
+    sequenceNumberColor: ground,
     labelBoxBkgColor: raised,
-    labelBoxBorderColor: border,
+    labelBoxBorderColor: outline,
     labelTextColor: text,
-    loopTextColor: text,
+    loopTextColor: muted,
   };
 }
+
+// Mermaid scopes this to each diagram. Rounded cards, thin lines, and quiet
+// labels, so a diagram reads like the rest of Med.
+const themeCSS = `
+  .node rect, .node polygon, .node path, .node circle { stroke-width: 1px; }
+  .node rect, .cluster rect, rect.actor, rect.note, rect.labelBox, .statediagram-state rect,
+  .classGroup rect, .er.entityBox, rect.basic { rx: 6px; ry: 6px; }
+  .flowchart-link, .edgePath .path, .transition, .relation { stroke-width: 1.25px; }
+  .edgeLabel, .edgeLabel p, .edgeLabel span { font-size: 12px; }
+  .cluster-label, .cluster-label span, .cluster-label p { font-size: 12px; font-weight: 500; }
+  .actor-line { stroke-dasharray: 3 4; }
+  .messageLine0, .messageLine1 { stroke-width: 1.25px; }
+`;
 
 /** Mermaid uses shared configuration. Serialize renders and retain unchanged diagrams. */
 export function renderDiagram(source: string, dark: boolean) {
@@ -55,11 +91,19 @@ export function renderDiagram(source: string, dark: boolean) {
   const result = serial.then(async () => {
     if (cache.has(key)) return cache.get(key)!;
     if (source.length > 20_000) throw new Error("Diagram exceeds the 20,000 character limit.");
-    const { default: mermaid } = await import("mermaid");
+    const [{ default: mermaid }] = await Promise.all([
+      import("mermaid"),
+      // Mermaid measures labels when it lays out; measure them in Geist.
+      document.fonts.load('13px "Geist"').catch(() => []),
+    ]);
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: "strict",
       theme: "base",
+      themeCSS,
+      // Mermaid 12's default "neo" look adds grey drop shadows that do not
+      // follow the theme; the classic look draws flat shapes.
+      look: "classic",
       themeVariables: variables,
       fontFamily: "Geist, sans-serif",
       // Sequence diagrams take this over their own font sizes.
