@@ -381,20 +381,21 @@ Press `q` in a review of live changes, or click the **Commit** tab, to stage
 files, commit them, and push the branch. It is the part of lazygit that a review
 needs. Press `q` again to return to the review.
 
-- **Message.** The commit message is at the top. `c` moves to it; `Esc`
-  returns to the files. An unsent message stays across reloads.
 - **Files and diffs.** The list shows each changed file: ● staged, ◐ partly
   staged, ○ not staged. The diffs of all files follow in the same order. `j` /
   `k` move through the files and scroll the diffs; scrolling the diffs moves the
   list. A partly staged file shows its staged and unstaged parts.
 - **Filter.** `/` filters the list and the diffs by path. `↑` / `↓` move while
-  you type; `Enter` keeps the filter, `Esc` clears it.
+  you type; `Enter` keeps the filter. `Esc` clears it, in the field or in the
+  list, as in a search.
 - **Stage.** `Space`, or a click on the mark in the list or in a diff header,
   stages or unstages the whole file. `a` stages every file shown, or unstages
   them when all are staged. The mark changes at once; Git's answer follows.
-- **Commit.** `⌘↵` / `Ctrl+Enter` commits the staged files. Hooks run. If a hook
-  stops the commit, its output shows below the message, and nothing is
-  committed.
+- **Commit.** `c`, **Commit…**, or `⌘↵` opens the message in the middle of the
+  window; it takes no space until then. `⌘↵` / `Ctrl+Enter` commits the staged
+  files, and `Esc` closes the message and keeps it as a draft across reloads.
+  Hooks run. If a hook stops the commit, its output shows under the message, and
+  nothing is committed.
 - **Push.** `⇧P` pushes the branch to its upstream. A branch without an upstream
   asks first, then pushes to the push remote (usually `origin`) and tracks it.
   Med never force-pushes.

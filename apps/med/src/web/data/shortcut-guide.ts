@@ -115,11 +115,15 @@ export const guideContexts: GuideContext[] = [
             keys: ["j", "k"],
             note: "In the Commit tab; the diffs scroll with it",
           },
-          { label: "Filter the files", keys: ["/"], note: "Esc clears the filter" },
+          { label: "Filter the files", keys: ["/"], note: "Esc clears it, as in a search" },
           { label: "Stage or unstage the file", keys: ["Space"], note: "Or click its mark" },
           { label: "Stage or unstage every file shown", keys: ["a"] },
-          { label: "Write the commit message", keys: ["c"], note: "Esc returns to the files" },
-          { label: "Commit the staged files", keys: ["Mod+Enter"] },
+          {
+            label: "Write the commit message",
+            keys: ["c"],
+            note: "Opens in the middle; Esc keeps it as a draft",
+          },
+          { label: "Commit the staged files", keys: ["Mod+Enter"], note: "In the message" },
           {
             label: "Push the branch",
             keys: ["Shift+P"],

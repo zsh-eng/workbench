@@ -1550,7 +1550,8 @@ describe("graphical review", () => {
       .element(row("docs/USAGE.md"))
       .toHaveAccessibleName("docs/USAGE.md, not staged, modified");
 
-    // / filters the list and the diff stream; Esc shows every file again.
+    // / filters the list and the diff stream. Enter keeps the filter; Esc in
+    // the list clears it, as in a search.
     const stream = page.getByRole("region", { name: "Changes to commit" });
     await userEvent.keyboard("/");
     await expect
@@ -1566,8 +1567,10 @@ describe("graphical review", () => {
     await expect
       .element(stream.getByRole("button", { name: /stage docs\/USAGE\.md$/i }))
       .not.toBeInTheDocument();
-    await userEvent.keyboard("{Escape}");
+    await userEvent.keyboard("{Enter}");
     await expect.element(files).toHaveFocus();
+    expect(rows()).toHaveLength(2);
+    await userEvent.keyboard("{Escape}");
     await expect.poll(() => rows().length).toBe(5);
 
     // Space stages the focused file at once, before Git answers; j moves on.
@@ -1585,7 +1588,11 @@ describe("graphical review", () => {
       .element(row("scripts/obsolete-check.mjs"))
       .toHaveAttribute("aria-selected", "true");
 
-    // A failed hook keeps the message and shows its output.
+    // c opens the message in a dialog. A failed hook keeps the message and
+    // shows its output there.
+    await expect
+      .element(page.getByRole("textbox", { name: "Commit message" }))
+      .not.toBeInTheDocument();
     await userEvent.keyboard("c");
     const message = page.getByRole("textbox", { name: "Commit message" });
     await expect.element(message).toHaveFocus();
@@ -1600,7 +1607,8 @@ describe("graphical review", () => {
     await expect
       .element(page.getByRole("status").filter({ hasText: "Committed " }))
       .toMatchTextContent(/^Committed [0-9a-f]{7} docs: explain the Commit tab$/);
-    await expect.element(message).toHaveValue("");
+    await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+    await expect.element(files).toHaveFocus();
     // Staged files left the list; the unstaged half of App.tsx stayed.
     await expect
       .poll(rows)
