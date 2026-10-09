@@ -199,6 +199,10 @@ export function App({
   }, []);
   const leftVisible = sidebarVisible;
   const rightVisible = filesVisible;
+  // The sidebar stays mounted once shown, so ⌘B does not build its history
+  // and file tree again.
+  const [sidebarMounted, setSidebarMounted] = useState(leftVisible);
+  if (leftVisible && !sidebarMounted) setSidebarMounted(true);
   useEffect(() => {
     try {
       localStorage.setItem("med:zen", zen ? "on" : "off");
@@ -2749,13 +2753,15 @@ export function App({
         role="tabpanel"
         aria-label={`${state.activeBranch ?? "Workspace"} review`}
       >
-        {leftVisible && (
+        {sidebarMounted && (
           <aside
             id={`${idPrefix}review-sidebar`}
-            className={stylex.props(styles.sidebar).className}
+            className={stylex.props(styles.sidebar, !leftVisible && styles.hiddenSurface).className}
             style={{ width: sidebarWidth }}
+            hidden={!leftVisible}
           >
-            <div {...stylex.props(styles.sidebarHeader)}>{identity}</div>
+            {/* The tab row holds the identity while the sidebar is hidden. */}
+            <div {...stylex.props(styles.sidebarHeader)}>{leftVisible && identity}</div>
             {workspace && (
               <WorkspaceList onNew={gitAvailable ? () => openBranchPicker(true) : undefined} />
             )}

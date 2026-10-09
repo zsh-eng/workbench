@@ -884,10 +884,15 @@ describe("graphical review", () => {
     await expect
       .element(page.getByRole("button", { name: "Working changes", exact: true }))
       .not.toBeInTheDocument();
+    const sidebar = () => document.getElementById("review-sidebar")?.checkVisibility() ?? false;
+    const panel = document.querySelector("#review-sidebar section");
+    expect(panel).not.toBeNull();
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "b", metaKey: true, bubbles: true }));
-    await expect.poll(() => document.getElementById("review-sidebar")).toBeNull();
+    await expect.poll(sidebar).toBe(false);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "b", metaKey: true, bubbles: true }));
-    await expect.poll(() => document.getElementById("review-sidebar")).not.toBeNull();
+    await expect.poll(sidebar).toBe(true);
+    // The sidebar comes back as it was, without building its panels again.
+    expect(document.querySelector("#review-sidebar section")).toBe(panel);
   });
 
   test("mounts real Pierre stream, changes theme and reviews commits without dropping other files", async () => {

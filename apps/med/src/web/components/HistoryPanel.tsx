@@ -158,9 +158,12 @@ export const HistoryPanel = memo(function HistoryPanel({
   useEffect(() => {
     const node = container.current;
     if (!node) return;
-    const observer = new ResizeObserver(() =>
-      setViewport((value) => ({ ...value, height: node.clientHeight })),
-    );
+    const observer = new ResizeObserver(() => {
+      // A hidden sidebar has no box; keep the rows it shows again.
+      if (node.getClientRects().length === 0) return;
+      const height = node.clientHeight;
+      setViewport((value) => (value.height === height ? value : { ...value, height }));
+    });
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
