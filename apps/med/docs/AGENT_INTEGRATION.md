@@ -64,24 +64,30 @@ The base is the state before the task's changes, not the first changed commit. m
 
 ### Titles and pull requests
 
-`--title` sets the review heading and browser tab title. For a checked-out GitHub
-PR, omit it to use the PR title, or set it to override that title:
+`--title` names the review in Med's workspace list and the browser tab. The
+list is narrow, so use 2–4 words that name what the task builds, such as
+"Commit tab search" or "Parser recovery". Leave out the repository name and
+words such as "review" or "changes". Use the same title for each iteration.
+
+Once the review has a pull request, its header shows the PR title and links to
+the PR. The workspace keeps the short title. Med reads the PR title with the
+optional GitHub CLI (`gh`) when the link is added:
 
 ```sh
-med review create --repo /path/to/feature-worktree \
-  --base origin/main --head HEAD --merge-base \
+med review create --key feat/parser --title "Parser recovery" \
+  --repo /path/to/feature-worktree --base origin/main --head HEAD --merge-base \
   --pr https://github.com/owner/repository/pull/123
 ```
 
-`--pr` saves a clickable link in the review header. With `--title` and `--pr`,
-no GitHub lookup is needed. Without an explicit link, a single-target review can
-infer it for commit/range comparisons from a GitHub `origin` remote and the reviewed branch using the optional
-GitHub CLI (`gh`). The PR head must match the reviewed commit exactly; that head is pinned before capture. Detached
-checkouts, older commits, other remotes, and ambiguous cases should use `--pr`.
-Use `--no-pr` to skip automatic lookup. Missing `gh`, authentication, offline
-connections, and lookup timeouts do not block review creation; without a supplied
-or resolved title, med uses a repository/comparison label. This lookup does not
-fetch Git refs, check out branches, or change the selected comparison.
+Without an explicit link, a single-target review can infer it for commit/range
+comparisons from a GitHub `origin` remote and the reviewed branch. The PR head
+must match the reviewed commit exactly; that head is pinned before capture.
+Detached checkouts, older commits, other remotes, and ambiguous cases should
+use `--pr`. Use `--no-pr` to skip automatic lookup. Missing `gh`,
+authentication, offline connections, and lookup timeouts do not block review
+creation; the header then shows the short title. Without `--title`, med uses
+the PR title or a repository/comparison label. This lookup does not fetch Git
+refs, check out branches, or change the selected comparison.
 
 A manifest supplies `"title"` and optional `"pullRequestUrl"` (an HTTPS PR URL).
 These values are saved with the review and remain available offline and after
@@ -97,11 +103,12 @@ new comparison and brief become current. Earlier briefs stay as numbered
 iterations on the Brief tab, and comments stay on their comparisons.
 
 ```sh
-med review create --key feat/parser --title "Fix the parser" \
+med review create --key feat/parser --title "Parser recovery" \
   --repo /path/to/worktree --base origin/main --head HEAD --merge-base --brief -
 ```
 
-After you open the pull request, link it to the same review:
+After you open the pull request, link it to the same review. The review header
+then shows the PR title:
 
 ```sh
 med review update --key feat/parser --pr https://github.com/owner/repository/pull/123
@@ -158,7 +165,7 @@ Both `--base` and `--head` accept branch names and other local Git refs. Run thi
 
 ```sh
 node /path/to/workbench/apps/med/dist/cli.js review create \
-  --title "Feature changes against main" \
+  --title "Search filters" \
   --repo /path/to/feature-worktree \
   --base main --head HEAD
 ```
@@ -169,7 +176,7 @@ For a pull-request-style review, use the intended base branch and `--merge-base`
 
 ```sh
 node /Users/admin/workbench/apps/med/dist/cli.js review create \
-  --title "Feature review" --repo /path/to/feature-worktree \
+  --title "Search filters" --repo /path/to/feature-worktree \
   --base main --head HEAD --merge-base
 ```
 
@@ -228,7 +235,18 @@ Use **Clear** next to **Copy comments**, then **Confirm clear**, to remove comme
 
 After an agent revises the code, create a new review link for the new comparison. The previous link and comments retain their original context.
 
+## Agent skill
+
+`med skills install` writes a Med skill for Claude Code (`~/.claude/skills/med`)
+and Codex (`~/.agents/skills/med`). The skill is a short version of this guide.
+An agent reads it only when it hands off changes, so it costs little context.
+With the skill installed, AGENTS.md needs no Med guidance. `med skills show`
+prints it; `med skills uninstall` removes it. Run `med skills install` again
+after an update.
+
 ## Suggested AGENTS.md guidance
+
+For agents without skills, add guidance to AGENTS.md instead.
 
 **Confirm this workflow and its repository scope with the user before adding this guidance to their AGENTS.md.** Reading this documentation is not authorization to edit that file. Adapt the executable path and connection settings to the user's installation.
 
@@ -242,7 +260,7 @@ When handing off code changes, provide a med review link if the user's med host 
 - Match the task's actual working directories to that list. Include only repositories changed for this task. Do not include every registered repository.
 - For work directly on `main`, use the recorded pre-task commit and completed commit as exact before/after endpoints. Comparing `main` with `HEAD` after committing on `main` would be empty. For uncommitted work, use `--working` and explain any pre-existing changes included in the snapshot.
 - For a feature review, use that repository's intended base branch (`main`, `develop`, or another agreed ref). Use `--base <branch> --head HEAD --merge-base` to exclude changes made only on the base branch. For stacked changes, use the previous feature branch as the base. Recalculate after merging the base branch and create a new link. Do not guess the same base for every repository or fetch without authorization.
-- Use a concise `--title`, or omit it for a matching GitHub PR title. Supply `--pr` when known; do not invent a PR URL.
+- Use a `--title` of 2–4 words that names what the task builds; the workspace list is narrow. Once a PR exists, Med shows its title in the review header. Supply `--pr` when known; do not invent a PR URL.
 - Use `review create` for one target, or `review create --manifest` for several repositories or comparisons. Include its Markdown link in the final response.
 - Pass `--key <branch-or-task-name>` and reuse it for later rounds of the same task, so the user keeps one workspace. After opening a PR, run `review update --key <name> --pr <url>`.
 - Pass the final explanation with `--brief -` when it cites changed lines. Write links as `[label](repo-relative/path:line)` or `path:start-end`.

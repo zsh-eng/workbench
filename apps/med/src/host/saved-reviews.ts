@@ -112,6 +112,7 @@ const savedSchema = z.object({
   key: text.optional(),
   title: text,
   pullRequestUrl: pullRequestUrlSchema.optional(),
+  pullRequestTitle: text.optional(),
   brief: briefSchema.optional(),
   sessions: z.array(agentSessionSchema).max(MAX_SESSIONS).optional(),
   iterations: z
@@ -261,6 +262,17 @@ function patchCoversSelection(file: FileDiffMetadata, note: Note): boolean {
 }
 
 /** Adds sessions that the review does not have yet; the newest are kept. */
+/** Links a PR. A title read for another PR does not stay with a new link. */
+function linkPullRequest(
+  saved: { pullRequestUrl?: string; pullRequestTitle?: string },
+  url: string,
+  title?: string,
+) {
+  if (title) saved.pullRequestTitle = title;
+  else if (saved.pullRequestUrl !== url) delete saved.pullRequestTitle;
+  saved.pullRequestUrl = url;
+}
+
 function addSessions(saved: { sessions?: AgentSession[] }, sessions: AgentSession[] = []) {
   const all = [...(saved.sessions ?? [])];
   for (const session of sessions) {
@@ -597,6 +609,9 @@ export class SavedReviewStore {
           id,
           title: input.title.trim(),
           ...(input.pullRequestUrl ? { pullRequestUrl: input.pullRequestUrl } : {}),
+          ...(input.pullRequestUrl && input.pullRequestTitle
+            ? { pullRequestTitle: input.pullRequestTitle }
+            : {}),
           ...(input.brief
             ? { brief: { text: input.brief, updatedAt: new Date().toISOString() } }
             : {}),
@@ -668,7 +683,7 @@ export class SavedReviewStore {
     saved.iterations = iterations;
     saved.title = input.title.trim();
     if (brief) saved.brief = brief;
-    if (input.pullRequestUrl) saved.pullRequestUrl = input.pullRequestUrl;
+    if (input.pullRequestUrl) linkPullRequest(saved, input.pullRequestUrl, input.pullRequestTitle);
     addSessions(saved, input.sessions);
     this.fit(record);
     await this.write(record, beforeCommit);
@@ -754,8 +769,11 @@ export class SavedReviewStore {
         throw new HostError("invalid-saved-review", parsed.error.issues[0]!.message);
       const record = await this.read(id, true);
       if (parsed.data.title) record.saved.title = parsed.data.title;
-      if (parsed.data.pullRequestUrl === null) delete record.saved.pullRequestUrl;
-      else if (parsed.data.pullRequestUrl) record.saved.pullRequestUrl = parsed.data.pullRequestUrl;
+      if (parsed.data.pullRequestUrl === null) {
+        delete record.saved.pullRequestUrl;
+        delete record.saved.pullRequestTitle;
+      } else if (parsed.data.pullRequestUrl)
+        linkPullRequest(record.saved, parsed.data.pullRequestUrl, parsed.data.pullRequestTitle);
       addSessions(record.saved, parsed.data.sessions);
       await this.write(record, beforeCommit);
       return this.describe(record);

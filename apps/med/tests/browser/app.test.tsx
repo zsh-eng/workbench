@@ -96,8 +96,8 @@ async function mountApp(
     brief?: string;
     readOnly?: boolean;
     noteMutation?: () => Promise<Response | undefined>;
-    /** Each saved target is one agent iteration, with these briefs. */
-    iterationBriefs?: [string, string];
+    /** One agent iteration per brief. The first and the last own the two saved targets. */
+    iterationBriefs?: string[];
     /** Both iterations are commits on the main branch of one repository. */
     oneBranch?: boolean;
     /** Replaces the two small files with these, as path and unified patch. */
@@ -155,16 +155,23 @@ async function mountApp(
     revision: 0,
     commentCount: 0,
     targets: savedTargets,
-    ...(options.pullRequest ? { pullRequestUrl: options.pullRequest.url } : {}),
+    ...(options.pullRequest
+      ? { pullRequestUrl: options.pullRequest.url, pullRequestTitle: "Read pull request threads" }
+      : {}),
     ...(brief ? { brief: { text: brief, updatedAt: "2026-09-20T00:00:00Z" } } : {}),
     ...(options.iterationBriefs
       ? {
           key: "feat/agent",
           iterations: options.iterationBriefs.map((text, index) => ({
             number: index + 1,
-            createdAt: `2026-09-2${index}T00:00:00Z`,
-            targetIds: [savedTargets[index]!.id],
-            brief: { text, updatedAt: `2026-09-2${index}T00:00:00Z` },
+            createdAt: new Date(Date.UTC(2026, 8, 20 + index)).toISOString(),
+            targetIds:
+              index === 0
+                ? [savedTargets[0]!.id]
+                : index === options.iterationBriefs!.length - 1
+                  ? [savedTargets[1]!.id]
+                  : [],
+            brief: { text, updatedAt: new Date(Date.UTC(2026, 8, 20 + index)).toISOString() },
           })),
         }
       : {}),
@@ -932,10 +939,16 @@ describe("graphical review", () => {
     const sidebar = () => document.getElementById("review-sidebar")?.checkVisibility() ?? false;
     const panel = document.querySelector("#review-sidebar section");
     expect(panel).not.toBeNull();
+    // A new branch name rolls in; moving the switch with the sidebar does not replay it.
+    const name = () =>
+      page.getByRole("button", { name: "Open branch" }).getByText("release", { exact: true });
+    expect(name().element().getAnimations().length).toBeGreaterThan(0);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "b", metaKey: true, bubbles: true }));
     await expect.poll(sidebar).toBe(false);
+    expect(name().element().getAnimations()).toEqual([]);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "b", metaKey: true, bubbles: true }));
     await expect.poll(sidebar).toBe(true);
+    expect(name().element().getAnimations()).toEqual([]);
     // The sidebar comes back as it was, without building its panels again.
     expect(document.querySelector("#review-sidebar section")).toBe(panel);
   });
@@ -1085,6 +1098,49 @@ describe("graphical review", () => {
       .element(page.getByRole("button", { name: "Collapse src/long0.ts", exact: true }))
       .toBeInTheDocument();
     await centered("needleCollapsed");
+  });
+
+  test("next hunk puts the whole hunk in the middle of the view", async () => {
+    await page.viewport(1280, 800);
+    // One file with 14 hunks of 8 lines each: a context line, 6 added lines, a context line.
+    const path = "src/hunks.ts";
+    const hunks = Array.from({ length: 14 }, (_, index) => {
+      const start = 1 + index * 50;
+      return (
+        `@@ -${start},2 +${start + index * 6},8 @@\n const before${index} = 0;\n` +
+        ["a", "b", "c", "d", "e", "f"].map((part) => `+const hunk${index}${part} = 1;\n`).join("") +
+        ` const after${index} = 0;\n`
+      );
+    });
+    await mountApp({
+      review: {
+        paths: [path],
+        patch: `diff --git a/${path} b/${path}\nindex 1111111..2222222 100644\n--- a/${path}\n+++ b/${path}\n${hunks.join("")}`,
+      },
+    });
+    const row = (text: string) => {
+      for (const host of document.querySelectorAll("diffs-container")) {
+        const walker = document.createTreeWalker(host.shadowRoot!, NodeFilter.SHOW_TEXT);
+        while (walker.nextNode())
+          if (walker.currentNode.textContent?.includes(text))
+            return walker.currentNode.parentElement!.getBoundingClientRect();
+      }
+      return null;
+    };
+    await expect.poll(() => row("hunk0a")).not.toBeNull();
+    let scroller = document.querySelector("diffs-container")!.parentElement!;
+    while (!/auto|scroll/.test(getComputedStyle(scroller).overflowY))
+      scroller = scroller.parentElement!;
+    for (let step = 0; step < 6; step++) await userEvent.keyboard("]");
+    // The middle of the hunk, between its third and fourth added lines, is
+    // the middle of the scrolling view, within a line. Before, the hunk's first
+    // line was at the top.
+    const offset = () => {
+      const third = row("hunk6c");
+      const view = scroller.getBoundingClientRect();
+      return third ? Math.abs(third.bottom - (view.top + view.bottom) / 2) : Infinity;
+    };
+    await expect.poll(offset).toBeLessThan(20);
   });
 
   test("the comparison totals split lines into code, tests, and lockfiles", async () => {
@@ -1683,6 +1739,21 @@ describe("graphical review", () => {
     await expect
       .element(page.getByRole("tab", { name: "Changes", exact: true }))
       .toHaveAttribute("aria-selected", "true");
+
+    // As in Changes, a file name in the stream opens the file (Command-click
+    // behind this tab), and Enter opens the focused file.
+    await userEvent.keyboard("q");
+    const tab = (name: string) => page.getByRole("tab", { name, exact: true });
+    await expect.element(tab("Commit")).toHaveAttribute("aria-selected", "true");
+    stream
+      .getByRole("link", { name: "src/web/components/CommitView.tsx", exact: true })
+      .element()
+      .dispatchEvent(new MouseEvent("click", { bubbles: true, metaKey: true }));
+    await expect.element(tab("CommitView.tsx")).toBeVisible();
+    await expect.element(tab("Commit")).toHaveAttribute("aria-selected", "true");
+    await row("src/web/App.tsx").click();
+    await userEvent.keyboard("{Enter}");
+    await expect.element(tab("App.tsx")).toHaveAttribute("aria-selected", "true");
   });
 });
 
@@ -1742,6 +1813,34 @@ describe("review brief", () => {
       .toHaveAttribute("aria-selected", "true");
     await page.getByRole("tab", { name: "Brief" }).click();
     await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
+  });
+
+  test("many iterations keep the latest keys and list earlier ones in a menu", async () => {
+    await page.viewport(1280, 800);
+    await mountApp({
+      savedReview: true,
+      iterationBriefs: Array.from({ length: 12 }, (_, index) => `# Round ${index + 1}\n`),
+    });
+    await expect.element(page.getByRole("heading", { name: "Round 12" })).toBeVisible();
+    const keys = page.getByRole("group", { name: "Iterations" });
+    expect(
+      keys
+        .getByRole("button")
+        .elements()
+        .map((key) => key.textContent),
+    ).toEqual(["…", "7", "8", "9", "10", "11", "12"]);
+    const header = keys.element().parentElement!;
+    expect(header.scrollWidth).toBeLessThanOrEqual(header.clientWidth);
+    // An earlier round opens from the menu, and the menu key shows it.
+    await page.getByRole("button", { name: "Earlier iterations" }).click();
+    await page.getByRole("menuitemcheckbox", { name: /^Iteration 3 · / }).click();
+    await expect.element(page.getByRole("heading", { name: "Round 3" })).toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: "Iteration 3, earlier iterations" }))
+      .toHaveTextContent("3");
+    await page.getByRole("button", { name: "Iteration 12" }).click();
+    await expect.element(page.getByRole("heading", { name: "Round 12" })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Earlier iterations" })).toBeVisible();
   });
 
   test("an iteration on the same branch replaces the brief without reloading the review", async () => {
@@ -1870,6 +1969,11 @@ describe("review brief", () => {
         reviews: [{ ...comment(41, "jordan", ""), state: "APPROVED" }],
       },
     });
+    // The header names the PR by its own title; the browser tab keeps the short title.
+    await expect
+      .element(page.getByRole("link", { name: "Open pull request: Read pull request threads" }))
+      .toBeVisible();
+    expect(document.title).toBe("Agent review");
     // The thread on the pull request head shows on its line, with no way to write.
     const thread = page.getByRole("article", { name: "GitHub thread by mira at R1, read-only" });
     await expect.element(thread).toBeVisible();

@@ -404,24 +404,11 @@ export default function BriefView({
               Brief
             </span>
             {iterations && iterations.length > 1 && (
-              <span role="group" aria-label="Iterations" {...stylex.props(styles.iterations)}>
-                {iterations.map((entry) => (
-                  <button
-                    key={entry.number}
-                    type="button"
-                    aria-pressed={entry.number === iteration}
-                    aria-label={`Iteration ${entry.number}`}
-                    title={`Iteration ${entry.number} · ${new Date(entry.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`}
-                    onClick={() => onIteration?.(entry.number)}
-                    {...stylex.props(
-                      styles.iteration,
-                      entry.number === iteration && styles.iterationOn,
-                    )}
-                  >
-                    {entry.number}
-                  </button>
-                ))}
-              </span>
+              <IterationKeys
+                iterations={iterations}
+                iteration={iteration}
+                onIteration={onIteration}
+              />
             )}
             {annotated && files.length > 0 && (
               <span
@@ -431,7 +418,10 @@ export default function BriefView({
                 <span {...stylex.props(styles.meter)} aria-hidden="true">
                   <span {...stylex.props(styles.meterFill(citedCount / files.length))} />
                 </span>
-                Cites {citedCount} of {files.length} changed {files.length === 1 ? "file" : "files"}
+                <span {...stylex.props(styles.coverageText)}>
+                  Cites {citedCount} of {files.length} changed{" "}
+                  {files.length === 1 ? "file" : "files"}
+                </span>
               </span>
             )}
             <span {...stylex.props(styles.grow)} />
@@ -862,6 +852,73 @@ const enter = stylex.keyframes({
 const grow = stylex.keyframes({ from: { transform: "scaleX(0)" } });
 const reduced = "@media (prefers-reduced-motion: reduce)";
 
+/** Keys for this many latest iterations; earlier ones open from a menu. */
+const RECENT_ITERATIONS = 6;
+
+/**
+ * The agent's rounds as numbered keys; the shown one is filled. A long review
+ * keeps the latest keys and lists earlier rounds in a menu, so the header
+ * keeps its width. The menu key shows an earlier round while it is shown.
+ */
+function IterationKeys({
+  iterations,
+  iteration,
+  onIteration,
+}: {
+  iterations: readonly { number: number; createdAt: string }[];
+  iteration?: number;
+  onIteration?(number: number): void;
+}) {
+  const recent =
+    iterations.length > RECENT_ITERATIONS + 1 ? iterations.slice(-RECENT_ITERATIONS) : iterations;
+  const earlier = iterations.slice(0, iterations.length - recent.length);
+  const shownEarlier = earlier.find((entry) => entry.number === iteration);
+  const when = (entry: { createdAt: string }) =>
+    new Date(entry.createdAt).toLocaleString(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  return (
+    <span role="group" aria-label="Iterations" {...stylex.props(styles.iterations)}>
+      {earlier.length > 0 && (
+        <ActionMenu
+          label={
+            shownEarlier
+              ? `Iteration ${shownEarlier.number}, earlier iterations`
+              : "Earlier iterations"
+          }
+          align="start"
+          trigger={[styles.iteration, styles.earlier, shownEarlier && styles.iterationOn]}
+          sections={[
+            earlier.toReversed().map((entry) => ({
+              label: `Iteration ${entry.number} · ${when(entry)}`,
+              checked: entry.number === iteration,
+              choice: true,
+              onClick: () => onIteration?.(entry.number),
+            })),
+          ]}
+        >
+          {shownEarlier?.number ?? "…"}
+          <Icon name="chevron" size={10} />
+        </ActionMenu>
+      )}
+      {recent.map((entry) => (
+        <button
+          key={entry.number}
+          type="button"
+          aria-pressed={entry.number === iteration}
+          aria-label={`Iteration ${entry.number}`}
+          title={`Iteration ${entry.number} · ${when(entry)}`}
+          onClick={() => onIteration?.(entry.number)}
+          {...stylex.props(styles.iteration, entry.number === iteration && styles.iterationOn)}
+        >
+          {entry.number}
+        </button>
+      ))}
+    </span>
+  );
+}
+
 const styles = stylex.create({
   root: {
     containerType: "inline-size",
@@ -896,10 +953,12 @@ const styles = stylex.create({
     color: tokens.text,
     fontWeight: 500,
   },
-  coverage: { display: "flex", alignItems: "center", gap: 8, color: tokens.faint },
-  // The agent's rounds, as small numbered keys; the shown one is filled.
+  // In a narrow pane the coverage text shortens before the header overflows.
+  coverage: { display: "flex", alignItems: "center", gap: 8, minWidth: 0, color: tokens.faint },
+  coverageText: { minWidth: 0, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" },
   iterations: {
     display: "inline-flex",
+    flexShrink: 0,
     gap: 2,
     padding: 2,
     borderRadius: `calc(7px * ${tokens.round})`,
@@ -920,6 +979,7 @@ const styles = stylex.create({
     outline: "none",
     boxShadow: { default: "none", ":focus-visible": `0 0 0 2px ${tokens.accentLine}` },
   },
+  earlier: { display: "inline-flex", alignItems: "center", gap: 1, paddingInlineEnd: 3 },
   iterationOn: {
     color: { default: tokens.text, ":hover": tokens.text },
     backgroundColor: { default: tokens.raised, ":hover": tokens.raised },
@@ -1082,7 +1142,7 @@ const styles = stylex.create({
   column: {
     boxSizing: "border-box",
     width: "100%",
-    maxWidth: "calc(38em + 2 * clamp(24px, 4cqw, 48px))",
+    maxWidth: "calc(var(--med-measure, 38em) + 2 * clamp(24px, 4cqw, 48px))",
     marginInline: "auto",
     paddingInlineStart: "clamp(24px, 4cqw, 48px)",
     paddingInlineEnd: "clamp(24px, 4cqw, 48px)",

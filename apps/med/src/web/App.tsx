@@ -1279,6 +1279,7 @@ export function App({
             id: file.id,
             side: hunk.additionCount > 0 ? ("additions" as const) : ("deletions" as const),
             line: hunk.additionCount > 0 ? hunk.additionStart : hunk.deletionStart,
+            count: hunk.additionCount > 0 ? hunk.additionCount : hunk.deletionCount,
           })) ?? [],
       );
       const current = targets.findIndex(
@@ -1293,12 +1294,17 @@ export function App({
           id: target.id,
           range: { start: target.line, end: target.line, side: target.side },
         });
+        // The whole hunk sits in the middle of the view; a hunk taller than the
+        // view starts at its top instead.
         viewer.current?.scrollTo({
-          type: "line",
+          type: "range",
           id: target.id,
-          side: target.side,
-          lineNumber: target.line,
-          align: "start",
+          range: {
+            start: target.line,
+            end: target.line + Math.max(0, target.count - 1),
+            side: target.side,
+          },
+          align: "center",
         });
       }
     },
@@ -3328,6 +3334,7 @@ export function App({
                     revision={state.sourceRevision}
                     active={fileState.active === "commit"}
                     draftKey={`med:commit-message:${commitRepo}`}
+                    onOpenFile={(path, background) => openWorkingFile(path, true, background)}
                   />
                 </Suspense>
               </div>

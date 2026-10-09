@@ -20,6 +20,8 @@ export interface MenuAction {
   shortcut?: string;
   /** A toggle. Renders as a checkbox item with its state. */
   checked?: boolean;
+  /** A checked item that is a choice, so choosing it closes the menu. */
+  choice?: boolean;
   disabled?: boolean;
   onClick(): void;
 }
@@ -109,11 +111,16 @@ export function ActionMenu({
   children,
   label = "View options",
   sections,
+  trigger,
+  align = "end",
 }: {
   children?: ReactNode;
   label?: string;
   /** Groups of related actions, separated by rules. */
   sections: MenuAction[][];
+  /** The trigger's look, in place of a toolbar button. */
+  trigger?: stylex.StyleXStyles;
+  align?: "start" | "end";
 }) {
   const toggles = sections.some((section) =>
     section.some((action) => action.checked !== undefined),
@@ -122,14 +129,14 @@ export function ActionMenu({
     <Menu.Root>
       <ActionTooltip label={label}>
         <Menu.Trigger
-          {...stylex.props(ui.button, children ? null : ui.iconButton)}
+          {...stylex.props(trigger ?? [ui.button, children ? null : ui.iconButton])}
           aria-label={label}
         >
           {children ?? <Icon name="settings" size={15} />}
         </Menu.Trigger>
       </ActionTooltip>
       <Menu.Portal>
-        <Menu.Positioner align="end" sideOffset={6} {...stylex.props(styles.positioner)}>
+        <Menu.Positioner align={align} sideOffset={6} {...stylex.props(styles.positioner)}>
           <Menu.Popup {...stylex.props(ui.popup, ui.pop, styles.menu)}>
             {sections
               .filter((section) => section.length)
@@ -172,6 +179,7 @@ export function ActionMenu({
                           key={action.label}
                           disabled={action.disabled}
                           checked={action.checked}
+                          closeOnClick={action.choice}
                           onCheckedChange={action.onClick}
                           className={className}
                         >

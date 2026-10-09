@@ -50,8 +50,12 @@ export interface CodePalette {
  * every theme.
  */
 export interface Aesthetic {
-  /** Interface text, Markdown and brief prose, and Markdown headings with their tracking. */
-  fonts: { ui: string; prose: string; headings: string; headingTracking: string };
+  /**
+   * Interface text, Markdown and brief prose, and Markdown headings with their
+   * tracking. `measure` is the prose column width, so a line holds about 60–75
+   * characters in the prose font.
+   */
+  fonts: { ui: string; prose: string; headings: string; headingTracking: string; measure: string };
   /** Multiplies every corner radius: 1 is Med's own, 0.3 is nearly square. */
   round: number;
   /** "pill" makes command buttons fully round. */
@@ -436,6 +440,7 @@ export const aesthetics = {
       prose: geist,
       headings: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Geist", sans-serif',
       headingTracking: "-0.035em",
+      measure: "38em",
     },
     round: 1,
     buttons: "rounded",
@@ -453,6 +458,7 @@ export const aesthetics = {
       prose: 'ui-serif, "New York", Georgia, "Times New Roman", serif',
       headings: 'ui-serif, "New York", Georgia, "Times New Roman", serif',
       headingTracking: "-0.015em",
+      measure: "38em",
     },
     round: 1.3,
     buttons: "rounded",
@@ -464,7 +470,13 @@ export const aesthetics = {
   },
   // OpenAI's apps: the system sans, generous corners, and pill buttons.
   codex: {
-    fonts: { ui: systemSans, prose: systemSans, headings: systemSans, headingTracking: "-0.025em" },
+    fonts: {
+      ui: systemSans,
+      prose: systemSans,
+      headings: systemSans,
+      headingTracking: "-0.025em",
+      measure: "38em",
+    },
     round: 1.4,
     buttons: "pill",
     lines: { from: "text", strength: 8 },
@@ -475,7 +487,13 @@ export const aesthetics = {
   },
   // VS Code's lineage: the system font, tight corners, uppercase section headers.
   cursor: {
-    fonts: { ui: systemSans, prose: systemSans, headings: systemSans, headingTracking: "-0.02em" },
+    fonts: {
+      ui: systemSans,
+      prose: systemSans,
+      headings: systemSans,
+      headingTracking: "-0.02em",
+      measure: "38em",
+    },
     round: 0.7,
     buttons: "rounded",
     lines: { from: "text", strength: 8 },
@@ -493,6 +511,7 @@ export const aesthetics = {
       headings:
         '"Inter Display", "Inter Variable", "Inter", "SF Pro Display", -apple-system, sans-serif',
       headingTracking: "-0.022em",
+      measure: "38em",
     },
     round: 1,
     buttons: "rounded",
@@ -510,6 +529,8 @@ export const aesthetics = {
       prose: '"Paper Mono", "SFMono-Regular", Consolas, monospace',
       headings: '"Paper Mono", "SFMono-Regular", Consolas, monospace',
       headingTracking: "0",
+      // Mono characters are wider: 43em holds about 63 characters, as 38em does 74 in Geist.
+      measure: "43em",
     },
     round: 0.3,
     buttons: "rounded",
@@ -1251,6 +1272,7 @@ export function aestheticVariables({ aesthetic: look, palette }: Theme): Record<
     "--med-font-prose": look.fonts.prose,
     "--med-font-headings": look.fonts.headings,
     "--med-headings-tracking": look.fonts.headingTracking,
+    "--med-measure": look.fonts.measure,
     "--med-round": String(look.round),
     "--med-button-round": look.buttons === "pill" ? "999px" : `calc(6px * ${look.round})`,
     "--med-line-from": look.lines.from === "accent" ? palette.accent : palette.text,

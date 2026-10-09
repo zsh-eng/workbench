@@ -16,7 +16,7 @@ import {
   type RunningConnection,
 } from "../host/runtime/connection";
 
-import { reviewMetadata } from "./review-metadata";
+import { pullRequestTitle, reviewMetadata } from "./review-metadata";
 
 export const reviewManifestSchema = savedReviewCreateSchema.strict();
 export type ReviewManifest = z.infer<typeof reviewManifestSchema>;
@@ -31,7 +31,7 @@ export const reviewHelp = `Usage: med-diff review create --title <title> --repo 
 update sets the title or the PR link of the review with that key, such as after you open the PR.
 A Claude Code session that runs the command is recorded with the review, so Med can copy its resume command; --session codex:<id> or claude:<id> adds others, and --no-session records none.
 
---title sets the review and browser tab title. Without it, use the matching PR title or a comparison label.
+--title names the review in the workspace list and the browser tab. Use 2–4 words, such as "Commit tab search". Without it, use the matching PR title or a comparison label. Once the review has a PR, its header shows the PR title, read with gh.
 --pr <https-url> adds a clickable GitHub PR link. A matching PR is inferred for a single GitHub origin repository when gh is available; --no-pr skips lookup.
 --merge-base compares the common ancestor of --base and --head with --head (for pull requests and stacked branches).
 --brief <path|-> attaches a Markdown explanation; - reads standard input. Links such as [App.tsx:42](src/App.tsx:42) open the cited lines.
@@ -278,10 +278,14 @@ export async function runReviewCommand(
   const fetcher = options.fetcher ?? fetch;
   if (command.kind === "update") {
     const { key, ...details } = command.update!;
+    const title = details.pullRequestUrl && (await pullRequestTitle(details.pullRequestUrl));
     const found = z
       .object({ id: z.string().regex(/^[A-Za-z0-9_-]+$/) })
       .parse(await request(connection, "/api/reviews/by-key", fetcher, { key }));
-    await request(connection, `/api/reviews/${found.id}/details`, fetcher, details);
+    await request(connection, `/api/reviews/${found.id}/details`, fetcher, {
+      ...details,
+      ...(title ? { pullRequestTitle: title } : {}),
+    });
     await showReview(connection, found.id, false, fetcher, options.openUrl, true);
     print(`[Review changes here](${connection.origin}/review/${found.id})`);
     return;

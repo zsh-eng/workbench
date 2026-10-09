@@ -67,6 +67,8 @@ export const savedReviewCreateSchema = z.object({
   key: reviewKeySchema.optional(),
   sessions: z.array(agentSessionSchema).max(MAX_SESSIONS).optional(),
   pullRequestUrl: pullRequestUrlSchema.optional(),
+  /** The PR's own title, read with gh. The review header shows it. */
+  pullRequestTitle: z.string().trim().min(1).max(200).optional(),
   brief: briefTextSchema.optional(),
   targets: z
     .array(
@@ -107,14 +109,18 @@ export type SavedIteration = z.infer<typeof savedIterationSchema>;
 export const savedReviewDetailsSchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
   pullRequestUrl: pullRequestUrlSchema.nullable().optional(),
+  pullRequestTitle: z.string().trim().min(1).max(200).optional(),
   /** Added to the review's sessions. */
   sessions: z.array(agentSessionSchema).max(MAX_SESSIONS).optional(),
 });
 export const savedReviewSchema = z.object({
   id: z.string(),
   key: z.string().optional(),
+  /** A short name for the workspace list and the browser tab. */
   title: z.string(),
   pullRequestUrl: pullRequestUrlSchema.optional(),
+  /** The PR's own title, shown in the review header in place of the title. */
+  pullRequestTitle: z.string().optional(),
   brief: savedBriefSchema.optional(),
   createdAt: z.string(),
   revision: z.number().int().nonnegative(),
