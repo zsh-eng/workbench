@@ -2,11 +2,17 @@ import { resolveTheme } from "@pierre/diffs";
 import type { MarkdownResult } from "./model";
 import RenderWorker from "./render.worker?worker";
 
-// One worker renders the briefs of every workspace in this window. Results are
-// kept by theme and text, so a brief that rendered once, or ahead of time for a
-// hidden workspace or another iteration, shows in the frame it is chosen.
-const MAX_RESULTS = 24;
-const results = new Map<string, MarkdownResult>();
+// One worker renders the briefs of every workspace in this window, and the
+// replies of agent sessions. Results are kept by theme and text, so a brief
+// that rendered once, or ahead of time for a hidden workspace or another
+// iteration, shows in the frame it is chosen. Session replies have their own
+// cache, so a long session does not push the briefs out.
+export type RenderCache = "brief" | "session";
+const MAX_RESULTS: Record<RenderCache, number> = { brief: 24, session: 200 };
+const results: Record<RenderCache, Map<string, MarkdownResult>> = {
+  brief: new Map(),
+  session: new Map(),
+};
 const waiting = new Map<string, Promise<MarkdownResult>>();
 // The worker keeps only its latest message, so tasks go one at a time. A brief
 // on screen goes before the ones rendered ahead.
@@ -18,14 +24,23 @@ const replies = new Map<number, (data: MarkdownResult & { error?: string }) => v
 
 const keyOf = (theme: string, text: string) => `${theme}\0${text}`;
 
-export function renderedBrief(theme: string, text: string) {
-  return results.get(keyOf(theme, text));
+export function renderedBrief(theme: string, text: string, cache: RenderCache = "brief") {
+  return results[cache].get(keyOf(theme, text));
 }
 
-export function renderBrief(theme: string, text: string, urgent = true) {
-  const key = keyOf(theme, text);
-  const done = results.get(key);
+/**
+ * Renders Markdown in the worker. `keep: false` renders without caching the
+ * result, for the partial text of a reply that is still streaming.
+ */
+export function renderBrief(
+  theme: string,
+  text: string,
+  urgent = true,
+  { cache = "brief", keep = true }: { cache?: RenderCache; keep?: boolean } = {},
+) {
+  const done = results[cache].get(keyOf(theme, text));
   if (done) return Promise.resolve(done);
+  const key = `${cache}\0${keep}\0${keyOf(theme, text)}`;
   const queued = queue.findIndex((task) => task.key === key);
   if (queued > 0 && urgent) queue.unshift(...queue.splice(queued, 1));
   const existing = waiting.get(key);
@@ -35,7 +50,7 @@ export function renderBrief(theme: string, text: string, urgent = true) {
       key,
       text,
       theme,
-      run: () => void send(task.key, text, theme).then(resolve, reject),
+      run: () => void send(text, theme, keep ? cache : undefined).then(resolve, reject),
     };
     if (urgent) queue.unshift(task);
     else queue.push(task);
@@ -54,7 +69,7 @@ function next() {
   task.run();
 }
 
-async function send(key: string, text: string, themeName: string) {
+async function send(text: string, themeName: string, cache?: RenderCache) {
   try {
     const theme = await resolveTheme(themeName);
     worker ??= createWorker();
@@ -69,9 +84,13 @@ async function send(key: string, text: string, themeName: string) {
       headings: data.headings,
       milliseconds: data.milliseconds,
     };
-    results.delete(key);
-    results.set(key, result);
-    while (results.size > MAX_RESULTS) results.delete(results.keys().next().value!);
+    if (cache) {
+      const key = keyOf(themeName, text);
+      const kept = results[cache];
+      kept.delete(key);
+      kept.set(key, result);
+      while (kept.size > MAX_RESULTS[cache]) kept.delete(kept.keys().next().value!);
+    }
     return result;
   } finally {
     busy = false;

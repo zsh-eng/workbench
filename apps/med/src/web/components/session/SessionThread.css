@@ -1,0 +1,55 @@
+/* A reply in a session thread uses the brief's prose rules at a size that
+   fits a side panel: no page padding, smaller headings, tighter blocks. */
+.med-md-prose.med-session-prose {
+  max-width: none;
+  padding: 0;
+  margin: 4px 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--med-text);
+}
+.med-session-prose p {
+  margin: 0 0 0.75em;
+}
+.med-session-prose > .med-md-block:last-child > :last-child,
+.med-session-prose > .med-md-block:last-child > :last-child > li:last-child {
+  margin-bottom: 0;
+}
+.med-session-prose :is(h1, h2, h3) {
+  font-size: 1.15em;
+  margin: 1.2em 0 0.5em;
+  letter-spacing: -0.01em;
+  font-weight: 500;
+}
+.med-session-prose :is(h4, h5, h6) {
+  font-size: 1em;
+  margin: 1em 0 0.4em;
+}
+.med-session-prose :is(ul, ol) {
+  margin: 0 0 0.75em;
+  padding-left: 1.25em;
+}
+.med-session-prose li {
+  margin: 0.2em 0;
+}
+.med-session-prose pre {
+  margin: 0.75em 0;
+  padding: 10px 12px;
+  border-radius: calc(8px * var(--med-round, 1));
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+.med-session-prose pre::before {
+  content: none;
+}
+.med-session-prose code {
+  font-size: 0.85em;
+  padding: 0.1em 0.3em;
+}
+.med-session-prose a {
+  text-underline-offset: 3px;
+}
+.med-session-plain {
+  margin: 0;
+  white-space: pre-wrap;
+}
