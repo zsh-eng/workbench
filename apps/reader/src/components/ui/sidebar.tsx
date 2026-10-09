@@ -24,10 +24,11 @@ import {
   type ComponentProps,
   type ReactNode,
 } from "react";
+import { MOTION_MS } from "@/lib/motion";
 
 const SIDEBAR_WIDTH = "18rem";
-const SIDEBAR_ENTER_DURATION_MS = 200;
-const SIDEBAR_EXIT_DURATION_MS = 140;
+const SIDEBAR_ENTER_DURATION_MS = MOTION_MS.enter;
+const SIDEBAR_EXIT_DURATION_MS = MOTION_MS.exit;
 
 type SidebarTransitionMode = "animated" | "instant";
 
@@ -229,7 +230,8 @@ export function Sidebar({
             transitionMode === "instant"
               ? "duration-0!"
               : openMobile
-                ? "duration-[200ms]!"
+                ? // Tailwind needs literal classes: MOTION_MS.enter and .exit.
+                  "duration-[180ms]!"
                 : "duration-[140ms]!",
           )}
           style={

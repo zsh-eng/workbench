@@ -666,6 +666,9 @@ export function Reader() {
                       noteViewportHeight !== null ||
                       chromeState.activeReaderSheet === "notes"
                     }
+                    currentChapterIndex={
+                      sessionState.navigation.currentChapterIndex
+                    }
                     location={{
                       page: sessionState.navigation.currentPage,
                       chapter: currentChapterEntry?.title ?? "Current chapter",

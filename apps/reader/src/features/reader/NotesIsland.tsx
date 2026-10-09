@@ -5,7 +5,6 @@ import {
   motion,
   useIsPresent,
   useReducedMotion,
-  type Transition,
 } from "motion/react";
 import {
   useCallback,
@@ -17,6 +16,7 @@ import {
 } from "react";
 import type { AnnotationColor } from "@/lib/highlight-constants";
 import { useBookNotesQuery } from "@/hooks/use-notes-query";
+import { MOTION } from "@/lib/motion";
 import { NotebookCountIcon } from "./shared/NotebookCountIcon";
 
 /**
@@ -29,9 +29,6 @@ import { NotebookCountIcon } from "./shared/NotebookCountIcon";
 /** The island's floating material: the reading theme's popover colours. */
 export const ISLAND_SURFACE =
   "border border-border/70 bg-popover/95 text-popover-foreground shadow-lg backdrop-blur-xl";
-
-const EASE_OUT = [0.23, 1, 0.32, 1] as const;
-const SHAPE_TRANSITION: Transition = { duration: 0.26, ease: EASE_OUT };
 
 /** Resting state, docked on the footer where Jot a note was. It reads the
  * book's notes itself, so a saved note does not render the Reader. */
@@ -149,7 +146,7 @@ export function IslandSurface({
           ? { width: size.width, height: size.height, borderRadius: radius }
           : { borderRadius: radius }
       }
-      transition={!settled || reduceMotion ? { duration: 0 } : SHAPE_TRANSITION}
+      transition={!settled || reduceMotion ? { duration: 0 } : MOTION.shape}
     >
       <AnimatePresence initial={false}>
         <IslandLayer key={layerKey} onSize={measure}>
@@ -186,8 +183,8 @@ function IslandLayer({
       className="absolute bottom-0 left-1/2 w-max -translate-x-1/2"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      exit={{ opacity: 0, transition: { duration: 0.12, ease: "easeIn" } }}
-      transition={{ duration: 0.2, ease: EASE_OUT, delay: 0.04 }}
+      exit={{ opacity: 0, transition: MOTION.exit }}
+      transition={{ ...MOTION.enter, delay: 0.04 }}
     >
       {children}
     </motion.div>

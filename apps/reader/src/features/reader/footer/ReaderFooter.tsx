@@ -1,7 +1,5 @@
-import {
-  DESKTOP_CHROME_FADE_TRANSITION,
-  type ReaderChromeSurfaceProps,
-} from "@/features/reader/chrome";
+import type { ReaderChromeSurfaceProps } from "@/features/reader/chrome";
+import { MOTION } from "@/lib/motion";
 import type {
   ChapterEntry,
   ReaderHandoffPrompt,
@@ -15,23 +13,6 @@ import { FooterHandoffPrompt } from "./FooterHandoffPrompt";
 import { FooterScrubberLoading } from "./FooterLoadingState";
 import { FooterPageIndicator } from "./FooterPageIndicator";
 import { FooterScrubberCanvas } from "./FooterScrubberCanvas";
-
-const CHROME_ENTER_TRANSITION = {
-  duration: 0.26,
-  ease: [0.16, 1, 0.3, 1] as const,
-};
-const CHROME_EXIT_TRANSITION = {
-  duration: 0.18,
-  ease: [0.32, 0, 0.67, 0] as const,
-};
-const CHROME_FADE_IN_TRANSITION = {
-  duration: 0.18,
-  ease: "easeOut" as const,
-};
-const CHROME_FADE_OUT_TRANSITION = {
-  duration: 0.14,
-  ease: "easeIn" as const,
-};
 
 export interface ReaderFooterProps {
   /** Another bottom surface owns the viewport; omit even the exit animation. */
@@ -134,11 +115,11 @@ export function ReaderFooter({
                   y: chromeVisible ? 0 : "100%",
                   opacity: 1,
                   transition: {
-                    y: CHROME_ENTER_TRANSITION,
-                    opacity: CHROME_FADE_IN_TRANSITION,
+                    y: MOTION.chromeEnter,
+                    opacity: MOTION.chromeFadeIn,
                   },
                 }
-              : { opacity: 1, transition: DESKTOP_CHROME_FADE_TRANSITION }
+              : { opacity: 1, transition: MOTION.desktopChromeFade }
           }
           exit={
             isMobile
@@ -146,11 +127,11 @@ export function ReaderFooter({
                   y: "100%",
                   opacity: 0,
                   transition: {
-                    y: CHROME_EXIT_TRANSITION,
-                    opacity: CHROME_FADE_OUT_TRANSITION,
+                    y: MOTION.chromeExit,
+                    opacity: MOTION.chromeFadeOut,
                   },
                 }
-              : { opacity: 0, transition: DESKTOP_CHROME_FADE_TRANSITION }
+              : { opacity: 0, transition: MOTION.desktopChromeFade }
           }
           className="absolute inset-x-0 bottom-0 z-20 overflow-visible border-t border-border/70 bg-background/88 backdrop-blur-xl"
           {...chromeSurfaceProps}

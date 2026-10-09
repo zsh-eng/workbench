@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { MOTION } from "@/lib/motion";
 import { X } from "lucide-react";
 import { motion } from "motion/react";
 import type { ReaderStatusAction } from "../hooks/use-reader-status-prompt";
@@ -7,8 +8,8 @@ export function FooterStatusPrompt({ prompt }: { prompt: ReaderStatusAction }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0 }}
+      animate={{ opacity: 1, y: 0, transition: MOTION.enter }}
+      exit={{ opacity: 0, transition: MOTION.exit }}
       className="pointer-events-auto px-3 sm:px-4"
       role="status"
     >

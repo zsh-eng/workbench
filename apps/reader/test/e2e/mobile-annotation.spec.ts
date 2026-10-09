@@ -1,6 +1,12 @@
 import type { Page } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
-import { test, expect, openLocalBook, nextSpread } from "./helpers/fixtures";
+import {
+  test,
+  expect,
+  openLocalBook,
+  nextSpread,
+  waitForReaderReady,
+} from "./helpers/fixtures";
 
 test.use({
   viewport: { width: 390, height: 844 },
@@ -329,4 +335,41 @@ test("the notebook gathers highlights and filters them by type and colour", asyn
       '[data-reader-spread-layer="current"] mark[data-color="yellow"]',
     ),
   ).toBeVisible();
+});
+
+test("the notebook opens at the current chapter", async ({
+  page,
+  localBook,
+}) => {
+  test.setTimeout(60_000);
+  await openLocalBook(page, localBook.id);
+  for (let i = 0; i < 8; i++) await nextSpread(page);
+  const goTo = async (name: string) => {
+    await showChrome(page);
+    await page.getByRole("button", { name, exact: true }).click();
+    await waitForReaderReady(page);
+  };
+  // Two highlights in each of four chapters overflow the notebook list.
+  for (const color of ["yellow", "green", "blue", "magenta"]) {
+    for (const index of [0, 2]) {
+      await selectPassage(page, index);
+      await page
+        .getByRole("button", { name: `Highlight with ${color}` })
+        .click();
+      await expect(page.locator("[data-notes-island]")).toHaveCount(0);
+    }
+    await goTo("Next chapter");
+  }
+  await goTo("Previous chapter");
+  await goTo("Previous chapter");
+  await showChrome(page);
+  await page
+    .getByRole("button", { name: "Open notebook", exact: true })
+    .click();
+  const groups = page
+    .getByRole("region", { name: "Book notebook" })
+    .locator("[data-notebook-group]");
+  await expect(groups).toHaveCount(4);
+  await expect(groups.nth(2)).toBeInViewport();
+  await expect(groups.first()).not.toBeInViewport();
 });

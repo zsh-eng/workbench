@@ -24,7 +24,8 @@ The notebook gathers the book's notes and the highlights that have no note; a
 note on a highlight already shows that passage. It filters by type (All, Notes,
 Highlights) and by any number of highlight colours. A note takes the current
 colour of its highlight. Choosing a highlight opens its page. Filters stay set
-while the book is open.
+while the book is open. The notebook opens in book order at the current
+chapter; time order opens at the newest entry.
 
 ## Phone: Notes Island
 

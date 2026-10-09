@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ArrowUp, Check, SlidersHorizontal, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { MOTION } from "@/lib/motion";
 import {
   useLayoutEffect,
   useEffect,
@@ -45,8 +46,6 @@ import {
   type ComponentProps,
   type RefObject,
 } from "react";
-
-const transition = { duration: 0.18, ease: [0.23, 1, 0.32, 1] as const };
 
 interface Location {
   page: number;
@@ -62,6 +61,7 @@ export function ReaderNotesPrototype({
   highlights,
   onVisitHighlight,
   location,
+  currentChapterIndex,
   children,
   notebook,
   setNotebook,
@@ -105,6 +105,7 @@ export function ReaderNotesPrototype({
   onClearQuote: () => void;
   margin: { width: number; location: Location; enabled: boolean };
   location: Location;
+  currentChapterIndex: number;
   open: boolean;
   onActiveChange: (active: boolean) => void;
   onMobileComposerPresenceChange: (present: boolean) => void;
@@ -116,7 +117,8 @@ export function ReaderNotesPrototype({
 }) {
   const composerOpen = open || Boolean(mobileAnnotation);
   const reduceMotion = useReducedMotion();
-  const [order, setOrder] = useState<"time" | "chapter">("time");
+  // Book order by default, so the notebook opens where you are reading.
+  const [order, setOrder] = useState<"time" | "chapter">("chapter");
   const [kindFilter, setKindFilter] = useState<NotebookKindFilter>("all");
   const [colorFilter, setColorFilter] = useState<HighlightColor[]>([]);
   const [notice, setNotice] = useState<IslandNoticeState | null>(null);
@@ -411,6 +413,13 @@ export function ReaderNotesPrototype({
   const input = useRef<HTMLTextAreaElement>(null);
   const sidebarInput = useRef<HTMLTextAreaElement>(null);
   const list = useRef<HTMLDivElement>(null);
+  // The phone sheet mounts the list after the notebook opens; its arrival
+  // must rerun the effect that scrolls to the current chapter.
+  const [listElement, setListElement] = useState<HTMLDivElement | null>(null);
+  const listRef = useCallback((element: HTMLDivElement | null) => {
+    list.current = element;
+    setListElement(element);
+  }, []);
   const retainedEntry = useRef<{ id: string; offset: number } | null>(null);
 
   function changeOrder(value: string) {
@@ -511,21 +520,6 @@ export function ReaderNotesPrototype({
     notes.error,
     pauseEdit,
   ]);
-
-  const previousList = useRef({ notebook: false, ids: new Set<string>() });
-  useLayoutEffect(() => {
-    const previous = previousList.current;
-    const newNote = entries.some(
-      (entry) =>
-        !previous.ids.has(entry.id) && !restoredEntries.current.has(entry.id),
-    );
-    if (notebook && (!previous.notebook || newNote))
-      list.current?.scrollTo({ top: list.current.scrollHeight });
-    previousList.current = {
-      notebook,
-      ids: new Set(entries.map((entry) => entry.id)),
-    };
-  }, [entries, notebook, restoredEntries]);
 
   const flush = notes.flush;
   const close = useCallback(() => {
@@ -650,6 +644,54 @@ export function ReaderNotesPrototype({
     },
     [order],
   );
+  // The notebook opens where you are reading: at the current chapter in book
+  // order, at the latest entry in time order. A new note comes into view.
+  const previousList = useRef({ notebook: false, ids: new Set<string>() });
+  useLayoutEffect(() => {
+    const previous = previousList.current;
+    const container = listElement;
+    const ids = new Set(entries.map((entry) => entry.id));
+    previousList.current = { notebook: notebook && !!container, ids };
+    if (!notebook || !container) return;
+    const opened = !previous.notebook;
+    const added = entries.find(
+      (entry) =>
+        !previous.ids.has(entry.id) && !restoredEntries.current.has(entry.id),
+    );
+    if (!opened && !added) return;
+    if (order === "time") {
+      container.scrollTo({ top: container.scrollHeight });
+      return;
+    }
+    const padding = parseFloat(getComputedStyle(container).paddingTop);
+    if (added && !opened) {
+      const row = container.querySelector<HTMLElement>(
+        `[data-note-id="${CSS.escape(added.id)}"]`,
+      );
+      if (!row) return;
+      const hidden =
+        row.offsetTop < container.scrollTop ||
+        row.offsetTop + row.offsetHeight >
+          container.scrollTop + container.clientHeight;
+      if (hidden) container.scrollTop = row.offsetTop - padding;
+      return;
+    }
+    const chapter =
+      orderedEntries.find((entry) => entry.chapterIndex >= currentChapterIndex)
+        ?.chapterIndex ?? orderedEntries.at(-1)?.chapterIndex;
+    const heading = container.querySelector<HTMLElement>(
+      `[data-notebook-group="${chapter}"]`,
+    );
+    container.scrollTop = heading ? heading.offsetTop - padding : 0;
+  }, [
+    entries,
+    notebook,
+    listElement,
+    restoredEntries,
+    order,
+    orderedEntries,
+    currentChapterIndex,
+  ]);
   const marginEntries = entries.filter(
     (entry) =>
       entry.location.page >= location.page &&
@@ -863,7 +905,9 @@ export function ReaderNotesPrototype({
                 transform: reduceMotion ? "none" : "translateY(12px)",
               }
         }
-        transition={desktop || embeddedNotebook ? { duration: 0 } : transition}
+        transition={
+          desktop || embeddedNotebook ? { duration: 0 } : MOTION.enter
+        }
         aria-label="Book notebook"
         className="flex min-h-0 flex-1 flex-col overflow-hidden"
       >
@@ -913,7 +957,7 @@ export function ReaderNotesPrototype({
           />
         )}
         <div
-          ref={list}
+          ref={listRef}
           className={`relative min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain p-4 ${desktop ? "flex-1" : ""}`}
           style={{
             minHeight:
@@ -945,7 +989,7 @@ export function ReaderNotesPrototype({
             <motion.p
               initial={desktop ? false : { opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ ...transition, delay: reduceMotion ? 0 : 0.16 }}
+              transition={{ ...MOTION.enter, delay: reduceMotion ? 0 : 0.16 }}
               className="absolute inset-x-4 top-4 px-4 py-10 text-center font-serif text-lg text-muted-foreground"
             >
               Write your first note below. Your thoughts and saved quotes will
@@ -978,8 +1022,11 @@ export function ReaderNotesPrototype({
                       }}
                       transition={{
                         duration: reduceMotion ? 0 : 0.18,
-                        ease: transition.ease,
+                        ease: MOTION.enter.ease,
                       }}
+                      data-notebook-group={
+                        order === "chapter" ? entry.chapterIndex : undefined
+                      }
                       className="overflow-hidden"
                     >
                       <h3 className="mb-2 px-1 text-xs font-medium text-muted-foreground">
@@ -1004,14 +1051,14 @@ export function ReaderNotesPrototype({
                     height: {
                       duration: reduceMotion ? 0 : 0.18,
                       delay: reduceMotion ? 0 : 0.16,
-                      ease: transition.ease,
+                      ease: MOTION.enter.ease,
                     },
                     opacity: { duration: 0.16 },
                   },
                 }}
                 transition={{
                   duration: reduceMotion ? 0 : 0.18,
-                  ease: transition.ease,
+                  ease: MOTION.enter.ease,
                 }}
                 className="flow-root overflow-hidden"
               >
@@ -1118,6 +1165,7 @@ export function ReaderNotesPrototype({
       filterHeight,
       changeKindFilter,
       changeColorFilter,
+      listRef,
       onVisitHighlight,
       restoredEntries,
       orderedEntries,
@@ -1253,7 +1301,7 @@ export function ReaderNotesPrototype({
                 opacity: 0,
                 transform: reduceMotion ? "none" : "translateY(8px)",
               }}
-              transition={transition}
+              transition={MOTION.enter}
               className="fixed z-40 max-h-[calc(100dvh-7rem)] overflow-y-auto"
               style={{
                 top: Math.max(
@@ -1288,9 +1336,9 @@ export function ReaderNotesPrototype({
               exit={{
                 opacity: 0,
                 transform: reduceMotion ? "none" : "translateY(12px)",
-                transition: { duration: 0.14, ease: "easeIn" },
+                transition: MOTION.exit,
               }}
-              transition={transition}
+              transition={MOTION.enter}
               className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center"
             >
               <div

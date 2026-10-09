@@ -10,7 +10,9 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useLayoutEffect,
+  useRef,
   useState,
 } from "react";
 import { useLocation, useOutlet } from "react-router-dom";
@@ -77,6 +79,27 @@ export function AppShell() {
     if (canReveal) setHasRevealed(true);
   }, [canReveal]);
 
+  // Opening a book shrinks the document before any effect can read scrollY,
+  // so remember the screen's position while it scrolls instead.
+  const returnScrollY = useRef(0);
+  const pendingScrollY = useRef<number | null>(null);
+  useEffect(() => {
+    const remember = () => {
+      if (!window.location.pathname.startsWith("/reader/"))
+        returnScrollY.current = window.scrollY;
+    };
+    window.addEventListener("scroll", remember, { passive: true });
+    return () => window.removeEventListener("scroll", remember);
+  }, []);
+
+  // The returning screen has its full height only once it reports ready.
+  useLayoutEffect(() => {
+    if (isReaderRoute || !routeContentReady || pendingScrollY.current === null)
+      return;
+    window.scrollTo(0, pendingScrollY.current);
+    pendingScrollY.current = null;
+  }, [isReaderRoute, routeContentReady]);
+
   useLayoutEffect(() => {
     if (!isReaderRoute) return;
 
@@ -94,8 +117,6 @@ export function AppShell() {
       overflow: documentElement.style.overflow,
       overscrollBehavior: documentElement.style.overscrollBehavior,
     };
-    const previousScrollY = window.scrollY;
-
     // iOS Safari can still move the document viewport when the page is a
     // fixed, non-scrollable layout. Lock the document itself while Reader is
     // active; descendant sheet scroll containers remain independently usable.
@@ -121,7 +142,7 @@ export function AppShell() {
       documentElement.style.overflow = previousDocumentStyles.overflow;
       documentElement.style.overscrollBehavior =
         previousDocumentStyles.overscrollBehavior;
-      window.scrollTo(0, previousScrollY);
+      pendingScrollY.current = returnScrollY.current;
     };
   }, [isReaderRoute]);
 
@@ -133,7 +154,11 @@ export function AppShell() {
         className={cn("bg-background", !hasRevealed && "invisible")}
         aria-hidden={!hasRevealed}
       >
-        <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-lg focus:bg-background focus:px-4 focus:py-3 focus:text-foreground focus:outline-2 focus:outline-ring" onClick={() => document.getElementById("main-content")?.focus()}>
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-lg focus:bg-background focus:px-4 focus:py-3 focus:text-foreground focus:outline-2 focus:outline-ring"
+          onClick={() => document.getElementById("main-content")?.focus()}
+        >
           Skip to content
         </a>
         <AppSidebar />
