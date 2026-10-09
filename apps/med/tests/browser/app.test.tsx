@@ -382,9 +382,13 @@ async function mountApp(
   await expect
     .poll(() => document.querySelector("[data-review-status]")?.getAttribute("data-review-status"))
     .toBe("ready");
+  // A saved review with a brief opens on the Brief tab. Its hidden diff views
+  // have no box, so they render when Changes shows.
+  const briefFirst =
+    options.savedReview && (options.brief !== undefined || options.iterationBriefs);
   await expect
     .poll(() => document.querySelectorAll("diffs-container").length)
-    .toBeGreaterThanOrEqual(options.review ? 1 : 2);
+    .toBeGreaterThanOrEqual(briefFirst ? 0 : options.review ? 1 : 2);
   return { controller, requests, fileRequests, pullRequestReads };
 }
 
@@ -1790,6 +1794,7 @@ describe("review brief", () => {
   });
 
   test("an agent's iterations switch the brief and its comparison together", async () => {
+    await page.viewport(1280, 800);
     const { controller } = await mountApp({
       savedReview: true,
       iterationBriefs: ["# First round\n", "# Second round\n"],
@@ -1841,9 +1846,16 @@ describe("review brief", () => {
     await page.getByRole("button", { name: "Iteration 12" }).click();
     await expect.element(page.getByRole("heading", { name: "Round 12" })).toBeVisible();
     await expect.element(page.getByRole("button", { name: "Earlier iterations" })).toBeVisible();
+    // A narrow pane keeps fewer keys; the label stays on one line.
+    await page.viewport(700, 800);
+    await expect.poll(() => keys.getByRole("button").elements().length).toBeLessThan(7);
+    expect(header.scrollWidth).toBeLessThanOrEqual(header.clientWidth);
+    const label = header.firstElementChild!.getBoundingClientRect();
+    expect(label.height).toBeLessThan(24);
   });
 
   test("an iteration on the same branch replaces the brief without reloading the review", async () => {
+    await page.viewport(1280, 800);
     await mountApp({
       savedReview: true,
       oneBranch: true,

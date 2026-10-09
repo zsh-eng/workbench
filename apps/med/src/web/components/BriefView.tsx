@@ -852,13 +852,16 @@ const enter = stylex.keyframes({
 const grow = stylex.keyframes({ from: { transform: "scaleX(0)" } });
 const reduced = "@media (prefers-reduced-motion: reduce)";
 
-/** Keys for this many latest iterations; earlier ones open from a menu. */
+/** Keys for at most this many latest iterations; earlier ones open from a menu. */
 const RECENT_ITERATIONS = 6;
+/** The header's label, citation meter, and options button keep this much room. */
+const HEADER_ROOM = 210;
+const KEY_WIDTH = 24;
 
 /**
  * The agent's rounds as numbered keys; the shown one is filled. A long review
- * keeps the latest keys and lists earlier rounds in a menu, so the header
- * keeps its width. The menu key shows an earlier round while it is shown.
+ * keeps the latest keys that fit and lists earlier rounds in a menu, so the
+ * header keeps its width. The menu key shows an earlier round while it is shown.
  */
 function IterationKeys({
   iterations,
@@ -869,8 +872,24 @@ function IterationKeys({
   iteration?: number;
   onIteration?(number: number): void;
 }) {
+  // A narrow pane shows fewer keys, down to the menu alone.
+  const group = useRef<HTMLSpanElement>(null);
+  const [width, setWidth] = useState(Infinity);
+  useLayoutEffect(() => {
+    const header = group.current?.parentElement;
+    if (!header) return;
+    const measure = () => setWidth(header.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
+  const fits = Math.max(
+    0,
+    Math.min(RECENT_ITERATIONS, Math.floor((width - HEADER_ROOM) / KEY_WIDTH)),
+  );
   const recent =
-    iterations.length > RECENT_ITERATIONS + 1 ? iterations.slice(-RECENT_ITERATIONS) : iterations;
+    iterations.length > fits + 1 ? iterations.slice(iterations.length - fits) : iterations;
   const earlier = iterations.slice(0, iterations.length - recent.length);
   const shownEarlier = earlier.find((entry) => entry.number === iteration);
   const when = (entry: { createdAt: string }) =>
@@ -879,7 +898,7 @@ function IterationKeys({
       timeStyle: "short",
     });
   return (
-    <span role="group" aria-label="Iterations" {...stylex.props(styles.iterations)}>
+    <span ref={group} role="group" aria-label="Iterations" {...stylex.props(styles.iterations)}>
       {earlier.length > 0 && (
         <ActionMenu
           label={
@@ -948,8 +967,10 @@ const styles = stylex.create({
   },
   label: {
     display: "flex",
+    flexShrink: 0,
     alignItems: "center",
     gap: 7,
+    whiteSpace: "nowrap",
     color: tokens.text,
     fontWeight: 500,
   },
