@@ -11,7 +11,8 @@
     "apps/arctic/Browser",
     "apps/sync-server",
     "apps/sync-backup",
-    "apps/x-moodboard"
+    "apps/x-moodboard",
+    "apps/med-site"
   ],
   "type": "module",
   "scripts": {

@@ -1,0 +1,19 @@
+{
+  "name": "@workbench/med-site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun scripts/dev.ts",
+    "build": "bun scripts/build.ts",
+    "preview": "bun scripts/dev.ts --dist",
+    "test": "bun run build && playwright test",
+    "fonts": "bun scripts/fonts.ts",
+    "screenshots": "bun scripts/screenshots/capture.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.59.1",
+    "playwright": "1.59.1",
+    "sharp": "0.33.5",
+    "subset-font": "2.9.0"
+  }
+}
