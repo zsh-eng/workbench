@@ -70,7 +70,8 @@ export function FileSidebar({
     if (applied.current === files) return;
     applied.current = files;
     syncing.current = true;
-    model.resetPaths(files.map((file) => file.path));
+    // The tree throws on a repeated path, which would blank the app; show it once.
+    model.resetPaths([...new Set(files.map((file) => file.path))]);
     const statuses: GitStatusEntry[] = files.map((file) => ({
       path: file.path,
       status: file.info.untracked
