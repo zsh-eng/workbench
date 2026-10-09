@@ -1,14 +1,37 @@
 import { registerCustomTheme, resolveTheme } from "@pierre/diffs";
 import { useWorkerPool } from "@pierre/diffs/react";
 import { useEffect } from "react";
-import { themes, useTheme } from "./themes";
+import { themes, useTheme, type SyntaxTheme, type Theme } from "./themes";
+
+/** A Shiki theme from Med's scope rules, for themes without a bundled build. */
+function syntaxTheme(theme: Theme, syntax: SyntaxTheme) {
+  const settings = [
+    { settings: { foreground: syntax.foreground, background: theme.palette.canvas } },
+    ...syntax.rules.map((rule) => ({
+      scope: rule.scope,
+      settings: { foreground: rule.color, fontStyle: rule.style },
+    })),
+  ];
+  return {
+    name: theme.pierreTheme,
+    type: theme.appearance,
+    fg: syntax.foreground,
+    bg: theme.palette.canvas,
+    colors: {},
+    settings,
+    tokenColors: settings,
+  };
+}
 
 // Registered themes cross Pierre's shadow boundary and are sent to its workers.
 // Keep each upstream syntax palette; map editor surfaces and Git indicators to
 // the same semantic palette as the shell. Load definitions only when requested.
 for (const theme of themes) {
   registerCustomTheme(theme.pierreTheme, async () => {
-    const base = await resolveTheme(theme.syntax);
+    const base =
+      typeof theme.syntax === "string"
+        ? await resolveTheme(theme.syntax)
+        : syntaxTheme(theme, theme.syntax);
     const { canvas, text, green, red, accent } = theme.palette;
     return {
       ...base,

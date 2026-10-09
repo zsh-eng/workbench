@@ -50,17 +50,24 @@ describe("theme choices", () => {
     expect(controller.getSnapshot().active.id).toBe("tokyo-night");
   });
 
-  test("resolves every custom Pierre theme with real upstream syntax rules", async () => {
+  test("resolves every custom Pierre theme with its syntax rules", async () => {
     for (const theme of themes) {
       const resolved = await resolveTheme(theme.pierreTheme);
-      const original = await resolveTheme(theme.syntax);
       expect(resolved.name).toBe(theme.pierreTheme);
       expect(resolved.type).toBe(theme.appearance);
       expect(resolved.bg).toBe(theme.palette.canvas);
       expect(resolved.fg).toBe(theme.palette.text);
       expect(resolved.colors?.["gitDecoration.addedResourceForeground"]).toBe(theme.palette.green);
-      expect(resolved.settings).toEqual(original.settings);
       expect(resolved.settings.length).toBeGreaterThan(1);
+      const upstream =
+        typeof theme.syntax === "string" ? (await resolveTheme(theme.syntax)).settings : null;
+      const colors = resolved.settings.map((rule) => rule.settings.foreground?.toLowerCase());
+      const expected =
+        typeof theme.syntax === "string"
+          ? colors
+          : theme.syntax.rules.flatMap((rule) => (rule.color ? [rule.color.toLowerCase()] : []));
+      expect(upstream ?? resolved.settings).toEqual(resolved.settings);
+      expect(colors).toEqual(expect.arrayContaining(expected));
     }
   });
 });

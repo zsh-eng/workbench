@@ -30,6 +30,8 @@ import { isBrowseFile, type FileRead as BrowseRead, type FileWrite } from "../..
 import type { BlameLoader } from "../data/blame";
 import { tokens, ui } from "../theme.stylex";
 import { useTheme } from "../themes";
+import { codeColors, highlightRules } from "../code-colors";
+import { codeSurfaceStyle } from "./diff-surface";
 import "../pierre-theme";
 import { Icon } from "./Icon";
 import { useFileVim, type FileNavigationCommand } from "../data/use-file-vim";
@@ -334,10 +336,8 @@ function ReadOnlyFileView({
         [data-med-change="working"] { background: ${workingColor}; width: 4px; }
         [data-change-edge] { width: 9px; height: 3px; top: auto; bottom: 0; }
         [data-change-edge="before"] { top: 0; bottom: auto; }
-        ::highlight(${highlightId}) { background-color: ${active.palette.warning}; color: ${active.palette.canvas}; }
-        ::highlight(${activeSearchName}) { background-color: ${active.palette.accent}; color: ${active.palette.canvas}; text-decoration: underline; }
-        ::highlight(${visualName}) { background-color: color-mix(in srgb, ${active.palette.accent} 45%, transparent); color: ${active.palette.text}; }
-        [data-vim-visual-line] { background: color-mix(in srgb, ${active.palette.accent} 45%, transparent) !important; }
+        ${highlightRules(active, { match: highlightId, current: activeSearchName, visual: visualName })}
+        [data-vim-visual-line] { background: ${codeColors(active).selection} !important; }
         [data-vim-visual-empty] { position: relative; }
         ${
           blameOpen && canBlame
@@ -348,7 +348,7 @@ function ReadOnlyFileView({
         [data-med-blame-trigger] > :not(:first-child) { flex-shrink: 0; color: ${active.palette.faint}; }`
             : ""
         }
-        [data-vim-visual-empty]::before { content: ""; position: absolute; width: 1ch; height: 100%; background: color-mix(in srgb, ${active.palette.accent} 45%, transparent); pointer-events: none; }`,
+        [data-vim-visual-empty]::before { content: ""; position: absolute; width: 1ch; height: 100%; background: ${codeColors(active).selection}; pointer-events: none; }`,
       onPostRender(node, _instance, phase) {
         gutter.update(node, phase);
         changes.update(node, phase);
@@ -535,6 +535,7 @@ function ReadOnlyFileView({
                     "--diffs-line-height": "20px",
                     "--diffs-bg-context-override": tokens.canvas,
                     "--diffs-bg-context-gutter-override": tokens.canvas,
+                    ...codeSurfaceStyle,
                   } as CSSProperties
                 }
               />

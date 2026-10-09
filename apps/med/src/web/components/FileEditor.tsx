@@ -31,6 +31,7 @@ import { searchKeymap } from "@codemirror/search";
 import { vim, Vim, getCM } from "@replit/codemirror-vim";
 import { getFiletypeFromFileName, resolveTheme } from "@pierre/diffs";
 import { useTheme } from "../themes";
+import { codeColors } from "../code-colors";
 import type { EditorDraft, EditorDrafts } from "../data/editor-drafts";
 import type { FileWrite } from "../../shared/local-file";
 import type { FullFileViewProps } from "./FullFileView";
@@ -301,6 +302,7 @@ export default function FileEditor({
     let cursorMotionAt = 0;
     let firstInsert = false,
       joinChange = false;
+    const code = codeColors(active);
     const extensions = [
       EditorState.transactionFilter.of((transaction) => {
         if (
@@ -394,14 +396,20 @@ export default function FileEditor({
             color: active.palette.muted,
             border: "none",
           },
-          // The selection layer sits beneath text. An opaque active row hides it.
-          ".cm-activeLine": {
-            backgroundColor: `color-mix(in srgb, ${active.palette.accent} 8%, transparent)`,
-          },
-          ".cm-activeLineGutter": { backgroundColor: active.palette.hover },
+          // The selection layer sits beneath text. An opaque active row would
+          // hide it, so the theme's line color is made translucent.
+          ".cm-activeLine": { backgroundColor: code.lineHighlight },
+          ".cm-activeLineGutter": { backgroundColor: "transparent", color: active.palette.text },
           ".cm-cursor, .cm-dropCursor": { borderLeftColor: active.palette.text },
-          ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
-            backgroundColor: active.palette.selected,
+          // The base theme's focused rule is this specific, as in One Dark.
+          "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection":
+            { backgroundColor: code.selection },
+          ".cm-searchMatch": { backgroundColor: code.match },
+          ".cm-searchMatch.cm-searchMatch-selected": {
+            backgroundColor: code.matchCurrent,
+            ...(code.matchText ? { color: code.matchText } : {}),
+            textDecoration: `underline 2px ${code.matchBorder}`,
+            textUnderlineOffset: "3px",
           },
           ".cm-panels": { backgroundColor: active.palette.panel, color: active.palette.text },
           "&.cm-focused": { outline: "none" },

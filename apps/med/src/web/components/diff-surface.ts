@@ -1,9 +1,23 @@
 import type { CSSProperties } from "react";
 import { tokens } from "../theme.stylex";
 
+/** Selection and diff colors from the theme's code palette (code-colors.ts).
+ * Every Pierre view uses them: Changes, brief excerpts, and the file view. */
+export const codeSurfaceStyle = {
+  "--diffs-bg-selection-override": "var(--med-code-selection-line)",
+  "--diffs-bg-selection-number-override": "var(--med-code-selection-number)",
+  "--diffs-bg-addition-override": "var(--med-code-inserted-line)",
+  "--diffs-bg-addition-number-override": "var(--med-code-inserted-number)",
+  "--diffs-bg-addition-emphasis-override": "var(--med-code-inserted-text)",
+  "--diffs-bg-deletion-override": "var(--med-code-removed-line)",
+  "--diffs-bg-deletion-number-override": "var(--med-code-removed-number)",
+  "--diffs-bg-deletion-emphasis-override": "var(--med-code-removed-text)",
+} as CSSProperties;
+
 /** Pierre diff variables that match Med's type and theme; Changes and brief
  * excerpts share them so code looks the same in both. */
 export const diffSurfaceStyle = {
+  ...codeSurfaceStyle,
   "--diffs-font-family": tokens.code,
   "--diffs-font-size": "12px",
   "--diffs-line-height": "20px",
