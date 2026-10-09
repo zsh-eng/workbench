@@ -1088,6 +1088,49 @@ describe("graphical review", () => {
     await centered("needleCollapsed");
   });
 
+  test("next hunk puts the whole hunk in the middle of the view", async () => {
+    await page.viewport(1280, 800);
+    // One file with 14 hunks of 8 lines each: a context line, 6 added lines, a context line.
+    const path = "src/hunks.ts";
+    const hunks = Array.from({ length: 14 }, (_, index) => {
+      const start = 1 + index * 50;
+      return (
+        `@@ -${start},2 +${start + index * 6},8 @@\n const before${index} = 0;\n` +
+        ["a", "b", "c", "d", "e", "f"].map((part) => `+const hunk${index}${part} = 1;\n`).join("") +
+        ` const after${index} = 0;\n`
+      );
+    });
+    await mountApp({
+      review: {
+        paths: [path],
+        patch: `diff --git a/${path} b/${path}\nindex 1111111..2222222 100644\n--- a/${path}\n+++ b/${path}\n${hunks.join("")}`,
+      },
+    });
+    const row = (text: string) => {
+      for (const host of document.querySelectorAll("diffs-container")) {
+        const walker = document.createTreeWalker(host.shadowRoot!, NodeFilter.SHOW_TEXT);
+        while (walker.nextNode())
+          if (walker.currentNode.textContent?.includes(text))
+            return walker.currentNode.parentElement!.getBoundingClientRect();
+      }
+      return null;
+    };
+    await expect.poll(() => row("hunk0a")).not.toBeNull();
+    let scroller = document.querySelector("diffs-container")!.parentElement!;
+    while (!/auto|scroll/.test(getComputedStyle(scroller).overflowY))
+      scroller = scroller.parentElement!;
+    for (let step = 0; step < 6; step++) await userEvent.keyboard("]");
+    // The middle of the hunk, between its third and fourth added lines, is
+    // the middle of the scrolling view, within a line. Before, the hunk's first
+    // line was at the top.
+    const offset = () => {
+      const third = row("hunk6c");
+      const view = scroller.getBoundingClientRect();
+      return third ? Math.abs(third.bottom - (view.top + view.bottom) / 2) : Infinity;
+    };
+    await expect.poll(offset).toBeLessThan(20);
+  });
+
   test("the comparison totals split lines into code, tests, and lockfiles", async () => {
     const file = (path: string, lines: number) =>
       `diff --git a/${path} b/${path}\nindex 1111111..2222222 100644\n--- a/${path}\n+++ b/${path}\n@@ -1,1 +1,${lines + 1} @@\n const kept = 1;\n` +
