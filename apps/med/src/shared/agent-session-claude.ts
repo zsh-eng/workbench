@@ -33,6 +33,8 @@ const KINDS: Record<string, ToolKind> = {
   Grep: "search",
   Glob: "search",
   ToolSearch: "search",
+  Skill: "think",
+  AskUserQuestion: "other",
   Bash: "execute",
   BashOutput: "execute",
   KillShell: "execute",
@@ -131,6 +133,19 @@ export function createClaudeTranscriptReader(options: ClaudeReaderOptions = {}) 
       case "Agent":
       case "Task":
         return oneLine(text(input.description) ?? "Run a subagent");
+      case "Skill":
+        return `Use the ${text(input.skill) ?? "a"} skill`;
+      case "AskUserQuestion": {
+        const question = record(list(input.questions)[0]);
+        return `Ask “${oneLine(text(question?.question) ?? "a question", 60)}”`;
+      }
+      case "TaskStop":
+      case "KillShell":
+        return `Stop task ${text(input.task_id) ?? text(input.shell_id) ?? ""}`.trim();
+      case "SendUserFile": {
+        const files = list(input.files).map((file) => String(file).split("/").at(-1));
+        return `Send ${files.join(", ") || "a file"}`;
+      }
       case "ToolSearch":
         return `Find tools “${oneLine(text(input.query) ?? "", 48)}”`;
       case "TodoWrite":
@@ -200,6 +215,17 @@ export function createClaudeTranscriptReader(options: ClaudeReaderOptions = {}) 
       ...(locations ? { locations } : {}),
       ...meta({ tool: name }),
     });
+    // A stopped background task sends no notification; the stop ends its call.
+    if (name === "TaskStop" || name === "KillShell") {
+      const stopped = background.get(text(input.task_id) ?? text(input.shell_id) ?? "");
+      if (stopped)
+        updates.push({
+          sessionUpdate: "tool_call_update",
+          toolCallId: stopped,
+          status: "completed",
+          ...meta(),
+        });
+    }
     if (name === "TodoWrite") {
       tasks.clear();
       list(input.todos).forEach((todo, index) => {

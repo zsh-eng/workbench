@@ -169,6 +169,16 @@ describe("Claude Code transcripts", () => {
             "<task-notification>\n<task-id>b1</task-id>\n<status>failed</status>\n<summary>Port 5173 is in use</summary>\n</task-notification>",
         },
       },
+      {
+        type: "assistant",
+        timestamp: at(9),
+        uuid: "a4",
+        message: {
+          id: "m4",
+          role: "assistant",
+          content: [{ type: "tool_use", id: "stop", name: "TaskStop", input: { task_id: "s1" } }],
+        },
+      },
       { type: "system", subtype: "compact_boundary", timestamp: at(10), uuid: "c1" },
       {
         type: "user",
@@ -210,8 +220,9 @@ describe("Claude Code transcripts", () => {
       background: { id: "b1", kind: "shell" },
       content: [{ type: "content", content: { type: "text", text: "Port 5173 is in use" } }],
     });
+    // A stopped background agent ends without a notification.
     const subagent = session.items.find((item) => item.id === "agent");
-    expect(subagent?.kind === "tool" && subagent.call.status).toBe("in_progress");
+    expect(subagent?.kind === "tool" && subagent.call.status).toBe("completed");
     expect(subagent?.kind === "tool" && subagent.items.map(text)).toEqual([
       "The parser handles empty input.",
     ]);

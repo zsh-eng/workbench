@@ -433,7 +433,9 @@ const styles = stylex.create({
     flex: "1",
     minHeight: 0,
     overflowY: "auto",
-    overflowAnchor: "none",
+    // Rows above the view take their real height when they first render;
+    // anchoring keeps the rows in view still.
+    overflowAnchor: "auto",
     overscrollBehavior: "contain",
     scrollbarWidth: "thin",
   },
@@ -444,7 +446,8 @@ const styles = stylex.create({
     paddingBlock: 20,
     paddingInline: 18,
   },
-  unit: { minWidth: 0 },
+  // Rows out of view skip layout and paint; a long thread scrolls at frame rate.
+  unit: { minWidth: 0, contentVisibility: "auto", containIntrinsicSize: "auto 60px" },
   userRow: {
     display: "flex",
     flexDirection: "column",
