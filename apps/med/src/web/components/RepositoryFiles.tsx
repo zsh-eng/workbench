@@ -2,7 +2,7 @@ import { ToolButton } from "./ToolButton";
 import * as stylex from "@stylexjs/stylex";
 import { prepareFileTreeInput } from "@pierre/trees";
 import { StableFileTree, useStableFileTree } from "./StableFileTree";
-import { useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
 import type { BrowseEntry } from "../../shared/browse";
 import { tokens, ui } from "../theme.stylex";
 import { treeIcons } from "./tree-icons";
@@ -28,7 +28,8 @@ export interface RepositoryFilesProps {
   onClose(): void;
 }
 
-export function RepositoryFiles(props: RepositoryFilesProps) {
+/** Memoized: the review renders again for unrelated state, such as a palette. */
+export const RepositoryFiles = memo(function RepositoryFiles(props: RepositoryFilesProps) {
   const {
     entries,
     loading,
@@ -189,7 +190,7 @@ export function RepositoryFiles(props: RepositoryFilesProps) {
       )}
     </aside>
   );
-}
+});
 const styles = stylex.create({
   panel: {
     flex: "1",

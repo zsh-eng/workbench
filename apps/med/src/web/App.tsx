@@ -14,6 +14,7 @@ import {
 } from "@pierre/diffs/react";
 import {
   lazy,
+  memo,
   Suspense,
   useCallback,
   useEffect,
@@ -93,7 +94,13 @@ import { createDiffFindHighlights } from "./data/diff-find-highlights";
 
 // The brief loads its Markdown worker and excerpt renderer only when shown.
 const BriefView = lazy(() => import("./components/BriefView"));
-const CommitView = lazy(() => import("./components/CommitView"));
+// Memoized: the tab stays mounted once shown, and the review around it
+// renders again for unrelated state, such as an open palette.
+const CommitView = lazy(() =>
+  import("./components/CommitView").then((module) => ({ default: memo(module.default) })),
+);
+// Pierre's view renders its file headers and comments again whenever it renders.
+const ReviewCodeView = memo(CodeView) as typeof CodeView;
 
 type Annotation = { note?: Note; draft?: NoteTarget; thread?: PullRequestThread };
 type Selection = {
@@ -1532,6 +1539,26 @@ export function App({
     (path: string, repositoryId: string) => void controller.selectWorktree(path, repositoryId),
     [controller],
   );
+  // Stable handlers let the memoized sidebar panels skip unrelated renders.
+  const selectCommit = useCallback(
+    (commit: string) => {
+      fileWorkspace.select("changes");
+      void controller.selectComparison({ kind: "commit", commit });
+    },
+    [controller, fileWorkspace],
+  );
+  const selectCommitRange = useCallback(
+    (base: string, head: string) => {
+      fileWorkspace.select("changes");
+      void controller.selectComparison({ kind: "range", base, head, includeBase: true });
+    },
+    [controller, fileWorkspace],
+  );
+  const loadMoreHistory = useCallback(() => void controller.loadMoreHistory(), [controller]);
+  const selectWorking = useCallback(() => {
+    fileWorkspace.select("changes");
+    void controller.selectComparison({ kind: "working" });
+  }, [controller, fileWorkspace]);
   const branches = useBranchTabs({
     repositories: state.repositories,
     activeRepositoryId: state.activeRepositoryId,
@@ -1614,23 +1641,41 @@ export function App({
     state.activeBranch,
   ]);
   const workingAvailable = gitAvailable && !state.historyRef;
-  const openWorkingFile = (path: string, pinned = true, background = false) =>
-    fileWorkspace.open(path, { pinned, background });
-  const openVersion = (path: string, side: "old" | "new") => {
-    const review = state.review;
-    if (!review) return;
-    const file = state.files.find((item) => item.path === path);
-    const oid = side === "old" ? review.base : review.head;
-    const name = side === "old" ? (file?.info.previousPath ?? path) : path;
-    if (/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(oid))
-      fileWorkspace.open(
-        name,
-        true,
-        undefined,
-        { kind: "commit", repo: review.repo, oid },
-        `${side === "old" ? "Before" : "After"} · ${oid.slice(0, 7)}`,
-      );
-  };
+  const openWorkingFile = useCallback(
+    (path: string, pinned = true, background = false) =>
+      fileWorkspace.open(path, { pinned, background }),
+    [fileWorkspace],
+  );
+  const previewWorkingFile = useCallback(
+    (path: string) => openWorkingFile(path, false),
+    [openWorkingFile],
+  );
+  const hideFilesSidebar = useCallback(() => setFilesVisible(false), []);
+  const openChangedFile = useCallback(
+    (id: string, background?: boolean) => {
+      const file = files.find((item) => item.id === id);
+      if (file) openWorkingFile(file.path, true, background);
+    },
+    [files, openWorkingFile],
+  );
+  const openVersion = useCallback(
+    (path: string, side: "old" | "new") => {
+      const review = state.review;
+      if (!review) return;
+      const file = state.files.find((item) => item.path === path);
+      const oid = side === "old" ? review.base : review.head;
+      const name = side === "old" ? (file?.info.previousPath ?? path) : path;
+      if (/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(oid))
+        fileWorkspace.open(
+          name,
+          true,
+          undefined,
+          { kind: "commit", repo: review.repo, oid },
+          `${side === "old" ? "Before" : "After"} · ${oid.slice(0, 7)}`,
+        );
+    },
+    [state.review, state.files, fileWorkspace],
+  );
   const activeSourceMatches =
     activeFile &&
     activeFile.source.repo === state.review?.repo &&
@@ -1662,6 +1707,61 @@ export function App({
     },
     [browseApi, state.review, state.savedView, state.savedReview, state.savedTargetId],
   );
+  // The open file's props stay the same between unrelated renders, so the
+  // memoized viewer and editor skip them.
+  const activeFileId = activeFile?.id;
+  const activeSource = activeFile?.source;
+  const activePath = activeFile?.path;
+  const activeSourceLabel = activeFile?.sourceLabel;
+  const fileEditor = useMemo(
+    () =>
+      activeSource?.kind === "worktree" && activePath !== undefined && browseApi.write
+        ? {
+            drafts: editorDrafts,
+            key: JSON.stringify([activeSource, activePath]),
+            write: async (file: import("../shared/local-file").FileRead, text: string) => {
+              if (file.source.kind !== "worktree") throw new Error("Read-only source");
+              const saved = await browseApi.write!(file.source, file.path, file.identity, text);
+              fileWorkspace.acceptWrite(saved);
+              return saved;
+            },
+            autoEdit:
+              location.pathname === "/file" &&
+              new URLSearchParams(location.search).get("edit") === "1" &&
+              new URLSearchParams(location.search).get("path") === activePath,
+          }
+        : undefined,
+    [activeSource, activePath, browseApi, editorDrafts, fileWorkspace],
+  );
+  const setFileBlame = useCallback(
+    (open: boolean) => setBlameTab(open && activeFileId ? activeFileId : null),
+    [activeFileId],
+  );
+  const refreshFile = useCallback(() => void fileWorkspace.refresh(), [fileWorkspace]);
+  const closeActiveFile = useCallback(() => {
+    if (activeFileId) fileWorkspace.close(activeFileId);
+  }, [activeFileId, fileWorkspace]);
+  const openLinkedFile = useCallback(
+    (path: string, line?: number) =>
+      fileWorkspace.open(path, true, line, activeSource, activeSourceLabel),
+    [activeSource, activeSourceLabel, fileWorkspace],
+  );
+  // A primitive copy, so the callbacks below do not depend on a mutable file object.
+  const activeDiffPath = activeDiffFile ? `${activeDiffFile.path}` : undefined;
+  const openBeforeVersion = useCallback(() => {
+    if (activeDiffPath) openVersion(activeDiffPath, "old");
+  }, [activeDiffPath, openVersion]);
+  const openAfterVersion = useCallback(() => {
+    if (activeDiffPath) openVersion(activeDiffPath, "new");
+  }, [activeDiffPath, openVersion]);
+  const openBefore =
+    activeDiffPath && /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(state.review?.base ?? "")
+      ? openBeforeVersion
+      : undefined;
+  const openAfter =
+    activeDiffPath && /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(state.review?.head ?? "")
+      ? openAfterVersion
+      : undefined;
   const runFileNavigation = (keys: string, control = false) => {
     if (keys !== "/" && keys !== "?") setVimEnabled(true);
     // Run after the palette releases its focus trap.
@@ -2177,7 +2277,10 @@ export function App({
       : (state.branches.find((branch) => branch.name === state.activeBranch)?.head ??
         state.session?.repository.head ??
         "");
-  const skipped = files.filter((file) => !file.metadata || mediaType(file.path)?.kind === "image");
+  const skipped = useMemo(
+    () => files.filter((file) => !file.metadata || mediaType(file.path)?.kind === "image"),
+    [files],
+  );
   const orphaned = notes.filter(
     (note) =>
       !note.parentId &&
@@ -2188,67 +2291,222 @@ export function App({
   const loadedCommit =
     state.review?.comparison.kind === "commit" ? state.review.comparison.commit : "";
 
-  const renderMetadataRows = () => (
-    <div {...stylex.props(styles.skipped)}>
-      {skipped.map((file) => (
-        <div
-          key={file.id}
-          {...stylex.props(mediaType(file.path)?.kind !== "image" && styles.skippedRow)}
-          data-metadata-file={file.path}
-          ref={(node) => {
-            if (node) metadataRows.current.set(file.id, node);
-            else metadataRows.current.delete(file.id);
-          }}
-        >
-          {mediaType(file.path)?.kind === "image" && state.review ? (
-            <DiffImages
-              path={file.path}
-              previousPath={file.info.previousPath}
-              status={file.info.status}
-              reviewId={state.review.id}
-              saved={
-                state.savedView && state.savedReview && state.savedTargetId
-                  ? { id: state.savedReview.id, target: state.savedTargetId }
-                  : undefined
-              }
-              collapsed={collapsed.has(file.id)}
-              onToggle={() =>
-                setCollapsed((current) => {
-                  const next = new Set(current);
-                  if (next.has(file.id)) next.delete(file.id);
-                  else next.add(file.id);
-                  return next;
-                })
-              }
-              onOpen={() => openWorkingFile(file.path)}
-            />
-          ) : (
-            <>
-              <Icon name="file" size={13} />
-              <button
-                role="link"
-                {...stylex.props(styles.fileLink)}
-                onPointerEnter={() => prefetchFile(file.path)}
-                onFocus={() => prefetchFile(file.path)}
-                onClick={(event) =>
-                  openWorkingFile(file.path, true, event.metaKey || event.ctrlKey)
+  const savedReviewId = state.savedReview?.id;
+  const savedImages = state.savedView && savedReviewId ? state.savedTargetId : null;
+  const renderMetadataRows = useCallback(
+    () => (
+      <div {...stylex.props(styles.skipped)}>
+        {skipped.map((file) => (
+          <div
+            key={file.id}
+            {...stylex.props(mediaType(file.path)?.kind !== "image" && styles.skippedRow)}
+            data-metadata-file={file.path}
+            ref={(node) => {
+              if (node) metadataRows.current.set(file.id, node);
+              else metadataRows.current.delete(file.id);
+            }}
+          >
+            {mediaType(file.path)?.kind === "image" && reviewId ? (
+              <DiffImages
+                path={file.path}
+                previousPath={file.info.previousPath}
+                status={file.info.status}
+                reviewId={reviewId}
+                saved={
+                  savedReviewId && savedImages
+                    ? { id: savedReviewId, target: savedImages }
+                    : undefined
                 }
-              >
-                {file.path}
-              </button>
-              <span {...stylex.props(ui.grow)} />
-              <span {...stylex.props(ui.muted)}>
-                {file.info.binary
-                  ? "Binary file"
-                  : file.info.tooLarge
-                    ? "File exceeds preview limit"
-                    : "Metadata-only change"}
-              </span>
-            </>
+                collapsed={collapsed.has(file.id)}
+                onToggle={() =>
+                  setCollapsed((current) => {
+                    const next = new Set(current);
+                    if (next.has(file.id)) next.delete(file.id);
+                    else next.add(file.id);
+                    return next;
+                  })
+                }
+                onOpen={() => openWorkingFile(file.path)}
+              />
+            ) : (
+              <>
+                <Icon name="file" size={13} />
+                <button
+                  role="link"
+                  {...stylex.props(styles.fileLink)}
+                  onPointerEnter={() => prefetchFile(file.path)}
+                  onFocus={() => prefetchFile(file.path)}
+                  onClick={(event) =>
+                    openWorkingFile(file.path, true, event.metaKey || event.ctrlKey)
+                  }
+                >
+                  {file.path}
+                </button>
+                <span {...stylex.props(ui.grow)} />
+                <span {...stylex.props(ui.muted)}>
+                  {file.info.binary
+                    ? "Binary file"
+                    : file.info.tooLarge
+                      ? "File exceeds preview limit"
+                      : "Metadata-only change"}
+                </span>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+    ),
+    [skipped, reviewId, savedReviewId, savedImages, collapsed, openWorkingFile, prefetchFile],
+  );
+  // The diff stream's renderers stay the same between unrelated renders, so
+  // Pierre does not render every file header and comment again.
+  const onReviewScroll = useCallback(
+    (position: number) => {
+      if (fileState.active === "changes" && !restoringScroll.current) {
+        reviewScroll.current.delete(reviewScope);
+        reviewScroll.current.set(reviewScope, position);
+        while (reviewScroll.current.size > 256)
+          reviewScroll.current.delete(reviewScroll.current.keys().next().value!);
+      }
+    },
+    [fileState.active, reviewScope],
+  );
+  const renderCustomHeader = useCallback(
+    (item: CodeViewItem<Annotation>) => {
+      const path = item.type === "diff" ? item.fileDiff.name : item.file.name;
+      const info = fileInfoById.get(item.id);
+      const slash = path.lastIndexOf("/") + 1;
+      const isCollapsed = collapsed.has(item.id);
+      const renamedFrom =
+        item.type === "diff" && item.fileDiff.prevName && item.fileDiff.prevName !== path
+          ? item.fileDiff.prevName
+          : null;
+      const status = !info
+        ? null
+        : info.untracked
+          ? { label: "Untracked", tone: styles.statusAdded }
+          : info.status.startsWith("A")
+            ? { label: "Added", tone: styles.statusAdded }
+            : info.status.startsWith("D")
+              ? { label: "Deleted", tone: styles.statusDeleted }
+              : renamedFrom
+                ? { label: "Renamed", tone: styles.statusRenamed }
+                : null;
+      return (
+        <div {...stylex.props(styles.diffHeader)}>
+          <button
+            {...stylex.props(styles.headerToggle)}
+            aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${path}`}
+            aria-expanded={!isCollapsed}
+            onClick={() =>
+              setCollapsed((current) => {
+                const next = new Set(current);
+                if (next.has(item.id)) next.delete(item.id);
+                else next.add(item.id);
+                return next;
+              })
+            }
+          />
+          <span {...stylex.props(styles.headerChevron, isCollapsed && styles.collapsed)}>
+            <Icon name="chevron" size={14} />
+          </span>
+          {renamedFrom && (
+            <span {...stylex.props(styles.renamedFrom)} title={renamedFrom}>
+              {renamedFrom} →
+            </span>
+          )}
+          <button
+            role="link"
+            aria-label={path}
+            {...stylex.props(styles.fileLink)}
+            onPointerEnter={() => prefetchFile(path)}
+            onFocus={() => prefetchFile(path)}
+            onClick={(event) => openWorkingFile(path, true, event.metaKey || event.ctrlKey)}
+            title={`Open full file · ${path}`}
+          >
+            <span {...stylex.props(styles.fileDirectory)}>{path.slice(0, slash)}</span>
+            <span {...stylex.props(styles.fileName)}>{path.slice(slash)}</span>
+          </button>
+          {status && <span {...stylex.props(styles.statusBadge, status.tone)}>{status.label}</span>}
+          <span {...stylex.props(ui.grow)} />
+          {info && (
+            <span {...stylex.props(styles.headerStats)}>
+              <span {...stylex.props(ui.added)}>+{info.additions}</span>
+              <span {...stylex.props(ui.removed)}>−{info.deletions}</span>
+              <DiffStat additions={info.additions} deletions={info.deletions} />
+            </span>
           )}
         </div>
-      ))}
-    </div>
+      );
+    },
+    [fileInfoById, collapsed, prefetchFile, openWorkingFile],
+  );
+  const renderAnnotation = useCallback(
+    (annotation: { metadata?: Annotation }) =>
+      annotation.metadata?.draft ? (
+        <NoteComposer
+          key={JSON.stringify(annotation.metadata.draft)}
+          target={annotation.metadata.draft}
+          initialText={
+            pendingDraft?.target === annotation.metadata.draft ? pendingDraft.note.text : undefined
+          }
+          initialError={
+            pendingDraft?.target === annotation.metadata.draft ? pendingDraft.error : undefined
+          }
+          onSave={async (note) => {
+            const submission = {
+              target: annotation.metadata!.draft!,
+              reviewId,
+              note,
+              existingIds: new Set(notes.map((entry) => entry.id)),
+            };
+            setPendingDraft(submission);
+            try {
+              await controller.mutateNote({ type: "add", note });
+            } catch (error) {
+              setPendingDraft((current) =>
+                current === submission
+                  ? {
+                      ...submission,
+                      error: error instanceof Error ? error.message : "Could not save comment",
+                    }
+                  : current,
+              );
+              throw error;
+            }
+          }}
+          onCancel={() => {
+            const target = annotation.metadata!.draft!;
+            if (draftRef.current === target) {
+              setDraft(null);
+              setSelection(null);
+            }
+            setPendingDraft((current) => (current?.target === target ? null : current));
+          }}
+        />
+      ) : annotation.metadata?.thread ? (
+        <PullRequestThreadCard thread={annotation.metadata.thread} />
+      ) : annotation.metadata?.note ? (
+        <NoteCard
+          note={annotation.metadata.note}
+          replies={notes.filter((note) => note.parentId === annotation.metadata?.note?.id)}
+          onMutate={(mutation) => controller.mutateNote(mutation)}
+        />
+      ) : null,
+    [pendingDraft, reviewId, notes, controller],
+  );
+  const renderCodeViewFooter = useCallback(
+    () =>
+      skipped.length ? (
+        renderMetadataRows()
+      ) : (
+        <div {...stylex.props(styles.streamEnd)}>
+          <span {...stylex.props(styles.streamRule)} />
+          End of review · {files.length} {files.length === 1 ? "file" : "files"}
+          <span {...stylex.props(styles.streamRule)} />
+        </div>
+      ),
+    [skipped, renderMetadataRows, files.length],
   );
 
   const sidebarToggle = (
@@ -2519,24 +2777,10 @@ export function App({
                 hasMore={state.historyHasMore}
                 error={state.historyError}
                 loadDetails={controller.loadCommitDetails}
-                onSelect={(commit) => {
-                  fileWorkspace.select("changes");
-                  void controller.selectComparison({ kind: "commit", commit });
-                }}
-                onSelectRange={(base, head) => {
-                  fileWorkspace.select("changes");
-                  void controller.selectComparison({
-                    kind: "range",
-                    base,
-                    head,
-                    includeBase: true,
-                  });
-                }}
-                onLoadMore={() => void controller.loadMoreHistory()}
-                onWorking={() => {
-                  fileWorkspace.select("changes");
-                  void controller.selectComparison({ kind: "working" });
-                }}
+                onSelect={selectCommit}
+                onSelectRange={selectCommitRange}
+                onLoadMore={loadMoreHistory}
+                onWorking={selectWorking}
               />
             )}
             <FileSidebar
@@ -2546,17 +2790,10 @@ export function App({
               total={state.files.length}
               selected={state.selectedFileId}
               filter={state.filter}
-              onFilter={(value) => controller.setFilter(value)}
+              onFilter={controller.setFilter}
               onSelect={reveal}
               onPrefetch={prefetchFile}
-              onOpen={
-                browseSource
-                  ? (id, background) => {
-                      const file = files.find((item) => item.id === id);
-                      if (file) openWorkingFile(file.path, true, background);
-                    }
-                  : undefined
-              }
+              onOpen={browseSource ? openChangedFile : undefined}
               filterRef={filterRef}
             />
           </aside>
@@ -2941,176 +3178,19 @@ export function App({
                   </div>
                 )}
                 {items.length > 0 ? (
-                  <CodeView
+                  <ReviewCodeView
                     key={`${reviewScope}:${state.review?.id}`}
                     ref={viewer}
-                    onScroll={(position) => {
-                      if (fileState.active === "changes" && !restoringScroll.current) {
-                        reviewScroll.current.delete(reviewScope);
-                        reviewScroll.current.set(reviewScope, position);
-                        while (reviewScroll.current.size > 256)
-                          reviewScroll.current.delete(reviewScroll.current.keys().next().value!);
-                      }
-                    }}
+                    onScroll={onReviewScroll}
                     items={items}
                     selectedLines={selection}
                     onSelectedLinesChange={setSelection}
                     options={options}
                     className={stylex.props(styles.codeView).className}
                     style={diffSurfaceStyle}
-                    renderCustomHeader={(item) => {
-                      const path = item.type === "diff" ? item.fileDiff.name : item.file.name;
-                      const info = fileInfoById.get(item.id);
-                      const slash = path.lastIndexOf("/") + 1;
-                      const isCollapsed = collapsed.has(item.id);
-                      const renamedFrom =
-                        item.type === "diff" &&
-                        item.fileDiff.prevName &&
-                        item.fileDiff.prevName !== path
-                          ? item.fileDiff.prevName
-                          : null;
-                      const status = !info
-                        ? null
-                        : info.untracked
-                          ? { label: "Untracked", tone: styles.statusAdded }
-                          : info.status.startsWith("A")
-                            ? { label: "Added", tone: styles.statusAdded }
-                            : info.status.startsWith("D")
-                              ? { label: "Deleted", tone: styles.statusDeleted }
-                              : renamedFrom
-                                ? { label: "Renamed", tone: styles.statusRenamed }
-                                : null;
-                      return (
-                        <div {...stylex.props(styles.diffHeader)}>
-                          <button
-                            {...stylex.props(styles.headerToggle)}
-                            aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${path}`}
-                            aria-expanded={!isCollapsed}
-                            onClick={() =>
-                              setCollapsed((current) => {
-                                const next = new Set(current);
-                                if (next.has(item.id)) next.delete(item.id);
-                                else next.add(item.id);
-                                return next;
-                              })
-                            }
-                          />
-                          <span
-                            {...stylex.props(styles.headerChevron, isCollapsed && styles.collapsed)}
-                          >
-                            <Icon name="chevron" size={14} />
-                          </span>
-                          {renamedFrom && (
-                            <span {...stylex.props(styles.renamedFrom)} title={renamedFrom}>
-                              {renamedFrom} →
-                            </span>
-                          )}
-                          <button
-                            role="link"
-                            aria-label={path}
-                            {...stylex.props(styles.fileLink)}
-                            onPointerEnter={() => prefetchFile(path)}
-                            onFocus={() => prefetchFile(path)}
-                            onClick={(event) =>
-                              openWorkingFile(path, true, event.metaKey || event.ctrlKey)
-                            }
-                            title={`Open full file · ${path}`}
-                          >
-                            <span {...stylex.props(styles.fileDirectory)}>
-                              {path.slice(0, slash)}
-                            </span>
-                            <span {...stylex.props(styles.fileName)}>{path.slice(slash)}</span>
-                          </button>
-                          {status && (
-                            <span {...stylex.props(styles.statusBadge, status.tone)}>
-                              {status.label}
-                            </span>
-                          )}
-                          <span {...stylex.props(ui.grow)} />
-                          {info && (
-                            <span {...stylex.props(styles.headerStats)}>
-                              <span {...stylex.props(ui.added)}>+{info.additions}</span>
-                              <span {...stylex.props(ui.removed)}>−{info.deletions}</span>
-                              <DiffStat additions={info.additions} deletions={info.deletions} />
-                            </span>
-                          )}
-                        </div>
-                      );
-                    }}
-                    renderAnnotation={(annotation) =>
-                      annotation.metadata?.draft ? (
-                        <NoteComposer
-                          key={JSON.stringify(annotation.metadata.draft)}
-                          target={annotation.metadata.draft}
-                          initialText={
-                            pendingDraft?.target === annotation.metadata.draft
-                              ? pendingDraft.note.text
-                              : undefined
-                          }
-                          initialError={
-                            pendingDraft?.target === annotation.metadata.draft
-                              ? pendingDraft.error
-                              : undefined
-                          }
-                          onSave={async (note) => {
-                            const submission = {
-                              target: annotation.metadata!.draft!,
-                              reviewId: state.review?.id,
-                              note,
-                              existingIds: new Set(notes.map((entry) => entry.id)),
-                            };
-                            setPendingDraft(submission);
-                            try {
-                              await controller.mutateNote({ type: "add", note });
-                            } catch (error) {
-                              setPendingDraft((current) =>
-                                current === submission
-                                  ? {
-                                      ...submission,
-                                      error:
-                                        error instanceof Error
-                                          ? error.message
-                                          : "Could not save comment",
-                                    }
-                                  : current,
-                              );
-                              throw error;
-                            }
-                          }}
-                          onCancel={() => {
-                            const target = annotation.metadata!.draft!;
-                            if (draftRef.current === target) {
-                              setDraft(null);
-                              setSelection(null);
-                            }
-                            setPendingDraft((current) =>
-                              current?.target === target ? null : current,
-                            );
-                          }}
-                        />
-                      ) : annotation.metadata?.thread ? (
-                        <PullRequestThreadCard thread={annotation.metadata.thread} />
-                      ) : annotation.metadata?.note ? (
-                        <NoteCard
-                          note={annotation.metadata.note}
-                          replies={notes.filter(
-                            (note) => note.parentId === annotation.metadata?.note?.id,
-                          )}
-                          onMutate={(mutation) => controller.mutateNote(mutation)}
-                        />
-                      ) : null
-                    }
-                    renderCodeViewFooter={() =>
-                      skipped.length ? (
-                        renderMetadataRows()
-                      ) : (
-                        <div {...stylex.props(styles.streamEnd)}>
-                          <span {...stylex.props(styles.streamRule)} />
-                          End of review · {files.length} {files.length === 1 ? "file" : "files"}
-                          <span {...stylex.props(styles.streamRule)} />
-                        </div>
-                      )
-                    }
+                    renderCustomHeader={renderCustomHeader}
+                    renderAnnotation={renderAnnotation}
+                    renderCodeViewFooter={renderCodeViewFooter}
                   />
                 ) : skipped.length && state.status !== "loading" && !state.error ? (
                   <div style={{ overflow: "auto", height: "100%" }}>{renderMetadataRows()}</div>
@@ -3194,29 +3274,7 @@ export function App({
             )}
             {activeFile && (
               <FullFileView
-                editor={
-                  activeFile.source.kind === "worktree" && browseApi.write
-                    ? {
-                        drafts: editorDrafts,
-                        key: JSON.stringify([activeFile.source, activeFile.path]),
-                        write: async (file, text) => {
-                          if (file.source.kind !== "worktree") throw new Error("Read-only source");
-                          const saved = await browseApi.write!(
-                            file.source,
-                            file.path,
-                            file.identity,
-                            text,
-                          );
-                          fileWorkspace.acceptWrite(saved);
-                          return saved;
-                        },
-                        autoEdit:
-                          location.pathname === "/file" &&
-                          new URLSearchParams(location.search).get("edit") === "1" &&
-                          new URLSearchParams(location.search).get("path") === activeFile.path,
-                      }
-                    : undefined
-                }
+                editor={fileEditor}
                 file={fileState.file}
                 path={activeFile.path}
                 loading={fileState.loading}
@@ -3225,7 +3283,7 @@ export function App({
                 loadBlame={loadBlame}
                 loadChanges={browseApi.changes ? loadFileChanges : undefined}
                 blameEnabled={blameEnabled}
-                onBlameEnabledChange={(open) => setBlameTab(open ? activeFile.id : null)}
+                onBlameEnabledChange={setFileBlame}
                 lineBlame={lineBlame}
                 loadCommit={loadCommit}
                 sourceLabel={activeFile.sourceLabel}
@@ -3236,21 +3294,11 @@ export function App({
                 onSelectionReaderReady={onSelectionReaderReady}
                 onDefinition={goToDefinition}
                 onSymbolPreviewReady={onSymbolPreviewReady}
-                onRefresh={() => void fileWorkspace.refresh()}
-                onClose={() => fileWorkspace.close(activeFile.id)}
-                onOpenFile={(path, line) =>
-                  fileWorkspace.open(path, true, line, activeFile.source, activeFile.sourceLabel)
-                }
-                onOpenBefore={
-                  activeDiffFile && /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(state.review?.base ?? "")
-                    ? () => openVersion(activeDiffFile.path, "old")
-                    : undefined
-                }
-                onOpenAfter={
-                  activeDiffFile && /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(state.review?.head ?? "")
-                    ? () => openVersion(activeDiffFile.path, "new")
-                    : undefined
-                }
+                onRefresh={refreshFile}
+                onClose={closeActiveFile}
+                onOpenFile={openLinkedFile}
+                onOpenBefore={openBefore}
+                onOpenAfter={openAfter}
               />
             )}
           </div>
@@ -3286,11 +3334,11 @@ export function App({
               pathActions={pathActions}
               selectedPath={activeFile?.path ?? selectedFile?.path ?? null}
               onPrefetch={prefetchFile}
-              onPreview={(path) => openWorkingFile(path, false)}
-              onPin={(path) => openWorkingFile(path, true)}
+              onPreview={previewWorkingFile}
+              onPin={openWorkingFile}
               onIgnoredChange={repositoryFiles.setIgnored}
               onRefresh={repositoryFiles.refresh}
-              onClose={() => setFilesVisible(false)}
+              onClose={hideFilesSidebar}
             />
           </aside>
         )}

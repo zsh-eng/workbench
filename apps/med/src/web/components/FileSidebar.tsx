@@ -1,14 +1,15 @@
 import * as stylex from "@stylexjs/stylex";
 import { StableFileTree, useStableFileTree } from "./StableFileTree";
 import type { GitStatusEntry } from "@pierre/trees";
-import { useEffect, useLayoutEffect, useRef, type CSSProperties } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, type CSSProperties } from "react";
 import type { ParsedReviewFile } from "../data/controller";
 import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
 import { PathContextMenu, treeRowPath, type PathActions } from "./PathMenu";
 import { treeIcons } from "./tree-icons";
 
-export function FileSidebar({
+/** Memoized: the review renders again for unrelated state, such as a palette. */
+export const FileSidebar = memo(function FileSidebar({
   files,
   total,
   selected,
@@ -199,7 +200,7 @@ export function FileSidebar({
       )}
     </section>
   );
-}
+});
 
 const styles = stylex.create({
   panel: {

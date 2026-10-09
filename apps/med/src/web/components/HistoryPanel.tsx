@@ -1,6 +1,6 @@
 import { Tooltip } from "@base-ui/react/tooltip";
 import * as stylex from "@stylexjs/stylex";
-import { useMemo, useState, useRef, useEffect, useLayoutEffect, useId } from "react";
+import { memo, useMemo, useState, useRef, useEffect, useLayoutEffect, useId } from "react";
 import type { Commit, CommitDetails } from "../../shared/protocol";
 import { layoutHistory, type GraphRow } from "./history-layout";
 import { tokens, ui } from "../theme.stylex";
@@ -68,7 +68,8 @@ function Graph({ row, working }: { row: GraphRow; working?: boolean }) {
   );
 }
 
-export function HistoryPanel({
+/** Memoized: the review renders again for unrelated state, such as a palette. */
+export const HistoryPanel = memo(function HistoryPanel({
   commits,
   selected,
   selectedRange,
@@ -408,7 +409,7 @@ export function HistoryPanel({
       </Tooltip.Root>
     </Tooltip.Provider>
   );
-}
+});
 
 const styles = stylex.create({
   time: { flexShrink: 0, whiteSpace: "nowrap" },
