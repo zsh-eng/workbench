@@ -26,6 +26,7 @@ import {
 import { gitTargets, pushBranch } from "./repository/git-actions";
 import { pushRequestSchema } from "../shared/git-actions";
 import { loadCommitDetails, loadHistory, resolveRepository } from "./repository/history";
+import { loadPullRequestComments } from "./repository/pull-request";
 import { ReviewService } from "./repository/review";
 import { HostError } from "./runtime/errors";
 import { ProcessFailure } from "./runtime/process";
@@ -707,7 +708,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           const savedRoute =
-            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes)|\/(feedback|clear|brief|details))?$/.exec(
+            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes)|\/(feedback|clear|brief|details|pull-request))?$/.exec(
               url.pathname,
             );
           if (savedRoute) {
@@ -744,7 +745,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 send(await savedReviews.source(id!, targetId!, url.searchParams.get("path") ?? ""));
               else if (targetAction === "notes") send(await savedReviews.notes(id!, targetId!));
               else if (action === "feedback") send(await savedReviews.feedback(id!));
-              else if (!action) send(bundle);
+              else if (action === "pull-request") {
+                if (!bundle.pullRequestUrl)
+                  throw new HostError("no-pull-request", "This review has no pull request.", 404);
+                send(
+                  await loadPullRequestComments(
+                    bundle.pullRequestUrl,
+                    url.searchParams.get("refresh") === "1",
+                  ),
+                );
+              } else if (!action) send(bundle);
               else
                 throw new HostError(
                   "method-not-allowed",

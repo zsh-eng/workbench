@@ -4,17 +4,27 @@ import * as stylex from "@stylexjs/stylex";
 import type { ReviewController, ReviewControllerSnapshot } from "../data/controller";
 import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
+import {
+  PullRequestPanel,
+  type PullRequestState,
+  type ThreadPlacement,
+} from "./PullRequestComments";
 
 export function SavedReviewHeader({
   controller,
   state,
   browsing,
   browsingSourceLabel,
+  pullRequest,
+  threadPlacement,
   onReturn,
   onTarget,
 }: {
   controller: ReviewController;
   state: ReviewControllerSnapshot;
+  /** GitHub comments, when the review has a pull request. */
+  pullRequest?: PullRequestState;
+  threadPlacement?: ThreadPlacement;
   browsing?: boolean;
   browsingSourceLabel?: string;
   onReturn(): void;
@@ -92,6 +102,9 @@ export function SavedReviewHeader({
         <span title={details} {...stylex.props(styles.reviewTitle)}>
           <span {...stylex.props(styles.ellipsis)}>{saved.title}</span>
         </span>
+      )}
+      {saved.pullRequestUrl && pullRequest && threadPlacement && (
+        <PullRequestPanel state={pullRequest} placement={threadPlacement} />
       )}
       {target && saved.targets.length === 1 && (
         <span title={target.repo} {...stylex.props(styles.comparison)}>

@@ -84,6 +84,35 @@ export interface Commit {
   timestamp: number;
   refs: string[];
 }
+/** A GitHub pull request comment, read-only in Med. */
+export interface PullRequestComment {
+  id: number;
+  author: string;
+  body: string;
+  createdAt: string;
+  url: string;
+}
+/** An inline review thread. `line` is null when GitHub marks it outdated. */
+export interface PullRequestThread {
+  id: number;
+  path: string;
+  side: "old" | "new";
+  line: number | null;
+  startLine: number | null;
+  originalLine: number | null;
+  comments: PullRequestComment[];
+}
+export interface PullRequestComments {
+  url: string;
+  /** The pull request's head commit; thread lines refer to it. */
+  head: string;
+  fetchedAt: number;
+  threads: PullRequestThread[];
+  /** General comments on the pull request. */
+  conversation: PullRequestComment[];
+  /** Review summaries: approvals, change requests, and review text. */
+  reviews: (PullRequestComment & { state: string })[];
+}
 /** Commit message body and size, loaded when a commit card opens. */
 export interface CommitDetails {
   id: string;

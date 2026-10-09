@@ -38,6 +38,10 @@ checks that the new build starts. If it does not, the current server keeps
 running and the notice shows the error. A server started with `med serve` or
 `med-diff` in a terminal asks you to restart it there.
 
+The command palette has the same two actions at any time. **Reload Med** loads
+the page again. **Restart Med server and reload** restarts the server, waits for
+the new one, and then loads the page.
+
 ### First run
 
 When `med web` opens a server with nothing registered, Med shows one setup page.
@@ -117,6 +121,22 @@ and registers the repository when needed. Requires the GitHub CLI (`gh`),
 signed in. Pass `gh pr checkout` options through, such as `--force` or
 `--branch <name>`; `--no-open` prints the launch URL instead of opening it.
 
+A saved review with a pull request link shows the pull request's GitHub
+comments. Med reads them with `gh`; it never posts, replies, or resolves.
+
+- **In the diff.** When the comparison shows the pull request's head commit, each
+  code thread shows on its line, above Med's notes. A GitHub thread has the
+  GitHub mark and author names; a Med note has neither.
+- **Conversation.** The comment count beside the title opens the reviews, the
+  general comments, and the threads that the diff cannot show: outdated threads,
+  and all threads when the comparison shows another commit.
+- **Reply on GitHub.** Hover a comment for **Copy**, which copies it as quoted
+  text, and **Open on GitHub**. Reply there.
+- **Local notes stay local.** **Copy comments** copies only Med's notes.
+- **Updates.** Med reads again when its window gets focus, at most every 30
+  seconds. The refresh button in the panel reads at once. **Hide comments**
+  hides both kinds.
+
 ### Saved agent reviews
 
 An agent can use the running host to save a commit range or capture working changes, then return a clean local review link. Open the launch URL once in the browser to authorize access. Saved links in that browser then use the same local session.
@@ -132,7 +152,7 @@ Saved reviews and their comments persist in `~/.local/state/med`. Normal branch 
 A brief is the agent's explanation of a review, in Markdown. Its links open the lines they cite, so you can read the changes in the order the agent explains them.
 
 - **Attach.** Copy the agent's last message and press `⌘V` anywhere outside a text field. On a saved review, med attaches the brief. On live changes, med asks for a title and saves the comparison as a review first, so the links keep pointing at the code they describe. Agents can also attach one at creation with `review create --brief`.
-- **Read.** The **Brief** tab comes before **Changes**. Below each paragraph that cites lines, a short diff excerpt shows those lines. `]` and `[` step through the excerpts. Hover a link to highlight its excerpt.
+- **Read.** The **Brief** tab comes before **Changes**. Below each paragraph that cites lines, a short diff excerpt shows those lines. `]` and `[` step through the excerpts. Hover a link to highlight its excerpt. In a wide window, code, tables, and images extend past the text column, and table columns take the width their text needs.
 - **Jump.** Click a link or an excerpt heading to open those lines in **Changes**, selected and centered.
 - **Comment.** Hover a line in an excerpt and click **+**; drag it to cover more lines. You can also select line numbers and press `c`. These are the same notes as in **Changes**, so **Copy comments** includes them. The excerpt heading counts its notes.
 - **Check coverage.** The header shows how many changed files the brief cites. **Not in the brief** lists the changed files it never mentions; read those yourself.
@@ -203,6 +223,11 @@ input to return to the current repository. The scope button also goes back.
 Escape closes the picker and restores focus. Opening a result keeps the review
 in place and opens a file tab with the selected repository identity. Picking
 and previewing files never saves or changes their contents.
+
+Right-click a file in a file tree or a file tab for **Reveal in Finder** (**Show
+in Explorer** on Windows, **Show in folder** on Linux), **Copy path**, and
+**Copy relative path**. A file tab also has **Close**, and a preview tab has
+**Keep open**. Reveal works only for files in the working tree.
 
 The panel button beside **Esc** hides the file preview. The picker then shows
 a narrow list and stops reading files for the preview. Med remembers the choice
@@ -361,8 +386,9 @@ Open the Vite URL with the `#token=…` fragment printed by the API host. Vite p
 
 Open `/elements` (or run **Open elements page** from the command palette) to
 inspect Med's own components on fixed sample data: the palette and derived
-layers, type, shape, icons, controls, review parts such as the history panel and
-commit card, and every code color state. Code states include diff lines and
+layers, type, shape, icons, controls, review parts such as the history panel,
+commit card, Med notes, and GitHub threads, every code color state, and a sample
+brief. Code states include diff lines and
 changed words, line selection over context, additions, and removals, find
 matches, and the editor. The theme menu previews any theme on the page without
 saving it; **Use in Med** saves it. Zoom enlarges the non-code specimens, outline

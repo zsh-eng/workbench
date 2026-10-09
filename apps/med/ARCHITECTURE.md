@@ -56,7 +56,7 @@ Agents announce new reviews on the window channel. `review create` posts to `/ap
 
 The address follows the active workspace. A saved review keeps `/review/<id>`; a vault keeps `/vault/<id>` and its open file; branch workspaces share `/` and carry their ID in `history.state`. A switch pushes a history entry and dispatches `popstate`, so the vault and standalone-file surfaces follow it, and Back and Forward move between workspaces. The vault surface keeps the reviews mounted beneath it. Registered vaults come from the service status and are pinned first. Global DOM checks, such as for an open dialog or the main file pane, consider only visible elements, because hidden workspaces keep theirs in the document.
 
-Base UI supplies tabs and the searchable theme dialog. Theme selection previews the whole application; Enter saves locally, and dismissal restores the saved theme. Semantic CSS variables connect StyleX, Pierre Trees, and the diff theme. Geist fonts and Med's own 16-pixel icon set (with the GitHub mark for pull-request links) ship locally. No runtime dependency was added for these controls. See [theme sources](upstream/THEMES.md).
+Base UI supplies tabs and the searchable theme dialog. Theme selection previews the whole application; Enter saves locally, and dismissal restores the saved theme. Semantic CSS variables connect StyleX, Pierre Trees, and the diff theme. Geist and Paper Mono fonts and Med's own 16-pixel icon set (with the GitHub mark for pull-request links) ship locally. No runtime dependency was added for these controls. See [theme sources](upstream/THEMES.md).
 
 ## Boundaries and dependencies
 
@@ -194,6 +194,8 @@ The CLI uses a stable default port (4173) and private state directory (`~/.local
 The browser opens one target at a time. Saved source does not follow watcher events. The normal file browser and commit history remain available; the header shows when the user has left the saved comparison. Feedback export uses captured source, including selected lines and adjacent context. Saved file access requires the repository family to remain registered, but a surviving checkout can replace a removed linked worktree as the session anchor.
 
 A bundle can hold one Markdown brief. `POST /api/reviews/:id/brief` replaces or removes it without a new comment revision, so comment writes and a brief change do not conflict. The browser renders the brief in the Markdown worker with link marking on. `src/web/data/brief.ts` then resolves each link to a changed file and line range: exact path first, then a unique path suffix, so agents in another working directory still resolve. Each cited range becomes an excerpt: a subset of the captured patch, parsed again for Pierre's `FileDiff`, or captured source lines when the range has no changes. Excerpts mount near the viewport only. `BriefView` loads lazily and stays mounted after first use, to keep its scroll position. A paste on live changes saves the comparison first, because a brief is only stable against captured code.
+
+A bundle with a pull request URL can show the pull request's GitHub comments. `GET /api/reviews/:id/pull-request` runs `gh api` with GET requests only (`src/host/repository/pull-request.ts`): the head commit, inline review comments, conversation comments, and submitted reviews. Replies join their first comment as one thread. The host keeps the result for 30 seconds, so windows and focus events share one read; `?refresh=1` reads again. Without `gh`, the route returns a 503 with install instructions. The browser places a thread on its diff line only when the saved target is a commit comparison at the pull request head and the line is in a hunk; the header panel lists the others with the conversation. Med never writes to GitHub, and its own notes stay in the local store.
 
 See [agent integration](docs/AGENT_INTEGRATION.md) for the CLI contract, repository selection policy, data limits, and user-confirmed `AGENTS.md` guidance.
 
@@ -437,4 +439,5 @@ existing title. Older records remain valid. The browser title follows the visibl
 review, file, or vault surface; covering a mounted review does not let background
 updates replace the visible title. CLI-only PR lookup uses optional `gh` with a
 bounded timeout. Inferred metadata requires one GitHub origin and an exact match
-between the reviewed commit and PR head. The host and UI make no GitHub requests.
+between the reviewed commit and PR head. The UI makes no GitHub requests; it
+reads pull request comments only through the host (see below).

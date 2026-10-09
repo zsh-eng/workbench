@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, mkdir, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startHost, type RunningHost } from "../../src/host/server";
@@ -217,4 +217,135 @@ test("browsed comments skip gitlinks, reject invalid first notes atomically, and
   expect(
     (await (await connection.api(`/api/reviews/${saved.id}/feedback`)).json()).repositoryCount,
   ).toBe(1);
+});
+
+test("reads pull request comments with gh, read-only, as threads, conversation, and reviews", async () => {
+  const { repos, launch, stateDir } = await fixture();
+  const bin = join(stateDir, "..", "bin");
+  await mkdir(bin, { recursive: true });
+  const log = join(bin, "calls.jsonl");
+  const line = (value: unknown) => JSON.stringify(value);
+  const replies: Record<string, string[]> = {
+    "pulls/7/comments": [
+      line({
+        id: 1,
+        author: "ada",
+        body: "Rename this.",
+        createdAt: "2026-10-01T10:00:00Z",
+        url: "https://github.com/acme/med/pull/7#discussion_r1",
+        reply: null,
+        path: "same.ts",
+        line: 1,
+        startLine: null,
+        originalLine: 1,
+        side: "RIGHT",
+      }),
+      line({
+        id: 2,
+        author: "sam",
+        body: "Done.",
+        createdAt: "2026-10-01T11:00:00Z",
+        url: "https://github.com/acme/med/pull/7#discussion_r2",
+        reply: 1,
+        path: "same.ts",
+        line: 1,
+        startLine: null,
+        originalLine: 1,
+        side: "RIGHT",
+      }),
+      line({
+        id: 3,
+        author: "ada",
+        body: "Old line.",
+        createdAt: "2026-09-30T10:00:00Z",
+        url: "https://github.com/acme/med/pull/7#discussion_r3",
+        reply: null,
+        path: "same.ts",
+        line: null,
+        startLine: null,
+        originalLine: 4,
+        side: "LEFT",
+      }),
+    ],
+    "issues/7/comments": [
+      line({
+        id: 10,
+        author: "lin",
+        body: "Looks good overall.",
+        createdAt: "2026-10-02T09:00:00Z",
+        url: "https://github.com/acme/med/pull/7#issuecomment-10",
+      }),
+    ],
+    "pulls/7/reviews": [
+      line({
+        id: 20,
+        author: "ada",
+        body: "",
+        createdAt: "2026-10-02T12:00:00Z",
+        url: "https://github.com/acme/med/pull/7#pullrequestreview-20",
+        state: "APPROVED",
+      }),
+    ],
+  };
+  // A stand-in for gh: it records its arguments and answers each API path.
+  await writeFile(
+    join(bin, "gh"),
+    `#!/usr/bin/env node
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + "\\n");
+const path = args.find((arg) => arg.startsWith("repos/acme/med/")).replace("repos/acme/med/", "").split("?")[0];
+const replies = ${JSON.stringify(replies)};
+process.stdout.write(path === "pulls/7" ? "abc123\\n" : (replies[path] ?? []).join("\\n") + "\\n");
+`,
+    { mode: 0o755 },
+  );
+  const path = process.env.PATH;
+  process.env.PATH = `${bin}:${path}`;
+  try {
+    const { api } = await launch();
+    const saved = await (
+      await api("/api/reviews", {
+        title: "Pull request",
+        pullRequestUrl: "https://github.com/acme/med/pull/7",
+        targets: [{ repo: repos[0], comparison: { kind: "working" } }],
+      })
+    ).json();
+    const comments = await (await api(`/api/reviews/${saved.id}/pull-request`)).json();
+    expect(comments).toMatchObject({
+      url: "https://github.com/acme/med/pull/7",
+      head: "abc123",
+      threads: [
+        {
+          id: 1,
+          path: "same.ts",
+          side: "new",
+          line: 1,
+          comments: [
+            { author: "ada", body: "Rename this." },
+            { author: "sam", body: "Done." },
+          ],
+        },
+        { id: 3, side: "old", line: null, originalLine: 4 },
+      ],
+      conversation: [{ author: "lin", body: "Looks good overall." }],
+      reviews: [{ author: "ada", state: "APPROVED", body: "" }],
+    });
+    // Every call is a GET through gh api; nothing writes to GitHub.
+    const calls = (await readFile(log, "utf8"))
+      .trim()
+      .split("\n")
+      .map((entry) => JSON.parse(entry));
+    expect(calls).toHaveLength(4);
+    for (const call of calls) {
+      expect(call.slice(0, 3)).toEqual(["api", "--hostname", "github.com"]);
+      expect(call).not.toContain("--method");
+      expect(call).not.toContain("-X");
+      expect(call.some((arg: string) => /^-(f|F)$|^--(field|raw-field|input)$/.test(arg))).toBe(
+        false,
+      );
+    }
+  } finally {
+    process.env.PATH = path;
+  }
 });

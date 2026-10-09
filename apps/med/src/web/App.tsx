@@ -23,7 +23,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import type { Comparison, Note, NoteInput } from "../shared/protocol";
+import type { Comparison, Note, NoteInput, PullRequestThread } from "../shared/protocol";
 import { useReviewController, type ReviewController } from "./data/controller";
 import { tokens, ui } from "./theme.stylex";
 import {
@@ -57,6 +57,11 @@ import { SymbolPicker } from "./components/SymbolPicker";
 import { FullFileView, type BeginFileSymbolPreview } from "./components/FullFileView";
 import { FileViewTabs } from "./components/FileViewTabs";
 import { readBrowserToken } from "./data/auth";
+import {
+  PullRequestThreadCard,
+  usePullRequestComments,
+  type ThreadPlacement,
+} from "./components/PullRequestComments";
 import { SavedReviewHeader } from "./components/SavedReviewHeader";
 import { ShortcutGuide } from "./components/ShortcutGuide";
 import { ZenExit, ZenHint } from "./components/ZenExit";
@@ -82,7 +87,7 @@ import { createDiffFindHighlights } from "./data/diff-find-highlights";
 // The brief loads its Markdown worker and excerpt renderer only when shown.
 const BriefView = lazy(() => import("./components/BriefView"));
 
-type Annotation = { note?: Note; draft?: NoteTarget };
+type Annotation = { note?: Note; draft?: NoteTarget; thread?: PullRequestThread };
 type Selection = {
   id: string;
   range: {
@@ -584,6 +589,55 @@ export function App({
   const files = state.visibleFiles;
   const fileInfoById = useMemo(() => new Map(files.map((file) => [file.id, file.info])), [files]);
   const notes = state.notes?.notes ?? emptyNotes;
+  const savedTarget = state.savedReview?.targets.find(
+    (target) => target.id === state.savedTargetId,
+  );
+  const pullRequest = usePullRequestComments(
+    useCallback((refresh: boolean) => controller.loadPullRequestComments(refresh), [controller]),
+    state.savedReview?.pullRequestUrl
+      ? `${state.savedReview.id} ${state.savedReview.pullRequestUrl}`
+      : null,
+  );
+  // GitHub thread lines refer to the pull request's head commit. Threads show
+  // in the diff only when it compares that commit and shows the line.
+  const pullRequestThreads = useMemo(() => {
+    const byPath = new Map<string, PullRequestThread[]>();
+    const data = pullRequest.data;
+    const ids = new Set<number>();
+    const inline: ThreadPlacement = { kind: "inline", ids };
+    if (!data) return { byPath, placement: inline };
+    const head = `Lines refer to the pull request head, ${data.head.slice(0, 7)}.`;
+    if (!state.savedView || !savedTarget)
+      return {
+        byPath,
+        placement: {
+          kind: "elsewhere",
+          reason: `${head} Return to the saved review to see them in the diff.`,
+        } as ThreadPlacement,
+      };
+    if (savedTarget.captured || savedTarget.head !== data.head)
+      return {
+        byPath,
+        placement: {
+          kind: "elsewhere",
+          reason: `${head} This comparison shows ${savedTarget.captured ? "captured working changes" : savedTarget.head.slice(0, 7)}, so they are listed here.`,
+        } as ThreadPlacement,
+      };
+    for (const thread of data.threads) {
+      const line = thread.line;
+      const metadata = files.find((file) => file.path === thread.path)?.metadata;
+      if (line === null || !metadata) continue;
+      const shown = metadata.hunks.some((hunk) => {
+        const start = thread.side === "old" ? hunk.deletionStart : hunk.additionStart;
+        const count = thread.side === "old" ? hunk.deletionCount : hunk.additionCount;
+        return line >= start && line < start + count;
+      });
+      if (!shown) continue;
+      ids.add(thread.id);
+      byPath.set(thread.path, [...(byPath.get(thread.path) ?? []), thread]);
+    }
+    return { byPath, placement: inline };
+  }, [pullRequest.data, state.savedView, savedTarget, files]);
   const submitted = pendingDraft;
   // The controller publishes the saved note before its save promise completes.
   // Replace that draft in the same render so the diff never reserves two cards.
@@ -849,6 +903,8 @@ export function App({
     visibleDraft,
     pendingDraft?.error,
     [...collapsed],
+    pullRequest.threadsRevision,
+    pullRequestThreads.placement.kind === "inline" ? [...pullRequestThreads.placement.ids] : [],
   ]);
   const [itemVersion, setItemVersion] = useState({ key: itemKey, files, notes, value: 0 });
   let currentVersion = itemVersion.value;
@@ -859,20 +915,30 @@ export function App({
   const items = useMemo<CodeViewItem<Annotation>[]>(() => {
     return files.flatMap((file) => {
       if (!file.metadata || mediaType(file.path)?.kind === "image") return [];
+      // GitHub threads come first: they are the review so far.
       const annotations: DiffLineAnnotation<Annotation>[] = showNotes
-        ? notes
-            .filter(
-              (note) =>
-                note.path === file.path &&
-                !note.parentId &&
-                note.resolution !== "orphaned" &&
-                note.resolution !== "stale",
-            )
-            .map((note) => ({
-              side: note.side === "old" ? "deletions" : "additions",
-              lineNumber: note.line,
-              metadata: { note },
-            }))
+        ? [
+            ...(pullRequestThreads.byPath.get(file.path) ?? []).map(
+              (thread): DiffLineAnnotation<Annotation> => ({
+                side: thread.side === "old" ? "deletions" : "additions",
+                lineNumber: thread.line!,
+                metadata: { thread },
+              }),
+            ),
+            ...notes
+              .filter(
+                (note) =>
+                  note.path === file.path &&
+                  !note.parentId &&
+                  note.resolution !== "orphaned" &&
+                  note.resolution !== "stale",
+              )
+              .map((note): DiffLineAnnotation<Annotation> => ({
+                side: note.side === "old" ? "deletions" : "additions",
+                lineNumber: note.line,
+                metadata: { note },
+              })),
+          ]
         : [];
       if (visibleDraft?.path === file.path)
         annotations.push({
@@ -891,7 +957,7 @@ export function App({
         },
       ];
     });
-  }, [files, notes, showNotes, visibleDraft, collapsed, currentVersion]);
+  }, [files, notes, showNotes, visibleDraft, collapsed, currentVersion, pullRequestThreads]);
 
   useEffect(() => {
     diagnostics.record("comparison", {
@@ -2438,6 +2504,8 @@ export function App({
             <SavedReviewHeader
               controller={controller}
               state={state}
+              pullRequest={pullRequest}
+              threadPlacement={pullRequestThreads.placement}
               browsing={isFileTab(fileState.active)}
               browsingSourceLabel={activeFile?.sourceLabel ?? sourceLabel}
               onReturn={() => {
@@ -2918,6 +2986,8 @@ export function App({
                             );
                           }}
                         />
+                      ) : annotation.metadata?.thread ? (
+                        <PullRequestThreadCard thread={annotation.metadata.thread} />
                       ) : annotation.metadata?.note ? (
                         <NoteCard
                           note={annotation.metadata.note}

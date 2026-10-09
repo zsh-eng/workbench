@@ -1,8 +1,8 @@
 import { PatchDiff } from "@pierre/diffs/react";
 import type { FileDiffOptions } from "@pierre/diffs/react";
-import type { SelectedLineRange } from "@pierre/diffs";
+import type { DiffLineAnnotation, SelectedLineRange } from "@pierre/diffs";
 import * as stylex from "@stylexjs/stylex";
-import { useId, useMemo } from "react";
+import { useId, useMemo, type ReactNode } from "react";
 import type { FileRead } from "../../../shared/local-file";
 import { createEditorDrafts } from "../../data/editor-drafts";
 import { useTheme } from "../../themes";
@@ -12,9 +12,9 @@ import { relativeTimePatch, sampleFile, themePatch } from "./fixtures";
 import { Section, Specimen } from "./Specimen";
 
 /** The visual options of the Changes view, without its review callbacks. */
-function useDiffOptions(diffStyle: "unified" | "split" = "unified") {
+function useDiffOptions<A>(diffStyle: "unified" | "split" = "unified") {
   const { active } = useTheme();
-  return useMemo<FileDiffOptions<undefined, undefined>>(
+  return useMemo<FileDiffOptions<A, undefined>>(
     () => ({
       theme: active.pierreTheme,
       themeType: active.appearance,
@@ -32,23 +32,29 @@ function useDiffOptions(diffStyle: "unified" | "split" = "unified") {
   );
 }
 
-function Diff({
+export function Diff<A = undefined>({
   patch,
   selected,
   diffStyle,
   header = false,
+  annotations,
+  renderAnnotation,
 }: {
   patch: string;
   selected?: SelectedLineRange;
   diffStyle?: "unified" | "split";
   header?: boolean;
+  annotations?: DiffLineAnnotation<A>[];
+  renderAnnotation?(annotation: DiffLineAnnotation<A>): ReactNode;
 }) {
-  const options = useDiffOptions(diffStyle);
+  const options = useDiffOptions<A>(diffStyle);
   return (
-    <PatchDiff
+    <PatchDiff<A>
       patch={patch}
       options={{ ...options, disableFileHeader: !header }}
       selectedLines={selected ?? null}
+      lineAnnotations={annotations}
+      renderAnnotation={renderAnnotation}
       style={diffSurfaceStyle}
     />
   );

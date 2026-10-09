@@ -1,5 +1,5 @@
 import type { BrowseRead } from "../../../shared/browse";
-import type { Commit, CommitDetails, Note } from "../../../shared/protocol";
+import type { Commit, CommitDetails, Note, PullRequestComments } from "../../../shared/protocol";
 
 // Sample data for the elements page. It uses Med's own vocabulary so each
 // specimen reads like the product, not like placeholder text.
@@ -166,6 +166,94 @@ export const notes: Note[] = [
     resolution: "active",
   },
 ];
+
+const pr = "https://github.com/acme/med/pull/482";
+const at = (ago: number) => new Date(loaded - ago).toISOString();
+
+/** GitHub comments on the same change: an inline thread with a suggestion, an
+ * outdated thread, review summaries, and conversation. */
+export const pullRequest: PullRequestComments = {
+  url: pr,
+  head: id("c4f81e2"),
+  fetchedAt: loaded,
+  threads: [
+    {
+      id: 9101,
+      path: notePath,
+      side: "new",
+      line: 24,
+      startLine: null,
+      originalLine: 24,
+      comments: [
+        {
+          id: 9101,
+          author: "mira-k",
+          body: '`label` now holds the plural form, so the name reads backwards. Keep `unit` for the input and name the result for what it is:\n\n```suggestion\n  const shown = unit === "day" && count !== 1 ? "days" : unit;\n```',
+          createdAt: at(5 * hour),
+          url: `${pr}#discussion_r9101`,
+        },
+        {
+          id: 9102,
+          author: "sam-rivera",
+          body: "Agreed. I will take it in the next iteration.",
+          createdAt: at(4 * hour),
+          url: `${pr}#discussion_r9102`,
+        },
+      ],
+    },
+    {
+      id: 9120,
+      path: notePath,
+      side: "old",
+      line: null,
+      startLine: null,
+      originalLine: 12,
+      comments: [
+        {
+          id: 9120,
+          author: "mira-k",
+          body: "Is 30 days close enough to a month for the history panel?",
+          createdAt: at(2 * day),
+          url: `${pr}#discussion_r9120`,
+        },
+      ],
+    },
+  ],
+  conversation: [
+    {
+      id: 7001,
+      author: "sam-rivera",
+      body: "Adds weeks between days and months, so the history panel no longer shows `21 days ago`.",
+      createdAt: at(2 * day + hour),
+      url: `${pr}#issuecomment-7001`,
+    },
+    {
+      id: 7002,
+      author: "ci-bot[bot]",
+      body: "<!-- ci-report -->\nAll 214 checks passed on c4f81e2.",
+      createdAt: at(3 * hour),
+      url: `${pr}#issuecomment-7002`,
+    },
+  ],
+  reviews: [
+    {
+      id: 8001,
+      author: "mira-k",
+      body: "One naming note inline; the rest reads well.",
+      createdAt: at(5 * hour),
+      url: `${pr}#pullrequestreview-8001`,
+      state: "CHANGES_REQUESTED",
+    },
+    {
+      id: 8002,
+      author: "jordan-ito",
+      body: "",
+      createdAt: at(90 * minute),
+      url: `${pr}#pullrequestreview-8002`,
+      state: "APPROVED",
+    },
+  ],
+};
 
 /** A change with context, a word-level edit, removals, and additions. */
 export const relativeTimePatch = `diff --git a/${notePath} b/${notePath}

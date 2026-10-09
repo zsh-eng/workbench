@@ -6,7 +6,18 @@ import { CommitCard } from "../CommitCard";
 import { DiffStat } from "../DiffStat";
 import { HistoryPanel } from "../HistoryPanel";
 import { NoteCard } from "../NoteCard";
-import { changedFiles, commitDetails, commits, loadCommitDetails, notes } from "./fixtures";
+import { PanelContent, PullRequestThreadCard } from "../PullRequestComments";
+import type { Note, PullRequestThread } from "../../../shared/protocol";
+import { Diff } from "./CodeSection";
+import {
+  changedFiles,
+  commitDetails,
+  commits,
+  loadCommitDetails,
+  notes,
+  pullRequest,
+  relativeTimePatch,
+} from "./fixtures";
 import { Section, Specimen } from "./Specimen";
 
 function History() {
@@ -82,8 +93,68 @@ export function ReviewSection() {
           </div>
         </div>
       </Specimen>
-      <Specimen title="Comment thread" note="A note with one reply" span="half">
+      <Specimen title="Local note" note="A note with one reply. Notes stay in Med." span="half">
         <NoteCard note={notes[0]!} replies={notes.slice(1)} onMutate={async () => {}} />
+      </Specimen>
+      <Specimen
+        title="GitHub thread"
+        note="Read-only. Copy it, or open it on GitHub to reply."
+        span="half"
+      >
+        <PullRequestThreadCard thread={pullRequest.threads[0]!} now={now} />
+      </Specimen>
+      <Specimen
+        title="Comments in the diff"
+        note="A GitHub thread and a local note on the same change, as the review shows them."
+        padded={false}
+      >
+        <Diff<{ note?: Note; thread?: PullRequestThread }>
+          patch={relativeTimePatch}
+          header
+          annotations={[
+            { side: "additions", lineNumber: notes[0]!.line, metadata: { note: notes[0]! } },
+            {
+              side: "additions",
+              lineNumber: pullRequest.threads[0]!.line!,
+              metadata: { thread: pullRequest.threads[0]! },
+            },
+          ]}
+          renderAnnotation={({ metadata }) =>
+            metadata?.thread ? (
+              <PullRequestThreadCard thread={metadata.thread} now={now} />
+            ) : metadata?.note ? (
+              <NoteCard note={metadata.note} replies={notes.slice(1)} onMutate={async () => {}} />
+            ) : null
+          }
+        />
+      </Specimen>
+      <Specimen
+        title="Pull request panel"
+        note="Opens from the count beside the pull request link: reviews, conversation, and threads the diff cannot show."
+        span="half"
+      >
+        <div {...stylex.props(styles.card, styles.panel)}>
+          <PanelContent
+            data={pullRequest}
+            error={null}
+            loading={false}
+            placement={{ kind: "inline", ids: new Set([pullRequest.threads[0]!.id]) }}
+            now={now}
+            onRefresh={() => {}}
+          />
+        </div>
+      </Specimen>
+      <Specimen title="Pull request panel without gh" note="Med reads GitHub with gh." span="half">
+        <div {...stylex.props(styles.card, styles.panel)}>
+          <PanelContent
+            data={null}
+            error="Install the GitHub CLI (gh) and run gh auth login to show pull request comments."
+            loading={false}
+            placement={{ kind: "inline", ids: new Set() }}
+            now={now}
+            onRefresh={() => {}}
+          />
+        </div>
       </Specimen>
       <Specimen title="Change totals" note="Hover for the split by kind of file" span="half">
         <div {...stylex.props(styles.row)}>
@@ -111,6 +182,7 @@ const styles = stylex.create({
     backgroundColor: tokens.panel,
   },
   row: { display: "flex", alignItems: "center", gap: 16 },
+  panel: { width: "min(460px, 100%)" },
   cards: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 16 },
   // The same surface as the history tooltip.
   card: {

@@ -21,6 +21,7 @@ import type {
   Comparison,
   NoteMutation,
   NoteState,
+  PullRequestComments,
   RegisteredRepository,
   ReviewResponse,
   Session,
@@ -44,6 +45,7 @@ import {
   eventSchema,
   commitDetailsSchema,
   historySchema,
+  pullRequestCommentsSchema,
   revealSchema,
   HttpError,
   notesSchema,
@@ -104,6 +106,9 @@ export interface ReviewController {
   selectSavedTarget(id: string): Promise<void>;
   returnToSavedReview(): Promise<void>;
   copyFeedback(): Promise<SavedFeedback>;
+  /** The saved review's GitHub pull request comments, read-only. `refresh`
+   * skips the host's 30-second cache. */
+  loadPullRequestComments(refresh?: boolean): Promise<PullRequestComments>;
   clearSavedComments(expectedRevision: number): Promise<void>;
   /** Replace the saved review's brief, or remove it with null. */
   setSavedBrief(text: string | null): Promise<void>;
@@ -1609,6 +1614,14 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       const repo = snapshot.session?.repository.path;
       if (!repo) throw new Error("Open a repository first.");
       return api.json(`/api/commit?${query({ repo, id })}`, commitDetailsSchema, { signal });
+    },
+    async loadPullRequestComments(refresh = false) {
+      const saved = snapshot.savedReview;
+      if (!saved?.pullRequestUrl) throw new Error("This review has no pull request.");
+      return api.json(
+        `/api/reviews/${encodeURIComponent(saved.id)}/pull-request${refresh ? "?refresh=1" : ""}`,
+        pullRequestCommentsSchema,
+      );
     },
     async revealPath(repo, path) {
       await api.json("/api/reveal", revealSchema, {

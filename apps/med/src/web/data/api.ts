@@ -64,6 +64,31 @@ export const commitDetailsSchema = z.object({
   deletions: z.number(),
 });
 export const revealSchema = z.object({ revealed: z.literal(true) });
+const pullRequestCommentSchema = z.object({
+  id: z.number(),
+  author: z.string(),
+  body: z.string(),
+  createdAt: z.string(),
+  url: z.string(),
+});
+export const pullRequestCommentsSchema = z.object({
+  url: z.string(),
+  head: z.string(),
+  fetchedAt: z.number(),
+  threads: z.array(
+    z.object({
+      id: z.number(),
+      path: z.string(),
+      side: z.enum(["old", "new"]),
+      line: z.number().nullable(),
+      startLine: z.number().nullable(),
+      originalLine: z.number().nullable(),
+      comments: z.array(pullRequestCommentSchema),
+    }),
+  ),
+  conversation: z.array(pullRequestCommentSchema),
+  reviews: z.array(pullRequestCommentSchema.extend({ state: z.string() })),
+});
 export const reviewSchema = z.object({
   id: z.string(),
   repo: z.string(),

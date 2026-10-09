@@ -5,7 +5,12 @@ import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { App } from "../../src/web/App";
 import { createReviewController } from "../../src/web/data/controller";
-import type { Comparison, Note, ReviewResponse } from "../../src/shared/protocol";
+import type {
+  Comparison,
+  Note,
+  PullRequestComments,
+  ReviewResponse,
+} from "../../src/shared/protocol";
 import { HistoryPanel } from "../../src/web/components/HistoryPanel";
 import { initializeTheme, themeController } from "../../src/web/themes";
 import { layoutHistory } from "../../src/web/components/history-layout";
@@ -92,6 +97,8 @@ async function mountApp(
     iterationBriefs?: [string, string];
     /** Replaces the two small files with these, as path and unified patch. */
     review?: { paths: string[]; patch: string };
+    /** GitHub comments; the first saved target compares the pull request head. */
+    pullRequest?: PullRequestComments;
   } = {},
 ) {
   initializeTheme();
@@ -106,11 +113,14 @@ async function mountApp(
     repo,
     branch: index ? "feature" : "main",
     label: `Captured ${index}`,
-    comparison: { kind: "working" as const },
+    comparison: (options.pullRequest && !index
+      ? { kind: "commit", commit: options.pullRequest.head }
+      : { kind: "working" }) as Comparison,
     base: secondCommit,
-    head: "working",
-    captured: true,
+    head: options.pullRequest && !index ? options.pullRequest.head : "working",
+    captured: !(options.pullRequest && !index),
   }));
+  const pullRequestReads: string[] = [];
   const savedRepositories = savedTargets.map((target) => ({
     id: target.repositoryId,
     path: target.repo,
@@ -129,6 +139,7 @@ async function mountApp(
     revision: 0,
     commentCount: 0,
     targets: savedTargets,
+    ...(options.pullRequest ? { pullRequestUrl: options.pullRequest.url } : {}),
     ...(brief ? { brief: { text: brief, updatedAt: "2026-09-20T00:00:00Z" } } : {}),
     ...(options.iterationBriefs
       ? {
@@ -146,6 +157,10 @@ async function mountApp(
     const url = new URL(String(input), "http://localhost");
     if (options.savedReview) {
       if (url.pathname === "/api/reviews/saved") return Response.json(savedBundle());
+      if (url.pathname === "/api/reviews/saved/pull-request" && options.pullRequest) {
+        pullRequestReads.push(url.search);
+        return Response.json(options.pullRequest);
+      }
       if (url.pathname === "/api/reviews/saved/brief" && init?.method === "POST") {
         brief = JSON.parse(String(init.body)).brief ?? undefined;
         return Response.json(savedBundle());
@@ -345,7 +360,7 @@ async function mountApp(
   await expect
     .poll(() => document.querySelectorAll("diffs-container").length)
     .toBeGreaterThanOrEqual(options.review ? 1 : 2);
-  return { controller, requests, fileRequests };
+  return { controller, requests, fileRequests, pullRequestReads };
 }
 
 async function openBranch(name: string) {
@@ -1550,6 +1565,78 @@ describe("review brief", () => {
     await expect
       .poll(() => page.getByText("Keep this name", { exact: true }).elements().length)
       .toBe(2);
+  });
+
+  test("shows GitHub pull request comments read-only, apart from local notes", async () => {
+    const comment = (id: number, author: string, body: string) => ({
+      id,
+      author,
+      body,
+      createdAt: "2026-09-20T00:00:00Z",
+      url: `https://github.com/acme/med/pull/7#discussion_r${id}`,
+    });
+    const { pullRequestReads } = await mountApp({
+      savedReview: true,
+      pullRequest: {
+        url: "https://github.com/acme/med/pull/7",
+        head: firstCommit,
+        fetchedAt: Date.now(),
+        threads: [
+          {
+            id: 11,
+            path: "src/alpha.ts",
+            side: "new",
+            line: 1,
+            startLine: null,
+            originalLine: 1,
+            comments: [
+              comment(11, "mira", "Rename `after` to `next`."),
+              comment(12, "sam", "Done in the next push."),
+            ],
+          },
+          {
+            id: 21,
+            path: "src/beta.ts",
+            side: "old",
+            line: null,
+            startLine: null,
+            originalLine: 2,
+            comments: [comment(21, "mira", "Is this still needed?")],
+          },
+        ],
+        conversation: [comment(31, "sam", "Ready for review.")],
+        reviews: [{ ...comment(41, "jordan", ""), state: "APPROVED" }],
+      },
+    });
+    // The thread on the pull request head shows on its line, with no way to write.
+    const thread = page.getByRole("article", { name: "GitHub thread by mira at R1, read-only" });
+    await expect.element(thread).toBeVisible();
+    expect(thread.element().textContent).toMatch(
+      /Rename after to next\..*sam.*Done in the next push/,
+    );
+    expect(thread.element().querySelector("textarea, [contenteditable]")).toBeNull();
+    expect(
+      thread
+        .getByRole("button")
+        .elements()
+        .map((button) => button.ariaLabel),
+    ).toEqual(["Copy thread"]);
+    await expect
+      .element(thread.getByRole("link", { name: "Open on GitHub" }))
+      .toHaveAttribute("href", "https://github.com/acme/med/pull/7#discussion_r11");
+
+    // The panel holds the conversation and the thread the diff cannot show.
+    await page.getByRole("button", { name: "5 pull request comments" }).click();
+    const panel = page.getByRole("dialog", { name: "Pull request comments" });
+    await expect.element(panel).toBeVisible();
+    const text = panel.element().textContent;
+    expect(text).toMatch(/jordan\s*Approved/);
+    expect(text).toContain("Ready for review.");
+    expect(text).toContain("1 thread shows in the diff.");
+    expect(text).toMatch(/src\/beta\.ts\s*L2\s*Outdated.*Is this still needed\?/);
+    await panel.getByRole("button", { name: "Read again from GitHub" }).click();
+    await expect.poll(() => pullRequestReads.at(-1)).toBe("?refresh=1");
+    expect(pullRequestReads.slice(0, -1).every((search) => search === "")).toBe(true);
   });
 
   test("attaches a pasted brief to a saved review and undoes it", async () => {
