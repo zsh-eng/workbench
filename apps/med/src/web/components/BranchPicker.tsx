@@ -4,7 +4,7 @@ import * as stylex from "@stylexjs/stylex";
 import { Dialog } from "@base-ui/react/dialog";
 import { useEffect, useId, useRef, useState } from "react";
 import type { RegisteredRepository } from "../../shared/protocol";
-import { tokens, ui } from "../theme.stylex";
+import { picked, tokens, ui } from "../theme.stylex";
 import { focusPaletteInput } from "../data/palette-focus";
 import { distinctLabels } from "../data/tab-labels";
 import { Icon } from "./Icon";
@@ -203,7 +203,7 @@ export function BranchPicker({
                           onPointerMove={() => setActive(index)}
                           {...stylex.props(
                             styles.option,
-                            index === selectedIndex && styles.selected,
+                            index === selectedIndex && [styles.selected, picked],
                           )}
                         >
                           <Icon name="branch" size={14} />
@@ -349,7 +349,7 @@ const styles = stylex.create({
     color: tokens.text,
     fontFamily: tokens.ui,
     fontSize: 12,
-    borderRadius: 12,
+    borderRadius: `calc(12px * ${tokens.round})`,
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: tokens.lineStrong,
@@ -427,12 +427,15 @@ const styles = stylex.create({
     paddingBlock: 5,
     paddingInline: 10,
     boxSizing: "border-box",
-    borderRadius: 7,
+    borderRadius: `calc(7px * ${tokens.round})`,
     color: tokens.muted,
     cursor: "pointer",
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
   },
-  selected: { backgroundColor: { default: tokens.fillStrong, ":hover": tokens.fillStrong } },
+  selected: {
+    backgroundColor: { default: tokens.pick, ":hover": tokens.pick },
+    color: tokens.selectedText,
+  },
   entry: {
     display: "flex",
     flexDirection: "column",

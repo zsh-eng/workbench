@@ -29,7 +29,12 @@ export function DiffStat({ additions, deletions }: { additions: number; deletion
 
 const styles = stylex.create({
   blocks: { display: "inline-flex", gap: 2, flexShrink: 0 },
-  block: { width: 7, height: 7, borderRadius: 2, backgroundColor: tokens.fillStrong },
+  block: {
+    width: 7,
+    height: 7,
+    borderRadius: `calc(2px * ${tokens.round})`,
+    backgroundColor: tokens.fillStrong,
+  },
   added: { backgroundColor: tokens.green },
   deleted: { backgroundColor: tokens.red },
 });

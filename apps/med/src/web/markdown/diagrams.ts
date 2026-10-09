@@ -32,9 +32,11 @@ function themeVariables(dark: boolean) {
   const ground = color("panel", dark ? "#0d0d0f" : "#f7f7f8");
   const edge = mix(ground, text, dark ? 0.42 : 0.36);
   const outline = mix(ground, text, dark ? 0.2 : 0.16);
+  // The theme's interface font, so labels match the page (Paper Mono in Paper).
+  const font = root.getPropertyValue("--med-font-ui").trim() || "Geist, sans-serif";
   return {
     darkMode: dark,
-    fontFamily: "Geist, sans-serif",
+    fontFamily: font,
     fontSize: "13px",
     background: ground,
     mainBkg: raised,
@@ -93,8 +95,8 @@ export function renderDiagram(source: string, dark: boolean) {
     if (source.length > 20_000) throw new Error("Diagram exceeds the 20,000 character limit.");
     const [{ default: mermaid }] = await Promise.all([
       import("mermaid"),
-      // Mermaid measures labels when it lays out; measure them in Geist.
-      document.fonts.load('13px "Geist"').catch(() => []),
+      // Mermaid measures labels when it lays out; load the font first.
+      document.fonts.load(`13px ${variables.fontFamily}`).catch(() => []),
     ]);
     mermaid.initialize({
       startOnLoad: false,
@@ -105,7 +107,7 @@ export function renderDiagram(source: string, dark: boolean) {
       // follow the theme; the classic look draws flat shapes.
       look: "classic",
       themeVariables: variables,
-      fontFamily: "Geist, sans-serif",
+      fontFamily: variables.fontFamily,
       // Sequence diagrams take this over their own font sizes.
       fontSize: 13,
       flowchart: { padding: 8, nodeSpacing: 28, rankSpacing: 32, diagramPadding: 4 },

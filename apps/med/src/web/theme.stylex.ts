@@ -19,8 +19,10 @@ export const tokens = stylex.defineVars({
   shadow: "var(--med-shadow, 0 12px 32px -8px #000000b3)",
   // Translucent layers derive from each theme's text color. One hairline or
   // hover then reads the same on the frame, the review card, and popovers.
-  line: "color-mix(in srgb, var(--med-text, #ececef) 8%, transparent)",
-  lineStrong: "color-mix(in srgb, var(--med-text, #ececef) 14%, transparent)",
+  // A theme's aesthetic can draw them from its accent instead (Paper's blue outlines).
+  line: "color-mix(in srgb, var(--med-line-from, var(--med-text, #ececef)) var(--med-line-mix, 8%), transparent)",
+  lineStrong:
+    "color-mix(in srgb, var(--med-line-from, var(--med-text, #ececef)) var(--med-line-strong-mix, 14%), transparent)",
   fill: "color-mix(in srgb, var(--med-text, #ececef) 5%, transparent)",
   fillStrong: "color-mix(in srgb, var(--med-text, #ececef) 9%, transparent)",
   accentSoft: "color-mix(in srgb, var(--med-accent, #8f9cff) 15%, transparent)",
@@ -31,7 +33,35 @@ export const tokens = stylex.defineVars({
   easeOut: "cubic-bezier(0.23, 1, 0.32, 1)",
   easeInOut: "cubic-bezier(0.77, 0, 0.175, 1)",
   code: '"Paper Mono", "SFMono-Regular", Consolas, monospace',
-  ui: '"Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  // The rest is each theme's aesthetic (themes.ts): type, corners, the chosen
+  // row, the primary button, and section labels. Code keeps Paper Mono.
+  ui: 'var(--med-font-ui, "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif)',
+  // Multiplies every corner radius: calc(6px * round). Buttons may be pills instead.
+  round: "var(--med-round, 1)",
+  buttonRound: "var(--med-button-round, 6px)",
+  // The highlighted row of a list or menu, the chosen segment, and their text.
+  pick: "var(--med-pick, color-mix(in srgb, var(--med-text, #ececef) 9%, transparent))",
+  segment: "var(--med-segment, var(--med-raised, #1b1b1e))",
+  selectedText: "var(--med-selected-text, var(--med-text, #ececef))",
+  primary: "var(--med-primary, var(--med-text, #ececef))",
+  primaryText: "var(--med-primary-text, var(--med-canvas, #141416))",
+  labelColor: "var(--med-label-color, var(--med-muted, #9d9da6))",
+  labelCase: "var(--med-label-case, none)",
+  labelTracking: "var(--med-label-tracking, normal)",
+  labelSize: "var(--med-label-size, 11.5px)",
+  labelWeight: "var(--med-label-weight, 500)",
+});
+
+// Text on a highlighted or selected row. A theme with a solid accent selection
+// (Paper) makes the row's text, secondary text, and marks light; other themes
+// keep their colors.
+export const picked = stylex.createTheme(tokens, {
+  text: "var(--med-selected-text, var(--med-text, #ececef))",
+  muted: "var(--med-selected-muted, var(--med-muted, #9d9da6))",
+  faint: "var(--med-selected-faint, var(--med-faint, #686871))",
+  accent: "var(--med-selected-accent, var(--med-accent, #8f9cff))",
+  green: "var(--med-selected-green, var(--med-green, #82cfa1))",
+  red: "var(--med-selected-red, var(--med-red, #ee8d98))",
 });
 
 const reduced = "@media (prefers-reduced-motion: reduce)";
@@ -71,13 +101,16 @@ export const ui = stylex.create({
     paddingBlock: 0,
     paddingInline: 8,
     borderWidth: 0,
-    borderRadius: 6,
+    borderRadius: tokens.buttonRound,
     backgroundColor: { default: "transparent", ":hover:not(:disabled)": tokens.fill },
     color: { default: tokens.muted, ":hover:not(:disabled)": tokens.text },
     fontFamily: tokens.ui,
     fontSize: 12,
     fontWeight: 450,
     lineHeight: 1.5,
+    // Buttons in an uppercase section label keep their own case.
+    textTransform: "none",
+    letterSpacing: "normal",
     cursor: "pointer",
     whiteSpace: "nowrap",
     outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
@@ -96,10 +129,10 @@ export const ui = stylex.create({
   },
   strong: { color: tokens.text, fontWeight: 500 },
   primary: {
-    color: { default: tokens.canvas, ":hover:not(:disabled)": tokens.canvas },
+    color: { default: tokens.primaryText, ":hover:not(:disabled)": tokens.primaryText },
     backgroundColor: {
-      default: tokens.text,
-      ":hover:not(:disabled)": `color-mix(in srgb, ${tokens.text} 86%, ${tokens.canvas})`,
+      default: tokens.primary,
+      ":hover:not(:disabled)": `color-mix(in srgb, ${tokens.primary} 86%, ${tokens.canvas})`,
     },
     fontWeight: 500,
   },
@@ -117,7 +150,7 @@ export const ui = stylex.create({
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: { default: tokens.line, ":hover": tokens.lineStrong, ":focus": tokens.accentLine },
-    borderRadius: 6,
+    borderRadius: `calc(6px * ${tokens.round})`,
     paddingBlock: 0,
     paddingInline: 9,
     backgroundColor: tokens.fill,
@@ -136,7 +169,7 @@ export const ui = stylex.create({
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: tokens.lineStrong,
-    borderRadius: 10,
+    borderRadius: `calc(10px * ${tokens.round})`,
     padding: 4,
     boxShadow: tokens.shadow,
     color: tokens.text,
@@ -152,14 +185,15 @@ export const ui = stylex.create({
     gap: 24,
     minHeight: 28,
     paddingInline: 8,
-    borderRadius: 6,
+    borderRadius: `calc(6px * ${tokens.round})`,
     cursor: "default",
     outline: "none",
     backgroundColor: { default: "transparent", ":hover": tokens.fillStrong },
     color: tokens.text,
     fontSize: 12,
   },
-  menuHighlighted: { backgroundColor: tokens.fillStrong },
+  // With `picked` on the same element, so the row's secondary text follows.
+  menuHighlighted: { backgroundColor: tokens.pick, color: tokens.selectedText },
   // Shared surface for keyboard palettes: commands, files, symbols, branches, themes.
   palette: {
     position: "fixed",
@@ -172,7 +206,7 @@ export const ui = stylex.create({
     color: tokens.text,
     fontFamily: tokens.ui,
     fontSize: 12.5,
-    borderRadius: 12,
+    borderRadius: `calc(12px * ${tokens.round})`,
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: tokens.lineStrong,
@@ -215,6 +249,15 @@ export const ui = stylex.create({
     color: tokens.faint,
     fontSize: 11,
   },
+  // A section label such as "Changes" or "Files". Themes set its case, color, and tracking.
+  label: {
+    color: tokens.labelColor,
+    fontFamily: tokens.ui,
+    fontSize: tokens.labelSize,
+    fontWeight: tokens.labelWeight,
+    letterSpacing: tokens.labelTracking,
+    textTransform: tokens.labelCase,
+  },
   separator: { height: 1, backgroundColor: tokens.line, borderWidth: 0, marginBlock: 4 },
   muted: { color: tokens.muted },
   faint: { color: tokens.faint },
@@ -223,7 +266,7 @@ export const ui = stylex.create({
     fontSize: 10,
     lineHeight: "18px",
     paddingInline: 5,
-    borderRadius: 4,
+    borderRadius: `calc(4px * ${tokens.round})`,
     backgroundColor: tokens.fill,
     color: tokens.muted,
   },

@@ -41,7 +41,7 @@
 .med-media-fit {
   min-height: 28px;
   min-width: 28px;
-  border-radius: 7px;
+  border-radius: calc(7px * var(--med-round, 1));
 }
 .med-media-stage {
   flex: 1;
@@ -61,7 +61,7 @@
 .med-media-stage video {
   width: 100%;
   height: 100%;
-  border-radius: 10px;
+  border-radius: calc(10px * var(--med-round, 1));
   background: #111;
 }
 .med-media-stage[data-actual="true"] img {
@@ -79,7 +79,7 @@
 .med-media-diff {
   color: var(--media-text);
   border: 1px solid var(--media-border);
-  border-radius: 8px;
+  border-radius: calc(8px * var(--med-round, 1));
   overflow: hidden;
   background: var(--media-bg);
   margin-block: 8px;

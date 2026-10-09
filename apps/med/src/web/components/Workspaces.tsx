@@ -37,7 +37,7 @@ import {
   type WorkspaceSnapshot,
 } from "../data/workspaces";
 import { z } from "zod";
-import { tokens, ui } from "../theme.stylex";
+import { picked, tokens, ui } from "../theme.stylex";
 import { Icon, type IconName } from "./Icon";
 import { ShortcutKeys } from "./ShortcutKeys";
 import { ActionTooltip } from "./ToolButton";
@@ -846,7 +846,7 @@ function WorkspaceRows({ onNew }: { onNew?(): void }) {
   return (
     <WorkspaceNav>
       <div {...stylex.props(styles.heading)}>
-        <span>Workspaces</span>
+        <span {...stylex.props(ui.label)}>Workspaces</span>
         {onNew && (
           <ActionTooltip label="New workspace" shortcut="Mod+Enter">
             <button
@@ -964,7 +964,8 @@ function WorkspaceMenu({
   const sessions = workspace.sessions ?? [];
   const checkout = workspace.kind === "repository" ? workspace.path : undefined;
   const item = (state: { highlighted: boolean }, ...extra: stylex.StyleXStyles[]) =>
-    stylex.props(ui.menuItem, ...extra, state.highlighted && ui.menuHighlighted).className;
+    stylex.props(ui.menuItem, ...extra, state.highlighted && [ui.menuHighlighted, picked])
+      .className;
   const agentName = (agent: "claude" | "codex") => (agent === "claude" ? "Claude Code" : "Codex");
   return (
     <ContextMenu.Root>
@@ -1204,7 +1205,7 @@ const styles = stylex.create({
     height: 22,
     padding: 0,
     borderWidth: 0,
-    borderRadius: 6,
+    borderRadius: `calc(6px * ${tokens.round})`,
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
     color: { default: tokens.faint, ":hover": tokens.text },
     cursor: "pointer",
@@ -1240,7 +1241,7 @@ const styles = stylex.create({
     paddingInlineStart: 8,
     paddingInlineEnd: 8,
     borderWidth: 0,
-    borderRadius: 7,
+    borderRadius: `calc(7px * ${tokens.round})`,
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
     color: { default: tokens.muted, ":hover": tokens.text },
     fontFamily: tokens.ui,
@@ -1308,7 +1309,7 @@ const styles = stylex.create({
     height: 18,
     padding: 0,
     borderWidth: 0,
-    borderRadius: 5,
+    borderRadius: `calc(5px * ${tokens.round})`,
     backgroundColor: { default: "transparent", ":hover": tokens.fillStrong },
     color: { default: tokens.faint, ":hover": tokens.text },
     cursor: "pointer",
@@ -1329,7 +1330,7 @@ const styles = stylex.create({
     width: "min(440px, calc(100vw - 32px))",
     boxSizing: "border-box",
     padding: 6,
-    borderRadius: 12,
+    borderRadius: `calc(12px * ${tokens.round})`,
     backgroundColor: tokens.raised,
     boxShadow: `0 0 0 1px ${tokens.lineStrong}, ${tokens.shadow}`,
     color: tokens.text,
@@ -1352,7 +1353,7 @@ const styles = stylex.create({
     gap: 10,
     minHeight: 34,
     paddingInline: 10,
-    borderRadius: 8,
+    borderRadius: `calc(8px * ${tokens.round})`,
     color: tokens.muted,
     fontSize: 13,
     cursor: "pointer",

@@ -29,7 +29,7 @@
   color: inherit;
   background: transparent;
   border: 1px solid var(--edit-border);
-  border-radius: 6px;
+  border-radius: calc(6px * var(--med-round, 1));
   padding: 3px 9px;
   cursor: pointer;
 }
@@ -89,7 +89,7 @@
 
 .med-editor .cm-cursorLayer:not(.cm-vimCursorLayer) .cm-cursor {
   border-left-width: 2px;
-  border-radius: 999px;
+  border-radius: calc(999px * var(--med-round, 1));
 }
 
 .med-editor .med-editor-attribution .cm-gutterElement {
@@ -110,7 +110,7 @@
   top: 0;
   bottom: 0;
   width: 3px;
-  border-radius: 1px;
+  border-radius: calc(1px * var(--med-round, 1));
   background: var(--edit-green);
 }
 .med-editor [data-med-change="deleted"] {
@@ -138,9 +138,7 @@
   display: flex;
   align-items: center;
   color: var(--edit-muted);
-  font:
-    10px/20px "Geist",
-    sans-serif;
+  font: 10px/20px var(--med-font-ui);
 }
 .med-editor [data-med-blame-trigger] {
   display: flex;
@@ -164,7 +162,7 @@
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 7px;
+  border-radius: calc(7px * var(--med-round, 1));
   color: var(--edit-muted);
   background: transparent;
 }

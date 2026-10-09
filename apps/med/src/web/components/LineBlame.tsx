@@ -123,7 +123,7 @@ const styles = stylex.create({
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: tokens.lineStrong,
-    borderRadius: 10,
+    borderRadius: `calc(10px * ${tokens.round})`,
     boxShadow: tokens.shadow,
   },
 });

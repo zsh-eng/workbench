@@ -9,7 +9,7 @@ import { readBrowserToken } from "../data/auth";
 import { ChoiceSelect } from "./Controls";
 import { Icon } from "./Icon";
 import { ActionTooltip } from "./ToolButton";
-import { tokens, ui } from "../theme.stylex";
+import { picked, tokens, ui } from "../theme.stylex";
 
 export function ComparisonActions({
   repo,
@@ -144,7 +144,9 @@ export function ComparisonActions({
               ).map(([title, group]) =>
                 group.length ? (
                   <Menu.Group key={title}>
-                    <Menu.GroupLabel {...stylex.props(styles.groupLabel)}>{title}</Menu.GroupLabel>
+                    <Menu.GroupLabel {...stylex.props(ui.label, styles.groupLabel)}>
+                      {title}
+                    </Menu.GroupLabel>
                     {group.map((ref) => {
                       const current =
                         comparison.kind === "range" &&
@@ -159,7 +161,7 @@ export function ComparisonActions({
                             stylex.props(
                               ui.menuItem,
                               styles.ref,
-                              state.highlighted && ui.menuHighlighted,
+                              state.highlighted && [ui.menuHighlighted, picked],
                             ).className
                           }
                         >
@@ -301,7 +303,7 @@ const styles = stylex.create({
     height: 32,
     marginBottom: 2,
     paddingInline: 8,
-    borderRadius: 6,
+    borderRadius: `calc(6px * ${tokens.round})`,
     backgroundColor: tokens.fill,
     color: tokens.faint,
   },
@@ -320,9 +322,6 @@ const styles = stylex.create({
     paddingInline: 8,
     paddingTop: 8,
     paddingBottom: 3,
-    color: tokens.faint,
-    fontSize: 11,
-    fontWeight: 500,
   },
   ref: { gap: 12 },
   refName: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
@@ -345,7 +344,7 @@ const styles = stylex.create({
     width: "min(440px, 90vw)",
     boxSizing: "border-box",
     padding: 20,
-    borderRadius: 12,
+    borderRadius: `calc(12px * ${tokens.round})`,
     backgroundColor: tokens.raised,
     color: tokens.text,
     borderWidth: 1,

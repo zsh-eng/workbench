@@ -385,7 +385,7 @@ const styles = stylex.create({
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: tokens.border,
-    borderRadius: 4,
+    borderRadius: `calc(4px * ${tokens.round})`,
     paddingInline: 4,
     fontFamily: tokens.ui,
     fontSize: 12,

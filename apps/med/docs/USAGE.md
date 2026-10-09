@@ -418,7 +418,7 @@ Open the Vite URL with the `#token=…` fragment printed by the API host. Vite p
 
 Open `/elements` (or run **Open elements page** from the command palette) to
 inspect Med's own components on fixed sample data: the palette and derived
-layers, type, shape, icons, controls, review parts such as the history panel,
+layers, the theme's aesthetic, type, shape, icons, controls, review parts such as the history panel,
 commit card, Med notes, and GitHub threads, every code color state, and a sample
 brief. Code states include diff lines and
 changed words, line selection over context, additions, and removals, find

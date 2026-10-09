@@ -210,7 +210,7 @@ export function ShortcutGuide({
                   aria-labelledby={`${id}-${section.key}`}
                   {...stylex.props(styles.group)}
                 >
-                  <div id={`${id}-${section.key}`} {...stylex.props(styles.groupTitle)}>
+                  <div id={`${id}-${section.key}`} {...stylex.props(ui.label, styles.groupTitle)}>
                     {section.title}
                   </div>
                   {section.description && (
@@ -331,7 +331,7 @@ const styles = stylex.create({
     height: 26,
     paddingInline: 10,
     borderWidth: 0,
-    borderRadius: 6,
+    borderRadius: `calc(6px * ${tokens.round})`,
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
     color: { default: tokens.muted, ":hover": tokens.text },
     fontFamily: tokens.ui,
@@ -374,13 +374,7 @@ const styles = stylex.create({
   // they would overflow sideways into hidden extra columns.
   columns: { columnCount: { default: 2, "@media (max-width: 760px)": 1 }, columnGap: 28 },
   group: { breakInside: "avoid", marginBottom: 18 },
-  groupTitle: {
-    paddingInline: 8,
-    marginBottom: 4,
-    color: tokens.muted,
-    fontSize: 11.5,
-    fontWeight: 500,
-  },
+  groupTitle: { paddingInline: 8, marginBottom: 4 },
   groupDescription: {
     marginBlock: 0,
     marginBottom: 6,
@@ -396,7 +390,7 @@ const styles = stylex.create({
     minHeight: 30,
     paddingBlock: 4,
     paddingInline: 8,
-    borderRadius: 6,
+    borderRadius: `calc(6px * ${tokens.round})`,
     cursor: "default",
   },
   runnable: { cursor: "pointer" },
@@ -429,7 +423,7 @@ const styles = stylex.create({
   },
   syntax: {
     paddingInline: 5,
-    borderRadius: 4,
+    borderRadius: `calc(4px * ${tokens.round})`,
     backgroundColor: tokens.fill,
     color: tokens.muted,
     fontFamily: tokens.code,
@@ -446,7 +440,7 @@ const styles = stylex.create({
     justifyContent: "center",
     minWidth: 16,
     height: 16,
-    borderRadius: 4,
+    borderRadius: `calc(4px * ${tokens.round})`,
     backgroundColor: tokens.fill,
     color: tokens.muted,
     fontFamily: tokens.ui,

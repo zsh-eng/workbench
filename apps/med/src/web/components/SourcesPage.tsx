@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Menu } from "@base-ui/react/menu";
 import * as stylex from "@stylexjs/stylex";
-import { tokens, ui } from "../theme.stylex";
+import { picked, tokens, ui } from "../theme.stylex";
 import { openWelcome } from "../data/setup";
 import { visibleElement } from "../data/palette-focus";
 import { Icon } from "./Icon";
@@ -76,7 +76,8 @@ export function SourcesPage({
     rows.length > 0 && (
       <section aria-label={title} {...stylex.props(styles.group)}>
         <h2 {...stylex.props(styles.groupTitle)}>
-          {title} <span {...stylex.props(styles.count)}>{rows.length}</span>
+          <span {...stylex.props(ui.label)}>{title}</span>{" "}
+          <span {...stylex.props(styles.count)}>{rows.length}</span>
         </h2>
         <ul {...stylex.props(styles.rows)}>
           {rows.map((source) => (
@@ -264,7 +265,8 @@ function SourceRow({
                   key={item.label}
                   onClick={item.run}
                   className={(state) =>
-                    stylex.props(ui.menuItem, state.highlighted && ui.menuHighlighted).className
+                    stylex.props(ui.menuItem, state.highlighted && [ui.menuHighlighted, picked])
+                      .className
                   }
                 >
                   {item.label}
@@ -274,8 +276,11 @@ function SourceRow({
               <Menu.Item
                 onClick={() => setConfirming(true)}
                 className={(state) =>
-                  stylex.props(ui.menuItem, styles.danger, state.highlighted && ui.menuHighlighted)
-                    .className
+                  stylex.props(
+                    ui.menuItem,
+                    styles.danger,
+                    state.highlighted && [ui.menuHighlighted, picked],
+                  ).className
                 }
               >
                 Remove from Med…
@@ -347,7 +352,7 @@ const styles = stylex.create({
     listStyle: "none",
     overflow: "hidden",
     backgroundColor: tokens.canvas,
-    borderRadius: 10,
+    borderRadius: `calc(10px * ${tokens.round})`,
     boxShadow: `0 0 0 1px ${tokens.line}, 0 1px 2px #0000000d`,
   },
   row: {
@@ -373,7 +378,7 @@ const styles = stylex.create({
     color: "inherit",
     textDecoration: "none",
     outline: "none",
-    borderRadius: 10,
+    borderRadius: `calc(10px * ${tokens.round})`,
     boxShadow: { default: "none", ":focus-visible": `inset 0 0 0 2px ${tokens.accentLine}` },
   },
   tile: {
@@ -383,7 +388,7 @@ const styles = stylex.create({
     flexShrink: 0,
     width: 30,
     height: 30,
-    borderRadius: 8,
+    borderRadius: `calc(8px * ${tokens.round})`,
     color: tokens.muted,
     backgroundColor: tokens.fill,
     boxShadow: `inset 0 0 0 1px ${tokens.line}`,
@@ -453,7 +458,7 @@ const styles = stylex.create({
   empty: {
     paddingBlock: 32,
     textAlign: "center",
-    borderRadius: 10,
+    borderRadius: `calc(10px * ${tokens.round})`,
     boxShadow: `inset 0 0 0 1px ${tokens.line}`,
   },
   emptyTitle: { margin: 0, fontSize: 14, fontWeight: 500 },

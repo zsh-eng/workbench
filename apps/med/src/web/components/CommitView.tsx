@@ -23,7 +23,7 @@ import {
 } from "../data/commit";
 import { visibleElement } from "../data/palette-focus";
 import { useTheme } from "../themes";
-import { tokens, ui } from "../theme.stylex";
+import { picked, tokens, ui } from "../theme.stylex";
 import { createPatchParser } from "../workers/client";
 import { diffSurfaceStyle } from "./diff-surface";
 import { Icon } from "./Icon";
@@ -685,7 +685,7 @@ export default function CommitView({
                     list.current?.focus({ preventScroll: true });
                   }}
                   onDoubleClick={() => void toggle(file)}
-                  {...stylex.props(styles.row, file === focusedFile && styles.rowFocused)}
+                  {...stylex.props(styles.row, file === focusedFile && [styles.rowFocused, picked])}
                 >
                   <span
                     aria-hidden="true"
@@ -1055,8 +1055,8 @@ const styles = stylex.create({
     userSelect: "none",
   },
   rowFocused: {
-    color: tokens.text,
-    backgroundColor: { default: tokens.fillStrong, ":hover": tokens.fillStrong },
+    color: tokens.selectedText,
+    backgroundColor: { default: tokens.pick, ":hover": tokens.pick },
   },
   mark: {
     width: 14,
@@ -1127,7 +1127,7 @@ const styles = stylex.create({
     width: "min(620px, 92vw)",
     boxSizing: "border-box",
     padding: 16,
-    borderRadius: 12,
+    borderRadius: `calc(12px * ${tokens.round})`,
     backgroundColor: tokens.raised,
     color: tokens.text,
     borderWidth: 1,
@@ -1194,7 +1194,7 @@ const styles = stylex.create({
     flexShrink: 0,
     padding: 0,
     borderWidth: 0,
-    borderRadius: 4,
+    borderRadius: `calc(4px * ${tokens.round})`,
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
     color: tokens.faint,
     fontSize: 12.5,
@@ -1205,7 +1205,7 @@ const styles = stylex.create({
   part: {
     flexShrink: 0,
     paddingInline: 6,
-    borderRadius: 4,
+    borderRadius: `calc(4px * ${tokens.round})`,
     fontSize: 10.5,
     fontWeight: 500,
     lineHeight: "17px",
