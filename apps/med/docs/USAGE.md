@@ -477,6 +477,7 @@ This is a browser app backed by a local server. Native desktop packaging, shared
 - [Twinkleplop integration and timed comparison videos](validation/HIGHLIGHTER_INTEGRATION.md)
 - [Baseline diff performance](validation/RESULTS.md)
 - [Theme and workspace validation](validation/UI_UPDATE.md)
+- [Everyday interaction latency](validation/INTERACTIONS.md)
 - [Feature status and navigation behavior](SNACKS_REVIEW.md)
 
 Hunk's retained semantic source and tests carry their original [MIT notice](../upstream/HUNK-LICENSE). [Source provenance](../upstream/HUNK.md) records the pinned revision and adaptations.
