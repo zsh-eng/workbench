@@ -1721,7 +1721,7 @@ export function App({
     },
     {
       id: "show-notes",
-      label: showNotes ? "Hide review notes" : "Show review notes",
+      label: showNotes ? "Hide comments" : "Show comments",
       run: () => setShowNotes((value) => !value),
     },
     {
@@ -2577,10 +2577,12 @@ export function App({
                     />
                   )}
                 {state.review && (
-                  <ChangeTotals
-                    files={state.review.files}
-                    range={`${shortRevision(state.review.base)} → ${shortRevision(state.review.head)}`}
-                  />
+                  <span {...stylex.props(styles.toolbarTotals)}>
+                    <ChangeTotals
+                      files={state.review.files}
+                      range={`${shortRevision(state.review.base)} → ${shortRevision(state.review.head)}`}
+                    />
+                  </span>
                 )}
                 <span {...stylex.props(ui.grow)} />
                 <SegmentedControl<"split" | "unified">
@@ -2621,7 +2623,7 @@ export function App({
                                 : "Open snapshot file",
                             onClick: () => openWorkingFile(selectedFile.path),
                           },
-                          { label: "Reveal in Files", onClick: showFiles },
+                          { label: "Show files sidebar", onClick: showFiles },
                         ]
                       : [],
                     [
@@ -2637,7 +2639,7 @@ export function App({
                     ],
                     [
                       {
-                        label: "Show review notes",
+                        label: "Show comments",
                         checked: showNotes,
                         onClick: () => setShowNotes(!showNotes),
                       },
@@ -3458,8 +3460,11 @@ const styles = stylex.create({
     marginInlineStart: 6,
     backgroundColor: tokens.panel,
   },
+  // A narrow pane drops the totals first, then truncates the comparison
+  // labels; the view controls on the right always stay.
   toolbar: {
     position: "relative",
+    containerType: "inline-size",
     display: "flex",
     alignItems: "center",
     gap: 4,
@@ -3472,6 +3477,7 @@ const styles = stylex.create({
     borderBottomStyle: "solid",
     borderBottomColor: tokens.line,
   },
+  toolbarTotals: { display: { default: "contents", "@container (max-width: 620px)": "none" } },
   notesButton: { gap: 5, minWidth: 28, paddingInline: 6 },
   notesCount: { fontFamily: tokens.code, fontSize: 10.5, fontVariantNumeric: "tabular-nums" },
   // Only loads that last long enough to notice show progress.

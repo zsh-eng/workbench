@@ -170,7 +170,9 @@ export function SavedReviewHeader({
           }
           onClick={onReturn}
         >
-          Return<span {...stylex.props(styles.desktop)}>to review</span>
+          <span>
+            Return<span {...stylex.props(styles.desktop)}> to review</span>
+          </span>
         </button>
       )}
       {/* During copy, handlers block actions without native disabled dimming both buttons. */}
@@ -331,6 +333,7 @@ const styles = stylex.create({
   // row beside it, and the tab row's rule below.
   header: {
     position: "relative",
+    containerType: "inline-size",
     display: "flex",
     alignItems: "center",
     gap: 6,
@@ -347,7 +350,8 @@ const styles = stylex.create({
   },
   totalLabel: { color: tokens.muted, fontSize: 12, whiteSpace: "nowrap" },
   fixed: { flexShrink: 0 },
-  desktop: { display: { default: "inline", "@media (max-width: 600px)": "none" } },
+  // Labels give way to the title when the review pane is narrow.
+  desktop: { display: { default: "inline", "@container (max-width: 640px)": "none" } },
   reviewTitle: {
     display: "inline-flex",
     alignItems: "center",

@@ -97,10 +97,12 @@ export function ComparisonActions({
           {comparison.kind === "range" && comparison.mergeBase ? (
             <>
               <span {...stylex.props(styles.baseLabel)}>Base</span>
-              {comparison.base.replace(/^refs\/(heads|remotes)\//, "")}
+              <span {...stylex.props(styles.label)}>
+                {comparison.base.replace(/^refs\/(heads|remotes)\//, "")}
+              </span>
             </>
           ) : (
-            "Compare against"
+            <span {...stylex.props(styles.label)}>Compare against</span>
           )}
           <span {...stylex.props(styles.chevron)}>
             <Icon name="chevron" size={14} />
@@ -288,7 +290,8 @@ export function ComparisonActions({
 }
 const styles = stylex.create({
   positioner: { zIndex: 105, outline: "none" },
-  trigger: { gap: 4, paddingInlineEnd: 5 },
+  trigger: { gap: 4, minWidth: 0, paddingInlineEnd: 5 },
+  label: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" },
   baseLabel: { color: tokens.faint, fontWeight: 450 },
   chevron: { display: "inline-flex", color: tokens.faint },
   filter: {

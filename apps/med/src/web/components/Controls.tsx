@@ -55,7 +55,7 @@ export function ChoiceSelect({
     >
       <Select.Trigger {...stylex.props(ui.button, ui.strong, styles.trigger)} aria-label={label}>
         {icon}
-        <Select.Value />
+        <Select.Value {...stylex.props(styles.value)} />
         <Select.Icon {...stylex.props(styles.chevron)}>
           <Icon name="chevron" size={14} />
         </Select.Icon>
@@ -390,7 +390,9 @@ const styles = stylex.create({
   choiceText: { display: "flex", flexDirection: "column", gap: 2, minWidth: 0 },
   choiceLabel: { fontSize: 12.5 },
   choiceDescription: { color: tokens.faint, fontSize: 11, lineHeight: 1.35 },
-  trigger: { gap: 4, paddingInlineEnd: 5 },
+  // In a narrow toolbar the value truncates before the trigger overflows.
+  trigger: { gap: 4, minWidth: 0, paddingInlineEnd: 5 },
+  value: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" },
   chevron: { display: "inline-flex", color: tokens.faint },
   backdrop: { zIndex: 110 },
   dialog: { zIndex: 111 },

@@ -173,14 +173,14 @@ function Menus() {
           sections={[
             [
               { label: "Open working file", onClick: noop },
-              { label: "Reveal in Files", onClick: noop },
+              { label: "Show files sidebar", onClick: noop },
             ],
             [
               { label: "Find in diffs", shortcut: "Mod+F", onClick: noop },
               { label: "Compare revisions…", onClick: noop },
             ],
             [
-              { label: "Show review notes", checked: notes, onClick: () => setNotes(!notes) },
+              { label: "Show comments", checked: notes, onClick: () => setNotes(!notes) },
               { label: "Wrap long lines", checked: wrap, onClick: () => setWrap(!wrap) },
             ],
             [
