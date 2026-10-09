@@ -7,7 +7,7 @@ import { WorkerPoolContextProvider, useWorkerPool } from "@pierre/diffs/react";
 import PierreWorker from "@pierre/diffs/worker/worker.js?worker";
 import type { BrowseRead } from "../../src/shared/browse";
 import type { BrowseBlame } from "../../src/shared/inspect";
-import type { BlameLoader } from "../../src/web/data/blame";
+import type { BlameLoader, CommitLoader } from "../../src/web/data/blame";
 import { FullFileView } from "../../src/web/components/FullFileView";
 import { FileViewTabs } from "../../src/web/components/FileViewTabs";
 import { initializeTheme } from "../../src/web/themes";
@@ -274,7 +274,7 @@ test("native wheel input scrolls a full file and restored previews stay scrollab
   expect(document.documentElement.scrollTop).toBe(0);
 });
 
-test("Git blame preloads, retains the cache across toggles, and hides stale attribution", async () => {
+test("Git blame reads only when shown, keeps its cache across toggles, and hides stale attribution", async () => {
   const load = vi.fn<BlameLoader>(
     async (file: BrowseRead, startLine: number): Promise<BrowseBlame> => ({
       source: file.source,
@@ -294,7 +294,9 @@ test("Git blame preloads, retains the cache across toggles, and hides stale attr
   );
   render(<FullFileView {...props} file={base} loadBlame={load} />);
   await expect.element(page.getByRole("button", { name: "Toggle Git blame" })).toBeVisible();
-  await expect.poll(() => load.mock.calls.length).toBe(1);
+  await expect.poll(() => lines()?.length).toBeGreaterThan(0);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  expect(load).not.toHaveBeenCalled();
   await page.getByRole("button", { name: "Toggle Git blame" }).click();
   await expect.element(page.getByText("Mira")).toBeVisible();
   expect(load.mock.calls[0]?.slice(0, 2)).toEqual([base, 1]);
@@ -349,6 +351,59 @@ test("blame uses Base UI tooltips that update between lines and dismiss on Escap
     .toContain("Change for line 2");
   await userEvent.keyboard("{Escape}");
   await expect.element(page.getByRole("tooltip")).not.toBeInTheDocument();
+});
+
+test("line blame follows the resting Vim cursor and opens its commit card", async () => {
+  const load = vi.fn<BlameLoader>(async (file, start, end) => ({
+    source: file.source,
+    path: file.path,
+    identity: file.identity,
+    truncated: false,
+    lines: Array.from({ length: end - start + 1 }, (_, index) => ({
+      line: start + index,
+      commit: (start + index === 3 ? "b" : "a").repeat(40),
+      author: start + index === 3 ? "Sam" : "Mira",
+      date: "2026-09-20T01:23:45.000Z",
+      summary: `Change line ${start + index}`,
+    })),
+  }));
+  const loadCommit = vi.fn<CommitLoader>(async (_repo, id) => ({
+    id,
+    body: "Explains why the line changed.",
+    coAuthors: [],
+    files: 2,
+    additions: 3,
+    deletions: 1,
+  }));
+  const file = { ...base, text: "const a = 1;\nconst b = 2;\nconst c = 3;\nconst d = 4;\n" };
+  render(
+    <FullFileView {...props} file={file} loadBlame={load} loadCommit={loadCommit} vimEnabled />,
+  );
+  await expect.poll(() => lines()?.length).toBeGreaterThanOrEqual(4);
+  const pane = document.querySelector<HTMLElement>('[aria-label="File navigation"]')!;
+  pane.focus();
+  const label = () =>
+    document
+      .querySelector("diffs-container")
+      ?.shadowRoot?.querySelector<HTMLElement>("[data-med-line-blame-label]");
+  await expect.poll(() => label()?.dataset.who).toMatch(/^Mira, /);
+  expect(label()!.closest("[data-line]")!.getAttribute("data-line")).toBe("1");
+  // The label is generated content; the row's text stays the code.
+  expect(label()!.closest("[data-line]")!.textContent).toBe("const a = 1;");
+  pane.dispatchEvent(new KeyboardEvent("keydown", { key: "j", bubbles: true, cancelable: true }));
+  pane.dispatchEvent(new KeyboardEvent("keydown", { key: "j", bubbles: true, cancelable: true }));
+  await expect.poll(() => label()).toBeFalsy();
+  await expect.poll(() => label()?.dataset.who).toMatch(/^Sam, /);
+  expect(label()!.dataset.summary).toBe(" · Change line 3");
+  expect(label()!.closest("[data-line]")!.getAttribute("data-line")).toBe("3");
+  await userEvent.hover(label()!);
+  await expect.element(page.getByText("Explains why the line changed.")).toBeVisible();
+  expect(loadCommit).toHaveBeenCalledWith("/fixture", "b".repeat(40), expect.any(AbortSignal));
+  await expect.element(page.getByRole("button", { name: "Copy commit hash" })).toBeVisible();
+  // The open gutter names every line's commit, so the line blame steps aside.
+  await page.getByRole("button", { name: "Toggle Git blame" }).click();
+  await expect.poll(() => label()).toBeFalsy();
+  expect(load).toHaveBeenCalledTimes(1);
 });
 
 test("compact blame dates fit beside long authors and omit uncommitted or missing dates", async () => {

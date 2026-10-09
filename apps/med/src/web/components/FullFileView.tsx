@@ -27,7 +27,7 @@ import "./MarkdownPreview.css";
 import { preloadable } from "./preloadable";
 import { createEditorDrafts, type EditorDrafts } from "../data/editor-drafts";
 import { isBrowseFile, type FileRead as BrowseRead, type FileWrite } from "../../shared/local-file";
-import type { BlameLoader } from "../data/blame";
+import type { BlameLoader, CommitLoader } from "../data/blame";
 import { tokens, ui } from "../theme.stylex";
 import { useTheme } from "../themes";
 import { codeColors, highlightRules } from "../code-colors";
@@ -43,6 +43,8 @@ import { BlameTooltips } from "./BlameTooltips";
 import type { FileChanges } from "../../shared/file-changes";
 import { createChangeGutter } from "../data/change-gutter";
 import { createBlameGutter } from "../data/blame-gutter";
+import { createLineBlame } from "../data/line-blame";
+import { LineBlame, lineBlameCSS } from "./LineBlame";
 
 export interface FileSymbolPreview {
   readonly origin?: { line: number; column: number };
@@ -76,6 +78,9 @@ export interface FullFileViewProps {
   loadChanges?(file: BrowseRead, signal: AbortSignal): Promise<FileChanges>;
   blameEnabled?: boolean;
   onBlameEnabledChange?(enabled: boolean): void;
+  /** Shows the cursor line's author and age after its text. Default: true. */
+  lineBlame?: boolean;
+  loadCommit?: CommitLoader;
   onRefresh(): void;
   refreshAvailable?: boolean;
   onClose?(): void;
@@ -126,6 +131,8 @@ function ReadOnlyFileView({
   loadChanges,
   blameEnabled,
   onBlameEnabledChange,
+  lineBlame = true,
+  loadCommit,
   onRefresh,
   refreshAvailable = true,
   onClose,
@@ -136,9 +143,11 @@ function ReadOnlyFileView({
   const displayPath = path ?? file?.path;
   const { active } = useTheme();
   const sourceCursorAt = useRef(0);
+  const cursorLine = useRef((_line: number) => {});
   const followCursor = useCallback(
     (line: number) => {
       sourceCursorAt.current = performance.now();
+      cursorLine.current(line);
       onSourcePosition?.(line, "cursor");
     },
     [onSourcePosition],
@@ -261,6 +270,42 @@ function ReadOnlyFileView({
     setLocalBlameEnabled(open);
     onBlameEnabledChange?.(open);
   };
+  // The open gutter already names each line's commit, and a selection hides it.
+  const lineBlameShown =
+    lineBlame && vimEnabled && !compact && canBlame && !blameOpen && !vim.visualMode;
+  const cursorBlame = useMemo(
+    () =>
+      createLineBlame(
+        file && isBrowseFile(file) ? file : null,
+        !compact && canBlame ? loadBlame : undefined,
+      ),
+    [file, loadBlame, compact, canBlame],
+  );
+  useLayoutEffect(() => () => cursorBlame.dispose(), [cursorBlame]);
+  useLayoutEffect(() => {
+    cursorLine.current = (line) => cursorBlame.setLine(lineBlameShown ? line : null);
+    cursorBlame.setLine(lineBlameShown ? vim.position.capture().line + 1 : null);
+  }, [cursorBlame, lineBlameShown, vim.position]);
+  const blamedLine = useSyncExternalStore(cursorBlame.subscribe, cursorBlame.getSnapshot);
+  const [lineBlameAnchor] = useState(() => {
+    const anchor = document.createElement("span");
+    anchor.dataset.medLineBlame = "";
+    return anchor;
+  });
+  // Pierre rebuilds rows as they scroll, so each render places the label again.
+  const blameHost = useRef<HTMLElement | null>(null);
+  const placeLineBlame = useRef(() => {});
+  useLayoutEffect(() => {
+    placeLineBlame.current = () => {
+      const row =
+        lineBlameShown && blamedLine
+          ? blameHost.current?.shadowRoot?.querySelector(`[data-line="${blamedLine.line}"]`)
+          : null;
+      if (!row) lineBlameAnchor.remove();
+      else if (row.lastChild !== lineBlameAnchor) row.append(lineBlameAnchor);
+    };
+    placeLineBlame.current();
+  }, [lineBlameShown, blamedLine, lineBlameAnchor]);
   const changes = useMemo(createChangeGutter, []);
   const [changeLabel, setChangeLabel] = useState("");
   useEffect(() => {
@@ -339,6 +384,7 @@ function ReadOnlyFileView({
         ${highlightRules(active, { match: highlightId, current: activeSearchName, visual: visualName })}
         [data-vim-visual-line] { background: ${codeColors(active).selection} !important; }
         [data-vim-visual-empty] { position: relative; }
+        ${lineBlameCSS("[data-line]", active.palette.faint)}
         ${
           blameOpen && canBlame
             ? `[data-column-number] { padding-left: 196px; }
@@ -350,6 +396,8 @@ function ReadOnlyFileView({
         }
         [data-vim-visual-empty]::before { content: ""; position: absolute; width: 1ch; height: 100%; background: ${codeColors(active).selection}; pointer-events: none; }`,
       onPostRender(node, _instance, phase) {
+        blameHost.current = phase === "unmount" ? null : node;
+        placeLineBlame.current();
         gutter.update(node, phase);
         changes.update(node, phase);
         vimRender.current(node, phase);
@@ -650,6 +698,12 @@ function ReadOnlyFileView({
         </div>
       )}
       <BlameTooltips cells={blameCells} />
+      <LineBlame
+        blame={lineBlameShown ? blamedLine : null}
+        anchor={lineBlameAnchor}
+        file={file && isBrowseFile(file) ? file : null}
+        loadCommit={loadCommit}
+      />
     </section>
   );
 }

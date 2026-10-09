@@ -304,6 +304,20 @@ without replacing editor content, so own saves and unrelated edits do not make i
 active editor. Contents jumps add a single cancellable 650 ms line fade after
 the destination is mounted; reduced motion omits the animation.
 
+### Git blame
+
+The host reads blame in 1,000-line chunks and keeps 32 chunks. Requests for the
+same chunk share one `git blame` process; a caller that stops waiting does not
+stop it. Most of each read is fixed process cost, so later 200-line pages take
+milliseconds. The browser keeps 200-line pages for 16 file versions, keyed by
+loader. The gutter and the line blame share these pages. The gutter reads only
+while it is shown, one page at a time; a shared read stops when no view waits.
+
+The line blame reads after the cursor rests for 250 ms. Its label is a span
+with generated content at the end of the row, so code rows keep only code text
+for the Vim caret, clicks, search ranges, and copying. Pierre rebuilds rows, so
+each render places the label again; CodeMirror uses a widget decoration.
+
 ## Persistent service and vaults
 
 `ServiceManager` owns `SourceCatalogue`, registered repositories, native vault

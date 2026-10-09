@@ -240,7 +240,8 @@ in Find file**.
 2. Select a changed path to move to it in the diff stream. Double-click the path to open its current file in the selected worktree.
 3. Use the branch switcher (`⌘⇧G`) to open another branch here, or `⌘↵` to open it as a new [workspace](#workspaces). A branch with a worktree opens that directory; a branch without one opens committed content.
 4. Use the file picker or right Files sidebar to open unchanged files. A preview does not replace your current review until you open it.
-5. Toggle blame in a full file to show author and commit details beside the line numbers. Visible lines preload in the background after a file opens. Toggling blame reuses this cache. Hover a label for 250 ms to see the date and commit message; move to nearby labels for immediate updates. Open the command palette to change theme or find other actions.
+5. Toggle blame (`⌥B`) in a full file to show author and commit details beside the line numbers. Blame opens for the current file only; another file opens without it. Med keeps the line history it read, so toggling blame or returning to a file does not read it again. Hover a label for 250 ms to see the date and commit message; move to nearby labels for immediate updates.
+6. When the cursor stops on a line, the author, age, and commit subject show after the line's text. Hover them to see the commit card; click the short hash to copy the full hash. Read-only files have a cursor only with Vim navigation on. The gutter and a Visual selection hide this line blame. Use **Hide line blame at the cursor** in the command palette to turn it off. Open the command palette to change theme or find other actions.
 
 Drag the gutter **+** across lines to start a note for the whole range. You can also drag over line numbers, or click the first number and Shift-click the last number on the same diff side, then click **Add note**. The saved comment keeps the full range.
 
@@ -337,8 +338,9 @@ one exception on macOS: Control+B, Control+F, and Control+O in the editor reach
 Vim (page up, page down, jump back) because Command runs Med's shortcuts. On
 Linux these Control keys still run Med's sidebar, find, and symbol shortcuts.
 
-Git blame keeps its gutter width while editing. Attribution is hidden while the
-draft is unsaved or the disk contents have changed, and updates after saving.
+Git blame keeps its gutter width while editing. Attribution and the line blame
+at the cursor are hidden while the draft is unsaved or the disk contents have
+changed, and update after saving.
 
 Escape returns to Normal mode. `:w`, ⌘S / Ctrl+S, or **Save** writes the file.
 `:wq` saves and closes the file only if the save succeeds.

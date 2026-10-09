@@ -68,7 +68,12 @@ import { ZenExit, ZenHint } from "./components/ZenExit";
 import { platform } from "./data/keys";
 import type { GuideContextId } from "./data/shortcut-guide";
 import { ComparisonActions } from "./components/ComparisonActions";
-import { createBlameLoader, type BlameLoader } from "./data/blame";
+import {
+  createBlameLoader,
+  createCommitLoader,
+  type BlameLoader,
+  type CommitLoader,
+} from "./data/blame";
 
 import { createEditorDrafts } from "./data/editor-drafts";
 import { createFilePrefetch } from "./data/file-prefetch";
@@ -131,11 +136,13 @@ export function App({
   controller,
   browseApi: providedBrowseApi,
   loadBlame: providedBlameLoader,
+  loadCommit: providedCommitLoader,
   onOpenReview: providedOpenReview,
 }: {
   controller: ReviewController;
   browseApi?: BrowseApi;
   loadBlame?: BlameLoader;
+  loadCommit?: CommitLoader;
   /** Show a newly saved review. */
   onOpenReview?(id: string): void;
 }) {
@@ -199,6 +206,16 @@ export function App({
       /* Storage can be unavailable. */
     }
   }, [vimEnabled]);
+  const [lineBlame, setLineBlame] = useState(
+    () => readPreference("line-blame", "on", ["on", "off"]) === "on",
+  );
+  useEffect(() => {
+    try {
+      localStorage.setItem("med:line-blame", lineBlame ? "on" : "off");
+    } catch {
+      /* Storage can be unavailable. */
+    }
+  }, [lineBlame]);
   const [historyCollapsed, setHistoryCollapsed] = useState(
     () => readPreference("history", "open", ["open", "closed"]) === "closed",
   );
@@ -217,7 +234,8 @@ export function App({
     },
     [],
   );
-  const [blameEnabled, setBlameEnabled] = useState(false);
+  // The blame gutter opens for one file tab; another tab starts without it.
+  const [blameTab, setBlameTab] = useState<string | null>(null);
   const [branchPickerOpen, setBranchPickerOpen] = useState(false);
   const [branchPickerNew, setBranchPickerNew] = useState(false);
   const workerPool = useWorkerPool();
@@ -252,6 +270,11 @@ export function App({
     () =>
       providedBlameLoader ??
       createBlameLoader(globalThis.fetch.bind(globalThis), readBrowserToken()),
+  );
+  const [loadCommit] = useState(
+    () =>
+      providedCommitLoader ??
+      createCommitLoader(globalThis.fetch.bind(globalThis), readBrowserToken()),
   );
   const fileState = useFileWorkspace(fileWorkspace);
   const branchHead = state.branches.find((branch) => branch.name === state.activeBranch)?.head;
@@ -328,6 +351,12 @@ export function App({
     [browseSource, prefetch, workerPool],
   );
   const activeFile = fileState.tabs.find((tab) => tab.id === fileState.active);
+  if (blameTab !== null && blameTab !== activeFile?.id) setBlameTab(null);
+  const blameEnabled = !!activeFile && blameTab === activeFile.id;
+  const toggleBlame = useCallback(
+    () => setBlameTab(blameEnabled || !activeFile ? null : activeFile.id),
+    [blameEnabled, activeFile],
+  );
   useDocumentTitle(
     state.savedReview?.title ??
       (activeFile
@@ -1274,8 +1303,7 @@ export function App({
             else if (activeFile) fileWorkspace.close(activeFile.id);
           } else if (key === "KeyO" && event.shiftKey) fileWorkspace.closeOthers();
           else if (key === "KeyP" && activeFile) fileWorkspace.pin(activeFile.id);
-          else if (key === "KeyB" && activeFile && fileState.file?.kind === "text")
-            setBlameEnabled((value) => !value);
+          else if (key === "KeyB" && activeFile && fileState.file?.kind === "text") toggleBlame();
           else if (key === "KeyR" && browseSource) resumeFilePicker();
           else if (key === "KeyZ" && !event.shiftKey) toggleZen();
           return;
@@ -1433,6 +1461,7 @@ export function App({
     fileState.file?.kind,
     fileWorkspace,
     gitAvailable,
+    toggleBlame,
   ]);
 
   const selectBranch = useCallback(
@@ -1839,7 +1868,12 @@ export function App({
       label: blameEnabled ? "Hide Git blame" : "Show Git blame in the gutter",
       shortcut: "⌥ B",
       disabled: !activeFile || fileState.file?.kind !== "text",
-      run: () => setBlameEnabled((value) => !value),
+      run: toggleBlame,
+    },
+    {
+      id: "line-blame",
+      label: lineBlame ? "Hide line blame at the cursor" : "Show line blame at the cursor",
+      run: () => setLineBlame((value) => !value),
     },
     {
       id: "content-search",
@@ -3104,7 +3138,9 @@ export function App({
                 loadBlame={loadBlame}
                 loadChanges={browseApi.changes ? loadFileChanges : undefined}
                 blameEnabled={blameEnabled}
-                onBlameEnabledChange={setBlameEnabled}
+                onBlameEnabledChange={(open) => setBlameTab(open ? activeFile.id : null)}
+                lineBlame={lineBlame}
+                loadCommit={loadCommit}
                 sourceLabel={activeFile.sourceLabel}
                 line={activeFile.line}
                 column={activeFile.column}

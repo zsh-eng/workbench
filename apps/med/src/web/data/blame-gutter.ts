@@ -1,14 +1,14 @@
 import type { BrowseRead } from "../../shared/browse";
 import type { BrowseBlame } from "../../shared/inspect";
-import type { BlameLoader } from "./blame";
+import { blamePage, cachedBlame, loadBlamePage, type BlameLoader } from "./blame";
 
 export interface BlameCell {
   container: HTMLElement;
   entry: BrowseBlame["lines"][number];
 }
 
-/** Attribution follows Pierre's mounted number cells. At most one Git read runs
- * at a time, in 200-line pages; cache at most eight pages for this file version. */
+/** Attribution follows Pierre's mounted number cells. It reads only while shown,
+ * one 200-line page at a time, into the cache that the line blame shares. */
 export function createBlameGutter(
   file: BrowseRead | null,
   load: BlameLoader | undefined,
@@ -39,8 +39,14 @@ export function createBlameGutter(
   let host: HTMLElement | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let request: AbortController | undefined;
-  const cache = new Map<number, BrowseBlame>();
   const failed = new Set<number>();
+  let reported: string | undefined;
+  // The view rerenders for a notice, so only a changed message reaches it.
+  const notice = (message: string) => {
+    if (message === reported) return;
+    reported = message;
+    report(message);
+  };
   const lineCount = Math.min(200_000, file?.text?.replace(/\n$/, "").split("\n").length ?? 0);
   const cells = () => [
     ...((host?.shadowRoot ?? host)?.querySelectorAll<HTMLElement>("[data-column-number]") ?? []),
@@ -58,8 +64,10 @@ export function createBlameGutter(
     const next: BlameCell[] = [];
     for (const cell of cells()) {
       const line = Number(cell.dataset.columnNumber);
-      const page = Math.floor((line - 1) / 200);
-      const entry = cache.get(page)?.lines.find((value) => value.line === line);
+      const entry =
+        file && load
+          ? cachedBlame(load, file, blamePage(line))?.lines.find((value) => value.line === line)
+          : undefined;
       let label = cell.querySelector<HTMLElement>("[data-med-blame]");
       if (!entry) {
         label?.remove();
@@ -75,44 +83,36 @@ export function createBlameGutter(
     publish(next);
   };
 
-  const schedule = () => {
+  // Scrolling waits briefly for the rows to settle; the next page follows at once.
+  const schedule = (delay = 80) => {
     clearTimeout(timer);
     timer = setTimeout(() => {
       void fill();
-    }, 80);
+    }, delay);
   };
   const fill = async () => {
-    if (!enabled || !file || !load || request || !host) return;
-    const pages = [
-      ...new Set(cells().map((cell) => Math.floor((Number(cell.dataset.columnNumber) - 1) / 200))),
-    ]
+    if (!enabled || !visible || !file || !load || request || !host) return;
+    const pages = [...new Set(cells().map((cell) => blamePage(Number(cell.dataset.columnNumber))))]
       .filter((page) => page >= 0 && page * 200 < lineCount)
       .slice(0, 8);
-    const page = pages.find((value) => !cache.has(value) && !failed.has(value));
+    const page = pages.find((value) => !cachedBlame(load, file, value) && !failed.has(value));
     if (page === undefined) return;
     const current = new AbortController();
     request = current;
     try {
-      const result = await load(
-        file,
-        page * 200 + 1,
-        Math.min(lineCount, (page + 1) * 200),
-        current.signal,
-      );
+      const result = await loadBlamePage(load, file, page, lineCount, current.signal);
       if (current.signal.aborted) return;
-      cache.set(page, result);
-      while (cache.size > 8) cache.delete(cache.keys().next().value!);
-      report(result.reason ?? "");
+      notice(result.reason ?? "");
       paint();
     } catch (error) {
       if (!current.signal.aborted) {
         failed.add(page);
-        report(error instanceof Error ? error.message : "Cannot read line history.");
+        notice(error instanceof Error ? error.message : "Cannot read line history.");
       }
     } finally {
       if (request === current) {
         request = undefined;
-        if (!current.signal.aborted) schedule();
+        if (!current.signal.aborted) schedule(0);
       }
     }
   };
@@ -127,6 +127,12 @@ export function createBlameGutter(
     setVisible(next: boolean) {
       visible = next && enabled;
       paint();
+      if (visible) schedule(0);
+      else {
+        clearTimeout(timer);
+        request?.abort();
+        request = undefined;
+      }
     },
     update(node: HTMLElement, phase: string) {
       if (phase === "unmount") {
@@ -152,7 +158,6 @@ export function createBlameGutter(
       request = undefined;
       clear();
       host = null;
-      cache.clear();
       failed.clear();
       publish([]);
     },

@@ -16,6 +16,7 @@ import { initializeTheme, themeController } from "../../src/web/themes";
 import { layoutHistory } from "../../src/web/components/history-layout";
 import { createBrowseApi } from "../../src/web/data/browse";
 import type { BrowseSource } from "../../src/shared/browse";
+import type { BlameLoader } from "../../src/web/data/blame";
 
 const firstCommit = "a".repeat(40);
 const secondCommit = "b".repeat(40);
@@ -99,6 +100,7 @@ async function mountApp(
     review?: { paths: string[]; patch: string };
     /** GitHub comments; the first saved target compares the pull request head. */
     pullRequest?: PullRequestComments;
+    loadBlame?: BlameLoader;
   } = {},
 ) {
   initializeTheme();
@@ -352,6 +354,7 @@ async function mountApp(
     <App
       controller={controller}
       browseApi={{ ...browse, write: options.readOnly ? undefined : browse.write }}
+      loadBlame={options.loadBlame}
     />,
   );
   await expect
@@ -451,6 +454,64 @@ describe("graphical review", () => {
     const editor = page.getByRole("textbox", { name: "Edit src/alpha.ts", exact: true });
     await expect.element(editor).toBeVisible();
     await expect.poll(() => document.activeElement).toBe(editor.element());
+  });
+  test("Git blame opens for the current file tab only and closes when another tab shows", async () => {
+    await mountApp({
+      loadBlame: async (file, start) => ({
+        source: file.source,
+        path: file.path,
+        identity: file.identity,
+        truncated: false,
+        lines: [{ line: start, commit: "a".repeat(40), author: "Mira", date: "", summary: "Add" }],
+      }),
+    });
+    for (const name of ["src/alpha.ts", "src/beta.ts"])
+      await page.getByRole("link", { name, exact: true }).click({ modifiers: ["Meta"] });
+    const blame = page.getByRole("button", { name: "Toggle Git blame" });
+    await page.getByRole("tab", { name: "alpha.ts", exact: true }).click();
+    await blame.click();
+    await expect.element(blame).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("tab", { name: "beta.ts", exact: true }).click();
+    await expect
+      .element(page.getByRole("textbox", { name: "Edit src/beta.ts", exact: true }))
+      .toBeVisible();
+    await expect.element(blame).toHaveAttribute("aria-pressed", "false");
+    await page.getByRole("tab", { name: "alpha.ts", exact: true }).click();
+    await expect
+      .element(page.getByRole("textbox", { name: "Edit src/alpha.ts", exact: true }))
+      .toBeVisible();
+    await expect.element(blame).toHaveAttribute("aria-pressed", "false");
+  });
+  test("the editor shows the resting cursor line's blame until the draft changes", async () => {
+    await mountApp({
+      loadBlame: async (file, start, end) => ({
+        source: file.source,
+        path: file.path,
+        identity: file.identity,
+        truncated: false,
+        lines: Array.from({ length: end - start + 1 }, (_, index) => ({
+          line: start + index,
+          commit: "a".repeat(40),
+          author: index ? "Sam" : "Mira",
+          date: "2026-09-20T01:23:45.000Z",
+          summary: `Change line ${start + index}`,
+        })),
+      }),
+    });
+    await page.getByRole("link", { name: "src/alpha.ts", exact: true }).click();
+    const editor = page.getByRole("textbox", { name: "Edit src/alpha.ts", exact: true });
+    await expect.element(editor).toBeVisible();
+    await expect.poll(() => document.activeElement).toBe(editor.element());
+    const label = () => document.querySelector<HTMLElement>(".cm-line [data-med-line-blame-label]");
+    await expect.poll(() => label()?.dataset.who).toMatch(/^Mira, /);
+    expect(label()!.closest(".cm-line")!.textContent).toBe(
+      'export const workspace = "/test/repo";',
+    );
+    await userEvent.keyboard("j");
+    await expect.poll(() => label()?.dataset.who).toMatch(/^Sam, /);
+    expect(label()!.dataset.summary).toBe(" · Change line 2");
+    await userEvent.keyboard("ix");
+    await expect.poll(() => label()).toBeNull();
   });
   test("a click on the selected changes-tree file shows it in Changes again", async () => {
     await mountApp();

@@ -163,6 +163,32 @@ function parseBlame(text: string): BrowseBlame["lines"] {
   return lines;
 }
 
+// Git spends blame time walking history, which costs about the same for 200
+// lines as for 1,000. Blame runs once for each 1,000-line chunk of a file
+// version, and later pages of that chunk come from memory. The key names the
+// exact content and commit, so a cached chunk never outlives its file version.
+const CHUNK = 1000;
+const MAX_CHUNKS = 32;
+const chunks = new Map<string, BrowseBlame["lines"]>();
+const pendingChunks = new Map<string, Promise<BrowseBlame["lines"]>>();
+
+function remember(key: string, lines: BrowseBlame["lines"]) {
+  chunks.delete(key);
+  chunks.set(key, lines);
+  while (chunks.size > MAX_CHUNKS) chunks.delete(chunks.keys().next().value!);
+}
+
+/** Waits for shared work, but lets one caller stop waiting without stopping it. */
+function settle<T>(work: Promise<T>, signal?: AbortSignal) {
+  if (!signal) return work;
+  signal.throwIfAborted();
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    work.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+  });
+}
+
 /** Blame is tied to the exact visible content, never a later version of the working file. */
 export async function blameBrowse(
   input: BrowseBlameRequest,
@@ -176,25 +202,6 @@ export async function blameBrowse(
   if (file.identity !== identity) throw changed();
   if (file.kind !== "text" || file.text === undefined)
     return { ...result, reason: "Blame is only available for text files." };
-  if (source.kind === "worktree") {
-    // Even --contents - runs Git clean conversion. Never execute a repository filter.
-    const attrs = (
-      await git(source.repo, ["check-attr", "-z", "filter", "working-tree-encoding", "--", path], {
-        signal,
-        maxBytes: 32 * 1024,
-      })
-    )
-      .toString("utf8")
-      .split("\0");
-    for (let i = 2; i < attrs.length; i += 3) {
-      if (attrs[i] !== "unspecified" && attrs[i] !== "unset")
-        return {
-          ...result,
-          reason:
-            "Blame is unavailable for files that require a Git content filter or encoding conversion.",
-        };
-    }
-  }
   const count =
     file.text.length === 0 ? 0 : file.text.split("\n").length - (file.text.endsWith("\n") ? 1 : 0);
   if (startLine > count) return { ...result, reason: "There is no file content at this line." };
@@ -212,13 +219,72 @@ export async function blameBrowse(
           .toString("utf8")
           .trim();
   if (!head) return { ...result, reason: "This worktree has no committed history." };
-  const exists = await git(
-    source.repo,
-    ["--literal-pathspecs", "ls-tree", "-z", head, "--", path],
-    { signal, maxBytes: 8192 },
-  );
-  if (exists.length === 0)
-    return { ...result, reason: "This file has no history at the selected commit." };
+  const prefix = [source.repo, head, path, identity].join("\0");
+  const first = Math.floor((startLine - 1) / CHUNK);
+  const last = Math.floor((end - 1) / CHUNK);
+  if (!chunks.has(`${prefix}\0${first}`) || !chunks.has(`${prefix}\0${last}`)) {
+    if (source.kind === "worktree") {
+      // Even --contents - runs Git clean conversion. Never execute a repository filter.
+      const attrs = (
+        await git(
+          source.repo,
+          ["check-attr", "-z", "filter", "working-tree-encoding", "--", path],
+          { signal, maxBytes: 32 * 1024 },
+        )
+      )
+        .toString("utf8")
+        .split("\0");
+      for (let i = 2; i < attrs.length; i += 3) {
+        if (attrs[i] !== "unspecified" && attrs[i] !== "unset")
+          return {
+            ...result,
+            reason:
+              "Blame is unavailable for files that require a Git content filter or encoding conversion.",
+          };
+      }
+    }
+    const exists = await git(
+      source.repo,
+      ["--literal-pathspecs", "ls-tree", "-z", head, "--", path],
+      { signal, maxBytes: 8192 },
+    );
+    if (exists.length === 0)
+      return { ...result, reason: "This file has no history at the selected commit." };
+  }
+  for (let chunk = first; chunk <= last; chunk++) {
+    const key = `${prefix}\0${chunk}`;
+    let lines = chunks.get(key);
+    if (lines) remember(key, lines);
+    else {
+      let work = pendingChunks.get(key);
+      if (!work) {
+        const from = chunk * CHUNK + 1;
+        const to = Math.min(count, from + CHUNK - 1);
+        // The read finishes even if this request ends, so the next page finds it.
+        work = blameChunk(source, path, identity, head, file.text, from, to)
+          .then((value) => {
+            remember(key, value);
+            return value;
+          })
+          .finally(() => pendingChunks.delete(key));
+        pendingChunks.set(key, work);
+      }
+      lines = await settle(work, signal);
+    }
+    result.lines.push(...lines.filter((entry) => entry.line >= startLine && entry.line <= end));
+  }
+  return result;
+}
+
+async function blameChunk(
+  source: BrowseSource,
+  path: string,
+  identity: string,
+  head: string,
+  text: string,
+  from: number,
+  to: number,
+) {
   const output = await git(
     source.repo,
     [
@@ -229,26 +295,28 @@ export async function blameBrowse(
       "--no-textconv",
       "--encoding=UTF-8",
       "-L",
-      `${startLine},${end}`,
+      `${from},${to}`,
       ...(source.kind === "commit" ? [source.oid] : ["--contents", "-"]),
       "--",
       path,
     ],
     {
-      signal,
-      input: source.kind === "worktree" ? file.text : undefined,
-      maxBytes: 10 * 1024 * 1024,
-      timeoutMs: 15_000,
+      input: source.kind === "worktree" ? text : undefined,
+      maxBytes: 16 * 1024 * 1024,
+      timeoutMs: 20_000,
     },
   );
   if (source.kind === "worktree") {
     const [current, currentHead] = await Promise.all([
-      readBrowse(source, path, signal),
-      git(source.repo, ["rev-parse", "--verify", "HEAD"], { signal, maxBytes: 4096 }),
+      readBrowse(source, path),
+      git(source.repo, ["rev-parse", "--verify", "HEAD"], { maxBytes: 4096 }),
     ]);
     if (current.identity !== identity || currentHead.toString("utf8").trim() !== head)
-      throw changed();
+      throw new HostError(
+        "file-changed",
+        "This file changed. Refresh it before reading blame.",
+        409,
+      );
   }
-  result.lines = parseBlame(output.toString("utf8"));
-  return result;
+  return parseBlame(output.toString("utf8"));
 }
