@@ -14,7 +14,9 @@ med list
 ```
 
 `add` detects a vault from its `.obsidian` directory. Use `--type vault` for a
-plain Markdown folder or a benchmark copy. Registration returns a stable ID:
+plain Markdown folder. Register a benchmark copy only with a separate
+`--state-dir`: the default service keeps a registration after its temporary
+folder is gone, and lists it as a broken vault. Registration returns a stable ID:
 repositories use their canonical Git common directory; vaults use their canonical
 folder. Separate clones remain separate sources.
 
