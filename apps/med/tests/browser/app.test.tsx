@@ -929,10 +929,16 @@ describe("graphical review", () => {
     await expect
       .element(page.getByRole("button", { name: "Working changes", exact: true }))
       .not.toBeInTheDocument();
+    // A new branch name rolls in; moving the switch with the sidebar does not replay it.
+    const name = () =>
+      page.getByRole("button", { name: "Open branch" }).getByText("release", { exact: true });
+    expect(name().element().getAnimations().length).toBeGreaterThan(0);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "b", metaKey: true, bubbles: true }));
     await expect.poll(() => document.getElementById("review-sidebar")).toBeNull();
+    expect(name().element().getAnimations()).toEqual([]);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "b", metaKey: true, bubbles: true }));
     await expect.poll(() => document.getElementById("review-sidebar")).not.toBeNull();
+    expect(name().element().getAnimations()).toEqual([]);
   });
 
   test("mounts real Pierre stream, changes theme and reviews commits without dropping other files", async () => {
