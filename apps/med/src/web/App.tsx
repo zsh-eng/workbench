@@ -2332,6 +2332,7 @@ export function App({
                 loading={state.historyLoading}
                 hasMore={state.historyHasMore}
                 error={state.historyError}
+                loadDetails={controller.loadCommitDetails}
                 onSelect={(commit) => {
                   fileWorkspace.select("changes");
                   void controller.selectComparison({ kind: "commit", commit });

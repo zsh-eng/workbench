@@ -211,7 +211,7 @@ in Find file**.
 
 ## First review
 
-1. Select a commit in the left history panel, or select working changes. Commit diffs compare with the first parent; merge commits are labeled accordingly. Click **History** to collapse the panel to one line that names the selection; med remembers this choice.
+1. Select a commit in the left history panel, or select working changes. Commit diffs compare with the first parent; merge commits are labeled accordingly. Click **History** to collapse the panel to one line that names the selection; med remembers this choice. Hover a commit for its card: author and co-authors, the message body, branches and tags, and the number of changed files and lines.
 2. Select a changed path to move to it in the diff stream. Double-click the path to open its current file in the selected worktree.
 3. Use the branch switcher (`⌘⇧G`) to open another branch here, or `⌘↵` to open it as a new [workspace](#workspaces). A branch with a worktree opens that directory; a branch without one opens committed content.
 4. Use the file picker or right Files sidebar to open unchanged files. A preview does not replace your current review until you open it.

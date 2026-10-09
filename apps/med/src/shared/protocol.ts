@@ -84,6 +84,16 @@ export interface Commit {
   timestamp: number;
   refs: string[];
 }
+/** Commit message body and size, loaded when a commit card opens. */
+export interface CommitDetails {
+  id: string;
+  /** The message after the subject, without co-author trailers. */
+  body: string;
+  coAuthors: string[];
+  files: number;
+  additions: number;
+  deletions: number;
+}
 export interface HistoryPage {
   commits: Commit[];
   cursor: string | null;

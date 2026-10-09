@@ -2,6 +2,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { createRoot, type Root } from "react-dom/client";
 import { HistoryPanel } from "../../src/web/components/HistoryPanel";
+import type { CommitDetails } from "../../src/shared/protocol";
 import { initializeTheme } from "../../src/web/themes";
 
 let root: Root | undefined;
@@ -13,7 +14,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 let now: number;
-function render(ages?: number[]) {
+function render(ages?: number[], loadDetails?: (id: string) => Promise<CommitDetails>) {
   now = Date.now();
   initializeTheme();
   mount = document.createElement("div");
@@ -58,13 +59,21 @@ function render(ages?: number[]) {
       onSelect={() => {}}
       onLoadMore={() => {}}
       onWorking={() => {}}
+      loadDetails={loadDetails}
     />,
   );
 }
 
-test("shows compact elapsed author times and exact dates in a shared tooltip", async () => {
+test("shows compact elapsed author times and a commit card in a shared tooltip", async () => {
   await page.viewport(1280, 800);
-  render();
+  render(undefined, async (id) => ({
+    id,
+    body: "Explains the change.",
+    coAuthors: ["Sam"],
+    files: 2,
+    additions: 5,
+    deletions: 1,
+  }));
   const first = page.getByRole("option").nth(0);
   const second = page.getByRole("option").nth(1);
   await expect
@@ -91,12 +100,14 @@ test("shows compact elapsed author times and exact dates in a shared tooltip", a
     await first.hover();
     await expect
       .poll(() => document.querySelector('[role="tooltip"]')?.textContent)
-      .toContain("Author date:");
+      .toContain("Explains the change.");
     expect(openedAt - started).toBeGreaterThanOrEqual(400);
     expect(document.querySelector('[role="tooltip"] time')?.getAttribute("datetime")).toBe(
       new Date(now - 60_000).toISOString(),
     );
-    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain("a".repeat(40));
+    const card = document.querySelector('[role="tooltip"]')?.textContent;
+    for (const text of ["Alex with Sam", "aaaaaaa", "main", "2 files", "+5", "−1"])
+      expect(card).toContain(text);
     const scannedAt = performance.now();
     await second.hover();
     await expect

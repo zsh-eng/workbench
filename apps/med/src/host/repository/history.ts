@@ -1,6 +1,13 @@
 import { createHash } from "node:crypto";
 import { basename } from "node:path";
-import type { Branch, Commit, HistoryPage, Repository, Worktree } from "../../shared/protocol";
+import type {
+  Branch,
+  Commit,
+  CommitDetails,
+  HistoryPage,
+  Repository,
+  Worktree,
+} from "../../shared/protocol";
 import { git } from "../runtime/process";
 import { HostError } from "../runtime/errors";
 
@@ -220,5 +227,53 @@ export async function loadHistory(
     cursor: hasMore
       ? Buffer.from(JSON.stringify({ ...state, skip: state.skip + limit })).toString("base64url")
       : null,
+  };
+}
+
+const COAUTHOR = /^co-authored-by:\s*(.+?)\s*(?:<[^>]*>)?\s*$/i;
+const SHORTSTAT = /(\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:, (\d+) deletions?\(-\))?/;
+
+/** The body and line counts of one commit. A merge counts against its first parent. */
+export async function loadCommitDetails(
+  repo: string,
+  id: string,
+  signal?: AbortSignal,
+): Promise<CommitDetails> {
+  if (!OID.test(id)) throw new HostError("invalid-revision", "Use a full commit ID.");
+  const output = (
+    await git(
+      repo,
+      [
+        "show",
+        "--no-color",
+        "--diff-merges=first-parent",
+        "--shortstat",
+        "--format=%b%x00",
+        id,
+        "--",
+      ],
+      { signal, maxBytes: 1024 * 1024 },
+    )
+  ).toString("utf8");
+  const split = output.indexOf("\0");
+  const message = split < 0 ? "" : output.slice(0, split);
+  const coAuthors: string[] = [];
+  const body = message
+    .split("\n")
+    .filter((line) => {
+      const match = COAUTHOR.exec(line);
+      if (match) coAuthors.push(match[1]!);
+      return !match;
+    })
+    .join("\n")
+    .trim();
+  const stat = SHORTSTAT.exec(split < 0 ? output : output.slice(split + 1));
+  return {
+    id,
+    body: body.length > 4000 ? `${body.slice(0, 3999)}…` : body,
+    coAuthors,
+    files: Number(stat?.[1] ?? 0),
+    additions: Number(stat?.[2] ?? 0),
+    deletions: Number(stat?.[3] ?? 0),
   };
 }

@@ -25,7 +25,7 @@ import {
 } from "../shared/protocol";
 import { gitTargets, pushBranch } from "./repository/git-actions";
 import { pushRequestSchema } from "../shared/git-actions";
-import { loadHistory, resolveRepository } from "./repository/history";
+import { loadCommitDetails, loadHistory, resolveRepository } from "./repository/history";
 import { ReviewService } from "./repository/review";
 import { HostError } from "./runtime/errors";
 import { ProcessFailure } from "./runtime/process";
@@ -1080,6 +1080,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 Number(url.searchParams.get("limit") ?? 50),
                 abort.signal,
                 url.searchParams.get("ref") ?? undefined,
+              ),
+            );
+            return;
+          }
+          if (url.pathname === "/api/commit" && request.method === "GET") {
+            send(
+              await loadCommitDetails(
+                await requireRepo(url.searchParams.get("repo")),
+                url.searchParams.get("id") ?? "",
+                abort.signal,
               ),
             );
             return;

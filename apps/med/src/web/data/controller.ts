@@ -17,6 +17,7 @@ import type { FileDiffMetadata } from "@pierre/diffs";
 import type {
   Branch,
   Commit,
+  CommitDetails,
   Comparison,
   NoteMutation,
   NoteState,
@@ -41,6 +42,7 @@ import {
   branchesSchema,
   createApi,
   eventSchema,
+  commitDetailsSchema,
   historySchema,
   HttpError,
   notesSchema,
@@ -113,6 +115,7 @@ export interface ReviewController {
   /** Restart live updates and reconcile what changed while hidden. */
   resume(): void;
   loadMoreHistory(): Promise<void>;
+  loadCommitDetails(id: string, signal?: AbortSignal): Promise<CommitDetails>;
   selectWorktree(path: string, repositoryId?: string): Promise<void>;
   selectBranch(name: string, repositoryId?: string): Promise<void>;
   addRepository(path: string): Promise<void>;
@@ -1599,6 +1602,11 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       reconcile();
     },
     loadMoreHistory: () => loadHistory(false),
+    async loadCommitDetails(id, signal) {
+      const repo = snapshot.session?.repository.path;
+      if (!repo) throw new Error("Open a repository first.");
+      return api.json(`/api/commit?${query({ repo, id })}`, commitDetailsSchema, { signal });
+    },
     loadSources,
     mutateNote,
     revealFile(id) {

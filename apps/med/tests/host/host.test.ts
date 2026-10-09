@@ -439,6 +439,37 @@ describe("HTTP boundary", () => {
     expect((await fetch(`${base}/api/history?ref=--output%3Dbad`, { headers })).status).toBe(400);
     expect(git(repo, "rev-parse", "HEAD")).toBe(second);
   });
+  test("reads a commit's body, co-authors, and size for the history card", async () => {
+    const repo = await repository();
+    await commit(repo, "one\ntwo\n", "first");
+    await writeFile(join(repo, "file.txt"), "one\nthree\nfour\n");
+    await writeFile(join(repo, "notes.txt"), "new\n");
+    git(repo, "add", "-A");
+    git(
+      repo,
+      "commit",
+      "-m",
+      "feat: second",
+      "-m",
+      "Explains the change.",
+      "-m",
+      "Co-Authored-By: Ada Okafor <ada@example.com>",
+    );
+    const id = git(repo, "rev-parse", "HEAD");
+    const host = await startHost({ repo });
+    hosts.push(host);
+    const base = `http://127.0.0.1:${host.port}`,
+      headers = { authorization: `Bearer ${host.token}` };
+    expect(await (await fetch(`${base}/api/commit?id=${id}`, { headers })).json()).toEqual({
+      id,
+      body: "Explains the change.",
+      coAuthors: ["Ada Okafor"],
+      files: 2,
+      additions: 3,
+      deletions: 1,
+    });
+    expect((await fetch(`${base}/api/commit?id=HEAD`, { headers })).status).toBe(400);
+  });
   test("authenticates requests and enforces source and note versions", async () => {
     const repo = await repository();
     const id = await commit(repo, "one\ntwo\n", "first");

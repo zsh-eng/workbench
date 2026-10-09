@@ -1,10 +1,11 @@
 import { Tooltip } from "@base-ui/react/tooltip";
 import * as stylex from "@stylexjs/stylex";
 import { useMemo, useState, useRef, useEffect, useLayoutEffect, useId } from "react";
-import type { Commit } from "../../shared/protocol";
+import type { Commit, CommitDetails } from "../../shared/protocol";
 import { layoutHistory, type GraphRow } from "./history-layout";
 import { tokens, ui } from "../theme.stylex";
 import { relativeTime } from "../data/relative-time";
+import { CommitCard } from "./CommitCard";
 import { Icon } from "./Icon";
 
 const rowHeight = 48;
@@ -19,10 +20,6 @@ const colors = [
   `color-mix(in oklch, ${tokens.accent} 45%, #c79bff)`,
 ];
 const graphX = (lane: number) => 10 + lane * 12;
-const dateFormatter = new Intl.DateTimeFormat(undefined, {
-  dateStyle: "full",
-  timeStyle: "long",
-});
 
 function Graph({ row, working }: { row: GraphRow; working?: boolean }) {
   const x = graphX;
@@ -86,6 +83,7 @@ export function HistoryPanel({
   workingAvailable = true,
   collapsed = false,
   onCollapsedChange,
+  loadDetails,
 }: {
   commits: Commit[];
   selected?: string;
@@ -102,9 +100,29 @@ export function HistoryPanel({
   /** A collapsed panel keeps only its heading, which names the selection. */
   collapsed?: boolean;
   onCollapsedChange?(collapsed: boolean): void;
+  /** The body and size of a commit, for its card. */
+  loadDetails?(id: string, signal: AbortSignal): Promise<CommitDetails>;
 }) {
   const bodyId = useId();
-  const tooltip = useMemo(() => Tooltip.createHandle<Commit>(), []);
+  const tooltip = useMemo(() => Tooltip.createHandle<{ commit: Commit; color: string }>(), []);
+  // Details load when the pointer reaches a row, so most are ready when its
+  // card opens. A failed load shows the card without them.
+  const [details, setDetails] = useState(() => new Map<string, CommitDetails | null>());
+  const requested = useRef(new Set<string>());
+  const loaders = useRef(new AbortController());
+  useEffect(() => {
+    const abort = loaders.current;
+    return () => abort.abort();
+  }, []);
+  const prefetch = (id: string) => {
+    if (!loadDetails || requested.current.has(id)) return;
+    requested.current.add(id);
+    const settle = (value: CommitDetails | null) =>
+      setDetails((current) => new Map(current).set(id, value));
+    loadDetails(id, loaders.current.signal).then(settle, () => {
+      if (!loaders.current.signal.aborted) settle(null);
+    });
+  };
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
@@ -286,7 +304,9 @@ export function HistoryPanel({
               {rows.slice(start, end).map((row, offset) => (
                 <Tooltip.Trigger
                   handle={tooltip}
-                  payload={row.commit}
+                  payload={{ commit: row.commit, color: colors[row.lane % colors.length]! }}
+                  onPointerEnter={() => prefetch(row.commit.id)}
+                  onFocus={() => prefetch(row.commit.id)}
                   id={`commit-${row.commit.id}`}
                   key={row.commit.id}
                   role="option"
@@ -358,17 +378,12 @@ export function HistoryPanel({
             >
               <Tooltip.Popup role="tooltip" {...stylex.props(styles.tooltip, ui.pop)}>
                 {payload && (
-                  <>
-                    <strong>{payload.subject || "(no commit message)"}</strong>
-                    <span {...stylex.props(ui.muted)}>{payload.author}</span>
-                    <time
-                      dateTime={new Date(payload.timestamp).toISOString()}
-                      {...stylex.props(ui.muted)}
-                    >
-                      Author date: {dateFormatter.format(payload.timestamp)}
-                    </time>
-                    <span {...stylex.props(styles.tooltipHash)}>{payload.id}</span>
-                  </>
+                  <CommitCard
+                    commit={payload.commit}
+                    color={payload.color}
+                    details={loadDetails ? details.get(payload.commit.id) : null}
+                    now={now}
+                  />
                 )}
               </Tooltip.Popup>
             </Tooltip.Positioner>
@@ -383,25 +398,13 @@ const styles = stylex.create({
   time: { flexShrink: 0, whiteSpace: "nowrap" },
   tooltipPositioner: { zIndex: 100 },
   tooltip: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 4,
-    maxWidth: 380,
-    paddingBlock: 10,
-    paddingInline: 12,
     backgroundColor: tokens.raised,
-    color: tokens.text,
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: tokens.lineStrong,
-    borderRadius: 9,
+    borderRadius: 10,
     boxShadow: tokens.shadow,
-    fontFamily: tokens.ui,
-    fontSize: 12,
-    lineHeight: 1.5,
-    overflowWrap: "anywhere",
   },
-  tooltipHash: { fontFamily: tokens.code, fontSize: 10.5, color: tokens.faint, marginTop: 4 },
   panel: {
     display: "flex",
     flexDirection: "column",

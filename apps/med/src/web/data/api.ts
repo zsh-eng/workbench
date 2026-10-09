@@ -55,6 +55,14 @@ export const historySchema = z.object({
   cursor: z.string().nullable(),
   hasMore: z.boolean(),
 });
+export const commitDetailsSchema = z.object({
+  id: z.string(),
+  body: z.string(),
+  coAuthors: z.array(z.string()),
+  files: z.number(),
+  additions: z.number(),
+  deletions: z.number(),
+});
 export const reviewSchema = z.object({
   id: z.string(),
   repo: z.string(),
