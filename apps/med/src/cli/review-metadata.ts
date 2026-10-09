@@ -10,22 +10,39 @@ const prSchema = z.object({
   headRefOid: z.string(),
 });
 
-/** Optional CLI-only lookup. Review rendering never waits for GitHub. */
+const runIn = (cwd: string, command: string, args: string[]) =>
+  exec(command, args, {
+    cwd,
+    timeout: 2500,
+    maxBuffer: 64 * 1024,
+    env: { ...process.env, GH_PROMPT_DISABLED: "1", GIT_TERMINAL_PROMPT: "0" },
+  }).then(({ stdout }) => stdout.trim());
+
+/** The title of the PR at this link, or nothing when gh cannot read it. */
+export async function pullRequestTitle(url: string): Promise<string | undefined> {
+  try {
+    return prSchema
+      .pick({ title: true })
+      .parse(JSON.parse(await runIn(process.cwd(), "gh", ["pr", "view", url, "--json", "title"])))
+      .title;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Optional CLI-only lookup. Review rendering never waits for GitHub. A found
+ * PR adds its title for the review header; with `keepTitle` false, it is also
+ * the short title.
+ */
 export async function reviewMetadata(
   input: SavedReviewCreate,
   keepTitle: boolean,
   infer: boolean,
 ): Promise<SavedReviewCreate> {
-  if (input.pullRequestUrl && keepTitle) return input;
   if (!input.pullRequestUrl && (!infer || input.targets.length !== 1)) return input;
   const target = input.targets[0]!;
-  const run = (command: string, args: string[]) =>
-    exec(command, args, {
-      cwd: target.repo,
-      timeout: 2500,
-      maxBuffer: 64 * 1024,
-      env: { ...process.env, GH_PROMPT_DISABLED: "1", GIT_TERMINAL_PROMPT: "0" },
-    }).then(({ stdout }) => stdout.trim());
+  const run = (command: string, args: string[]) => runIn(target.repo, command, args);
   try {
     let args: string[];
     let expectedHead: string | undefined;
@@ -86,6 +103,7 @@ export async function reviewMetadata(
       targets,
       title: keepTitle ? input.title : result.title,
       pullRequestUrl: result.url,
+      pullRequestTitle: result.title,
     };
   } catch {
     // Missing gh, no PR, offline, authentication, and timeouts keep local review usable.

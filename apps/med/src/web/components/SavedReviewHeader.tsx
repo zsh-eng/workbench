@@ -49,8 +49,11 @@ export function SavedReviewHeader({
     </option>
   );
   const saving = target?.captured ? "Captured working changes" : "Saved commit comparison";
+  // The workspace list keeps the short title; a PR's own title names it here.
+  const heading = (saved.pullRequestUrl && saved.pullRequestTitle) || saved.title;
   const details = [
-    saved.title,
+    heading,
+    ...(heading !== saved.title ? [`Workspace: ${saved.title}`] : []),
     `${saving} · ${new Date(saved.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`,
     ...(target ? [target.repo] : []),
   ].join("\n");
@@ -90,12 +93,12 @@ export function SavedReviewHeader({
           href={saved.pullRequestUrl}
           target="_blank"
           rel="noopener noreferrer"
-          aria-label={`Open pull request: ${saved.title}`}
+          aria-label={`Open pull request: ${heading}`}
           title={details}
           {...stylex.props(styles.reviewTitle, styles.prLink)}
         >
           <Icon name="github" size={14} />
-          <span {...stylex.props(styles.ellipsis)}>{saved.title}</span>
+          <span {...stylex.props(styles.ellipsis)}>{heading}</span>
           <Icon name="external" size={12} />
         </a>
       ) : (

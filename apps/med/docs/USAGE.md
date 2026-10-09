@@ -621,9 +621,11 @@ file links are unavailable there. Missing files use the normal file-open error.
 
 ### Review titles and PR links
 
-`med review create --title "Fix navigation" ...` uses that title in the browser
-tab and review header. Add `--pr https://github.com/owner/repo/pull/123` to make
-the heading a link. Without `--title`, med uses the matching PR title when `gh`
-can resolve it. Single-repository GitHub branch reviews can infer the link;
-`--no-pr` skips lookup. See [agent guidance](AGENT_INTEGRATION.md#titles-and-pull-requests)
+`med review create --title "Navigation fix" ...` uses that title in the
+workspace list and browser tab. Keep it to 2–4 words; the workspace list is
+narrow. Add `--pr https://github.com/owner/repo/pull/123` to make the review
+header a link. Once the review has a PR, the header shows the PR title, read
+with `gh`; the workspace keeps the short title. Without `--title`, med uses the
+matching PR title when `gh` can resolve it. Single-repository GitHub branch
+reviews can infer the link; `--no-pr` skips lookup. See [agent guidance](AGENT_INTEGRATION.md#titles-and-pull-requests)
 for scope and fallback behavior. File tabs use the filename in the browser title.

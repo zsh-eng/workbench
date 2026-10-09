@@ -155,7 +155,9 @@ async function mountApp(
     revision: 0,
     commentCount: 0,
     targets: savedTargets,
-    ...(options.pullRequest ? { pullRequestUrl: options.pullRequest.url } : {}),
+    ...(options.pullRequest
+      ? { pullRequestUrl: options.pullRequest.url, pullRequestTitle: "Read pull request threads" }
+      : {}),
     ...(brief ? { brief: { text: brief, updatedAt: "2026-09-20T00:00:00Z" } } : {}),
     ...(options.iterationBriefs
       ? {
