@@ -62,6 +62,8 @@ function oneLine(value: string, length = 96) {
 export interface ClaudeReaderOptions {
   /** Updates of a subagent's transcript belong to the parent's tool call. */
   parentToolCallId?: string;
+  /** A tool call started a subagent; its transcript is subagents/agent-<id>.jsonl. */
+  onSubagent?(agentId: string, toolCallId: string): void;
 }
 
 /**
@@ -78,6 +80,8 @@ export function createClaudeTranscriptReader(options: ClaudeReaderOptions = {}) 
   const tasks = new Map<string, PlanEntry>();
   const queued = new Set<string>();
   let compaction: string | undefined;
+  // The agent waits for the user after a reply that ends its turn.
+  let idle = true;
   let at = 0;
   let cwd: string | undefined;
 
@@ -269,6 +273,7 @@ export function createClaudeTranscriptReader(options: ClaudeReaderOptions = {}) 
     }
     if ((name === "Agent" || name === "Task") && detail) {
       const agent = text(detail.agentId);
+      if (agent) options.onSubagent?.(agent, id);
       if (agent && (detail.isAsync || detail.status === "async_launched")) {
         background.set(agent, id);
         extra.background = { id: agent, kind: "agent" };
@@ -374,6 +379,24 @@ export function createClaudeTranscriptReader(options: ClaudeReaderOptions = {}) 
       return title ? [{ sessionUpdate: "session_info_update", title, ...meta() }] : [];
     }
     const message = record(entry.message);
+    if (type === "assistant" && message) idle = message.stop_reason === "end_turn";
+    if (type === "user" && message && !entry.isMeta && !entry.isCompactSummary) {
+      const content = message.content;
+      const prompt = (
+        typeof content === "string"
+          ? content
+          : list(content)
+              .map((part) =>
+                record(part)?.type === "text" ? (text(record(part)!.text) ?? "") : "",
+              )
+              .join("")
+      )
+        .replace(HIDDEN, "")
+        .trim();
+      // A typed prompt starts a turn; notifications and command output do not.
+      if (/^\[Request interrupted by user/.test(prompt)) idle = true;
+      else if (prompt && !prompt.startsWith("<")) idle = false;
+    }
     if (type === "assistant" && message) {
       if (entry.isApiErrorMessage) {
         const body = list(message.content)
@@ -534,6 +557,8 @@ export function createClaudeTranscriptReader(options: ClaudeReaderOptions = {}) 
       if (Number.isFinite(time)) at = time;
       return convert(entry).map((update) => ({ at, update }));
     },
+    /** True after a reply that ends the agent's turn, until the next prompt. */
+    idle: () => idle,
     /** The subagent a tool call started, to read its own transcript. */
     subagentOf(toolCallId: string) {
       for (const [agent, id] of background) if (id === toolCallId) return agent;

@@ -96,6 +96,7 @@ export function createCodexRolloutReader() {
   let at = 0;
   let cwd: string | undefined;
   let sequence = 0;
+  let idle = true;
   const relative = (path: string) =>
     cwd && path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path;
 
@@ -208,6 +209,8 @@ export function createCodexRolloutReader() {
       return [];
     }
     if (entry.type === "event_msg") {
+      if (payload.type === "task_started") idle = false;
+      if (payload.type === "task_complete" || payload.type === "turn_aborted") idle = true;
       if (payload.type === "token_count") {
         const info = record(payload.info);
         const used = Number(
@@ -295,6 +298,8 @@ export function createCodexRolloutReader() {
   }
 
   return {
+    /** True after Codex finishes a task, until the next one starts. */
+    idle: () => idle,
     line(raw: string): SessionEvent[] {
       if (!raw.trim()) return [];
       let entry: Json | undefined;

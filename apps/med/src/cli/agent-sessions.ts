@@ -1,6 +1,6 @@
-import { open, readdir } from "node:fs/promises";
+import { open } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { findTranscript } from "../host/agent-transcripts";
 import { agentSessionSchema, type AgentSession } from "../shared/saved-review";
 
 /** The first bytes of a transcript, where the agent records its directory. */
@@ -24,46 +24,10 @@ const firstCwd = (text: string) => {
   }
 };
 
-/** Claude Code keeps each session in ~/.claude/projects/<project>/<id>.jsonl. */
-async function claudeDirectory(id: string, home: string) {
-  const projects = join(home, ".claude", "projects");
-  let entries: string[];
-  try {
-    entries = await readdir(projects);
-  } catch {
-    return undefined;
-  }
-  for (const project of entries) {
-    try {
-      return firstCwd(await head(join(projects, project, `${id}.jsonl`)));
-    } catch {
-      /* Not in this project. */
-    }
-  }
-  return undefined;
-}
-
-/** Codex keeps sessions in ~/.codex/sessions/YYYY/MM/DD/rollout-…-<id>.jsonl.
- * Newer days are searched first, and only a bounded number of them. */
-async function codexDirectory(id: string, home: string) {
-  const root = join(home, ".codex", "sessions");
-  const sorted = async (path: string) => {
-    try {
-      return (await readdir(path)).sort().reverse();
-    } catch {
-      return [];
-    }
-  };
-  let days = 0;
-  for (const year of await sorted(root))
-    for (const month of await sorted(join(root, year)))
-      for (const day of await sorted(join(root, year, month))) {
-        if (++days > 400) return undefined;
-        const folder = join(root, year, month, day);
-        const file = (await sorted(folder)).find((name) => name.endsWith(`${id}.jsonl`));
-        if (file) return firstCwd(await head(join(folder, file)).catch(() => ""));
-      }
-  return undefined;
+/** The directory a session started in, from the start of its transcript. */
+async function sessionDirectory(entry: Pick<AgentSession, "agent" | "id">, home: string) {
+  const path = await findTranscript(entry, home);
+  return path ? firstCwd(await head(path).catch(() => "")) : undefined;
 }
 
 /**
@@ -88,10 +52,7 @@ export async function agentSessions(
     wanted.push({ agent: "claude", id: running });
   const sessions: AgentSession[] = [];
   for (const entry of wanted) {
-    const cwd =
-      (entry.agent === "claude"
-        ? await claudeDirectory(entry.id, home)
-        : await codexDirectory(entry.id, home)) ?? process.cwd();
+    const cwd = (await sessionDirectory(entry, home)) ?? process.cwd();
     const parsed = agentSessionSchema.safeParse({ ...entry, cwd });
     if (!parsed.success) throw new Error(`Invalid session: ${parsed.error.issues[0]!.message}`);
     sessions.push(parsed.data);

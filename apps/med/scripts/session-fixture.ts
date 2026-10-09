@@ -93,8 +93,8 @@ for (const raw of readFileSync(source, "utf8").split("\n")) {
   const kept: Json = {};
   for (const key of KEEP) if (entry[key] !== undefined) kept[key] = entry[key];
   if (message) {
-    const { id, role, model, content } = message;
-    kept.message = { id, role, model, content };
+    const { id, role, model, stop_reason, content } = message;
+    kept.message = { id, role, model, stop_reason, content };
   }
   kept.cwd = work;
   lines.push(JSON.stringify(clean(kept)));
