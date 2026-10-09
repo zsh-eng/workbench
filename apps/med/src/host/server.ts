@@ -9,7 +9,7 @@ import { localPathSchema } from "../shared/local-file";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
+import { lstat, mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
 import { basename, dirname, extname, resolve, relative, isAbsolute, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -64,12 +64,28 @@ export interface StartHostOptions {
   onClose?: () => Promise<void>;
   search?: SearchOptions;
   stateDir?: string;
+  /** Shows a file in the system file manager; tests replace it. */
+  reveal?: (path: string) => void;
 }
 export interface RunningHost {
   url: string;
   token: string;
   port: number;
   close(): Promise<void>;
+}
+/** Shows a path in Finder, Explorer, or the Linux file manager. */
+function revealInFileManager(path: string) {
+  const [command, args] =
+    process.platform === "darwin"
+      ? ["open", ["-R", path]]
+      : process.platform === "win32"
+        ? ["explorer.exe", [`/select,${path}`]]
+        : ["xdg-open", [dirname(path)]];
+  const child = spawn(command, args, { stdio: "ignore", detached: true, shell: false });
+  child.on("error", () => {
+    /* The file manager is optional; the request already succeeded. */
+  });
+  child.unref();
 }
 const MAX_BODY = 128 * 1024;
 // A brief holds up to 100,000 characters; UTF-8 can need four bytes for one.
@@ -141,6 +157,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     ? await getPersistentToken(options.stateDir)
     : randomBytes(32).toString("base64url");
   const tokenDigest = createHash("sha256").update(token).digest();
+  // Names this server process, so a page can tell when a restart has finished.
+  const instance = randomBytes(8).toString("hex");
   const reviews = new ReviewService(
     new Set((options.allowedInputPaths ?? []).map((path) => resolve(path))),
   );
@@ -787,6 +805,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               stale: await codeChanged(),
               entry: await currentWebEntry(),
               restart: options.service?.canRestart ?? false,
+              instance,
             });
             return;
           }
@@ -1092,6 +1111,21 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 abort.signal,
               ),
             );
+            return;
+          }
+          if (url.pathname === "/api/reveal" && request.method === "POST") {
+            const input = z
+              .object({ repo: z.string().optional(), path: z.string().min(1) })
+              .parse(await readBody(request));
+            const repo = await requireRepo(input.repo ?? null);
+            const target = resolve(repo, input.path);
+            const inside = relative(repo, target);
+            if (!inside || inside.startsWith("..") || isAbsolute(inside))
+              throw new HostError("path-not-allowed", "Choose a file in this repository.", 403);
+            if (!(await lstat(target).catch(() => null)))
+              throw new HostError("not-found", "This file is not in the working tree.", 404);
+            (options.reveal ?? revealInFileManager)(target);
+            send({ revealed: true });
             return;
           }
           if (url.pathname === "/api/review" && request.method === "POST") {

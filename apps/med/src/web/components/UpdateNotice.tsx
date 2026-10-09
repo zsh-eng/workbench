@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
 
@@ -10,12 +10,14 @@ interface BuildStatus {
   entry: string | null;
   /** The server can replace itself. */
   restart: boolean;
+  /** Changes when a new server process answers. */
+  instance?: string;
 }
 type Notice =
   | { kind: "restart"; canRestart: boolean }
   | { kind: "reload" }
   | { kind: "restarting" }
-  | { kind: "failed"; message: string };
+  | { kind: "failed"; message: string; retry: boolean };
 
 /** A production page names its hashed entry script; the Vite dev page does not. */
 const pageEntry = () =>
@@ -32,9 +34,19 @@ async function readBuild(): Promise<BuildStatus | null> {
   }
 }
 
+/** A server started from a terminal cannot replace itself; retrying cannot help. */
+class RestartUnavailable extends Error {
+  constructor() {
+    super("This Med server cannot restart itself. Restart it from its terminal.");
+  }
+}
+
 /** Asks the managed server to replace itself, then reloads once the new one
- * answers. The old server answers until it closes; the new one is current. */
+ * answers. The old server answers until it closes; the new one has another
+ * instance and is current. */
 async function restartServer() {
+  const before = await readBuild();
+  if (before && !before.restart) throw new RestartUnavailable();
   const response = await fetch("/api/service/restart", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -50,12 +62,19 @@ async function restartServer() {
   while (Date.now() < deadline) {
     await new Promise((done) => setTimeout(done, 400));
     const build = await readBuild();
-    if (build && !build.stale) {
+    if (build && !build.stale && build.instance !== before?.instance) {
       location.reload();
       return;
     }
   }
   throw new Error("Med did not come back. Run med web in a terminal.");
+}
+
+const RESTART_EVENT = "med:restart-server";
+
+/** Restarts Med's server and reloads the page, with the update notice as progress. */
+export function requestServerRestart() {
+  window.dispatchEvent(new Event(RESTART_EVENT));
 }
 
 /** Notices a rebuild of Med. A server that runs older code offers Restart; a
@@ -97,17 +116,24 @@ export function UpdateNotice({ interval = 60_000 }: { interval?: number }) {
     };
   }, [entry, interval]);
 
-  const restart = () => {
+  const restart = useCallback(() => {
+    if (restarting.current) return;
     restarting.current = true;
+    setDismissed(null);
     setNotice({ kind: "restarting" });
     restartServer().catch((error: unknown) => {
       restarting.current = false;
       setNotice({
         kind: "failed",
         message: error instanceof Error ? error.message : "Med could not restart.",
+        retry: !(error instanceof RestartUnavailable),
       });
     });
-  };
+  }, []);
+  useEffect(() => {
+    window.addEventListener(RESTART_EVENT, restart);
+    return () => window.removeEventListener(RESTART_EVENT, restart);
+  }, [restart]);
 
   if (!notice || (dismissed === key && notice.kind !== "restarting")) return null;
   const text =
@@ -124,7 +150,9 @@ export function UpdateNotice({ interval = 60_000 }: { interval?: number }) {
     notice.kind === "reload"
       ? "Reload"
       : notice.kind === "failed"
-        ? "Try again"
+        ? notice.retry
+          ? "Try again"
+          : null
         : notice.kind === "restart" && notice.canRestart
           ? "Restart"
           : null;

@@ -63,6 +63,7 @@ export const commitDetailsSchema = z.object({
   additions: z.number(),
   deletions: z.number(),
 });
+export const revealSchema = z.object({ revealed: z.literal(true) });
 export const reviewSchema = z.object({
   id: z.string(),
   repo: z.string(),

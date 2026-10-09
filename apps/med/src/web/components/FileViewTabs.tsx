@@ -4,6 +4,7 @@ import { Tabs } from "@base-ui/react/tabs";
 import { distinctLabels } from "../data/tab-labels";
 import { tokens } from "../theme.stylex";
 import { Icon } from "./Icon";
+import { PathContextMenu, type PathActions } from "./PathMenu";
 
 export interface FileViewTab {
   id: string;
@@ -25,7 +26,9 @@ export function FileViewTabs({
   changesCount,
   leading,
   trailing,
+  pathActions,
 }: {
+  pathActions?: PathActions;
   tabs: FileViewTab[];
   active: string;
   panelId?: string;
@@ -88,7 +91,17 @@ export function FileViewTabs({
           </Tabs.Tab>
         )}
         {tabs.map((tab, index) => (
-          <div key={tab.id} {...stylex.props(styles.item, stylex.defaultMarker())}>
+          <PathContextMenu
+            key={tab.id}
+            actions={pathActions}
+            render={<div />}
+            className={stylex.props(styles.item, stylex.defaultMarker()).className}
+            locate={() => ({ repo: tab.sourcePath ?? null, path: tab.path })}
+            items={() => [
+              ...(tab.pinned ? [] : [{ label: "Keep open", run: () => onPin(tab.id) }]),
+              { label: "Close", run: () => onClose(tab.id) },
+            ]}
+          >
             <Tabs.Tab
               value={tab.id}
               aria-controls={panelId}
@@ -119,7 +132,7 @@ export function FileViewTabs({
             >
               <Icon name="close" size={12} />
             </button>
-          </div>
+          </PathContextMenu>
         ))}
       </Tabs.List>
       {trailing}

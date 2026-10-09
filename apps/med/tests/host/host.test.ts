@@ -439,6 +439,23 @@ describe("HTTP boundary", () => {
     expect((await fetch(`${base}/api/history?ref=--output%3Dbad`, { headers })).status).toBe(400);
     expect(git(repo, "rev-parse", "HEAD")).toBe(second);
   });
+  test("reveals files in the file manager only inside the repository", async () => {
+    const repo = await repository();
+    await commit(repo, "one\n", "first");
+    const revealed: string[] = [];
+    const host = await startHost({ repo, reveal: (path) => revealed.push(path) });
+    hosts.push(host);
+    const reveal = (path: string) =>
+      fetch(`http://127.0.0.1:${host.port}/api/reveal`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${host.token}`, "content-type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+    expect((await reveal("file.txt")).status).toBe(200);
+    expect((await reveal("../outside.txt")).status).toBe(403);
+    expect((await reveal("missing.txt")).status).toBe(404);
+    expect(revealed).toEqual([join(await realpath(repo), "file.txt")]);
+  });
   test("reads a commit's body, co-authors, and size for the history card", async () => {
     const repo = await repository();
     await commit(repo, "one\ntwo\n", "first");

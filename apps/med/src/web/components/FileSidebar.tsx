@@ -5,6 +5,7 @@ import { useEffect, useLayoutEffect, useRef, type CSSProperties } from "react";
 import type { ParsedReviewFile } from "../data/controller";
 import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
+import { PathContextMenu, treeRowPath, type PathActions } from "./PathMenu";
 import { treeIcons } from "./tree-icons";
 
 export function FileSidebar({
@@ -17,7 +18,12 @@ export function FileSidebar({
   onOpen,
   onPrefetch,
   filterRef,
+  repo = null,
+  pathActions,
 }: {
+  /** The checkout that holds the files, for Reveal in Finder. */
+  repo?: string | null;
+  pathActions?: PathActions;
   files: ParsedReviewFile[];
   total: number;
   selected: string | null;
@@ -101,79 +107,89 @@ export function FileSidebar({
           </button>
         )}
       </div>
-      <FileTree
-        model={model}
-        onPointerDownCapture={(event) => {
-          pointer.current = true;
-          if (!onOpen || (!event.metaKey && !event.ctrlKey)) return;
-          if (
-            !event.nativeEvent
-              .composedPath()
-              .some((node) => node instanceof HTMLElement && node.dataset.itemType === "file")
-          )
-            return;
-          event.preventDefault();
-          event.stopPropagation();
+      <PathContextMenu
+        actions={pathActions}
+        render={<div />}
+        className={stylex.props(styles.treeFrame).className}
+        locate={(event) => {
+          const path = treeRowPath(event);
+          return path ? { repo, path } : null;
         }}
-        onClickCapture={(event) => {
-          pointer.current = false;
-          const row = event.nativeEvent
-            .composedPath()
-            .find((node) => node instanceof HTMLElement && node.dataset.itemType === "file") as
-            | HTMLElement
-            | undefined;
-          const file = files.find((item) => item.path === row?.dataset.itemPath);
-          if (!file) return;
-          if (onOpen && (event.metaKey || event.ctrlKey)) {
+      >
+        <FileTree
+          model={model}
+          onPointerDownCapture={(event) => {
+            pointer.current = true;
+            if (!onOpen || (!event.metaKey && !event.ctrlKey)) return;
+            if (
+              !event.nativeEvent
+                .composedPath()
+                .some((node) => node instanceof HTMLElement && node.dataset.itemType === "file")
+            )
+              return;
             event.preventDefault();
             event.stopPropagation();
-            onOpen(file.id, true);
-          } else if (!event.shiftKey) onSelect(file.id);
-        }}
-        onKeyDownCapture={() => {
-          pointer.current = false;
-        }}
-        onPointerOver={(event) => {
-          const row = event.nativeEvent
-            .composedPath()
-            .find((node) => node instanceof HTMLElement && node.dataset.itemType === "file") as
-            | HTMLElement
-            | undefined;
-          if (row?.dataset.itemPath) onPrefetch?.(row.dataset.itemPath);
-        }}
-        onDoubleClick={(event) => {
-          const row = event.nativeEvent
-            .composedPath()
-            .find((node) => node instanceof HTMLElement && node.dataset.itemType === "file") as
-            | HTMLElement
-            | undefined;
-          const file = files.find((item) => item.path === row?.dataset.itemPath);
-          if (file) onOpen?.(file.id);
-        }}
-        className={stylex.props(styles.tree).className}
-        style={
-          {
-            "--trees-font-family-override": tokens.ui,
-            "--trees-font-size-override": "12.5px",
-            "--trees-border-radius-override": "6px",
-            "--trees-item-margin-x-override": "6px",
-            "--trees-fg-muted-override": tokens.faint,
-            "--trees-indent-guide-bg-override": tokens.line,
-            "--trees-theme-sidebar-header-fg": tokens.muted,
-            "--trees-accent-override": tokens.accent,
-            "--trees-theme-sidebar-bg": tokens.panel,
-            "--trees-theme-sidebar-fg": tokens.text,
-            "--trees-theme-list-active-selection-bg": tokens.selected,
-            "--trees-selected-bg-override": tokens.selected,
-            "--trees-theme-list-active-selection-fg": tokens.text,
-            "--trees-theme-list-hover-bg": tokens.fill,
-            "--trees-theme-focus-ring": tokens.accentLine,
-            "--trees-theme-git-added-fg": tokens.green,
-            "--trees-theme-git-deleted-fg": tokens.red,
-            "--trees-theme-git-modified-fg": tokens.accent,
-          } as CSSProperties
-        }
-      />
+          }}
+          onClickCapture={(event) => {
+            pointer.current = false;
+            const row = event.nativeEvent
+              .composedPath()
+              .find((node) => node instanceof HTMLElement && node.dataset.itemType === "file") as
+              | HTMLElement
+              | undefined;
+            const file = files.find((item) => item.path === row?.dataset.itemPath);
+            if (!file) return;
+            if (onOpen && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault();
+              event.stopPropagation();
+              onOpen(file.id, true);
+            } else if (!event.shiftKey) onSelect(file.id);
+          }}
+          onKeyDownCapture={() => {
+            pointer.current = false;
+          }}
+          onPointerOver={(event) => {
+            const row = event.nativeEvent
+              .composedPath()
+              .find((node) => node instanceof HTMLElement && node.dataset.itemType === "file") as
+              | HTMLElement
+              | undefined;
+            if (row?.dataset.itemPath) onPrefetch?.(row.dataset.itemPath);
+          }}
+          onDoubleClick={(event) => {
+            const row = event.nativeEvent
+              .composedPath()
+              .find((node) => node instanceof HTMLElement && node.dataset.itemType === "file") as
+              | HTMLElement
+              | undefined;
+            const file = files.find((item) => item.path === row?.dataset.itemPath);
+            if (file) onOpen?.(file.id);
+          }}
+          className={stylex.props(styles.tree).className}
+          style={
+            {
+              "--trees-font-family-override": tokens.ui,
+              "--trees-font-size-override": "12.5px",
+              "--trees-border-radius-override": "6px",
+              "--trees-item-margin-x-override": "6px",
+              "--trees-fg-muted-override": tokens.faint,
+              "--trees-indent-guide-bg-override": tokens.line,
+              "--trees-theme-sidebar-header-fg": tokens.muted,
+              "--trees-accent-override": tokens.accent,
+              "--trees-theme-sidebar-bg": tokens.panel,
+              "--trees-theme-sidebar-fg": tokens.text,
+              "--trees-theme-list-active-selection-bg": tokens.selected,
+              "--trees-selected-bg-override": tokens.selected,
+              "--trees-theme-list-active-selection-fg": tokens.text,
+              "--trees-theme-list-hover-bg": tokens.fill,
+              "--trees-theme-focus-ring": tokens.accentLine,
+              "--trees-theme-git-added-fg": tokens.green,
+              "--trees-theme-git-deleted-fg": tokens.red,
+              "--trees-theme-git-modified-fg": tokens.accent,
+            } as CSSProperties
+          }
+        />
+      </PathContextMenu>
       {files.length === 0 && (
         <p {...stylex.props(styles.empty)}>{filter ? "No matching files" : "No changed files"}</p>
       )}
@@ -241,6 +257,7 @@ const styles = stylex.create({
     "::placeholder": { color: tokens.faint },
   },
   clear: { width: 24, minWidth: 24, minHeight: 24, height: 24 },
+  treeFrame: { flex: "1", minHeight: 0, display: "flex", flexDirection: "column" },
   tree: { flex: "1", minHeight: 0, width: "100%", overflow: "hidden" },
   empty: { color: tokens.muted, fontSize: 12, paddingInline: 14 },
 });

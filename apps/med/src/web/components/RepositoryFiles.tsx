@@ -6,6 +6,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from 
 import type { BrowseEntry } from "../../shared/browse";
 import { tokens, ui } from "../theme.stylex";
 import { treeIcons } from "./tree-icons";
+import { PathContextMenu, treeRowPath, type PathActions } from "./PathMenu";
 
 export interface RepositoryFilesProps {
   entries: BrowseEntry[];
@@ -13,6 +14,9 @@ export interface RepositoryFilesProps {
   error: string | null;
   truncated: boolean;
   sourceLabel: string;
+  /** The checkout that holds the files, for Reveal in Finder. */
+  repo?: string | null;
+  pathActions?: PathActions;
   selectedPath: string | null;
   onPreview(path: string): void;
   onPin(path: string): void;
@@ -31,6 +35,8 @@ export function RepositoryFiles(props: RepositoryFilesProps) {
     error,
     truncated,
     sourceLabel,
+    repo = null,
+    pathActions,
     selectedPath,
     onPreview,
     onPin,
@@ -129,39 +135,49 @@ export function RepositoryFiles(props: RepositoryFilesProps) {
         </p>
       )}
       {!loading && !error && (
-        <FileTree
-          model={model}
-          onPointerOver={(event) => {
-            const row = event.nativeEvent
-              .composedPath()
-              .find((node) => node instanceof HTMLElement && node.dataset.itemType === "file") as
-              | HTMLElement
-              | undefined;
-            if (row?.dataset.itemPath) onPrefetch?.(row.dataset.itemPath);
+        <PathContextMenu
+          actions={pathActions}
+          render={<div />}
+          className={stylex.props(styles.treeFrame).className}
+          locate={(event) => {
+            const path = treeRowPath(event);
+            return path ? { repo, path } : null;
           }}
-          aria-label="Files"
-          className={stylex.props(styles.tree).className}
-          onDoubleClick={pinSelected}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              pinSelected();
+        >
+          <FileTree
+            model={model}
+            onPointerOver={(event) => {
+              const row = event.nativeEvent
+                .composedPath()
+                .find((node) => node instanceof HTMLElement && node.dataset.itemType === "file") as
+                | HTMLElement
+                | undefined;
+              if (row?.dataset.itemPath) onPrefetch?.(row.dataset.itemPath);
+            }}
+            aria-label="Files"
+            className={stylex.props(styles.tree).className}
+            onDoubleClick={pinSelected}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                pinSelected();
+              }
+            }}
+            style={
+              {
+                "--trees-font-family-override": tokens.ui,
+                "--trees-theme-sidebar-header-fg": tokens.muted,
+                "--trees-accent-override": tokens.accent,
+                "--trees-theme-sidebar-bg": tokens.panel,
+                "--trees-theme-sidebar-fg": tokens.text,
+                "--trees-theme-list-active-selection-bg": tokens.selected,
+                "--trees-theme-list-active-selection-fg": tokens.text,
+                "--trees-theme-list-hover-bg": tokens.hover,
+                "--trees-theme-focus-ring": tokens.accent,
+              } as CSSProperties
             }
-          }}
-          style={
-            {
-              "--trees-font-family-override": tokens.ui,
-              "--trees-theme-sidebar-header-fg": tokens.muted,
-              "--trees-accent-override": tokens.accent,
-              "--trees-theme-sidebar-bg": tokens.panel,
-              "--trees-theme-sidebar-fg": tokens.text,
-              "--trees-theme-list-active-selection-bg": tokens.selected,
-              "--trees-theme-list-active-selection-fg": tokens.text,
-              "--trees-theme-list-hover-bg": tokens.hover,
-              "--trees-theme-focus-ring": tokens.accent,
-            } as CSSProperties
-          }
-        />
+          />
+        </PathContextMenu>
       )}
       {!loading && !error && entries.length === 0 && (
         <p {...stylex.props(styles.message)}>No files in this source.</p>
@@ -216,6 +232,7 @@ const styles = stylex.create({
     fontSize: 11,
     color: tokens.muted,
   },
+  treeFrame: { flex: "1", minHeight: 0, display: "flex", flexDirection: "column" },
   tree: { flex: "1", minHeight: 0, width: "100%", overflow: "hidden" },
   message: { fontSize: 12, lineHeight: 1.6, color: tokens.muted, paddingInline: 14 },
 });

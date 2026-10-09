@@ -44,6 +44,7 @@ import {
   eventSchema,
   commitDetailsSchema,
   historySchema,
+  revealSchema,
   HttpError,
   notesSchema,
   repositoriesSchema,
@@ -116,6 +117,8 @@ export interface ReviewController {
   resume(): void;
   loadMoreHistory(): Promise<void>;
   loadCommitDetails(id: string, signal?: AbortSignal): Promise<CommitDetails>;
+  /** Shows a working-tree file in the system file manager. */
+  revealPath(repo: string, path: string): Promise<void>;
   selectWorktree(path: string, repositoryId?: string): Promise<void>;
   selectBranch(name: string, repositoryId?: string): Promise<void>;
   addRepository(path: string): Promise<void>;
@@ -1606,6 +1609,13 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       const repo = snapshot.session?.repository.path;
       if (!repo) throw new Error("Open a repository first.");
       return api.json(`/api/commit?${query({ repo, id })}`, commitDetailsSchema, { signal });
+    },
+    async revealPath(repo, path) {
+      await api.json("/api/reveal", revealSchema, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo, path }),
+      });
     },
     loadSources,
     mutateNote,

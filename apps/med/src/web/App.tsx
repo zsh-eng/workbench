@@ -73,6 +73,8 @@ import type { SymbolSearch } from "../shared/symbols";
 import { clipboardBrief } from "./data/brief";
 import type { BriefLocation } from "./components/BriefView";
 import { SaveReviewDialog } from "./components/SaveReviewDialog";
+import { requestServerRestart } from "./components/UpdateNotice";
+import type { PathActions } from "./components/PathMenu";
 import { diffSurfaceStyle } from "./components/diff-surface";
 import { highlightRules } from "./code-colors";
 import { createDiffFindHighlights } from "./data/diff-find-highlights";
@@ -720,6 +722,14 @@ export function App({
     const timer = setTimeout(() => setToast(null), toast.restore === undefined ? 4000 : 8000);
     return () => clearTimeout(timer);
   }, [toast]);
+  const pathActions = useMemo<PathActions>(
+    () => ({
+      reveal: (target: { repo: string; path: string }) =>
+        controller.revealPath(target.repo, target.path),
+      notify: (text: string) => showToast(text),
+    }),
+    [controller, showToast],
+  );
   const briefShown = useRef<string | null>(null);
   useEffect(() => {
     if (!savedBrief) {
@@ -1701,6 +1711,12 @@ export function App({
       label: "Open elements page",
       run: () => location.assign("/elements"),
     },
+    { id: "reload", label: "Reload Med", run: () => location.reload() },
+    {
+      id: "restart-server",
+      label: "Restart Med server and reload",
+      run: requestServerRestart,
+    },
     {
       id: "close-file",
       label: "Close current file",
@@ -2129,6 +2145,7 @@ export function App({
     browseSource || savedBrief ? (
       <FileViewTabs
         panelId={`${idPrefix}file-view-panel`}
+        pathActions={pathActions}
         leading={leading}
         trailing={viewControls}
         showBrief={!!savedBrief}
@@ -2359,6 +2376,8 @@ export function App({
               />
             )}
             <FileSidebar
+              repo={state.session?.repository.path ?? null}
+              pathActions={pathActions}
               files={files}
               total={state.files.length}
               selected={state.selectedFileId}
@@ -2414,7 +2433,7 @@ export function App({
           aria-label="Continuous review"
         >
           {/* The review's own row heads the card, level with the sidebar's
-              identity, so the sidebar keeps its place between workspaces. */}
+            identity, so the sidebar keeps its place between workspaces. */}
           {state.savedReview && (
             <SavedReviewHeader
               controller={controller}
@@ -2540,7 +2559,12 @@ export function App({
                     [
                       { label: "Find in diffs", shortcut: "⌘ F", onClick: openFind },
                       ...(gitAvailable
-                        ? [{ label: "Compare revisions…", onClick: () => setRangeOpen(!rangeOpen) }]
+                        ? [
+                            {
+                              label: "Compare revisions…",
+                              onClick: () => setRangeOpen(!rangeOpen),
+                            },
+                          ]
                         : []),
                     ],
                     [
@@ -3063,6 +3087,8 @@ export function App({
               key={JSON.stringify([sourceKey(browseSource), repositoryFiles.ignored])}
               {...repositoryFiles}
               sourceLabel={sourceLabel}
+              repo={browseSource?.repo ?? null}
+              pathActions={pathActions}
               selectedPath={activeFile?.path ?? selectedFile?.path ?? null}
               onPrefetch={prefetchFile}
               onPreview={(path) => openWorkingFile(path, false)}
