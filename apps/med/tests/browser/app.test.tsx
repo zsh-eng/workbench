@@ -96,8 +96,8 @@ async function mountApp(
     brief?: string;
     readOnly?: boolean;
     noteMutation?: () => Promise<Response | undefined>;
-    /** Each saved target is one agent iteration, with these briefs. */
-    iterationBriefs?: [string, string];
+    /** One agent iteration per brief. The first and the last own the two saved targets. */
+    iterationBriefs?: string[];
     /** Both iterations are commits on the main branch of one repository. */
     oneBranch?: boolean;
     /** Replaces the two small files with these, as path and unified patch. */
@@ -164,9 +164,14 @@ async function mountApp(
           key: "feat/agent",
           iterations: options.iterationBriefs.map((text, index) => ({
             number: index + 1,
-            createdAt: `2026-09-2${index}T00:00:00Z`,
-            targetIds: [savedTargets[index]!.id],
-            brief: { text, updatedAt: `2026-09-2${index}T00:00:00Z` },
+            createdAt: new Date(Date.UTC(2026, 8, 20 + index)).toISOString(),
+            targetIds:
+              index === 0
+                ? [savedTargets[0]!.id]
+                : index === options.iterationBriefs!.length - 1
+                  ? [savedTargets[1]!.id]
+                  : [],
+            brief: { text, updatedAt: new Date(Date.UTC(2026, 8, 20 + index)).toISOString() },
           })),
         }
       : {}),
@@ -1805,6 +1810,34 @@ describe("review brief", () => {
     await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
   });
 
+  test("many iterations keep the latest keys and list earlier ones in a menu", async () => {
+    await page.viewport(1280, 800);
+    await mountApp({
+      savedReview: true,
+      iterationBriefs: Array.from({ length: 12 }, (_, index) => `# Round ${index + 1}\n`),
+    });
+    await expect.element(page.getByRole("heading", { name: "Round 12" })).toBeVisible();
+    const keys = page.getByRole("group", { name: "Iterations" });
+    expect(
+      keys
+        .getByRole("button")
+        .elements()
+        .map((key) => key.textContent),
+    ).toEqual(["…", "7", "8", "9", "10", "11", "12"]);
+    const header = keys.element().parentElement!;
+    expect(header.scrollWidth).toBeLessThanOrEqual(header.clientWidth);
+    // An earlier round opens from the menu, and the menu key shows it.
+    await page.getByRole("button", { name: "Earlier iterations" }).click();
+    await page.getByRole("menuitemcheckbox", { name: /^Iteration 3 · / }).click();
+    await expect.element(page.getByRole("heading", { name: "Round 3" })).toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: "Iteration 3, earlier iterations" }))
+      .toHaveTextContent("3");
+    await page.getByRole("button", { name: "Iteration 12" }).click();
+    await expect.element(page.getByRole("heading", { name: "Round 12" })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Earlier iterations" })).toBeVisible();
+  });
+
   test("an iteration on the same branch replaces the brief without reloading the review", async () => {
     await mountApp({
       savedReview: true,
@@ -1931,6 +1964,11 @@ describe("review brief", () => {
         reviews: [{ ...comment(41, "jordan", ""), state: "APPROVED" }],
       },
     });
+    // The header names the PR by its own title; the browser tab keeps the short title.
+    await expect
+      .element(page.getByRole("link", { name: "Open pull request: Read pull request threads" }))
+      .toBeVisible();
+    expect(document.title).toBe("Agent review");
     // The thread on the pull request head shows on its line, with no way to write.
     const thread = page.getByRole("article", { name: "GitHub thread by mira at R1, read-only" });
     await expect.element(thread).toBeVisible();
