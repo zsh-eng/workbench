@@ -12,6 +12,7 @@ import { ControlsSection } from "./ControlsSection";
 import { FoundationsSection } from "./FoundationsSection";
 import { Inspector } from "./Inspector";
 import { ReviewSection } from "./ReviewSection";
+import { SessionSection } from "./SessionSection";
 import { StageContext } from "./Specimen";
 import "./ElementsPage.css";
 
@@ -21,6 +22,7 @@ const sections = [
   { id: "review", label: "Review parts" },
   { id: "code", label: "Code colors" },
   { id: "brief", label: "Brief" },
+  { id: "session", label: "Agent session" },
   { id: "commit", label: "Commit flow" },
 ] as const;
 
@@ -139,6 +141,7 @@ export default function ElementsPage() {
             <ReviewSection />
             <CodeSection />
             <BriefSection />
+            <SessionSection />
             <CommitSection />
           </StageContext.Provider>
         </main>
