@@ -107,7 +107,7 @@ export const RepositoryFiles = memo(function RepositoryFiles(props: RepositoryFi
   return (
     <aside {...stylex.props(styles.panel)} aria-label={props.label ?? "Repository files"}>
       <div {...stylex.props(styles.heading)}>
-        <span>Files</span>
+        <span {...stylex.props(ui.label)}>Files</span>
         <span {...stylex.props(ui.grow)} />
         <ToolButton label="Refresh files" icon="refresh" onClick={onRefresh} />
         <ToolButton label="Close files sidebar" icon="close" onClick={onClose} />
@@ -172,7 +172,7 @@ export const RepositoryFiles = memo(function RepositoryFiles(props: RepositoryFi
                 "--trees-theme-sidebar-bg": tokens.panel,
                 "--trees-theme-sidebar-fg": tokens.text,
                 "--trees-theme-list-active-selection-bg": tokens.selected,
-                "--trees-theme-list-active-selection-fg": tokens.text,
+                "--trees-theme-list-active-selection-fg": tokens.selectedText,
                 "--trees-theme-list-hover-bg": tokens.hover,
                 "--trees-theme-focus-ring": tokens.accent,
               } as CSSProperties

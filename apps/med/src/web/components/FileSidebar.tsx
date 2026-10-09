@@ -8,6 +8,15 @@ import { Icon } from "./Icon";
 import { PathContextMenu, treeRowPath, type PathActions } from "./PathMenu";
 import { treeIcons } from "./tree-icons";
 
+// A solid accent selection (Paper) draws the selected row's Git color in the
+// row's text color; --med-selected-git is unset in other themes, which keep it.
+const selectedGitColors = ["added", "deleted", "modified", "renamed", "untracked", "ignored"]
+  .map(
+    (status) =>
+      `[data-item-selected="true"][data-item-git-status="${status}"] { --trees-item-git-status-color: var(--med-selected-git, var(--trees-git-${status}-color)); }`,
+  )
+  .join("\n");
+
 /** Memoized: the review renders again for unrelated state, such as a palette. */
 export const FileSidebar = memo(function FileSidebar({
   files,
@@ -49,6 +58,7 @@ export const FileSidebar = memo(function FileSidebar({
     flattenEmptyDirectories: true,
     density: "compact",
     icons: treeIcons,
+    unsafeCSS: selectedGitColors,
     onSelectionChange: (paths) => {
       if (syncing.current || pointer.current) return;
       const file = latest.current.files.find((entry) => entry.path === paths.at(-1));
@@ -61,7 +71,8 @@ export const FileSidebar = memo(function FileSidebar({
     if (applied.current === files) return;
     applied.current = files;
     syncing.current = true;
-    model.resetPaths(files.map((file) => file.path));
+    // The tree throws on a repeated path, which would blank the app; show it once.
+    model.resetPaths([...new Set(files.map((file) => file.path))]);
     const statuses: GitStatusEntry[] = files.map((file) => ({
       path: file.path,
       status: file.info.untracked
@@ -89,7 +100,7 @@ export const FileSidebar = memo(function FileSidebar({
   return (
     <section {...stylex.props(styles.panel)} aria-label="Changed files">
       <div {...stylex.props(styles.heading)}>
-        <span>Changes</span>
+        <span {...stylex.props(ui.label)}>Changes</span>
         <span {...stylex.props(styles.count)}>{filter ? `${files.length} / ${total}` : total}</span>
       </div>
       <div {...stylex.props(styles.filter)}>
@@ -175,7 +186,7 @@ export const FileSidebar = memo(function FileSidebar({
             {
               "--trees-font-family-override": tokens.ui,
               "--trees-font-size-override": "12.5px",
-              "--trees-border-radius-override": "6px",
+              "--trees-border-radius-override": `calc(6px * ${tokens.round})`,
               "--trees-item-margin-x-override": "6px",
               "--trees-fg-muted-override": tokens.faint,
               "--trees-indent-guide-bg-override": tokens.line,
@@ -185,7 +196,8 @@ export const FileSidebar = memo(function FileSidebar({
               "--trees-theme-sidebar-fg": tokens.text,
               "--trees-theme-list-active-selection-bg": tokens.selected,
               "--trees-selected-bg-override": tokens.selected,
-              "--trees-theme-list-active-selection-fg": tokens.text,
+              "--trees-theme-list-active-selection-fg": tokens.selectedText,
+              "--trees-selected-fg-override": tokens.selectedText,
               "--trees-theme-list-hover-bg": tokens.fill,
               "--trees-theme-focus-ring": tokens.accentLine,
               "--trees-theme-git-added-fg": tokens.green,
@@ -241,7 +253,7 @@ const styles = stylex.create({
     paddingInlineStart: 9,
     paddingInlineEnd: 2,
     height: 28,
-    borderRadius: 7,
+    borderRadius: `calc(7px * ${tokens.round})`,
     backgroundColor: tokens.fill,
     boxShadow: {
       default: `inset 0 0 0 1px ${tokens.line}`,

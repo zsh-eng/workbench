@@ -472,7 +472,7 @@ export function PanelContent({
       {data && (
         <>
           <section aria-label="Conversation" {...stylex.props(styles.section)}>
-            <h3 {...stylex.props(styles.heading)}>Conversation</h3>
+            <h3 {...stylex.props(ui.label, styles.heading)}>Conversation</h3>
             {timeline.length ? (
               timeline.map(({ comment, state }) => (
                 <div key={comment.id} {...stylex.props(styles.item)}>
@@ -496,7 +496,7 @@ export function PanelContent({
             )}
           </section>
           <section aria-label="Code comments" {...stylex.props(styles.section)}>
-            <h3 {...stylex.props(styles.heading)}>Code comments</h3>
+            <h3 {...stylex.props(ui.label, styles.heading)}>Code comments</h3>
             {inline > 0 && (
               <p {...stylex.props(styles.lede)}>
                 {inline} {inline === 1 ? "thread shows" : "threads show"} in the diff.
@@ -538,7 +538,7 @@ const styles = stylex.create({
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: { default: tokens.line, ":focus-within": tokens.lineStrong },
-    borderRadius: 10,
+    borderRadius: `calc(10px * ${tokens.round})`,
     color: tokens.text,
     backgroundColor: tokens.panel,
     fontFamily: tokens.ui,
@@ -564,7 +564,7 @@ const styles = stylex.create({
     fontSize: 10.5,
     lineHeight: "18px",
     paddingInline: 6,
-    borderRadius: 4,
+    borderRadius: `calc(4px * ${tokens.round})`,
     color: tokens.muted,
     backgroundColor: tokens.fill,
   },
@@ -610,7 +610,7 @@ const styles = stylex.create({
     fontSize: "0.9em",
     paddingInline: 4,
     paddingBlock: 1,
-    borderRadius: 4,
+    borderRadius: `calc(4px * ${tokens.round})`,
     backgroundColor: tokens.fill,
   },
   figure: { margin: 0, marginBottom: 6 },
@@ -620,7 +620,7 @@ const styles = stylex.create({
     paddingBlock: 8,
     paddingInline: 10,
     overflowX: "auto",
-    borderRadius: 6,
+    borderRadius: `calc(6px * ${tokens.round})`,
     backgroundColor: tokens.fill,
     fontFamily: tokens.code,
     fontSize: 12,
@@ -658,14 +658,7 @@ const styles = stylex.create({
   lede: { marginBlock: 4, color: tokens.muted, fontSize: 12, lineHeight: 1.5 },
   error: { marginBlock: 6, color: tokens.red, fontSize: 12, lineHeight: 1.5 },
   section: { marginTop: 12 },
-  heading: {
-    margin: 0,
-    marginBottom: 2,
-    color: tokens.faint,
-    fontSize: 11,
-    fontWeight: 550,
-    letterSpacing: "0.02em",
-  },
+  heading: { margin: 0, marginBottom: 2 },
   item: {
     paddingBlock: 4,
     borderTopWidth: { default: 1, ":first-of-type": 0 },

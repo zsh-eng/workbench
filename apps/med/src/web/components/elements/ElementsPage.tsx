@@ -194,7 +194,7 @@ const styles = stylex.create({
   navLink: {
     paddingBlock: 5,
     paddingInline: 8,
-    borderRadius: 6,
+    borderRadius: `calc(6px * ${tokens.round})`,
     color: { default: tokens.muted, ":hover": tokens.text },
     fontSize: 12.5,
     textDecoration: "none",

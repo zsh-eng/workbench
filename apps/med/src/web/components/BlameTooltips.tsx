@@ -76,7 +76,7 @@ const styles = stylex.create({
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: tokens.border,
-    borderRadius: 6,
+    borderRadius: `calc(6px * ${tokens.round})`,
     boxShadow: tokens.shadow,
     padding: 10,
     maxWidth: 360,

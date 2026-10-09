@@ -1,3 +1,4 @@
+import { Dialog } from "@base-ui/react/dialog";
 import * as stylex from "@stylexjs/stylex";
 import type { FileDiffMetadata } from "@pierre/diffs";
 import {
@@ -22,7 +23,7 @@ import {
 } from "../data/commit";
 import { visibleElement } from "../data/palette-focus";
 import { useTheme } from "../themes";
-import { tokens, ui } from "../theme.stylex";
+import { picked, tokens, ui } from "../theme.stylex";
 import { createPatchParser } from "../workers/client";
 import { diffSurfaceStyle } from "./diff-surface";
 import { Icon } from "./Icon";
@@ -209,6 +210,9 @@ export default function CommitView({
   const [busy, setBusy] = useState<"commit" | "push" | null>(null);
   const [notice, setNotice] = useState<{ tone: "done" | "error"; text: string } | null>(null);
   const [confirmTrack, setConfirmTrack] = useState(false);
+  // The message appears only while the user writes it.
+  const [composing, setComposing] = useState(false);
+  const [commitError, setCommitError] = useState<string | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
@@ -392,16 +396,27 @@ export default function CommitView({
     if (!shown.length) return;
     return stage(filter ? shown.flatMap(rowPaths) : null, stageShown);
   }, [filter, shown, stage, stageShown]);
+  const compose = useCallback(() => {
+    setCommitError(null);
+    setComposing(true);
+  }, []);
   const commit = useCallback(() => {
     if (!status || !text.trim() || !stagedCount) return;
     const summary = text;
+    setCommitError(null);
     return run("commit", async () => {
-      // Queued stages have finished; commit what Git last reported.
-      const result = await api.commit(summary, latest.current!.indexKey);
-      setText("");
-      await Promise.all([readStatus(), readDiff()]);
-      list.current?.focus({ preventScroll: true });
-      return `Committed ${short(result.head)} ${result.summary}`;
+      try {
+        // Queued stages have finished; commit what Git last reported.
+        const result = await api.commit(summary, latest.current!.indexKey);
+        setText("");
+        setComposing(false);
+        await Promise.all([readStatus(), readDiff()]);
+        return `Committed ${short(result.head)} ${result.summary}`;
+      } catch (error) {
+        // A failed hook's output stays beside the message it rejected.
+        setCommitError(message(error));
+        await readStatus().catch(() => {});
+      }
     });
   }, [api, readDiff, readStatus, run, stagedCount, status, text]);
   const push = useCallback(
@@ -523,14 +538,21 @@ export default function CommitView({
       const typing =
         !!target &&
         (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.isContentEditable);
+      if (typing || visibleElement('[role="dialog"]')) return;
       if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-        if (typing && target !== field.current) return;
         event.preventDefault();
-        void commit();
+        compose();
         return;
       }
-      if (typing || event.metaKey || event.ctrlKey || event.altKey) return;
-      if (visibleElement('[role="dialog"]')) return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      // As in a search: Escape outside the field clears the filter.
+      if (event.key === "Escape") {
+        if (filter) {
+          event.preventDefault();
+          setFilter("");
+        }
+        return;
+      }
       const bindings: Record<string, () => void> = {
         j: () => move(1),
         ArrowDown: () => move(1),
@@ -539,7 +561,7 @@ export default function CommitView({
         " ": () => focusedFile && void toggle(focusedFile),
         a: () => void toggleShown(),
         "/": () => search.current?.focus(),
-        c: () => field.current?.focus(),
+        c: compose,
         P: () => void push(),
       };
       // Shift with a letter is its capital, whatever the key event reports.
@@ -551,7 +573,7 @@ export default function CommitView({
     };
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
-  }, [active, commit, focusedFile, keys, move, push, toggle, toggleShown]);
+  }, [active, compose, filter, focusedFile, keys, move, push, toggle, toggleShown]);
 
   const options = useMemo<CodeViewReactOptions<undefined, undefined>>(
     () => ({
@@ -571,7 +593,8 @@ export default function CommitView({
     : status?.pushRemote && status.branch
       ? `${status.pushRemote}/${status.branch}`
       : null;
-  const rows = Math.min(12, Math.max(3, text.split("\n").length + 1));
+  const rows = Math.min(16, Math.max(6, text.split("\n").length + 1));
+  const summaryLength = text.split("\n", 1)[0]!.trim().length;
   return (
     <div ref={root} {...stylex.props(styles.root)}>
       <div {...stylex.props(styles.layout)}>
@@ -662,7 +685,7 @@ export default function CommitView({
                     list.current?.focus({ preventScroll: true });
                   }}
                   onDoubleClick={() => void toggle(file)}
-                  {...stylex.props(styles.row, file === focusedFile && styles.rowFocused)}
+                  {...stylex.props(styles.row, file === focusedFile && [styles.rowFocused, picked])}
                 >
                   <span
                     aria-hidden="true"
@@ -685,96 +708,82 @@ export default function CommitView({
               );
             })}
           </div>
-        </div>
-        <div {...stylex.props(styles.main)}>
-          <div {...stylex.props(styles.composer)}>
-            <textarea
-              ref={field}
-              aria-label="Commit message"
-              placeholder="Commit message (c)"
-              value={text}
-              rows={rows}
-              spellCheck
-              onChange={(event) => setText(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  list.current?.focus({ preventScroll: true });
-                }
-              }}
-              {...stylex.props(ui.input, styles.message)}
-            />
-            <div {...stylex.props(styles.actions)}>
-              <span {...stylex.props(styles.staged)}>
+          <footer {...stylex.props(styles.footer)}>
+            {notice ? (
+              <p
+                role={notice.tone === "error" ? "alert" : "status"}
+                {...stylex.props(styles.notice, notice.tone === "error" && styles.noticeError)}
+              >
+                {notice.text}
+              </p>
+            ) : (
+              <p {...stylex.props(styles.notice)}>
                 {stagedCount
                   ? `${stagedCount} of ${files.length} ${files.length === 1 ? "file" : "files"} staged`
                   : "Nothing staged"}
-              </span>
-              <button
-                type="button"
-                disabled={
-                  busy !== null ||
-                  !status?.head ||
-                  !status.branch ||
-                  (!!status.upstream && status.ahead === 0)
-                }
-                title={pushLabel ? `Push to ${pushLabel}` : "No remote to push to"}
-                onClick={() => void push()}
-                {...stylex.props(ui.button, styles.action)}
-              >
-                <Icon name="push" size={14} />
-                {busy === "push" ? "Pushing…" : "Push"}
-                {!!status?.ahead && <span {...stylex.props(ui.faint)}>↑{status.ahead}</span>}
-                <ShortcutKeys value="Shift+P" />
-              </button>
-              <button
-                type="button"
-                disabled={busy !== null || !stagedCount || !text.trim()}
-                onClick={() => void commit()}
-                {...stylex.props(ui.button, ui.primary, styles.action)}
-              >
-                <Icon name="commit" size={14} />
-                {busy === "commit" ? "Committing…" : "Commit"}
-                <ShortcutKeys value="Mod+Enter" />
-              </button>
-            </div>
-          </div>
-          {confirmTrack && pushLabel && (
-            <div role="group" aria-label="Track a new upstream" {...stylex.props(styles.confirm)}>
-              <span {...stylex.props(ui.grow)}>
-                Push to <strong>{pushLabel}</strong> and track it?
-              </span>
-              <button
-                ref={confirmButton}
-                type="button"
-                onClick={() => void push(true)}
-                {...stylex.props(ui.button, ui.primary, styles.small)}
-              >
-                Push and track
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setConfirmTrack(false);
-                  list.current?.focus({ preventScroll: true });
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Escape") setConfirmTrack(false);
-                }}
-                {...stylex.props(ui.button, styles.small)}
-              >
-                Cancel
-              </button>
-            </div>
-          )}
-          {notice && (
-            <p
-              role={notice.tone === "error" ? "alert" : "status"}
-              {...stylex.props(styles.notice, notice.tone === "error" && styles.noticeError)}
-            >
-              {notice.text}
-            </p>
-          )}
+              </p>
+            )}
+            {confirmTrack && pushLabel ? (
+              <div role="group" aria-label="Track a new upstream" {...stylex.props(styles.confirm)}>
+                <span {...stylex.props(styles.confirmText)}>
+                  Push to <strong>{pushLabel}</strong> and track it?
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirmTrack(false);
+                    list.current?.focus({ preventScroll: true });
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") setConfirmTrack(false);
+                  }}
+                  {...stylex.props(ui.button, styles.small)}
+                >
+                  Cancel
+                </button>
+                <button
+                  ref={confirmButton}
+                  type="button"
+                  onClick={() => void push(true)}
+                  {...stylex.props(ui.button, ui.primary, styles.small)}
+                >
+                  Push and track
+                </button>
+              </div>
+            ) : (
+              <div {...stylex.props(styles.actions)}>
+                <button
+                  type="button"
+                  disabled={
+                    busy !== null ||
+                    !status?.head ||
+                    !status.branch ||
+                    (!!status.upstream && status.ahead === 0)
+                  }
+                  title={pushLabel ? `Push to ${pushLabel} (⇧P)` : "No remote to push to"}
+                  onClick={() => void push()}
+                  {...stylex.props(ui.button, styles.action)}
+                >
+                  <Icon name="push" size={14} />
+                  {busy === "push" ? "Pushing…" : "Push"}
+                  {!!status?.ahead && <span {...stylex.props(ui.faint)}>↑{status.ahead}</span>}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy !== null || !stagedCount}
+                  title="Write the message and commit (c)"
+                  onClick={compose}
+                  {...stylex.props(ui.button, ui.primary, styles.action)}
+                >
+                  <Icon name="commit" size={14} />
+                  {busy === "commit" ? "Committing…" : "Commit…"}
+                  <ShortcutKeys value="c" />
+                </button>
+              </div>
+            )}
+          </footer>
+        </div>
+        <div {...stylex.props(styles.main)}>
           <section
             aria-label="Changes to commit"
             onWheel={() => (following.current = false)}
@@ -862,6 +871,66 @@ export default function CommitView({
           </section>
         </div>
       </div>
+      <Dialog.Root
+        open={composing}
+        onOpenChange={(open) => {
+          if (!open && busy !== "commit") setComposing(false);
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Backdrop {...stylex.props(ui.scrim, styles.backdrop)} />
+          <Dialog.Popup initialFocus={field} finalFocus={list} {...stylex.props(styles.dialog)}>
+            <Dialog.Title {...stylex.props(styles.dialogTitle)}>
+              <Icon name="commit" size={15} />
+              Commit {stagedCount} {stagedCount === 1 ? "file" : "files"}
+              {status?.branch && (
+                <span {...stylex.props(styles.dialogBranch)}>to {status.branch}</span>
+              )}
+            </Dialog.Title>
+            <textarea
+              ref={field}
+              aria-label="Commit message"
+              placeholder="Summary, then a blank line and the body"
+              value={text}
+              rows={rows}
+              spellCheck
+              onChange={(event) => setText(event.target.value)}
+              onKeyDown={(event) => {
+                if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                  event.preventDefault();
+                  void commit();
+                }
+              }}
+              {...stylex.props(ui.input, styles.message)}
+            />
+            {commitError && (
+              <p role="alert" {...stylex.props(styles.dialogError)}>
+                {commitError}
+              </p>
+            )}
+            <div {...stylex.props(styles.dialogActions)}>
+              <span
+                title="Characters in the summary line"
+                {...stylex.props(styles.count, summaryLength > 72 && styles.countLong)}
+              >
+                {summaryLength > 0 && summaryLength}
+              </span>
+              <Dialog.Close {...stylex.props(ui.button)} disabled={busy === "commit"}>
+                Cancel
+              </Dialog.Close>
+              <button
+                type="button"
+                disabled={busy !== null || !stagedCount || !text.trim()}
+                onClick={() => void commit()}
+                {...stylex.props(ui.button, ui.primary, styles.action)}
+              >
+                {busy === "commit" ? "Committing…" : "Commit"}
+                <ShortcutKeys value="Mod+Enter" />
+              </button>
+            </div>
+          </Dialog.Popup>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }
@@ -885,6 +954,10 @@ function ChangeLetter({ kind }: { kind: Change }) {
 }
 
 const headerBackground = `color-mix(in srgb, ${tokens.canvas} 96%, ${tokens.text})`;
+const rise = stylex.keyframes({
+  from: { opacity: 0, transform: "translate(-50%, 6px) scale(0.985)" },
+  to: { opacity: 1, transform: "translate(-50%, 0) scale(1)" },
+});
 // A narrow view puts the file list above the message and the stream.
 const narrow = "@container (max-width: 720px)";
 const styles = stylex.create({
@@ -982,8 +1055,8 @@ const styles = stylex.create({
     userSelect: "none",
   },
   rowFocused: {
-    color: tokens.text,
-    backgroundColor: { default: tokens.fillStrong, ":hover": tokens.fillStrong },
+    color: tokens.selectedText,
+    backgroundColor: { default: tokens.pick, ":hover": tokens.pick },
   },
   mark: {
     width: 14,
@@ -1011,64 +1084,92 @@ const styles = stylex.create({
   conflict: { color: tokens.red, fontWeight: 600 },
   empty: { margin: 0, padding: 12, color: tokens.faint, fontSize: 12.5 },
   main: { display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0 },
-  composer: {
+  footer: {
     display: "flex",
     flexDirection: "column",
     gap: 8,
     flexShrink: 0,
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: tokens.line,
+    padding: 10,
+    borderTopWidth: 1,
+    borderTopStyle: "solid",
+    borderTopColor: tokens.line,
   },
+  notice: {
+    margin: 0,
+    maxHeight: 120,
+    overflowY: "auto",
+    whiteSpace: "pre-wrap",
+    fontSize: 12,
+    color: tokens.faint,
+  },
+  noticeError: { color: tokens.red, fontFamily: tokens.code, fontSize: 11.5 },
+  actions: { display: "flex", gap: 8 },
+  action: { flex: "1", minWidth: 0, gap: 6, paddingInline: 10 },
+  confirm: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 8,
+    fontSize: 12.5,
+    color: tokens.muted,
+  },
+  confirmText: { flexBasis: "100%" },
+  backdrop: { zIndex: 110 },
+  dialog: {
+    position: "fixed",
+    top: "24vh",
+    left: "50%",
+    transform: "translateX(-50%)",
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+    width: "min(620px, 92vw)",
+    boxSizing: "border-box",
+    padding: 16,
+    borderRadius: `calc(12px * ${tokens.round})`,
+    backgroundColor: tokens.raised,
+    color: tokens.text,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: tokens.lineStrong,
+    boxShadow: tokens.shadow,
+    zIndex: 111,
+    outline: "none",
+    fontFamily: tokens.ui,
+    animationName: { default: rise, "@media (prefers-reduced-motion: reduce)": "none" },
+    animationDuration: "180ms",
+    animationTimingFunction: tokens.easeOut,
+  },
+  dialogTitle: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    margin: 0,
+    fontSize: 13.5,
+    fontWeight: 550,
+  },
+  dialogBranch: { color: tokens.muted, fontWeight: 400 },
   message: {
     height: "auto",
     resize: "none",
-    boxSizing: "border-box",
     paddingBlock: 8,
     fontFamily: tokens.code,
     fontSize: 13,
     lineHeight: 1.5,
   },
-  actions: { display: "flex", alignItems: "center", gap: 8 },
-  staged: {
-    flex: "1",
-    minWidth: 0,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-    color: tokens.faint,
-    fontSize: 12,
-  },
-  action: { flexShrink: 0, gap: 6, paddingInline: 10 },
-  confirm: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    flexShrink: 0,
-    paddingBlock: 8,
-    paddingInline: 12,
-    fontSize: 12.5,
-    color: tokens.muted,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: tokens.line,
-  },
-  notice: {
-    flexShrink: 0,
+  dialogError: {
     margin: 0,
-    maxHeight: 160,
+    maxHeight: 200,
     overflowY: "auto",
-    paddingBlock: 8,
-    paddingInline: 12,
     whiteSpace: "pre-wrap",
-    fontSize: 12,
-    color: tokens.muted,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: tokens.line,
+    color: tokens.red,
+    fontFamily: tokens.code,
+    fontSize: 11.5,
   },
-  noticeError: { color: tokens.red, fontFamily: tokens.code, fontSize: 11.5 },
+  dialogActions: { display: "flex", alignItems: "center", gap: 8 },
+  count: { flex: "1", color: tokens.faint, fontFamily: tokens.code, fontSize: 11.5 },
+  countLong: { color: tokens.warning },
   stream: { flex: "1", minHeight: 0, display: "flex", flexDirection: "column" },
   codeView: { flex: "1", minHeight: 0, height: "100%", overflow: "auto", scrollbarWidth: "thin" },
   diffHeader: {
@@ -1093,7 +1194,7 @@ const styles = stylex.create({
     flexShrink: 0,
     padding: 0,
     borderWidth: 0,
-    borderRadius: 4,
+    borderRadius: `calc(4px * ${tokens.round})`,
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
     color: tokens.faint,
     fontSize: 12.5,
@@ -1104,7 +1205,7 @@ const styles = stylex.create({
   part: {
     flexShrink: 0,
     paddingInline: 6,
-    borderRadius: 4,
+    borderRadius: `calc(4px * ${tokens.round})`,
     fontSize: 10.5,
     fontWeight: 500,
     lineHeight: "17px",

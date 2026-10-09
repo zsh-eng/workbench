@@ -84,7 +84,7 @@ const styles = stylex.create({
     paddingInlineEnd: 6,
     minHeight: 28,
     boxSizing: "border-box",
-    borderRadius: 7,
+    borderRadius: `calc(7px * ${tokens.round})`,
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: tokens.lineStrong,

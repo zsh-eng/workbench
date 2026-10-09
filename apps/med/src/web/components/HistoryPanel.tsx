@@ -3,7 +3,7 @@ import * as stylex from "@stylexjs/stylex";
 import { memo, useMemo, useState, useRef, useEffect, useLayoutEffect, useId } from "react";
 import type { Commit, CommitDetails } from "../../shared/protocol";
 import { layoutHistory, type GraphRow } from "./history-layout";
-import { tokens, ui } from "../theme.stylex";
+import { picked, tokens, ui } from "../theme.stylex";
 import { relativeTime } from "../data/relative-time";
 import { CommitCard } from "./CommitCard";
 import { Icon } from "./Icon";
@@ -213,7 +213,7 @@ export const HistoryPanel = memo(function HistoryPanel({
             aria-controls={bodyId}
             onClick={() => onCollapsedChange(!collapsed)}
           >
-            <span {...stylex.props(styles.label)}>
+            <span {...stylex.props(ui.label, styles.label)}>
               History
               <span {...stylex.props(styles.chevron, collapsed && styles.chevronClosed)}>
                 <Icon name="chevron" size={12} />
@@ -229,7 +229,7 @@ export const HistoryPanel = memo(function HistoryPanel({
           </button>
         ) : (
           <div {...stylex.props(styles.heading)}>
-            <span>History</span>
+            <span {...stylex.props(ui.label)}>History</span>
             {count}
           </div>
         )}
@@ -240,7 +240,7 @@ export const HistoryPanel = memo(function HistoryPanel({
         >
           {workingAvailable && (
             <button
-              {...stylex.props(styles.working, working && styles.selected)}
+              {...stylex.props(styles.working, working && [styles.selected, picked])}
               onClick={() => {
                 pendingSelection.current = undefined;
                 anchor.current = undefined;
@@ -328,7 +328,7 @@ export const HistoryPanel = memo(function HistoryPanel({
                     className={
                       stylex.props(
                         styles.commit,
-                        chosen && styles.selected,
+                        chosen && [styles.selected, picked],
                         joinsAbove && styles.joinsAbove,
                         joinsBelow && styles.joinsBelow,
                       ).className
@@ -419,7 +419,7 @@ const styles = stylex.create({
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: tokens.lineStrong,
-    borderRadius: 10,
+    borderRadius: `calc(10px * ${tokens.round})`,
     boxShadow: tokens.shadow,
   },
   panel: {
@@ -466,7 +466,7 @@ const styles = stylex.create({
     cursor: "pointer",
     outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
     outlineOffset: -2,
-    borderRadius: 7,
+    borderRadius: `calc(7px * ${tokens.round})`,
     transitionProperty: "color",
     transitionDuration: "120ms",
   },
@@ -525,7 +525,7 @@ const styles = stylex.create({
     paddingInlineEnd: 10,
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
     borderWidth: 0,
-    borderRadius: 7,
+    borderRadius: `calc(7px * ${tokens.round})`,
     color: tokens.text,
     fontFamily: tokens.ui,
     fontSize: 12.5,
@@ -554,14 +554,17 @@ const styles = stylex.create({
     paddingRight: 10,
     boxSizing: "border-box",
     borderWidth: 0,
-    borderRadius: 7,
+    borderRadius: `calc(7px * ${tokens.round})`,
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
     color: tokens.text,
     fontFamily: tokens.ui,
     textAlign: "left",
     cursor: "pointer",
   },
-  selected: { backgroundColor: { default: tokens.selected, ":hover": tokens.selected } },
+  selected: {
+    backgroundColor: { default: tokens.selected, ":hover": tokens.selected },
+    color: tokens.selectedText,
+  },
   joinsAbove: { borderTopLeftRadius: 0, borderTopRightRadius: 0 },
   joinsBelow: { borderBottomLeftRadius: 0, borderBottomRightRadius: 0 },
   divided: {
@@ -601,7 +604,7 @@ const styles = stylex.create({
     minWidth: 0,
     maxWidth: 96,
     paddingInline: 5,
-    borderRadius: 4,
+    borderRadius: `calc(4px * ${tokens.round})`,
     backgroundColor: tokens.accentSoft,
     color: tokens.accent,
     overflow: "hidden",

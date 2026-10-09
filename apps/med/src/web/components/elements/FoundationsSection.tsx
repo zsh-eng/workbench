@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { tokens } from "../../theme.stylex";
+import { picked, tokens, ui } from "../../theme.stylex";
 import { themes, useTheme, type Theme, type ThemePalette } from "../../themes";
 import { Icon, iconNames } from "../Icon";
 import { Section, Specimen } from "./Specimen";
@@ -163,6 +163,29 @@ const typeScale = [
   { size: 10.5, weight: 400, role: "Hashes, counts (code font)", sample: "ab41597", code: true },
 ];
 
+/** A theme's aesthetic in a few words, for the specimen note. */
+function describe({ aesthetic: look }: Theme) {
+  const names: Record<string, string> = {
+    "ui-sans-serif": "System sans",
+    "ui-serif": "System serif",
+  };
+  const font = (stack: string) => {
+    const first = stack.split(",")[0].replaceAll('"', "").trim();
+    return names[first] ?? first;
+  };
+  return [
+    look.fonts.prose === look.fonts.ui
+      ? font(look.fonts.ui)
+      : `${font(look.fonts.ui)}, ${font(look.fonts.prose)} prose`,
+    `corners × ${look.round}${look.buttons === "pill" ? ", pill buttons" : ""}`,
+    `${look.lines.from} lines`,
+    `${look.selection === "fill" ? "solid" : "tinted"} selection`,
+    `${look.primary} primary`,
+    `${look.labels.case === "uppercase" ? "uppercase" : "sentence-case"} labels`,
+    look.depth === "flat" ? "no shadows" : "shadows",
+  ].join(" · ");
+}
+
 export function FoundationsSection({ onPickTheme }: { onPickTheme(id: string): void }) {
   const { active } = useTheme();
   return (
@@ -209,9 +232,34 @@ export function FoundationsSection({ onPickTheme }: { onPickTheme(id: string): v
       <Specimen title="All themes" note="Click a theme to preview it on this page." surface="panel">
         <ThemeMatrix onPick={onPickTheme} />
       </Specimen>
+      <Specimen title={`${active.label} aesthetic`} note={describe(active)} span="half">
+        <div {...stylex.props(styles.look)}>
+          <div {...stylex.props(styles.lookHeading)}>
+            <span {...stylex.props(ui.label)}>Changes</span>
+            <span {...stylex.props(ui.mono, ui.faint)}>3</span>
+          </div>
+          {["src/web/App.tsx", "README.md", "docs/USAGE.md"].map((path, index) => (
+            <div
+              key={path}
+              {...stylex.props(styles.lookRow, index === 0 && [styles.lookPicked, picked])}
+            >
+              <span {...stylex.props(ui.truncate)}>{path}</span>
+              <span {...stylex.props(ui.added)}>+{12 - index * 4}</span>
+            </div>
+          ))}
+          <div {...stylex.props(styles.lookActions)}>
+            <button type="button" {...stylex.props(ui.button, ui.outlined)}>
+              Push
+            </button>
+            <button type="button" {...stylex.props(ui.button, ui.primary)}>
+              Commit…
+            </button>
+          </div>
+        </div>
+      </Specimen>
       <Specimen
         title="Type"
-        note="Geist for UI and Paper Mono for code. Sizes in use; 10–10.5, 11–11.5, and 12–12.5 are candidates to merge."
+        note="The theme sets the interface font; code is Paper Mono in every theme. Sizes in use; 10–10.5, 11–11.5, and 12–12.5 are candidates to merge."
         span="half"
       >
         <div {...stylex.props(styles.type)}>
@@ -234,7 +282,11 @@ export function FoundationsSection({ onPickTheme }: { onPickTheme(id: string): v
           ))}
         </div>
       </Specimen>
-      <Specimen title="Shape" note="Radius grows with the size of the surface." span="half">
+      <Specimen
+        title="Shape"
+        note="Radius grows with the size of the surface; each theme scales it."
+        span="half"
+      >
         <div {...stylex.props(styles.shapes)}>
           {[
             [4, "Chips"],
@@ -271,7 +323,7 @@ const paint = stylex.create({
   ink: (color: string) => ({ color }),
   inkOn: (color: string, background: string) => ({ color, backgroundColor: background }),
   type: (size: number, weight: number) => ({ fontSize: size, fontWeight: weight }),
-  radius: (radius: number) => ({ borderRadius: radius }),
+  radius: (radius: number) => ({ borderRadius: `calc(${radius}px * ${tokens.round})` }),
 });
 
 const layerStyles = stylex.create({
@@ -295,7 +347,7 @@ const styles = stylex.create({
     gap: 4,
     padding: 6,
     paddingBottom: 10,
-    borderRadius: 10,
+    borderRadius: `calc(10px * ${tokens.round})`,
     backgroundColor: tokens.canvas,
     boxShadow: `0 0 0 1px ${tokens.line}`,
   },
@@ -306,12 +358,12 @@ const styles = stylex.create({
     height: 56,
     padding: 6,
     boxSizing: "border-box",
-    borderRadius: 6,
+    borderRadius: `calc(6px * ${tokens.round})`,
     boxShadow: `inset 0 0 0 1px ${tokens.line}`,
   },
   swatchSample: {
     paddingInline: 6,
-    borderRadius: 4,
+    borderRadius: `calc(4px * ${tokens.round})`,
     fontSize: 12,
     fontWeight: 500,
     lineHeight: "18px",
@@ -338,17 +390,40 @@ const styles = stylex.create({
   layer: { display: "flex", flexDirection: "column", gap: 4 },
   layerChip: {
     height: 40,
-    borderRadius: 6,
+    borderRadius: `calc(6px * ${tokens.round})`,
     boxShadow: `inset 0 0 0 1px ${tokens.line}`,
   },
   depth: { display: "grid", placeItems: "center", minHeight: 150 },
+  look: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+    padding: 8,
+    borderRadius: `calc(10px * ${tokens.round})`,
+    backgroundColor: tokens.panel,
+    boxShadow: `inset 0 0 0 1px ${tokens.line}`,
+  },
+  lookHeading: { display: "flex", alignItems: "center", gap: 8, height: 28, paddingInline: 8 },
+  lookRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    height: 28,
+    paddingInline: 8,
+    borderRadius: `calc(6px * ${tokens.round})`,
+    color: tokens.muted,
+    fontSize: 12.5,
+  },
+  lookPicked: { backgroundColor: tokens.pick, color: tokens.selectedText },
+  lookActions: { display: "flex", justifyContent: "flex-end", gap: 6, marginTop: 8 },
   depthCard: {
     position: "relative",
     width: "min(320px, 100%)",
     height: 120,
     padding: 12,
     boxSizing: "border-box",
-    borderRadius: 10,
+    borderRadius: `calc(10px * ${tokens.round})`,
     backgroundColor: tokens.canvas,
     boxShadow: `0 0 0 1px ${tokens.line}`,
     color: tokens.faint,
@@ -359,7 +434,7 @@ const styles = stylex.create({
     right: -12,
     bottom: -14,
     padding: 10,
-    borderRadius: 10,
+    borderRadius: `calc(10px * ${tokens.round})`,
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: tokens.lineStrong,
@@ -379,7 +454,7 @@ const styles = stylex.create({
     gap: 12,
     padding: 8,
     borderWidth: 0,
-    borderRadius: 10,
+    borderRadius: `calc(10px * ${tokens.round})`,
     boxShadow: `0 0 0 1px ${tokens.line}`,
     fontFamily: tokens.ui,
     fontSize: 12,
@@ -402,7 +477,7 @@ const styles = stylex.create({
     minWidth: 0,
     height: 32,
     paddingInline: 10,
-    borderRadius: 7,
+    borderRadius: `calc(7px * ${tokens.round})`,
     fontFamily: tokens.code,
     fontSize: 11.5,
     overflow: "hidden",
@@ -410,7 +485,7 @@ const styles = stylex.create({
   },
   matrixChip: {
     paddingInline: 5,
-    borderRadius: 4,
+    borderRadius: `calc(4px * ${tokens.round})`,
     fontFamily: tokens.ui,
     fontSize: 10.5,
     fontWeight: 500,
@@ -420,7 +495,7 @@ const styles = stylex.create({
   matrixCell: {
     width: 18,
     height: 18,
-    borderRadius: 4,
+    borderRadius: `calc(4px * ${tokens.round})`,
     boxShadow: "inset 0 0 0 1px rgb(127 127 127 / 0.25)",
   },
   type: { display: "grid", gap: 10 },
@@ -464,7 +539,7 @@ const styles = stylex.create({
     gap: 8,
     paddingBlock: 12,
     paddingInline: 4,
-    borderRadius: 7,
+    borderRadius: `calc(7px * ${tokens.round})`,
     color: tokens.text,
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
   },

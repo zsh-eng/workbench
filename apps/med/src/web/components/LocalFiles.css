@@ -6,12 +6,7 @@
   background: var(--local-bg);
   color: var(--local-fg);
   font-size: 12px;
-  font-family:
-    "Geist",
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  font-family: var(--med-font-ui);
 }
 .med-local-toolbar {
   display: flex;
@@ -24,7 +19,7 @@
 .med-local button {
   background: transparent;
   border: 1px solid var(--local-border);
-  border-radius: 5px;
+  border-radius: calc(5px * var(--med-round, 1));
   padding: 4px 9px;
   color: inherit;
   white-space: nowrap;
@@ -63,7 +58,7 @@
   inset: 12px;
   z-index: 100;
   border: 2px dashed #8cabeb;
-  border-radius: 12px;
+  border-radius: calc(12px * var(--med-round, 1));
   background: #162336ed;
   color: white;
   display: grid;
@@ -90,10 +85,8 @@
   background: var(--med-panel);
   color: var(--med-text);
   border: 1px solid var(--med-border);
-  border-radius: 12px;
-  font:
-    14px/1.5 "Geist",
-    sans-serif;
+  border-radius: calc(12px * var(--med-round, 1));
+  font: 14px/1.5 var(--med-font-ui);
 }
 .med-local-dialog h2 {
   margin: 0 0 8px;
@@ -110,7 +103,7 @@
   background: var(--med-canvas);
   color: inherit;
   border: 1px solid var(--med-border);
-  border-radius: 6px;
+  border-radius: calc(6px * var(--med-round, 1));
 }
 .med-local-dialog-actions {
   display: flex;
@@ -123,7 +116,7 @@
   background: var(--med-canvas);
   color: inherit;
   border: 1px solid var(--med-border);
-  border-radius: 6px;
+  border-radius: calc(6px * var(--med-round, 1));
   cursor: pointer;
 }
 
@@ -141,7 +134,7 @@
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 7px;
+  border-radius: calc(7px * var(--med-round, 1));
   color: var(--local-muted);
   background: transparent;
 }
@@ -151,6 +144,6 @@
 }
 .med-local .med-local-tabs [role="tab"] {
   border-color: transparent;
-  border-radius: 6px;
+  border-radius: calc(6px * var(--med-round, 1));
   padding: 5px 10px;
 }
