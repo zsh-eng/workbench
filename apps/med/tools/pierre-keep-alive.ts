@@ -9,7 +9,9 @@ import type { Plugin } from "vite";
  * React wrapper destroyed its CodeView when the ref detached, so each
  * workspace switch built the shown review's diffs again, with a forced layout.
  * The wrapper now keeps the view while its element stays in the document and
- * frees it when React removes the element.
+ * frees it when React removes the element. A removed view is freed before a
+ * new view attaches, as before, because a freed view still notifies shared
+ * listeners, such as the Vim caret of the file view that replaced it.
  *
  * A view with `display: none` has no box. Pierre measured it as zero height
  * and replaced the rendered rows; it now skips that work until the view has a
@@ -39,12 +41,15 @@ export function pierreKeepAlive(): Plugin {
           "function CodeViewInner(props, ref) {",
           `const detachedViews = new Map();
 let detachedSweep;
-function sweepDetachedViews() {
-	detachedSweep = void 0;
+function cleanUpRemovedViews() {
 	for (const [view, cleanUp] of detachedViews) if (!view.getContainerElement()?.isConnected) {
 		detachedViews.delete(view);
 		cleanUp();
 	}
+}
+function sweepDetachedViews() {
+	detachedSweep = void 0;
+	cleanUpRemovedViews();
 	if (detachedViews.size > 0) detachedSweep = setTimeout(sweepDetachedViews, 1e4);
 }
 function keepWhileConnected(view, cleanUp) {
@@ -81,6 +86,9 @@ function CodeViewInner(props, ref) {`,
 			assignRef(containerRef, node);
 			return;
 		}
+		// React removed the elements of unmounted views before it attaches new
+		// ones, so they clean up first, in the original order.
+		if (node != null) cleanUpRemovedViews();
 `,
         );
       }
