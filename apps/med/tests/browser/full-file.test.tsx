@@ -1841,3 +1841,40 @@ test("worker highlighting preserves distant multiline state across file switches
   await expect.poll(() => line(290)?.textContent).toBe("comment 287");
   await expect.poll(() => color(290)).toContain("#6a737d");
 });
+
+test("colors Groovy and Gradle files with the Java tokenizer", async () => {
+  function Harness() {
+    const [gradle, setGradle] = useState(false);
+    return (
+      <WorkerPoolContextProvider
+        highlighterOptions={{ theme: "github-dark" }}
+        poolOptions={{ workerFactory: () => new PierreWorker(), poolSize: 1 }}
+      >
+        <button onClick={() => setGradle(true)}>Open Gradle</button>
+        <FullFileView
+          {...props}
+          file={{
+            ...base,
+            path: gradle ? "build.gradle" : "src/Build.groovy",
+            identity: gradle ? "gradle" : "groovy",
+            text: gradle ? "def name = 'med'" : "class Build { def name = 'med' }",
+          }}
+        />
+      </WorkerPoolContextProvider>
+    );
+  }
+  render(<Harness />);
+  const color = (text: string) =>
+    [
+      ...(document.querySelector("diffs-container")?.shadowRoot?.querySelectorAll("span[style]") ??
+        []),
+    ]
+      .find((span) => span.textContent?.trim() === text)
+      ?.getAttribute("style")
+      ?.toLowerCase();
+  await expect.poll(() => color("class")).toContain("#f97583");
+  await expect.poll(() => color("'med'")).toContain("#9ecbff");
+  await page.getByRole("button", { name: "Open Gradle" }).click();
+  await expect.poll(() => color("class")).toBeUndefined();
+  await expect.poll(() => color("'med'")).toContain("#9ecbff");
+});
