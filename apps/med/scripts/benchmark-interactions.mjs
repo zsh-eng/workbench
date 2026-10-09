@@ -5,7 +5,8 @@
 // main-thread work by category from a Chrome trace.
 //
 // node scripts/benchmark-interactions.mjs [--cli dist/cli.js] [--out file.json]
-//   [--runs 9] [--trace] [--source <git checkout>] [--commit <sha>] [--headed]
+//   [--runs 9] [--trace [--trace-out trace.json]] [--only a,b] [--source <git checkout>]
+//   [--commit <sha>] [--headed] [--keep]
 //
 // The fixture is a temporary local clone of --source (default: this checkout)
 // at --commit, with working changes and three linked worktrees. The host runs
@@ -24,6 +25,7 @@ const { values: args } = parseArgs({
     out: { type: "string" },
     runs: { type: "string", default: "9" },
     trace: { type: "boolean", default: false },
+    "trace-out": { type: "string" },
     source: { type: "string" },
     commit: { type: "string", default: "3f99788c" },
     only: { type: "string" },
@@ -834,6 +836,7 @@ try {
         }
     }
     const buffer = await browser.stopTracing();
+    if (args["trace-out"]) await writeFile(args["trace-out"], buffer);
     for (const entry of analyseTrace(JSON.parse(buffer.toString()), order))
       (results[entry.label] ??= { samples: [], counts: [], trace: [] }).trace.push(entry);
     for (const name of Object.keys(results)) if (name.startsWith("trace:")) delete results[name];
