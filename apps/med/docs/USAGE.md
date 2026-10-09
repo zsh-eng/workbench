@@ -145,6 +145,13 @@ A saved review opens its first target. Select other repositories or ranges from 
 
 An agent that names its task with a key updates one review over several rounds. Each round is an iteration: the review opens on the latest one and is marked new again. The Brief tab numbers the iterations; choose one to read its brief beside its comparison. **Review target** groups the comparisons by iteration. Comments on earlier iterations stay.
 
+A review that records its agent session has a Claude or Codex button in the
+toolbar, and **Show agent session** in the command palette. They open the
+Session sidebar: the prompts, replies, thoughts, tool calls with their output
+and diffs, the plan, and background shells and agents. The sidebar follows the
+session while the agent works and shows **Working** or **Idle**. A file link in
+a reply opens the file. See [agent sessions](SESSIONS.md).
+
 Saved reviews and their comments persist in `~/.local/state/med`. Normal branch review notes still end with the host process. See [agent integration](AGENT_INTEGRATION.md) for commands, state settings, limits, and suggested `AGENTS.md` guidance.
 
 ### Briefs
@@ -433,7 +440,9 @@ mode draws every box, and inspect mode lists the clicked element's size, type,
 and colors as theme tokens with its text contrast. Each specimen can sit on the
 frame, card, or popover surface. The **Commit flow** section runs the Commit tab
 on a pretend repository, with switches for a failing hook, a rejected push, a
-branch without an upstream, and slow commands.
+branch without an upstream, and slow commands. The **Agent session** section
+replays a recorded Claude Code session at 1×, 4×, or 16×, and shows every part
+of the thread on sample updates.
 
 Run the complete check from the Workbench root:
 

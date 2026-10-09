@@ -203,6 +203,8 @@ A bundle with a pull request URL can show the pull request's GitHub comments. `G
 
 See [agent integration](docs/AGENT_INTEGRATION.md) for the CLI contract, repository selection policy, data limits, and user-confirmed `AGENTS.md` guidance.
 
+A bundle records the agent sessions that worked on it. `GET /api/reviews/:id/sessions/:session/events` finds a recorded session's Claude Code transcript or Codex rollout, converts its last 8 MiB to Agent Client Protocol `session/update` shapes, and polls the file for new lines (`src/host/agent-transcripts.ts`). The browser's Session sidebar applies the updates to a store and renders the thread. See [agent sessions](docs/SESSIONS.md) for the model, the readers, limits, and how this relates to an ACP connection.
+
 ## Working-file editing
 
 The read-only file/diff viewer stays on Pierre. Editing lazy-loads CodeMirror 6

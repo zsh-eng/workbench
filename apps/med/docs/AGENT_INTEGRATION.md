@@ -134,6 +134,9 @@ Med reads the session's directory from its transcript in `~/.claude` or
 `~/.codex`. When it finds no transcript, it records the command's directory. A
 review keeps the 32 newest sessions.
 
+A review with a session has a Session sidebar: the agent's thread, read from
+its transcript and followed while the agent works. See [agent sessions](SESSIONS.md).
+
 ### Attach a brief
 
 A brief explains the change to the reviewer. Write it in Markdown and cite code
