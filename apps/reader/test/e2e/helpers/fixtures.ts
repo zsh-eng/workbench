@@ -287,3 +287,20 @@ export async function openLocalBook(page: Page, bookId: string): Promise<void> {
   await page.goto(`/reader/${bookId}`);
   await waitForReaderReady(page);
 }
+
+/** Shows the phone reading chrome, which carries the Notes Island capsule. */
+export async function showNotesCapsule(page: Page): Promise<void> {
+  const capsule = page.locator("[data-notes-capsule]");
+  // A notice from the previous action owns the bottom edge for a moment.
+  await expect(page.locator("[data-notes-island]")).toHaveCount(0);
+  if (!(await capsule.isVisible())) {
+    const spread = (await page
+      .locator('[data-reader-spread-layer="current"]')
+      .boundingBox())!;
+    await page.touchscreen.tap(
+      spread.x + spread.width / 2,
+      spread.y + spread.height / 2,
+    );
+  }
+  await expect(capsule).toBeVisible();
+}

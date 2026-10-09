@@ -39,15 +39,16 @@ async function selectPassage(page: Page, index = 0) {
   );
 }
 
-async function jot(page: Page) {
-  await expect(page.locator("[data-note-composer]")).toHaveCount(0);
-  if (!(await page.getByRole("button", { name: "Jot a note" }).isVisible()))
+/** The capsule rides on the footer, so the chrome must be showing. */
+async function showChrome(page: Page) {
+  const capsule = page.locator("[data-notes-capsule]");
+  if (!(await capsule.isVisible()))
     await page.touchscreen.tap(page.viewportSize()!.width / 2, 300);
-  await page.getByRole("button", { name: "Jot a note" }).click();
+  await expect(capsule).toBeVisible();
 }
 
 for (const reduced of [false, true]) {
-  test(`compact annotation and retained draft ownership${reduced ? " narrow dark reduced motion" : ""}`, async ({
+  test(`Notes Island annotation and retained draft${reduced ? " narrow dark reduced motion" : ""}`, async ({
     page,
     localBook,
   }) => {
@@ -64,7 +65,8 @@ for (const reduced of [false, true]) {
     const colors = page.getByRole("group", { name: "Highlight colors" });
     const quote = page.getByTestId("note-quote");
     const footer = page.locator("[data-reader-footer]");
-    const directory = "diagnostics/interface-review/annotation-simplified";
+    const island = page.locator("[data-notes-island]");
+    const directory = "diagnostics/interface-review/notes-island";
     await mkdir(directory, { recursive: true });
     const capture = (name: string) =>
       page.screenshot({
@@ -79,7 +81,7 @@ for (const reduced of [false, true]) {
       ).annotationFrames = state;
       const sample = () => {
         if (
-          document.querySelector("[data-note-composer]") &&
+          document.querySelector("[data-notes-island]") &&
           document.querySelector("[data-reader-footer]")
         )
           state.overlaps++;
@@ -89,14 +91,22 @@ for (const reduced of [false, true]) {
     });
     await selectPassage(page);
     await expect(colors).toBeVisible();
-    await expect(quote).toHaveCount(0);
-    await expect(input).not.toBeFocused();
+    await expect(input).toHaveCount(0);
     await expect(footer).toHaveCount(0);
+    // The island is centred at the bottom, inside the screen.
+    const toolsBox = (await island.locator("> div > div").boundingBox())!;
+    const width = page.viewportSize()!.width;
+    expect(Math.abs(toolsBox.x + toolsBox.width / 2 - width / 2)).toBeLessThan(
+      2,
+    );
+    expect(toolsBox.x).toBeGreaterThanOrEqual(8);
     await capture("selection");
-    await input.fill("This draft belongs to the original passage.");
+    await page.getByRole("button", { name: "Add note" }).click();
+    await expect(input).toBeFocused();
     await expect(colors).toHaveCount(0);
     await expect(quote).toBeVisible();
     const originalQuote = await quote.locator("span").first().innerText();
+    await input.fill("This draft belongs to a passage.");
     await capture("writing");
     const panel = page.locator("[data-note-composer]");
     await page.evaluate(() => {
@@ -113,67 +123,51 @@ for (const reduced of [false, true]) {
       })
       .toBe(page.viewportSize()!.height - 300);
     await expect(quote).toBeVisible();
-    await expect(colors).toHaveCount(0);
     await capture("keyboard");
     await page.evaluate(() => {
       delete (window.visualViewport as unknown as { height?: number }).height;
       window.visualViewport!.dispatchEvent(new Event("resize"));
     });
-    await expect(colors).toBeVisible();
-    await expect(quote).toHaveCount(0);
-    await input.blur();
-    await input.focus();
-    await expect(quote).toBeVisible();
-    await expect(colors).toHaveCount(0);
     await input.press("Escape");
-    await expect(page.locator("[data-note-composer]")).toHaveCount(0);
+    await expect(panel).toHaveCount(0);
+    // A new passage offers to attach itself to the unfinished draft.
     await selectPassage(page, 2);
-    await expect(input).toHaveValue(
-      "This draft belongs to the original passage.",
-    );
-    await expect(quote.locator("span").first()).toHaveText(originalQuote);
-    await expect(input).not.toBeFocused();
-    await input.focus();
-    await expect(quote.locator("span").first()).toHaveText(originalQuote);
-    await page.getByRole("button", { name: "Note attachment" }).click();
-    await expect(
-      page.getByRole("menuitem", { name: "Use selected passage" }),
-    ).toBeVisible();
-    await page.keyboard.press("Escape");
-    // Returning to the original passage must clear the earlier alternative.
-    // Let the 300 ms touch-selection debounce resolve before focusing the input.
-    await page.clock.install();
-    await selectPassage(page);
-    await page.clock.runFor(350);
-    await input.focus();
-    await page.getByRole("button", { name: "Note attachment" }).click();
-    await expect(
-      page.getByRole("menuitem", { name: "Use selected passage" }),
-    ).toHaveCount(0);
-    await page.keyboard.press("Escape");
+    await expect(page.getByRole("button", { name: "Add note" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Attach to draft" }).click();
+    await expect(input).toHaveValue("This draft belongs to a passage.");
+    await expect(quote.locator("span").first()).not.toHaveText(originalQuote);
+    const attachedQuote = await quote.locator("span").first().innerText();
     await page.getByRole("button", { name: "Save note", exact: true }).click();
-    await expect(page.locator("[data-note-composer]")).toHaveCount(0);
+    await expect(panel).toHaveCount(0);
+    await expect(page.getByRole("status")).toContainText("Saved to notebook");
+    await capture("saved");
+    await expect(island).toHaveCount(0);
     const saved = await page.evaluate(async () => {
       const { syncV2Db: db } = await import("/src/lib/sync-v2/db.ts");
       return (await db.notes.toArray()).filter((note) => !note.isDeleted);
     });
     expect(saved).toHaveLength(1);
-    expect(saved[0]).toMatchObject({ quote: { text: originalQuote } });
-    await jot(page);
-    await expect(
-      page.getByRole("button", { name: "Read latest note" }),
-    ).toHaveCount(0);
-    await page
-      .getByRole("button", { name: "Open notebook", exact: true })
-      .click();
-    const sheet = page.getByRole("dialog", { name: "Notebook", exact: true });
-    await expect(sheet).toContainText(
-      "This draft belongs to the original passage.",
+    expect(saved[0]).toMatchObject({
+      content: "This draft belongs to a passage.",
+      quote: { text: attachedQuote },
+    });
+    await showChrome(page);
+    await capture("capsule");
+    const notebookButton = page.getByRole("button", {
+      name: "Open notebook",
+      exact: true,
+    });
+    await expect(notebookButton).toHaveAttribute(
+      "aria-description",
+      "1 note in this book",
     );
-    await expect(
-      sheet.getByRole("button", { name: "Open notebook", exact: true }),
-    ).toHaveAttribute("aria-description", "1 note in this book");
+    await notebookButton.click();
+    const sheet = page.getByRole("dialog", { name: "Notebook", exact: true });
+    await expect(sheet).toContainText("This draft belongs to a passage.");
     await capture("notebook");
+    await sheet.getByRole("button", { name: "Close notebook" }).click();
+    await expect(sheet).not.toBeVisible();
+    await expect(page.locator("[data-note-composer]")).toHaveCount(0);
     const overlaps = await page.evaluate(() => {
       const state = (
         window as unknown as {
@@ -187,7 +181,7 @@ for (const reduced of [false, true]) {
   });
 }
 
-test("explicit reassignment, quote removal and highlight deletion preserve note intent", async ({
+test("attaching, quote removal and highlight deletion preserve note intent", async ({
   page,
   localBook,
 }) => {
@@ -201,26 +195,20 @@ test("explicit reassignment, quote removal and highlight deletion preserve note 
     .locator('[data-reader-spread-layer="current"] mark')
     .first();
   await mark.click();
-  const yellow = page.getByRole("button", { name: "Highlight with yellow" });
-  await expect(yellow).toHaveAttribute("aria-pressed", "true");
-  await yellow.click();
-  await expect(mark).toBeVisible();
+  // The current colour removes the highlight, as on desktop.
   await expect(
     page.getByRole("button", { name: "Remove highlight", exact: true }),
-  ).toBeVisible();
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Add note" }).click();
   await input.fill("Retained thought");
   const first = await quote.locator("span").first().innerText();
   await input.press("Escape");
   await expect(page.locator("[data-note-composer]")).toHaveCount(0);
   await selectPassage(page, 2);
-  await input.focus();
-  await page.getByRole("button", { name: "Note attachment" }).click();
-  await page.getByRole("menuitem", { name: "Use selected passage" }).click();
+  await page.getByRole("button", { name: "Attach to draft" }).click();
   await expect(quote.locator("span").first()).not.toHaveText(first);
   await expect(input).toHaveValue("Retained thought");
-  await page.getByRole("button", { name: "Note attachment" }).click();
-  await page.getByRole("menuitem", { name: "Remove quote" }).click();
-  await input.focus();
+  await page.getByRole("button", { name: "Remove quote" }).click();
   await expect(quote).toHaveCount(0);
   await page.getByRole("button", { name: "Save note", exact: true }).click();
   await expect(page.locator("[data-note-composer]")).toHaveCount(0);
@@ -235,4 +223,50 @@ test("explicit reassignment, quote removal and highlight deletion preserve note 
   });
   expect(saved[0]).toMatchObject({ content: "Retained thought" });
   expect(saved[0]).not.toHaveProperty("quote");
+});
+
+test("a noted highlight opens its note on the island, with Undo for deletion", async ({
+  page,
+  localBook,
+}) => {
+  await openLocalBook(page, localBook.id);
+  for (let i = 0; i < 8; i++) await nextSpread(page);
+  await selectPassage(page);
+  await page.getByRole("button", { name: "Highlight with green" }).click();
+  const mark = page
+    .locator('[data-reader-spread-layer="current"] mark')
+    .first();
+  await mark.click();
+  await page.getByRole("button", { name: "Add note" }).click();
+  await page
+    .getByRole("textbox", { name: "Write a note" })
+    .fill("Worth rereading.");
+  await page.getByRole("button", { name: "Save note", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Saved to notebook");
+  await expect(page.locator("[data-notes-island]")).toHaveCount(0);
+  await mark.click();
+  const note = page.getByRole("region", { name: "Note", exact: true });
+  await expect(note).toContainText("Worth rereading.");
+  await expect(note).toContainText(/p\. \d+ · Today/);
+  await page.screenshot({
+    path: "diagnostics/interface-review/notes-island/note.png",
+    animations: "disabled",
+  });
+  await note.getByRole("button", { name: "Delete note" }).click();
+  await expect(page.getByRole("status")).toContainText("Note deleted");
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const { syncV2Db: db } = await import("/src/lib/sync-v2/db.ts");
+        return (await db.notes.toArray()).filter((item) => !item.isDeleted)
+          .length;
+      }),
+    )
+    .toBe(1);
+  await mark.click();
+  await note.getByRole("button", { name: "Show highlight tools" }).click();
+  await expect(
+    page.getByRole("button", { name: "Remove highlight", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
 });

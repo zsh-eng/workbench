@@ -5,6 +5,7 @@ import {
   waitForReaderReady,
   nextSpread,
   currentPages,
+  showNotesCapsule,
 } from "./helpers/fixtures";
 
 test.use({
@@ -33,26 +34,26 @@ test("captures thoughts over a stable book and browses both notebook orders", as
     );
   }
   const trigger = page.getByRole("button", { name: "Jot a note" });
+  const capsule = page.locator("[data-notes-capsule]");
   const scrubber = page.locator("canvas.cursor-ew-resize");
   // Chrome is still entering after the tap; compare both bounds in one frame.
   await expect
     .poll(() =>
-      trigger.evaluate((button) => {
+      capsule.evaluate((element) => {
         const scrubber = document.querySelector("canvas.cursor-ew-resize")!;
         return (
           scrubber.getBoundingClientRect().top -
-          button.getBoundingClientRect().bottom
+          element.getBoundingClientRect().bottom
         );
       }),
     )
     .toBeGreaterThan(0);
-  const triggerBounds = (await trigger.boundingBox())!;
+  // The capsule rests right-aligned on the footer, where Jot a note was.
+  const capsuleBounds = (await capsule.boundingBox())!;
   const scrubberBounds = (await scrubber.boundingBox())!;
-  expect(triggerBounds.x).toBeGreaterThan(
-    scrubberBounds.x + scrubberBounds.width * 0.8,
-  );
-  expect(triggerBounds.y + triggerBounds.height).toBeLessThan(scrubberBounds.y);
-  await expect(trigger).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  expect(Math.round(capsuleBounds.x + capsuleBounds.width)).toBe(380);
+  expect(capsuleBounds.y + capsuleBounds.height).toBeLessThan(scrubberBounds.y);
+  await expect(capsule).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   expect(
     Math.abs(scrubberBounds.x + scrubberBounds.width / 2 - 195),
   ).toBeLessThan(3);
@@ -74,13 +75,16 @@ test("captures thoughts over a stable book and browses both notebook orders", as
   await expect(sendButton).toBeEnabled();
   await input.fill("");
   await expect(sendButton).toHaveCSS("opacity", "0");
+  // The composer is the island: centred, 10 px from each edge.
+  const island = page.locator("[data-notes-island] > div > div");
+  await expect
+    .poll(async () => {
+      const box = (await island.boundingBox())!;
+      return [Math.round(box.x), Math.round(box.width)];
+    })
+    .toEqual([10, 370]);
   const surface = page.locator("[data-note-input-surface]");
-  await expect(surface).toHaveCSS("border-radius", "0px");
-  await expect(surface).toHaveCSS("box-shadow", "none");
-  const surfaceBounds = (await surface.boundingBox())!;
-  expect(surfaceBounds.x).toBe(0);
-  expect(surfaceBounds.width).toBe(390);
-  expect(surfaceBounds.height).toBeLessThanOrEqual(56);
+  expect((await surface.boundingBox())!.height).toBeLessThanOrEqual(56);
   const closedWidth = (await input.boundingBox())!.width;
   // Emulate the viewport signal, not an actual iOS keyboard.
   await page.evaluate(() => {
@@ -127,8 +131,11 @@ test("captures thoughts over a stable book and browses both notebook orders", as
   await page.context().setOffline(true);
   await page.getByRole("button", { name: "Save note", exact: true }).click();
   await expect(input).not.toBeVisible();
+  await expect(page.getByRole("status")).toContainText("Saved to notebook");
   await page.context().setOffline(false);
   expect(await currentPages(page)).toEqual(before);
+  // Saving returns to plain reading; the chrome comes back with a tap.
+  await showNotesCapsule(page);
   await page.getByRole("button", { name: "Jot a note" }).click();
   await input.fill("Return to this idea later.");
   await page.touchscreen.tap(
@@ -137,12 +144,12 @@ test("captures thoughts over a stable book and browses both notebook orders", as
   );
   await expect(input).not.toBeVisible();
   expect(await currentPages(page)).toEqual(before);
-  // Chrome remains visible after leaving note capture.
-  await page.getByRole("button", { name: "Jot a note" }).click();
+  // Chrome remains visible after leaving note capture; the capsule offers the draft.
+  await page.getByRole("button", { name: "Continue draft" }).click();
   await expect(input).toHaveValue("Return to this idea later.");
   await page.getByRole("button", { name: "Save note", exact: true }).click();
   await expect(input).not.toBeVisible();
-  await page.getByRole("button", { name: "Jot a note" }).click();
+  await showNotesCapsule(page);
   await page.getByRole("button", { name: "Open notebook" }).click();
   await expect(
     page.getByRole("region", { name: "Book notebook" }),
@@ -172,8 +179,12 @@ test("captures thoughts over a stable book and browses both notebook orders", as
   await input.fill("Keep this draft.");
   await sheet.getByRole("button", { name: "Close notebook" }).click();
   await expect(sheet).not.toBeVisible();
-  await expect(input).toHaveValue("Keep this draft.");
-  await expect(input).toHaveCount(1);
+  // Closing the notebook returns to reading; the draft waits in the capsule.
+  await expect(input).toHaveCount(0);
+  await showNotesCapsule(page);
+  await expect(
+    page.getByRole("button", { name: "Continue draft" }),
+  ).toBeVisible();
   await expect
     .poll(() =>
       page.evaluate(async (path) => {
@@ -191,7 +202,7 @@ test("captures thoughts over a stable book and browses both notebook orders", as
     reloadedSpread!.x + reloadedSpread!.width / 2,
     reloadedSpread!.y + reloadedSpread!.height / 2,
   );
-  await page.getByRole("button", { name: "Jot a note" }).click();
+  await page.getByRole("button", { name: "Continue draft" }).click();
   await expect(input).toHaveValue("Keep this draft.");
   await input.press("Escape");
   await page
@@ -728,6 +739,7 @@ test("swipes to edit without losing the compose draft or changing the note ancho
   await compose.fill("The original thought.");
   await page.getByRole("button", { name: "Save note", exact: true }).click();
   await expect(compose).not.toBeVisible();
+  await showNotesCapsule(page);
   await trigger.click();
   await expect(compose).toHaveValue("");
   const readNotes = () =>
@@ -739,6 +751,8 @@ test("swipes to edit without losing the compose draft or changing the note ancho
     }, "/src/lib/sync-v2/db.ts");
   const original = (await readNotes())[0];
   await compose.fill("Keep my next thought.");
+  await compose.press("Escape");
+  await showNotesCapsule(page);
   await page.getByRole("button", { name: "Open notebook" }).click();
   const row = page.locator(`[data-note-id="${original.id}"]`);
   const notebookList = row.locator("..");
@@ -871,17 +885,13 @@ test("swipes to edit without losing the compose draft or changing the note ancho
   // The first spread can be ready before loading chrome finishes its exit.
   // Wait before deciding whether the footer needs to be revealed by a tap.
   await expect(
-    page.locator('button[aria-label="Jot a note"]:disabled'),
+    page.locator("[data-notes-capsule] button:disabled"),
   ).toHaveCount(0);
-  if (!(await trigger.isVisible())) {
-    const current = (await spread.boundingBox())!;
-    await page.touchscreen.tap(
-      current.x + current.width / 2,
-      current.y + current.height / 2,
-    );
-  }
-  await trigger.click();
+  await showNotesCapsule(page);
+  await page.getByRole("button", { name: "Continue draft" }).click();
   await expect(compose).toHaveValue("Keep my next thought.");
+  await compose.press("Escape");
+  await showNotesCapsule(page);
   await page.getByRole("button", { name: "Open notebook" }).click();
   await row.locator("article").click({ button: "right" });
   await page.getByRole("menuitem", { name: "Edit note" }).click();
@@ -905,7 +915,7 @@ test("swipes to edit without losing the compose draft or changing the note ancho
   await cdp.detach();
 });
 
-test("keeps the mobile draft and its full height when moving between composer and notebook", async ({
+test("keeps the mobile draft and its full height between the island and the notebook", async ({
   page,
   localBook,
 }) => {
@@ -930,6 +940,8 @@ test("keeps the mobile draft and its full height when moving between composer an
   const input = page.getByRole("textbox", { name: "Write a note" });
   await input.fill(text);
   const floatingHeight = (await input.boundingBox())!.height;
+  await input.press("Escape");
+  await showNotesCapsule(page);
   await page.getByRole("button", { name: "Open notebook" }).click();
   const sheet = page.getByRole("dialog", { name: "Notebook", exact: true });
   const sheetInput = sheet.getByRole("textbox", { name: "Write a note" });
@@ -943,8 +955,12 @@ test("keeps the mobile draft and its full height when moving between composer an
     .toBeGreaterThan(floatingHeight);
   await sheet.getByRole("button", { name: "Close notebook" }).click();
   await expect(sheet).not.toBeVisible();
+  await showNotesCapsule(page);
+  await page.getByRole("button", { name: "Continue draft" }).click();
   await expect(input).toHaveValue(`${text}\nWritten in the notebook.`);
   await input.fill("Now a shorter thought.");
+  await input.press("Escape");
+  await showNotesCapsule(page);
   await page.getByRole("button", { name: "Open notebook" }).click();
   await expect(sheetInput).toHaveValue("Now a shorter thought.");
   await expect
@@ -977,6 +993,7 @@ test("swipes right to delete and undo while keeping the compose draft", async ({
   await compose.fill("A thought to delete.");
   await page.getByRole("button", { name: "Save note", exact: true }).click();
   await expect(compose).not.toBeVisible();
+  await showNotesCapsule(page);
   await trigger.click();
   await expect(compose).toHaveValue("");
   const readNotes = () =>
@@ -986,6 +1003,8 @@ test("swipes right to delete and undo while keeping the compose draft", async ({
     }, "/src/lib/sync-v2/db.ts");
   const original = (await readNotes())[0];
   await compose.fill("Keep this draft.");
+  await compose.press("Escape");
+  await showNotesCapsule(page);
   await page.getByRole("button", { name: "Open notebook" }).click();
   await expect(page.getByRole("button", { name: "Note actions" })).toHaveCount(
     0,

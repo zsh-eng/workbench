@@ -8,14 +8,33 @@ storage helpers already support them.
 
 The composer has one local draft per book. Text and target are saved together.
 Typing starts a page note at the first available text on the visible page.
-Selecting text or an existing highlight replaces the draft target and keeps its
-text, like attaching a reply to an unfinished message. Removing the quote keeps
+On desktop, selecting text or an existing highlight replaces the draft target
+and keeps its text, like attaching a reply to an unfinished message. On phones
+the island asks first, with Attach. Removing the quote keeps
 the target's location but removes its quote and highlight attachment. Changing
 pages does not move an existing draft's target.
 
 New-note and edit drafts are separate. Editing never overwrites a compose draft.
 Saving or cancelling an edit removes only that edit draft. A received remote edit
 returns a conflict; a received deletion cannot be undone by ordinary submission.
+
+## Phone: Notes Island
+
+On phones one surface owns note capture. It never floats over plain reading.
+
+- With the reading chrome, a capsule rests on the footer, right-aligned: the
+  notebook with its count, and Jot. An unsent draft shows as Draft.
+- Selecting text hides the chrome; the island rises centred at the bottom with
+  the highlight colours and Note. Choosing the current colour of an existing
+  highlight removes it, as on desktop. With an unsent draft, Note reads Attach
+  and moves the draft to the new passage, keeping its text.
+- Tapping a highlight that has a note shows the latest note with Edit, Delete,
+  and the colour tools.
+- Writing turns the island into the composer above the keyboard. Saving shows
+  Saved to notebook and returns to plain reading. Deleting from the island
+  shows Note deleted with Undo inside the island.
+- The notebook opens as a sheet from the capsule. Closing it returns to
+  reading; the draft waits in the capsule.
 
 ## Editing
 

@@ -8,7 +8,6 @@ import type {
 } from "@/features/reader/types";
 import type { ReaderStatusAction } from "../hooks/use-reader-status-prompt";
 import { FooterStatusPrompt } from "./FooterStatusPrompt";
-import { PencilLine } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useState, type ReactNode } from "react";
 import { FooterChapterRow } from "./FooterChapterRow";
@@ -54,7 +53,8 @@ export interface ReaderFooterProps {
   onGoToChapter: (chapterIndex: number) => void;
   onPrevChapter: () => void;
   onOpenContents: () => void;
-  onOpenNote?: () => void;
+  /** The Notes Island capsule. It rides on the footer while the chrome shows. */
+  noteAccessory?: ReactNode;
   handoffPrompt?: ReaderHandoffPrompt;
   statusPrompt?: ReaderStatusAction;
   isLoading?: boolean;
@@ -82,7 +82,7 @@ export function ReaderFooter({
   onGoToChapter,
   onPrevChapter,
   onOpenContents,
-  onOpenNote,
+  noteAccessory,
   handoffPrompt,
   statusPrompt,
   isLoading = false,
@@ -159,27 +159,15 @@ export function ReaderFooter({
           }}
         >
           <div
+            // A capsule action stops a scrubber fling before it opens notes.
+            onClickCapture={interruptScrubberMomentum}
             className={`pointer-events-none absolute inset-x-0 flex flex-col gap-2 transition-[bottom] duration-200 ease-out ${
               chromeVisible
                 ? "bottom-[calc(100%+0.5rem)]"
                 : "bottom-[calc(100%+0.75rem)]"
             }`}
           >
-            {onOpenNote && chromeVisible && (
-              <button
-                type="button"
-                aria-label="Jot a note"
-                title="Jot a note"
-                disabled={isLoading}
-                onClick={() => {
-                  interruptScrubberMomentum();
-                  onOpenNote();
-                }}
-                className="pointer-events-auto mr-3 flex size-11 shrink-0 items-center justify-center self-end rounded-full border border-border/80 bg-background text-foreground shadow-lg hover:bg-secondary focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-40 sm:mr-4"
-              >
-                <PencilLine size={20} />
-              </button>
-            )}
+            {noteAccessory && chromeVisible && noteAccessory}
             <AnimatePresence initial={false}>
               {!handoffPrompt && statusPrompt && (
                 <FooterStatusPrompt key="status-prompt" prompt={statusPrompt} />

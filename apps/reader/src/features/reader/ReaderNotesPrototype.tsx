@@ -1,13 +1,18 @@
-import { sameNotePassage } from "./note-target";
-import { useToast } from "@/hooks/use-toast";
-import { NotebookCountIcon } from "./shared/NotebookCountIcon";
+import { flushSync } from "react-dom";
 import { NotebookNote } from "./NotebookNote";
 import { DesktopNotebookNote, NotebookNoteBody } from "./DesktopNotebookNote";
 import { ReaderSheet } from "./shared/ReaderSheet";
-import type { NoteTarget } from "@/types/note";
+import type { Note, NoteTarget } from "@/types/note";
 import { useReaderNotes } from "./hooks/use-reader-notes";
 import { useNotebookDeletion } from "./hooks/use-notebook-deletion";
 import { createNoteLocationResolver, noteMarginTop } from "./note-locations";
+import {
+  IslandNote,
+  IslandNotice,
+  IslandSurface,
+  IslandTools,
+  type IslandNoticeState,
+} from "./NotesIsland";
 import type {
   ReaderSessionState,
   ReaderSessionResources,
@@ -16,19 +21,11 @@ import type { ChapterEntry } from "./types";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
-  DropdownMenuItem,
   DropdownMenuContent,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
 } from "@/components/ui/dropdown-menu";
-import {
-  ArrowUp,
-  Check,
-  SlidersHorizontal,
-  X,
-  MoreHorizontal,
-  Palette,
-} from "lucide-react";
+import { ArrowUp, Check, SlidersHorizontal, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   useLayoutEffect,
@@ -62,6 +59,8 @@ export function ReaderNotesPrototype({
   open,
   onActiveChange,
   onMobileComposerPresenceChange,
+  onDraftPresenceChange,
+  onReturnToReading,
   onVisit,
   margin,
   desktop,
@@ -74,6 +73,8 @@ export function ReaderNotesPrototype({
   mobileAnnotation?: {
     identity: object;
     tools: ReactNode;
+    /** The existing highlight being edited, if any. */
+    highlightId?: string;
     captureTarget: () => NoteTarget | null;
     close: () => void;
   };
@@ -95,33 +96,24 @@ export function ReaderNotesPrototype({
   open: boolean;
   onActiveChange: (active: boolean) => void;
   onMobileComposerPresenceChange: (present: boolean) => void;
+  /** Whether an unsent compose draft has text, for the footer capsule. */
+  onDraftPresenceChange: (present: boolean) => void;
+  /** Saving a note on the phone returns to plain reading. */
+  onReturnToReading: () => void;
   onVisit: (page: number) => void;
 }) {
-  // Capture each selection once. Refocusing after Remove quote must not attach it again.
-  const capturedAnnotation = useRef<object | null>(null);
   const composerOpen = open || Boolean(mobileAnnotation);
-  // Keep reading chrome suppressed through exit, including quick dismiss/reopen.
-  useLayoutEffect(() => {
-    if (desktop) onMobileComposerPresenceChange(false);
-    else if (composerOpen && !notebook) onMobileComposerPresenceChange(true);
-  }, [desktop, composerOpen, notebook, onMobileComposerPresenceChange]);
-  useLayoutEffect(
-    () => () => onMobileComposerPresenceChange(false),
-    [onMobileComposerPresenceChange],
-  );
   const reduceMotion = useReducedMotion();
-  const { toast } = useToast();
-  const [writing, setWriting] = useState(false);
-  const [showTools, setShowTools] = useState(false);
-  const [pendingTarget, setPendingTarget] = useState<NoteTarget | null>(null);
   const [order, setOrder] = useState<"time" | "chapter">("time");
+  const [notice, setNotice] = useState<IslandNoticeState | null>(null);
+  // A tapped passage with a note shows the note; Palette asks for its colours.
+  const [toolsRequested, setToolsRequested] = useState(false);
   const notes = useReaderNotes(bookId);
   const { deleteNote, restoredEntries } = useNotebookDeletion({
     remove: notes.remove,
     restore: notes.restore,
     shortcutEnabled: desktop && open && notebook && !notes.editingId,
   });
-  const noteCount = notes.notes.filter((note) => note.kind === "note").length;
   const composerDraft = desktop ? notes.composeDraft : notes.draft;
   const inlineEditing = desktop && Boolean(notes.editingId);
   const draft = composerDraft?.content ?? "";
@@ -143,13 +135,50 @@ export function ReaderNotesPrototype({
       : target?.kind === "selection"
         ? { selectedText: target.text, color: "invisible" }
         : null;
-  // The top row has one purpose at a time. Restored text shows its attachment
-  // before focus, so a new selection cannot appear to own an older draft.
-  const mobileContextVisible = Boolean(
-    (quote || pendingTarget) &&
-    !showTools &&
-    (writing || hasDraftText || !mobileAnnotation),
+  const composeHasText = Boolean(notes.composeDraft?.content.trim());
+  useEffect(() => {
+    onDraftPresenceChange(composeHasText);
+  }, [composeHasText, onDraftPresenceChange]);
+
+  // Notes Island: one phone surface, in this order of priority. The notebook
+  // sheet and the desktop margin use their own surfaces.
+  const annotationNote = useMemo(() => {
+    const highlightId = mobileAnnotation?.highlightId;
+    if (!highlightId) return undefined;
+    return notes.notes
+      .filter(
+        (note): note is Extract<Note, { kind: "note" }> =>
+          note.kind === "note" && note.highlightId === highlightId,
+      )
+      .sort((a, b) => b.createdAt - a.createdAt)[0];
+  }, [notes.notes, mobileAnnotation?.highlightId]);
+  const composing = !desktop && !embeddedNotebook && open && !notebook;
+  const islandState: "none" | "compose" | "note" | "tools" | "notice" =
+    desktop || embeddedNotebook || notebook
+      ? "none"
+      : composing
+        ? "compose"
+        : mobileAnnotation
+          ? annotationNote && !toolsRequested
+            ? "note"
+            : "tools"
+          : notice
+            ? "notice"
+            : "none";
+  // Keep reading chrome suppressed through exit, including quick dismiss/reopen.
+  useLayoutEffect(() => {
+    if (desktop) onMobileComposerPresenceChange(false);
+    else if (islandState !== "none") onMobileComposerPresenceChange(true);
+  }, [desktop, islandState, onMobileComposerPresenceChange]);
+  useLayoutEffect(
+    () => () => onMobileComposerPresenceChange(false),
+    [onMobileComposerPresenceChange],
   );
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), notice.undo ? 8000 : 1300);
+    return () => clearTimeout(timer);
+  }, [notice]);
   const resolver = useMemo(
     () =>
       createNoteLocationResolver(
@@ -189,28 +218,9 @@ export function ReaderNotesPrototype({
     )
       return;
     handledTarget.current = incomingTarget;
-    if (
-      !desktop &&
-      hasDraftText &&
-      target &&
-      !sameNotePassage(target, incomingTarget)
-    ) {
-      setPendingTarget(incomingTarget);
-    } else {
-      setPendingTarget(null);
-      notes.change(draft, incomingTarget);
-    }
+    notes.change(draft, incomingTarget);
     onClearQuote();
-  }, [
-    incomingTarget,
-    notes.ready,
-    draft,
-    notes,
-    onClearQuote,
-    desktop,
-    hasDraftText,
-    target,
-  ]);
+  }, [incomingTarget, notes.ready, draft, notes, onClearQuote]);
   const entries = useMemo(
     () =>
       resolved.map(({ note, anchor }) => ({
@@ -242,14 +252,28 @@ export function ReaderNotesPrototype({
   );
 
   const [keyboardOpen, setKeyboardOpen] = useState(false);
-  const previousKeyboardOpen = useRef(false);
+  // Content width inside the island's 1 px border, 10 px from each edge.
+  const [islandWidth, setIslandWidth] = useState(() =>
+    Math.min(window.innerWidth - 22, 520),
+  );
   useEffect(() => {
-    if (previousKeyboardOpen.current && !keyboardOpen) {
-      setWriting(false);
-      if (!pendingTarget) setShowTools(true);
-    }
-    previousKeyboardOpen.current = keyboardOpen;
-  }, [keyboardOpen, pendingTarget]);
+    if (desktop) return;
+    const update = () => setIslandWidth(Math.min(window.innerWidth - 22, 520));
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [desktop]);
+  // A new passage while writing folds the composer away; the draft stays and
+  // the island offers to attach the passage to it.
+  const annotationIdentity = mobileAnnotation?.identity;
+  const seenAnnotation = useRef(annotationIdentity);
+  useEffect(() => {
+    if (desktop || seenAnnotation.current === annotationIdentity) return;
+    seenAnnotation.current = annotationIdentity;
+    setToolsRequested(false);
+    if (!annotationIdentity) return;
+    setNotice(null);
+    if (composing) onActiveChange(false);
+  }, [desktop, annotationIdentity, composing, onActiveChange]);
   const composer = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const sidebarInput = useRef<HTMLTextAreaElement>(null);
@@ -293,10 +317,15 @@ export function ReaderNotesPrototype({
 
   // Position updates bypass React and Motion: scrolling must not wait for a
   // render or an animation. React only owns the keyboard-open layout variant.
+  const tracksKeyboard = desktop
+    ? false
+    : embeddedNotebook || notebook
+      ? false
+      : islandState === "compose";
   useLayoutEffect(() => {
     const element = composer.current;
     const viewport = window.visualViewport;
-    if (!composerOpen || desktop || notebook || !element || !viewport) return;
+    if (!tracksKeyboard || !element || !viewport) return;
     const update = () => {
       const inset = Math.max(
         0,
@@ -317,8 +346,10 @@ export function ReaderNotesPrototype({
       viewport.removeEventListener("scroll", update);
       window.removeEventListener("scroll", update);
       window.removeEventListener("touchmove", update);
+      element.style.bottom = "";
+      setKeyboardOpen(false);
     };
-  }, [composerOpen, desktop, notebook]);
+  }, [tracksKeyboard]);
 
   // Desktop keeps its panel mounted for the sidebar exit. Focus only when
   // the notebook opens; ordinary edits and the exit must not move focus.
@@ -372,34 +403,94 @@ export function ReaderNotesPrototype({
     onActiveChange(false);
     mobileAnnotation?.close();
     setKeyboardOpen(false);
-    setWriting(false);
-    setShowTools(false);
-    setPendingTarget(null);
+    setToolsRequested(false);
   }, [flush, setNotebook, onActiveChange, mobileAnnotation]);
   async function send() {
+    const editing = Boolean(notes.editingId);
+    const color = quote?.color;
     if (!(await notes.send())) return;
     onClearQuote();
     mobileAnnotation?.close();
-    if (!notebook) {
-      close();
-      if (!desktop) toast({ message: "Note saved", duration: 1800 });
-    } else sidebarInput.current?.focus();
+    if (notebook) {
+      sidebarInput.current?.focus();
+      return;
+    }
+    close();
+    if (desktop) return;
+    setNotice({
+      key: Date.now(),
+      label: editing ? "Note updated" : "Saved to notebook",
+      color: color as IslandNoticeState["color"],
+    });
+    onReturnToReading();
+  }
+
+  /** Opens the island composer within the user event, so the phone keyboard
+   * opens with it. */
+  function openComposer() {
+    flushSync(() => {
+      setNotice(null);
+      onActiveChange(true);
+    });
+    input.current?.focus({ preventScroll: true });
+  }
+
+  /** Note (or Attach) on the island's colour tools. An unfinished draft keeps
+   * its text and takes the chosen passage. */
+  async function noteOnPassage() {
+    if (!mobileAnnotation || !notes.ready) return;
+    const selected = mobileAnnotation.captureTarget();
+    if (!selected) return;
+    const text = notes.composeDraft?.content ?? "";
+    mobileAnnotation.close();
+    if (notes.editingId) {
+      await notes.pauseEdit();
+      notes.change(text, selected);
+      flushSync(() => onActiveChange(true));
+      input.current?.focus({ preventScroll: true });
+      return;
+    }
+    notes.change(text, selected);
+    openComposer();
+  }
+
+  function deleteFromIsland(id: string) {
+    mobileAnnotation?.close();
+    void deleteNote(id, (undo) => {
+      const key = Date.now();
+      setNotice({ key, label: "Note deleted", undo });
+      return () =>
+        setNotice((current) => (current?.key === key ? null : current));
+    });
   }
 
   const editNote = notes.edit;
   const startEdit = useCallback(
     async (id: string) => {
-      // Mobile must focus within the user event to open its keyboard.
+      // Mobile must focus within the user event to open its keyboard. The
+      // island composer is not mounted yet, so render it first.
+      if (!desktop && !notebook) {
+        flushSync(() => {
+          mobileAnnotation?.close();
+          setNotice(null);
+          onActiveChange(true);
+        });
+      }
       if (!desktop) (notebook ? sidebarInput : input).current?.focus();
       if (!(await editNote(id)) || desktop) return;
       if (!embeddedNotebook) onActiveChange(true);
       (notebook ? sidebarInput : input).current?.focus();
     },
-    [editNote, notebook, onActiveChange, desktop, embeddedNotebook],
+    [
+      editNote,
+      notebook,
+      onActiveChange,
+      desktop,
+      embeddedNotebook,
+      mobileAnnotation,
+    ],
   );
 
-  const iconButton =
-    "flex h-8 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring";
   const orderedEntries = useMemo(
     () =>
       order === "time"
@@ -437,10 +528,12 @@ export function ReaderNotesPrototype({
   const commentLeft = `calc(100% - ${Math.max(commentWidth + 16, margin.width - 16)}px)`;
   const commentSurface =
     "rounded-xl border border-border/80 bg-background/95 p-3 text-sm shadow-sm";
-  function renderNoteInput(inNotebook = false) {
-    const footerInput = !desktop && !inNotebook;
+  /** One note field for three surfaces: the phone's Notes Island, the
+   * notebook (phone sheet or desktop sidebar), and the desktop margin. */
+  function renderNoteInput(surface: "island" | "notebook" | "margin") {
+    const inNotebook = surface === "notebook";
+    const island = surface === "island";
     const editingInComposer = !desktop && Boolean(notes.editingId);
-    const showQuote = footerInput ? mobileContextVisible : Boolean(quote);
     const sendButton = (
       <button
         aria-label={editingInComposer ? "Save changes" : "Save note"}
@@ -451,18 +544,117 @@ export function ReaderNotesPrototype({
         }
         onPointerDown={(event) => event.preventDefault()}
         onClick={() => send()}
-        className={`${desktop ? "relative" : "absolute right-0 bottom-0"} flex size-8 items-center justify-center rounded-full bg-primary text-primary-foreground transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transform-none ${hasDraftText ? "[transform:scale(1)] opacity-100 disabled:opacity-30" : "pointer-events-none [transform:scale(0.9)] opacity-0"}`}
+        className={`${desktop || island ? "relative" : "absolute right-0 bottom-0"} ${island ? "mb-0.5" : ""} flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transform-none ${hasDraftText ? "[transform:scale(1)] opacity-100 disabled:opacity-30" : "pointer-events-none [transform:scale(0.9)] opacity-0"}`}
       >
         {editingInComposer ? <Check size={20} /> : <ArrowUp size={20} />}
       </button>
     );
+    const quoteRow = quote && (
+      <div
+        className={
+          island
+            ? "mx-2.5 mt-1.5 mb-1 flex items-start gap-2"
+            : "mx-3 mt-1 flex items-center gap-2"
+        }
+        data-testid="note-quote"
+      >
+        <span
+          className={`min-w-0 flex-1 border-l-[3px] py-1 pl-2 text-xs text-muted-foreground ${island ? "line-clamp-2" : "truncate"}`}
+          style={{
+            borderColor:
+              quote.color === "invisible"
+                ? "var(--muted-foreground)"
+                : `var(--${quote.color}-secondary)`,
+          }}
+        >
+          {quote.selectedText}
+        </span>
+        {!editingInComposer && (
+          <button
+            aria-label="Remove quote"
+            onPointerDown={(event) => event.preventDefault()}
+            className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground"
+            onClick={() => {
+              if (target)
+                notes.change(draft, {
+                  kind: "page",
+                  anchor: target.anchor,
+                });
+              onClearQuote();
+            }}
+          >
+            <X size={13} />
+          </button>
+        )}
+      </div>
+    );
+    const field = (
+      <NoteTextInput
+        ref={inNotebook ? sidebarInput : input}
+        autoFocus={desktop ? open && !inNotebook : island}
+        aria-label={editingInComposer ? "Edit note" : "Write a note"}
+        placeholder="Write a note…"
+        value={draft}
+        disabled={!notes.ready || inlineEditing}
+        readOnly={notes.saving}
+        rows={1}
+        onChange={(event) => {
+          const nextTarget = target ?? resolver.capture(pagination.spread);
+          if (nextTarget) notes.change(event.target.value, nextTarget);
+        }}
+        onKeyDown={(event) => {
+          if (
+            event.key === "Enter" &&
+            (event.metaKey || event.ctrlKey) &&
+            !event.nativeEvent.isComposing
+          ) {
+            event.preventDefault();
+            send();
+          }
+          if (event.key === "Escape") {
+            if (notes.editingId) void notes.cancelEdit();
+            else close();
+          }
+        }}
+        className={`${desktop ? "min-h-8 text-sm" : "min-h-8 text-base"} ${island ? "px-2.5" : ""} min-w-0 flex-1 resize-none bg-transparent py-1 leading-6 outline-none placeholder:text-muted-foreground`}
+      />
+    );
+    const error = notes.error && (island || inNotebook === notebook) && (
+      <p role="alert" className="mx-3 mb-2 text-sm text-destructive">
+        {notes.error}
+      </p>
+    );
+    if (island)
+      return (
+        <div style={{ width: islandWidth }} className="p-1.5">
+          {error}
+          {editingInComposer && (
+            <div
+              data-note-edit-strip
+              className="flex h-8 items-center justify-between gap-2 pr-1 pl-2.5 text-xs text-muted-foreground"
+            >
+              <span>Editing note</span>
+              <button
+                aria-label="Cancel editing"
+                disabled={notes.saving}
+                onPointerDown={(event) => event.preventDefault()}
+                className="h-7 rounded-full px-2.5 hover:bg-secondary hover:text-foreground"
+                onClick={() => notes.cancelEdit()}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+          {quoteRow}
+          <div data-note-input-surface className="flex items-end gap-1.5">
+            {field}
+            {sendButton}
+          </div>
+        </div>
+      );
     return (
       <div>
-        {notes.error && inNotebook === notebook && (
-          <p role="alert" className="mx-3 mb-2 text-sm text-destructive">
-            {notes.error}
-          </p>
-        )}
+        {error}
         {editingInComposer && (
           <div
             data-note-edit-strip
@@ -490,191 +682,18 @@ export function ReaderNotesPrototype({
         >
           <div
             data-note-input-surface
-            className={
-              footerInput
-                ? "relative z-10 min-w-0 border-t border-border/50 px-4 py-2 focus-within:border-ring"
-                : `relative z-10 min-w-0 flex-1 border p-1 focus-within:ring-2 focus-within:ring-ring/60 ${
-                    desktop && inNotebook
-                      ? "rounded-(--sidebar-panel-field-radius) border-border/50 bg-secondary/35 focus-within:border-border"
-                      : `rounded-3xl border-border/80 bg-background/95 ${desktop ? "shadow-sm" : ""}`
-                  }`
-            }
-            style={
-              footerInput
-                ? {
-                    paddingInline:
-                      "max(16px, env(safe-area-inset-left), env(safe-area-inset-right))",
-                    paddingBottom: keyboardOpen
-                      ? 8
-                      : "max(8px, env(safe-area-inset-bottom))",
-                  }
-                : undefined
-            }
+            className={`relative z-10 min-w-0 flex-1 border p-1 focus-within:ring-2 focus-within:ring-ring/60 ${
+              desktop && inNotebook
+                ? "rounded-(--sidebar-panel-field-radius) border-border/50 bg-secondary/35 focus-within:border-border"
+                : `rounded-3xl border-border/80 bg-background/95 ${desktop ? "shadow-sm" : ""}`
+            }`}
           >
-            {(quote || pendingTarget) && showQuote && (
-              <div
-                className="mx-3 mt-1 flex items-center gap-2"
-                data-testid="note-quote"
-              >
-                <span
-                  className="min-w-0 flex-1 truncate border-l-[3px] py-1 pl-2 text-xs text-muted-foreground"
-                  style={{
-                    borderColor:
-                      !quote || quote.color === "invisible"
-                        ? "var(--muted-foreground)"
-                        : `var(--${quote.color}-secondary)`,
-                  }}
-                >
-                  {quote?.selectedText ?? "Unquoted note"}
-                </span>
-                {!editingInComposer &&
-                  (!footerInput ? (
-                    <button
-                      aria-label="Remove quote"
-                      className="flex size-7 items-center justify-center text-muted-foreground"
-                      onClick={() => {
-                        if (target)
-                          notes.change(draft, {
-                            kind: "page",
-                            anchor: target.anchor,
-                          });
-                        onClearQuote();
-                      }}
-                    >
-                      <X size={13} />
-                    </button>
-                  ) : (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        aria-label="Note attachment"
-                        className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground"
-                      >
-                        <MoreHorizontal size={16} />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        {pendingTarget && (
-                          <DropdownMenuItem
-                            onClick={() => {
-                              notes.change(draft, pendingTarget);
-                              setPendingTarget(null);
-                            }}
-                          >
-                            Use selected passage
-                          </DropdownMenuItem>
-                        )}
-                        {quote && (
-                          <DropdownMenuItem
-                            onClick={() => {
-                              if (target)
-                                notes.change(draft, {
-                                  kind: "page",
-                                  anchor: target.anchor,
-                                });
-                              onClearQuote();
-                            }}
-                          >
-                            Remove quote
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  ))}
-                {footerInput && mobileAnnotation && (
-                  <button
-                    aria-label="Show highlight tools"
-                    className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground"
-                    onClick={() => {
-                      input.current?.blur();
-                      setWriting(false);
-                      setShowTools(true);
-                    }}
-                  >
-                    <Palette size={16} />
-                  </button>
-                )}
-              </div>
-            )}
-            {/* Mobile keeps its existing internal send slot. Desktop reserves space outside the field. */}
+            {quoteRow}
+            {/* The phone sheet keeps an internal send slot. Desktop reserves space outside the field. */}
             <div
-              className={`relative flex items-end gap-1 ${desktop ? "px-3" : "pr-10"}`}
+              className={`relative flex items-end gap-1 ${desktop ? "px-3" : "pr-10 pl-2"}`}
             >
-              {!desktop && (
-                <button
-                  aria-label="Open notebook"
-                  aria-expanded={notebook}
-                  onClick={() => {
-                    input.current?.blur();
-                    onActiveChange(true);
-                    mobileAnnotation?.close();
-                    setPendingTarget(null);
-                    setShowTools(false);
-                    setNotebook(!notebook);
-                  }}
-                  className={`${iconButton} relative`}
-                  aria-description={`${noteCount} ${noteCount === 1 ? "note" : "notes"} in this book`}
-                >
-                  <NotebookCountIcon count={noteCount} />
-                </button>
-              )}
-              <NoteTextInput
-                ref={inNotebook ? sidebarInput : input}
-                autoFocus={
-                  desktop
-                    ? open && !inNotebook
-                    : !notebook && !mobileAnnotation && !hasDraftText
-                }
-                onFocus={() => {
-                  if (desktop || inNotebook) return;
-                  setWriting(true);
-                  setShowTools(false);
-                  if (!mobileAnnotation) return;
-                  if (
-                    capturedAnnotation.current !== mobileAnnotation.identity
-                  ) {
-                    capturedAnnotation.current = mobileAnnotation.identity;
-                    const selectedTarget = mobileAnnotation.captureTarget();
-                    if (selectedTarget) {
-                      if (
-                        hasDraftText &&
-                        target &&
-                        !sameNotePassage(target, selectedTarget)
-                      )
-                        setPendingTarget(selectedTarget);
-                      else {
-                        setPendingTarget(null);
-                        if (!hasDraftText) notes.change(draft, selectedTarget);
-                      }
-                    }
-                  }
-                  onActiveChange(true);
-                }}
-                aria-label={editingInComposer ? "Edit note" : "Write a note"}
-                placeholder="Write a note…"
-                value={draft}
-                disabled={!notes.ready || inlineEditing}
-                readOnly={notes.saving}
-                rows={1}
-                onChange={(event) => {
-                  const nextTarget =
-                    target ?? resolver.capture(pagination.spread);
-                  if (nextTarget) notes.change(event.target.value, nextTarget);
-                }}
-                onKeyDown={(event) => {
-                  if (
-                    event.key === "Enter" &&
-                    (event.metaKey || event.ctrlKey) &&
-                    !event.nativeEvent.isComposing
-                  ) {
-                    event.preventDefault();
-                    send();
-                  }
-                  if (event.key === "Escape") {
-                    if (notes.editingId) void notes.cancelEdit();
-                    else close();
-                  }
-                }}
-                className={`${desktop ? "min-h-8 text-sm" : "min-h-8 text-base"} min-w-0 flex-1 resize-none bg-transparent py-1 leading-6 outline-none placeholder:text-muted-foreground`}
-              />
+              {field}
               {!desktop && sendButton}
             </div>
           </div>
@@ -743,7 +762,7 @@ export function ReaderNotesPrototype({
           {!desktop && (
             <button
               aria-label="Close notebook"
-              onClick={() => setNotebook(false)}
+              onClick={close}
               className="flex size-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"
             >
               <X size={15} />
@@ -923,7 +942,6 @@ export function ReaderNotesPrototype({
       onVisit,
       reduceMotion,
       groupLabel,
-      setNotebook,
     ],
   );
   return (
@@ -931,14 +949,18 @@ export function ReaderNotesPrototype({
       {!desktop && !embeddedNotebook && (
         <ReaderSheet
           open={notebook && open}
-          onOpenChange={setNotebook}
+          onOpenChange={(next) => {
+            // Closing the notebook returns to reading, not to a composer.
+            if (next) setNotebook(true);
+            else close();
+          }}
           title="Notebook"
           showHeader={false}
           bodyClassName="flex min-h-0 flex-col"
         >
           {notebookPanel}
           <div className="shrink-0 px-4 pt-1 pb-[max(8px,env(safe-area-inset-bottom))]">
-            {renderNoteInput(true)}
+            {renderNoteInput("notebook")}
           </div>
         </ReaderSheet>
       )}
@@ -953,7 +975,7 @@ export function ReaderNotesPrototype({
                   : "shrink-0 p-4"
               }
             >
-              {renderNoteInput(true)}
+              {renderNoteInput("notebook")}
             </div>
           )}
         </div>,
@@ -1018,56 +1040,123 @@ export function ReaderNotesPrototype({
               data-note-composer
               className={marginEntries.length ? "mt-2" : ""}
             >
-              {renderNoteInput()}
+              {renderNoteInput("margin")}
             </div>
           )}
         </aside>
       )}
-      <AnimatePresence
-        onExitComplete={() => {
-          if (!composerOpen || notebook) onMobileComposerPresenceChange(false);
-        }}
-      >
-        {composerOpen && !notebook && (!desktop || margin.width < 220) && (
-          <motion.div
-            ref={composer}
-            data-note-composer
-            key="composer"
-            initial={{
-              opacity: 0,
-              transform: reduceMotion ? "none" : "translateY(8px)",
-            }}
-            animate={{ opacity: 1, transform: "none" }}
-            exit={{
-              opacity: 0,
-              transform: reduceMotion ? "none" : "translateY(8px)",
-            }}
-            transition={transition}
-            className={
-              desktop
-                ? "fixed z-40 max-h-[calc(100dvh-7rem)] overflow-y-auto"
-                : "fixed inset-x-0 bottom-0 z-40 border-t border-border/70 bg-background/88 backdrop-blur-xl"
-            }
-            style={
-              desktop
-                ? {
-                    top: Math.max(
-                      80,
-                      Math.min(commentPosition.top, window.innerHeight - 220),
-                    ),
-                    left: commentLeft,
-                    width: commentWidth,
+      {desktop ? (
+        <AnimatePresence>
+          {composerOpen && !notebook && margin.width < 220 && (
+            <motion.div
+              ref={composer}
+              data-note-composer
+              key="composer"
+              initial={{
+                opacity: 0,
+                transform: reduceMotion ? "none" : "translateY(8px)",
+              }}
+              animate={{ opacity: 1, transform: "none" }}
+              exit={{
+                opacity: 0,
+                transform: reduceMotion ? "none" : "translateY(8px)",
+              }}
+              transition={transition}
+              className="fixed z-40 max-h-[calc(100dvh-7rem)] overflow-y-auto"
+              style={{
+                top: Math.max(
+                  80,
+                  Math.min(commentPosition.top, window.innerHeight - 220),
+                ),
+                left: commentLeft,
+                width: commentWidth,
+              }}
+            >
+              {renderNoteInput("margin")}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      ) : (
+        <AnimatePresence
+          onExitComplete={() => {
+            if (islandState === "none") onMobileComposerPresenceChange(false);
+          }}
+        >
+          {islandState !== "none" && (
+            <motion.div
+              ref={composer}
+              key="island"
+              data-notes-island={islandState}
+              data-note-composer={islandState === "compose" ? "" : undefined}
+              initial={{
+                opacity: 0,
+                transform: reduceMotion ? "none" : "translateY(16px)",
+              }}
+              animate={{ opacity: 1, transform: "none" }}
+              exit={{
+                opacity: 0,
+                transform: reduceMotion ? "none" : "translateY(12px)",
+                transition: { duration: 0.14, ease: "easeIn" },
+              }}
+              transition={transition}
+              className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center"
+            >
+              <div
+                className="flex justify-center"
+                style={{
+                  paddingBottom: keyboardOpen
+                    ? 8
+                    : "max(env(safe-area-inset-bottom), 14px)",
+                }}
+              >
+                <IslandSurface
+                  layerKey={islandState}
+                  radius={
+                    islandState === "tools"
+                      ? 26
+                      : islandState === "notice"
+                        ? 22
+                        : 24
                   }
-                : undefined
-            }
-          >
-            {mobileAnnotation &&
-              !mobileContextVisible &&
-              mobileAnnotation.tools}
-            {renderNoteInput()}
-          </motion.div>
-        )}
-      </AnimatePresence>
+                >
+                  {islandState === "tools" && mobileAnnotation && (
+                    <IslandTools
+                      tools={mobileAnnotation.tools}
+                      actionLabel={composeHasText ? "Attach" : "Note"}
+                      onNote={() => void noteOnPassage()}
+                    />
+                  )}
+                  {islandState === "note" && annotationNote && (
+                    <IslandNote
+                      width={islandWidth}
+                      text={annotationNote.content}
+                      meta={noteMeta(
+                        entries.find((entry) => entry.id === annotationNote.id)
+                          ?.location.page ?? 0,
+                        annotationNote.createdAt,
+                      )}
+                      onEdit={() => void startEdit(annotationNote.id)}
+                      onDelete={() => deleteFromIsland(annotationNote.id)}
+                      onShowTools={() => setToolsRequested(true)}
+                      onClose={() => mobileAnnotation?.close()}
+                    />
+                  )}
+                  {islandState === "compose" && renderNoteInput("island")}
+                  {islandState === "notice" && notice && (
+                    <IslandNotice
+                      notice={notice}
+                      onUndo={() => {
+                        setNotice(null);
+                        notice.undo?.();
+                      }}
+                    />
+                  )}
+                </IslandSurface>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      )}
     </>
   );
 }
@@ -1089,4 +1178,14 @@ function NoteTextInput({
     element.style.height = `${Math.min(element.scrollHeight, 144)}px`;
   }, [ref, value]);
   return <textarea {...props} ref={ref} value={value} />;
+}
+
+/** "p. 12 · Today" for a note shown on the island. */
+function noteMeta(page: number, createdAt: number) {
+  const date = new Date(createdAt);
+  const day =
+    date.toDateString() === new Date().toDateString()
+      ? "Today"
+      : date.toLocaleDateString([], { month: "short", day: "numeric" });
+  return page ? `p. ${page} · ${day}` : day;
 }
