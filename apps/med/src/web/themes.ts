@@ -52,8 +52,8 @@ export interface CodePalette {
 export interface Aesthetic {
   /**
    * Interface text, Markdown and brief prose, and Markdown headings with their
-   * tracking. `measure` is the prose column width, so a line holds about 60–75
-   * characters in the prose font.
+   * tracking. `measure` is the prose column width in em. Characters per line
+   * depend on the prose font: 38em holds about 86 in Geist, 66 in Paper Mono at 40em.
    */
   fonts: { ui: string; prose: string; headings: string; headingTracking: string; measure: string };
   /** Multiplies every corner radius: 1 is Med's own, 0.3 is nearly square. */
@@ -529,8 +529,8 @@ export const aesthetics = {
       prose: '"Paper Mono", "SFMono-Regular", Consolas, monospace',
       headings: '"Paper Mono", "SFMono-Regular", Consolas, monospace',
       headingTracking: "0",
-      // Mono characters are wider: 43em holds about 63 characters, as 38em does 74 in Geist.
-      measure: "43em",
+      // A Paper Mono character is about 0.61em wide, so 40em holds about 66.
+      measure: "40em",
     },
     round: 0.3,
     buttons: "rounded",
