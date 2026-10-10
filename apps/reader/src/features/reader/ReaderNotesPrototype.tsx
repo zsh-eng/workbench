@@ -2,6 +2,7 @@ import { flushSync } from "react-dom";
 import { NotebookNote } from "./NotebookNote";
 import { DesktopNotebookNote, NotebookNoteBody } from "./DesktopNotebookNote";
 import { ReaderSheet } from "./shared/ReaderSheet";
+import { NotebookCountIcon } from "./shared/NotebookCountIcon";
 import type { Note, NoteTarget } from "@/types/note";
 import type { Highlight } from "@/types/highlight";
 import type { HighlightColor } from "@/lib/highlight-constants";
@@ -11,6 +12,7 @@ import { useNotebookDeletion } from "./hooks/use-notebook-deletion";
 import {
   createNoteLocationResolver,
   highlightNoteTarget,
+  marginPlacement,
   noteMarginTop,
 } from "./note-locations";
 import {
@@ -116,7 +118,6 @@ export function ReaderNotesPrototype({
   onReturnToReading: () => void;
   onVisit: (page: number) => void;
 }) {
-  const composerOpen = open || Boolean(mobileAnnotation);
   const reduceMotion = useReducedMotion();
   // Book order by default, so the notebook opens where you are reading.
   const [order, setOrder] = useState<"time" | "chapter">("chapter");
@@ -699,10 +700,18 @@ export function ReaderNotesPrototype({
       entry.location.page >= location.page &&
       entry.location.page <= margin.location.page,
   );
-  // Use one rail geometry for the editor and saved comments. Keep the rail
-  // beside the book text instead of attaching it to the window edge.
-  const commentWidth = Math.min(360, Math.max(320, margin.width - 32));
-  const commentLeft = `calc(100% - ${Math.max(commentWidth + 16, margin.width - 16)}px)`;
+  // One margin geometry for the editor, saved comments, and the count. It
+  // stays in the page margin and never covers the text column.
+  const marginColumn = marginPlacement(margin.width);
+  const marginRail = marginColumn.kind === "rail";
+  // A margin too narrow for the rail has no room for a composer beside the
+  // text. A new note opens in the notebook instead, with its quote and draft.
+  // The notebook then owns the note, so closing it returns to reading.
+  useEffect(() => {
+    if (!desktop || !open || notebook || marginRail) return;
+    setNotebook(true);
+    onActiveChange(false);
+  }, [desktop, open, notebook, marginRail, setNotebook, onActiveChange]);
   const commentSurface =
     "rounded-xl border border-border/80 bg-background/95 p-3 text-sm shadow-sm";
   /** One note field for three surfaces: the phone's Notes Island, the
@@ -1227,8 +1236,8 @@ export function ReaderNotesPrototype({
           aria-label="Page margin notes"
           className="fixed z-40 max-h-[calc(100dvh-6rem)] overflow-y-auto"
           style={{
-            left: commentLeft,
-            width: commentWidth,
+            left: marginColumn.left,
+            width: marginColumn.width,
             top: Math.max(
               80,
               Math.min(
@@ -1238,7 +1247,7 @@ export function ReaderNotesPrototype({
             ),
           }}
         >
-          {margin.width >= 220
+          {marginRail
             ? marginEntries.map((entry, index) => (
                 <article
                   key={entry.id}
@@ -1267,16 +1276,15 @@ export function ReaderNotesPrototype({
             : marginEntries.length > 0 && (
                 <button
                   aria-label="Read margin notes"
-                  onClick={() => {
-                    setNotebook(true);
-                    onActiveChange(true);
-                  }}
-                  className="mt-1 text-xs text-muted-foreground"
+                  aria-description={`${marginEntries.length} ${marginEntries.length === 1 ? "note" : "notes"} on these pages`}
+                  title="Read margin notes"
+                  onClick={() => setNotebook(true)}
+                  className="mx-auto flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors duration-150 hover:bg-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
                 >
-                  {marginEntries.length}
+                  <NotebookCountIcon count={marginEntries.length} />
                 </button>
               )}
-          {desktop && open && margin.width >= 220 && (
+          {desktop && open && marginRail && (
             <div
               ref={composer}
               data-note-composer
@@ -1287,38 +1295,7 @@ export function ReaderNotesPrototype({
           )}
         </aside>
       )}
-      {desktop ? (
-        <AnimatePresence>
-          {composerOpen && !notebook && margin.width < 220 && (
-            <motion.div
-              ref={composer}
-              data-note-composer
-              key="composer"
-              initial={{
-                opacity: 0,
-                transform: reduceMotion ? "none" : "translateY(8px)",
-              }}
-              animate={{ opacity: 1, transform: "none" }}
-              exit={{
-                opacity: 0,
-                transform: reduceMotion ? "none" : "translateY(8px)",
-              }}
-              transition={MOTION.enter}
-              className="fixed z-40 max-h-[calc(100dvh-7rem)] overflow-y-auto"
-              style={{
-                top: Math.max(
-                  80,
-                  Math.min(commentPosition.top, window.innerHeight - 220),
-                ),
-                left: commentLeft,
-                width: commentWidth,
-              }}
-            >
-              {renderNoteInput("margin")}
-            </motion.div>
-          )}
-        </AnimatePresence>
-      ) : (
+      {!desktop && (
         <AnimatePresence
           onExitComplete={() => {
             if (islandState === "none") onMobileComposerPresenceChange(false);

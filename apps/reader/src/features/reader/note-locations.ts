@@ -142,6 +142,39 @@ export function createNoteLocationResolver(
   };
 }
 
+/** Space between the margin rail and the text column, and the window edge. */
+const MARGIN_RAIL_INSET = 16;
+/** The narrowest rail that still holds a comfortable note field. */
+const MARGIN_RAIL_MIN_WIDTH = 280;
+const MARGIN_RAIL_MAX_WIDTH = 360;
+/** A 36 px count button with the rail inset on each side. */
+const MARGIN_COUNT_WIDTH = 36 + MARGIN_RAIL_INSET * 2;
+
+/**
+ * Places the desktop margin column in the right page margin, beside the text
+ * column and never over it. A margin wide enough for the rail holds saved
+ * notes and the composer. A narrower margin holds only a note count; new
+ * notes then open in the notebook.
+ */
+export function marginPlacement(margin: number): {
+  kind: "rail" | "count";
+  left: string;
+  width: number;
+} {
+  const width = Math.min(MARGIN_RAIL_MAX_WIDTH, margin - MARGIN_RAIL_INSET * 2);
+  if (width < MARGIN_RAIL_MIN_WIDTH)
+    return {
+      kind: "count",
+      left: `calc(100% - ${margin}px)`,
+      width: Math.min(margin, MARGIN_COUNT_WIDTH),
+    };
+  return {
+    kind: "rail",
+    left: `calc(100% - ${margin - MARGIN_RAIL_INSET}px)`,
+    width,
+  };
+}
+
 /** Match the visible fragment containing the note, not a hidden neighbouring spread. */
 export function noteMarginTop(anchor: ContentAnchor | null): number {
   if (!anchor) return 112;

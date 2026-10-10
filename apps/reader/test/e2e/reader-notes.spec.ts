@@ -1,3 +1,4 @@
+import type { Locator, Page } from "@playwright/test";
 import {
   test,
   expect,
@@ -241,6 +242,62 @@ test("captures thoughts over a stable book and browses both notebook orders", as
   ).toContainText(expectedPassage);
 });
 
+/** Selects a short passage on the current spread and asks for a note on it.
+ * The passage starts inside a line, so its page is the visible page even when
+ * the line continues a paragraph from the previous page. */
+async function openSelectionNote(page: Page) {
+  await page.evaluate(() => {
+    const root = document.querySelector(
+      '[data-reader-spread-layer="current"]',
+    )!;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    while (node && (node.textContent?.trim().length ?? 0) < 30)
+      node = walker.nextNode();
+    if (!node) throw new Error("No passage to select");
+    const range = document.createRange();
+    range.setStart(node, 5);
+    range.setEnd(node, 30);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+  });
+  await expect
+    .poll(() => page.evaluate(() => window.getSelection()?.toString().length))
+    .toBe(25);
+  await page.evaluate(() =>
+    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })),
+  );
+  await expect(
+    page.getByRole("button", { name: "Note on highlight" }),
+  ).toHaveCount(1);
+  await page.getByRole("button", { name: "Note on highlight" }).click();
+}
+
+/** Margin UI must stay beside the text columns of the current spread. */
+async function expectClearOfText(target: Locator) {
+  const overlaps = await target.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    return [
+      ...document.querySelectorAll(
+        '[data-reader-spread-layer="current"] [data-reader-page-content]',
+      ),
+    ]
+      .map((column) => column.getBoundingClientRect())
+      .filter(
+        (column) =>
+          box.left < column.right &&
+          column.left < box.right &&
+          box.top < column.bottom &&
+          column.top < box.bottom,
+      )
+      .map(
+        (column) =>
+          `${Math.round(box.left)}-${Math.round(box.right)} over text at ${Math.round(column.left)}-${Math.round(column.right)}`,
+      );
+  });
+  expect(overlaps).toEqual([]);
+}
+
 test.describe("Desktop margin notes", () => {
   test.use({
     viewport: { width: 1800, height: 1000 },
@@ -428,6 +485,8 @@ test.describe("Desktop margin notes", () => {
     page,
     localBook,
   }) => {
+    // The rail needs a page margin wider than 1800 px windows have.
+    await page.setViewportSize({ width: 2048, height: 1000 });
     await openLocalBook(page, localBook.id);
     const stage = page.locator('[data-reader-stage-slot="content"]');
     const before = await stage.boundingBox();
@@ -437,36 +496,7 @@ test.describe("Desktop margin notes", () => {
     await expect(
       page.getByRole("textbox", { name: "Write a note" }),
     ).not.toBeVisible();
-    async function openSelectionNote() {
-      await page.evaluate(() => {
-        const root = document.querySelector(
-          '[data-reader-spread-layer="current"]',
-        )!;
-        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-        let node = walker.nextNode();
-        while (node && (node.textContent?.trim().length ?? 0) < 30)
-          node = walker.nextNode();
-        if (!node) throw new Error("No passage to select");
-        const range = document.createRange();
-        range.setStart(node, 0);
-        range.setEnd(node, 25);
-        window.getSelection()!.removeAllRanges();
-        window.getSelection()!.addRange(range);
-      });
-      await expect
-        .poll(() =>
-          page.evaluate(() => window.getSelection()?.toString().length),
-        )
-        .toBe(25);
-      await page.evaluate(() =>
-        document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })),
-      );
-      await expect(
-        page.getByRole("button", { name: "Note on highlight" }),
-      ).toHaveCount(1);
-      await page.getByRole("button", { name: "Note on highlight" }).click();
-    }
-    await openSelectionNote();
+    await openSelectionNote(page);
     const panel = page.locator("[data-note-composer]");
     await expect(panel).toBeVisible();
     expect((await panel.boundingBox())!.x).toBeGreaterThan(1200);
@@ -479,6 +509,7 @@ test.describe("Desktop margin notes", () => {
     const editorBounds = (await panel.boundingBox())!;
     expect(editorBounds.width).toBeGreaterThanOrEqual(320);
     expect(editorBounds.width).toBeLessThanOrEqual(360);
+    await expectClearOfText(panel);
     await page.getByRole("button", { name: "Save note", exact: true }).click();
     await expect(
       page.getByRole("textbox", { name: "Write a note" }),
@@ -492,7 +523,8 @@ test.describe("Desktop margin notes", () => {
     expect(savedBounds.x).toBe(editorBounds.x);
     expect(savedBounds.width).toBe(editorBounds.width);
     expect(savedBounds.height).toBeLessThan(160);
-    await openSelectionNote();
+    await expectClearOfText(savedNote);
+    await openSelectionNote(page);
     await expect(savedNote).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Open notebook", exact: true }),
@@ -549,6 +581,64 @@ test.describe("Desktop margin notes", () => {
     expect(await stage.boundingBox()).toEqual(before);
     await page.screenshot({ path: "/tmp/reader-notes-tab.png" });
   });
+  test("opens a note in the notebook when the page margin is narrow", async ({
+    page,
+    localBook,
+  }, testInfo) => {
+    // A 56 px page margin: no room for a composer beside the text.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await openLocalBook(page, localBook.id);
+    for (let index = 0; index < 8; index++) await nextSpread(page);
+    await openSelectionNote(page);
+    await expect(
+      page.getByRole("textbox", { name: "Write a note" }),
+    ).toBeFocused();
+    // No margin composer may cover the text; this margin has room for none.
+    const composers = page.locator("[data-note-composer]");
+    for (const composer of await composers.all())
+      await expectClearOfText(composer);
+    await expect(composers).toHaveCount(0);
+    const sidebar = page.locator('aside[aria-label="Reader tools"]');
+    await expect(sidebar).toHaveAttribute("aria-hidden", "false");
+    await expect(
+      sidebar.getByRole("button", { name: "Notes", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    const input = sidebar.getByRole("textbox", { name: "Write a note" });
+    await expect(input).toBeFocused();
+    await expect(sidebar.getByTestId("note-quote")).toBeVisible();
+    await input.fill("A thought kept in the notebook");
+    await sidebar
+      .getByRole("button", { name: "Save note", exact: true })
+      .click();
+    await expect(
+      sidebar.getByRole("region", { name: "Book notebook" }),
+    ).toContainText("A thought kept in the notebook");
+    await input.press("Escape");
+    await expect(sidebar).toHaveAttribute("aria-hidden", "true");
+
+    const count = page.getByRole("button", { name: "Read margin notes" });
+    await expect(count).toBeVisible();
+    await expectClearOfText(count);
+    await page.screenshot({ path: testInfo.outputPath("narrow-margin.png") });
+    await count.click();
+    await expect(sidebar).toHaveAttribute("aria-hidden", "false");
+    await expect(input).toBeFocused();
+    await sidebar
+      .getByRole("button", { name: "Close reader tools", exact: true })
+      .last()
+      .click();
+    await expect(sidebar).toHaveAttribute("aria-hidden", "true");
+    // Closing returns to reading; the notebook must not open again.
+    await page.evaluate(
+      () =>
+        new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(resolve)),
+        ),
+    );
+    await expect(sidebar).toHaveAttribute("aria-hidden", "true");
+    await expect(count).toBeVisible();
+    await expect(page.locator("[data-note-composer]")).toHaveCount(0);
+  });
 });
 
 test.describe("Highlight note capture", () => {
@@ -557,7 +647,7 @@ test.describe("Highlight note capture", () => {
     hasTouch: false,
     isMobile: false,
   });
-  test("quotes a highlight in the compact composer", async ({
+  test("quotes a highlight in the notebook when the page margin is narrow", async ({
     page,
     localBook,
   }) => {
@@ -618,14 +708,15 @@ test.describe("Highlight note capture", () => {
       page.getByRole("button", { name: "Note on highlight" }),
     ).toHaveCount(1);
     await page.getByRole("button", { name: "Note on highlight" }).click();
+    // A 110 px page margin has no room for a composer beside the text, so
+    // the note opens in the notebook.
     const quote = page.getByTestId("note-quote");
     await expect(quote).toBeVisible();
-    const composerBounds = (await page
-      .locator("[data-note-composer]")
-      .boundingBox())!;
-    expect(composerBounds.width).toBeGreaterThanOrEqual(320);
-    expect(composerBounds.x + composerBounds.width).toBeLessThanOrEqual(900);
-    await page.screenshot({ path: "/tmp/reader-highlight-composer-wide.png" });
+    await expect(page.locator("[data-note-composer]")).toHaveCount(0);
+    await expect(
+      page.getByRole("textbox", { name: "Write a note" }),
+    ).toBeFocused();
+    await page.screenshot({ path: "/tmp/reader-highlight-notebook.png" });
     const quotedText = await quote.locator("span").textContent();
     await expect(quote.locator("span")).toHaveCSS("text-overflow", "ellipsis");
     expect(
@@ -641,6 +732,8 @@ test.describe("Highlight note capture", () => {
     await expect(
       page.getByRole("textbox", { name: "Write a note" }),
     ).toHaveValue("This passage is worth revisiting.");
+    // Escape returns to reading and keeps the draft for the next passage.
+    await page.getByRole("textbox", { name: "Write a note" }).press("Escape");
     await highlight.click();
     await expect(
       page.getByRole("button", { name: "Note on highlight" }),
@@ -653,25 +746,19 @@ test.describe("Highlight note capture", () => {
 
     await page.getByRole("button", { name: "Save note", exact: true }).click();
     await expect(quote).not.toBeVisible();
+    await page.getByRole("textbox", { name: "Write a note" }).press("Escape");
     await highlight.click();
     await expect(
       page.getByRole("button", { name: "Note on highlight" }),
     ).toHaveCount(1);
     await page.getByRole("button", { name: "Note on highlight" }).click();
-    await page.getByRole("textbox", { name: "Write a note" }).press("Escape");
-    await page.locator('[data-reader-chrome-rail="top"]').hover({
-      position: { x: 100, y: 4 },
-    });
-    await page
-      .getByRole("button", { name: "Open reader tools", exact: true })
-      .click();
-    await page.getByRole("button", { name: "Notes", exact: true }).click();
-    await expect(
-      page.getByRole("region", { name: "Book notebook" }).locator("blockquote"),
-    ).toHaveText(quotedText!);
+    await expect(quote).toBeVisible();
+    // The saved note's quote. The highlight's own entry may still be leaving
+    // the open notebook.
     const fullQuote = page
       .getByRole("region", { name: "Book notebook" })
-      .locator("blockquote");
+      .locator("article blockquote");
+    await expect(fullQuote).toHaveText(quotedText!);
     await expect(fullQuote).toHaveCSS("white-space", "pre-wrap");
     expect(
       await fullQuote.evaluate(
@@ -710,9 +797,7 @@ test.describe("Highlight note capture", () => {
     await expect(
       page.getByRole("region", { name: "Book notebook" }),
     ).toContainText("A revised reading of this passage.");
-    await expect(
-      page.getByRole("region", { name: "Book notebook" }).locator("blockquote"),
-    ).toHaveText(quotedText!);
+    await expect(fullQuote).toHaveText(quotedText!);
   });
 });
 
