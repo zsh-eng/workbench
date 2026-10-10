@@ -70,14 +70,12 @@
         "@twinkleplop/css": "0.1.4",
         "@twinkleplop/diff": "0.1.4",
         "@twinkleplop/dotenv": "0.1.4",
-        "@twinkleplop/go": "0.1.4",
         "@twinkleplop/html": "0.1.4",
         "@twinkleplop/http": "0.1.4",
         "@twinkleplop/ini": "0.1.4",
         "@twinkleplop/javascript": "0.1.4",
         "@twinkleplop/markdown": "0.1.4",
         "@twinkleplop/python": "0.1.4",
-        "@twinkleplop/rust": "0.1.4",
         "@twinkleplop/shellsession": "0.1.4",
         "@twinkleplop/sql": "0.1.4",
         "@twinkleplop/svelte": "0.1.4",
@@ -1345,8 +1343,6 @@
 
     "@twinkleplop/dotenv": ["@twinkleplop/dotenv@0.1.4", "", { "dependencies": { "@twinkleplop/core": "0.2.1" } }, "sha512-lYB05tBfnX5Knk4nnYFfe9iDCBe+zODqjhMs76tknIiKMTCqUmA7NlO/4H/qNmIsn4KvWOd1l3Ksg2+SaAFwRw=="],
 
-    "@twinkleplop/go": ["@twinkleplop/go@0.1.4", "", { "dependencies": { "@twinkleplop/core": "0.2.1" } }, "sha512-ez3S/2lJ2vRJ8gYz3WZ7bGpAtgawe1RyTrLCF5uSeTB9YsezFNtZQrIijt5D3uKHI0WB46eAjhg9wp4KzGb7Qg=="],
-
     "@twinkleplop/html": ["@twinkleplop/html@0.1.4", "", { "dependencies": { "@twinkleplop/core": "0.2.1", "@twinkleplop/css": "0.1.4", "@twinkleplop/javascript": "0.1.4" } }, "sha512-Ggw4Fz2TXUvkhhTX7qYY/YzBzgd/3j50b0A4GoepHVyOxkvN37g24oCT9DgiBTrZzAaYw84JWHu4k/NUAeed7g=="],
 
     "@twinkleplop/http": ["@twinkleplop/http@0.1.4", "", { "dependencies": { "@twinkleplop/bash": "0.1.4", "@twinkleplop/core": "0.2.1", "@twinkleplop/html": "0.1.4", "@twinkleplop/javascript": "0.1.4", "@twinkleplop/json": "0.1.4" } }, "sha512-8zBUYuuLeGqJOjOwJIVLMZB1qtgHojOYu9ZCjptWRGAUBWFJM54bvg+K3qVqLcDhgDjPGNrSj59E1D7zcfqApw=="],
@@ -1360,8 +1356,6 @@
     "@twinkleplop/markdown": ["@twinkleplop/markdown@0.1.4", "", { "dependencies": { "@twinkleplop/core": "0.2.1" } }, "sha512-gq6c/8nB6A3L12cJZpBqCSbSFZTyOCPiKFGsEjg/p0D1iylQPI71b4F5O/jDCJkk6cHE1UEFwFqDmVDCph2VtA=="],
 
     "@twinkleplop/python": ["@twinkleplop/python@0.1.4", "", { "dependencies": { "@twinkleplop/core": "0.2.1" } }, "sha512-XeAe7NZZK7oLynVeq3bakqPIxaX8F0UT3biFNqMaiS9ngHFzd8mpMAyC0UDEvz66+0fzFNMfBZba0As6Hb5QVA=="],
-
-    "@twinkleplop/rust": ["@twinkleplop/rust@0.1.4", "", { "dependencies": { "@twinkleplop/core": "0.2.1" } }, "sha512-escmDs54O+G8AQ23aHflvojrHVUtP8TWV0y9DPnilQLO+UYpNuC0139Tj/mWgK0h5cNa8ZtQHpxIe5fq0sHudg=="],
 
     "@twinkleplop/shellsession": ["@twinkleplop/shellsession@0.1.4", "", { "dependencies": { "@twinkleplop/bash": "0.1.4", "@twinkleplop/core": "0.2.1" } }, "sha512-jYv9edkrcrNlQYe+lgfqnkeeKowf8FYS5fE6V60wZWt97AnFyQuMsSZxnaVn+0x5TCcICWXTrduzuStK5zgbDg=="],
 

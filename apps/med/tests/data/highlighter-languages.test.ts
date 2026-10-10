@@ -17,7 +17,7 @@ function ranges(result: TokenizeResult, source: string) {
 }
 
 afterEach(() => {
-  vi.doUnmock("@twinkleplop/go");
+  vi.doUnmock("@twinkleplop/python");
   vi.resetModules();
 });
 
@@ -42,16 +42,16 @@ describe("Twinkleplop language loading", () => {
       token_types: [],
     }));
     const initialize = vi.fn<() => typeof factory>(() => factory);
-    vi.doMock("@twinkleplop/go", () => ({ tokenize: initialize }));
+    vi.doMock("@twinkleplop/python", () => ({ tokenize: initialize }));
     const { ensureLanguages, tokenize } = await import("../../src/web/highlighting/languages");
     await Promise.all([
-      ensureLanguages(["go"]),
-      ensureLanguages(["go", "go"]),
-      ensureLanguages(["go"]),
+      ensureLanguages(["python"]),
+      ensureLanguages(["python", "python"]),
+      ensureLanguages(["python"]),
     ]);
     expect(initialize).toHaveBeenCalledTimes(1);
-    tokenize("package main", "go");
-    expect(factory).toHaveBeenCalledWith("package main");
+    tokenize("def main(): pass", "python");
+    expect(factory).toHaveBeenCalledWith("def main(): pass");
   });
 
   it("permits retry after tokenizer initialization fails", async () => {
@@ -65,12 +65,12 @@ describe("Twinkleplop language loading", () => {
         throw new Error("temporary initialization failure");
       })
       .mockReturnValue(factory);
-    vi.doMock("@twinkleplop/go", () => ({ tokenize: initialize }));
+    vi.doMock("@twinkleplop/python", () => ({ tokenize: initialize }));
     const { ensureLanguages, tokenize } = await import("../../src/web/highlighting/languages");
-    await expect(ensureLanguages(["go"])).rejects.toThrow("temporary initialization failure");
-    await expect(ensureLanguages(["go"])).resolves.toBeUndefined();
+    await expect(ensureLanguages(["python"])).rejects.toThrow("temporary initialization failure");
+    await expect(ensureLanguages(["python"])).resolves.toBeUndefined();
     expect(initialize).toHaveBeenCalledTimes(2);
-    expect(tokenize("package main", "go")).toBeDefined();
+    expect(tokenize("def main(): pass", "python")).toBeDefined();
   });
 
   it.each(["\n", "\r\n"])(
