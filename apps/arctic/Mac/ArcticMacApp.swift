@@ -242,13 +242,13 @@ struct MacWorkspaceView: View {
         Text(workspace.error ?? workspace.store.errorMessage ?? "")
       }
       .overlay(alignment: .bottom) {
-        if let undo = workspace.store.archiveUndo {
+        if let undo = workspace.store.undoReceipt {
           HStack {
-            Image(systemName: "archivebox")
+            Image(systemName: undo.symbol)
             Text(undo.message)
-            Button("Undo") { workspace.store.undoArchive(undo.id) }.buttonStyle(.bordered)
+            Button("Undo") { workspace.store.undo(undo.id) }.buttonStyle(.bordered)
             Button {
-              workspace.store.archiveUndo = nil
+              workspace.store.dismissUndo(undo.id)
             } label: {
               Image(systemName: "xmark")
             }

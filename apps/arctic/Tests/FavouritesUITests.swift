@@ -116,6 +116,28 @@ final class FavouritesUITests: XCTestCase {
       card.waitForExistence(timeout: 5), "Undo Unarchive must persist archive membership")
   }
 
+  @MainActor func testRemoveLinkUndoRestoresRecordAndOfflineCopy() {
+    let app = launchFixtures()
+    let card = app.buttons["article-cached-0"]
+    XCTAssertTrue(card.waitForExistence(timeout: 10))
+    card.press(forDuration: 1)
+    app.buttons["Remove link"].tap()
+    XCTAssertTrue(app.staticTexts["Link removed"].waitForExistence(timeout: 5))
+    XCTAssertFalse(card.exists)
+    app.buttons["archive-undo"].tap()
+    XCTAssertTrue(card.waitForExistence(timeout: 5))
+    // The network is blocked, so this text can only come from the restored file.
+    card.tap()
+    let cached = app.webViews.staticTexts.containing(
+      NSPredicate(format: "label CONTAINS 'Keep every character intact'")
+    ).firstMatch
+    XCTAssertTrue(cached.waitForExistence(timeout: 10), "Undo must restore the offline copy")
+    app.terminate()
+    app.launchArguments = ["-ui-testing", "-articles-offline", "-disable-preloading"]
+    app.launch()
+    XCTAssertTrue(card.waitForExistence(timeout: 10), "Undo must persist the restored link")
+  }
+
   @MainActor func testWeeklyFavouritesPersistOfflineAndOpenArticle() {
     let app = launchFixtures()
     let card = app.buttons["article-cached-0"]

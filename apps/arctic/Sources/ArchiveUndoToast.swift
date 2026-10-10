@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// Telegram's Undo overlay informs this transient, stationary feedback surface.
-/// The action is already durable; timeout dismisses feedback, not the mutation.
+/// The archive or removal is already durable; timeout dismisses the offer, and
+/// for a removal it also discards the held Reader file.
 struct ArchiveUndoToast: View {
   let store: ArticleStore
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -10,10 +11,10 @@ struct ArchiveUndoToast: View {
 
   var body: some View {
     Group {
-      if let receipt = store.archiveUndo {
+      if let receipt = store.undoReceipt {
         HStack(spacing: 12) {
           if voiceOver {
-            Image(systemName: receipt.archived ? "archivebox.fill" : "tray.fill")
+            Image(systemName: receipt.symbol)
               .font(.title3).accessibilityHidden(true)
           } else {
             // The timer restarts on return to the app; so does its ring.
@@ -21,11 +22,11 @@ struct ArchiveUndoToast: View {
               .id("\(receipt.id)-\(scenePhase)")
           }
           Text(receipt.message).font(.subheadline).frame(maxWidth: .infinity, alignment: .leading)
-          Button("Undo") { store.undoArchive(receipt.id) }
+          Button("Undo") { store.undo(receipt.id) }
             .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
             .accessibilityIdentifier("archive-undo")
           if voiceOver {
-            Button("Dismiss") { store.archiveUndo = nil }.frame(minHeight: 44)
+            Button("Dismiss") { store.dismissUndo(receipt.id) }.frame(minHeight: 44)
           }
         }
         .padding(.horizontal, 16).padding(.vertical, 5)
@@ -37,7 +38,7 @@ struct ArchiveUndoToast: View {
         .frame(maxWidth: 480)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("archive-toast")
-        .accessibilityAction(.escape) { store.archiveUndo = nil }
+        .accessibilityAction(.escape) { store.dismissUndo(receipt.id) }
         .transition(
           reduceMotion
             ? .opacity
@@ -55,23 +56,22 @@ struct ArchiveUndoToast: View {
     }
     .animation(
       reduceMotion ? .easeOut(duration: 0.1) : .spring(response: 0.4, dampingFraction: 0.82),
-      value: store.archiveUndo?.id
+      value: store.undoReceipt?.id
     )
-    .sensoryFeedback(.impact(weight: .light), trigger: store.archiveUndo?.id) { _, new in
+    .sensoryFeedback(.impact(weight: .light), trigger: store.undoReceipt?.id) { _, new in
       new != nil
     }
     .task(id: timerIdentity) {
-      guard let receipt = store.archiveUndo, !voiceOver, scenePhase == .active else { return }
+      guard let receipt = store.undoReceipt, !voiceOver, scenePhase == .active else { return }
       do { try await Task.sleep(for: .seconds(6)) } catch { return }
-      guard store.archiveUndo?.id == receipt.id else { return }
-      store.archiveUndo = nil
+      store.dismissUndo(receipt.id)
     }
   }
 
   // Backgrounding or enabling VoiceOver cancels the timer. Returning gets the
   // full interval; assistive-technology users dismiss or undo at their own pace.
   private var timerIdentity: String {
-    "\(store.archiveUndo?.id.uuidString ?? "")-\(voiceOver)-\(scenePhase)"
+    "\(store.undoReceipt?.id.uuidString ?? "")-\(voiceOver)-\(scenePhase)"
   }
 }
 

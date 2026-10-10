@@ -59,14 +59,34 @@ struct ImportSummary: Identifiable {
 }
 
 /// A receipt for the latest completed action, never a copy of the whole library.
-struct ArchiveUndo: Identifiable {
+/// A removal keeps only the removed records; their Reader files wait aside until
+/// the receipt is dismissed, so Undo also restores the offline copy.
+struct UndoReceipt: Identifiable {
+  struct Removed {
+    let index: Int
+    let article: SavedArticle
+  }
+  enum Action {
+    case archive(previous: [UUID: Bool], archived: Bool)
+    case remove([Removed])
+  }
   let id = UUID()
-  let previous: [UUID: Bool]
-  let archived: Bool
+  let action: Action
   var message: String {
-    let count = previous.count
-    if archived { return count == 1 ? "Article archived" : "\(count) articles archived" }
-    return count == 1 ? "Returned to Saved" : "\(count) articles returned to Saved"
+    switch action {
+    case .archive(let previous, let archived):
+      let count = previous.count
+      if archived { return count == 1 ? "Article archived" : "\(count) articles archived" }
+      return count == 1 ? "Returned to Saved" : "\(count) articles returned to Saved"
+    case .remove(let removed):
+      return removed.count == 1 ? "Link removed" : "\(removed.count) links removed"
+    }
+  }
+  var symbol: String {
+    switch action {
+    case .archive(_, let archived): archived ? "archivebox.fill" : "tray.fill"
+    case .remove: "trash.fill"
+    }
   }
 }
 
@@ -86,7 +106,7 @@ struct TaggingNotice: Identifiable {
   @ObservationIgnored private var cachedTags: [String] = []
   @ObservationIgnored private var cachedSavedIDs: [UUID] = []
   var errorMessage: String?
-  var archiveUndo: ArchiveUndo?
+  private(set) var undoReceipt: UndoReceipt?
   private(set) var taggingNotice: TaggingNotice?
   private(set) var importSummary: ImportSummary?
   private var currentImportIDs = Set<UUID>()
@@ -147,6 +167,8 @@ struct TaggingNotice: Identifiable {
   }
   private let fileURL: URL
   private let downloads: URL
+  /// Reader files of removed links, kept only while their Undo is offered.
+  private let removedDownloads: URL
 
   init(directory: URL? = nil) {
     let directory =
@@ -155,6 +177,12 @@ struct TaggingNotice: Identifiable {
         path: "ArticleReader", directoryHint: .isDirectory)
     fileURL = directory.appending(path: TestMode.enabled ? "test-links.json" : "links.json")
     downloads = directory.appending(path: TestMode.enabled ? "TestDownloads" : "Downloads")
+    removedDownloads = directory.appending(
+      path: TestMode.enabled ? "TestRemovedDownloads" : "RemovedDownloads")
+    // An Undo receipt does not survive relaunch, so neither do the files it held.
+    if FileManager.default.fileExists(atPath: removedDownloads.path) {
+      try? FileManager.default.removeItem(at: removedDownloads)
+    }
     do {
       try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
       if TestMode.enabled && ProcessInfo.processInfo.arguments.contains("-reset-store") {
@@ -387,22 +415,84 @@ struct TaggingNotice: Identifiable {
       updated[index].isArchived = archived
     }
     try commit(updated)
-    archiveUndo = ArchiveUndo(previous: previous, archived: archived)
+    present(UndoReceipt(action: .archive(previous: previous, archived: archived)))
   }
 
-  func undoArchive(_ id: UUID) {
-    guard let receipt = archiveUndo, receipt.id == id else { return }
+  /// Removal is durable at once. Annotations, positions and reading sessions are
+  /// keyed by URL and stay; the Reader file waits aside while Undo is offered.
+  func remove(_ ids: Set<UUID>) {
+    let removed = articles.enumerated().filter { ids.contains($0.element.id) }
+      .map { UndoReceipt.Removed(index: $0.offset, article: $0.element) }
+    guard !removed.isEmpty else { return }
+    try? FileManager.default.createDirectory(
+      at: removedDownloads, withIntermediateDirectories: true)
+    for item in removed {
+      try? FileManager.default.moveItem(
+        at: downloadFile(item.article.id), to: removedFile(item.article.id))
+    }
+    do {
+      try commit(articles.filter { !ids.contains($0.id) })
+      present(UndoReceipt(action: .remove(removed)))
+    } catch {
+      for item in removed {
+        try? FileManager.default.moveItem(
+          at: removedFile(item.article.id), to: downloadFile(item.article.id))
+      }
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func undo(_ id: UUID) {
+    guard let receipt = undoReceipt, receipt.id == id else { return }
     var updated = articles
-    for index in updated.indices {
-      guard let previous = receipt.previous[updated[index].id], updated[index].saved,
-        (updated[index].isArchived == true) == receipt.archived
-      else { continue }
-      updated[index].isArchived = previous
+    var restored: [UUID] = []
+    switch receipt.action {
+    case .archive(let previous, let archived):
+      for index in updated.indices {
+        guard let wasArchived = previous[updated[index].id], updated[index].saved,
+          (updated[index].isArchived == true) == archived
+        else { continue }
+        updated[index].isArchived = wasArchived
+      }
+    case .remove(let removed):
+      // A link saved again in the meantime keeps its new record.
+      for item in removed {
+        let article = item.article
+        guard !updated.contains(where: { $0.id == article.id || $0.url == article.url })
+        else { continue }
+        updated.insert(article, at: min(item.index, updated.count))
+        restored.append(item.article.id)
+      }
     }
     do {
       try commit(updated)
-      archiveUndo = nil
+      for articleID in restored {
+        try? FileManager.default.moveItem(
+          at: removedFile(articleID), to: downloadFile(articleID))
+      }
+      dismissUndo(id)
+      if !restored.isEmpty { scheduleTagging() }
     } catch { errorMessage = error.localizedDescription }
+  }
+
+  func dismissUndo(_ id: UUID) {
+    guard let receipt = undoReceipt, receipt.id == id else { return }
+    undoReceipt = nil
+    release(receipt)
+  }
+
+  private func present(_ receipt: UndoReceipt) {
+    if let previous = undoReceipt { release(previous) }
+    undoReceipt = receipt
+  }
+
+  /// Delete the Reader files a removal receipt held, off the main actor.
+  private func release(_ receipt: UndoReceipt) {
+    guard case .remove(let removed) = receipt.action else { return }
+    let files = removed.map { removedFile($0.article.id) }
+    Task.detached(priority: .utility) {
+      for file in files { try? FileManager.default.removeItem(at: file) }
+    }
   }
 
   /// Called by the visible Reader only. Speculative browsers never write history.
@@ -445,15 +535,14 @@ struct TaggingNotice: Identifiable {
     do { try commit(updated) } catch { errorMessage = error.localizedDescription }
   }
 
-  func update(_ ids: Set<UUID>, read: Bool? = nil, archived: Bool? = nil, delete: Bool = false) {
+  func update(_ ids: Set<UUID>, read: Bool? = nil, archived: Bool? = nil) {
     do {
-      if let archived, read == nil, !delete {
+      if let archived, read == nil {
         try setArchived(archived, ids: ids)
         return
       }
-      let updated = articles.compactMap { article -> SavedArticle? in
+      let updated = articles.map { article -> SavedArticle in
         guard ids.contains(article.id) else { return article }
-        if delete { return nil }
         var result = article
         if let read { result.isRead = read }
         if let archived, result.saved { result.isArchived = archived }
@@ -549,7 +638,7 @@ struct TaggingNotice: Identifiable {
   }
 
   func remove(_ article: SavedArticle) {
-    update([article.id], delete: true)
+    remove([article.id])
   }
 
   func downloadedFile(for url: URL) -> URL? {
@@ -592,6 +681,7 @@ struct TaggingNotice: Identifiable {
   }
 
   private func downloadFile(_ id: UUID) -> URL { downloads.appending(path: "\(id).html") }
+  private func removedFile(_ id: UUID) -> URL { removedDownloads.appending(path: "\(id).html") }
 
   /// Import is one local transaction. Network work starts after the new list is
   /// visible, with at most three metadata requests and no eager image downloads.

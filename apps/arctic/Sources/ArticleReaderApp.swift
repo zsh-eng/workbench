@@ -745,7 +745,7 @@ struct LibraryView: View {
       "Delete \(selection.count) links?", isPresented: $confirmDelete, titleVisibility: .visible
     ) {
       Button("Delete links", role: .destructive) {
-        store.update(selection, delete: true)
+        store.remove(selection)
         selection.removeAll()
       }
     }

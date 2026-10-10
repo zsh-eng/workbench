@@ -75,8 +75,12 @@ enable `group.com.zsheng.ArticleReader` in App Groups for both targets. Both use
 - Long-press a saved article to **Favourite** or **Unfavourite**, edit **Tags**, archive, or remove it. Archived links
   retain their tags and history. **Move to Saved** restores them to the inbox.
   Both actions show a six-second **Undo** banner, including bulk changes and
-  archiving from Reader. Undo changes only archive status. A ring and digit
-  count down the remaining seconds. VoiceOver users can dismiss it explicitly;
+  archiving from Reader. Undo changes only archive status. **Remove link** and
+  bulk deletion show the same banner: Undo puts the record back in place with
+  its offline copy, which waits aside until the banner closes. Highlights,
+  notes, reading time and positions are keyed by URL and survive removal, so
+  saving a removed link again restores them. A ring and digit count down the
+  remaining seconds. VoiceOver users can dismiss it explicitly;
   its timer pauses while the app is inactive.
   Select supports bulk archiving and confirmed deletion. Tags use a compact sheet
   that grows with the tag list, up to 360 points.
