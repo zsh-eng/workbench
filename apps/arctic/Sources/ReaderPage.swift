@@ -200,7 +200,7 @@ struct ReaderPage: View {
             WebSurface(
               webView: browser.readerView, insets: geometry.safeAreaInsets,
               isActive: { browser.isReader && browser.readerReady }, nearEnd: $nearEnd,
-              onScrollEnd: browser.captureReaderPosition,
+              onScrollEnd: browser.readerScrollEnded,
               onReadingActivity: { browser.readingActivity?() },
               onTap: browser.noteDraft == nil ? nil : { browser.noteDismissRequest += 1 }
             )
@@ -212,9 +212,12 @@ struct ReaderPage: View {
             WebSurface(
               webView: browser.webView, insets: geometry.safeAreaInsets,
               isActive: { !browser.isReader }, nearEnd: $nearEnd,
+              onScrollEnd: browser.websiteScrollEnded,
               onReadingActivity: { browser.readingActivity?() },
               onTap: browser.noteDraft == nil ? nil : { browser.noteDismissRequest += 1 }
             )
+            .opacity(browser.websiteAligning ? 0 : 1)
+            .animation(.easeOut(duration: 0.12), value: browser.websiteAligning)
             .transition(.opacity)
           }
         }

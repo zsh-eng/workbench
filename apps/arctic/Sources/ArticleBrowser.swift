@@ -51,6 +51,18 @@ enum ArticleRouting {
 
 /// Keep WebKit's selection and edit menu, but write Reader text through UIKit.
 /// Copy uses the selected plain text directly, including on cached documents.
+/// WebKit applies a page's scroll only while its view is in a window, so the
+/// website moves to Reader's words after it enters one.
+@MainActor private final class WebsiteWebView: WKWebView {
+  var didEnterWindow: (() -> Void)?
+
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    guard didEnterWindow != nil, window != nil else { return }
+    Task { @MainActor [weak self] in self?.didEnterWindow?() }
+  }
+}
+
 @MainActor private final class ReaderWebView: WKWebView {
   private var copyRequest = 0
   var annotate: ((Bool) -> Void)?
@@ -60,6 +72,12 @@ enum ArticleRouting {
   override func layoutSubviews() {
     super.layoutSubviews()
     // SwiftUI can update the representable before UIKit assigns its viewport.
+    guard didLayout != nil, window != nil else { return }
+    Task { @MainActor [weak self] in self?.didLayout?() }
+  }
+
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
     guard didLayout != nil, window != nil else { return }
     Task { @MainActor [weak self] in self?.didLayout?() }
   }
@@ -260,6 +278,15 @@ enum ArticleRouting {
   var readerReady = false
   var positionReady = false
   @ObservationIgnored private var restoringPosition = false
+  /// Website and Reader keep separate scroll positions. After you scroll one,
+  /// a switch shows the other at the same words; layouts differ, words do not.
+  @ObservationIgnored private var websiteMoved = false
+  @ObservationIgnored private var readerMoved = false
+  @ObservationIgnored private var websiteWords: String?
+  @ObservationIgnored private var capturingWords = false
+  @ObservationIgnored private var switchVersion = 0
+  /// The website stays transparent while it moves to Reader's words.
+  private(set) var websiteAligning = false
   private var renderedAppearance = ""
   var appearanceDescription: String {
     get {
@@ -357,7 +384,7 @@ enum ArticleRouting {
         websiteConfiguration.setURLSchemeHandler(ReaderHeldImage(), forURLScheme: "arctic-test")
       }
     #endif
-    webView = WKWebView(frame: .zero, configuration: websiteConfiguration)
+    webView = WebsiteWebView(frame: .zero, configuration: websiteConfiguration)
     let configuration = WKWebViewConfiguration()
     configuration.defaultWebpagePreferences.allowsContentJavaScript = false
     configuration.websiteDataStore = .nonPersistent()
@@ -739,13 +766,113 @@ enum ArticleRouting {
         // A downloaded article opens without a publisher request. Keep its
         // rendered HTML visible until the user-requested website has loaded.
         isOpeningWebsite = true
+        readerMoved = true
+        matchWebsiteGeometry()
         loadWebsite(sourceURL)
       } else if !isOpeningWebsite {
-        isReader = false
+        showWebsiteAtReaderWords()
       }
       return
     }
+    if websiteMoved { captureWebsiteWords() }
     showReader()
+  }
+
+  func websiteScrollEnded() { websiteMoved = true }
+
+  func readerScrollEnded() {
+    readerMoved = true
+    captureReaderPosition()
+  }
+
+  /// Reader stays hidden until it shows the website's words, or for at most
+  /// 0.3 s; it then falls back to its saved position.
+  private func captureWebsiteWords() {
+    websiteMoved = false
+    readerMoved = false
+    guard hasLoaded, webView.bounds.width > 0 else { return }
+    switchVersion += 1
+    let version = switchVersion
+    websiteWords = nil
+    capturingWords = true
+    if positionReady {
+      positionReady = false
+      (readerView as? ReaderWebView)?.didLayout = { [weak self] in
+        self?.restoreReaderPositionIfNeeded()
+      }
+    }
+    let finish: (String?) -> Void = { [weak self] words in
+      guard let self, self.switchVersion == version, self.capturingWords else { return }
+      self.capturingWords = false
+      self.websiteWords = words
+      self.restoreReaderPositionIfNeeded()
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { finish(nil) }
+    webView.callAsyncJavaScript(
+      ReaderPosition.script + "\nreturn arcticWords.capture(top);",
+      arguments: ["top": webView.scrollView.contentInset.top], in: nil, in: .defaultClient
+    ) { result in
+      guard case .success(let value) = result else { return finish(nil) }
+      finish(value as? String)
+    }
+  }
+
+  /// Reader's words are read while Reader is still visible. The website then
+  /// enters transparent and appears once it shows them, or after 0.3 s.
+  private func showWebsiteAtReaderWords() {
+    guard readerMoved, readerReady, positionReady, !restoringPosition else {
+      isReader = false
+      return
+    }
+    readerMoved = false
+    websiteMoved = false
+    switchVersion += 1
+    let version = switchVersion
+    matchWebsiteGeometry()
+    let top = readerView.scrollView.contentInset.top
+    readerView.callAsyncJavaScript(
+      ReaderPosition.script + "\nreturn arcticWords.capture(top);", arguments: ["top": top],
+      in: nil, in: .defaultClient
+    ) { [weak self] result in
+      guard let self, self.switchVersion == version, self.isReader, !self.wantsReader else {
+        return
+      }
+      guard case .success(let value) = result, let words = value as? String else {
+        self.isReader = false
+        return
+      }
+      self.websiteAligning = true
+      self.isReader = false
+      let finish = { [weak self] in
+        guard let self, self.switchVersion == version else { return }
+        (self.webView as? WebsiteWebView)?.didEnterWindow = nil
+        self.websiteAligning = false
+      }
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: finish)
+      (self.webView as? WebsiteWebView)?.didEnterWindow = { [weak self] in
+        guard let self, self.switchVersion == version else { return }
+        (self.webView as? WebsiteWebView)?.didEnterWindow = nil
+        self.webView.callAsyncJavaScript(
+          ReaderPosition.script + "\nreturn arcticWords.reveal(JSON.parse(words), top);",
+          arguments: ["words": words, "top": top], in: nil, in: .defaultClient
+        ) { _ in finish() }
+      }
+    }
+  }
+
+  /// A website that has not been on screen has no real viewport yet. Give it
+  /// Reader's frame and bar insets, so its text wraps as it will when shown.
+  private func matchWebsiteGeometry() {
+    guard webView.window == nil, readerView.bounds.width > 0 else { return }
+    if webView.frame != readerView.frame { webView.frame = readerView.frame }
+    let insets = readerView.scrollView.contentInset
+    let scroll = webView.scrollView
+    guard scroll.contentInset != insets else { return }
+    // As the visible surface does, keep a page that is at the top below the bar.
+    let atTop = scroll.contentOffset.y <= -scroll.contentInset.top + 1
+    scroll.contentInset = insets
+    scroll.verticalScrollIndicatorInsets = insets
+    if atTop { scroll.contentOffset.y = -insets.top }
   }
 
   /// Reuse prepared HTML and its scroll position when reopening a saved article.
@@ -1101,6 +1228,12 @@ enum ArticleRouting {
     noteDraft = nil
     positionReady = false
     restoringPosition = false
+    websiteMoved = false
+    readerMoved = false
+    websiteWords = nil
+    capturingWords = false
+    switchVersion += 1
+    if websiteAligning { websiteAligning = false }
     pageVersion += 1
     extractionTask?.cancel()
     decorationTask?.cancel()
@@ -1163,7 +1296,7 @@ enum ArticleRouting {
     }
     if isOpeningWebsite {
       isOpeningWebsite = false
-      if !wantsReader { isReader = false }
+      if !wantsReader { showWebsiteAtReaderWords() }
       return
     }
     prepareReader()
@@ -1511,9 +1644,29 @@ enum ArticleRouting {
   /// Called only after the visible Reader has its real viewport and bar insets.
   /// Preloading may prepare HTML at zero size; it must not restore or save there.
   func restoreReaderPositionIfNeeded() {
-    guard readerReady, !positionReady, !restoringPosition, readerView.window != nil,
-      readerView.bounds.width > 0, readerView.bounds.height > 0
+    guard readerReady, !positionReady, !restoringPosition, !capturingWords,
+      readerView.window != nil, readerView.bounds.width > 0, readerView.bounds.height > 0
     else { return }
+    if let words = websiteWords {
+      websiteWords = nil
+      restoringPosition = true
+      let token = readerDocumentToken
+      readerView.callAsyncJavaScript(
+        ReaderPosition.script + "\nreturn arcticWords.reveal(JSON.parse(words), top);",
+        arguments: ["words": words, "top": readerView.scrollView.contentInset.top],
+        in: nil, in: .defaultClient
+      ) { [weak self] result in
+        guard let self, self.readerDocumentToken == token else { return }
+        self.restoringPosition = false
+        guard case .success(let found) = result, found as? Bool == true else {
+          // No shared words: use Reader's own saved passage instead.
+          return self.restoreReaderPositionIfNeeded()
+        }
+        self.finishPositionRestore()
+        self.captureReaderPosition()
+      }
+      return
+    }
     guard let position = ReaderPosition.load(libraryURL) else {
       finishPositionRestore()
       return

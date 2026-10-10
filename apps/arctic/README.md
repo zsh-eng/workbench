@@ -103,7 +103,7 @@ enable `group.com.zsheng.ArticleReader` in App Groups for both targets. Both use
   Reader view has been written to disk. Cached articles open from their styled local
   HTML in any folder, without briefly showing the website. New HTML declares UTF-8;
   older cached bytes also load as UTF-8, preserving quotes, accents, and CJK text. Reader and Website
-  crossfade while preserving their separate scroll positions. Website loads on demand;
+  crossfade and keep separate scroll positions; see the switch rule below. Website loads on demand;
   the cached Reader stays visible until it is ready. Stored text, code and embedded
   header images do not need the website. Appearance controls
   still work. The two bundled custom fonts load from a fixed local asset scheme
@@ -135,8 +135,17 @@ enable `group.com.zsheng.ArticleReader` in App Groups for both targets. Both use
   Unknown languages remain plain code. No remote script is loaded.
 - Reader restores the last text passage after relaunch, including offline. Checkpoints
   are device-local and stored separately from the article index after scrolling settles
-  or Reader closes; Website scrolling never updates them. A paragraph anchor handles
-  text-size changes, with progress as a fallback after article text changes.
+  or Reader closes. A paragraph anchor handles text-size changes, with progress as a
+  fallback after article text changes.
+- Switching between Website and Reader keeps your place by words, not layout: a site
+  can put images, advertisements or links between paragraphs that Reader removes.
+  After you scroll one view, the other opens with the same words at the same height,
+  below the native bar and any fixed site bar; Reader then saves that place. Without
+  a scroll, each view keeps its own position. The incoming view stays transparent
+  until it is in place, for at most 0.3 s. If no words match, Reader uses its saved
+  passage. Unwall's article frame is searched too. The anchor is up to 12 words from
+  each of the first four visible text runs; the longest match wins, and a repeated
+  phrase is told apart by the words after it and its position in the page.
 - The page menu provides Copy link, Share, native Find in page, Open in browser,
   Favourite, Archive article, **Reading time**, **Refresh Reader**, Reload and Try Unwall.
   Refresh Reader uses the current page DOM, or loads the source if only cached

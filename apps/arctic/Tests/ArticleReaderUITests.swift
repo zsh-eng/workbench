@@ -714,7 +714,76 @@ final class ArticleReaderUITests: XCTestCase {
     }
   }
 
-  @MainActor func testReaderPositionSurvivesOfflineRelaunchAndWebsiteScroll() {
+  /// The site puts advertisements between passages and uses its own type, so
+  /// only the words connect the two views.
+  @MainActor func testSwitchingViewsKeepsTheSameWords() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-ui-testing", "-reset-store", "-reset-appearance"]
+    app.launch()
+    add("https://fixture.example/passages", to: app)
+    app.buttons["article-passages"].tap()
+    showReader(app)
+    let web = app.webViews.firstMatch
+    let toggle = app.buttons["reader-toggle"]
+    let probe = app.navigationBars.firstMatch.frame.maxY + 24
+    func expectSwitch(to mode: String, keeping top: (name: String, y: CGFloat)) {
+      XCTAssertTrue(app.buttons[mode].waitForExistence(timeout: 10))
+      // Let the 0.22 s crossfade finish, so the outgoing view is not measured.
+      Thread.sleep(forTimeInterval: 0.6)
+      var frame: CGRect?
+      let deadline = Date().addingTimeInterval(10)
+      while frame == nil && Date() < deadline { frame = passage(top.name, in: app)?.frame }
+      guard let frame else {
+        return XCTFail("\(top.name) is not visible in \(mode)\n\(app.debugDescription)")
+      }
+      // The same passage still holds the first line below the bar.
+      XCTAssertLessThanOrEqual(frame.minY, max(top.y, probe) + 30, top.name)
+      XCTAssertGreaterThan(frame.maxY, probe, top.name)
+    }
+    // Reader to a website that loads for the first time.
+    web.swipeUp(velocity: .slow)
+    var top = topPassage(below: probe, in: app)
+    toggle.tap()
+    expectSwitch(to: "Reader", keeping: top)
+    capture(app, "switch-website-at-reader-words")
+    // Website to Reader.
+    web.swipeUp(velocity: .slow)
+    web.swipeUp(velocity: .slow)
+    top = topPassage(below: probe, in: app)
+    toggle.tap()
+    expectSwitch(to: "Website", keeping: top)
+    capture(app, "switch-reader-at-website-words")
+    // Reader to the website that is already loaded.
+    web.swipeDown(velocity: .slow)
+    top = topPassage(below: probe, in: app)
+    toggle.tap()
+    expectSwitch(to: "Reader", keeping: top)
+  }
+
+  private let passageNames = [
+    "Amber", "Birch", "Cedar", "Dune", "Ember", "Fern", "Garnet", "Heron", "Iris", "Juniper",
+    "Kestrel", "Linden", "Moss", "Nettle",
+  ]
+
+  /// Each passage's text names it in every sentence, for example "Ferry Birch".
+  @MainActor private func passage(_ name: String, in app: XCUIApplication) -> XCUIElement? {
+    app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Ferry \(name) "))
+      .allElementsBoundByIndex.first { $0.isHittable }
+  }
+
+  /// The passage on the first line below the bar, or the next one below a gap.
+  @MainActor private func topPassage(below probe: CGFloat, in app: XCUIApplication) -> (
+    name: String, y: CGFloat
+  ) {
+    for name in passageNames {
+      guard let frame = passage(name, in: app)?.frame, frame.maxY > probe else { continue }
+      return (name, frame.minY)
+    }
+    XCTFail(app.debugDescription)
+    return ("", 0)
+  }
+
+  @MainActor func testReaderPositionSurvivesOfflineRelaunchAndWebsiteSwitch() {
     let app = XCUIApplication()
     app.launchArguments = ["-ui-testing", "-reset-store", "-reset-appearance"]
     app.launch()
@@ -727,9 +796,11 @@ final class ArticleReaderUITests: XCTestCase {
     XCTAssertTrue(heading.isHittable, app.debugDescription)
     let y = heading.frame.minY
     capture(app, "reader-position-before")
+    // Without a website scroll, Reader keeps its own position.
     app.buttons["reader-toggle"].tap()
-    web.swipeUp()
+    XCTAssertTrue(app.buttons["Reader"].waitForExistence(timeout: 10))
     app.buttons["reader-toggle"].tap()
+    XCTAssertTrue(app.buttons["Website"].waitForExistence(timeout: 10))
     XCTAssertEqual(heading.frame.minY, y, accuracy: 16)
     app.navigationBars.buttons.element(boundBy: 0).tap()
     XCTAssertTrue(app.buttons["continue-reading-open"].waitForExistence(timeout: 5))

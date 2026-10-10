@@ -1382,7 +1382,7 @@ enum TestMode {
     guard enabled, url.host == "fixture.example" else { return nil }
     let name = url.lastPathComponent
     return Bundle.main.url(
-      forResource: ["frame", "next", "short", "long", "unicode", "icon"].contains(name)
+      forResource: ["frame", "next", "short", "long", "unicode", "icon", "passages"].contains(name)
         ? name : "story",
       withExtension: "html",
       subdirectory: "Fixtures")
