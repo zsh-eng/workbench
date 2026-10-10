@@ -186,6 +186,29 @@ export function NoteComposer({
   );
 }
 
+/** A comment on a passage of prose, such as the Notes. */
+export function PassageComposer({
+  label,
+  onSave,
+  onCancel,
+}: {
+  label: string;
+  onSave(text: string): Promise<void>;
+  onCancel(): void;
+}) {
+  return (
+    <div data-comment-card {...stylex.props(styles.card)}>
+      <CommentEditor
+        label="Comment text"
+        formLabel={label}
+        submitLabel="Save note"
+        onSave={onSave}
+        onCancel={onCancel}
+      />
+    </div>
+  );
+}
+
 function ThreadMessage({
   note,
   reply = false,
@@ -305,10 +328,13 @@ function ThreadMessage({
 export function NoteCard({
   note,
   replies,
+  label,
   onMutate,
 }: {
   note: Note;
   replies: Note[];
+  /** The thread's name, with no replies: a comment on a passage of prose. */
+  label?: string;
   onMutate(mutation: NoteMutation): Promise<void>;
 }) {
   const [replying, setReplying] = useState(false);
@@ -318,7 +344,7 @@ export function NoteCard({
   return (
     <article
       data-comment-card
-      aria-label={`Comment thread at ${lineLabel(note)}`}
+      aria-label={label ?? `Comment thread at ${lineLabel(note)}`}
       {...stylex.props(styles.card)}
     >
       <ThreadMessage
@@ -326,7 +352,7 @@ export function NoteCard({
         note={note}
         onMutate={onMutate}
         onReply={
-          replying
+          replying || label
             ? undefined
             : () => {
                 replySession.current++;

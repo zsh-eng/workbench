@@ -44,7 +44,9 @@ import {
   MAX_PINS,
   MAX_SESSIONS,
   pinSourceSchema,
+  briefCommentSchema,
   type AgentSession,
+  type BriefCommentMutation,
   type PinMutation,
   type SavedReview,
   type SavedReviewCreate,
@@ -128,6 +130,10 @@ const savedSchema = z.object({
   pullRequestTitle: text.optional(),
   brief: briefSchema.optional(),
   pins: pinsSchema.optional(),
+  briefComments: z
+    .array(briefCommentSchema.extend({ id: z.string().regex(/^c_[a-f0-9]{12}$/) }))
+    .max(MAX_NOTES)
+    .optional(),
   sessions: z.array(agentSessionSchema).max(MAX_SESSIONS).optional(),
   iterations: z
     .array(
@@ -169,6 +175,11 @@ const recordSchema = z.object({
     .max(128),
 });
 type SavedRecord = z.infer<typeof recordSchema>;
+
+/** Comments on the captured comparisons and on the Notes. */
+const countComments = (record: SavedRecord) =>
+  record.captures.reduce((sum, capture) => sum + capture.notes.notes.length, 0) +
+  (record.saved.briefComments?.length ?? 0);
 
 /** Rebuild only a selected slice of captured patch rows. Large added files must
  * not repeat their complete initial-add hunk for every comment. */
@@ -455,10 +466,7 @@ export class SavedReviewStore {
           }
         }
       }
-      if (
-        record.saved.commentCount !==
-        record.captures.reduce((sum, capture) => sum + capture.notes.notes.length, 0)
-      )
+      if (record.saved.commentCount !== countComments(record))
         throw new Error("Comment count does not match.");
       if (!fresh) this.remember(id, identity, info.size, record);
       return record;
@@ -678,6 +686,10 @@ export class SavedReviewStore {
       },
     ];
     delete saved.pins;
+    // The brief of a review without iterations becomes the first iteration's.
+    if (!saved.iterations)
+      for (const comment of saved.briefComments ?? [])
+        if (comment.section === "brief") comment.iteration = 1;
     if (iterations.length >= MAX_ITERATIONS)
       throw new HostError(
         "saved-review-limit",
@@ -946,10 +958,7 @@ export class SavedReviewStore {
       }
       target.notes.revision++;
       record.saved.revision++;
-      record.saved.commentCount = record.captures.reduce(
-        (sum, item) => sum + item.notes.notes.length,
-        0,
-      );
+      record.saved.commentCount = countComments(record);
       await this.write(record, beforeCommit);
       return target.notes;
     }, beforeCommit);
@@ -1020,6 +1029,63 @@ export class SavedReviewStore {
     }, beforeCommit);
   }
 
+  /** Comment on a passage of the Notes, or edit or remove such a comment. */
+  commentBrief(
+    id: string,
+    mutation: BriefCommentMutation,
+    beforeCommit?: () => void,
+  ): Promise<SavedReview> {
+    return this.writing(async () => {
+      const record = await this.read(id, true);
+      const saved = record.saved;
+      const comments = saved.briefComments ?? [];
+      const now = new Date().toISOString();
+      if ("add" in mutation) {
+        const { iteration, ...input } = mutation.add;
+        const brief =
+          iteration === undefined
+            ? saved.iterations
+              ? undefined
+              : saved.brief
+            : saved.iterations?.find((entry) => entry.number === iteration)?.brief;
+        const shown =
+          input.section === "brief"
+            ? brief !== undefined
+            : [saved, ...(saved.iterations ?? [])].some((owner) =>
+                owner.pins?.some((pin) => pin.id === input.section),
+              );
+        if (!shown)
+          throw new HostError("notes-not-found", "These notes are no longer in the review.", 404);
+        if (saved.commentCount >= MAX_NOTES)
+          throw new HostError(
+            "too-many-notes",
+            "A saved review can contain at most 500 notes.",
+            413,
+          );
+        comments.push({
+          ...input,
+          ...(input.section === "brief" && iteration ? { iteration } : {}),
+          id: `c_${randomBytes(6).toString("hex")}`,
+          createdAt: now,
+          updatedAt: now,
+        });
+      } else {
+        const target = "edit" in mutation ? mutation.edit.id : mutation.remove;
+        const index = comments.findIndex((comment) => comment.id === target);
+        if (index < 0) throw new HostError("note-not-found", "The note does not exist.", 404);
+        if ("edit" in mutation)
+          comments[index] = { ...comments[index]!, text: mutation.edit.text, updatedAt: now };
+        else comments.splice(index, 1);
+      }
+      if (comments.length) saved.briefComments = comments;
+      else delete saved.briefComments;
+      saved.commentCount = countComments(record);
+      saved.revision++;
+      await this.write(record, beforeCommit);
+      return this.describe(record);
+    }, beforeCommit);
+  }
+
   clear(id: string, expectedRevision: number, beforeCommit?: () => void): Promise<SavedReview> {
     return this.writing(async () => {
       const record = await this.read(id, true);
@@ -1033,6 +1099,7 @@ export class SavedReviewStore {
         target.notes.notes = [];
         target.notes.revision++;
       }
+      delete record.saved.briefComments;
       record.saved.commentCount = 0;
       record.saved.revision++;
       await this.write(record, beforeCommit);
@@ -1165,6 +1232,27 @@ export class SavedReviewStore {
             append(reply, number);
         };
         for (const note of threads) append(note);
+      }
+      const pins = [record.saved, ...(record.saved.iterations ?? [])].flatMap(
+        (owner) => owner.pins ?? [],
+      );
+      for (const comment of record.saved.briefComments ?? []) {
+        if (include && !include.has(comment.id)) continue;
+        const pin = pins.find((item) => item.id === comment.section);
+        appendText(
+          `## User Comment ${++index}`,
+          comment.section === "brief"
+            ? `On: the review's brief${comment.iteration ? ` (iteration ${comment.iteration})` : ""}`
+            : `On: an agent reply pinned to the review${pin ? ` (${pin.createdAt})` : ""}`,
+          `Comment ID: ${comment.id}`,
+          "",
+          "Quote:",
+          ...comment.quote.split("\n").map((line) => `> ${line}`),
+          "",
+          "Comment:",
+          comment.text,
+          "",
+        );
       }
       if (!index) appendText("No comments.");
       return {

@@ -141,7 +141,7 @@ export const guideContexts: GuideContext[] = [
         title: "Layout",
         entries: [
           { label: "Toggle the sidebar", keys: ["Mod+B"], command: "sidebar" },
-          { label: "Toggle the files sidebar", keys: ["Mod+Shift+B"], command: "browse-files" },
+          { label: "Toggle the agent session", keys: ["Mod+Shift+B"], command: "agent-session" },
           {
             label: "Zen mode",
             keys: ["Alt+Z"],

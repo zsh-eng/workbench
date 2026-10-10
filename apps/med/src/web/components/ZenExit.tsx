@@ -34,7 +34,7 @@ export function ZenExit({ onExit }: { onExit(): void }) {
  * The first few times zen mode starts, a brief hint names the keys for leaving
  * and for the panels that still work. Long loads show a hairline at the top.
  */
-export function ZenHint({ loading }: { loading?: boolean }) {
+export function ZenHint({ loading, session }: { loading?: boolean; session?: boolean }) {
   const [hint] = useState(() => {
     try {
       const shown = Number(localStorage.getItem("med:zen-hints") ?? 0);
@@ -55,9 +55,11 @@ export function ZenHint({ loading }: { loading?: boolean }) {
           <span {...stylex.props(styles.hintItem)}>
             <ShortcutKeys value="⌘ B" /> Sidebar
           </span>
-          <span {...stylex.props(styles.hintItem)}>
-            <ShortcutKeys value="⌘ ⇧ B" /> Files
-          </span>
+          {session && (
+            <span {...stylex.props(styles.hintItem)}>
+              <ShortcutKeys value="⌘ ⇧ B" /> Session
+            </span>
+          )}
         </div>
       )}
       {loading && (

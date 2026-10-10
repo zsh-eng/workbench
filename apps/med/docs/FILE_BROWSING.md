@@ -38,7 +38,7 @@ A branch without a worktree needs no checkout. Its source includes the full reso
 
 ## File and sidebar shortcuts
 
-Press **⌘⇧K** to open the file picker. **⌘B** toggles the left review sidebar; **⌘⇧B** toggles the right Files sidebar. **⌘K** opens commands. Control is also accepted in place of Command.
+Press **⌘⇧K** to open the file picker. **⌘B** toggles the left review sidebar; the folder button toggles the right Files sidebar. **⌘K** opens commands. Control is also accepted in place of Command.
 
 Space has no application shortcut. Press `?` to see and run all commands with keycaps. The separate title bar is removed; branch tabs appear once two branches are open.
 

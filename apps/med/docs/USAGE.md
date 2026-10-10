@@ -217,6 +217,7 @@ A review's **Notes** are the agent's brief and the replies you pin from its sess
 - **Read.** The **Notes** tab comes before **Changes**. With more than one note, each note has a numbered head, such as `02 / 03`, its source, and its time. A rail of ticks on the right edge marks the notes, their headings, and their excerpts; click a tick to go there. Below each paragraph that cites lines, a short diff excerpt shows those lines. `]` and `[` step through the excerpts. Hover a link to highlight its excerpt. In a wide window, code, tables, and images extend past the text column, and table columns take the width their text needs.
 - **Jump.** Click a link or an excerpt heading to open those lines in **Changes**, selected and centered.
 - **Comment.** Hover a line in an excerpt and click **+**; drag it to cover more lines. You can also select line numbers and press `c`. These are the same notes as in **Changes**, so **Copy comments** includes them. The excerpt heading counts its notes.
+- **Mark up the notes.** Select words in a note and click **Comment**, or press `c`. The passage stays marked, and the comment shows below its paragraph with its quote. **Copy comments** and **Send to** the agent include it, with the quote. A comment whose passage the notes no longer contain shows at the end of its note.
 - **Check coverage.** The header shows how many changed files the notes cite. **Not in the notes** lists the changed files they never mention; read those yourself.
 - **Replace or remove.** Paste again to replace the brief. **Undo** in the confirmation restores the previous one. The **⋯** menu also copies all notes or removes the brief.
 
@@ -326,7 +327,7 @@ Shift-click another commit to select an inclusive range. The comparison runs fro
 | Open a branch or worktree         | `⌘⇧G`         | `Ctrl+Shift+G`            |
 | Show workspace 1–9                | `⌘1`–`⌘9`     | `Ctrl+1`–`Ctrl+9`         |
 | Switch to a recent workspace      | `⌃Tab`        | `Ctrl+Tab`                |
-| Toggle history / files sidebar    | `⌘B` / `⌘⇧B`  | `Ctrl+B` / `Ctrl+Shift+B` |
+| Toggle history sidebar / session  | `⌘B` / `⌘⇧B`  | `Ctrl+B` / `Ctrl+Shift+B` |
 | Zen mode                          | `⌥Z`          | `Alt+Z`                   |
 | Add note to selected lines        | `c`           | `c`                       |
 | Paste a brief                     | `⌘V`          | `Ctrl+V`                  |
@@ -355,7 +356,8 @@ elsewhere.
 Press `⌥Z` / `Alt+Z`, use the focus button at the top right, or run **Enter zen
 mode** from the command palette. Zen mode hides every bar: branch and file tabs,
 the Changes toolbar, and the status bar. The sidebars stay as they are: `⌘B` and
-`⌘⇧B` show or hide the history and files sidebars in and out of zen mode. To
+`⌘⇧B` show or hide the history sidebar and the agent session in and out of zen
+mode. To
 leave, press `⌥Z` again or move the pointer to the top-right corner and click
 **Leave zen**. Escape does not leave zen mode, so it stays free for search, Vim,
 and dialogs. The setting is remembered in this browser.
@@ -363,8 +365,8 @@ and dialogs. The setting is remembered in this browser.
 ### Side panes
 
 One column on the right holds three panes at one width: **Session** (the
-agent's session), **Files** (`⌘⇧B`), and **Preview** (the Markdown preview,
-`⌘⇧V`). Drag the column's left edge to resize it; Med keeps the width. The
+agent's session, `⌘⇧B`), **Files** (the folder button), and **Preview** (the
+Markdown preview, `⌘⇧V`). Drag the column's left edge to resize it; Med keeps the width. The
 column shows the two latest panes, one above the other. Opening a third closes
 the oldest. **Maximize** in a pane's header gives it the column and leaves the
 other pane as its header; **Restore** shares the column again.
