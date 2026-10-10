@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, MoreHorizontal, PanelRight } from "lucide-react";
 import type { ReactNode } from "react";
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import type { ReaderChromeSurfaceProps } from "./chrome";
 import { MOTION } from "@/lib/motion";
 import { ReaderDesktopHeader } from "./ReaderDesktopHeader";
@@ -176,8 +176,10 @@ export function ReaderHeader({
               )}
             </div>
 
-            {/* Zone 2 — Center: Book title */}
-            <p className="max-w-[min(64vw,36rem)] truncate px-4 text-center text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            {/* Zone 2 — Center: Book title, under the prompt while one shows */}
+            <p
+              className={`max-w-[min(64vw,36rem)] truncate px-4 text-center text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground transition-opacity duration-150 ${accessory ? "opacity-0" : ""}`}
+            >
               {bookTitle}
             </p>
 
@@ -199,6 +201,23 @@ export function ReaderHeader({
           </div>
         </header>
       </motion.div>
+
+      {/* A prompt keeps one place at the top edge: it does not ride the
+          sliding chrome, so a tap that toggles the chrome cannot move it. */}
+      <AnimatePresence initial={false}>
+        {accessory && (
+          <motion.div
+            key="top-prompt"
+            className="pointer-events-none absolute inset-x-0 top-0 z-30 flex justify-center px-14 *:pointer-events-auto"
+            style={{ paddingTop: "calc(env(safe-area-inset-top) + 8px)" }}
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0, transition: MOTION.enter }}
+            exit={{ opacity: 0, transition: MOTION.exit }}
+          >
+            {accessory}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 }

@@ -25,17 +25,20 @@ const surfaces: Record<ChromePromptAppearance, string> = {
 type ReaderChromeAccessoryProps = {
   /** Alternative surfaces remain available in the debug preview. */
   appearance?: ChromePromptAppearance;
+  /** Phones float the prompt at the top edge, over the page and the header. */
+  floating?: boolean;
 } & (
   | { kind: "reading"; prompt: ReaderStatusAction }
   | { kind: "handoff"; prompt: ReaderHandoffPrompt; currentPage: number }
 );
 
-/** Desktop prompts share one compact surface. Only the page order determines
- * a handoff's arrow; a more recent checkpoint can be earlier in the book. */
+/** Reader prompts share one compact surface on desktop and phones. Only the
+ * page order determines a handoff's arrow; a more recent checkpoint can be
+ * earlier in the book. */
 export function ReaderChromeAccessory(props: ReaderChromeAccessoryProps) {
   const errorId = useId();
   const tooltipId = useId();
-  const { appearance = "soft", prompt } = props;
+  const { appearance = "soft", floating = false, prompt } = props;
   const handoff = props.kind === "handoff";
   const label =
     props.kind === "handoff"
@@ -77,7 +80,12 @@ export function ReaderChromeAccessory(props: ReaderChromeAccessoryProps) {
       onClick={
         props.kind === "handoff" ? props.prompt.onJump : props.prompt.onConfirm
       }
-      className="h-7 min-w-0 shrink-0 gap-2 rounded-[calc(var(--radius-xl)-3px)] px-2 text-xs hover:bg-muted"
+      className={cn(
+        "min-w-0 shrink-0 gap-2 text-xs hover:bg-muted",
+        floating
+          ? "h-8 rounded-full pr-2.5 pl-3"
+          : "h-7 rounded-[calc(var(--radius-xl)-3px)] px-2",
+      )}
     >
       <Icon className="size-3.5 text-muted-foreground" aria-hidden="true" />
       <span className="whitespace-nowrap">{pending ? "Saving…" : label}</span>
@@ -92,14 +100,17 @@ export function ReaderChromeAccessory(props: ReaderChromeAccessoryProps) {
   );
   return (
     <div
-      data-reader-header-accessory=""
+      data-reader-header-accessory={floating ? undefined : ""}
+      data-reader-top-prompt={floating ? "" : undefined}
       data-testid="chrome-accessory"
-      className="relative mr-2 shrink-0"
+      className={cn("relative shrink-0", !floating && "mr-2")}
     >
       <div
         className={cn(
-          "flex h-9 items-center gap-0.5 rounded-xl border p-0.5",
-          surfaces[appearance],
+          "flex items-center gap-0.5 border",
+          floating
+            ? "h-10 rounded-full border-border/80 bg-background p-1 shadow-lg"
+            : cn("h-9 rounded-xl p-0.5", surfaces[appearance]),
         )}
       >
         {props.kind === "handoff" ? (
@@ -149,7 +160,12 @@ export function ReaderChromeAccessory(props: ReaderChromeAccessoryProps) {
             handoff ? "Dismiss sync prompt" : "Dismiss reading status prompt"
           }
           onClick={prompt.onDismiss}
-          className="size-7 rounded-[calc(var(--radius-xl)-3px)] text-muted-foreground hover:bg-muted hover:text-foreground"
+          className={cn(
+            "text-muted-foreground hover:bg-muted hover:text-foreground",
+            floating
+              ? "size-8 rounded-full"
+              : "size-7 rounded-[calc(var(--radius-xl)-3px)]",
+          )}
         >
           <X className="size-3.5" />
         </Button>
@@ -158,7 +174,10 @@ export function ReaderChromeAccessory(props: ReaderChromeAccessoryProps) {
         <p
           id={errorId}
           role="alert"
-          className="absolute top-full right-0 mt-2 w-64 rounded-xl border border-border bg-background p-3 text-xs text-foreground"
+          className={cn(
+            "absolute top-full mt-2 w-64 rounded-xl border border-border bg-background p-3 text-xs text-foreground",
+            floating ? "left-1/2 -translate-x-1/2" : "right-0",
+          )}
         >
           {error}
         </p>

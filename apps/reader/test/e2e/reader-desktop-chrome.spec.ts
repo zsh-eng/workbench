@@ -137,10 +137,7 @@ test.describe("mobile chrome remains unchanged", () => {
     await bookmark.click();
     await page.touchscreen.tap(195, 350);
     await expect(header).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, -80)");
-    await expect(page.locator("[data-reader-footer]")).not.toHaveCSS(
-      "transform",
-      "none",
-    );
+    await expect(page.locator("[data-reader-footer]")).toHaveCount(0);
     await expect(
       page.getByRole("button", { name: "Remove bookmark", exact: true }),
     ).toBeInViewport();

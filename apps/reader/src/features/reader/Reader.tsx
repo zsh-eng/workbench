@@ -463,11 +463,13 @@ export function Reader() {
 
               <ReaderHeader
                 accessory={
-                  !isMobile &&
                   !isReaderInteractionSuppressed &&
+                  !mobileAnnotationVisible &&
+                  !(isMobile && annotationState.kind === "active") &&
                   (handoffPrompt ? (
                     <ReaderChromeAccessory
                       kind="handoff"
+                      floating={isMobile}
                       prompt={handoffPrompt}
                       currentPage={sessionState.navigation.currentPage}
                     />
@@ -475,6 +477,7 @@ export function Reader() {
                     statusPrompt && (
                       <ReaderChromeAccessory
                         kind="reading"
+                        floating={isMobile}
                         prompt={statusPrompt}
                       />
                     )
@@ -587,20 +590,6 @@ export function Reader() {
                   )
                 }
                 showPageNumbers={sessionState.settings.showPageNumbers}
-                statusPrompt={
-                  isMobile &&
-                  !isCreatingHighlight &&
-                  annotationState.kind !== "active"
-                    ? statusPrompt
-                    : undefined
-                }
-                handoffPrompt={
-                  isMobile &&
-                  !isCreatingHighlight &&
-                  annotationState.kind !== "active"
-                    ? handoffPrompt
-                    : undefined
-                }
               />
 
               {displayReady && (

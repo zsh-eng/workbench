@@ -20,7 +20,7 @@ test("captures thoughts over a stable book and browses both notebook orders", as
 }) => {
   await openLocalBook(page, localBook.id);
   await page
-    .getByRole("button", { name: "Start reading", exact: true })
+    .getByRole("button", { name: "Mark as reading", exact: true })
     .click();
   for (let pageIndex = 0; pageIndex < 8; pageIndex++) await nextSpread(page);
   await waitForReaderReady(page);
@@ -722,7 +722,7 @@ test("swipes to edit without losing the compose draft or changing the note ancho
 }) => {
   await openLocalBook(page, localBook.id);
   await page
-    .getByRole("button", { name: "Start reading", exact: true })
+    .getByRole("button", { name: "Mark as reading", exact: true })
     .click();
   for (let i = 0; i < 8; i++) await nextSpread(page);
   await waitForReaderReady(page);
@@ -921,7 +921,7 @@ test("keeps the mobile draft and its full height between the island and the note
 }) => {
   await openLocalBook(page, localBook.id);
   await page
-    .getByRole("button", { name: "Start reading", exact: true })
+    .getByRole("button", { name: "Mark as reading", exact: true })
     .click();
   for (let i = 0; i < 8; i++) await nextSpread(page);
   await waitForReaderReady(page);
@@ -974,7 +974,7 @@ test("swipes right to delete and undo while keeping the compose draft", async ({
 }) => {
   await openLocalBook(page, localBook.id);
   await page
-    .getByRole("button", { name: "Start reading", exact: true })
+    .getByRole("button", { name: "Mark as reading", exact: true })
     .click();
   for (let i = 0; i < 8; i++) await nextSpread(page);
   await waitForReaderReady(page);

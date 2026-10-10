@@ -159,16 +159,17 @@ test.describe("mobile Reader accessories", () => {
     isMobile: true,
     hasTouch: true,
   });
-  test("keeps status at the footer and loads the book cover", async ({
+  test("pins status to the top edge and loads the book cover", async ({
     page,
     localBook,
   }, testInfo) => {
     await openLocalBook(page, localBook.id);
     await expect(page.locator("[data-reader-header-accessory]")).toHaveCount(0);
+    await expect(page.locator("[data-reader-footer]")).toHaveCount(0);
     await expect(
       page
-        .locator("[data-reader-footer]")
-        .getByRole("button", { name: "Start reading", exact: true }),
+        .locator("[data-reader-top-prompt]")
+        .getByRole("button", { name: "Mark as reading", exact: true }),
     ).toBeVisible();
     await page.touchscreen.tap(195, 350);
     await page
@@ -224,16 +225,14 @@ for (const mobile of [false, true]) {
         });
       }, localBook.id);
       const accessory = page.locator(
-        mobile ? "[data-reader-footer]" : "[data-reader-header-accessory]",
+        mobile ? "[data-reader-top-prompt]" : "[data-reader-header-accessory]",
       );
       const action = accessory.getByRole("button", {
-        name: mobile
-          ? /Continue from Test tablet/
-          : /Continue at p\. .* from Test tablet/,
+        name: /Continue at p\. .* from Test tablet/,
       });
       await expect(action).toBeVisible();
       const bounds = (await action.boundingBox())!;
-      expect(mobile ? bounds.y > 500 : bounds.y < 150 && bounds.x > 640).toBe(
+      expect(mobile ? bounds.y < 64 : bounds.y < 150 && bounds.x > 640).toBe(
         true,
       );
       const before = await currentPages(page);
@@ -380,7 +379,7 @@ for (const mobile of [false, true]) {
     await expect(finish).toBeVisible();
     await expect(
       page.locator(
-        mobile ? "[data-reader-footer]" : '[data-reader-header="desktop"]',
+        mobile ? "[data-reader-top-prompt]" : '[data-reader-header="desktop"]',
       ),
     ).toContainText("Mark as finished");
     const readStatus = () =>

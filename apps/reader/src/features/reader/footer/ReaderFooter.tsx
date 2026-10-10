@@ -1,15 +1,9 @@
 import type { ReaderChromeSurfaceProps } from "@/features/reader/chrome";
 import { MOTION } from "@/lib/motion";
-import type {
-  ChapterEntry,
-  ReaderHandoffPrompt,
-} from "@/features/reader/types";
-import type { ReaderStatusAction } from "../hooks/use-reader-status-prompt";
-import { FooterStatusPrompt } from "./FooterStatusPrompt";
+import type { ChapterEntry } from "@/features/reader/types";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useState, type ReactNode } from "react";
 import { FooterChapterRow } from "./FooterChapterRow";
-import { FooterHandoffPrompt } from "./FooterHandoffPrompt";
 import { FooterScrubberLoading } from "./FooterLoadingState";
 import { FooterPageIndicator } from "./FooterPageIndicator";
 import { FooterScrubberCanvas } from "./FooterScrubberCanvas";
@@ -36,8 +30,6 @@ export interface ReaderFooterProps {
   onOpenContents: () => void;
   /** The Notes Island capsule. It rides on the footer while the chrome shows. */
   noteAccessory?: ReactNode;
-  handoffPrompt?: ReaderHandoffPrompt;
-  statusPrompt?: ReaderStatusAction;
   isLoading?: boolean;
   showPageNumbers?: boolean;
   /** Progress content shared by the Reader and debug playground. */
@@ -64,8 +56,6 @@ export function ReaderFooter({
   onPrevChapter,
   onOpenContents,
   noteAccessory,
-  handoffPrompt,
-  statusPrompt,
   isLoading = false,
   showPageNumbers = true,
   pageIndicator,
@@ -97,14 +87,11 @@ export function ReaderFooter({
   const detailCurrentChapterIndex = currentChapterIndex;
   const detailCurrentChapterEndIndex = currentChapterEndIndex;
   const detailChapterStartPages = chapterStartPages;
-  const shouldRenderChromeShell =
-    chromeVisible || handoffPrompt !== undefined || statusPrompt !== undefined;
-
   if (suppressed) return null;
 
   return (
     <AnimatePresence>
-      {shouldRenderChromeShell && (
+      {chromeVisible && (
         <motion.div
           key={isMobile ? "mobile-footer" : "desktop-footer"}
           data-reader-footer=""
@@ -112,7 +99,7 @@ export function ReaderFooter({
           animate={
             isMobile
               ? {
-                  y: chromeVisible ? 0 : "100%",
+                  y: 0,
                   opacity: 1,
                   transition: {
                     y: MOTION.chromeEnter,
@@ -139,33 +126,17 @@ export function ReaderFooter({
             paddingBottom: "max(env(safe-area-inset-bottom), 0.75rem)",
           }}
         >
-          <div
-            // A capsule action stops a scrubber fling before it opens notes.
-            onClickCapture={interruptScrubberMomentum}
-            className={`pointer-events-none absolute inset-x-0 flex flex-col gap-2 transition-[bottom] duration-200 ease-out ${
-              chromeVisible
-                ? "bottom-[calc(100%+0.5rem)]"
-                : "bottom-[calc(100%+0.75rem)]"
-            }`}
-          >
-            {noteAccessory && chromeVisible && noteAccessory}
-            <AnimatePresence initial={false}>
-              {!handoffPrompt && statusPrompt && (
-                <FooterStatusPrompt key="status-prompt" prompt={statusPrompt} />
-              )}
-              {handoffPrompt && (
-                <FooterHandoffPrompt
-                  key="handoff-prompt"
-                  prompt={handoffPrompt}
-                />
-              )}
-            </AnimatePresence>
-          </div>
+          {noteAccessory && (
+            <div
+              // A capsule action stops a scrubber fling before it opens notes.
+              onClickCapture={interruptScrubberMomentum}
+              className="pointer-events-none absolute inset-x-0 bottom-[calc(100%+0.5rem)] flex flex-col"
+            >
+              {noteAccessory}
+            </div>
+          )}
 
-          <div
-            inert={!chromeVisible}
-            className="mx-auto flex max-w-7xl flex-col px-3 pt-1 sm:px-4"
-          >
+          <div className="mx-auto flex max-w-7xl flex-col px-3 pt-1 sm:px-4">
             <FooterChapterRow
               currentChapterIndex={currentChapterIndex}
               displayChapterIndex={displayChapterIndex}
