@@ -407,16 +407,15 @@ actor ArticleSyncRepository {
     let identity = try scope.identity
     let directory = root.appending(
       path: ArticleSyncCodec.hash(identity), directoryHint: .isDirectory)
-    let file = directory.appending(path: "journal.json")
-    let exists = FileManager.default.fileExists(atPath: file.path)
+    let file = directory.appending(path: "journal.sqlite")
     let store = try SyncStore(
-      file: file, accountID: identity, validateValue: ArticleSyncCodec.validate)
+      database: file, accountID: identity, validateValue: { try ArticleSyncCodec.validate($0) })
     for record in await store.snapshot().values {
       try ArticleSyncCodec.validate(record.change)
     }
-    // File existence is the migration marker. The complete source and its outbox
-    // become durable in one replacement; a crash before that replacement retries.
-    if !exists {
+    // The first committed transaction is the migration marker. The complete source
+    // and its outbox commit together; a crash before that commit retries.
+    if await !store.hasCommitted {
       _ = try await store.transaction { journal in
         try ArticleSyncCodec.transaction(replacing: journal, with: legacyLocalArticles ?? [])
       }

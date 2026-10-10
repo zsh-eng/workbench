@@ -3,9 +3,6 @@ import Testing
 
 @testable import ArcticSync
 
-private func location() -> URL {
-  FileManager.default.temporaryDirectory.appending(path: "arctic-sync-\(UUID()).json")
-}
 private func mutation(_ value: String, key: String = "article/one", deleted: Bool = false)
   -> LocalMutation
 {
@@ -56,26 +53,30 @@ private actor Remote: SyncRemote {
   }
 }
 
-@Test func durableOfflineEditsAndAccountIsolation() async throws {
-  let file = location()
-  defer { try? FileManager.default.removeItem(at: file) }
-  let first = try SyncStore(file: file, accountID: "alice", deviceID: "phone")
+@Test(arguments: Backend.allCases) func durableOfflineEditsAndAccountIsolation(_ backend: Backend)
+  async throws
+{
+  let file = backend.location()
+  defer { backend.remove(file) }
+  let first = try backend.open(file, accountID: "alice", deviceID: "phone")
   try await first.commit([mutation("local")])
-  let restored = try SyncStore(file: file, accountID: "alice")
+  let restored = try backend.open(file, accountID: "alice")
   #expect(await restored.pendingCount == 1)
   #expect(await restored.snapshot()["article/one"]?.value == "local")
-  #expect(throws: SyncFailure.wrongAccount) { try SyncStore(file: file, accountID: "bob") }
+  #expect(throws: SyncFailure.wrongAccount) { try backend.open(file, accountID: "bob") }
 }
-@Test func twoDevicesConvergeAndKeepDeletion() async throws {
+@Test(arguments: Backend.allCases) func twoDevicesConvergeAndKeepDeletion(_ backend: Backend)
+  async throws
+{
   let remote = Remote()
-  let aFile = location()
-  let bFile = location()
+  let aFile = backend.location()
+  let bFile = backend.location()
   defer {
-    try? FileManager.default.removeItem(at: aFile)
-    try? FileManager.default.removeItem(at: bFile)
+    backend.remove(aFile)
+    backend.remove(bFile)
   }
-  let a = try SyncStore(file: aFile, accountID: "alice", deviceID: "a")
-  let b = try SyncStore(file: bFile, accountID: "alice", deviceID: "b")
+  let a = try backend.open(aFile, accountID: "alice", deviceID: "a")
+  let b = try backend.open(bFile, accountID: "alice", deviceID: "b")
   try await a.commit(
     (0..<5).map { mutation("first", key: "article/\($0)") }, now: Date(timeIntervalSince1970: 100))
   try await a.sync(using: remote)
@@ -87,11 +88,19 @@ private actor Remote: SyncRemote {
   try await a.sync(using: remote)
   #expect(await a.snapshot()["article/0"]?.isDeleted == true)
   #expect(await a.pendingCount == 0)
+  // Pulls, acknowledgements and deletions reach the disk, not only memory.
+  for (file, live) in [(aFile, a), (bFile, b)] {
+    let reopened = try backend.open(file, accountID: "alice")
+    #expect(await reopened.snapshot() == live.snapshot())
+    #expect(await reopened.pendingCount == live.pendingCount)
+    #expect(await reopened.cursor == live.cursor)
+  }
 }
-@Test func editDuringUploadStaysQueued() async throws {
-  let file = location()
-  defer { try? FileManager.default.removeItem(at: file) }
-  let store = try SyncStore(file: file, accountID: "alice", deviceID: "a")
+@Test(arguments: Backend.allCases) func editDuringUploadStaysQueued(_ backend: Backend) async throws
+{
+  let file = backend.location()
+  defer { backend.remove(file) }
+  let store = try backend.open(file, accountID: "alice", deviceID: "a")
   let remote = Remote()
   try await store.commit([mutation("first")], now: Date(timeIntervalSince1970: 100))
   await remote.configure(hook: {
@@ -106,21 +115,25 @@ private actor Remote: SyncRemote {
   #expect(await store.pendingCount == 0)
   #expect(await remote.records["article/one"]?.value == "edited while uploading")
 }
-@Test func failedUploadRetainsOutboxAcrossRestart() async throws {
-  let file = location()
-  defer { try? FileManager.default.removeItem(at: file) }
-  let store = try SyncStore(file: file, accountID: "alice")
+@Test(arguments: Backend.allCases) func failedUploadRetainsOutboxAcrossRestart(_ backend: Backend)
+  async throws
+{
+  let file = backend.location()
+  defer { backend.remove(file) }
+  let store = try backend.open(file, accountID: "alice")
   let remote = Remote()
   try await store.commit([mutation("queued")])
   await remote.configure(fail: true)
   await #expect(throws: SyncFailure.httpStatus(503)) { try await store.sync(using: remote) }
-  let restored = try SyncStore(file: file, accountID: "alice")
+  let restored = try backend.open(file, accountID: "alice")
   #expect(await restored.pendingCount == 1)
 }
-@Test func malformedResponseDoesNotAdvanceCursorOrDropEdits() async throws {
-  let file = location()
-  defer { try? FileManager.default.removeItem(at: file) }
-  let store = try SyncStore(file: file, accountID: "alice")
+@Test(arguments: Backend.allCases) func malformedResponseDoesNotAdvanceCursorOrDropEdits(
+  _ backend: Backend
+) async throws {
+  let file = backend.location()
+  defer { backend.remove(file) }
+  let store = try backend.open(file, accountID: "alice")
   let remote = Remote()
   try await store.commit([mutation("queued")])
   await remote.configure(badPage: true)
@@ -130,16 +143,21 @@ private actor Remote: SyncRemote {
   await #expect(throws: SyncFailure.invalidResponse) { try await store.sync(using: remote) }
   #expect(await store.pendingCount == 1)
 }
-@Test func failedDiskWriteDoesNotPublishMutation() async throws {
-  let store = try SyncStore(file: URL(filePath: "/dev/null/arctic.json"), accountID: "alice")
+@Test(arguments: Backend.allCases) func failedDiskWriteDoesNotPublishMutation(_ backend: Backend)
+  async throws
+{
+  let (store, release) = try backend.failingStore()
+  defer { release() }
   await #expect(throws: (any Error).self) { try await store.commit([mutation("not committed")]) }
   #expect(await store.snapshot().isEmpty)
   #expect(await store.pendingCount == 0)
 }
-@Test func clockRollbackStillCreatesNewerVersion() async throws {
-  let file = location()
-  defer { try? FileManager.default.removeItem(at: file) }
-  let store = try SyncStore(file: file, accountID: "alice")
+@Test(arguments: Backend.allCases) func clockRollbackStillCreatesNewerVersion(_ backend: Backend)
+  async throws
+{
+  let file = backend.location()
+  defer { backend.remove(file) }
+  let store = try backend.open(file, accountID: "alice")
   try await store.commit([mutation("first")], now: Date(timeIntervalSince1970: 100))
   let first = await store.snapshot()["article/one"]!.hlc
   try await store.commit([mutation("second")], now: Date(timeIntervalSince1970: 90))
@@ -155,40 +173,45 @@ private actor Remote: SyncRemote {
   #expect(throws: SyncFailure.invalidServer) { try HTTPRemote(identity: identity) }
 }
 
-@Test func unsupportedDomainRecordDoesNotCommitPullCursor() async throws {
+@Test(arguments: Backend.allCases) func unsupportedDomainRecordDoesNotCommitPullCursor(
+  _ backend: Backend
+) async throws {
   let remote = Remote()
-  let sourceFile = location()
-  let targetFile = location()
+  let sourceFile = backend.location()
+  let targetFile = backend.location()
   defer {
-    try? FileManager.default.removeItem(at: sourceFile)
-    try? FileManager.default.removeItem(at: targetFile)
+    backend.remove(sourceFile)
+    backend.remove(targetFile)
   }
-  let source = try SyncStore(file: sourceFile, accountID: "alice")
+  let source = try backend.open(sourceFile, accountID: "alice")
   try await source.commit([mutation("future schema")])
   try await source.sync(using: remote)
-  let target = try SyncStore(
-    file: targetFile, accountID: "alice", validateValue: { _ in throw SyncFailure.invalidRecord })
+  let target = try backend.open(
+    targetFile, accountID: "alice", validateValue: { _ in throw SyncFailure.invalidRecord })
   await #expect(throws: SyncFailure.invalidRecord) { try await target.sync(using: remote) }
   #expect(await target.cursor == 0)
   #expect(await target.snapshot().isEmpty)
 }
 
-@Test func simultaneousOfflineEditsResolveByDeviceAndStayResolvedAfterRestart() async throws {
-  let aFile = location()
-  let bFile = location()
+@Test(arguments: Backend.allCases)
+func simultaneousOfflineEditsResolveByDeviceAndStayResolvedAfterRestart(_ backend: Backend)
+  async throws
+{
+  let aFile = backend.location()
+  let bFile = backend.location()
   let remote = Remote()
   defer {
-    try? FileManager.default.removeItem(at: aFile)
-    try? FileManager.default.removeItem(at: bFile)
+    backend.remove(aFile)
+    backend.remove(bFile)
   }
-  let a = try SyncStore(file: aFile, accountID: "alice", deviceID: "a")
-  let b = try SyncStore(file: bFile, accountID: "alice", deviceID: "b")
+  let a = try backend.open(aFile, accountID: "alice", deviceID: "a")
+  let b = try backend.open(bFile, accountID: "alice", deviceID: "b")
   let sameTime = Date(timeIntervalSince1970: 100)
   try await a.commit([mutation("from a")], now: sameTime)
   try await b.commit([mutation("from b")], now: sameTime)
   try await a.sync(using: remote)
   try await b.sync(using: remote)
-  let restarted = try SyncStore(file: aFile, accountID: "alice")
+  let restarted = try backend.open(aFile, accountID: "alice")
   try await restarted.sync(using: remote)
   #expect(await restarted.snapshot()["article/one"]?.value == "from b")
   #expect(await restarted.pendingCount == 0)

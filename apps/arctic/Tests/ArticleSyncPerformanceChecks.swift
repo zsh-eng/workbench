@@ -4,14 +4,21 @@ import Testing
 
 @testable import ArticleSyncBridge
 
-private struct JournalEncoding: Encodable {
-  let accountID: String
-  let deviceID: String
-  let clock: SyncClock
-  let cursor: Int64
-  let rows: [String: SyncRecord]
-  let pending: [String: SyncChange]
-  let localValues: [String: String]?
+/// Acknowledges every upload, so the measured profile ends with an empty outbox.
+private actor AcceptingRemote: SyncRemote {
+  var sequence: Int64 = 0
+  func pull(deviceID: String, cursor: Int64, head: Int64?) async throws -> SyncPull {
+    SyncPull(records: [], cursor: cursor, head: cursor, hasMore: false)
+  }
+  func push(deviceID: String, changes: [SyncChange]) async throws -> SyncPush {
+    SyncPush(
+      results: changes.map { change in
+        sequence += 1
+        return .init(
+          accepted: true,
+          winner: SyncRecord(change: change, deviceId: deviceID, serverSeq: sequence))
+      })
+  }
 }
 
 private func milliseconds(_ duration: Duration) -> Double {
@@ -41,7 +48,7 @@ private func measure<T>(_ label: String, _ work: () throws -> T) rethrows -> T {
     }
     print("PROFILE \(count) articles")
     let raw = try SyncStore(
-      file: directory.appending(path: "phases.json"), accountID: "performance")
+      database: directory.appending(path: "phases.sqlite"), accountID: "performance")
     let empty = await raw.snapshotState()
     let initial = try measure("initial codec batch") {
       try ArticleSyncCodec.transaction(replacing: empty, with: articles)
@@ -49,7 +56,7 @@ private func measure<T>(_ label: String, _ work: () throws -> T) rethrows -> T {
     let initialWrite = ContinuousClock.now
     _ = try await raw.transaction { _ in initial }
     print(
-      "  initial journal write: \(String(format: "%.2f", milliseconds(initialWrite.duration(to: .now)))) ms"
+      "  initial SQLite import: \(String(format: "%.2f", milliseconds(initialWrite.duration(to: .now)))) ms"
     )
     let journal = await raw.snapshotState()
     let projected = try measure("full projection") { try ArticleSyncCodec.project(journal) }
@@ -74,21 +81,8 @@ private func measure<T>(_ label: String, _ work: () throws -> T) rethrows -> T {
     let persisted = ContinuousClock.now
     _ = try await raw.transaction { _ in scopedMutation }
     print(
-      "  journal encode + atomic write only: \(String(format: "%.2f", milliseconds(persisted.duration(to: .now)))) ms"
+      "  one-record SQLite transaction only: \(String(format: "%.2f", milliseconds(persisted.duration(to: .now)))) ms"
     )
-    let latest = await raw.snapshotState()
-    let rows = latest.rows
-    let envelope = JournalEncoding(
-      accountID: "performance", deviceID: rows.values.first!.deviceId,
-      clock: rows.values.map(\.hlc).max()!, cursor: 0, rows: rows,
-      pending: rows.mapValues(\.change), localValues: latest.localValues)
-    let encoded = try measure("JSONEncoder equivalent journal envelope") {
-      try JSONEncoder().encode(envelope)
-    }
-    print("  journal size: \(encoded.count) bytes")
-    try measure("atomic file write of encoded bytes") {
-      try encoded.write(to: directory.appending(path: "write-only.json"), options: .atomic)
-    }
     let repository = try await ArticleSyncRepository.open(
       root: directory.appending(path: "repository"), scope: .local, legacyLocalArticles: articles)
     let target = articles[count / 2].url
@@ -114,19 +108,21 @@ private func measure<T>(_ label: String, _ work: () throws -> T) rethrows -> T {
     print(
       "  scoped transaction samples: \(scopedSamples.map { String(format: "%.2f", $0) }.joined(separator: ", ")) ms"
     )
-    // The initial import has a full outbox. Measure a second journal with the
-    // same rows and no pending uploads to expose steady-state encoding cost.
+    // The import leaves a full outbox. Acknowledge it to measure steady-state edits.
     let settledRoot = directory.appending(path: "settled")
-    let settledDirectory = settledRoot.appending(path: ArticleSyncCodec.hash("local"))
-    try FileManager.default.createDirectory(at: settledDirectory, withIntermediateDirectories: true)
-    let settledEnvelope = JournalEncoding(
-      accountID: "local", deviceID: envelope.deviceID, clock: envelope.clock, cursor: 0,
-      rows: envelope.rows, pending: [:], localValues: envelope.localValues)
-    let settledBytes = try measure("empty-outbox JSON encoding") {
-      try JSONEncoder().encode(settledEnvelope)
+    let settledFile = settledRoot.appending(path: ArticleSyncCodec.hash("local"))
+      .appending(path: "journal.sqlite")
+    do {
+      let settledStore = try SyncStore(database: settledFile, accountID: "local")
+      _ = try await settledStore.transaction { _ in initial }
+      try await settledStore.sync(using: AcceptingRemote())
+      #expect(await settledStore.pendingCount == 0)
     }
-    try settledBytes.write(to: settledDirectory.appending(path: "journal.json"), options: .atomic)
+    let reopen = ContinuousClock.now
     let settled = try await ArticleSyncRepository.open(root: settledRoot, scope: .local)
+    print(
+      "  reopen and validate: \(String(format: "%.2f", milliseconds(reopen.duration(to: .now)))) ms"
+    )
     var settledSamples: [Double] = []
     for _ in 0..<3 {
       let start = ContinuousClock.now
@@ -136,7 +132,8 @@ private func measure<T>(_ label: String, _ work: () throws -> T) rethrows -> T {
       }
       settledSamples.append(milliseconds(start.duration(to: .now)))
     }
-    print("  empty-outbox journal size: \(settledBytes.count) bytes")
+    let bytes = (try? FileManager.default.attributesOfItem(atPath: settledFile.path)[.size]) ?? 0
+    print("  empty-outbox database size: \(bytes) bytes")
     print(
       "  empty-outbox scoped samples: \(settledSamples.map { String(format: "%.2f", $0) }.joined(separator: ", ")) ms"
     )

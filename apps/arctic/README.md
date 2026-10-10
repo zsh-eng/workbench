@@ -251,10 +251,10 @@ upload intent are not integrated. No production Worker release or remote Arctic
 migration has been applied as part of this work.
 
 See [release boundaries](../../packages/arctic-sync-server/README.md) and the
-[measured storage limits and migration proposal](Sync/PERFORMANCE.md) before
-continuing integration. A 10,000-article JSON journal still has excessive write
-cost. Do not activate it as the live library store. The proposed live migration
-requires the explicit approval recorded in `OVERNIGHT.md`. Jev keys stay in the
+[measured SQLite journal](Sync/PERFORMANCE.md) before continuing integration.
+The dormant repository keeps one SQLite file in each profile; a one-article edit
+writes only its changed rows. It is not the live library store. The live
+migration requires the explicit approval recorded in `OVERNIGHT.md`. Jev keys stay in the
 device Keychain and are never sync data.
 
 ## Open from another app

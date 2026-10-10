@@ -39,7 +39,7 @@ flowchart LR
 | Area | Source in this checkout | Required before release |
 | --- | --- | --- |
 | Native transport | `Sync/`: HTTPS, Keychain, Google handoff, shared cookie and scoped v3 transport | Device Google handoff and cross-device trial; production account lifecycle UI |
-| Local sync store | Actor with atomic JSON journal, outbox, clock, cursor, tombstones and persisted v3 identity | SQLite implementation before any live library activation |
+| Local sync store | Actor with one SQLite journal per profile: records, outbox, private values, clock, cursor, tombstones and persisted v3 identity. The Debug trial keeps its small JSON journal | iPhone measurements and approved live library activation |
 | Article bridge | Dormant `ArticleSyncRepository.swift`: metadata, library, tags | Final schemas, granular mutations, migration and UI integration |
 | Other user data | Separate annotation/session files; Reader positions in UserDefaults | One account-scoped repository with transactional outbox capture |
 | Server | Shared Worker includes deployed `arctic` and native auth; real Better Auth/D1 tests pass | Device auth verification |
@@ -49,11 +49,10 @@ The shared service's [migration evidence](../sync-server/MIGRATION.md) records
 the 4 October Reader/Spaced cutover. This review checked source and that report,
 not live account data. It does not establish native Arctic sign-in or sync.
 
-The staged JSON journal is not suitable for activation unchanged. Its recorded
-10,000-article Release benchmark takes **320 ms for one edit with a full outbox**;
-JSON encoding dominates. Projecting one article takes about 0.08 ms. These are
-historical Mac measurements, not current iPhone timings. See
-[the benchmark](Sync/PERFORMANCE.md).
+The dormant repository uses the SQLite journal. In a 10,000-article Release
+benchmark, one edit takes **7.4 ms with a full outbox** and 5.6 ms with an empty
+outbox. The previous JSON journal took 320 ms for the same edit. These are Mac
+measurements, not iPhone timings. See [the benchmark](Sync/PERFORMANCE.md).
 
 ## Native sign-in and shared-service integration — 4 October
 
@@ -119,9 +118,9 @@ separate native session instead of copying and sharing the browser session.
   that cancellation or retirement cannot persist a late credential refresh.
 - **Trial UI:** Debug builds expose a separate sample-article profile on iPhone
   and Mac. It is not the app's account UI and does not import ArticleStore.
-- **Still required:** a real Google/device trial, SQLite, final record families,
+- **Still required:** a real Google/device trial, final record families,
   account lifecycle, granular UI updates, and reviewed migration. The large
-  library must not use the trial's whole-file JSON journal.
+  library uses the SQLite journal, not the trial's whole-file JSON journal.
 
 ### Native trial checklist
 
@@ -214,7 +213,7 @@ reconnection. Google sign-in completion still needs a device retry.
    push one article and restore it on Mac. Keep the user's existing stores intact.
    Verify the callback, Keychain persistence, relaunch and session revocation on
    real devices before implementing broad account UI or migrating the library.
-3. Add the SQLite repository and record families. Exercise offline edits,
+3. Finalize the record families on the SQLite repository. Exercise offline edits,
    interrupted batches, account/epoch changes, tombstones and restart recovery
    through the production adapters. Then review the concrete data migration and
    enable it only with separate approval. The deployed backend does not activate
@@ -292,8 +291,9 @@ seconds; do not add idle gaps beyond that threshold. Weekly article count requir
 at least 60 recorded seconds for that article that week. Repeated sync never adds
 the same session twice. Genuine simultaneous reading on two devices is summed
 and remains an estimate; current records do not contain intervals sufficient to
-remove overlap accurately. Preloads and unsaved pages do not start saved-article
-reading sessions. See [reading-time rules](../../READING_TIME.md).
+remove overlap accurately. Any readable article counts, saved or not; preloads
+and publisher front pages do not start sessions. See
+[reading-time rules](../../READING_TIME.md).
 
 Keep Jev keys, credentials, note drafts, theme settings, browser cookies, WebView
 history, local paths, download status and shown-toast receipts device-local.
@@ -472,9 +472,9 @@ encrypted. End-to-end encryption would need a separate key recovery design.
 1. **Auth and protocol trial.** Complete the disposable-profile iPhone/Mac
    milestone above against the shared host in staging. Verify callback delivery,
    Keychain persistence and v3 account/namespace/epoch isolation first.
-2. **Storage and contract, isolated.** Implement SQLite under the existing Swift
-   API. Finalize the record families and shared platform codecs. Port transaction,
-   tombstone, account and concurrent-edit tests. Do not change the active store.
+2. **Storage and contract, isolated.** SQLite is in place under the existing Swift
+   API, and the store tests run against it. Finalize the record families and
+   shared platform codecs. Do not change the active store.
 3. **Concrete local migration, opt-in.** Inventory articles, annotations, sessions,
    positions, inbox receipts and file references. Make a consistent backup; briefly
    gate mutations while copying into a separate profile database. Verify counts,
@@ -577,7 +577,8 @@ library flags still share one last-write-wins record. Independent concurrent
 archive/favourite/read edits can therefore overwrite each other.
 
 Sources: [codec and repository](Sources/ArticleSyncRepository.swift),
-[journal](Sync/Sources/ArcticSync/SyncStore.swift).
+[journal](Sync/Sources/ArcticSync/SyncStore.swift),
+[SQLite storage](Sync/Sources/ArcticSync/SQLiteJournal.swift).
 
 ### Server record envelope and files
 
@@ -682,9 +683,9 @@ assumed ISO-8601 wire format; version any conversion explicitly.
    transfer compact covers and HTML by content hash with versioned manifests;
    never embed full images in 64 KiB records or resend them with tag edits.
 5. Use transactional SQLite records + outbox + cursor locally before live
-   integration. The dormant JSON journal encodes its whole snapshot per change:
-   its historical 10,000-article Release edit cost was 320 ms with a full outbox.
-   Faster transport cannot fix that local write cost. [Evidence](Sync/PERFORMANCE.md).
+   integration. The dormant repository does: a 10,000-article Release edit
+   writes only its changed rows in 7.4 ms. The previous JSON journal encoded its
+   whole snapshot per change and took 320 ms. [Evidence](Sync/PERFORMANCE.md).
 
 A first sync should make the library usable from metadata immediately, followed
 by annotations and reading history. It can complete without transferring any

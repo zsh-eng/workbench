@@ -117,7 +117,7 @@ private func article(_ slug: String = "one") -> SavedArticle {
   let directory = root()
   defer { try? FileManager.default.removeItem(at: directory) }
   let journal = try SyncStore(
-    file: directory.appending(path: "journal.json"), accountID: "test",
+    database: directory.appending(path: "journal.sqlite"), accountID: "test",
     validateValue: ArticleSyncCodec.validate)
   let value = try ArticleSyncCodec.values(article()).first { $0.key.hasPrefix("article/") }!
   try await journal.commit([LocalMutation(key: value.key, value: value.value)])
@@ -286,7 +286,8 @@ private actor DomainRemote: SyncRemote {
 @Test func scopedLibraryEditDoesNotRewriteDifferentlyFormattedRemoteFamilies() async throws {
   let directory = root()
   defer { try? FileManager.default.removeItem(at: directory) }
-  let store = try SyncStore(file: directory.appending(path: "journal.json"), accountID: "test")
+  let store = try SyncStore(
+    database: directory.appending(path: "journal.sqlite"), accountID: "test")
   let original = article()
   let mutations = try ArticleSyncCodec.values(original).map { key, value in
     let object = try JSONSerialization.jsonObject(with: Data(value.utf8))
