@@ -20,9 +20,9 @@
 }
 .med-brief-prose {
   /* Excerpts and code reach past the text column when the pane has room. */
-  --med-brief-bleed: clamp(0px, calc((100cqw - 38em) / 2 - 24px), 36px);
+  --med-brief-bleed: clamp(0px, calc((100cqw - var(--med-measure, 38em)) / 2 - 24px), 36px);
   /* Tables and images can use more of a wide pane. */
-  --med-brief-wide: clamp(0px, calc((100cqw - 38em) / 2 - 32px), 9em);
+  --med-brief-wide: clamp(0px, calc((100cqw - var(--med-measure, 38em)) / 2 - 32px), 9em);
 }
 .med-brief-prose a.med-brief-ref {
   color: var(--med-accent);
@@ -30,7 +30,7 @@
   text-decoration-color: color-mix(in srgb, var(--med-accent) 38%, transparent);
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
-  border-radius: 4px;
+  border-radius: calc(4px * var(--med-round, 1));
   transition:
     background-color 140ms ease-out,
     text-decoration-color 140ms ease-out;
@@ -60,12 +60,16 @@
   margin-inline: calc(-1 * var(--med-brief-bleed, 0px));
 }
 /* A table or a lone image widens its block on both sides. */
-.med-brief-prose > .med-md-block:has(> table),
-.med-brief-prose > .med-md-block:has(> p > img:only-child) {
+.med-note > .med-md-block:has(> table),
+.med-note > .med-md-block:has(> p > img:only-child) {
   margin-inline: calc(-1 * var(--med-brief-wide));
 }
-.med-brief-prose > .med-md-block:has(> table) {
+.med-note > .med-md-block:has(> table) {
   overflow-x: auto;
+}
+/* Notes after the first keep a clear break above their head. */
+.med-note + .med-note {
+  margin-top: 56px;
 }
 /* A table takes the width its content needs, up to the widened block. The
    browser then gives long text columns more room, so rows stay short. */

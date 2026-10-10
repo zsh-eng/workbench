@@ -17,6 +17,7 @@ import {
 import { ReaderContentsPanel } from "./ReaderContentsSheet";
 import { ReaderSettingsList } from "./ReaderSettingsSheet";
 import type { ChapterEntry, ReaderSheetId } from "./types";
+import { MOTION_MS } from "@/lib/motion";
 
 type ReaderSidebarPanel =
   | "contents"
@@ -142,7 +143,9 @@ export function ReaderToolsSidebar({
             ? "[transform:translate3d(0,0,0)] opacity-100"
             : "pointer-events-none [transform:translate3d(12px,0,0)] opacity-0",
         )}
-        style={{ transitionDuration: isOpen ? "200ms" : "140ms" }}
+        style={{
+          transitionDuration: `${isOpen ? MOTION_MS.enter : MOTION_MS.exit}ms`,
+        }}
       >
         <div
           data-slot="reader-tools-surface"

@@ -1,7 +1,16 @@
 import { mediaType, MAX_IMAGE_BYTES } from "../../shared/media";
 import { markdownAsset } from "../markdown-assets";
 import { createHash } from "node:crypto";
-import { lstat, mkdtemp, open, readlink, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  lstat,
+  mkdtemp,
+  open,
+  readlink,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { constants } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { devNull, tmpdir } from "node:os";
@@ -22,7 +31,7 @@ import type { ReviewHunkSpan } from "../../shared/hunk/geometry";
 export const MAX_PATCH_BYTES = 16 * 1024 * 1024;
 export const MAX_SOURCE_BYTES = 8 * 1024 * 1024;
 const ZERO_OID = /^0+$/;
-const DIFF_FLAGS = [
+export const DIFF_FLAGS = [
   "--no-ext-diff",
   "--no-textconv",
   "--no-color",
@@ -70,7 +79,7 @@ async function fingerprint(repo: string, path: string) {
 }
 
 /** Read symlink text, never follow a link outside the selected worktree. */
-async function readWorkingFile(repo: string, path: string) {
+export async function readWorkingFile(repo: string, path: string) {
   const absolute = safeRepoPath(repo, path);
   const [realRepo, realParent] = await Promise.all([realpath(repo), realpath(dirname(absolute))]);
   const parentRelative = relative(realRepo, realParent);
@@ -170,7 +179,7 @@ function applyPatchStats(files: SourceFile[], patch: string) {
 }
 
 const quotedPath = (path: string) => (/[\s"\\]/.test(path) ? JSON.stringify(path) : path);
-function addedPatch(path: string, text: string) {
+export function addedPatch(path: string, text: string) {
   const lines = text ? text.split("\n") : [];
   const hasFinalNewline = text.endsWith("\n");
   if (hasFinalNewline) lines.pop();
@@ -180,6 +189,45 @@ function addedPatch(path: string, text: string) {
   if (lines.length)
     patch += `@@ -0,0 +1,${lines.length} @@\n${lines.map((line) => `+${line}`).join("\n")}\n${hasFinalNewline ? "" : "\\ No newline at end of file\n"}`;
   return { patch, lines: lines.length };
+}
+
+/**
+ * A copy of the index that lists again the files a HEAD-to-worktree diff reports
+ * as deleted but that are still on disk, or null when there are none.
+ */
+async function indexWithRemovedFiles(repo: string, files: SourceFile[], signal?: AbortSignal) {
+  const removed: SourceFile[] = [];
+  for (const file of files) {
+    if (file.status !== "D") continue;
+    const info = await lstat(safeRepoPath(repo, file.path)).catch(() => null);
+    if (info && (info.isFile() || info.isSymbolicLink())) removed.push(file);
+  }
+  if (!removed.length) return null;
+  const real = (
+    await git(repo, ["rev-parse", "--path-format=absolute", "--git-path", "index"], {
+      signal,
+      maxBytes: 8192,
+    })
+  )
+    .toString("utf8")
+    .trim();
+  const directory = await mkdtemp(join(tmpdir(), "med-index-"));
+  const path = join(directory, "index");
+  try {
+    await copyFile(real, path).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error;
+    });
+    await git(repo, ["update-index", "--add", "-z", "--index-info"], {
+      signal,
+      env: { GIT_INDEX_FILE: path },
+      input: removed.map((file) => `${file.oldMode} ${file.oldOid}\t${file.path}\0`).join(""),
+      maxBytes: 8192,
+    });
+  } catch (error) {
+    await rm(directory, { recursive: true, force: true });
+    throw error;
+  }
+  return { directory, path };
 }
 
 /** Keep immutable comparisons and source bytes separate from bounded review retention. */
@@ -616,32 +664,58 @@ export class ReviewService {
     }
     const rawArgs = ["diff", ...DIFF_FLAGS, "--raw", "-z", "--no-abbrev", ...args, "--"];
     const raw = await git(repo, rawArgs, { signal, maxBytes: 4 * 1024 * 1024 });
-    const files = parseRawDiff(raw);
-    if (files.some((file) => file.status === "U"))
-      throw new HostError(
-        "unmerged-files",
-        "Resolve merge conflicts before opening an ordinary two-sided review.",
-        422,
-      );
-    if (files.length > 10_000)
-      throw new HostError("too-many-files", "This comparison exceeds 10,000 changed files.", 413);
+    let files = parseRawDiff(raw);
+    // After `git rm --cached`, Git reports a file that is still on disk twice from
+    // HEAD to the worktree: deleted, because the index no longer lists it, and
+    // untracked. Diff through a temporary index that lists it again, so the review
+    // shows its change from HEAD once, or nothing when the file is unchanged.
+    const index =
+      comparison.kind === "working" ? await indexWithRemovedFiles(repo, files, signal) : null;
+    const env = index ? { GIT_INDEX_FILE: index.path } : undefined;
     const live = head === "worktree";
-    if (live) for (const file of files) file.fingerprint = await fingerprint(repo, file.path);
     const warnings: string[] = [];
     let patch = "";
+    let untracked: string[] = [];
     try {
-      patch = (
-        await git(repo, ["diff", ...DIFF_FLAGS, "--patch", "--full-index", ...args, "--"], {
-          signal,
-          maxBytes: MAX_PATCH_BYTES,
-        })
-      ).toString("utf8");
-    } catch (error) {
-      if (!(error instanceof ProcessFailure) || error.code !== "output-too-large") throw error;
-      for (const file of files) file.tooLarge = true;
-      warnings.push(
-        "The tracked patch exceeds 16 MiB. All changed paths are listed, but their content and counts are omitted.",
-      );
+      if (index)
+        files = parseRawDiff(await git(repo, rawArgs, { signal, env, maxBytes: 4 * 1024 * 1024 }));
+      if (files.some((file) => file.status === "U"))
+        throw new HostError(
+          "unmerged-files",
+          "Resolve merge conflicts before opening an ordinary two-sided review.",
+          422,
+        );
+      if (files.length > 10_000)
+        throw new HostError("too-many-files", "This comparison exceeds 10,000 changed files.", 413);
+      if (live) for (const file of files) file.fingerprint = await fingerprint(repo, file.path);
+      try {
+        patch = (
+          await git(repo, ["diff", ...DIFF_FLAGS, "--patch", "--full-index", ...args, "--"], {
+            signal,
+            env,
+            maxBytes: MAX_PATCH_BYTES,
+          })
+        ).toString("utf8");
+      } catch (error) {
+        if (!(error instanceof ProcessFailure) || error.code !== "output-too-large") throw error;
+        for (const file of files) file.tooLarge = true;
+        warnings.push(
+          "The tracked patch exceeds 16 MiB. All changed paths are listed, but their content and counts are omitted.",
+        );
+      }
+      if (comparison.kind === "working" || comparison.kind === "unstaged")
+        untracked = (
+          await git(repo, ["ls-files", "--others", "--exclude-standard", "-z"], {
+            signal,
+            env,
+            maxBytes: 2 * 1024 * 1024,
+          })
+        )
+          .toString("utf8")
+          .split("\0")
+          .filter(Boolean);
+    } finally {
+      if (index) await rm(index.directory, { recursive: true, force: true });
     }
     applyPatchStats(files, patch);
     // Raster and SVG media use lazy image responses, never text parsing/highlighting.
@@ -651,15 +725,6 @@ export class ReviewService {
       .filter((_, i) => !mediaType(files[i]?.path ?? ""))
       .join("");
     if (comparison.kind === "working" || comparison.kind === "unstaged") {
-      const untracked = (
-        await git(repo, ["ls-files", "--others", "--exclude-standard", "-z"], {
-          signal,
-          maxBytes: 2 * 1024 * 1024,
-        })
-      )
-        .toString("utf8")
-        .split("\0")
-        .filter(Boolean);
       if (files.length + untracked.length > 10_000)
         throw new HostError("too-many-files", "This comparison exceeds 10,000 changed files.", 413);
       for (const path of untracked) {

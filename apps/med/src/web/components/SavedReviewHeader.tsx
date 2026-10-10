@@ -4,7 +4,7 @@ import * as stylex from "@stylexjs/stylex";
 import type { ReviewController, ReviewControllerSnapshot } from "../data/controller";
 import { tokens, ui } from "../theme.stylex";
 import { checkoutNameFor } from "../data/checkout-names";
-import { Icon } from "./Icon";
+import { Icon, type IconName } from "./Icon";
 import {
   PullRequestPanel,
   type PullRequestState,
@@ -20,8 +20,11 @@ export function SavedReviewHeader({
   threadPlacement,
   onReturn,
   onTarget,
+  sendTo,
 }: {
   controller: ReviewController;
+  /** The agent session that comments can go to, and how to open its message. */
+  sendTo?: { name: string; icon: IconName; drafts: number; open(): void };
   state: ReviewControllerSnapshot;
   /** GitHub comments, when the review has a pull request. */
   pullRequest?: PullRequestState;
@@ -50,8 +53,11 @@ export function SavedReviewHeader({
     </option>
   );
   const saving = target?.captured ? "Captured working changes" : "Saved commit comparison";
+  // The workspace list keeps the short title; a PR's own title names it here.
+  const heading = (saved.pullRequestUrl && saved.pullRequestTitle) || saved.title;
   const details = [
-    saved.title,
+    heading,
+    ...(heading !== saved.title ? [`Workspace: ${saved.title}`] : []),
     `${saving} · ${new Date(saved.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`,
     ...(target ? [checkoutNameFor(state.repositories, target.repo)] : []),
   ].join("\n");
@@ -91,12 +97,12 @@ export function SavedReviewHeader({
           href={saved.pullRequestUrl}
           target="_blank"
           rel="noopener noreferrer"
-          aria-label={`Open pull request: ${saved.title}`}
+          aria-label={`Open pull request: ${heading}`}
           title={details}
           {...stylex.props(styles.reviewTitle, styles.prLink)}
         >
           <Icon name="github" size={14} />
-          <span {...stylex.props(styles.ellipsis)}>{saved.title}</span>
+          <span {...stylex.props(styles.ellipsis)}>{heading}</span>
           <Icon name="external" size={12} />
         </a>
       ) : (
@@ -177,6 +183,18 @@ export function SavedReviewHeader({
           <span>
             Return<span {...stylex.props(styles.desktop)}> to review</span>
           </span>
+        </button>
+      )}
+      {sendTo && (
+        <button
+          {...stylex.props(ui.button, ui.pressable, styles.fixed)}
+          aria-label={`Send comments to ${sendTo.name}`}
+          title="Write to the agent with your comments"
+          onClick={sendTo.open}
+        >
+          <Icon name={sendTo.icon} size={14} />
+          <span {...stylex.props(styles.desktop)}>Send to {sendTo.name}</span>
+          {sendTo.drafts > 0 && <span>{sendTo.drafts}</span>}
         </button>
       )}
       {/* During copy, handlers block actions without native disabled dimming both buttons. */}
@@ -389,7 +407,7 @@ const styles = stylex.create({
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: tokens.border,
-    borderRadius: 4,
+    borderRadius: `calc(4px * ${tokens.round})`,
     paddingInline: 4,
     fontFamily: tokens.ui,
     fontSize: 12,

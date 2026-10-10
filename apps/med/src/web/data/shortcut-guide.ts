@@ -86,8 +86,9 @@ export const guideContexts: GuideContext[] = [
         ],
       },
       {
-        title: "Brief",
-        description: "An agent's explanation of the changes, with links to the cited lines.",
+        title: "Notes",
+        description:
+          "The agent's brief and the replies you pin to the review, with links to the cited lines.",
         entries: [
           {
             label: "Paste a brief",
@@ -95,9 +96,45 @@ export const guideContexts: GuideContext[] = [
             note: "Outside text fields; live changes are saved as a review first",
             command: "paste-brief",
           },
-          { label: "Next / previous excerpt", keys: ["]", "["], note: "In the brief" },
-          { label: "Add a note to selected excerpt lines", keys: ["c"], note: "In the brief" },
+          { label: "Next / previous excerpt", keys: ["]", "["], note: "In the notes" },
+          { label: "Add a note to selected excerpt lines", keys: ["c"], note: "In the notes" },
           { label: "Open the cited lines", keys: ["Enter"], note: "On a link or an excerpt" },
+        ],
+      },
+      {
+        title: "Commit",
+        description: "Stage files, commit them, and push the branch, as in lazygit.",
+        entries: [
+          {
+            label: "Open or close the Commit tab",
+            keys: ["q"],
+            note: "Live changes, outside text fields and files",
+            command: "commit",
+          },
+          {
+            label: "Next / previous file",
+            keys: ["j", "k"],
+            note: "In the Commit tab; the diffs scroll with it",
+          },
+          { label: "Filter the files", keys: ["/"], note: "Esc clears it, as in a search" },
+          { label: "Stage or unstage the file", keys: ["Space"], note: "Or click its mark" },
+          { label: "Stage or unstage every file shown", keys: ["a"] },
+          {
+            label: "Open the focused file",
+            keys: ["Enter"],
+            note: "Or click its name in the diff",
+          },
+          {
+            label: "Write the commit message",
+            keys: ["c"],
+            note: "Opens in the middle; Esc keeps it as a draft",
+          },
+          { label: "Commit the staged files", keys: ["Mod+Enter"], note: "In the message" },
+          {
+            label: "Push the branch",
+            keys: ["Shift+P"],
+            note: "A branch without an upstream asks first",
+          },
         ],
       },
       {
@@ -120,6 +157,21 @@ export const guideContexts: GuideContext[] = [
           { label: "Close all files", keys: ["Alt+Shift+W"], command: "close-files" },
           { label: "Close other files", keys: ["Alt+Shift+O"], command: "close-others" },
           { label: "Keep a preview tab open", keys: ["Alt+P"], command: "pin-file" },
+          {
+            label: "Open a found file and keep it open",
+            keys: ["Mod+Enter"],
+            note: "In Find file; Enter opens the preview tab",
+          },
+          {
+            label: "Show a tab by its place in the row",
+            keys: ["Alt+{1–9}"],
+            note: "9 shows the last",
+          },
+          {
+            label: "Previous / next tab",
+            keys: ["Mod+Shift+[", "Mod+Shift+]"],
+            note: "In the installed app; a browser tab keeps these keys",
+          },
           { label: "Toggle Git blame", keys: ["Alt+B"], command: "blame" },
           { label: "Toggle Markdown preview", keys: ["Mod+Shift+V"], note: "Markdown files" },
           { label: "Save the file", keys: ["Mod+S"], note: "Editor" },

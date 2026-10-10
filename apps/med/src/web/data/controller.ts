@@ -3,6 +3,7 @@ import { REVIEW_UPDATED } from "./workspaces";
 import {
   savedReviewSchema,
   savedFeedbackSchema,
+  type PinMutation,
   type SavedReview,
   type SavedFeedback,
   type SavedReviewTarget,
@@ -13,6 +14,7 @@ import {
   validateReviewNoteText,
 } from "../../shared/hunk/noteValidation";
 import { useSyncExternalStore } from "react";
+import { z } from "zod";
 import type { FileDiffMetadata } from "@pierre/diffs";
 import type {
   Branch,
@@ -54,6 +56,7 @@ import {
   sessionSchema,
   sourceSchema,
 } from "./api";
+import { browserFetch } from "./live";
 import { readServerEvents } from "./sse";
 
 export type { ParsedReviewFile } from "../../shared/review";
@@ -112,6 +115,10 @@ export interface ReviewController {
   clearSavedComments(expectedRevision: number): Promise<void>;
   /** Replace the saved review's brief, or remove it with null. */
   setSavedBrief(text: string | null): Promise<void>;
+  /** Pin an agent reply to the saved review's Notes, or remove a pin. */
+  pinToReview(mutation: PinMutation): Promise<void>;
+  /** Starts an installed agent in the review's repository and returns its session ID. */
+  startSession(preset: string): Promise<string>;
   /** Save the current Git comparison as a review and return its ID. */
   saveReview(input: { title: string; brief?: string }): Promise<string>;
   selectComparison(comparison: Comparison): Promise<void>;
@@ -141,6 +148,8 @@ interface CachedReview {
   files: ParsedReviewFile[];
   document: ReviewDocumentV1;
 }
+const savedKey = (reviewId: string, targetId: string) =>
+  JSON.stringify(["saved", reviewId, targetId]);
 function immutableComparison(comparison: Comparison): boolean {
   const objectId = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/i;
   return comparison.kind === "commit"
@@ -172,7 +181,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     (options.start || typeof location === "undefined"
       ? undefined
       : /^\/review\/([^/]+)\/?$/.exec(location.pathname)?.[1]);
-  const api = createApi(options.fetch ?? globalThis.fetch.bind(globalThis), token);
+  const api = createApi(options.fetch ?? browserFetch, token);
   const parse =
     options.parsePatch ??
     (async (patch: string) => {
@@ -318,6 +327,8 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       savedReview.revision >= snapshot.savedReview.revision
     ) {
       const changed = savedReview.revision > snapshot.savedReview.revision;
+      // An unchanged review keeps its object, so the views do not render again.
+      if (!changed && JSON.stringify(savedReview) === JSON.stringify(snapshot.savedReview)) return;
       update({ savedReview });
       if (changed && snapshot.review) await loadNotes(snapshot.review.id, reviewGeneration);
     }
@@ -427,7 +438,14 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     void loadNotes(entry.response.id, generation);
   }
 
-  async function selectComparison(comparison: Comparison, force = false): Promise<void> {
+  /** `quiet` refreshes the shown comparison in the background: the review stays
+   * ready and changes once, when the new one arrives. Live updates use it, so
+   * an edit in the worktree does not flash the loading bar or the toolbar. */
+  async function selectComparison(
+    comparison: Comparison,
+    force = false,
+    quiet = false,
+  ): Promise<void> {
     const repo = snapshot.session?.repository.path;
     if (!repo || disposed) return;
     if (
@@ -444,12 +462,18 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       });
       return;
     }
-    update({ savedView: false });
+    const background =
+      quiet &&
+      !snapshot.savedView &&
+      snapshot.status === "ready" &&
+      !!snapshot.review &&
+      comparisonKey(snapshot.comparison) === comparisonKey(comparison);
+    if (snapshot.savedView) update({ savedView: false });
     const generation = ++reviewGeneration;
     reviewAbort?.abort();
     reviewAbort = new AbortController();
     cancelSources();
-    update({ comparison, status: "loading", error: null });
+    if (!background) update({ comparison, status: "loading", error: null });
     const key = JSON.stringify([repo, comparisonKey(comparison)]);
     const cached = !force && immutableComparison(comparison) ? reviewCache.get(key) : undefined;
     if (cached) {
@@ -477,6 +501,8 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
           "The server returned a different comparison. Restart the server and reload this page if you have just updated the app.",
         );
       }
+      // A review id names its content, so the same id means nothing changed.
+      if (background && response.id === snapshot.review?.id) return;
       const parseStart = performance.now();
       const parsed = await parse(response.patch);
       if (!isCurrent(generation)) return;
@@ -494,7 +520,9 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     }
   }
 
-  async function loadHistory(reset: boolean): Promise<void> {
+  /** `quiet` reloads the first page in the background: no loading state, and
+   * no update when the commits are the same. */
+  async function loadHistory(reset: boolean, quiet = false): Promise<void> {
     const repo = snapshot.session?.repository.path;
     if (snapshot.session?.repository.git === false) return;
     if (!repo || disposed || (!reset && (snapshot.historyLoading || !snapshot.historyHasMore)))
@@ -502,7 +530,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     const generation = ++historyGeneration;
     historyAbort?.abort();
     historyAbort = new AbortController();
-    update({ historyLoading: true, historyError: null });
+    if (!quiet) update({ historyLoading: true, historyError: null });
     try {
       const args: Record<string, string> = { repo, limit: "50" };
       if (snapshot.historyRef) args.ref = snapshot.historyRef;
@@ -514,10 +542,21 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       const existing = reset ? [] : snapshot.history;
       const ids = new Set(existing.map((commit) => commit.id));
       const history = [...existing, ...page.commits.filter((commit) => !ids.has(commit.id))];
+      const hasMore = page.hasMore && page.cursor !== null;
+      // The loaded pages and their cursor stay when the first page is the same.
+      if (
+        quiet &&
+        !snapshot.historyError &&
+        JSON.stringify(history) === JSON.stringify(snapshot.history.slice(0, history.length)) &&
+        (snapshot.history.length > history.length || snapshot.historyHasMore === hasMore)
+      ) {
+        if (snapshot.historyLoading) update({ historyLoading: false });
+        return;
+      }
       historyCursor = page.cursor;
       update({
         history,
-        historyHasMore: page.hasMore && page.cursor !== null,
+        historyHasMore: hasMore,
         historyLoading: false,
       });
     } catch (error) {
@@ -542,6 +581,12 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
           })
         : null;
       if (!disposed && generation === branchGeneration) {
+        if (
+          !snapshot.branchesError &&
+          JSON.stringify(branches) === JSON.stringify(snapshot.branches) &&
+          (!session || JSON.stringify(session) === JSON.stringify(snapshot.session))
+        )
+          return;
         update({
           repositories: snapshot.repositories.map((repository) =>
             repository.id === snapshot.activeRepositoryId
@@ -727,10 +772,10 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
    * and a mutable comparison. */
   function reconcile() {
     update({ sourceRevision: snapshot.sourceRevision + 1 });
-    void loadHistory(true);
+    void loadHistory(true, true);
     void loadBranches(true);
     if (!snapshot.savedView && !immutableComparison(snapshot.comparison))
-      void selectComparison(snapshot.comparison, true);
+      void selectComparison(snapshot.comparison, true, true);
   }
 
   function startEvents() {
@@ -744,7 +789,11 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       if (disposed || workspace !== workspaceGeneration) return;
       const abort = new AbortController();
       eventAbort = abort;
-      update({ connection: reconnectDelay > 500 ? "reconnecting" : "connecting" });
+      // A workspace that resumes keeps "Live" while its stream reconnects; a
+      // failed reconnect still reports itself below.
+      const next = reconnectDelay > 500 ? "reconnecting" : "connecting";
+      if (!(next === "connecting" && snapshot.connection === "connected"))
+        update({ connection: next });
       try {
         const response = await api.stream(
           `/api/events?${query({ repo: repo ?? "" })}`,
@@ -757,7 +806,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
           return;
         }
         connections += 1;
-        update({ connection: "connected" });
+        if (snapshot.connection !== "connected") update({ connection: "connected" });
         await readServerEvents(
           response.body,
           (event) => {
@@ -990,13 +1039,20 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     }
   }
 
-  async function fetchSavedTarget(reviewId: string, targetId: string, signal: AbortSignal) {
+  async function fetchSavedTarget(
+    reviewId: string,
+    targetId: string,
+    signal: AbortSignal,
+    /** Background work parses only while it still may. */
+    mayParse = () => true,
+  ) {
     const start = performance.now();
     const response = await api.json(
       `/api/reviews/${encodeURIComponent(reviewId)}/targets/${encodeURIComponent(targetId)}/review`,
       reviewSchema,
       { signal },
     );
+    if (!mayParse()) throw new DOMException("A review load needs the parser.", "AbortError");
     const parseStart = performance.now();
     const parsed = await parse(response.patch);
     return {
@@ -1005,6 +1061,71 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       requestMs: parseStart - start,
       parseMs: performance.now() - parseStart,
     };
+  }
+
+  /** A target's diff, checked against the target it was saved as. */
+  async function fetchSavedEntry(
+    reviewId: string,
+    target: SavedReviewTarget,
+    work: ReturnType<typeof fetchSavedTarget>,
+  ) {
+    const { response, parsed, requestMs, parseMs } = await work;
+    if (
+      response.repo !== target.repo ||
+      response.base !== target.base ||
+      response.head !== target.head ||
+      comparisonKey(response.comparison) !== comparisonKey(target.comparison)
+    )
+      throw new Error("The saved comparison does not match this review target.");
+    const { files, document } = projectResponse(response, parsed);
+    const entry: CachedReview = { response, files, document };
+    // A saved target never changes, so its diff can show again without a read.
+    reviewCache.set(savedKey(reviewId, target.id), entry, estimateRetainedBytes(entry));
+    return { entry, requestMs, parseMs };
+  }
+
+  // Other iterations load one at a time while the review is idle, so choosing
+  // one in the brief shows it at once. A load that the reviewer starts
+  // stops this one, because the parser keeps only the latest request.
+  let iterationAbort: AbortController | undefined;
+  function prefetchIterations() {
+    iterationAbort?.abort();
+    const saved = snapshot.savedReview;
+    if (!saved?.iterations?.length || suspended || disposed) return;
+    const abort = new AbortController();
+    iterationAbort = abort;
+    const targets = saved.iterations
+      .toReversed()
+      .slice(0, 6)
+      .flatMap((iteration) => saved.targets.filter((entry) => entry.id === iteration.targetIds[0]));
+    const idle = () =>
+      new Promise<void>((resolve) =>
+        "requestIdleCallback" in globalThis
+          ? requestIdleCallback(() => resolve(), { timeout: 1000 })
+          : setTimeout(resolve, 200),
+      );
+    void (async () => {
+      for (const target of targets) {
+        await idle();
+        const ready = () =>
+          !abort.signal.aborted &&
+          !suspended &&
+          snapshot.status === "ready" &&
+          snapshot.savedReview?.id === saved.id;
+        if (!ready()) return;
+        if (target.id === snapshot.savedTargetId || reviewCache.get(savedKey(saved.id, target.id)))
+          continue;
+        try {
+          await fetchSavedEntry(
+            saved.id,
+            target,
+            fetchSavedTarget(saved.id, target.id, abort.signal, ready),
+          );
+        } catch {
+          return;
+        }
+      }
+    })();
   }
 
   async function loadSavedTarget(target: SavedReviewTarget): Promise<void> {
@@ -1020,6 +1141,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     reviewAbort?.abort();
     reviewAbort = new AbortController();
     cancelSources();
+    iterationAbort?.abort();
     update({
       savedView: true,
       savedTargetId: target.id,
@@ -1027,26 +1149,24 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       status: "loading",
       error: null,
     });
+    const cached = reviewCache.get(savedKey(saved.id, target.id));
+    if (cached) {
+      publishReview(cached, generation, { requestMs: 0, parseMs: 0, cacheHit: true });
+      prefetchIterations();
+      return;
+    }
     try {
       // A prefetch that failed, such as before its repository was added, is retried.
       const signal = reviewAbort.signal;
-      const { response, parsed, requestMs, parseMs } = await (early?.catch(() =>
-        fetchSavedTarget(saved.id, target.id, signal),
-      ) ?? fetchSavedTarget(saved.id, target.id, signal));
+      const { entry, requestMs, parseMs } = await fetchSavedEntry(
+        saved.id,
+        target,
+        early?.catch(() => fetchSavedTarget(saved.id, target.id, signal)) ??
+          fetchSavedTarget(saved.id, target.id, signal),
+      );
       if (!isCurrent(generation)) return;
-      if (
-        response.repo !== target.repo ||
-        response.base !== target.base ||
-        response.head !== target.head ||
-        comparisonKey(response.comparison) !== comparisonKey(target.comparison)
-      )
-        throw new Error("The saved comparison does not match this review target.");
-      const { files, document } = projectResponse(response, parsed);
-      publishReview({ response, files, document }, generation, {
-        requestMs,
-        parseMs,
-        cacheHit: false,
-      });
+      publishReview(entry, generation, { requestMs, parseMs, cacheHit: false });
+      prefetchIterations();
     } catch (error) {
       if (isCurrent(generation)) update({ status: "error", error: message(error) });
     }
@@ -1070,7 +1190,20 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     const checkout = repository.worktrees.some((worktree) => worktree.path === target.repo)
       ? target.repo
       : repository.path;
-    await openWorkspace(checkout, branch, target.repositoryId, target);
+    // Another iteration in the same checkout keeps the session, history, and
+    // open files; only the comparison loads, so the view never goes blank.
+    const current = snapshot.savedReview?.targets.find(
+      (entry) => entry.id === snapshot.savedTargetId,
+    );
+    if (
+      snapshot.savedView &&
+      snapshot.session?.repository.path === checkout &&
+      current?.repositoryId === target.repositoryId &&
+      current.repo === target.repo &&
+      current.branch === target.branch
+    )
+      await loadSavedTarget(target);
+    else await openWorkspace(checkout, branch, target.repositoryId, target);
     if (!disposed && snapshot.savedTargetId === id) await refreshSavedMetadata().catch(() => {});
   }
 
@@ -1419,6 +1552,9 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       };
     },
     async initialize() {
+      // Until the catalogue answers, a workspace is loading, not empty: the
+      // "Add a repository" page shows only when the host has none.
+      update({ status: "loading" });
       if (!savedReviewId) {
         const start = options.start;
         // A branch opens once, at its worktree or at its head commit, so the
@@ -1440,7 +1576,6 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
           }
         return openWorkspace(start?.path, undefined, start?.repositoryId);
       }
-      update({ status: "loading" });
       try {
         const savedReview = await api.json(
           `/api/reviews/${encodeURIComponent(savedReviewId)}`,
@@ -1543,6 +1678,48 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
             : { ...snapshot.savedReview, brief: next.brief },
       });
     },
+    async pinToReview(mutation) {
+      const saved = snapshot.savedReview;
+      if (!saved) throw new Error("Open a saved review to pin a reply.");
+      const next = await api.json(
+        `/api/reviews/${encodeURIComponent(saved.id)}/pins`,
+        savedReviewSchema,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(mutation),
+        },
+      );
+      if (disposed || snapshot.savedReview?.id !== saved.id) return;
+      // Pins do not move the comment revision. Keep newer comment counts.
+      update({
+        savedReview:
+          next.revision >= snapshot.savedReview.revision
+            ? next
+            : { ...snapshot.savedReview, pins: next.pins, iterations: next.iterations },
+      });
+    },
+    async startSession(preset) {
+      const saved = snapshot.savedReview;
+      if (!saved) throw new Error("Open a saved review to start a session.");
+      const result = await api.json(
+        `/api/reviews/${encodeURIComponent(saved.id)}/owned`,
+        z.object({ review: savedReviewSchema, state: z.object({ sessionId: z.string() }) }),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ preset, targetId: snapshot.savedTargetId ?? undefined }),
+        },
+      );
+      if (!disposed && snapshot.savedReview?.id === saved.id)
+        update({
+          savedReview:
+            result.review.revision >= snapshot.savedReview.revision
+              ? result.review
+              : { ...snapshot.savedReview, sessions: result.review.sessions },
+        });
+      return result.state.sessionId;
+    },
     async saveReview({ title, brief }) {
       const repo = snapshot.session?.repository.path;
       const comparison = snapshot.comparison;
@@ -1599,6 +1776,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     suspend() {
       if (suspended || disposed) return;
       suspended = true;
+      iterationAbort?.abort();
       stopEvents();
     },
     resume() {
@@ -1674,6 +1852,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       sessionAbort?.abort();
       reviewAbort?.abort();
       historyAbort?.abort();
+      iterationAbort?.abort();
       stopEvents();
       cancelSources();
       reviewCache.clear();

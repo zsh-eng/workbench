@@ -1,6 +1,15 @@
 import { Popover } from "@base-ui/react/popover";
 import * as stylex from "@stylexjs/stylex";
-import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  Fragment,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type {
   PullRequestComment,
   PullRequestComments,
@@ -219,6 +228,45 @@ function CopyButton({ text, label }: { text: () => string; label: string }) {
   );
 }
 
+/** The agent session's next message, when the review has one: GitHub
+ * comments can go into it. */
+export interface AgentReplyTarget {
+  agent: string;
+  add(attachment: { label: string; text: string }): void;
+}
+export const AgentReplyContext = createContext<AgentReplyTarget | null>(null);
+
+function AddToReplyButton({ label, text }: { label: string; text: () => string }) {
+  const target = useContext(AgentReplyContext);
+  const [added, setAdded] = useState(false);
+  useEffect(() => {
+    if (!added) return;
+    const timer = setTimeout(() => setAdded(false), 1600);
+    return () => clearTimeout(timer);
+  }, [added]);
+  if (!target) return null;
+  const title = added
+    ? `Added to the message for ${target.agent}`
+    : `Add to the message for ${target.agent}`;
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      {...stylex.props(ui.button, ui.iconButton, styles.tool)}
+      onClick={() => {
+        target.add({ label, text: text() });
+        setAdded(true);
+      }}
+    >
+      <Icon name={added ? "check" : "reply"} size={13} />
+    </button>
+  );
+}
+
+const threadLabel = (thread: PullRequestThread) =>
+  `${thread.path.split("/").at(-1)}:${lineLabel(thread)}`;
+
 function OpenButton({ url }: { url: string }) {
   return (
     <a
@@ -326,6 +374,7 @@ export function PullRequestThreadCard({
         mark
         tools={
           <>
+            <AddToReplyButton label={threadLabel(thread)} text={() => threadText(thread)} />
             <CopyButton label="Copy thread" text={() => threadText(thread)} />
             <OpenButton url={first.url} />
           </>
@@ -472,7 +521,7 @@ export function PanelContent({
       {data && (
         <>
           <section aria-label="Conversation" {...stylex.props(styles.section)}>
-            <h3 {...stylex.props(styles.heading)}>Conversation</h3>
+            <h3 {...stylex.props(ui.label, styles.heading)}>Conversation</h3>
             {timeline.length ? (
               timeline.map(({ comment, state }) => (
                 <div key={comment.id} {...stylex.props(styles.item)}>
@@ -483,7 +532,13 @@ export function PanelContent({
                     tools={
                       <>
                         {comment.body.trim() && (
-                          <CopyButton label="Copy comment" text={() => commentText(comment)} />
+                          <>
+                            <AddToReplyButton
+                              label={`@${comment.author}`}
+                              text={() => commentText(comment)}
+                            />
+                            <CopyButton label="Copy comment" text={() => commentText(comment)} />
+                          </>
                         )}
                         <OpenButton url={comment.url} />
                       </>
@@ -496,7 +551,10 @@ export function PanelContent({
             )}
           </section>
           <section aria-label="Code comments" {...stylex.props(styles.section)}>
-            <h3 {...stylex.props(styles.heading)}>Code comments</h3>
+            <div {...stylex.props(styles.headingRow)}>
+              <h3 {...stylex.props(ui.label, styles.heading)}>Code comments</h3>
+              <AddAllToReply threads={data.threads.filter((thread) => thread.line !== null)} />
+            </div>
             {inline > 0 && (
               <p {...stylex.props(styles.lede)}>
                 {inline} {inline === 1 ? "thread shows" : "threads show"} in the diff.
@@ -525,7 +583,32 @@ export function PanelContent({
   );
 }
 
+/** Adds every current code thread to the agent's next message. */
+function AddAllToReply({ threads }: { threads: PullRequestThread[] }) {
+  const target = useContext(AgentReplyContext);
+  const [added, setAdded] = useState(false);
+  if (!target || !threads.length) return null;
+  return (
+    <button
+      type="button"
+      {...stylex.props(ui.button, styles.addAll)}
+      onClick={() => {
+        target.add({
+          label: `${threads.length} GitHub ${threads.length === 1 ? "thread" : "threads"}`,
+          text: threads.map(threadText).join("\n\n---\n\n"),
+        });
+        setAdded(true);
+      }}
+    >
+      <Icon name={added ? "check" : "reply"} size={12} />
+      {added ? "Added" : `Add all to ${target.agent}`}
+    </button>
+  );
+}
+
 const styles = stylex.create({
+  headingRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  addAll: { minHeight: 22, paddingInline: 6, fontSize: 11.5 },
   // The same card as a local note, so both read as one system; the GitHub
   // mark and the author line set it apart.
   card: {
@@ -538,7 +621,7 @@ const styles = stylex.create({
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: { default: tokens.line, ":focus-within": tokens.lineStrong },
-    borderRadius: 10,
+    borderRadius: `calc(10px * ${tokens.round})`,
     color: tokens.text,
     backgroundColor: tokens.panel,
     fontFamily: tokens.ui,
@@ -564,7 +647,7 @@ const styles = stylex.create({
     fontSize: 10.5,
     lineHeight: "18px",
     paddingInline: 6,
-    borderRadius: 4,
+    borderRadius: `calc(4px * ${tokens.round})`,
     color: tokens.muted,
     backgroundColor: tokens.fill,
   },
@@ -610,7 +693,7 @@ const styles = stylex.create({
     fontSize: "0.9em",
     paddingInline: 4,
     paddingBlock: 1,
-    borderRadius: 4,
+    borderRadius: `calc(4px * ${tokens.round})`,
     backgroundColor: tokens.fill,
   },
   figure: { margin: 0, marginBottom: 6 },
@@ -620,7 +703,7 @@ const styles = stylex.create({
     paddingBlock: 8,
     paddingInline: 10,
     overflowX: "auto",
-    borderRadius: 6,
+    borderRadius: `calc(6px * ${tokens.round})`,
     backgroundColor: tokens.fill,
     fontFamily: tokens.code,
     fontSize: 12,
@@ -658,14 +741,7 @@ const styles = stylex.create({
   lede: { marginBlock: 4, color: tokens.muted, fontSize: 12, lineHeight: 1.5 },
   error: { marginBlock: 6, color: tokens.red, fontSize: 12, lineHeight: 1.5 },
   section: { marginTop: 12 },
-  heading: {
-    margin: 0,
-    marginBottom: 2,
-    color: tokens.faint,
-    fontSize: 11,
-    fontWeight: 550,
-    letterSpacing: "0.02em",
-  },
+  heading: { margin: 0, marginBottom: 2 },
   item: {
     paddingBlock: 4,
     borderTopWidth: { default: 1, ":first-of-type": 0 },

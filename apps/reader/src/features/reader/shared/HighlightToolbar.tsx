@@ -6,6 +6,7 @@ import {
   type AnnotationColor,
 } from "@/lib/highlight-constants";
 import { cn } from "@/lib/utils";
+import { MOTION } from "@/lib/motion";
 import {
   EPUB_HIGHLIGHT_CLASS,
   HIGHLIGHT_TOOLBAR_CLASS,
@@ -192,12 +193,12 @@ export function HighlightToolbar({
       )}
       initial={false}
       animate={{ opacity: 1, transform: "scale(1)" }}
-      exit={
-        prefersReducedMotion
-          ? { opacity: 0, transform: "scale(1)" }
-          : { opacity: 0, transform: "scale(0.98)", filter: "blur(4px)" }
-      }
-      transition={{ duration: 0.15, ease: [0.23, 1, 0.32, 1] }}
+      exit={{
+        opacity: 0,
+        transform: prefersReducedMotion ? "scale(1)" : "scale(0.98)",
+        transition: MOTION.exit,
+      }}
+      transition={MOTION.enter}
       style={{
         left: `${x}px`,
         top: `${y}px`,

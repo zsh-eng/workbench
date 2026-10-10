@@ -5,12 +5,17 @@ import { themeController, themes, useTheme } from "../../themes";
 import { ChoiceSelect, SegmentedControl } from "../Controls";
 import { Icon } from "../Icon";
 import { ToolButton } from "../ToolButton";
-import { BriefSection } from "./BriefSection";
+import { AgentsSection } from "./AgentsSection";
+import { PullSection } from "./PullSection";
+import { NotesSection } from "./NotesSection";
+import { PanesSection } from "./PanesSection";
 import { CodeSection } from "./CodeSection";
+import { CommitSection } from "./CommitSection";
 import { ControlsSection } from "./ControlsSection";
 import { FoundationsSection } from "./FoundationsSection";
 import { Inspector } from "./Inspector";
 import { ReviewSection } from "./ReviewSection";
+import { SessionSection } from "./SessionSection";
 import { StageContext } from "./Specimen";
 import "./ElementsPage.css";
 
@@ -19,7 +24,12 @@ const sections = [
   { id: "controls", label: "Controls" },
   { id: "review", label: "Review parts" },
   { id: "code", label: "Code colors" },
-  { id: "brief", label: "Brief" },
+  { id: "notes", label: "Notes" },
+  { id: "panes", label: "Side panes" },
+  { id: "session", label: "Agent session" },
+  { id: "agents", label: "Agents" },
+  { id: "pull-requests", label: "Pull requests" },
+  { id: "commit", label: "Commit flow" },
 ] as const;
 
 type Zoom = "1" | "2" | "3";
@@ -136,7 +146,12 @@ export default function ElementsPage() {
             <ControlsSection />
             <ReviewSection />
             <CodeSection />
-            <BriefSection />
+            <NotesSection />
+            <PanesSection />
+            <SessionSection />
+            <AgentsSection />
+            <PullSection />
+            <CommitSection />
           </StageContext.Provider>
         </main>
       </div>
@@ -191,7 +206,7 @@ const styles = stylex.create({
   navLink: {
     paddingBlock: 5,
     paddingInline: 8,
-    borderRadius: 6,
+    borderRadius: `calc(6px * ${tokens.round})`,
     color: { default: tokens.muted, ":hover": tokens.text },
     fontSize: 12.5,
     textDecoration: "none",

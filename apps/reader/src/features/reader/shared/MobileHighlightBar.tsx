@@ -4,7 +4,9 @@ import {
 } from "@/lib/highlight-constants";
 import { cn } from "@/lib/utils";
 
-/** Compact color tools. The mobile composer owns placement and keyboard tracking. */
+/** Colour swatches for the Notes Island. Choosing the current colour removes
+ * the highlight, as on desktop. The island owns placement and keyboard tracking.
+ */
 export function MobileHighlightBar({
   onColorSelect,
   currentColor,
@@ -18,11 +20,10 @@ export function MobileHighlightBar({
     <div
       role="group"
       aria-label="Highlight colors"
-      className="flex items-center justify-center gap-3 px-4 pb-3 pt-2"
+      className="flex items-center gap-3"
     >
       {HIGHLIGHT_COLORS.map((color) => {
-        const isCurrentColor = currentColor && color.name === currentColor;
-
+        const isCurrentColor = color.name === currentColor;
         return (
           <button
             key={color.name}
@@ -33,31 +34,24 @@ export function MobileHighlightBar({
               event.stopPropagation();
             }}
             onClick={() => {
-              if (!isCurrentColor) onColorSelect(color.name);
+              if (isCurrentColor) onDelete?.();
+              else onColorSelect(color.name);
             }}
-            aria-pressed={Boolean(isCurrentColor)}
+            aria-pressed={isCurrentColor}
+            aria-label={
+              isCurrentColor && onDelete
+                ? "Remove highlight"
+                : `Highlight with ${color.name}`
+            }
             className={cn(
-              "cursor-pointer w-full max-w-16 flex-1 h-8 rounded-full transition-[scale,border-color] duration-150 active:scale-95 motion-reduce:active:scale-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2",
-              "border border-black/5 active:border-black/10",
-              isCurrentColor && "ring-2 ring-offset-2 ring-foreground/50",
+              "relative size-7 shrink-0 cursor-pointer rounded-full before:absolute before:content-[''] before:-inset-1.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_10%,transparent)] transition-transform duration-150 active:scale-90 motion-reduce:active:scale-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "after:pointer-events-none after:absolute after:-inset-1 after:rounded-full after:border-[1.5px] after:border-foreground/70 after:opacity-0 after:transition-opacity after:duration-150",
+              isCurrentColor && "after:opacity-100",
             )}
-            style={{
-              backgroundColor: `var(--${color.name}-secondary)`,
-            }}
-            aria-label={`Highlight with ${color.name}`}
+            style={{ backgroundColor: `var(--${color.name}-secondary)` }}
           />
         );
       })}
-      {onDelete && (
-        <button
-          type="button"
-          onClick={onDelete}
-          className="h-8 shrink-0 rounded-full px-2 text-xs text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
-          aria-label="Remove highlight"
-        >
-          Remove
-        </button>
-      )}
     </div>
   );
 }

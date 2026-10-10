@@ -43,6 +43,41 @@ export interface CodePalette {
   removedText: string;
 }
 
+/**
+ * How a theme looks beyond color: type, corners, lines, selection, buttons, and
+ * section labels. Brand themes take these from their product; editor themes
+ * (Rosé Pine, Tokyo Night, Vitesse) use Med's own. Code keeps Paper Mono in
+ * every theme.
+ */
+export interface Aesthetic {
+  /**
+   * Interface text, Markdown and brief prose, and Markdown headings with their
+   * tracking. `measure` is the prose column width in em. Characters per line
+   * depend on the prose font: 38em holds about 86 in Geist, 66 in Paper Mono at 40em.
+   */
+  fonts: { ui: string; prose: string; headings: string; headingTracking: string; measure: string };
+  /** Multiplies every corner radius: 1 is Med's own, 0.3 is nearly square. */
+  round: number;
+  /** "pill" makes command buttons fully round. */
+  buttons: "rounded" | "pill";
+  /** Hairlines mix from the text color or the accent, at this strength (percent). */
+  lines: { from: "text" | "accent"; strength: number };
+  /** Highlighted and selected rows: a quiet tint, or a solid accent with white text. */
+  selection: "tint" | "fill";
+  /** The primary button: the text color with canvas text, or the accent with white text. */
+  primary: "text" | "accent";
+  /** Section labels such as "Changes" and "Files". */
+  labels: {
+    case: "none" | "uppercase";
+    color: "muted" | "accent";
+    size: number;
+    weight: number;
+    tracking: string;
+  };
+  /** "flat" removes popup shadows, so outlines carry the edge. */
+  depth: "shadow" | "flat";
+}
+
 /** A syntax theme written for Med: TextMate scopes and their colors. */
 export interface SyntaxTheme {
   foreground: string;
@@ -68,6 +103,7 @@ export interface Theme {
     | SyntaxTheme;
   pierreTheme: string;
   source: string | null;
+  aesthetic: Aesthetic;
   palette: ThemePalette;
   code: CodePalette;
 }
@@ -383,6 +419,129 @@ const cursorDarkSyntax: SyntaxTheme = {
   ],
 };
 
+const geist = '"Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+const systemSans =
+  'ui-sans-serif, -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", sans-serif';
+const sentenceLabels = {
+  case: "none",
+  color: "muted",
+  size: 11.5,
+  weight: 500,
+  tracking: "normal",
+} as const;
+
+// Brand fonts are not bundled. Each stack names the product's own fallbacks,
+// so an installed copy (Inter, for example) is used and the system font otherwise.
+export const aesthetics = {
+  // Med's own: Geist, soft corners, quiet tinted selection, layered shadows.
+  med: {
+    fonts: {
+      ui: geist,
+      prose: geist,
+      headings: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Geist", sans-serif',
+      headingTracking: "-0.035em",
+      measure: "38em",
+    },
+    round: 1,
+    buttons: "rounded",
+    lines: { from: "text", strength: 8 },
+    selection: "tint",
+    primary: "text",
+    labels: sentenceLabels,
+    depth: "shadow",
+  },
+  // Claude's design system: the system sans for the interface and a serif for
+  // reading (its "voice" font), 8 px controls and 12 px cards, a dark primary fill.
+  claude: {
+    fonts: {
+      ui: systemSans,
+      prose: 'ui-serif, "New York", Georgia, "Times New Roman", serif',
+      headings: 'ui-serif, "New York", Georgia, "Times New Roman", serif',
+      headingTracking: "-0.015em",
+      measure: "38em",
+    },
+    round: 1.3,
+    buttons: "rounded",
+    lines: { from: "text", strength: 9 },
+    selection: "tint",
+    primary: "text",
+    labels: sentenceLabels,
+    depth: "shadow",
+  },
+  // OpenAI's apps: the system sans, generous corners, and pill buttons.
+  codex: {
+    fonts: {
+      ui: systemSans,
+      prose: systemSans,
+      headings: systemSans,
+      headingTracking: "-0.025em",
+      measure: "38em",
+    },
+    round: 1.4,
+    buttons: "pill",
+    lines: { from: "text", strength: 8 },
+    selection: "tint",
+    primary: "text",
+    labels: sentenceLabels,
+    depth: "shadow",
+  },
+  // VS Code's lineage: the system font, tight corners, uppercase section headers.
+  cursor: {
+    fonts: {
+      ui: systemSans,
+      prose: systemSans,
+      headings: systemSans,
+      headingTracking: "-0.02em",
+      measure: "38em",
+    },
+    round: 0.7,
+    buttons: "rounded",
+    lines: { from: "text", strength: 8 },
+    selection: "tint",
+    primary: "text",
+    labels: { case: "uppercase", color: "muted", size: 11, weight: 600, tracking: "0.04em" },
+    depth: "shadow",
+  },
+  // Linear: Inter at its 510 medium weight, crisp lines, an indigo primary.
+  linear: {
+    fonts: {
+      ui: '"Inter Variable", "Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      prose:
+        '"Inter Variable", "Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      headings:
+        '"Inter Display", "Inter Variable", "Inter", "SF Pro Display", -apple-system, sans-serif',
+      headingTracking: "-0.022em",
+      measure: "38em",
+    },
+    round: 1,
+    buttons: "rounded",
+    lines: { from: "text", strength: 8 },
+    selection: "tint",
+    primary: "accent",
+    labels: { ...sentenceLabels, weight: 510 },
+    depth: "shadow",
+  },
+  // Paper: Paper Mono everywhere, nearly square corners, accent outlines, a solid
+  // accent selection, uppercase accent labels, and no shadows.
+  paper: {
+    fonts: {
+      ui: '"Paper Mono", "SFMono-Regular", Consolas, monospace',
+      prose: '"Paper Mono", "SFMono-Regular", Consolas, monospace',
+      headings: '"Paper Mono", "SFMono-Regular", Consolas, monospace',
+      headingTracking: "0",
+      // A Paper Mono character is about 0.61em wide, so 40em holds about 66.
+      measure: "40em",
+    },
+    round: 0.3,
+    buttons: "rounded",
+    lines: { from: "accent", strength: 35 },
+    selection: "fill",
+    primary: "accent",
+    labels: { case: "uppercase", color: "accent", size: 11, weight: 500, tracking: "0.06em" },
+    depth: "flat",
+  },
+} satisfies Record<string, Aesthetic>;
+
 // Shell mappings use the named projects' public palettes. Syntax definitions are
 // loaded by Pierre from its bundled Shiki themes, or written above for themes
 // that have no Shiki build. Code colors use each theme's own editor keys; where a
@@ -397,6 +556,7 @@ export const themes: readonly Theme[] = [
     syntax: "pierre-dark",
     pierreTheme: "med-graphite-dark",
     source: null,
+    aesthetic: aesthetics.med,
     // The frame (panel) sits darker than the review card (canvas).
     palette: {
       canvas: "#141416",
@@ -436,6 +596,7 @@ export const themes: readonly Theme[] = [
     syntax: claudeDarkSyntax,
     pierreTheme: "med-claude-dark",
     source: "Claude desktop app, Code tab (claude-dark theme and design-system tokens)",
+    aesthetic: aesthetics.claude,
     palette: {
       canvas: "#1a1a19",
       panel: "#151515",
@@ -482,6 +643,7 @@ export const themes: readonly Theme[] = [
     }),
     pierreTheme: "med-codex-dark",
     source: "Codex desktop app: Codex Dark code theme and default appearance",
+    aesthetic: aesthetics.codex,
     // Codex derives its chrome from a surface, text, and accent; these are
     // the derived values, flattened on the canvas.
     palette: {
@@ -522,6 +684,7 @@ export const themes: readonly Theme[] = [
     syntax: cursorDarkSyntax,
     pierreTheme: "med-cursor-dark",
     source: "Cursor 3.12 built-in theme (theme-cursor extension), Cursor Dark",
+    aesthetic: aesthetics.cursor,
     // Cursor sets neutral text as #f0f0f0 with alpha; these are flattened on the canvas.
     // Faint is the line-number color.
     palette: {
@@ -553,6 +716,46 @@ export const themes: readonly Theme[] = [
     },
   },
   {
+    id: "linear-dark",
+    label: "Linear Dark",
+    family: "Linear",
+    appearance: "dark",
+    syntax: "pierre-dark",
+    pierreTheme: "med-linear-dark",
+    source: "linear.app stylesheet, dark color variables",
+    aesthetic: aesthetics.linear,
+    // Linear's background levels: the frame is level 0, content level 1, and
+    // popovers level 3. Linear has no code theme; syntax is Pierre's.
+    palette: {
+      canvas: "#0f1011",
+      panel: "#08090a",
+      raised: "#191a1b",
+      hover: "#232326",
+      border: "#23252a",
+      text: "#f7f8f8",
+      muted: "#8a8f98",
+      faint: "#62666d",
+      accent: "#7170ff",
+      selected: "#1f1f37",
+      green: "#27a644",
+      red: "#eb5757",
+      warning: "#f0bf00",
+      shadow: darkShadow,
+    },
+    // Linear sets no editor colors; these come from its accent, green, red, and yellow.
+    code: {
+      selection: "#7170ff33",
+      match: "#f0bf0033",
+      matchCurrent: "#f0bf0073",
+      matchBorder: "#f0bf00",
+      lineHighlight: "#ffffff08",
+      insertedLine: "#27a64426",
+      insertedText: "#27a64440",
+      removedLine: "#eb575726",
+      removedText: "#eb57573d",
+    },
+  },
+  {
     id: "paper-dark",
     label: "Paper Dark",
     family: "Paper",
@@ -560,6 +763,7 @@ export const themes: readonly Theme[] = [
     syntax: "dark-plus",
     pierreTheme: "med-paper-dark",
     source: "Paper app stylesheet (app.paper.design), dark color scheme",
+    aesthetic: aesthetics.paper,
     // Paper's panels are lighter than its content area. Faint is dimmer than
     // Paper's tertiary text so line numbers stay quieter than secondary text.
     palette: {
@@ -599,6 +803,7 @@ export const themes: readonly Theme[] = [
     syntax: "rose-pine",
     pierreTheme: "med-rose-pine",
     source: "https://rosepinetheme.com/palette/",
+    aesthetic: aesthetics.med,
     palette: {
       canvas: "#191724",
       panel: "#1f1d2e",
@@ -635,6 +840,7 @@ export const themes: readonly Theme[] = [
     syntax: "rose-pine-moon",
     pierreTheme: "med-rose-pine-moon",
     source: "https://rosepinetheme.com/palette/",
+    aesthetic: aesthetics.med,
     palette: {
       canvas: "#232136",
       panel: "#2a273f",
@@ -671,6 +877,7 @@ export const themes: readonly Theme[] = [
     syntax: "tokyo-night",
     pierreTheme: "med-tokyo-night",
     source: "https://github.com/folke/tokyonight.nvim/tree/main/lua/tokyonight/colors",
+    aesthetic: aesthetics.med,
     palette: {
       canvas: "#1a1b26",
       panel: "#16161e",
@@ -708,6 +915,7 @@ export const themes: readonly Theme[] = [
     syntax: "vitesse-dark",
     pierreTheme: "med-vitesse-dark",
     source: "https://github.com/antfu/vscode-theme-vitesse/blob/main/themes/vitesse-dark.json",
+    aesthetic: aesthetics.med,
     palette: {
       canvas: "#121212",
       panel: "#121212",
@@ -746,6 +954,7 @@ export const themes: readonly Theme[] = [
     syntax: "pierre-light",
     pierreTheme: "med-graphite-light",
     source: null,
+    aesthetic: aesthetics.med,
     palette: {
       canvas: "#ffffff",
       panel: "#f4f4f5",
@@ -782,6 +991,7 @@ export const themes: readonly Theme[] = [
     syntax: claudeLightSyntax,
     pierreTheme: "med-claude-light",
     source: "Claude desktop app, Code tab (claude-light theme and design-system tokens)",
+    aesthetic: aesthetics.claude,
     // The accent is Claude's emphasized clay, which reads as text on white.
     palette: {
       canvas: "#ffffff",
@@ -828,6 +1038,7 @@ export const themes: readonly Theme[] = [
     }),
     pierreTheme: "med-codex-light",
     source: "Codex desktop app: Codex Light code theme and default appearance",
+    aesthetic: aesthetics.codex,
     // The accent is the Codex theme's link and cursor blue, which reads as text on white.
     palette: {
       canvas: "#ffffff",
@@ -865,6 +1076,7 @@ export const themes: readonly Theme[] = [
     syntax: cursorLightSyntax,
     pierreTheme: "med-cursor-light",
     source: "Cursor 3.12 built-in theme (theme-cursor extension), Cursor Light",
+    aesthetic: aesthetics.cursor,
     // Faint uses Cursor's dim status text: its line-number gray is too light for metadata.
     palette: {
       canvas: "#fcfcfc",
@@ -894,6 +1106,44 @@ export const themes: readonly Theme[] = [
     },
   },
   {
+    id: "linear-light",
+    label: "Linear Light",
+    family: "Linear",
+    appearance: "light",
+    syntax: "pierre-light",
+    pierreTheme: "med-linear-light",
+    source: "linear.app stylesheet, light color variables",
+    aesthetic: aesthetics.linear,
+    // Green, red, and warning are darker than Linear's so they read as small text on white.
+    palette: {
+      canvas: "#ffffff",
+      panel: "#f9f8f9",
+      raised: "#ffffff",
+      hover: "#f4f2f4",
+      border: "#e9e8ea",
+      text: "#282a30",
+      muted: "#6f6e77",
+      faint: "#86848d",
+      accent: "#5e6ad2",
+      selected: "#ecedfa",
+      green: "#1a7f35",
+      red: "#cf3c3c",
+      warning: "#9a6b00",
+      shadow: lightShadow,
+    },
+    code: {
+      selection: "#5e6ad224",
+      match: "#f0bf0040",
+      matchCurrent: "#f0bf0080",
+      matchBorder: "#c99a00",
+      lineHighlight: "#282a3008",
+      insertedLine: "#27a6441a",
+      insertedText: "#27a64433",
+      removedLine: "#eb57571a",
+      removedText: "#eb575733",
+    },
+  },
+  {
     id: "paper-light",
     label: "Paper Light",
     family: "Paper",
@@ -901,6 +1151,7 @@ export const themes: readonly Theme[] = [
     syntax: "light-plus",
     pierreTheme: "med-paper-light",
     source: "Paper app stylesheet (app.paper.design), light color scheme",
+    aesthetic: aesthetics.paper,
     // Paper's orange (#ffad4d) is too light for text, so warning is a darker step of it.
     palette: {
       canvas: "#ffffff",
@@ -937,6 +1188,7 @@ export const themes: readonly Theme[] = [
     syntax: "rose-pine-dawn",
     pierreTheme: "med-rose-pine-dawn",
     source: "https://rosepinetheme.com/palette/",
+    aesthetic: aesthetics.med,
     palette: {
       canvas: "#faf4ed",
       panel: "#fffaf3",
@@ -973,6 +1225,7 @@ export const themes: readonly Theme[] = [
     syntax: "vitesse-light",
     pierreTheme: "med-vitesse-light",
     source: "https://github.com/antfu/vscode-theme-vitesse/blob/main/themes/vitesse-light.json",
+    aesthetic: aesthetics.med,
     palette: {
       canvas: "#ffffff",
       panel: "#ffffff",
@@ -1010,9 +1263,50 @@ export function findTheme(id: string | null | undefined): Theme {
   return themes.find((theme) => theme.id === id) ?? defaultTheme;
 }
 
+/** The aesthetic's CSS variables. theme.stylex.ts reads them; it lists their defaults. */
+export function aestheticVariables({ aesthetic: look, palette }: Theme): Record<string, string> {
+  const fill = look.selection === "fill";
+  const accentPrimary = look.primary === "accent";
+  return {
+    "--med-font-ui": look.fonts.ui,
+    "--med-font-prose": look.fonts.prose,
+    "--med-font-headings": look.fonts.headings,
+    "--med-headings-tracking": look.fonts.headingTracking,
+    "--med-measure": look.fonts.measure,
+    "--med-round": String(look.round),
+    "--med-button-round": look.buttons === "pill" ? "999px" : `calc(6px * ${look.round})`,
+    "--med-line-from": look.lines.from === "accent" ? palette.accent : palette.text,
+    "--med-line-mix": `${look.lines.strength}%`,
+    "--med-line-strong-mix": `${Math.round(look.lines.strength * 1.75)}%`,
+    "--med-pick": fill ? palette.accent : `color-mix(in srgb, ${palette.text} 9%, transparent)`,
+    "--med-segment": fill ? palette.accent : palette.raised,
+    "--med-selected": fill ? palette.accent : palette.selected,
+    "--med-selected-text": fill ? "#ffffff" : palette.text,
+    "--med-selected-muted": fill ? "#ffffffd9" : palette.muted,
+    "--med-selected-faint": fill ? "#ffffffad" : palette.faint,
+    "--med-selected-accent": fill ? "#ffffff" : palette.accent,
+    "--med-selected-green": fill ? "#ffffff" : palette.green,
+    "--med-selected-red": fill ? "#ffffff" : palette.red,
+    // "initial" leaves it unset, so the file tree keeps its Git colors.
+    "--med-selected-git": fill ? "#ffffff" : "initial",
+    "--med-primary": accentPrimary ? palette.accent : palette.text,
+    "--med-primary-text": accentPrimary ? "#ffffff" : palette.canvas,
+    "--med-label-color": look.labels.color === "accent" ? palette.accent : palette.muted,
+    "--med-label-case": look.labels.case,
+    "--med-label-tracking": look.labels.tracking,
+    "--med-label-size": `${look.labels.size}px`,
+    "--med-label-weight": String(look.labels.weight),
+    "--med-shadow": look.depth === "flat" ? "none" : palette.shadow,
+  };
+}
+
 export function applyTheme(theme: Theme, root: HTMLElement = document.documentElement): void {
   for (const [name, color] of Object.entries(theme.palette)) {
     root.style.setProperty(`--med-${name}`, color);
+  }
+  // After the palette: a solid selection and a flat depth replace palette values.
+  for (const [name, value] of Object.entries(aestheticVariables(theme))) {
+    root.style.setProperty(name, value);
   }
   for (const [name, value] of Object.entries(codeVariables(theme))) {
     root.style.setProperty(name, value);

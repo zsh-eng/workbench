@@ -6,7 +6,7 @@ import { useId, useMemo, type ReactNode } from "react";
 import type { FileRead } from "../../../shared/local-file";
 import { createEditorDrafts } from "../../data/editor-drafts";
 import { useTheme } from "../../themes";
-import { diffSurfaceStyle } from "../diff-surface";
+import { diffSurfaceStyle, EXPANSION_LINES } from "../diff-surface";
 import { FullFileView } from "../FullFileView";
 import { relativeTimePatch, sampleFile, themePatch } from "./fixtures";
 import { Section, Specimen } from "./Specimen";
@@ -23,6 +23,7 @@ function useDiffOptions<A>(diffStyle: "unified" | "split" = "unified") {
       diffIndicators: "bars",
       lineDiffType: "word-alt",
       hunkSeparators: "line-info",
+      expansionLineCount: EXPANSION_LINES,
       enableLineSelection: true,
       enableGutterUtility: true,
       unsafeCSS: `[data-utility-button]::before { inset: 0; }

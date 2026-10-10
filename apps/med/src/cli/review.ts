@@ -16,7 +16,7 @@ import {
   type RunningConnection,
 } from "../host/runtime/connection";
 
-import { reviewMetadata } from "./review-metadata";
+import { pullRequestTitle, reviewMetadata } from "./review-metadata";
 
 export const reviewManifestSchema = savedReviewCreateSchema.strict();
 export type ReviewManifest = z.infer<typeof reviewManifestSchema>;
@@ -25,13 +25,15 @@ export const reviewHelp = `Usage: med-diff review create --title <title> --repo 
        med-diff review create --title <title> --repo <path> --working
        med-diff review create --manifest <json-path>
        med-diff review update --key <key> [--pr <https-url>] [--title <title>] [--session <agent:id>]
+       med-diff review wait --key <key>
        med-diff review repos
 
 --key <key> names your task, such as its branch. Create with the same key again to add an iteration to that review: its workspace stays, earlier briefs and comments stay, and the new comparison and brief become current.
 update sets the title or the PR link of the review with that key, such as after you open the PR.
+wait waits until the user sends a message to your session from the review, prints it, and exits. Run it in the background; it has no time limit.
 A Claude Code session that runs the command is recorded with the review, so Med can copy its resume command; --session codex:<id> or claude:<id> adds others, and --no-session records none.
 
---title sets the review and browser tab title. Without it, use the matching PR title or a comparison label.
+--title names the review in the workspace list and the browser tab. Use 2–4 words, such as "Commit tab search". Without it, use the matching PR title or a comparison label. Once the review has a PR, its header shows the PR title, read with gh.
 --pr <https-url> adds a clickable GitHub PR link. A matching PR is inferred for a single GitHub origin repository when gh is available; --no-pr skips lookup.
 --merge-base compares the common ancestor of --base and --head with --head (for pull requests and stacked branches).
 --brief <path|-> attaches a Markdown explanation; - reads standard input. Links such as [App.tsx:42](src/App.tsx:42) open the cited lines.
@@ -43,7 +45,9 @@ A manifest is {"title":"Review title","targets":[{"repo":"/absolute/path","compa
 The create command prints a Markdown review link without an access token.`;
 
 export interface ReviewCommand {
-  kind: "help" | "repos" | "create" | "update";
+  kind: "help" | "repos" | "create" | "update" | "wait";
+  /** For wait: the review's key, and the session that waits. */
+  wait?: { key: string; session?: string };
   /** For update: the review's key and its new details. */
   update?: { key: string; title?: string; pullRequestUrl?: string; sessions?: AgentSession[] };
   port: number;
@@ -95,8 +99,15 @@ export async function parseReviewCommand(
     throw new Error("Review connection port must be between 1 and 65535.");
   const common = { port, stateDir: getStateDirectory(values["state-dir"]) };
   if (values.help) return { ...common, kind: "help" };
-  if (positionals.length !== 1 || !["repos", "create", "update"].includes(positionals[0]!))
+  if (positionals.length !== 1 || !["repos", "create", "update", "wait"].includes(positionals[0]!))
     throw new Error(reviewHelp);
+  if (positionals[0] === "wait") {
+    if (!values.key) throw new Error("Use wait with --key, the key the review was created with.");
+    const key = reviewKeySchema.safeParse(values.key);
+    if (!key.success) throw new Error(key.error.issues[0]!.message);
+    const session = (await sessions())[0]?.id;
+    return { ...common, kind: "wait", wait: { key: key.data, ...(session ? { session } : {}) } };
+  }
   if (positionals[0] === "update") {
     if (!values.key) throw new Error("Use update with --key, the key the review was created with.");
     if (!values.pr && !values.title && !values.session?.length)
@@ -266,6 +277,8 @@ export async function runReviewCommand(
     /** Where agent sessions are found: the environment and home directory. */
     environment?: NodeJS.ProcessEnv;
     home?: string;
+    /** How long wait pauses before it retries a lost connection. */
+    retryDelay?: number;
   } = {},
 ): Promise<void> {
   const command = await parseReviewCommand(args, options);
@@ -276,12 +289,20 @@ export async function runReviewCommand(
   }
   const connection = await readConnection(command.stateDir, command.port);
   const fetcher = options.fetcher ?? fetch;
+  if (command.kind === "wait") {
+    await waitForMessage(command, connection, fetcher, print, options.retryDelay);
+    return;
+  }
   if (command.kind === "update") {
     const { key, ...details } = command.update!;
+    const title = details.pullRequestUrl && (await pullRequestTitle(details.pullRequestUrl));
     const found = z
       .object({ id: z.string().regex(/^[A-Za-z0-9_-]+$/) })
       .parse(await request(connection, "/api/reviews/by-key", fetcher, { key }));
-    await request(connection, `/api/reviews/${found.id}/details`, fetcher, details);
+    await request(connection, `/api/reviews/${found.id}/details`, fetcher, {
+      ...details,
+      ...(title ? { pullRequestTitle: title } : {}),
+    });
     await showReview(connection, found.id, false, fetcher, options.openUrl, true);
     print(`[Review changes here](${connection.origin}/review/${found.id})`);
     return;
@@ -315,6 +336,52 @@ export async function runReviewCommand(
   );
   print(`[Review changes here](${connection.origin}/review/${parsed.data.id})`);
   if (iteration > 1) print(`Added iteration ${iteration} to the review with this key.`);
+}
+
+/**
+ * Waits for the user's next message to this session: a series of long polls,
+ * so it has no time limit. A lost connection, such as a Med restart, is
+ * retried for about five minutes.
+ */
+async function waitForMessage(
+  command: ReviewCommand,
+  first: RunningConnection,
+  fetcher: typeof fetch,
+  print: (text: string) => void,
+  retryDelay = 5_000,
+) {
+  const { key, session } = command.wait!;
+  let connection = first;
+  let id: string | undefined;
+  let failures = 0;
+  for (;;) {
+    try {
+      id ??= z
+        .object({ id: z.string().regex(/^[A-Za-z0-9_-]+$/) })
+        .parse(await request(connection, "/api/reviews/by-key", fetcher, { key })).id;
+      const result = z
+        .object({ message: z.string().nullable(), superseded: z.boolean().optional() })
+        .parse(
+          await request(connection, `/api/reviews/${id}/agent/wait`, fetcher, {
+            ...(session ? { session } : {}),
+          }),
+        );
+      failures = 0;
+      if (result.message) {
+        print(result.message);
+        return;
+      }
+      if (result.superseded) {
+        print("Another `med review wait` for this session now waits. This one stops.");
+        return;
+      }
+    } catch (error) {
+      const lost = error instanceof Error && error.message.startsWith("Could not connect");
+      if (!lost || ++failures > Math.ceil(300_000 / retryDelay)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, retryDelay));
+      connection = await readConnection(command.stateDir, command.port).catch(() => connection);
+    }
+  }
 }
 
 /**

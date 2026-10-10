@@ -25,7 +25,7 @@
   border-left: 1px solid var(--med-border);
   color: var(--med-text);
   background: var(--med-canvas);
-  font-family: "Geist", sans-serif;
+  font-family: var(--med-font-ui);
   animation: med-preview-in 180ms ease-out both;
 }
 .med-md-layout {
@@ -46,9 +46,10 @@
   --med-md-gutter: clamp(24px, 4cqw, 48px);
   /* Keep the reading measure independent of the surrounding page padding. */
   width: 100%;
-  max-width: calc(38em + 2 * var(--med-md-gutter));
+  max-width: calc(var(--med-measure, 38em) + 2 * var(--med-md-gutter));
   margin: 0 auto;
   padding: 38px var(--med-md-gutter) 48px;
+  font-family: var(--med-font-prose);
   font-size: 14px;
   line-height: 1.625;
   overflow-wrap: anywhere;
@@ -57,9 +58,9 @@
   margin: 0 0 1.5em;
 }
 .med-md-prose :is(h1, h2, h3, h4, h5, h6) {
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Geist", sans-serif;
+  font-family: var(--med-font-headings);
   line-height: 1.22;
-  letter-spacing: -0.035em;
+  letter-spacing: var(--med-headings-tracking, -0.035em);
   font-weight: 400;
   text-wrap: balance;
   scroll-margin-top: 40px;
@@ -137,7 +138,7 @@
   font-size: 0.86em;
   background: var(--med-panel);
   border: 1px solid var(--med-border);
-  border-radius: 4px;
+  border-radius: calc(4px * var(--med-round, 1));
   padding: 0.15em 0.35em;
 }
 .med-md-prose pre {
@@ -146,7 +147,7 @@
   padding: 34px 20px 20px;
   background: var(--med-panel);
   border: 1px solid var(--med-border);
-  border-radius: 10px;
+  border-radius: calc(10px * var(--med-round, 1));
   overflow: auto;
   line-height: 1.7;
   font-size: 13px;
@@ -156,9 +157,7 @@
   position: absolute;
   top: 9px;
   left: 20px;
-  font:
-    10px "Geist",
-    sans-serif;
+  font: 10px var(--med-font-ui);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--med-muted);
@@ -193,7 +192,7 @@
   height: auto;
   display: block;
   margin: 1.7em auto;
-  border-radius: 8px;
+  border-radius: calc(8px * var(--med-round, 1));
 }
 .med-md-prose table {
   display: block;
@@ -262,9 +261,7 @@
   border: 0;
   border-left: 1px solid var(--med-border);
   border-radius: 0;
-  font:
-    11px/1.6 "Geist",
-    sans-serif;
+  font: 11px/1.6 var(--med-font-ui);
   padding: 5px 6px;
   cursor: pointer;
   transition:

@@ -282,17 +282,48 @@ export function sourceExcerpt(
 // `:203` or `L203` after a file reference cites more lines of that file.
 const continuation = /^(?::|L)(\d+)(?:[-–](?::|L)?(\d+))?$/;
 
+/**
+ * The notes as one Markdown text, so they render in one pass with unique
+ * heading IDs, and the line where each note after the first starts.
+ */
+export function joinNotes(texts: readonly string[]): { text: string; starts: number[] } {
+  let text = "";
+  let line = 1;
+  const starts: number[] = [];
+  texts.forEach((value, index) => {
+    let body = value.trim();
+    // An open code fence would take in the notes after it.
+    if ((body.match(/^ {0,3}(?:```|~~~)/gm)?.length ?? 0) % 2) body += "\n```";
+    if (index > 0) {
+      text += "\n\n";
+      line += 2;
+      starts.push(line);
+    }
+    text += body;
+    line += body.split("\n").length - 1;
+  });
+  return { text, starts };
+}
+
 /** Mark resolved references in rendered Markdown and place excerpt slots after
- * the paragraph or list item that first cites each range. */
+ * the paragraph or list item that first cites each range. With `starts`, the
+ * lines where later notes begin, each note shows its own excerpts. */
 export function annotateBrief(
   blocks: MarkdownBlock[],
   files: ParsedReviewFile[],
   root?: string,
+  starts: readonly number[] = [],
 ): AnnotatedBrief {
   const excerpts: BriefExcerpt[] = [];
   const placed = new Set<string>();
   const cited: string[] = [];
+  let section = 0;
   const annotated = blocks.map((block) => {
+    const next = starts.filter((start) => start <= block.start).length;
+    if (next !== section) {
+      section = next;
+      placed.clear();
+    }
     if (block.diagram !== undefined) return block;
     const template = document.createElement("template");
     template.innerHTML = block.html;
@@ -330,7 +361,9 @@ export function annotateBrief(
             end: target.endLine ?? target.line,
           }
         : undefined;
-      const key = range ? `${file.id}:${range.side}:${range.start}-${range.end}` : file.id;
+      const key =
+        (section ? `${section}/` : "") +
+        (range ? `${file.id}:${range.side}:${range.start}-${range.end}` : file.id);
       let link = node;
       if (isCode) {
         link = document.createElement("a");

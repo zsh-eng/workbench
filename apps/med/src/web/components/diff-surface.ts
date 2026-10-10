@@ -14,6 +14,11 @@ export const codeSurfaceStyle = {
   "--diffs-bg-deletion-emphasis-override": "var(--med-code-removed-text)",
 } as CSSProperties;
 
+/** Lines that one "expand" click on a hunk separator shows. Pierre's default
+ * of 100 is taller than the window, so the changed lines scroll out of view;
+ * 20 lines (400 px) keep them on screen, as on GitHub. */
+export const EXPANSION_LINES = 20;
+
 /** Pierre diff variables that match Med's type and theme; Changes and brief
  * excerpts share them so code looks the same in both. */
 export const diffSurfaceStyle = {

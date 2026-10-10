@@ -3,6 +3,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import stylex from "@stylexjs/unplugin";
 import { pierreHighlighter } from "./tools/pierre-highlighter.ts";
+import { pierreKeepAlive } from "./tools/pierre-keep-alive.ts";
 
 export default defineConfig({
   // The browser export uses document.createElement; workers need the table decoder.
@@ -16,7 +17,7 @@ export default defineConfig({
       ),
     },
   },
-  plugins: [pierreHighlighter(), stylex.vite({ useCSSLayers: true }), react()],
+  plugins: [pierreHighlighter(), pierreKeepAlive(), stylex.vite({ useCSSLayers: true }), react()],
   optimizeDeps: {
     exclude: ["@pierre/diffs"],
     include: [

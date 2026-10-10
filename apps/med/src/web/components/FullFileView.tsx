@@ -10,6 +10,7 @@ import {
 } from "@pierre/diffs/react";
 import {
   lazy,
+  memo,
   Suspense,
   useCallback,
   useEffect,
@@ -22,12 +23,13 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { createMarkdownModel, type MarkdownModel } from "../markdown/model";
 import "./MarkdownPreview.css";
 import { preloadable } from "./preloadable";
 import { createEditorDrafts, type EditorDrafts } from "../data/editor-drafts";
 import { isBrowseFile, type FileRead as BrowseRead, type FileWrite } from "../../shared/local-file";
-import type { BlameLoader } from "../data/blame";
+import type { BlameLoader, CommitLoader } from "../data/blame";
 import { tokens, ui } from "../theme.stylex";
 import { useTheme } from "../themes";
 import { codeColors, highlightRules } from "../code-colors";
@@ -43,6 +45,8 @@ import { BlameTooltips } from "./BlameTooltips";
 import type { FileChanges } from "../../shared/file-changes";
 import { createChangeGutter } from "../data/change-gutter";
 import { createBlameGutter } from "../data/blame-gutter";
+import { createLineBlame } from "../data/line-blame";
+import { LineBlame, lineBlameCSS } from "./LineBlame";
 
 export interface FileSymbolPreview {
   readonly origin?: { line: number; column: number };
@@ -51,8 +55,16 @@ export interface FileSymbolPreview {
 }
 export type BeginFileSymbolPreview = () => FileSymbolPreview;
 
+/** A pane outside the file view that shows the Markdown preview, so the
+ * source keeps the view's full width. The pane owns whether it is open. */
+export interface MarkdownPreviewPane {
+  open: boolean;
+  target: HTMLElement | null;
+  onToggle(): void;
+}
 export interface FullFileViewProps {
   file: BrowseRead | null;
+  previewPane?: MarkdownPreviewPane;
   previewControl?: ReactNode;
   onSourcePosition?(line: number, reason: "cursor" | "scroll"): void;
   markdownNavigation?: MarkdownModel;
@@ -76,6 +88,9 @@ export interface FullFileViewProps {
   loadChanges?(file: BrowseRead, signal: AbortSignal): Promise<FileChanges>;
   blameEnabled?: boolean;
   onBlameEnabledChange?(enabled: boolean): void;
+  /** Shows the cursor line's author and age after its text. Default: true. */
+  lineBlame?: boolean;
+  loadCommit?: CommitLoader;
   onRefresh(): void;
   refreshAvailable?: boolean;
   onClose?(): void;
@@ -126,6 +141,8 @@ function ReadOnlyFileView({
   loadChanges,
   blameEnabled,
   onBlameEnabledChange,
+  lineBlame = true,
+  loadCommit,
   onRefresh,
   refreshAvailable = true,
   onClose,
@@ -136,9 +153,11 @@ function ReadOnlyFileView({
   const displayPath = path ?? file?.path;
   const { active } = useTheme();
   const sourceCursorAt = useRef(0);
+  const cursorLine = useRef((_line: number) => {});
   const followCursor = useCallback(
     (line: number) => {
       sourceCursorAt.current = performance.now();
+      cursorLine.current(line);
       onSourcePosition?.(line, "cursor");
     },
     [onSourcePosition],
@@ -261,6 +280,42 @@ function ReadOnlyFileView({
     setLocalBlameEnabled(open);
     onBlameEnabledChange?.(open);
   };
+  // The open gutter already names each line's commit, and a selection hides it.
+  const lineBlameShown =
+    lineBlame && vimEnabled && !compact && canBlame && !blameOpen && !vim.visualMode;
+  const cursorBlame = useMemo(
+    () =>
+      createLineBlame(
+        file && isBrowseFile(file) ? file : null,
+        !compact && canBlame ? loadBlame : undefined,
+      ),
+    [file, loadBlame, compact, canBlame],
+  );
+  useLayoutEffect(() => () => cursorBlame.dispose(), [cursorBlame]);
+  useLayoutEffect(() => {
+    cursorLine.current = (line) => cursorBlame.setLine(lineBlameShown ? line : null);
+    cursorBlame.setLine(lineBlameShown ? vim.position.capture().line + 1 : null);
+  }, [cursorBlame, lineBlameShown, vim.position]);
+  const blamedLine = useSyncExternalStore(cursorBlame.subscribe, cursorBlame.getSnapshot);
+  const [lineBlameAnchor] = useState(() => {
+    const anchor = document.createElement("span");
+    anchor.dataset.medLineBlame = "";
+    return anchor;
+  });
+  // Pierre rebuilds rows as they scroll, so each render places the label again.
+  const blameHost = useRef<HTMLElement | null>(null);
+  const placeLineBlame = useRef(() => {});
+  useLayoutEffect(() => {
+    placeLineBlame.current = () => {
+      const row =
+        lineBlameShown && blamedLine
+          ? blameHost.current?.shadowRoot?.querySelector(`[data-line="${blamedLine.line}"]`)
+          : null;
+      if (!row) lineBlameAnchor.remove();
+      else if (row.lastChild !== lineBlameAnchor) row.append(lineBlameAnchor);
+    };
+    placeLineBlame.current();
+  }, [lineBlameShown, blamedLine, lineBlameAnchor]);
   const changes = useMemo(createChangeGutter, []);
   const [changeLabel, setChangeLabel] = useState("");
   useEffect(() => {
@@ -339,6 +394,7 @@ function ReadOnlyFileView({
         ${highlightRules(active, { match: highlightId, current: activeSearchName, visual: visualName })}
         [data-vim-visual-line] { background: ${codeColors(active).selection} !important; }
         [data-vim-visual-empty] { position: relative; }
+        ${lineBlameCSS("[data-line]", active.palette.faint)}
         ${
           blameOpen && canBlame
             ? `[data-column-number] { padding-left: 196px; }
@@ -350,6 +406,8 @@ function ReadOnlyFileView({
         }
         [data-vim-visual-empty]::before { content: ""; position: absolute; width: 1ch; height: 100%; background: ${codeColors(active).selection}; pointer-events: none; }`,
       onPostRender(node, _instance, phase) {
+        blameHost.current = phase === "unmount" ? null : node;
+        placeLineBlame.current();
         gutter.update(node, phase);
         changes.update(node, phase);
         vimRender.current(node, phase);
@@ -650,6 +708,12 @@ function ReadOnlyFileView({
         </div>
       )}
       <BlameTooltips cells={blameCells} />
+      <LineBlame
+        blame={lineBlameShown ? blamedLine : null}
+        anchor={lineBlameAnchor}
+        file={file && isBrowseFile(file) ? file : null}
+        loadCommit={loadCommit}
+      />
     </section>
   );
 }
@@ -765,7 +829,8 @@ const EditableFile = preloadable(() => import("./FileEditor"));
 /** Loads the editor early, such as once a vault opens, so its first note opens at once. */
 export const preloadFileEditor = EditableFile.preload;
 const noDrafts = createEditorDrafts();
-export function FullFileView(props: FullFileViewProps) {
+/** Memoized: the review renders again for unrelated state, such as a palette. */
+export const FullFileView = memo(function FullFileView(props: FullFileViewProps) {
   const store = props.editor?.drafts ?? noDrafts;
   useSyncExternalStore(store.subscribe, store.getSnapshot);
   const draft = props.editor ? store.get(props.editor.key) : undefined;
@@ -774,13 +839,15 @@ export function FullFileView(props: FullFileViewProps) {
     !props.compact &&
     props.file?.kind === "text" &&
     /\.(md|markdown|mdown|mkd)$/i.test(props.file.path);
-  const [preview, setPreview] = useState(() => {
+  const [ownPreview, setPreview] = useState(() => {
     try {
       return localStorage.getItem("med-markdown-preview") === "true";
     } catch {
       return false;
     }
   });
+  const pane = props.previewPane;
+  const preview = pane ? pane.open : ownPreview;
   const sourceKey = JSON.stringify(props.file?.source) + props.file?.path;
   // The bridge remains stable through disk saves and editor draft notifications.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -795,7 +862,12 @@ export function FullFileView(props: FullFileViewProps) {
     (line: number, reason: "cursor" | "scroll") => markdownModel.follow(line, reason),
     [markdownModel],
   );
+  const paneToggle = useRef(pane?.onToggle);
+  useLayoutEffect(() => {
+    paneToggle.current = pane?.onToggle;
+  });
   const togglePreview = () => {
+    if (paneToggle.current) return paneToggle.current();
     // Read the current value in the updater. The keyboard shortcut effect
     // registers once per model, so a closure over `preview` would go stale and
     // make every later toggle repeat the first result.
@@ -846,21 +918,28 @@ export function FullFileView(props: FullFileViewProps) {
       onClick={togglePreview}
     />
   ) : undefined;
-  const wrap = (source: ReactNode) => (
-    <div className="med-markdown-shell" data-preview={showPreview}>
-      <div className="med-markdown-source">{source}</div>
-      {showPreview && props.file && (
-        <Suspense fallback={<div className="med-markdown" aria-hidden="true" />}>
-          <MarkdownPreview
-            key={sourceKey}
-            model={markdownModel}
-            onOpenFile={props.onOpenFile}
-            file={draft?.editing ? draft.file : props.file}
-          />
-        </Suspense>
-      )}
-    </div>
+  const previewView = showPreview && props.file && (
+    <Suspense fallback={<div className="med-markdown" aria-hidden="true" />}>
+      <MarkdownPreview
+        key={sourceKey}
+        model={markdownModel}
+        onOpenFile={props.onOpenFile}
+        file={draft?.editing ? draft.file : props.file}
+      />
+    </Suspense>
   );
+  const wrap = (source: ReactNode) =>
+    pane ? (
+      <div className="med-markdown-shell" data-preview={false}>
+        <div className="med-markdown-source">{source}</div>
+        {previewView && pane.target && createPortal(previewView, pane.target)}
+      </div>
+    ) : (
+      <div className="med-markdown-shell" data-preview={showPreview}>
+        <div className="med-markdown-source">{source}</div>
+        {previewView}
+      </div>
+    );
   const canEdit =
     !!props.editor &&
     !props.compact &&
@@ -929,4 +1008,4 @@ export function FullFileView(props: FullFileViewProps) {
       />
     </div>,
   );
-}
+});

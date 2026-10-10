@@ -3,7 +3,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Bookmark, PanelRight } from "lucide-react";
 import { motion } from "motion/react";
 import { ReaderDesktopToolbar } from "./ReaderDesktopToolbar";
-import { DESKTOP_CHROME_FADE_TRANSITION } from "./chrome";
+import { MOTION } from "@/lib/motion";
 import type { ReaderHeaderProps } from "./ReaderHeader";
 
 const CHROME_BUTTON_CLASS_NAME =
@@ -32,7 +32,7 @@ export function ReaderDesktopHeader({
       className="absolute inset-x-0 top-0 z-20 bg-background/88 backdrop-blur-xl"
       initial={false}
       animate={{ opacity: visible ? 1 : 0 }}
-      transition={DESKTOP_CHROME_FADE_TRANSITION}
+      transition={MOTION.desktopChromeFade}
       inert={!visible}
       aria-hidden={!visible}
       {...chromeSurfaceProps}

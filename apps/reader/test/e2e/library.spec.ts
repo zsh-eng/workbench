@@ -4,6 +4,7 @@ import {
   test,
   waitForReaderReady,
   nextSpread,
+  showNotesCapsule,
 } from "./helpers/fixtures";
 
 test.describe("Library", () => {
@@ -162,7 +163,9 @@ test("keeps duplicate and failed imports in the Library", async ({
       },
       { name, bytes: [...bytes] },
     );
-    await page.getByRole("heading", { name: SAMPLE_BOOK_TITLE }).dispatchEvent("drop", { dataTransfer });
+    await page
+      .getByRole("heading", { name: SAMPLE_BOOK_TITLE })
+      .dispatchEvent("drop", { dataTransfer });
     await dataTransfer.dispose();
   };
   await drop("sample.epub", await readFile(SAMPLE_EPUB_PATH));
@@ -231,3 +234,52 @@ test("reports mixed multi-file import outcomes without opening a book", async ({
   });
   expect(count).toBe(2);
 });
+
+for (const phone of [false, true])
+  test.describe(phone ? "phone" : "desktop", () => {
+    test.use(
+      phone
+        ? {
+            viewport: { width: 390, height: 844 },
+            hasTouch: true,
+            isMobile: true,
+          }
+        : { viewport: { width: 1280, height: 800 } },
+    );
+    test("returning from a book restores the Library scroll position", async ({
+      page,
+      localBook,
+    }) => {
+      // Newer copies sort first, so the original book sits below the fold.
+      await page.evaluate(async (id) => {
+        const { syncV2Db: db } = await import("/src/lib/sync-v2/db.ts");
+        const book = (await db.books.get(id))!;
+        await db.books.bulkPut(
+          Array.from({ length: 30 }, (_, index) => ({
+            ...book,
+            id: `${id}-shelf-${index}`,
+            sourceFileId: `${book.sourceFileId}-shelf-${index}`,
+            title: `Shelf copy ${index + 1}`,
+            dateAdded: book.dateAdded + index + 1,
+          })),
+        );
+      }, localBook.id);
+      const original = page.getByRole("link", { name: /^Open Alice/ });
+      await original.scrollIntoViewIfNeeded();
+      const before = await page.evaluate(() => Math.round(window.scrollY));
+      expect(before).toBeGreaterThan(400);
+      await original.click();
+      await expect(page).toHaveURL(`/reader/${localBook.id}`);
+      await waitForReaderReady(page);
+      if (phone) {
+        // The capsule shows once the chrome has settled in view.
+        await showNotesCapsule(page);
+        await page.getByRole("button", { name: "Back to library" }).click();
+      } else await page.goBack();
+      await expect(page).toHaveURL("/");
+      await expect(original).toBeVisible();
+      await expect
+        .poll(() => page.evaluate(() => Math.round(window.scrollY)))
+        .toBe(before);
+    });
+  });

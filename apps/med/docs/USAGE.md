@@ -105,13 +105,38 @@ A workspace is one task: a branch or worktree, a saved review, or a registered v
 - **+** in the list, or **New workspace…** in the palette, opens the branch picker for a new workspace. Opening a saved review link adds a workspace for that review.
 - Select a row and press `Delete`, or click its **×**, to close it. Vaults and the home workspace stay.
 - A review that an agent creates joins the list in every open Med window, marked new with an accent dot until you open it. An agent that passes `--open` also shows the review in the window you used last. See [agent integration](AGENT_INTEGRATION.md#create-a-review).
-- A review that a Claude Code or Codex session made shows that agent's icon. Right-click a row to open it, copy a command that resumes the agent's session in its directory, mark it as read or unread, or close it.
+- A saved review with an agent session shows what its lead session does: a turning mark while the agent works, **Needs you** while it waits for a permission answer or in `med review wait`, and the accent dot when a turn ended while you looked at another workspace. The lead is the newest session that works or waits, else the newest one. Med keeps the last update that you saw in the browser.
+- A review that a Claude Code or Codex session made shows that agent's icon. Right-click a row to open it, copy a command that resumes the agent's session in its directory, mark it as read or unread, or close it. On a branch or worktree row, **Copy lazygit command** copies `cd <checkout> && lazygit` for the Git operations that the [Commit tab](#commit-and-push) does not have.
 
 The four most recently shown workspaces stay loaded; switching between them is immediate. Only the workspace on screen receives live updates; the others catch up when you return. Older workspaces load again when you open them. The list and the active workspace persist across reloads and restarts, and windows share the list; each window keeps its own workspace on screen. The address follows the active workspace: a saved review keeps its `/review/<id>` link, and Back and Forward move between workspaces.
 
 Browsers keep `⌘1`–`⌘9` and `⌃Tab` for their own tabs. Use the installed app window, `Ctrl+1`–`Ctrl+9`, or the palette in a browser tab.
 
 ### Pull requests
+
+Paste a pull request link, such as `https://github.com/owner/repo/pull/333`, in
+**New workspace…**. Choose **Open pull request #333**, or **Open and review with**
+an installed agent. The workspace shows at once and lists each step:
+
+1. Find the registered repository whose Git remote is `owner/repo`.
+2. Read the pull request with `gh`.
+3. Make a worktree in Med's state folder (`worktrees/<repo>/pr-333`). Your
+   checkout and its branch stay as they are.
+4. Check out the pull request there with `gh pr checkout`. If its branch is in
+   use in another worktree, Med checks out its commit without a branch.
+5. Fetch the base branch if it is not local, and save the review.
+6. Start the agent in the worktree with a prompt to review the pull request,
+   if you chose one.
+
+The workspace then becomes the review. The same link again uses the same
+worktree and review; a new head adds an iteration. A failed step says why, with
+**Retry**. A repository that Med does not know fails at step 1: add it first.
+
+To finish, right-click the workspace and choose **Close and remove worktree**.
+This works for any workspace in a linked worktree. Med runs
+`git worktree remove` without `--force`, so Git keeps a worktree with changed or
+untracked files, and the row says why. Med also keeps it while an agent works
+there, or when its detached commit is on no branch. The branch stays.
 
 Run `med pr checkout 333` inside a repository. Med runs `gh pr checkout 333`,
 fetches the pull request's base branch, and opens a saved review of the pull
@@ -143,20 +168,40 @@ An agent can use the running host to save a commit range or capture working chan
 
 A saved review opens its first target. Select other repositories or ranges from **Review target**. The saved diff and comment context stay fixed even when agents make more changes. **Copy comments** includes comments from all targets in that review, with repository paths, revisions, line numbers, selected source, and adjacent lines. Hover the title for the save time and repository. **Clear**, next to **Copy comments**, clears only that review after confirmation. Copying does not clear comments.
 
-An agent that names its task with a key updates one review over several rounds. Each round is an iteration: the review opens on the latest one and is marked new again. The Brief tab numbers the iterations; choose one to read its brief beside its comparison. **Review target** groups the comparisons by iteration. Comments on earlier iterations stay.
+An agent that names its task with a key updates one review over several rounds. Each round is an iteration: the review opens on the latest one and is marked new again. The Notes tab numbers the iterations; choose one to read its notes beside its comparison. **Review target** groups the comparisons by iteration. Comments on earlier iterations stay.
+
+A review that records its agent session has a Claude or Codex button in the
+toolbar, and **Show agent session** in the command palette. They open the
+Session sidebar: the prompts, replies, thoughts, tool calls with their output
+and diffs, the plan, and background shells and agents. The sidebar follows the
+session while the agent works and shows **Working** or **Idle**. A file link in
+a reply opens the file. A long session opens on its latest work; scroll to the
+top for earlier work, or choose a prompt from **Turns** (the clock) to jump to
+it. See [agent sessions](SESSIONS.md).
+
+A saved review can also start an agent. Open the Session pane: a review
+without a session lists the agents that Med found, and the **+** menu in the
+pane starts another. Med starts Claude Code, OpenCode, Codex (`codex-acp`),
+or Gemini CLI in the review's repository, with your own sign-in; it does not
+install them. Then the prompt box has pickers for the model, the effort, and
+the mode, a context meter, and **Stop** (or `Esc`) while the agent works.
+Type `/` for the agent's own commands. A tool call that needs your answer
+shows **Allow** and **Deny** above the prompt box. Med stops its agents when
+the host stops.
 
 Saved reviews and their comments persist in `~/.local/state/med`. Normal branch review notes still end with the host process. See [agent integration](AGENT_INTEGRATION.md) for commands, state settings, limits, and suggested `AGENTS.md` guidance.
 
-### Briefs
+### Notes and briefs
 
-A brief is the agent's explanation of a review, in Markdown. Its links open the lines they cite, so you can read the changes in the order the agent explains them.
+A review's **Notes** are the agent's brief and the replies you pin from its session. A brief is the agent's explanation of a review, in Markdown. Its links open the lines they cite, so you can read the changes in the order the agent explains them.
 
 - **Attach.** Copy the agent's last message and press `⌘V` anywhere outside a text field. On a saved review, med attaches the brief. On live changes, med asks for a title and saves the comparison as a review first, so the links keep pointing at the code they describe. Agents can also attach one at creation with `review create --brief`.
-- **Read.** The **Brief** tab comes before **Changes**. Below each paragraph that cites lines, a short diff excerpt shows those lines. `]` and `[` step through the excerpts. Hover a link to highlight its excerpt. In a wide window, code, tables, and images extend past the text column, and table columns take the width their text needs.
+- **Pin a reply.** In the Session sidebar, the reply that ends each turn has **Pin to review**. Med copies the reply into the Notes of the latest iteration, after the brief, because a transcript can lose old replies. Ask the agent to explain something, such as "walk me through the cache", and pin its answer. **Pinned** under a reply goes to its note. Remove a pin from the note's **⋯** menu.
+- **Read.** The **Notes** tab comes before **Changes**. With more than one note, each note has a numbered head, such as `02 / 03`, its source, and its time. A rail of ticks on the right edge marks the notes, their headings, and their excerpts; click a tick to go there. Below each paragraph that cites lines, a short diff excerpt shows those lines. `]` and `[` step through the excerpts. Hover a link to highlight its excerpt. In a wide window, code, tables, and images extend past the text column, and table columns take the width their text needs.
 - **Jump.** Click a link or an excerpt heading to open those lines in **Changes**, selected and centered.
 - **Comment.** Hover a line in an excerpt and click **+**; drag it to cover more lines. You can also select line numbers and press `c`. These are the same notes as in **Changes**, so **Copy comments** includes them. The excerpt heading counts its notes.
-- **Check coverage.** The header shows how many changed files the brief cites. **Not in the brief** lists the changed files it never mentions; read those yourself.
-- **Replace or remove.** Paste again to replace the brief. **Undo** in the confirmation restores the previous one. The **⋯** menu also copies or removes it.
+- **Check coverage.** The header shows how many changed files the notes cite. **Not in the notes** lists the changed files they never mention; read those yourself.
+- **Replace or remove.** Paste again to replace the brief. **Undo** in the confirmation restores the previous one. The **⋯** menu also copies all notes or removes the brief.
 
 med resolves `path`, `path:12`, `path:12-20`, `path#L12-L20`, absolute paths in the repository, editor links, and GitHub blob URLs. A path can be a suffix, such as `App.tsx:42`, when only one changed file matches. A path outside the change opens the file instead. Changing a brief does not change comments.
 
@@ -240,7 +285,8 @@ in Find file**.
 2. Select a changed path to move to it in the diff stream. Double-click the path to open its current file in the selected worktree.
 3. Use the branch switcher (`⌘⇧G`) to open another branch here, or `⌘↵` to open it as a new [workspace](#workspaces). A branch with a worktree opens that directory; a branch without one opens committed content.
 4. Use the file picker or right Files sidebar to open unchanged files. A preview does not replace your current review until you open it.
-5. Toggle blame in a full file to show author and commit details beside the line numbers. Visible lines preload in the background after a file opens. Toggling blame reuses this cache. Hover a label for 250 ms to see the date and commit message; move to nearby labels for immediate updates. Open the command palette to change theme or find other actions.
+5. Toggle blame (`⌥B`) in a full file to show author and commit details beside the line numbers. Blame opens for the current file only; another file opens without it. Med keeps the line history it read, so toggling blame or returning to a file does not read it again. Hover a label for 250 ms to see the date and commit message; move to nearby labels for immediate updates.
+6. When the cursor stops on a line, the author, age, and commit subject show after the line's text. Hover them to see the commit card; click the short hash to copy the full hash. Read-only files have a cursor only with Vim navigation on. The gutter and a Visual selection hide this line blame. Use **Hide line blame at the cursor** in the command palette to turn it off. Open the command palette to change theme or find other actions.
 
 Drag the gutter **+** across lines to start a note for the whole range. You can also drag over line numbers, or click the first number and Shift-click the last number on the same diff side, then click **Add note**. The saved comment keeps the full range.
 
@@ -251,31 +297,34 @@ such as `bun.lock`, `package-lock.json`, `Cargo.lock`, `go.sum`, and other
 
 Shift-click another commit to select an inclusive range. The comparison runs from the oldest selected commit's first parent to the newest selected commit. A root commit uses the empty tree. This compares endpoint snapshots; it does not add individual patches across merged branches. Shift+Up/Down extends the selection; a plain click resets it.
 
-| Action                            | macOS        | Omarchy Linux             |
-| --------------------------------- | ------------ | ------------------------- |
-| Keyboard shortcuts guide          | `?`          | `?`                       |
-| Command palette                   | `⌘K`         | `Ctrl+K`                  |
-| Find a file                       | `⌘⇧K`        | `Ctrl+Shift+K`            |
-| Symbols in current file           | `⌘O`         | `Ctrl+O`                  |
-| Symbols in project commits        | `⌘⇧O`        | `Ctrl+Shift+O`            |
-| Search file contents              | `⌘⇧F`        | `Ctrl+Shift+F`            |
-| Find in diff contents             | `⌘F`         | `Ctrl+F`                  |
-| Open a branch or worktree         | `⌘⇧G`        | `Ctrl+Shift+G`            |
-| Show workspace 1–9                | `⌘1`–`⌘9`    | `Ctrl+1`–`Ctrl+9`         |
-| Switch to a recent workspace      | `⌃Tab`       | `Ctrl+Tab`                |
-| Toggle history / files sidebar    | `⌘B` / `⌘⇧B` | `Ctrl+B` / `Ctrl+Shift+B` |
-| Zen mode                          | `⌥Z`         | `Alt+Z`                   |
-| Add note to selected lines        | `c`          | `c`                       |
-| Paste a brief                     | `⌘V`         | `Ctrl+V`                  |
-| Next / previous brief excerpt     | `]` / `[`    | `]` / `[`                 |
-| Resume search                     | `⌥R`         | `Alt+R`                   |
-| Keep preview tab                  | `⌥P`         | `Alt+P`                   |
-| Toggle gutter blame               | `⌥B`         | `Alt+B`                   |
-| Close current file                | `⌥W`         | `Alt+W`                   |
-| Close all files in this workspace | `⌥⇧W`        | `Alt+Shift+W`             |
-| Close other files                 | `⌥⇧O`        | `Alt+Shift+O`             |
+| Action                            | macOS         | Omarchy Linux             |
+| --------------------------------- | ------------- | ------------------------- |
+| Keyboard shortcuts guide          | `?`           | `?`                       |
+| Command palette                   | `⌘K`          | `Ctrl+K`                  |
+| Find a file                       | `⌘⇧K`         | `Ctrl+Shift+K`            |
+| Symbols in current file           | `⌘O`          | `Ctrl+O`                  |
+| Symbols in project commits        | `⌘⇧O`         | `Ctrl+Shift+O`            |
+| Search file contents              | `⌘⇧F`         | `Ctrl+Shift+F`            |
+| Find in diff contents             | `⌘F`          | `Ctrl+F`                  |
+| Open a branch or worktree         | `⌘⇧G`         | `Ctrl+Shift+G`            |
+| Show workspace 1–9                | `⌘1`–`⌘9`     | `Ctrl+1`–`Ctrl+9`         |
+| Switch to a recent workspace      | `⌃Tab`        | `Ctrl+Tab`                |
+| Toggle history / files sidebar    | `⌘B` / `⌘⇧B`  | `Ctrl+B` / `Ctrl+Shift+B` |
+| Zen mode                          | `⌥Z`          | `Alt+Z`                   |
+| Add note to selected lines        | `c`           | `c`                       |
+| Paste a brief                     | `⌘V`          | `Ctrl+V`                  |
+| Next / previous brief excerpt     | `]` / `[`     | `]` / `[`                 |
+| Resume search                     | `⌥R`          | `Alt+R`                   |
+| Keep preview tab                  | `⌥P`          | `Alt+P`                   |
+| Open a found file and keep it     | `⌘↵`          | `Ctrl+Enter`              |
+| Show tab 1–8 / the last tab       | `⌥1`–`⌥9`     | `Alt+1`–`Alt+9`           |
+| Previous / next tab               | `⌘⇧[` / `⌘⇧]` | `Ctrl+Shift+[` / `]`      |
+| Toggle gutter blame               | `⌥B`          | `Alt+B`                   |
+| Close current file                | `⌥W`          | `Alt+W`                   |
+| Close all files in this workspace | `⌥⇧W`         | `Alt+Shift+W`             |
+| Close other files                 | `⌥⇧O`         | `Alt+Shift+O`             |
 
-Close actions preserve the Changes tab and other workspaces. Desktop or browser shortcuts can take priority over a web app; the command palette provides the same actions.
+Close actions preserve the Changes tab and other workspaces. In Find file, `↵` opens the file in the preview tab, which the next preview replaces; `⌘↵` opens a tab that stays open. Tab keys count Brief, Changes, and Commit with the file tabs. A browser tab keeps `⌘⇧[` and `⌘⇧]` for its own tabs; the installed app receives them. Desktop or browser shortcuts can take priority over a web app; the command palette provides the same actions.
 
 `?` opens the shortcuts guide on your current context: Review, a read-only File,
 the Editor, or Pickers. Type to search every context by action or by key, such
@@ -293,6 +342,19 @@ the Changes toolbar, and the status bar. The sidebars stay as they are: `⌘B` a
 leave, press `⌥Z` again or move the pointer to the top-right corner and click
 **Leave zen**. Escape does not leave zen mode, so it stays free for search, Vim,
 and dialogs. The setting is remembered in this browser.
+
+### Side panes
+
+One column on the right holds three panes at one width: **Session** (the
+agent's session), **Files** (`⌘⇧B`), and **Preview** (the Markdown preview,
+`⌘⇧V`). Drag the column's left edge to resize it; Med keeps the width. The
+column shows the two latest panes, one above the other. Opening a third closes
+the oldest. **Maximize** in a pane's header gives it the column and leaves the
+other pane as its header; **Restore** shares the column again.
+
+Run **Show side panes as tabs** from the command palette to show one pane at a
+time behind tabs, and **Stack side panes** to go back. Both layouts are
+prototypes.
 
 ## Symbols and Vim navigation
 
@@ -337,8 +399,9 @@ one exception on macOS: Control+B, Control+F, and Control+O in the editor reach
 Vim (page up, page down, jump back) because Command runs Med's shortcuts. On
 Linux these Control keys still run Med's sidebar, find, and symbol shortcuts.
 
-Git blame keeps its gutter width while editing. Attribution is hidden while the
-draft is unsaved or the disk contents have changed, and updates after saving.
+Git blame keeps its gutter width while editing. Attribution and the line blame
+at the cursor are hidden while the draft is unsaved or the disk contents have
+changed, and update after saving.
 
 Escape returns to Normal mode. `:w`, ⌘S / Ctrl+S, or **Save** writes the file.
 `:wq` saves and closes the file only if the save succeeds.
@@ -346,7 +409,8 @@ Escape returns to Normal mode. `:w`, ⌘S / Ctrl+S, or **Save** writes the file.
 A hollow dot means saved. A filled dot means the draft differs from the last
 saved contents. Dirty tabs also show a dot. Undo after saving can make the file
 dirty again. **Close file** / `:q` closes the tab; unsaved text requires an explicit
-**Discard draft** or **Keep editing** choice. Saving does not stage or commit.
+**Discard draft** or **Keep editing** choice. Saving does not stage or commit; use
+the [Commit tab](#commit-and-push).
 
 Drafts and undo history stay in memory across tab switches and tab closes. Open
 the same working file to resume. Up to 24 drafts are retained; clean drafts can
@@ -372,6 +436,37 @@ http://127.0.0.1:4173/file?repo=%2Fpath%2Fto%2Frepo&path=src%2Fexample.ts&edit=1
 with the host's launch URL, as for saved review links. A file link opens live
 working content; it does not freeze a review or register another repository.
 
+## Commit and push
+
+Press `q` in a review of live changes, or click the **Commit** tab, to stage
+files, commit them, and push the branch. It is the part of lazygit that a review
+needs. Press `q` again to return to the review.
+
+- **Files and diffs.** The list shows each changed file: ● staged, ◐ partly
+  staged, ○ not staged. The diffs of all files follow in the same order. `j` /
+  `k` move through the files and scroll the diffs; scrolling the diffs moves the
+  list. A partly staged file shows its staged and unstaged parts. As in
+  Changes, `Enter` opens the focused file in a tab, and a click on a file name
+  in the diffs opens it too (`⌘`-click opens it behind the Commit tab).
+- **Filter.** `/` filters the list and the diffs by path. `↑` / `↓` move while
+  you type; `Enter` keeps the filter. `Esc` clears it, in the field or in the
+  list, as in a search.
+- **Stage.** `Space`, or a click on the mark in the list or in a diff header,
+  stages or unstages the whole file. `a` stages every file shown, or unstages
+  them when all are staged. The mark changes at once; Git's answer follows.
+- **Commit.** `c`, **Commit…**, or `⌘↵` opens the message in the middle of the
+  window; it takes no space until then. `⌘↵` / `Ctrl+Enter` commits the staged
+  files, and `Esc` closes the message and keeps it as a draft across reloads.
+  Hooks run. If a hook stops the commit, its output shows under the message, and
+  nothing is committed.
+- **Push.** `⇧P` pushes the branch to its upstream. A branch without an upstream
+  asks first, then pushes to the push remote (usually `origin`) and tracks it.
+  Med never force-pushes.
+
+If the staged files change outside Med after the tab read them, the commit stops
+and the tab reads them again. For hunks, amends, rebases, and branch switches,
+use lazygit: right-click the workspace and choose **Copy lazygit command**.
+
 ## Development
 
 med lives in `apps/med`. Install dependencies from the Workbench root with `bun install --frozen-lockfile`. The commands below run from `apps/med`; root shortcuts include `bun run dev:med`, `bun run build:med`, and `bun run check:med`.
@@ -386,7 +481,7 @@ Open the Vite URL with the `#token=…` fragment printed by the API host. Vite p
 
 Open `/elements` (or run **Open elements page** from the command palette) to
 inspect Med's own components on fixed sample data: the palette and derived
-layers, type, shape, icons, controls, review parts such as the history panel,
+layers, the theme's aesthetic, type, shape, icons, controls, review parts such as the history panel,
 commit card, Med notes, and GitHub threads, every code color state, and a sample
 brief. Code states include diff lines and
 changed words, line selection over context, additions, and removals, find
@@ -394,7 +489,13 @@ matches, and the editor. The theme menu previews any theme on the page without
 saving it; **Use in Med** saves it. Zoom enlarges the non-code specimens, outline
 mode draws every box, and inspect mode lists the clicked element's size, type,
 and colors as theme tokens with its text contrast. Each specimen can sit on the
-frame, card, or popover surface.
+frame, card, or popover surface. The **Commit flow** section runs the Commit tab
+on a pretend repository, with switches for a failing hook, a rejected push, a
+branch without an upstream, and slow commands. The **Agent session** section
+replays a recorded Claude Code session at 1×, 4×, or 16×, and shows every part
+of the thread on sample updates. The **Agents** section runs the real Session
+pane with a scripted agent: send a message, answer its permission request, try
+the pickers and the `/` menu, or stop it.
 
 Run the complete check from the Workbench root:
 
@@ -440,6 +541,7 @@ This is a browser app backed by a local server. Native desktop packaging, shared
 - [Twinkleplop integration and timed comparison videos](validation/HIGHLIGHTER_INTEGRATION.md)
 - [Baseline diff performance](validation/RESULTS.md)
 - [Theme and workspace validation](validation/UI_UPDATE.md)
+- [Everyday interaction latency](validation/INTERACTIONS.md)
 - [Feature status and navigation behavior](SNACKS_REVIEW.md)
 
 Hunk's retained semantic source and tests carry their original [MIT notice](../upstream/HUNK-LICENSE). [Source provenance](../upstream/HUNK.md) records the pinned revision and adaptations.
@@ -523,8 +625,12 @@ line numbers from an older snapshot are not applied to new content.
 ## Markdown preview
 
 Open a `.md`, `.markdown`, `.mdown`, or `.mkd` file and select **Preview** in
-its toolbar. The rendered pane sits beside the source, or below it in narrow
-windows. The browser remembers whether Preview is open. It works in both the
+its toolbar. In a repository window, the preview opens as the Preview pane in
+the [side panes](#side-panes), and the source keeps the view's width. The pane
+follows the Markdown file in the main view: it closes for other files and
+opens again for the next Markdown file. In a vault or a dropped file, the
+rendered pane sits beside the source, or below it in narrow windows. The
+browser remembers whether Preview is open. It works in both the
 file viewer and Vim editor, including read-only dropped Markdown.
 
 The preview follows the source cursor and source scrolling. You can also scroll
@@ -582,9 +688,11 @@ file links are unavailable there. Missing files use the normal file-open error.
 
 ### Review titles and PR links
 
-`med review create --title "Fix navigation" ...` uses that title in the browser
-tab and review header. Add `--pr https://github.com/owner/repo/pull/123` to make
-the heading a link. Without `--title`, med uses the matching PR title when `gh`
-can resolve it. Single-repository GitHub branch reviews can infer the link;
-`--no-pr` skips lookup. See [agent guidance](AGENT_INTEGRATION.md#titles-and-pull-requests)
+`med review create --title "Navigation fix" ...` uses that title in the
+workspace list and browser tab. Keep it to 2–4 words; the workspace list is
+narrow. Add `--pr https://github.com/owner/repo/pull/123` to make the review
+header a link. Once the review has a PR, the header shows the PR title, read
+with `gh`; the workspace keeps the short title. Without `--title`, med uses the
+matching PR title when `gh` can resolve it. Single-repository GitHub branch
+reviews can infer the link; `--no-pr` skips lookup. See [agent guidance](AGENT_INTEGRATION.md#titles-and-pull-requests)
 for scope and fallback behavior. File tabs use the filename in the browser title.

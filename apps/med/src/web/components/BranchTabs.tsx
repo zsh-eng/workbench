@@ -105,6 +105,9 @@ export function useBranchTabs({
     return entry ? [entry] : [];
   });
   const activeIndex = repositories.findIndex((repository) => repository.id === activeRepositoryId);
+  // The branch name the switch last showed. It lives here, not in the switch,
+  // because toggling the sidebar moves the switch and mounts it again.
+  const shownBranch = useRef<string | null>(null);
   return {
     entries,
     visible,
@@ -118,6 +121,11 @@ export function useBranchTabs({
           ? repositoryLabels[activeIndex]
           : repositories[activeIndex]!.name,
     branchName: activeBranch,
+    /** Whether a name differs from the one the switch last showed, so it rolls in. */
+    isNewBranch: (name: string) => shownBranch.current !== null && shownBranch.current !== name,
+    showedBranch(name: string) {
+      shownBranch.current = name;
+    },
     error,
     labelFor,
     repositoryFor,
@@ -231,9 +239,12 @@ export function BranchSwitch({ model, onOpen }: { model: BranchTabsModel; onOpen
               </>
             )}
             {/* Keyed so a branch change rolls the new name in. */}
-            <span key={branch} {...stylex.props(styles.switchBranch)}>
-              {branch}
-            </span>
+            <BranchName
+              key={branch}
+              name={branch}
+              isNew={model.isNewBranch}
+              onShown={model.showedBranch}
+            />
           </span>
           <span {...stylex.props(styles.switchChevron)}>
             <Icon name="selector" size={14} />
@@ -247,6 +258,21 @@ export function BranchSwitch({ model, onOpen }: { model: BranchTabsModel; onOpen
       )}
     </span>
   );
+}
+
+/** Rolls in only for a new branch, not when the switch mounts in another place. */
+function BranchName({
+  name,
+  isNew,
+  onShown,
+}: {
+  name: string;
+  isNew(name: string): boolean;
+  onShown(name: string): void;
+}) {
+  const [rolls] = useState(() => isNew(name));
+  useEffect(() => onShown(name), [name, onShown]);
+  return <span {...stylex.props(styles.switchBranch, rolls && styles.roll)}>{name}</span>;
 }
 
 const enter = stylex.keyframes({
@@ -293,7 +319,7 @@ const styles = stylex.create({
     paddingInlineStart: 9,
     paddingInlineEnd: 28,
     borderWidth: 0,
-    borderRadius: 7,
+    borderRadius: `calc(7px * ${tokens.round})`,
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
     color: { default: tokens.faint, ":hover": tokens.muted },
     fontFamily: tokens.ui,
@@ -322,7 +348,7 @@ const styles = stylex.create({
     height: 18,
     padding: 0,
     borderWidth: 0,
-    borderRadius: 5,
+    borderRadius: `calc(5px * ${tokens.round})`,
     cursor: "pointer",
     backgroundColor: { default: "transparent", ":hover": tokens.fillStrong },
     color: { default: tokens.faint, ":hover": tokens.text },
@@ -339,7 +365,7 @@ const styles = stylex.create({
     paddingInlineStart: 7,
     paddingInlineEnd: 4,
     borderWidth: 0,
-    borderRadius: 7,
+    borderRadius: `calc(7px * ${tokens.round})`,
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
     color: tokens.text,
     fontFamily: tokens.ui,
@@ -370,6 +396,8 @@ const styles = stylex.create({
     maxWidth: 220,
     overflow: "hidden",
     textOverflow: "ellipsis",
+  },
+  roll: {
     animationName: { default: roll, [reduced]: "none" },
     animationDuration: "220ms",
     animationTimingFunction: tokens.easeOut,

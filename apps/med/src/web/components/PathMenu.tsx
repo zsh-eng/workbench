@@ -1,7 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { ContextMenu } from "@base-ui/react/context-menu";
 import { useRef, useState, type MouseEvent, type ReactElement, type ReactNode } from "react";
-import { tokens, ui } from "../theme.stylex";
+import { picked, tokens, ui } from "../theme.stylex";
 
 export interface PathTarget {
   /** The checkout that holds the file; null when the file has no working copy. */
@@ -112,7 +112,7 @@ export function PathContextMenu({
                   className={(state) =>
                     stylex.props(
                       ui.menuItem,
-                      state.highlighted && !entry.disabled && ui.menuHighlighted,
+                      state.highlighted && !entry.disabled && [ui.menuHighlighted, picked],
                       entry.disabled && styles.disabled,
                     ).className
                   }

@@ -2,10 +2,11 @@ import { useCallback, useRef } from "react";
 import { useHotkey } from "@tanstack/react-hotkeys";
 import { toast } from "sonner";
 
-type Deletion = { id: string; toastId: string | number };
+type Deletion = { id: string; dismiss: () => void };
 
-/** Book-scoped deletion history. Toast and keyboard Undo share one stack;
- * failed restores stay available. Text fields retain their native undo history. */
+/** Book-scoped deletion history. Toast, island and keyboard Undo share one
+ * stack; failed restores stay available. Text fields retain their native undo
+ * history. A caller with its own Undo surface passes `notify` instead of a toast. */
 export function useNotebookDeletion({
   remove,
   restore,
@@ -29,7 +30,7 @@ export function useNotebookDeletion({
         deletions.current = deletions.current.filter(
           (item) => item !== deletion,
         );
-        toast.dismiss(deletion.toastId);
+        deletion.dismiss();
       } catch {
         restoredEntries.current.delete(deletion.id);
         toast.error("Could not restore note.");
@@ -40,21 +41,24 @@ export function useNotebookDeletion({
     [restore],
   );
   const deleteNote = useCallback(
-    async (id: string) => {
+    async (id: string, notify?: (undo: () => void) => () => void) => {
       if (!(await remove(id))) return false;
-      const deletion: Deletion = {
-        id,
-        toastId: toast("Deleted note.", {
+      const deletion: Deletion = { id, dismiss: () => {} };
+      const undoDeletion = () => void undo(deletion);
+      if (notify) deletion.dismiss = notify(undoDeletion);
+      else {
+        const toastId = toast("Note deleted", {
           duration: 8000,
           action: {
             label: "Undo",
             onClick: (event) => {
               event.preventDefault();
-              void undo(deletion);
+              undoDeletion();
             },
           },
-        }),
-      };
+        });
+        deletion.dismiss = () => toast.dismiss(toastId);
+      }
       deletions.current.push(deletion);
       return true;
     },

@@ -41,8 +41,11 @@ import {
   agentSessionSchema,
   MAX_BRIEF_LENGTH,
   MAX_ITERATIONS,
+  MAX_PINS,
   MAX_SESSIONS,
+  pinSourceSchema,
   type AgentSession,
+  type PinMutation,
   type SavedReview,
   type SavedReviewCreate,
   type CapturedReviewTarget,
@@ -107,12 +110,24 @@ const targetSchema = z.object({
   commentReviewId: text.optional(),
 });
 const briefSchema = z.object({ text: text.max(MAX_BRIEF_LENGTH), updatedAt: text });
+const pinsSchema = z
+  .array(
+    z.object({
+      id: z.string().regex(/^p_[a-f0-9]{12}$/),
+      text: text.max(MAX_BRIEF_LENGTH),
+      createdAt: text,
+      source: pinSourceSchema.optional(),
+    }),
+  )
+  .max(MAX_PINS);
 const savedSchema = z.object({
   id: z.string().regex(REVIEW_ID),
   key: text.optional(),
   title: text,
   pullRequestUrl: pullRequestUrlSchema.optional(),
+  pullRequestTitle: text.optional(),
   brief: briefSchema.optional(),
+  pins: pinsSchema.optional(),
   sessions: z.array(agentSessionSchema).max(MAX_SESSIONS).optional(),
   iterations: z
     .array(
@@ -121,6 +136,7 @@ const savedSchema = z.object({
         createdAt: text,
         targetIds: z.array(z.string().regex(TARGET_ID)),
         brief: briefSchema.optional(),
+        pins: pinsSchema.optional(),
       }),
     )
     .max(MAX_ITERATIONS)
@@ -261,6 +277,17 @@ function patchCoversSelection(file: FileDiffMetadata, note: Note): boolean {
 }
 
 /** Adds sessions that the review does not have yet; the newest are kept. */
+/** Links a PR. A title read for another PR does not stay with a new link. */
+function linkPullRequest(
+  saved: { pullRequestUrl?: string; pullRequestTitle?: string },
+  url: string,
+  title?: string,
+) {
+  if (title) saved.pullRequestTitle = title;
+  else if (saved.pullRequestUrl !== url) delete saved.pullRequestTitle;
+  saved.pullRequestUrl = url;
+}
+
 function addSessions(saved: { sessions?: AgentSession[] }, sessions: AgentSession[] = []) {
   const all = [...(saved.sessions ?? [])];
   for (const session of sessions) {
@@ -597,6 +624,9 @@ export class SavedReviewStore {
           id,
           title: input.title.trim(),
           ...(input.pullRequestUrl ? { pullRequestUrl: input.pullRequestUrl } : {}),
+          ...(input.pullRequestUrl && input.pullRequestTitle
+            ? { pullRequestTitle: input.pullRequestTitle }
+            : {}),
           ...(input.brief
             ? { brief: { text: input.brief, updatedAt: new Date().toISOString() } }
             : {}),
@@ -644,8 +674,10 @@ export class SavedReviewStore {
         createdAt: saved.createdAt,
         targetIds: saved.targets.filter((target) => !target.commentReviewId).map((t) => t.id),
         ...(saved.brief ? { brief: saved.brief } : {}),
+        ...(saved.pins ? { pins: saved.pins } : {}),
       },
     ];
+    delete saved.pins;
     if (iterations.length >= MAX_ITERATIONS)
       throw new HostError(
         "saved-review-limit",
@@ -668,7 +700,7 @@ export class SavedReviewStore {
     saved.iterations = iterations;
     saved.title = input.title.trim();
     if (brief) saved.brief = brief;
-    if (input.pullRequestUrl) saved.pullRequestUrl = input.pullRequestUrl;
+    if (input.pullRequestUrl) linkPullRequest(saved, input.pullRequestUrl, input.pullRequestTitle);
     addSessions(saved, input.sessions);
     this.fit(record);
     await this.write(record, beforeCommit);
@@ -754,8 +786,11 @@ export class SavedReviewStore {
         throw new HostError("invalid-saved-review", parsed.error.issues[0]!.message);
       const record = await this.read(id, true);
       if (parsed.data.title) record.saved.title = parsed.data.title;
-      if (parsed.data.pullRequestUrl === null) delete record.saved.pullRequestUrl;
-      else if (parsed.data.pullRequestUrl) record.saved.pullRequestUrl = parsed.data.pullRequestUrl;
+      if (parsed.data.pullRequestUrl === null) {
+        delete record.saved.pullRequestUrl;
+        delete record.saved.pullRequestTitle;
+      } else if (parsed.data.pullRequestUrl)
+        linkPullRequest(record.saved, parsed.data.pullRequestUrl, parsed.data.pullRequestTitle);
       addSessions(record.saved, parsed.data.sessions);
       await this.write(record, beforeCommit);
       return this.describe(record);
@@ -942,6 +977,49 @@ export class SavedReviewStore {
     }, beforeCommit);
   }
 
+  /** Pin an agent reply to the current iteration, or remove a pin. Pinning
+   * the same reply again keeps one pin. */
+  pin(id: string, mutation: PinMutation, beforeCommit?: () => void): Promise<SavedReview> {
+    return this.writing(async () => {
+      const record = await this.read(id, true);
+      const saved = record.saved;
+      if ("add" in mutation) {
+        const owner = saved.iterations?.at(-1) ?? saved;
+        const pins = owner.pins ?? [];
+        const { text: body, source } = mutation.add;
+        const same = pins.some(
+          (pin) =>
+            source?.itemId &&
+            pin.source?.itemId === source.itemId &&
+            pin.source.sessionId === source.sessionId,
+        );
+        if (!same) {
+          if (pins.length >= MAX_PINS)
+            throw new HostError(
+              "pin-limit",
+              `An iteration can have at most ${MAX_PINS} pinned replies.`,
+              413,
+            );
+          pins.push({
+            id: `p_${randomBytes(6).toString("hex")}`,
+            text: body,
+            createdAt: new Date().toISOString(),
+            ...(source ? { source } : {}),
+          });
+        }
+        owner.pins = pins;
+      } else {
+        for (const owner of [saved, ...(saved.iterations ?? [])]) {
+          if (!owner.pins) continue;
+          owner.pins = owner.pins.filter((pin) => pin.id !== mutation.remove);
+          if (!owner.pins.length) delete owner.pins;
+        }
+      }
+      await this.write(record, beforeCommit);
+      return this.describe(record);
+    }, beforeCommit);
+  }
+
   clear(id: string, expectedRevision: number, beforeCommit?: () => void): Promise<SavedReview> {
     return this.writing(async () => {
       const record = await this.read(id, true);
@@ -962,8 +1040,30 @@ export class SavedReviewStore {
     }, beforeCommit);
   }
 
+  /** Top-level comments across the review's targets, for the agent's drafts. */
+  comments(id: string): Promise<(Note & { replies: number })[]> {
+    return this.serial(async () => {
+      const record = await this.read(id);
+      return record.captures.flatMap((target) =>
+        target.notes.notes
+          .filter((note) => !note.parentId)
+          .map((note) => {
+            const replies = target.notes.notes.filter((item) => item.parentId === note.id);
+            // A reply changes the thread, so the newest change counts.
+            const updatedAt = [note, ...replies]
+              .map((item) => item.updatedAt)
+              .sort()
+              .at(-1)!;
+            return { ...note, updatedAt, replies: replies.length };
+          }),
+      );
+    });
+  }
+
+  /** The comments as text for an agent; `include` limits it to those threads. */
   feedback(
     id: string,
+    include?: ReadonlySet<string>,
   ): Promise<{ text: string; count: number; repositoryCount: number; revision: number }> {
     return this.serial(async () => {
       const record = await this.read(id);
@@ -995,7 +1095,10 @@ export class SavedReviewStore {
       const repositories = new Set<string>();
       let index = 0;
       for (const target of record.captures) {
-        if (!target.notes.notes.length) continue;
+        const threads = target.notes.notes.filter(
+          (note) => !note.parentId && (!include || include.has(note.id)),
+        );
+        if (!threads.length) continue;
         const info = record.saved.targets.find((item) => item.id === target.targetId)!;
         repositories.add(info.repositoryId);
         let parsed: FileDiffMetadata[] = [];
@@ -1061,7 +1164,7 @@ export class SavedReviewStore {
           for (const reply of target.notes.notes.filter((item) => item.parentId === note.id))
             append(reply, number);
         };
-        for (const note of target.notes.notes.filter((item) => !item.parentId)) append(note);
+        for (const note of threads) append(note);
       }
       if (!index) appendText("No comments.");
       return {

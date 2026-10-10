@@ -275,6 +275,27 @@ describe("Git history and comparisons", () => {
     ).rejects.toMatchObject({ code: "parent-unavailable" });
     expect((await loadHistory(clone, null, 10)).commits[0]!.parents).toEqual([first]);
   });
+  test("lists a path removed from the index but kept on disk once, as its change from HEAD", async () => {
+    const repo = await repository();
+    await commit(repo, "one\n", "initial");
+    await writeFile(join(repo, "edited.txt"), "two\n");
+    git(repo, "add", "edited.txt");
+    git(repo, "commit", "-m", "second");
+    git(repo, "rm", "--cached", "--quiet", "file.txt", "edited.txt");
+    await writeFile(join(repo, "edited.txt"), "two\nthree\n");
+    const service = new ReviewService();
+    const review = await service.load({ repo, comparison: { kind: "working" } });
+    // file.txt is unchanged on disk, so it has no change from HEAD to the worktree.
+    expect(review.files.map((file) => [file.path, file.status, !!file.untracked])).toEqual([
+      ["edited.txt", "M", false],
+    ]);
+    expect(review.files[0]).toMatchObject({ additions: 1, deletions: 0 });
+    expect(await service.sources(review.id, "edited.txt")).toMatchObject({
+      old: "two\n",
+      new: "two\nthree\n",
+    });
+    expect(git(repo, "ls-files")).toBe("");
+  });
   test("keeps oversized untracked paths visible", async () => {
     const repo = await repository();
     await commit(repo, "one\n", "initial");

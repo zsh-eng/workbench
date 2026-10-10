@@ -9,6 +9,8 @@ export async function readServerEvents(
   stream: ReadableStream<Uint8Array>,
   onEvent: (event: ServerEvent) => void,
   signal?: AbortSignal,
+  /** Session streams carry tool output and diffs; other streams keep the 64 KiB bound. */
+  maxEventSize = 65_536,
 ): Promise<void> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
@@ -49,7 +51,7 @@ export async function readServerEvents(
       } else {
         line += character;
         eventSize += character.length;
-        if (eventSize > 65_536) throw new Error("The server sent an invalid event size.");
+        if (eventSize > maxEventSize) throw new Error("The server sent an invalid event size.");
       }
     }
   };

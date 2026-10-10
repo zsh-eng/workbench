@@ -6,7 +6,7 @@ import { Dialog } from "@base-ui/react/dialog";
 import { Combobox } from "@base-ui/react/combobox";
 import * as stylex from "@stylexjs/stylex";
 import { themeController, themes, useTheme, type Theme } from "../themes";
-import { tokens, ui } from "../theme.stylex";
+import { picked, tokens, ui } from "../theme.stylex";
 
 export interface ThemePickerProps {
   open: boolean;
@@ -91,7 +91,8 @@ export function ThemePicker({ open, onOpenChange }: ThemePickerProps) {
                   value={theme}
                   onFocus={() => themeController.preview(theme.id)}
                   className={(state) =>
-                    stylex.props(styles.item, state.highlighted && styles.highlighted).className
+                    stylex.props(styles.item, state.highlighted && [styles.highlighted, picked])
+                      .className
                   }
                 >
                   <span {...stylex.props(styles.swatches)} aria-hidden="true">
@@ -152,7 +153,7 @@ const styles = stylex.create({
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: tokens.lineStrong,
-    borderRadius: 12,
+    borderRadius: `calc(12px * ${tokens.round})`,
     backgroundColor: tokens.raised,
     color: tokens.text,
     boxShadow: tokens.shadow,
@@ -209,12 +210,12 @@ const styles = stylex.create({
     gap: 12,
     minHeight: 34,
     paddingInline: 10,
-    borderRadius: 8,
+    borderRadius: `calc(8px * ${tokens.round})`,
     color: tokens.text,
     cursor: "default",
     outline: "none",
   },
-  highlighted: { backgroundColor: tokens.fillStrong },
+  highlighted: { backgroundColor: tokens.pick, color: tokens.selectedText },
   name: { flex: "1", fontSize: 12 },
   kind: { color: tokens.muted, fontSize: 10 },
   saved: { width: 12, color: tokens.accent, fontSize: 12 },
@@ -222,7 +223,7 @@ const styles = stylex.create({
   swatch: (color: string) => ({
     width: 8,
     height: 14,
-    borderRadius: 2,
+    borderRadius: `calc(2px * ${tokens.round})`,
     backgroundColor: color,
     boxShadow: "inset 0 0 0 1px #80808030",
   }),

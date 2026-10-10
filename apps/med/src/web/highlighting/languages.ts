@@ -1,4 +1,9 @@
+import { setCustomExtension } from "@pierre/diffs";
 import type { TokenizeResult } from "@twinkleplop/core";
+
+// Gradle build scripts are Groovy. Pierre names both "groovy"; Med colors
+// Groovy with the Java tokenizer, which reads its strings and keywords well.
+setCustomExtension("gradle", "groovy");
 
 const loaders = {
   java: () => import("./languages/java"),
@@ -45,6 +50,7 @@ const aliases: Record<string, Language> = {
   rs: "rust",
   env: "dotenv",
   xsl: "xml",
+  groovy: "java",
 };
 export function supportedLanguage(name: string): Language | undefined {
   return Object.hasOwn(loaders, name)

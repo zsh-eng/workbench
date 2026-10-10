@@ -120,7 +120,7 @@ try {
     );
     const search = page.getByRole("combobox", { name: "Search commands", exact: true });
     assert.equal(await search.evaluate((e) => document.activeElement === e), true);
-    await search.fill("color theme");
+    await search.fill("Change theme");
     await page.keyboard.press("Enter");
     await page.getByRole("combobox", { name: "Search themes" }).waitFor();
     await page.waitForFunction(

@@ -73,7 +73,12 @@ export async function listWorktrees(repo: string, signal?: AbortSignal): Promise
   let current: Worktree | undefined;
   for (const field of data.split("\0")) {
     if (field.startsWith("worktree ")) {
-      current = { path: field.slice(9), head: "", branch: "Detached HEAD" };
+      current = {
+        path: field.slice(9),
+        head: "",
+        branch: "Detached HEAD",
+        ...(result.length ? { linked: true } : {}),
+      };
       result.push(current);
       if (result.length > MAX_WORKTREES)
         throw new HostError(

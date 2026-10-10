@@ -1,5 +1,5 @@
 import { fileChangesSchema } from "../../shared/file-changes";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   browseListResponseSchema,
   browseReadResponseSchema,
@@ -141,14 +141,19 @@ export function useBrowseFiles(
   const [refreshRevision, setRefreshRevision] = useState(0);
   const sourceKey = source ? browseSourceKey(source) : "";
   const requestKey = JSON.stringify([sourceKey, ignored, revision, refreshRevision]);
+  const listKey = JSON.stringify([sourceKey, ignored]);
   const [state, setState] = useState<{
     api: BrowseApi | null;
     key: string;
+    listKey: string;
     entries: BrowseEntry[];
     truncated: boolean;
     error: string | null;
-  }>({ api: null, key: "", entries: [], truncated: false, error: null });
+  }>({ api: null, key: "", listKey: "", entries: [], truncated: false, error: null });
   const current = state.key === requestKey && state.api === api;
+  // A newer revision of the same list keeps showing the last one until it
+  // arrives, so live updates do not empty the tree or show "Loading".
+  const stale = !current && state.listKey === listKey && state.api === api && !state.error;
   // Visibility does not invalidate a successful list. Source, revision, ignored
   // files, and explicit refresh still do; failed requests can retry on reopen.
   const cached = current && state.error === null;
@@ -162,33 +167,42 @@ export function useBrowseFiles(
       .list(requestSource, ignored, controller.signal)
       .then((result) => {
         if (!controller.signal.aborted)
-          setState({
+          setState((previous) => ({
             api,
             key: requestKey,
-            entries: result.entries,
+            listKey,
+            // The same files keep the same array, so the tree is not rebuilt.
+            entries:
+              previous.listKey === listKey &&
+              JSON.stringify(previous.entries) === JSON.stringify(result.entries)
+                ? previous.entries
+                : result.entries,
             truncated: result.truncated,
             error: null,
-          });
+          }));
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted)
           setState({
             api,
             key: requestKey,
+            listKey,
             entries: [],
             truncated: false,
             error: error instanceof Error ? error.message : "Cannot list files.",
           });
       });
     return () => controller.abort();
-  }, [api, sourceKey, ignored, requestKey, enabled, cached]);
+  }, [api, sourceKey, ignored, requestKey, listKey, enabled, cached]);
+  // Stable, so a memoized file tree does not render again for each parent render.
+  const refresh = useCallback(() => setRefreshRevision((value) => value + 1), []);
   return {
-    entries: current ? state.entries : emptyEntries,
-    loading: enabled && !!source && !current,
+    entries: current || stale ? state.entries : emptyEntries,
+    loading: enabled && !!source && !current && !stale,
     error: current ? state.error : null,
-    truncated: current && state.truncated,
+    truncated: (current || stale) && state.truncated,
     ignored,
     setIgnored,
-    refresh: () => setRefreshRevision((value) => value + 1),
+    refresh,
   };
 }

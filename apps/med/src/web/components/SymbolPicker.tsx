@@ -9,7 +9,7 @@ import type { SymbolMatch, SymbolSearch } from "../../shared/symbols";
 import { browseSourceKey, type BrowseApi } from "../data/browse";
 import { usePickerPreview } from "../data/picker-preview";
 import { findSymbols, symbolMatchId } from "../data/symbol-matches";
-import { tokens, ui } from "../theme.stylex";
+import { picked, tokens, ui } from "../theme.stylex";
 import { FullFileView, type BeginFileSymbolPreview, type FileSymbolPreview } from "./FullFileView";
 import { Icon } from "./Icon";
 
@@ -347,8 +347,10 @@ function SymbolPickerContents({
                           value={match}
                           disabled={busy || !!previewChanged}
                           className={() =>
-                            stylex.props(styles.item, chosen === match && styles.highlighted)
-                              .className
+                            stylex.props(
+                              styles.item,
+                              chosen === match && [styles.highlighted, picked],
+                            ).className
                           }
                         >
                           <span {...stylex.props(styles.itemText)}>
@@ -439,7 +441,7 @@ const styles = stylex.create({
     backgroundColor: tokens.raised,
     color: tokens.text,
     fontFamily: tokens.ui,
-    borderRadius: 12,
+    borderRadius: `calc(12px * ${tokens.round})`,
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: tokens.lineStrong,
@@ -500,11 +502,11 @@ const styles = stylex.create({
     paddingInline: 10,
     boxSizing: "border-box",
     fontSize: 12.5,
-    borderRadius: 7,
+    borderRadius: `calc(7px * ${tokens.round})`,
     cursor: "default",
     outline: "none",
   },
-  highlighted: { backgroundColor: tokens.fillStrong },
+  highlighted: { backgroundColor: tokens.pick, color: tokens.selectedText },
   name: { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
   path: {
     minWidth: 0,
@@ -551,11 +553,17 @@ const styles = stylex.create({
     display: "flex",
     gap: 2,
     padding: 2,
-    borderRadius: 8,
+    borderRadius: `calc(8px * ${tokens.round})`,
     backgroundColor: tokens.fill,
     boxShadow: `inset 0 0 0 1px ${tokens.line}`,
   },
-  mode: { minHeight: 24, height: 24, paddingInline: 10, fontSize: 12, borderRadius: 6 },
+  mode: {
+    minHeight: 24,
+    height: 24,
+    paddingInline: 10,
+    fontSize: 12,
+    borderRadius: `calc(6px * ${tokens.round})`,
+  },
   selectedMode: {
     backgroundColor: { default: tokens.raised, ":hover:not(:disabled)": tokens.raised },
     color: { default: tokens.text, ":hover:not(:disabled)": tokens.text },
@@ -569,7 +577,7 @@ const styles = stylex.create({
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: tokens.border,
-    borderRadius: 3,
+    borderRadius: `calc(3px * ${tokens.round})`,
     paddingBlock: 1,
     paddingInline: 4,
     marginInline: 2,

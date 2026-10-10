@@ -27,6 +27,7 @@ import { ReaderProgressPeek } from "./footer/ReaderProgressPeek";
 import { ReaderFooter } from "./footer";
 import { ReaderHistoryPageIndicator } from "./footer/ReaderHistoryPageIndicator";
 import { ReaderChromeAccessory } from "./ReaderChromeAccessory";
+import { NotesCapsule } from "./NotesIsland";
 import { usePaginatedReaderLayout } from "./hooks/use-paginated-reader-layout";
 import { useReaderAnnotations } from "./hooks/use-reader-annotations";
 import { useReaderChromeState } from "./hooks/use-reader-chrome-state";
@@ -84,6 +85,7 @@ export function Reader() {
   const { toast } = useToast();
   const [notebookOpen, setNotebookOpen] = useState(false);
   const [noteComposerPresent, setNoteComposerPresent] = useState(false);
+  const [noteDraftPresent, setNoteDraftPresent] = useState(false);
   const [commentPosition, setCommentPosition] = useState({ top: 112, page: 1 });
   const [noteQuote, setNoteQuote] = useState<NoteTarget | null>(null);
   const [noteViewportHeight, setNoteViewportHeight] = useState<number | null>(
@@ -567,8 +569,23 @@ export function Reader() {
                 isLoading={
                   !displayReady || sessionState.pagination.status !== "ready"
                 }
-                onOpenNote={
-                  isMobile ? () => handleNotesActive(true) : undefined
+                noteAccessory={
+                  isMobile && (
+                    <NotesCapsule
+                      bookId={book.id}
+                      highlights={sessionState.highlights}
+                      draft={noteDraftPresent}
+                      disabled={
+                        !displayReady ||
+                        sessionState.pagination.status !== "ready"
+                      }
+                      onJot={() => handleNotesActive(true)}
+                      onOpenNotebook={() => {
+                        handleNotesActive(true);
+                        setNotebookOpen(true);
+                      }}
+                    />
+                  )
                 }
                 showPageNumbers={sessionState.settings.showPageNumbers}
                 statusPrompt={
@@ -596,6 +613,7 @@ export function Reader() {
                       isMobile && (isCreatingHighlight || activeHighlightData)
                         ? {
                             identity: annotationState,
+                            highlightId: activeHighlightData?.id,
                             tools: (
                               <HighlightToolbarContainer
                                 bookId={bookId}
@@ -639,6 +657,8 @@ export function Reader() {
                           }
                         : undefined
                     }
+                    highlights={sessionState.highlights}
+                    onVisitHighlight={sessionActions.goToHighlight}
                     chapters={sessionState.chapters.entries}
                     chapterAccess={sessionResources.chapterAccess}
                     pagination={sessionState.pagination}
@@ -646,6 +666,9 @@ export function Reader() {
                     open={
                       noteViewportHeight !== null ||
                       chromeState.activeReaderSheet === "notes"
+                    }
+                    currentChapterIndex={
+                      sessionState.navigation.currentChapterIndex
                     }
                     location={{
                       page: sessionState.navigation.currentPage,
@@ -679,6 +702,8 @@ export function Reader() {
                     onClearQuote={() => setNoteQuote(null)}
                     onActiveChange={handleNotesActive}
                     onMobileComposerPresenceChange={setNoteComposerPresent}
+                    onDraftPresenceChange={setNoteDraftPresent}
+                    onReturnToReading={hideChrome}
                     margin={{
                       width: stagePadding.paddingX,
                       enabled: !isMobile && !isReaderInteractionSuppressed,

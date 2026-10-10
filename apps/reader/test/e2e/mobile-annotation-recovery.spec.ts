@@ -1,4 +1,10 @@
-import { test, expect, openLocalBook, nextSpread } from "./helpers/fixtures";
+import {
+  test,
+  expect,
+  openLocalBook,
+  nextSpread,
+  showNotesCapsule,
+} from "./helpers/fixtures";
 
 test.use({
   viewport: { width: 390, height: 844 },
@@ -36,26 +42,19 @@ test("failed note save preserves the mobile draft and retry saves exactly once",
   );
   await expect(input).toHaveValue("A draft that must survive a failed save");
   await expect(save).toBeEnabled();
-  await expect(notebook).toHaveAttribute(
-    "aria-description",
-    "0 notes in this book",
-  );
-  await expect(
-    page.getByRole("button", { name: "Read latest note" }),
-  ).toHaveCount(0);
   await expect(page.locator("[data-reader-footer]")).toHaveCount(0);
   await page.context().setOffline(true);
   await save.click();
   await expect(input).not.toBeVisible();
-  await page.getByRole("button", { name: "Jot a note" }).click();
-  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByRole("status")).toContainText("Saved to notebook");
+  await showNotesCapsule(page);
   await expect(notebook).toHaveAttribute(
     "aria-description",
     "1 note in this book",
   );
-  await expect(
-    page.getByRole("button", { name: "Read latest note" }),
-  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Jot a note" }).click();
+  await expect(input).toHaveValue("");
+  await expect(page.getByRole("alert")).toHaveCount(0);
   await page.context().setOffline(false);
   await expect
     .poll(() =>

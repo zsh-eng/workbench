@@ -105,3 +105,38 @@ test("search and Enter commit; click commits another theme; an empty search does
     findTheme("tokyo-night").palette.panel,
   );
 });
+
+test("a theme's aesthetic previews with its colors: type, corners, shadow, and the chosen row", async () => {
+  await mountPicker();
+  const dialog = () => getComputedStyle(document.querySelector('[role="dialog"]')!);
+  const rgb = (hex: string) => {
+    const probe = document.createElement("div");
+    probe.style.color = hex;
+    return probe.style.color;
+  };
+  expect(dialog().fontFamily).toContain("Geist");
+  expect(dialog().borderRadius).toBe("12px");
+  await page.getByRole("combobox", { name: "Search themes" }).fill("Paper Light");
+  await expect.poll(() => themeController.getSnapshot().active.id).toBe("paper-light");
+  // Paper: Paper Mono for the interface, nearly square corners, no shadow, and a
+  // solid accent selection whose secondary text turns light with it.
+  expect(dialog().fontFamily).toContain("Paper Mono");
+  expect(dialog().borderRadius).toBe("3.6px");
+  expect(dialog().boxShadow).toBe("none");
+  const option = page.getByRole("option", { name: /Paper Light/ }).element();
+  expect(getComputedStyle(option).backgroundColor).toBe(
+    rgb(findTheme("paper-light").palette.accent),
+  );
+  expect(getComputedStyle(option).color).toBe("rgb(255, 255, 255)");
+  const kind = page
+    .getByRole("option", { name: /Paper Light/ })
+    .getByText("light")
+    .element();
+  expect(getComputedStyle(kind).color).toMatch(/^rgba\(255, 255, 255, 0\.8/);
+  await userEvent.keyboard("{Escape}");
+  await expect.poll(() => document.documentElement.dataset.theme).toBe("graphite-dark");
+  await page.getByRole("button", { name: "Choose theme" }).click();
+  expect(dialog().fontFamily).toContain("Geist");
+  expect(dialog().borderRadius).toBe("12px");
+  expect(dialog().boxShadow).not.toBe("none");
+});

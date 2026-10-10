@@ -1,25 +1,25 @@
 import * as stylex from "@stylexjs/stylex";
-import { resolveTheme } from "@pierre/diffs";
 import {
   FileDiff,
   type DiffLineAnnotation,
   type FileDiffOptions,
   type SelectedLineRange,
 } from "@pierre/diffs/react";
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import type { Note, NoteInput, NoteMutation } from "../../shared/protocol";
 import type { ParsedReviewFile } from "../../shared/review";
-import type { SavedBrief } from "../../shared/saved-review";
+import { agentName, type SavedBrief, type SavedPin } from "../../shared/saved-review";
 import {
   annotateBrief,
   diffExcerpt,
+  joinNotes,
   sourceExcerpt,
   type BriefExcerpt,
   type Excerpt,
 } from "../data/brief";
 import type { MarkdownResult } from "../markdown/model";
-import RenderWorker from "../markdown/render.worker?worker";
+import { renderBrief, renderedBrief } from "../markdown/brief-render";
 import { useTheme } from "../themes";
 import { tokens } from "../theme.stylex";
 import { ActionMenu } from "./Controls";
@@ -28,7 +28,7 @@ import { markdownImageUrl } from "../markdown/images";
 import { DiffStat } from "./DiffStat";
 import { Icon } from "./Icon";
 import { NoteCard, NoteComposer, type NoteTarget } from "./NoteCard";
-import { diffSurfaceStyle } from "./diff-surface";
+import { diffSurfaceStyle, EXPANSION_LINES } from "./diff-surface";
 import "./MarkdownPreview.css";
 import "./BriefView.css";
 import { visibleElement } from "../data/palette-focus";
@@ -40,20 +40,30 @@ export interface BriefLocation {
   end?: number;
 }
 export interface BriefViewProps {
-  brief: SavedBrief;
+  /** The agent's brief, the first note. */
+  brief?: SavedBrief;
+  /** The iteration the brief comes from, when the shown one has none. */
+  briefFrom?: number;
+  /** Agent replies pinned to the shown iteration, oldest first. */
+  pins?: readonly SavedPin[];
+  /** Scroll to this note once it shows. */
+  reveal?: { key: string; nonce: number };
   /** All changed files of the saved comparison. */
   files: ParsedReviewFile[];
   /** Repository root, for absolute paths in links. */
   root?: string;
-  /** The Brief tab is showing; its keys are active. */
+  /** The Notes tab is showing; its keys are active. */
   active: boolean;
   loadSource(path: string): Promise<{ old: string; new: string }>;
   onOpen(location: BriefLocation): void;
   onOpenPath(path: string, line?: number): void;
   onPaste(): void;
-  onCopy(): void;
+  onCopy(text: string): void;
   onRemove(): void;
-  /** An agent's iterations that have a brief, oldest first, and the shown one. */
+  onUnpin?(id: string): void;
+  /** Notes texts to render in the background, such as other iterations. */
+  prerender?: readonly string[];
+  /** An agent's iterations that have notes, oldest first, and the shown one. */
   iterations?: readonly { number: number; createdAt: string }[];
   iteration?: number;
   onIteration?(number: number): void;
@@ -75,6 +85,32 @@ type Annotation = { note?: Note; draft?: NoteTarget };
 
 const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+/** One note: the brief or a pinned reply. */
+interface NoteSection {
+  key: string;
+  text: string;
+  at: string;
+  pin?: SavedPin;
+}
+/** The notes on screen, with the comparison they were annotated with. */
+interface Shown {
+  key: string;
+  text: string;
+  sections: NoteSection[];
+  starts: number[];
+  result: MarkdownResult;
+  files: ParsedReviewFile[];
+  root?: string;
+}
+const pad = (value: number) => String(value).padStart(2, "0");
+const noteTime = (at: string) =>
+  new Date(at).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+
 const Block = memo(
   function Block({ html, start, end }: { html: string; start: number; end: number }) {
     return (
@@ -89,12 +125,17 @@ const Block = memo(
   (a, b) => a.html === b.html && a.start === b.start && a.end === b.end,
 );
 
-/** The pasted explanation, with each cited range shown as a short diff below
- * the sentence that cites it, and the changed files it never mentions. */
+/** The review's Notes: the agent's brief and the replies pinned to the
+ * review. Each cited range shows as a short diff below the sentence that
+ * cites it; the changed files that no note mentions follow. */
 export default function BriefView({
   brief,
-  files,
-  root,
+  briefFrom,
+  pins,
+  reveal,
+  files: nextFiles,
+  root: nextRoot,
+  prerender,
   active,
   loadSource,
   onOpen,
@@ -102,6 +143,7 @@ export default function BriefView({
   onPaste,
   onCopy,
   onRemove,
+  onUnpin,
   iterations,
   iteration,
   onIteration,
@@ -109,10 +151,46 @@ export default function BriefView({
   onMutateNote,
 }: BriefViewProps) {
   const { active: theme } = useTheme();
-  const [result, setResult] = useState<MarkdownResult>();
+  const sections = useMemo<NoteSection[]>(
+    () => [
+      ...(brief ? [{ key: "brief", text: brief.text, at: brief.updatedAt }] : []),
+      ...(pins ?? []).map((pin) => ({ key: pin.id, text: pin.text, at: pin.createdAt, pin })),
+    ],
+    [brief, pins],
+  );
+  const joined = useMemo(() => joinNotes(sections.map((section) => section.text)), [sections]);
+  const text = joined.text;
+  const key = `${theme.pierreTheme}\0${text}`;
+  // A new brief or comparison replaces the one on screen only when its
+  // Markdown is ready, so both change in one frame and the page never blanks.
+  const [rendered, setRendered] = useState<{ key: string; result: MarkdownResult } | null>(null);
+  const available =
+    renderedBrief(theme.pierreTheme, text) ?? (rendered?.key === key ? rendered.result : undefined);
+  const next = (result: MarkdownResult): Shown => ({
+    key,
+    text,
+    sections,
+    starts: joined.starts,
+    result,
+    files: nextFiles,
+    root: nextRoot,
+  });
+  const [shown, setShown] = useState<Shown | undefined>(() =>
+    available ? next(available) : undefined,
+  );
+  if (
+    available &&
+    (shown?.key !== key ||
+      shown.result !== available ||
+      shown.sections !== sections ||
+      shown.files !== nextFiles ||
+      shown.root !== nextRoot)
+  )
+    setShown(next(available));
+  const result = shown?.result;
+  const files = shown?.files ?? nextFiles;
+  const root = shown?.root ?? nextRoot;
   const [error, setError] = useState("");
-  const worker = useRef<Worker | null>(null);
-  const sequence = useRef(0);
   const pane = useRef<HTMLDivElement>(null);
   const article = useRef<HTMLElement>(null);
   const [slots, setSlots] = useState<Map<string, HTMLElement>>(() => new Map());
@@ -135,38 +213,69 @@ export default function BriefView({
         note.line === draft.target.line,
     );
   const visibleDraft = draftSaved ? null : draft;
+  // Other notes start without the last ones' comment draft, selection, or
+  // scroll. A pin added to the shown notes keeps them.
+  const shownBrief = shown && `${iteration ?? ""}\0${shown.sections[0]?.text ?? ""}`;
+  const [shownText, setShownText] = useState(shownBrief);
+  if (shown && shownBrief !== shownText) {
+    setShownText(shownBrief);
+    setDraft(null);
+    setSelected(null);
+    setSubmitted(null);
+    setLinked(null);
+  }
+  const lastText = useRef(shownText);
+  useLayoutEffect(() => {
+    if (lastText.current === shownText) return;
+    const first = lastText.current === undefined;
+    lastText.current = shownText;
+    if (!first) pane.current?.scrollTo({ top: 0, behavior: "instant" });
+  }, [shownText]);
 
   useEffect(() => {
-    const instance = new RenderWorker();
-    worker.current = instance;
-    instance.onmessage = ({ data }) => {
-      if (data.id !== sequence.current) return;
-      if (data.error) setError(data.error);
-      else {
-        setResult(data);
+    if (renderedBrief(theme.pierreTheme, text)) return;
+    let current = true;
+    renderBrief(theme.pierreTheme, text).then(
+      (result) => {
+        if (!current) return;
+        setRendered({ key, result });
         setError("");
-      }
-    };
-    instance.onerror = () => setError("The brief could not render. Reload the review to retry.");
+      },
+      (reason: unknown) => {
+        if (current) setError(reason instanceof Error ? reason.message : String(reason));
+      },
+    );
     return () => {
-      instance.terminate();
-      worker.current = null;
+      current = false;
     };
-  }, []);
+  }, [key, text, theme.pierreTheme]);
+  // Other iterations render after this one, so choosing one shows it at once.
+  const prerenderKey = JSON.stringify(prerender ?? []);
+  const hasShown = !!shown;
   useEffect(() => {
-    const id = ++sequence.current;
-    void resolveTheme(theme.pierreTheme)
-      .then((resolved) => {
-        if (id === sequence.current)
-          worker.current?.postMessage({ id, text: brief.text, theme: resolved, briefLinks: true });
-      })
-      .catch(() => setError("The brief theme could not load."));
-  }, [brief.text, theme.pierreTheme]);
+    if (!hasShown) return;
+    for (const text of JSON.parse(prerenderKey) as string[])
+      renderBrief(theme.pierreTheme, text, false).catch(() => {});
+  }, [hasShown, prerenderKey, theme.pierreTheme]);
 
+  const starts = shown?.starts;
   const annotated = useMemo(
-    () => (result ? annotateBrief(result.blocks, files, root) : null),
-    [result, files, root],
+    () => (result ? annotateBrief(result.blocks, files, root, starts) : null),
+    [result, files, root, starts],
   );
+  // The rendered blocks of each note.
+  const groups = useMemo(() => {
+    if (!annotated || !shown) return [];
+    const result = shown.sections.map((section) => ({
+      section,
+      blocks: [] as { block: (typeof annotated.blocks)[number]; index: number }[],
+    }));
+    annotated.blocks.forEach((block, index) => {
+      const at = shown.starts.filter((start) => start <= block.start).length;
+      result[Math.min(at, result.length - 1)]?.blocks.push({ block, index });
+    });
+    return result;
+  }, [annotated, shown]);
   const fileById = useMemo(() => new Map(files.map((file) => [file.id, file])), [files]);
   const uncited = useMemo(
     () => files.filter((file) => !annotated?.cited.includes(file.id)),
@@ -347,56 +456,60 @@ export default function BriefView({
     }
   }, [annotated, root]);
 
+  // A pinned reply opens at its note.
+  const revealed = useRef<number | null>(null);
+  useEffect(() => {
+    if (!reveal || revealed.current === reveal.nonce || !annotated) return;
+    const node = article.current?.querySelector<HTMLElement>(
+      `[data-note-section="${CSS.escape(reveal.key)}"]`,
+    );
+    if (!node) return;
+    revealed.current = reveal.nonce;
+    scrollToNode(node, 16);
+  }, [reveal, annotated]);
+
   const citedCount = annotated?.cited.length ?? 0;
+  const total = groups.length;
   return (
-    <section aria-label="Brief" {...stylex.props(styles.root)}>
+    <section aria-label="Notes" {...stylex.props(styles.root)}>
       <div className="med-md-scroll med-brief-scroll" ref={pane}>
         <article ref={article} className="med-md-prose med-brief-prose">
           <header {...stylex.props(styles.meta)}>
             <span {...stylex.props(styles.label)}>
               <Icon name="brief" size={14} />
-              Brief
+              Notes
             </span>
             {iterations && iterations.length > 1 && (
-              <span role="group" aria-label="Iterations" {...stylex.props(styles.iterations)}>
-                {iterations.map((entry) => (
-                  <button
-                    key={entry.number}
-                    type="button"
-                    aria-pressed={entry.number === iteration}
-                    aria-label={`Iteration ${entry.number}`}
-                    title={`Iteration ${entry.number} · ${new Date(entry.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`}
-                    onClick={() => onIteration?.(entry.number)}
-                    {...stylex.props(
-                      styles.iteration,
-                      entry.number === iteration && styles.iterationOn,
-                    )}
-                  >
-                    {entry.number}
-                  </button>
-                ))}
-              </span>
+              <IterationKeys
+                iterations={iterations}
+                iteration={iteration}
+                onIteration={onIteration}
+              />
             )}
             {annotated && files.length > 0 && (
-              <span
-                {...stylex.props(styles.coverage)}
-                title="Changed files that the brief links to"
-              >
+              <span {...stylex.props(styles.coverage)} title="Changed files that the notes link to">
                 <span {...stylex.props(styles.meter)} aria-hidden="true">
                   <span {...stylex.props(styles.meterFill(citedCount / files.length))} />
                 </span>
-                Cites {citedCount} of {files.length} changed {files.length === 1 ? "file" : "files"}
+                <span {...stylex.props(styles.coverageText)}>
+                  Cites {citedCount} of {files.length} changed{" "}
+                  {files.length === 1 ? "file" : "files"}
+                </span>
               </span>
             )}
             <span {...stylex.props(styles.grow)} />
             <ActionMenu
-              label="Brief options"
+              label="Notes options"
               sections={[
                 [
-                  { label: "Paste a new brief", shortcut: "⌘ V", onClick: onPaste },
-                  { label: "Copy brief text", onClick: onCopy },
+                  {
+                    label: brief ? "Paste a new brief" : "Paste a brief",
+                    shortcut: "⌘ V",
+                    onClick: onPaste,
+                  },
+                  { label: "Copy all notes", onClick: () => onCopy(text) },
                 ],
-                [{ label: "Remove brief", onClick: onRemove }],
+                ...(brief ? [[{ label: "Remove the brief", onClick: onRemove }]] : []),
               ]}
             >
               <Icon name="more" size={15} />
@@ -407,29 +520,45 @@ export default function BriefView({
               {error}
             </div>
           )}
-          {annotated?.blocks.map((block, index) =>
-            block.diagram !== undefined ? (
-              <DiagramBlock key={index} block={block} dark={theme.appearance === "dark"} />
-            ) : (
-              <Block key={index} html={block.html} start={block.start} end={block.end} />
-            ),
-          )}
+          {groups.map(({ section, blocks }, number) => (
+            <section
+              key={section.key}
+              data-note-section={section.key}
+              aria-label={total > 1 ? `Note ${number + 1} of ${total}` : undefined}
+              className="med-note"
+            >
+              {total > 1 && (
+                <NoteHead
+                  number={number + 1}
+                  total={total}
+                  section={section}
+                  briefFrom={section.pin ? undefined : briefFrom}
+                  onCopy={() => onCopy(section.text)}
+                  onRemove={section.pin ? () => onUnpin?.(section.pin!.id) : onRemove}
+                />
+              )}
+              {blocks.map(({ block, index }) =>
+                block.diagram !== undefined ? (
+                  <DiagramBlock key={index} block={block} dark={theme.appearance === "dark"} />
+                ) : (
+                  <Block key={index} html={block.html} start={block.start} end={block.end} />
+                ),
+              )}
+            </section>
+          ))}
         </article>
         {annotated && files.length > 0 && (
           // Outside the prose, so Markdown heading and list styles do not apply.
-          <footer
-            aria-label="Changed files the brief does not cite"
-            {...stylex.props(styles.column)}
-          >
+          <footer aria-label="Changed files the notes do not cite" {...stylex.props(styles.column)}>
             <div {...stylex.props(styles.uncited)}>
               {uncited.length ? (
                 <>
                   <h2 {...stylex.props(styles.uncitedTitle)}>
-                    Not in the brief
+                    Not in the notes
                     <span {...stylex.props(styles.uncitedCount)}>{uncited.length}</span>
                   </h2>
                   <p {...stylex.props(styles.uncitedHint)}>
-                    The brief does not mention these changes. Read them in Changes.
+                    The notes do not mention these changes. Read them in Changes.
                   </p>
                   <ul {...stylex.props(styles.uncitedList)}>
                     {uncited.map((file) => {
@@ -470,13 +599,22 @@ export default function BriefView({
               ) : (
                 <p {...stylex.props(styles.covered)}>
                   <Icon name="check" size={14} />
-                  The brief cites every changed file.
+                  The notes cite every changed file.
                 </p>
               )}
             </div>
           </footer>
         )}
       </div>
+      {annotated && (
+        <NoteRail
+          scroller={pane}
+          article={article}
+          version={annotated}
+          total={total}
+          onJump={(node) => scrollToNode(node, 16)}
+        />
+      )}
       {annotated?.excerpts.map((excerpt) => {
         const slot = slots.get(excerpt.key);
         const file = fileById.get(excerpt.fileId);
@@ -580,9 +718,18 @@ function ExcerptCard({
   const host = useRef<HTMLElement>(null);
   const [near, setNear] = useState(false);
   const [source, setSource] = useState<Excerpt | "missing" | null>(null);
-  // Mount the diff only near the viewport; long briefs stay cheap to open.
-  useEffect(() => {
+  // Mount the diff only near the viewport; long briefs stay cheap to open. An
+  // excerpt already near it mounts before the first paint, so a new brief
+  // never shows an empty card for a frame.
+  useLayoutEffect(() => {
     const node = host.current!;
+    const { top, bottom } = node.getBoundingClientRect();
+    if (node.checkVisibility() && top < innerHeight + 900 && bottom > -900) {
+      // The position is known only after layout.
+      // oxlint-disable-next-line react/set-state-in-effect
+      setNear(true);
+      return;
+    }
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;
@@ -675,6 +822,7 @@ function ExcerptCard({
       lineDiffType: "word-alt",
       disableFileHeader: true,
       hunkSeparators: "line-info",
+      expansionLineCount: EXPANSION_LINES,
       // Select lines on the numbers, or drag the gutter + to start a note.
       enableLineSelection: true,
       enableGutterUtility: true,
@@ -806,8 +954,264 @@ const enter = stylex.keyframes({
 const grow = stylex.keyframes({ from: { transform: "scaleX(0)" } });
 const reduced = "@media (prefers-reduced-motion: reduce)";
 
+/** The head of a note: its place in the notes, where it came from, and its actions. */
+function NoteHead({
+  number,
+  total,
+  section,
+  briefFrom,
+  onCopy,
+  onRemove,
+}: {
+  number: number;
+  total: number;
+  section: NoteSection;
+  briefFrom?: number;
+  onCopy(): void;
+  onRemove(): void;
+}) {
+  const source = section.pin?.source;
+  const from = section.pin
+    ? source
+      ? `Reply from ${agentName(source)}`
+      : "Pinned reply"
+    : briefFrom !== undefined
+      ? `Brief from iteration ${briefFrom}`
+      : "Brief";
+  return (
+    <div {...stylex.props(styles.noteHead, number === 1 && styles.noteHeadFirst)}>
+      <span {...stylex.props(styles.noteNumber)}>
+        {pad(number)}
+        <span {...stylex.props(styles.noteTotal)}> / {pad(total)}</span>
+      </span>
+      <span {...stylex.props(styles.noteFrom)}>
+        <Icon name={section.pin ? "pin" : "brief"} size={12} />
+        {from}
+      </span>
+      <time dateTime={section.at} {...stylex.props(styles.noteTime)}>
+        {noteTime(section.at)}
+      </time>
+      <span {...stylex.props(styles.grow)} />
+      <ActionMenu
+        label={`Note ${number} options`}
+        sections={[
+          [{ label: "Copy note", onClick: onCopy }],
+          [{ label: section.pin ? "Unpin from review" : "Remove the brief", onClick: onRemove }],
+        ]}
+      >
+        <Icon name="more" size={14} />
+      </ActionMenu>
+    </div>
+  );
+}
+
+interface RailMark {
+  top: number;
+  kind: "note" | "heading" | "excerpt";
+  label: string;
+  node: HTMLElement;
+}
+
+/**
+ * Ticks along the pane's edge for the notes, their headings, and their
+ * excerpts, as in a minimap. The ticks in view are darker; a tick scrolls to
+ * its place. Keys [ and ] do the same for excerpts, so the rail is for the
+ * pointer only.
+ */
+function NoteRail({
+  scroller,
+  article,
+  version,
+  total,
+  onJump,
+}: {
+  scroller: RefObject<HTMLDivElement | null>;
+  article: RefObject<HTMLElement | null>;
+  /** Measure again when this changes. */
+  version: unknown;
+  total: number;
+  onJump(node: HTMLElement): void;
+}) {
+  const [marks, setMarks] = useState<RailMark[]>([]);
+  const [view, setView] = useState<[number, number]>([0, 1]);
+  useLayoutEffect(() => {
+    const pane = scroller.current;
+    const host = article.current;
+    if (!pane || !host) return;
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      const height = pane.scrollHeight;
+      // Only notes that run well past one screen get a rail.
+      if (height < pane.clientHeight * 1.5) return setMarks([]);
+      const origin = pane.getBoundingClientRect().top - pane.scrollTop;
+      const at = (node: HTMLElement) => (node.getBoundingClientRect().top - origin) / height;
+      const found: RailMark[] = [];
+      if (total > 1)
+        host
+          .querySelectorAll<HTMLElement>("[data-note-section]")
+          .forEach((node, index) =>
+            found.push({ top: at(node), kind: "note", label: `Note ${index + 1}`, node }),
+          );
+      host.querySelectorAll<HTMLElement>(".med-md-block > :is(h1, h2)").forEach((node) => {
+        // A heading that opens a note shares the note's tick.
+        const block = node.parentElement!;
+        if (total > 1 && block === block.parentElement?.querySelector(".med-md-block")) return;
+        found.push({ top: at(node), kind: "heading", label: node.textContent ?? "", node });
+      });
+      host.querySelectorAll<HTMLElement>("[data-brief-excerpt]").forEach((node) =>
+        found.push({
+          top: at(node),
+          kind: "excerpt",
+          label:
+            node
+              .querySelector("[data-excerpt-open]")
+              ?.getAttribute("aria-label")
+              ?.replace(/^Open (.+) in Changes$/, "$1") ?? "Excerpt",
+          node,
+        }),
+      );
+      found.sort((a, b) => a.top - b.top);
+      setMarks(found.filter((mark) => mark.kind !== "excerpt").length >= 2 ? found : []);
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(measure);
+    };
+    const scroll = () => {
+      const height = pane.scrollHeight || 1;
+      setView([pane.scrollTop / height, (pane.scrollTop + pane.clientHeight) / height]);
+    };
+    schedule();
+    scroll();
+    const observer = new ResizeObserver(() => (schedule(), scroll()));
+    observer.observe(host);
+    observer.observe(pane);
+    pane.addEventListener("scroll", scroll, { passive: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      pane.removeEventListener("scroll", scroll);
+    };
+  }, [scroller, article, version, total]);
+  if (!marks.length) return null;
+  return (
+    <nav aria-hidden="true" data-note-rail="" {...stylex.props(styles.rail)}>
+      {marks.map((mark, index) => (
+        <button
+          key={index}
+          type="button"
+          tabIndex={-1}
+          title={mark.label}
+          data-kind={mark.kind}
+          onClick={() => onJump(mark.node)}
+          {...stylex.props(
+            styles.tick,
+            styles.tickAt(`${(mark.top * 100).toFixed(2)}%`),
+            stylex.defaultMarker(),
+          )}
+        >
+          <span
+            {...stylex.props(
+              styles.tickLine,
+              styles[mark.kind],
+              mark.top >= view[0] && mark.top < view[1] && styles.tickInView,
+            )}
+          />
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+/** Keys for at most this many latest iterations; earlier ones open from a menu. */
+const RECENT_ITERATIONS = 6;
+/** The header's label, citation meter, and options button keep this much room. */
+const HEADER_ROOM = 210;
+const KEY_WIDTH = 24;
+
+/**
+ * The agent's rounds as numbered keys; the shown one is filled. A long review
+ * keeps the latest keys that fit and lists earlier rounds in a menu, so the
+ * header keeps its width. The menu key shows an earlier round while it is shown.
+ */
+function IterationKeys({
+  iterations,
+  iteration,
+  onIteration,
+}: {
+  iterations: readonly { number: number; createdAt: string }[];
+  iteration?: number;
+  onIteration?(number: number): void;
+}) {
+  // A narrow pane shows fewer keys, down to the menu alone.
+  const group = useRef<HTMLSpanElement>(null);
+  const [width, setWidth] = useState(Infinity);
+  useLayoutEffect(() => {
+    const header = group.current?.parentElement;
+    if (!header) return;
+    const measure = () => setWidth(header.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
+  const fits = Math.max(
+    0,
+    Math.min(RECENT_ITERATIONS, Math.floor((width - HEADER_ROOM) / KEY_WIDTH)),
+  );
+  const recent =
+    iterations.length > fits + 1 ? iterations.slice(iterations.length - fits) : iterations;
+  const earlier = iterations.slice(0, iterations.length - recent.length);
+  const shownEarlier = earlier.find((entry) => entry.number === iteration);
+  const when = (entry: { createdAt: string }) =>
+    new Date(entry.createdAt).toLocaleString(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  return (
+    <span ref={group} role="group" aria-label="Iterations" {...stylex.props(styles.iterations)}>
+      {earlier.length > 0 && (
+        <ActionMenu
+          label={
+            shownEarlier
+              ? `Iteration ${shownEarlier.number}, earlier iterations`
+              : "Earlier iterations"
+          }
+          align="start"
+          trigger={[styles.iteration, styles.earlier, shownEarlier && styles.iterationOn]}
+          sections={[
+            earlier.toReversed().map((entry) => ({
+              label: `Iteration ${entry.number} · ${when(entry)}`,
+              checked: entry.number === iteration,
+              choice: true,
+              onClick: () => onIteration?.(entry.number),
+            })),
+          ]}
+        >
+          {shownEarlier?.number ?? "…"}
+          <Icon name="chevron" size={10} />
+        </ActionMenu>
+      )}
+      {recent.map((entry) => (
+        <button
+          key={entry.number}
+          type="button"
+          aria-pressed={entry.number === iteration}
+          aria-label={`Iteration ${entry.number}`}
+          title={`Iteration ${entry.number} · ${when(entry)}`}
+          onClick={() => onIteration?.(entry.number)}
+          {...stylex.props(styles.iteration, entry.number === iteration && styles.iterationOn)}
+        >
+          {entry.number}
+        </button>
+      ))}
+    </span>
+  );
+}
+
 const styles = stylex.create({
   root: {
+    position: "relative",
     containerType: "inline-size",
     display: "flex",
     flexDirection: "column",
@@ -835,18 +1239,22 @@ const styles = stylex.create({
   },
   label: {
     display: "flex",
+    flexShrink: 0,
     alignItems: "center",
     gap: 7,
+    whiteSpace: "nowrap",
     color: tokens.text,
     fontWeight: 500,
   },
-  coverage: { display: "flex", alignItems: "center", gap: 8, color: tokens.faint },
-  // The agent's rounds, as small numbered keys; the shown one is filled.
+  // In a narrow pane the coverage text shortens before the header overflows.
+  coverage: { display: "flex", alignItems: "center", gap: 8, minWidth: 0, color: tokens.faint },
+  coverageText: { minWidth: 0, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" },
   iterations: {
     display: "inline-flex",
+    flexShrink: 0,
     gap: 2,
     padding: 2,
-    borderRadius: 7,
+    borderRadius: `calc(7px * ${tokens.round})`,
     backgroundColor: tokens.fill,
   },
   iteration: {
@@ -854,7 +1262,7 @@ const styles = stylex.create({
     height: 20,
     paddingInline: 5,
     borderWidth: 0,
-    borderRadius: 5,
+    borderRadius: `calc(5px * ${tokens.round})`,
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
     color: { default: tokens.faint, ":hover": tokens.text },
     fontFamily: tokens.ui,
@@ -864,6 +1272,7 @@ const styles = stylex.create({
     outline: "none",
     boxShadow: { default: "none", ":focus-visible": `0 0 0 2px ${tokens.accentLine}` },
   },
+  earlier: { display: "inline-flex", alignItems: "center", gap: 1, paddingInlineEnd: 3 },
   iterationOn: {
     color: { default: tokens.text, ":hover": tokens.text },
     backgroundColor: { default: tokens.raised, ":hover": tokens.raised },
@@ -876,7 +1285,7 @@ const styles = stylex.create({
     display: "block",
     width: 40,
     height: 3,
-    borderRadius: 2,
+    borderRadius: `calc(2px * ${tokens.round})`,
     overflow: "hidden",
     backgroundColor: tokens.fillStrong,
   },
@@ -894,6 +1303,80 @@ const styles = stylex.create({
     animationTimingFunction: tokens.easeOut,
   }),
   grow: { flex: "1" },
+  noteHead: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    minHeight: 28,
+    marginBottom: 22,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopStyle: "solid",
+    borderTopColor: tokens.line,
+    fontFamily: tokens.ui,
+    fontSize: 12,
+    lineHeight: 1.4,
+    color: tokens.faint,
+  },
+  noteHeadFirst: { paddingTop: 0, borderTopWidth: 0 },
+  noteNumber: {
+    flexShrink: 0,
+    color: tokens.text,
+    fontFamily: tokens.code,
+    fontSize: 11.5,
+    fontVariantNumeric: "tabular-nums",
+  },
+  noteTotal: { color: tokens.faint },
+  noteFrom: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    minWidth: 0,
+    overflow: "hidden",
+    color: tokens.muted,
+    whiteSpace: "nowrap",
+    textOverflow: "ellipsis",
+  },
+  noteTime: { flexShrink: 0, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" },
+  rail: {
+    position: "absolute",
+    top: 20,
+    bottom: 20,
+    right: 6,
+    width: 18,
+    pointerEvents: "none",
+  },
+  tick: {
+    position: "absolute",
+    right: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    width: 18,
+    height: 7,
+    padding: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    transform: "translateY(-50%)",
+    cursor: "pointer",
+    pointerEvents: "auto",
+  },
+  tickAt: (top: string) => ({ top }),
+  tickLine: {
+    display: "block",
+    height: 1.5,
+    borderRadius: 1,
+    backgroundColor: {
+      default: tokens.fillStrong,
+      [stylex.when.ancestor(":hover")]: tokens.text,
+    },
+    transitionProperty: "background-color",
+    transitionDuration: "160ms",
+  },
+  tickInView: { backgroundColor: tokens.faint },
+  note: { width: 16 },
+  heading: { width: 11 },
+  excerpt: { width: 6 },
   card: {
     // Code is wider than prose: the card reaches a little past the text column.
     marginTop: 12,
@@ -903,7 +1386,7 @@ const styles = stylex.create({
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: tokens.line,
-    borderRadius: 10,
+    borderRadius: `calc(10px * ${tokens.round})`,
     overflow: "hidden",
     backgroundColor: tokens.canvas,
     boxShadow: "0 0 0 0 transparent",
@@ -1026,7 +1509,7 @@ const styles = stylex.create({
   column: {
     boxSizing: "border-box",
     width: "100%",
-    maxWidth: "calc(38em + 2 * clamp(24px, 4cqw, 48px))",
+    maxWidth: "calc(var(--med-measure, 38em) + 2 * clamp(24px, 4cqw, 48px))",
     marginInline: "auto",
     paddingInlineStart: "clamp(24px, 4cqw, 48px)",
     paddingInlineEnd: "clamp(24px, 4cqw, 48px)",
@@ -1076,7 +1559,7 @@ const styles = stylex.create({
     marginInline: -8,
     paddingInline: 8,
     borderWidth: 0,
-    borderRadius: 7,
+    borderRadius: `calc(7px * ${tokens.round})`,
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
     color: { default: tokens.muted, ":hover": tokens.text },
     fontFamily: tokens.ui,

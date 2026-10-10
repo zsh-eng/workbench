@@ -5,7 +5,7 @@ import { Dialog } from "@base-ui/react/dialog";
 import { Combobox } from "@base-ui/react/combobox";
 import * as stylex from "@stylexjs/stylex";
 import type { BrowseEntry, BrowseSource } from "../../shared/browse";
-import { tokens, ui } from "../theme.stylex";
+import { picked, tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
 import { FullFileView } from "./FullFileView";
 import { browseSourceKey, useBrowseFiles, type BrowseApi } from "../data/browse";
@@ -34,7 +34,15 @@ export interface FilePickerProps {
   loading: boolean;
   error: string | null;
   sourceLabel: string;
-  onOpen(path: string, line?: number, source?: BrowseSource, sourceLabel?: string): void;
+  /** `keep` opens a tab that stays open; otherwise the file opens in the preview tab.
+   * `sourceLabel` names a file from another repository. */
+  onOpen(
+    path: string,
+    line?: number,
+    source?: BrowseSource,
+    keep?: boolean,
+    sourceLabel?: string,
+  ): void;
   source?: BrowseSource | null;
   api?: BrowseApi;
   sourceRevision?: number | string;
@@ -414,16 +422,16 @@ function PickerContents({
         .join(" ")
         .trim() ?? "",
     );
-  const choose = (entry: PickerResult) => {
+  const choose = (entry: PickerResult, keep = false) => {
     if (entry.repository) {
       selectRepository(entry.repository);
       return;
     }
     if (busy || failure) return;
     accepted.current = true;
-    if (resultSource) onOpen(entry.path, entry.line, resultSource);
-    else if (source && scopedRepository) onOpen(entry.path, entry.line, source, sourceLabel);
-    else onOpen(entry.path, entry.line);
+    if (resultSource) onOpen(entry.path, entry.line, resultSource, keep);
+    else if (source && scopedRepository) onOpen(entry.path, entry.line, source, keep, sourceLabel);
+    else onOpen(entry.path, entry.line, undefined, keep);
     onOpenChange(false);
   };
   return (
@@ -617,7 +625,8 @@ function PickerContents({
                   ) {
                     event.preventDefault();
                     event.preventBaseUIHandler();
-                    choose(selectedResult);
+                    // ⌘↵ keeps the tab open; ↵ opens the file in the preview tab.
+                    choose(selectedResult, event.metaKey || event.ctrlKey);
                   }
                 }}
                 {...stylex.props(styles.input)}
@@ -733,8 +742,10 @@ function PickerContents({
                               stylex.props(
                                 styles.item,
                                 (state.highlighted ||
-                                  (!selected && selectedResult?.id === entry.id)) &&
+                                  (!selected && selectedResult?.id === entry.id)) && [
                                   styles.highlighted,
+                                  picked,
+                                ],
                               ).className
                             }
                           >
@@ -857,7 +868,10 @@ function PickerContents({
                 ) : (
                   <>
                     <span {...stylex.props(styles.hint)}>
-                      <ShortcutKeys value="↵" /> Open
+                      <ShortcutKeys value="↵" /> Preview
+                    </span>
+                    <span {...stylex.props(styles.hint)}>
+                      <ShortcutKeys value="Mod+Enter" /> Keep open
                     </span>
                     {repoMatches.length > 0 && (
                       <span {...stylex.props(styles.hint)}>
@@ -903,7 +917,7 @@ const styles = stylex.create({
     minHeight: 24,
     height: 24,
     paddingInline: 9,
-    borderRadius: 12,
+    borderRadius: `calc(12px * ${tokens.round})`,
     fontSize: 11.5,
     boxShadow: `inset 0 0 0 1px ${tokens.line}`,
   },
@@ -924,7 +938,7 @@ const styles = stylex.create({
   },
   syntax: {
     paddingInline: 4,
-    borderRadius: 4,
+    borderRadius: `calc(4px * ${tokens.round})`,
     backgroundColor: tokens.fill,
     color: tokens.muted,
     fontFamily: tokens.code,
@@ -945,7 +959,7 @@ const styles = stylex.create({
     backgroundColor: tokens.raised,
     color: tokens.text,
     fontFamily: tokens.ui,
-    borderRadius: 12,
+    borderRadius: `calc(12px * ${tokens.round})`,
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: tokens.lineStrong,
@@ -1014,7 +1028,7 @@ const styles = stylex.create({
     paddingInlineStart: 8,
     paddingInlineEnd: 4,
     borderWidth: 0,
-    borderRadius: 6,
+    borderRadius: `calc(6px * ${tokens.round})`,
     backgroundColor: { default: tokens.accentSoft, ":hover": tokens.accentSoft },
     color: tokens.accent,
     fontFamily: tokens.ui,
@@ -1030,7 +1044,7 @@ const styles = stylex.create({
     justifyContent: "center",
     width: 18,
     height: 18,
-    borderRadius: 4,
+    borderRadius: `calc(4px * ${tokens.round})`,
     opacity: { default: 0.6, ":hover": 1 },
   },
   input: {
@@ -1054,12 +1068,12 @@ const styles = stylex.create({
     paddingInline: 10,
     boxSizing: "border-box",
     fontSize: 12.5,
-    borderRadius: 7,
+    borderRadius: `calc(7px * ${tokens.round})`,
     color: tokens.muted,
     cursor: "default",
     outline: "none",
   },
-  highlighted: { backgroundColor: tokens.fillStrong, color: tokens.text },
+  highlighted: { backgroundColor: tokens.pick, color: tokens.selectedText },
   name: {
     flexShrink: 0,
     maxWidth: "100%",
@@ -1144,11 +1158,17 @@ const styles = stylex.create({
     gap: 2,
     marginLeft: "auto",
     padding: 2,
-    borderRadius: 8,
+    borderRadius: `calc(8px * ${tokens.round})`,
     backgroundColor: tokens.fill,
     boxShadow: `inset 0 0 0 1px ${tokens.line}`,
   },
-  mode: { minHeight: 24, height: 24, paddingInline: 10, fontSize: 12, borderRadius: 6 },
+  mode: {
+    minHeight: 24,
+    height: 24,
+    paddingInline: 10,
+    fontSize: 12,
+    borderRadius: `calc(6px * ${tokens.round})`,
+  },
   selectedMode: {
     backgroundColor: { default: tokens.raised, ":hover:not(:disabled)": tokens.raised },
     color: { default: tokens.text, ":hover:not(:disabled)": tokens.text },

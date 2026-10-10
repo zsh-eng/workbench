@@ -229,7 +229,7 @@ describe("agent review CLI through the production host", () => {
     expect(opened).toEqual([`${origin}/review/${linked}#token=${f.host.token}`]);
   });
 
-  it("updates one review by key: iterations keep comments and briefs, and the PR link comes later", async () => {
+  it("updates one review by key: iterations keep comments and briefs, and the PR link and title come later", async () => {
     const f = await fixture();
     const repo = f.repos[0]!;
     const brief = async (name: string, text: string) => {
@@ -303,7 +303,22 @@ describe("agent review CLI through the production host", () => {
     const earlier = await f.api(`/api/reviews/${first.id}/targets/${first.targets[0].id}/notes`);
     expect(earlier.notes.map((entry: { text: string }) => entry.text)).toEqual(["Keep this"]);
 
-    // The pull request opens after the review; its link joins the same review.
+    // The pull request opens after the review; its link and its title, read
+    // with gh, join the same review. The short title stays for the workspace.
+    const bin = join(f.root, "bin");
+    await mkdir(bin);
+    await writeFile(
+      join(bin, "gh"),
+      `#!/bin/sh
+if [ "$*" = "pr view https://github.com/example/repo/pull/7 --json title" ]; then
+  echo '{"title":"feat(x): explain the second round in the review header"}'
+  exit 0
+fi
+exit 1
+`,
+      { mode: 0o755 },
+    );
+    vi.stubEnv("PATH", `${bin}:${process.env.PATH}`);
     const updated = await f.run(
       "update",
       "--key",
@@ -312,9 +327,18 @@ describe("agent review CLI through the production host", () => {
       "https://github.com/example/repo/pull/7",
     );
     expect(updated).toContain(`/review/${first.id}`);
-    expect((await f.api(`/api/reviews/${first.id}`)).pullRequestUrl).toBe(
-      "https://github.com/example/repo/pull/7",
-    );
+    const linked = {
+      title: "Round two",
+      pullRequestUrl: "https://github.com/example/repo/pull/7",
+      pullRequestTitle: "feat(x): explain the second round in the review header",
+    };
+    expect(await f.api(`/api/reviews/${first.id}`)).toMatchObject(linked);
+    // A later round without a PR lookup keeps the PR and its title.
+    await writeFile(join(repo, "file.txt"), "after a third time\n");
+    expect(await f.saved((await create("Round three", "feat/x")).split("\n")[0]!)).toMatchObject({
+      ...linked,
+      title: "Round three",
+    });
     const other = await f.saved(await create("Other", "feat/y"));
     expect(other.id).not.toBe(first.id);
     await expect(f.run("update", "--key", "missing", "--title", "Nope")).rejects.toThrow(

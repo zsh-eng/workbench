@@ -85,7 +85,7 @@ const styles = stylex.create({
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: tokens.line,
-    borderRadius: 4,
+    borderRadius: `calc(4px * ${tokens.round})`,
     boxShadow: `0 1px 0 ${tokens.line}`,
     fontVariantNumeric: "tabular-nums",
   },

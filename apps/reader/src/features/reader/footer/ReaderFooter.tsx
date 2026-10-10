@@ -1,14 +1,11 @@
-import {
-  DESKTOP_CHROME_FADE_TRANSITION,
-  type ReaderChromeSurfaceProps,
-} from "@/features/reader/chrome";
+import type { ReaderChromeSurfaceProps } from "@/features/reader/chrome";
+import { MOTION } from "@/lib/motion";
 import type {
   ChapterEntry,
   ReaderHandoffPrompt,
 } from "@/features/reader/types";
 import type { ReaderStatusAction } from "../hooks/use-reader-status-prompt";
 import { FooterStatusPrompt } from "./FooterStatusPrompt";
-import { PencilLine } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useState, type ReactNode } from "react";
 import { FooterChapterRow } from "./FooterChapterRow";
@@ -16,23 +13,6 @@ import { FooterHandoffPrompt } from "./FooterHandoffPrompt";
 import { FooterScrubberLoading } from "./FooterLoadingState";
 import { FooterPageIndicator } from "./FooterPageIndicator";
 import { FooterScrubberCanvas } from "./FooterScrubberCanvas";
-
-const CHROME_ENTER_TRANSITION = {
-  duration: 0.26,
-  ease: [0.16, 1, 0.3, 1] as const,
-};
-const CHROME_EXIT_TRANSITION = {
-  duration: 0.18,
-  ease: [0.32, 0, 0.67, 0] as const,
-};
-const CHROME_FADE_IN_TRANSITION = {
-  duration: 0.18,
-  ease: "easeOut" as const,
-};
-const CHROME_FADE_OUT_TRANSITION = {
-  duration: 0.14,
-  ease: "easeIn" as const,
-};
 
 export interface ReaderFooterProps {
   /** Another bottom surface owns the viewport; omit even the exit animation. */
@@ -54,7 +34,8 @@ export interface ReaderFooterProps {
   onGoToChapter: (chapterIndex: number) => void;
   onPrevChapter: () => void;
   onOpenContents: () => void;
-  onOpenNote?: () => void;
+  /** The Notes Island capsule. It rides on the footer while the chrome shows. */
+  noteAccessory?: ReactNode;
   handoffPrompt?: ReaderHandoffPrompt;
   statusPrompt?: ReaderStatusAction;
   isLoading?: boolean;
@@ -82,7 +63,7 @@ export function ReaderFooter({
   onGoToChapter,
   onPrevChapter,
   onOpenContents,
-  onOpenNote,
+  noteAccessory,
   handoffPrompt,
   statusPrompt,
   isLoading = false,
@@ -134,11 +115,11 @@ export function ReaderFooter({
                   y: chromeVisible ? 0 : "100%",
                   opacity: 1,
                   transition: {
-                    y: CHROME_ENTER_TRANSITION,
-                    opacity: CHROME_FADE_IN_TRANSITION,
+                    y: MOTION.chromeEnter,
+                    opacity: MOTION.chromeFadeIn,
                   },
                 }
-              : { opacity: 1, transition: DESKTOP_CHROME_FADE_TRANSITION }
+              : { opacity: 1, transition: MOTION.desktopChromeFade }
           }
           exit={
             isMobile
@@ -146,11 +127,11 @@ export function ReaderFooter({
                   y: "100%",
                   opacity: 0,
                   transition: {
-                    y: CHROME_EXIT_TRANSITION,
-                    opacity: CHROME_FADE_OUT_TRANSITION,
+                    y: MOTION.chromeExit,
+                    opacity: MOTION.chromeFadeOut,
                   },
                 }
-              : { opacity: 0, transition: DESKTOP_CHROME_FADE_TRANSITION }
+              : { opacity: 0, transition: MOTION.desktopChromeFade }
           }
           className="absolute inset-x-0 bottom-0 z-20 overflow-visible border-t border-border/70 bg-background/88 backdrop-blur-xl"
           {...chromeSurfaceProps}
@@ -159,27 +140,15 @@ export function ReaderFooter({
           }}
         >
           <div
+            // A capsule action stops a scrubber fling before it opens notes.
+            onClickCapture={interruptScrubberMomentum}
             className={`pointer-events-none absolute inset-x-0 flex flex-col gap-2 transition-[bottom] duration-200 ease-out ${
               chromeVisible
                 ? "bottom-[calc(100%+0.5rem)]"
                 : "bottom-[calc(100%+0.75rem)]"
             }`}
           >
-            {onOpenNote && chromeVisible && (
-              <button
-                type="button"
-                aria-label="Jot a note"
-                title="Jot a note"
-                disabled={isLoading}
-                onClick={() => {
-                  interruptScrubberMomentum();
-                  onOpenNote();
-                }}
-                className="pointer-events-auto mr-3 flex size-11 shrink-0 items-center justify-center self-end rounded-full border border-border/80 bg-background text-foreground shadow-lg hover:bg-secondary focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-40 sm:mr-4"
-              >
-                <PencilLine size={20} />
-              </button>
-            )}
+            {noteAccessory && chromeVisible && noteAccessory}
             <AnimatePresence initial={false}>
               {!handoffPrompt && statusPrompt && (
                 <FooterStatusPrompt key="status-prompt" prompt={statusPrompt} />

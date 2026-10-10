@@ -18,6 +18,7 @@ import {
   gutter,
   GutterMarker,
   highlightActiveLine,
+  WidgetType,
   type DecorationSet,
 } from "@codemirror/view";
 import {
@@ -39,6 +40,8 @@ import { isBrowseFile } from "../../shared/local-file";
 import { createChangeGutter } from "../data/change-gutter";
 import { createBlameGutter } from "../data/blame-gutter";
 import { BlameTooltips } from "./BlameTooltips";
+import { createLineBlame } from "../data/line-blame";
+import { LineBlame, lineBlameCSS } from "./LineBlame";
 import type { MarkdownModel } from "../markdown/model";
 import SyntaxWorker from "../highlighting/editor.worker?worker";
 import "./FileEditor.css";
@@ -56,6 +59,34 @@ class AttributionCell extends GutterMarker {
     return cell;
   }
 }
+/** Holds the line blame's anchor. A new wrapper per position moves the anchor,
+ * so CodeMirror can remove an old wrapper without removing the label. */
+class LineBlameWidget extends WidgetType {
+  constructor(readonly anchor: HTMLElement) {
+    super();
+  }
+  eq(other: LineBlameWidget) {
+    return this.anchor === other.anchor;
+  }
+  toDOM() {
+    const wrapper = document.createElement("span");
+    wrapper.append(this.anchor);
+    return wrapper;
+  }
+  ignoreEvent() {
+    return true;
+  }
+}
+const setLineBlame = StateEffect.define<DecorationSet>();
+const lineBlameField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(value, transaction) {
+    value = value.map(transaction.changes);
+    for (const effect of transaction.effects) if (effect.is(setLineBlame)) value = effect.value;
+    return value;
+  },
+  provide: (field) => EditorView.decorations.from(field),
+});
 const setColors = StateEffect.define<DecorationSet>();
 const colors = StateField.define<DecorationSet>({
   create: () => Decoration.none,
@@ -153,6 +184,55 @@ export default function FileEditor({
     paintGutters.current();
   }, [attribution, changes, blameOpen]);
   useLayoutEffect(() => () => attribution.dispose(), [attribution]);
+  // A draft no longer matches the committed lines, so its line blame waits for a save.
+  const lineBlameShown =
+    context.lineBlame !== false &&
+    !blameOpen &&
+    !draft.dirty &&
+    !stale &&
+    !mode.startsWith("VISUAL");
+  const cursorBlame = useMemo(
+    () =>
+      createLineBlame(
+        isBrowseFile(draft.file) ? draft.file : null,
+        draft.dirty || stale ? undefined : context.loadBlame,
+      ),
+    [draft.file, draft.dirty, context.loadBlame, stale],
+  );
+  useLayoutEffect(() => () => cursorBlame.dispose(), [cursorBlame]);
+  const cursorLine = useRef((_line: number) => {});
+  useLayoutEffect(() => {
+    cursorLine.current = (line) => cursorBlame.setLine(lineBlameShown ? line : null);
+    const state = view.current?.state;
+    cursorBlame.setLine(
+      lineBlameShown && state ? state.doc.lineAt(state.selection.main.head).number : null,
+    );
+  }, [cursorBlame, lineBlameShown]);
+  const blamedLine = useSyncExternalStore(cursorBlame.subscribe, cursorBlame.getSnapshot);
+  const [lineBlameAnchor] = useState(() => {
+    const anchor = document.createElement("span");
+    anchor.dataset.medLineBlame = "";
+    return anchor;
+  });
+  useLayoutEffect(() => {
+    const editor = view.current;
+    if (!editor) return;
+    const line =
+      lineBlameShown && blamedLine && blamedLine.line <= editor.state.doc.lines
+        ? editor.state.doc.line(blamedLine.line)
+        : null;
+    editor.dispatch({
+      effects: setLineBlame.of(
+        line
+          ? Decoration.set(
+              Decoration.widget({ widget: new LineBlameWidget(lineBlameAnchor), side: 1 }).range(
+                line.to,
+              ),
+            )
+          : Decoration.none,
+      ),
+    });
+  }, [lineBlameShown, blamedLine, lineBlameAnchor]);
   useLayoutEffect(() => {
     changes.set(undefined);
     if (!loadChanges || draft.dirty || stale) return;
@@ -329,6 +409,7 @@ export default function FileEditor({
       vim(),
       history(),
       colors,
+      lineBlameField,
       gutter({
         class: "med-editor-attribution",
         lineMarker: (view, line) => new AttributionCell(view.state.doc.lineAt(line.from).number),
@@ -363,10 +444,9 @@ export default function FileEditor({
         });
         if (update.selectionSet || update.docChanged) {
           cursorMotionAt = performance.now();
-          latest.current.onSourcePosition?.(
-            update.state.doc.lineAt(update.state.selection.main.head).number,
-            "cursor",
-          );
+          const line = update.state.doc.lineAt(update.state.selection.main.head).number;
+          cursorLine.current(line);
+          latest.current.onSourcePosition?.(line, "cursor");
         }
         if (update.docChanged) {
           const dirty = update.state.sliceDoc() !== draft.savedText;
@@ -423,6 +503,7 @@ export default function FileEditor({
     const editor = new EditorView({ state, parent: body.current });
     view.current = editor;
     editor.requestMeasure({ read: () => null, write: () => paintGutters.current() });
+    cursorLine.current(editor.state.doc.lineAt(editor.state.selection.main.head).number);
     drafts.update(draft, { state: editor.state });
     const cm = getCM(editor)!;
     actions.set(cm, {
@@ -679,6 +760,13 @@ export default function FileEditor({
       {blameOpen && blameNotice && <div className="med-editor-message">{blameNotice}</div>}
       <div ref={body} className="med-editor-body" />
       <BlameTooltips cells={cells} />
+      <style>{lineBlameCSS(".med-editor .cm-line", active.palette.faint)}</style>
+      <LineBlame
+        blame={lineBlameShown ? blamedLine : null}
+        anchor={lineBlameAnchor}
+        file={isBrowseFile(draft.file) ? draft.file : null}
+        loadCommit={context.loadCommit}
+      />
     </section>
   );
 }

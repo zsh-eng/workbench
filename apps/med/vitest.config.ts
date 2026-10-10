@@ -4,6 +4,7 @@ import { playwright } from "@vitest/browser-playwright";
 import react from "@vitejs/plugin-react";
 import stylex from "@stylexjs/unplugin";
 import { pierreHighlighter } from "./tools/pierre-highlighter.ts";
+import { pierreKeepAlive } from "./tools/pierre-keep-alive.ts";
 export default defineConfig({
   test: {
     projects: [
@@ -34,7 +35,12 @@ export default defineConfig({
             ]),
           ),
         },
-        plugins: [pierreHighlighter(), stylex.vite({ useCSSLayers: true }), react()],
+        plugins: [
+          pierreHighlighter(),
+          pierreKeepAlive(),
+          stylex.vite({ useCSSLayers: true }),
+          react(),
+        ],
         optimizeDeps: {
           exclude: ["@pierre/diffs"],
           include: [

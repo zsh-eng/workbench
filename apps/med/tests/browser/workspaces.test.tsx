@@ -5,6 +5,7 @@ import { App } from "../../src/web/App";
 import { WorkspaceHost, WorkspaceViews } from "../../src/web/components/Workspaces";
 import { createBrowseApi } from "../../src/web/data/browse";
 import type { Comparison } from "../../src/shared/protocol";
+import type { AgentStatus } from "../../src/shared/agent-status";
 import { initializeTheme, themeController } from "../../src/web/themes";
 
 const head = "a".repeat(40);
@@ -18,10 +19,11 @@ const repositories = [
     path: "/test/repo",
     name: "fixture",
     branches,
-    worktrees: branches.map((branch) => ({
+    worktrees: branches.map((branch, index) => ({
       path: branch.worktreePath,
       head,
       branch: branch.name,
+      ...(index ? { linked: true } : {}),
     })),
   },
 ];
@@ -46,6 +48,7 @@ beforeEach(() => {
   localStorage.removeItem(STORAGE_KEY);
   localStorage.removeItem(WINDOW_KEY);
   localStorage.removeItem("med:zen");
+  localStorage.removeItem("med:agent-seen");
 });
 afterEach(() => {
   root?.unmount();
@@ -117,9 +120,73 @@ function createHost() {
     const chunk = new TextEncoder().encode(`event: review\ndata: ${JSON.stringify(data)}\n\n`);
     for (const window of windows) window.enqueue(chunk);
   };
+  // The lead session states that the host sends for the listed reviews.
+  let agentStatuses: AgentStatus[] = [];
+  const statusStreams = new Set<ReadableStreamDefaultController<Uint8Array>>();
+  const statusFrame = () =>
+    new TextEncoder().encode(
+      `event: state\ndata: ${JSON.stringify({ statuses: agentStatuses })}\n\n`,
+    );
+  const setStatuses = (statuses: AgentStatus[]) => {
+    agentStatuses = statuses;
+    for (const stream of statusStreams) stream.enqueue(statusFrame());
+  };
+  // The pull request jobs that the host runs; the test moves the latest one.
+  const pulls: { id: string; url: string }[] = [];
+  let pullJob: Record<string, unknown> = {};
+  const pullStreams = new Set<ReadableStreamDefaultController<Uint8Array>>();
+  const pullFrame = () =>
+    new TextEncoder().encode(`event: state\ndata: ${JSON.stringify(pullJob)}\n\n`);
+  const setPull = (patch: Record<string, unknown>) => {
+    pullJob = { ...pullJob, ...patch };
+    for (const stream of pullStreams) stream.enqueue(pullFrame());
+  };
+  // Worktrees that the host was asked to remove; Git keeps the first one.
+  const removals: string[] = [];
   const fetcher: typeof fetch = async (input, init) => {
     const url = new URL(String(input), "http://localhost");
     const repo = url.searchParams.get("repo") || "/test/repo";
+    if (url.pathname === "/api/worktrees/remove") {
+      removals.push(JSON.parse(String(init?.body)).path);
+      return removals.length === 1
+        ? Response.json(
+            {
+              error: {
+                code: "worktree-changed",
+                message:
+                  "It has changed or untracked files. Commit or discard them, then try again.",
+              },
+            },
+            { status: 409 },
+          )
+        : Response.json({ removed: true });
+    }
+    if (url.pathname === "/api/pulls") {
+      const id = `job-${pulls.length + 1}`;
+      pulls.push({ id, url: JSON.parse(String(init?.body)).url });
+      pullJob = {
+        id,
+        url: pulls.at(-1)!.url,
+        slug: "acme/trails",
+        number: 7,
+        status: "running",
+        steps: [{ id: "repository", label: "Find acme/trails", state: "running" }],
+      };
+      return Response.json(pullJob);
+    }
+    if (url.pathname === `/api/pulls/${String(pullJob.id)}/events`) {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          pullStreams.add(controller);
+          controller.enqueue(pullFrame());
+          init?.signal?.addEventListener("abort", () => {
+            pullStreams.delete(controller);
+            controller.error(new DOMException("Aborted", "AbortError"));
+          });
+        },
+      });
+      return new Response(body, { headers: { "content-type": "text/event-stream" } });
+    }
     const saved = /^\/api\/reviews\/(\w+)(?:\/targets\/[\w-]+\/(review|notes))?$/.exec(
       url.pathname,
     );
@@ -180,6 +247,19 @@ function createHost() {
         });
         return new Response(body, { headers: { "content-type": "text/event-stream" } });
       }
+      case "/api/agent-status/events": {
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            statusStreams.add(controller);
+            controller.enqueue(statusFrame());
+            init?.signal?.addEventListener("abort", () => {
+              statusStreams.delete(controller);
+              controller.error(new DOMException("Aborted", "AbortError"));
+            });
+          },
+        });
+        return new Response(body, { headers: { "content-type": "text/event-stream" } });
+      }
       case "/api/windows": {
         const body = new ReadableStream<Uint8Array>({
           start(controller) {
@@ -212,7 +292,7 @@ function createHost() {
     }
     throw new Error(`Unexpected request: ${url.pathname}`);
   };
-  return { fetcher, sessions, streams, windows, announce };
+  return { fetcher, sessions, streams, windows, announce, setStatuses, pulls, setPull, removals };
 }
 
 function render(host: ReturnType<typeof createHost>) {
@@ -261,6 +341,9 @@ test("keeps branch workspaces live, switches by shortcut, and restores the list"
   // The registered vault is pinned first.
   await expect.poll(rowLabels).toEqual(["notes", "main 2 (current)"]);
   const mainView = shown();
+  const mainDiffs = () => [...mainView!.querySelectorAll("diffs-container")];
+  await expect.poll(() => mainDiffs().length).toBe(2);
+  const renderedDiffs = mainDiffs();
 
   // ⌘↵ in the branch picker opens the branch as a new workspace.
   await page.getByRole("button", { name: "Open branch", exact: true }).click();
@@ -283,6 +366,17 @@ test("keeps branch workspaces live, switches by shortcut, and restores the list"
   await userEvent.keyboard("{Control>}2{/Control}");
   await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
   expect(shown()).toBe(mainView);
+  // Its diffs stay rendered while hidden; showing it does not build them again.
+  expect(mainDiffs().map((element, index) => element === renderedDiffs[index])).toEqual([
+    true,
+    true,
+  ]);
+  // The window has one workspace list. It moves to the sidebar on screen and
+  // does not play its entrance again.
+  const lists = document.querySelectorAll('nav[aria-label="Workspaces"]');
+  expect(lists).toHaveLength(1);
+  expect(mainView!.contains(lists[0]!)).toBe(true);
+  expect(lists[0]!.getAnimations({ subtree: true })).toEqual([]);
   // Files still open after the review was hidden and shown again.
   await page.getByRole("treeitem", { name: /alpha.ts/ }).dblClick();
   await expect.poll(() => shown()?.dataset.activeFile).toBe("src/alpha.ts");
@@ -365,4 +459,119 @@ test("a workspace's menu copies its agent's resume command and marks it unread",
   await page.getByRole("menuitem", { name: "Mark as unread" }).click();
   await expect.poll(() => rowLabels()[2]).toBe("Agent review, new");
   copy.mockRestore();
+});
+
+test("a workspace in a linked worktree closes and removes it, unless Git keeps it", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  // The main checkout is not a linked worktree.
+  await page.getByRole("button", { name: /^main/ }).click({ button: "right" });
+  await expect.element(page.getByRole("menuitem", { name: "Mark as unread" })).toBeVisible();
+  expect(document.body.textContent).not.toContain("Close and remove worktree");
+  await userEvent.keyboard("{Escape}");
+
+  await page.getByRole("button", { name: "Open branch", exact: true }).click();
+  await page.getByRole("combobox", { name: "Search branches" }).fill("feature");
+  await userEvent.keyboard("{Control>}{Enter}{/Control}");
+  await expect.poll(rowLabels).toEqual(["notes", "main 2", "feature 1 (current)"]);
+  const row = page.getByRole("button", { name: /^feature/ });
+  const remove = page.getByRole("menuitem", { name: "Close and remove worktree feature" });
+  await row.click({ button: "right" });
+  await remove.click();
+  // Git keeps it: the row stays and says why.
+  await expect
+    .element(page.getByRole("alert"))
+    .toHaveTextContent(
+      "Kept the worktree. It has changed or untracked files. Commit or discard them, then try again.",
+    );
+  expect(rowLabels()).toEqual(["notes", "main 2", "feature 1 (current)"]);
+  await row.click({ button: "right" });
+  await remove.click();
+  await expect.poll(rowLabels).toEqual(["notes", "main 2 (current)"]);
+  expect(host.removals).toEqual(["/test/feature", "/test/feature"]);
+  await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
+  expect(document.querySelector('[role="alert"]')).toBeNull();
+});
+
+test("rows show what each review's agent does, and a turn that ends unseen marks it unread", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  await expect.poll(() => host.windows.size).toBe(1);
+  host.announce({ id: "agent", open: false, sessions: [{ agent: "claude", id: "s1", cwd: "/w" }] });
+  host.announce({ id: "second", open: false });
+  const agentRow = page.getByRole("button", { name: /^Agent review/ });
+  const secondRow = page.getByRole("button", { name: /^Second review/ });
+  await expect.element(secondRow).toBeVisible();
+  for (const row of [agentRow, secondRow]) {
+    await row.click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Mark as read" }).click();
+  }
+
+  const status = (reviewId: string, state: AgentStatus["state"], updatedAt: number) =>
+    ({ reviewId, sessionId: `${reviewId}-s`, agent: "claude", state, updatedAt }) as const;
+  host.setStatuses([status("agent", "working", 1000), status("second", "waiting", 1000)]);
+  await expect
+    .poll(() => rowLabels().slice(2))
+    .toEqual(["Agent review, working", "Second review, needs you Needs you"]);
+  await expect.element(page.getByTitle("Claude is working")).toBeVisible();
+  await expect.element(page.getByText("Needs you", { exact: true })).toBeVisible();
+
+  // The turn ends while another workspace is on screen: the review is new again.
+  host.setStatuses([status("agent", "idle", 2000), status("second", "waiting", 1000)]);
+  await expect.poll(() => rowLabels()[2]).toBe("Agent review, new");
+  // Seen once, the same turn does not mark it again.
+  await agentRow.click();
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("agent-target");
+  await page.getByRole("button", { name: /^main/ }).click();
+  await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
+  host.setStatuses([status("agent", "idle", 2000), status("second", "idle", 1000)]);
+  // Read rows show their changed-file count again.
+  await expect.poll(() => rowLabels()[3]).toMatch(/^Second review( \d+)?$/);
+  expect(rowLabels()[2]).toMatch(/^Agent review( \d+)?$/);
+});
+
+test("a pasted pull request link opens a workspace at once, which becomes its review", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  await page.getByRole("button", { name: "New workspace" }).click();
+  await page
+    .getByRole("combobox", { name: "Search branches" })
+    .fill("https://github.com/acme/trails/pull/7/files");
+  await expect.element(page.getByRole("option", { name: /Open pull request #7/ })).toBeVisible();
+  await userEvent.keyboard("{Enter}");
+
+  // The workspace shows at once, with a placeholder name, and its progress.
+  const row = page.getByRole("button", { name: /^acme\/trails #7\s?, opening/ });
+  await expect.element(row).toBeVisible();
+  const progress = page.getByRole("region", { name: "Opening the pull request" });
+  await expect.element(progress).toBeVisible();
+  expect(host.pulls).toEqual([{ id: "job-1", url: "https://github.com/acme/trails/pull/7" }]);
+
+  // A failed step says why, and Retry asks the host again.
+  host.setPull({
+    status: "failed",
+    error: "Add a clone of acme/trails to Med, then open the link again.",
+    steps: [{ id: "repository", label: "Find acme/trails", state: "failed" }],
+  });
+  const problem = () =>
+    document.querySelector('[aria-label="Opening the pull request"] [role="alert"]')?.textContent;
+  await expect
+    .poll(problem)
+    .toMatch(/^Add a clone of acme\/trails to Med, then open the link again\./);
+  await page.getByRole("button", { name: "Retry" }).click();
+  await expect.poll(() => host.pulls.length).toBe(2);
+  await expect.poll(problem).toBeUndefined();
+
+  // The title replaces the placeholder; the saved review takes the workspace's place.
+  host.setPull({ title: "Add durations" });
+  await expect
+    .element(page.getByRole("button", { name: /^#7 Add durations\s?, opening/ }))
+    .toBeVisible();
+  host.setPull({ status: "done", reviewId: "agent" });
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("agent-target");
+  expect(location.pathname).toBe("/review/agent");
+  await expect.poll(rowLabels).toEqual(["notes", "main 2", "Agent review 2 (current)"]);
 });

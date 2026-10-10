@@ -1,13 +1,26 @@
-import { sameNotePassage } from "./note-target";
-import { useToast } from "@/hooks/use-toast";
-import { NotebookCountIcon } from "./shared/NotebookCountIcon";
+import { flushSync } from "react-dom";
 import { NotebookNote } from "./NotebookNote";
 import { DesktopNotebookNote, NotebookNoteBody } from "./DesktopNotebookNote";
 import { ReaderSheet } from "./shared/ReaderSheet";
-import type { NoteTarget } from "@/types/note";
+import type { Note, NoteTarget } from "@/types/note";
+import type { Highlight } from "@/types/highlight";
+import type { HighlightColor } from "@/lib/highlight-constants";
+import { NotebookFilters, type NotebookKindFilter } from "./NotebookFilters";
 import { useReaderNotes } from "./hooks/use-reader-notes";
 import { useNotebookDeletion } from "./hooks/use-notebook-deletion";
-import { createNoteLocationResolver, noteMarginTop } from "./note-locations";
+import {
+  createNoteLocationResolver,
+  highlightNoteTarget,
+  noteMarginTop,
+} from "./note-locations";
+import {
+  IslandNote,
+  IslandNotice,
+  IslandSurface,
+  IslandTools,
+  notebookHighlights,
+  type IslandNoticeState,
+} from "./NotesIsland";
 import type {
   ReaderSessionState,
   ReaderSessionResources,
@@ -16,20 +29,13 @@ import type { ChapterEntry } from "./types";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
-  DropdownMenuItem,
   DropdownMenuContent,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
 } from "@/components/ui/dropdown-menu";
-import {
-  ArrowUp,
-  Check,
-  SlidersHorizontal,
-  X,
-  MoreHorizontal,
-  Palette,
-} from "lucide-react";
+import { ArrowUp, ArrowUpDown, Check, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { MOTION } from "@/lib/motion";
 import {
   useLayoutEffect,
   useEffect,
@@ -42,8 +48,6 @@ import {
   type RefObject,
 } from "react";
 
-const transition = { duration: 0.18, ease: [0.23, 1, 0.32, 1] as const };
-
 interface Location {
   page: number;
   chapter: string;
@@ -55,13 +59,18 @@ export function ReaderNotesPrototype({
   chapterAccess,
   pagination,
   locateAnchors,
+  highlights,
+  onVisitHighlight,
   location,
+  currentChapterIndex,
   children,
   notebook,
   setNotebook,
   open,
   onActiveChange,
   onMobileComposerPresenceChange,
+  onDraftPresenceChange,
+  onReturnToReading,
   onVisit,
   margin,
   desktop,
@@ -74,10 +83,15 @@ export function ReaderNotesPrototype({
   mobileAnnotation?: {
     identity: object;
     tools: ReactNode;
+    /** The existing highlight being edited, if any. */
+    highlightId?: string;
     captureTarget: () => NoteTarget | null;
     close: () => void;
   };
   bookId: string;
+  /** The book's highlights. Those without a note join the notebook. */
+  highlights: Highlight[];
+  onVisitHighlight: (highlight: Highlight) => void;
   chapters: ChapterEntry[];
   chapterAccess: ReaderSessionResources["chapterAccess"];
   pagination: ReaderSessionState["pagination"];
@@ -92,36 +106,31 @@ export function ReaderNotesPrototype({
   onClearQuote: () => void;
   margin: { width: number; location: Location; enabled: boolean };
   location: Location;
+  currentChapterIndex: number;
   open: boolean;
   onActiveChange: (active: boolean) => void;
   onMobileComposerPresenceChange: (present: boolean) => void;
+  /** Whether an unsent compose draft has text, for the footer capsule. */
+  onDraftPresenceChange: (present: boolean) => void;
+  /** Saving a note on the phone returns to plain reading. */
+  onReturnToReading: () => void;
   onVisit: (page: number) => void;
 }) {
-  // Capture each selection once. Refocusing after Remove quote must not attach it again.
-  const capturedAnnotation = useRef<object | null>(null);
   const composerOpen = open || Boolean(mobileAnnotation);
-  // Keep reading chrome suppressed through exit, including quick dismiss/reopen.
-  useLayoutEffect(() => {
-    if (desktop) onMobileComposerPresenceChange(false);
-    else if (composerOpen && !notebook) onMobileComposerPresenceChange(true);
-  }, [desktop, composerOpen, notebook, onMobileComposerPresenceChange]);
-  useLayoutEffect(
-    () => () => onMobileComposerPresenceChange(false),
-    [onMobileComposerPresenceChange],
-  );
   const reduceMotion = useReducedMotion();
-  const { toast } = useToast();
-  const [writing, setWriting] = useState(false);
-  const [showTools, setShowTools] = useState(false);
-  const [pendingTarget, setPendingTarget] = useState<NoteTarget | null>(null);
-  const [order, setOrder] = useState<"time" | "chapter">("time");
+  // Book order by default, so the notebook opens where you are reading.
+  const [order, setOrder] = useState<"time" | "chapter">("chapter");
+  const [kindFilter, setKindFilter] = useState<NotebookKindFilter>("all");
+  const [colorFilter, setColorFilter] = useState<HighlightColor[]>([]);
+  const [notice, setNotice] = useState<IslandNoticeState | null>(null);
+  // A tapped passage with a note shows the note; Palette asks for its colours.
+  const [toolsRequested, setToolsRequested] = useState(false);
   const notes = useReaderNotes(bookId);
   const { deleteNote, restoredEntries } = useNotebookDeletion({
     remove: notes.remove,
     restore: notes.restore,
     shortcutEnabled: desktop && open && notebook && !notes.editingId,
   });
-  const noteCount = notes.notes.filter((note) => note.kind === "note").length;
   const composerDraft = desktop ? notes.composeDraft : notes.draft;
   const inlineEditing = desktop && Boolean(notes.editingId);
   const draft = composerDraft?.content ?? "";
@@ -143,13 +152,50 @@ export function ReaderNotesPrototype({
       : target?.kind === "selection"
         ? { selectedText: target.text, color: "invisible" }
         : null;
-  // The top row has one purpose at a time. Restored text shows its attachment
-  // before focus, so a new selection cannot appear to own an older draft.
-  const mobileContextVisible = Boolean(
-    (quote || pendingTarget) &&
-    !showTools &&
-    (writing || hasDraftText || !mobileAnnotation),
+  const composeHasText = Boolean(notes.composeDraft?.content.trim());
+  useEffect(() => {
+    onDraftPresenceChange(composeHasText);
+  }, [composeHasText, onDraftPresenceChange]);
+
+  // Notes Island: one phone surface, in this order of priority. The notebook
+  // sheet and the desktop margin use their own surfaces.
+  const annotationNote = useMemo(() => {
+    const highlightId = mobileAnnotation?.highlightId;
+    if (!highlightId) return undefined;
+    return notes.notes
+      .filter(
+        (note): note is Extract<Note, { kind: "note" }> =>
+          note.kind === "note" && note.highlightId === highlightId,
+      )
+      .sort((a, b) => b.createdAt - a.createdAt)[0];
+  }, [notes.notes, mobileAnnotation?.highlightId]);
+  const composing = !desktop && !embeddedNotebook && open && !notebook;
+  const islandState: "none" | "compose" | "note" | "tools" | "notice" =
+    desktop || embeddedNotebook || notebook
+      ? "none"
+      : composing
+        ? "compose"
+        : mobileAnnotation
+          ? annotationNote && !toolsRequested
+            ? "note"
+            : "tools"
+          : notice
+            ? "notice"
+            : "none";
+  // Keep reading chrome suppressed through exit, including quick dismiss/reopen.
+  useLayoutEffect(() => {
+    if (desktop) onMobileComposerPresenceChange(false);
+    else if (islandState !== "none") onMobileComposerPresenceChange(true);
+  }, [desktop, islandState, onMobileComposerPresenceChange]);
+  useLayoutEffect(
+    () => () => onMobileComposerPresenceChange(false),
+    [onMobileComposerPresenceChange],
   );
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), notice.undo ? 8000 : 1300);
+    return () => clearTimeout(timer);
+  }, [notice]);
   const resolver = useMemo(
     () =>
       createNoteLocationResolver(
@@ -170,6 +216,31 @@ export function ReaderNotesPrototype({
       })),
     [notes.notes, resolver, pagination.status, pagination.spread],
   );
+  // A highlight with a note is already shown by that note's quote.
+  const unnotedHighlights = useMemo(
+    () => notebookHighlights(notes.notes, highlights),
+    [highlights, notes.notes],
+  );
+  const resolvedHighlights = useMemo(
+    () =>
+      (!pagination.spread || pagination.status === "idle"
+        ? []
+        : unnotedHighlights
+      ).map((highlight) => ({
+        highlight,
+        anchor: resolver.resolve(highlightNoteTarget(highlight, true).anchor),
+      })),
+    [unnotedHighlights, resolver, pagination.status, pagination.spread],
+  );
+  useEffect(() => {
+    if (!resolvedHighlights.length) return;
+    locateAnchors(
+      resolvedHighlights.flatMap(({ highlight, anchor }) =>
+        anchor ? [{ id: highlight.id, anchor }] : [],
+      ),
+      "notebook-highlights",
+    );
+  }, [resolvedHighlights, locateAnchors]);
   useEffect(() => {
     if (!resolved.length) return;
     locateAnchors(
@@ -189,28 +260,9 @@ export function ReaderNotesPrototype({
     )
       return;
     handledTarget.current = incomingTarget;
-    if (
-      !desktop &&
-      hasDraftText &&
-      target &&
-      !sameNotePassage(target, incomingTarget)
-    ) {
-      setPendingTarget(incomingTarget);
-    } else {
-      setPendingTarget(null);
-      notes.change(draft, incomingTarget);
-    }
+    notes.change(draft, incomingTarget);
     onClearQuote();
-  }, [
-    incomingTarget,
-    notes.ready,
-    draft,
-    notes,
-    onClearQuote,
-    desktop,
-    hasDraftText,
-    target,
-  ]);
+  }, [incomingTarget, notes.ready, draft, notes, onClearQuote]);
   const entries = useMemo(
     () =>
       resolved.map(({ note, anchor }) => ({
@@ -234,26 +286,142 @@ export function ReaderNotesPrototype({
         createdAt: note.createdAt,
         quote:
           note.kind === "note" && note.quote
-            ? { selectedText: note.quote.text, color: note.quote.color }
+            ? {
+                selectedText: note.quote.text,
+                // A highlight's colour can change after the note was written.
+                color:
+                  (note.highlightId &&
+                    highlights.find(
+                      (highlight) => highlight.id === note.highlightId,
+                    )?.color) ||
+                  note.quote.color,
+              }
             : undefined,
+        highlight: undefined as Highlight | undefined,
         top: noteMarginTop(anchor),
       })),
-    [resolved, pagination.anchorPages, pagination.status, chapters],
+    [resolved, pagination.anchorPages, pagination.status, chapters, highlights],
+  );
+  // The notebook gathers notes and the highlights that have no note.
+  const notebookEntries = useMemo(() => {
+    const pages = pagination.highlightAnchorPages;
+    return [
+      ...entries,
+      ...resolvedHighlights.map(({ highlight, anchor }) => ({
+        id: highlight.id,
+        kind: "highlight" as const,
+        text: "",
+        location: {
+          page:
+            anchor && pagination.status !== "recalculating"
+              ? (pages[highlight.id] ?? 0)
+              : 0,
+          chapter:
+            chapters.find(
+              (chapter) => chapter.spineItemId === highlight.spineItemId,
+            )?.title ?? "Unknown chapter",
+        },
+        chapterIndex: chapters.findIndex(
+          (chapter) => chapter.spineItemId === highlight.spineItemId,
+        ),
+        offset: highlight.startOffset,
+        createdAt: highlight.createdAt,
+        quote: { selectedText: highlight.selectedText, color: highlight.color },
+        highlight,
+        top: 0,
+      })),
+    ].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+  }, [
+    entries,
+    resolvedHighlights,
+    pagination.highlightAnchorPages,
+    pagination.status,
+    chapters,
+  ]);
+  const filtering = kindFilter !== "all" || colorFilter.length > 0;
+  // While filters are set, the phone notebook keeps the tallest list height it
+  // has had, so the filter controls stay under the finger.
+  const [filterHeight, setFilterHeight] = useState<number | null>(null);
+  const holdListHeight = useCallback((active: boolean) => {
+    setFilterHeight((height) =>
+      active
+        ? Math.max(
+            height ?? 0,
+            list.current?.getBoundingClientRect().height ?? 0,
+          )
+        : null,
+    );
+  }, []);
+  const changeKindFilter = useCallback(
+    (kind: NotebookKindFilter) => {
+      holdListHeight(kind !== "all" || colorFilter.length > 0);
+      setKindFilter(kind);
+    },
+    [colorFilter.length, holdListHeight],
+  );
+  const changeColorFilter = useCallback(
+    (colors: HighlightColor[]) => {
+      holdListHeight(kindFilter !== "all" || colors.length > 0);
+      setColorFilter(colors);
+    },
+    [kindFilter, holdListHeight],
+  );
+  const shownEntries = useMemo(
+    () =>
+      notebookEntries.filter(
+        (entry) =>
+          (kindFilter === "all" ||
+            (kindFilter === "highlights"
+              ? entry.kind === "highlight"
+              : entry.kind !== "highlight")) &&
+          (!colorFilter.length ||
+            colorFilter.includes(entry.quote?.color as HighlightColor)),
+      ),
+    [notebookEntries, kindFilter, colorFilter],
   );
 
   const [keyboardOpen, setKeyboardOpen] = useState(false);
-  const previousKeyboardOpen = useRef(false);
+  // Content width inside the island's 1 px border, 10 px from each edge.
+  const [islandWidth, setIslandWidth] = useState(() =>
+    Math.min(window.innerWidth - 22, 520),
+  );
   useEffect(() => {
-    if (previousKeyboardOpen.current && !keyboardOpen) {
-      setWriting(false);
-      if (!pendingTarget) setShowTools(true);
-    }
-    previousKeyboardOpen.current = keyboardOpen;
-  }, [keyboardOpen, pendingTarget]);
+    if (desktop) return;
+    const update = () => setIslandWidth(Math.min(window.innerWidth - 22, 520));
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [desktop]);
+  // A new passage while writing folds the composer away; the draft stays and
+  // the island offers to attach the passage to it.
+  const annotationIdentity = mobileAnnotation?.identity;
+  const seenAnnotation = useRef(annotationIdentity);
+  useEffect(() => {
+    if (desktop || seenAnnotation.current === annotationIdentity) return;
+    seenAnnotation.current = annotationIdentity;
+    setToolsRequested(false);
+    if (!annotationIdentity) return;
+    // The island owns the bottom edge; the reading chrome steps aside.
+    onReturnToReading();
+    setNotice(null);
+    if (composing) onActiveChange(false);
+  }, [
+    desktop,
+    annotationIdentity,
+    composing,
+    onActiveChange,
+    onReturnToReading,
+  ]);
   const composer = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const sidebarInput = useRef<HTMLTextAreaElement>(null);
   const list = useRef<HTMLDivElement>(null);
+  // The phone sheet mounts the list after the notebook opens; its arrival
+  // must rerun the effect that scrolls to the current chapter.
+  const [listElement, setListElement] = useState<HTMLDivElement | null>(null);
+  const listRef = useCallback((element: HTMLDivElement | null) => {
+    list.current = element;
+    setListElement(element);
+  }, []);
   const retainedEntry = useRef<{ id: string; offset: number } | null>(null);
 
   function changeOrder(value: string) {
@@ -293,10 +461,15 @@ export function ReaderNotesPrototype({
 
   // Position updates bypass React and Motion: scrolling must not wait for a
   // render or an animation. React only owns the keyboard-open layout variant.
+  const tracksKeyboard = desktop
+    ? false
+    : embeddedNotebook || notebook
+      ? false
+      : islandState === "compose";
   useLayoutEffect(() => {
     const element = composer.current;
     const viewport = window.visualViewport;
-    if (!composerOpen || desktop || notebook || !element || !viewport) return;
+    if (!tracksKeyboard || !element || !viewport) return;
     const update = () => {
       const inset = Math.max(
         0,
@@ -317,8 +490,10 @@ export function ReaderNotesPrototype({
       viewport.removeEventListener("scroll", update);
       window.removeEventListener("scroll", update);
       window.removeEventListener("touchmove", update);
+      element.style.bottom = "";
+      setKeyboardOpen(false);
     };
-  }, [composerOpen, desktop, notebook]);
+  }, [tracksKeyboard]);
 
   // Desktop keeps its panel mounted for the sidebar exit. Focus only when
   // the notebook opens; ordinary edits and the exit must not move focus.
@@ -348,21 +523,6 @@ export function ReaderNotesPrototype({
     pauseEdit,
   ]);
 
-  const previousList = useRef({ notebook: false, ids: new Set<string>() });
-  useLayoutEffect(() => {
-    const previous = previousList.current;
-    const newNote = entries.some(
-      (entry) =>
-        !previous.ids.has(entry.id) && !restoredEntries.current.has(entry.id),
-    );
-    if (notebook && (!previous.notebook || newNote))
-      list.current?.scrollTo({ top: list.current.scrollHeight });
-    previousList.current = {
-      notebook,
-      ids: new Set(entries.map((entry) => entry.id)),
-    };
-  }, [entries, notebook, restoredEntries]);
-
   const flush = notes.flush;
   const close = useCallback(() => {
     void flush().catch(() => {});
@@ -372,49 +532,109 @@ export function ReaderNotesPrototype({
     onActiveChange(false);
     mobileAnnotation?.close();
     setKeyboardOpen(false);
-    setWriting(false);
-    setShowTools(false);
-    setPendingTarget(null);
+    setToolsRequested(false);
   }, [flush, setNotebook, onActiveChange, mobileAnnotation]);
   async function send() {
+    const editing = Boolean(notes.editingId);
+    const color = quote?.color;
     if (!(await notes.send())) return;
     onClearQuote();
     mobileAnnotation?.close();
-    if (!notebook) {
-      close();
-      if (!desktop) toast({ message: "Note saved", duration: 1800 });
-    } else sidebarInput.current?.focus();
+    if (notebook) {
+      sidebarInput.current?.focus();
+      return;
+    }
+    close();
+    if (desktop) return;
+    setNotice({
+      key: Date.now(),
+      label: editing ? "Note updated" : "Saved to notebook",
+      color: color as IslandNoticeState["color"],
+    });
+    onReturnToReading();
+  }
+
+  /** Opens the island composer within the user event, so the phone keyboard
+   * opens with it. */
+  function openComposer() {
+    flushSync(() => {
+      setNotice(null);
+      onActiveChange(true);
+    });
+    input.current?.focus({ preventScroll: true });
+  }
+
+  /** Note (or Attach) on the island's colour tools. An unfinished draft keeps
+   * its text and takes the chosen passage. */
+  async function noteOnPassage() {
+    if (!mobileAnnotation || !notes.ready) return;
+    const selected = mobileAnnotation.captureTarget();
+    if (!selected) return;
+    const text = notes.composeDraft?.content ?? "";
+    mobileAnnotation.close();
+    if (notes.editingId) {
+      await notes.pauseEdit();
+      notes.change(text, selected);
+      flushSync(() => onActiveChange(true));
+      input.current?.focus({ preventScroll: true });
+      return;
+    }
+    notes.change(text, selected);
+    openComposer();
+  }
+
+  function deleteFromIsland(id: string) {
+    mobileAnnotation?.close();
+    void deleteNote(id, (undo) => {
+      const key = Date.now();
+      setNotice({ key, label: "Note deleted", undo });
+      return () =>
+        setNotice((current) => (current?.key === key ? null : current));
+    });
   }
 
   const editNote = notes.edit;
   const startEdit = useCallback(
     async (id: string) => {
-      // Mobile must focus within the user event to open its keyboard.
+      // Mobile must focus within the user event to open its keyboard. The
+      // island composer is not mounted yet, so render it first.
+      if (!desktop && !notebook) {
+        flushSync(() => {
+          mobileAnnotation?.close();
+          setNotice(null);
+          onActiveChange(true);
+        });
+      }
       if (!desktop) (notebook ? sidebarInput : input).current?.focus();
       if (!(await editNote(id)) || desktop) return;
       if (!embeddedNotebook) onActiveChange(true);
       (notebook ? sidebarInput : input).current?.focus();
     },
-    [editNote, notebook, onActiveChange, desktop, embeddedNotebook],
+    [
+      editNote,
+      notebook,
+      onActiveChange,
+      desktop,
+      embeddedNotebook,
+      mobileAnnotation,
+    ],
   );
 
-  const iconButton =
-    "flex h-8 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring";
   const orderedEntries = useMemo(
     () =>
       order === "time"
-        ? entries
-        : [...entries].sort(
+        ? shownEntries
+        : [...shownEntries].sort(
             (a, b) =>
               a.chapterIndex - b.chapterIndex ||
               a.offset - b.offset ||
               a.createdAt - b.createdAt ||
               a.id.localeCompare(b.id),
           ),
-    [order, entries],
+    [order, shownEntries],
   );
   const groupLabel = useCallback(
-    (entry: (typeof entries)[number]) => {
+    (entry: (typeof notebookEntries)[number]) => {
       if (order === "chapter") return entry.location.chapter;
       const date = new Date(entry.createdAt);
       if (date.toDateString() === new Date().toDateString()) return "Today";
@@ -426,6 +646,54 @@ export function ReaderNotesPrototype({
     },
     [order],
   );
+  // The notebook opens where you are reading: at the current chapter in book
+  // order, at the latest entry in time order. A new note comes into view.
+  const previousList = useRef({ notebook: false, ids: new Set<string>() });
+  useLayoutEffect(() => {
+    const previous = previousList.current;
+    const container = listElement;
+    const ids = new Set(entries.map((entry) => entry.id));
+    previousList.current = { notebook: notebook && !!container, ids };
+    if (!notebook || !container) return;
+    const opened = !previous.notebook;
+    const added = entries.find(
+      (entry) =>
+        !previous.ids.has(entry.id) && !restoredEntries.current.has(entry.id),
+    );
+    if (!opened && !added) return;
+    if (order === "time") {
+      container.scrollTo({ top: container.scrollHeight });
+      return;
+    }
+    const padding = parseFloat(getComputedStyle(container).paddingTop);
+    if (added && !opened) {
+      const row = container.querySelector<HTMLElement>(
+        `[data-note-id="${CSS.escape(added.id)}"]`,
+      );
+      if (!row) return;
+      const hidden =
+        row.offsetTop < container.scrollTop ||
+        row.offsetTop + row.offsetHeight >
+          container.scrollTop + container.clientHeight;
+      if (hidden) container.scrollTop = row.offsetTop - padding;
+      return;
+    }
+    const chapter =
+      orderedEntries.find((entry) => entry.chapterIndex >= currentChapterIndex)
+        ?.chapterIndex ?? orderedEntries.at(-1)?.chapterIndex;
+    const heading = container.querySelector<HTMLElement>(
+      `[data-notebook-group="${chapter}"]`,
+    );
+    container.scrollTop = heading ? heading.offsetTop - padding : 0;
+  }, [
+    entries,
+    notebook,
+    listElement,
+    restoredEntries,
+    order,
+    orderedEntries,
+    currentChapterIndex,
+  ]);
   const marginEntries = entries.filter(
     (entry) =>
       entry.location.page >= location.page &&
@@ -437,10 +705,12 @@ export function ReaderNotesPrototype({
   const commentLeft = `calc(100% - ${Math.max(commentWidth + 16, margin.width - 16)}px)`;
   const commentSurface =
     "rounded-xl border border-border/80 bg-background/95 p-3 text-sm shadow-sm";
-  function renderNoteInput(inNotebook = false) {
-    const footerInput = !desktop && !inNotebook;
+  /** One note field for three surfaces: the phone's Notes Island, the
+   * notebook (phone sheet or desktop sidebar), and the desktop margin. */
+  function renderNoteInput(surface: "island" | "notebook" | "margin") {
+    const inNotebook = surface === "notebook";
+    const island = surface === "island";
     const editingInComposer = !desktop && Boolean(notes.editingId);
-    const showQuote = footerInput ? mobileContextVisible : Boolean(quote);
     const sendButton = (
       <button
         aria-label={editingInComposer ? "Save changes" : "Save note"}
@@ -451,18 +721,117 @@ export function ReaderNotesPrototype({
         }
         onPointerDown={(event) => event.preventDefault()}
         onClick={() => send()}
-        className={`${desktop ? "relative" : "absolute right-0 bottom-0"} flex size-8 items-center justify-center rounded-full bg-primary text-primary-foreground transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transform-none ${hasDraftText ? "[transform:scale(1)] opacity-100 disabled:opacity-30" : "pointer-events-none [transform:scale(0.9)] opacity-0"}`}
+        className={`${desktop || island ? "relative" : "absolute right-0 bottom-0"} ${island ? "mb-0.5" : ""} flex size-8 shrink-0 items-center justify-center rounded-full bg-primary before:absolute before:content-[''] before:-inset-1.5 text-primary-foreground transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transform-none ${hasDraftText ? "[transform:scale(1)] opacity-100 disabled:opacity-30" : "pointer-events-none [transform:scale(0.9)] opacity-0"}`}
       >
         {editingInComposer ? <Check size={20} /> : <ArrowUp size={20} />}
       </button>
     );
+    const quoteRow = quote && (
+      <div
+        className={
+          island
+            ? "mx-2.5 mt-1.5 mb-1 flex items-start gap-2"
+            : "mx-3 mt-1 flex items-center gap-2"
+        }
+        data-testid="note-quote"
+      >
+        <span
+          className={`min-w-0 flex-1 border-l-[3px] py-1 pl-2 text-xs text-muted-foreground ${island ? "line-clamp-2" : "truncate"}`}
+          style={{
+            borderColor:
+              quote.color === "invisible"
+                ? "var(--muted-foreground)"
+                : `var(--${quote.color}-secondary)`,
+          }}
+        >
+          {quote.selectedText}
+        </span>
+        {!editingInComposer && (
+          <button
+            aria-label="Remove quote"
+            onPointerDown={(event) => event.preventDefault()}
+            className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground"
+            onClick={() => {
+              if (target)
+                notes.change(draft, {
+                  kind: "page",
+                  anchor: target.anchor,
+                });
+              onClearQuote();
+            }}
+          >
+            <X size={13} />
+          </button>
+        )}
+      </div>
+    );
+    const field = (
+      <NoteTextInput
+        ref={inNotebook ? sidebarInput : input}
+        autoFocus={desktop ? open && !inNotebook : island}
+        aria-label={editingInComposer ? "Edit note" : "Write a note"}
+        placeholder="Write a note…"
+        value={draft}
+        disabled={!notes.ready || inlineEditing}
+        readOnly={notes.saving}
+        rows={1}
+        onChange={(event) => {
+          const nextTarget = target ?? resolver.capture(pagination.spread);
+          if (nextTarget) notes.change(event.target.value, nextTarget);
+        }}
+        onKeyDown={(event) => {
+          if (
+            event.key === "Enter" &&
+            (event.metaKey || event.ctrlKey) &&
+            !event.nativeEvent.isComposing
+          ) {
+            event.preventDefault();
+            send();
+          }
+          if (event.key === "Escape") {
+            if (notes.editingId) void notes.cancelEdit();
+            else close();
+          }
+        }}
+        className={`${desktop ? "min-h-8 text-sm" : "min-h-8 text-base"} ${island ? "px-2.5" : ""} min-w-0 flex-1 resize-none bg-transparent py-1 leading-6 outline-none placeholder:text-muted-foreground`}
+      />
+    );
+    const error = notes.error && (island || inNotebook === notebook) && (
+      <p role="alert" className="mx-3 mb-2 text-sm text-destructive">
+        {notes.error}
+      </p>
+    );
+    if (island)
+      return (
+        <div style={{ width: islandWidth }} className="p-1.5">
+          {error}
+          {editingInComposer && (
+            <div
+              data-note-edit-strip
+              className="flex h-8 items-center justify-between gap-2 pr-1 pl-2.5 text-xs text-muted-foreground"
+            >
+              <span>Editing note</span>
+              <button
+                aria-label="Cancel editing"
+                disabled={notes.saving}
+                onPointerDown={(event) => event.preventDefault()}
+                className="relative h-7 rounded-full px-2.5 hover:bg-secondary hover:text-foreground before:absolute before:content-[''] before:-inset-y-2"
+                onClick={() => notes.cancelEdit()}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+          {quoteRow}
+          <div data-note-input-surface className="flex items-end gap-1.5">
+            {field}
+            {sendButton}
+          </div>
+        </div>
+      );
     return (
       <div>
-        {notes.error && inNotebook === notebook && (
-          <p role="alert" className="mx-3 mb-2 text-sm text-destructive">
-            {notes.error}
-          </p>
-        )}
+        {error}
         {editingInComposer && (
           <div
             data-note-edit-strip
@@ -490,191 +859,18 @@ export function ReaderNotesPrototype({
         >
           <div
             data-note-input-surface
-            className={
-              footerInput
-                ? "relative z-10 min-w-0 border-t border-border/50 px-4 py-2 focus-within:border-ring"
-                : `relative z-10 min-w-0 flex-1 border p-1 focus-within:ring-2 focus-within:ring-ring/60 ${
-                    desktop && inNotebook
-                      ? "rounded-(--sidebar-panel-field-radius) border-border/50 bg-secondary/35 focus-within:border-border"
-                      : `rounded-3xl border-border/80 bg-background/95 ${desktop ? "shadow-sm" : ""}`
-                  }`
-            }
-            style={
-              footerInput
-                ? {
-                    paddingInline:
-                      "max(16px, env(safe-area-inset-left), env(safe-area-inset-right))",
-                    paddingBottom: keyboardOpen
-                      ? 8
-                      : "max(8px, env(safe-area-inset-bottom))",
-                  }
-                : undefined
-            }
+            className={`relative z-10 min-w-0 flex-1 border p-1 focus-within:ring-2 focus-within:ring-ring/60 ${
+              desktop && inNotebook
+                ? "rounded-(--sidebar-panel-field-radius) border-border/50 bg-secondary/35 focus-within:border-border"
+                : `rounded-3xl border-border/80 bg-background/95 ${desktop ? "shadow-sm" : ""}`
+            }`}
           >
-            {(quote || pendingTarget) && showQuote && (
-              <div
-                className="mx-3 mt-1 flex items-center gap-2"
-                data-testid="note-quote"
-              >
-                <span
-                  className="min-w-0 flex-1 truncate border-l-[3px] py-1 pl-2 text-xs text-muted-foreground"
-                  style={{
-                    borderColor:
-                      !quote || quote.color === "invisible"
-                        ? "var(--muted-foreground)"
-                        : `var(--${quote.color}-secondary)`,
-                  }}
-                >
-                  {quote?.selectedText ?? "Unquoted note"}
-                </span>
-                {!editingInComposer &&
-                  (!footerInput ? (
-                    <button
-                      aria-label="Remove quote"
-                      className="flex size-7 items-center justify-center text-muted-foreground"
-                      onClick={() => {
-                        if (target)
-                          notes.change(draft, {
-                            kind: "page",
-                            anchor: target.anchor,
-                          });
-                        onClearQuote();
-                      }}
-                    >
-                      <X size={13} />
-                    </button>
-                  ) : (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        aria-label="Note attachment"
-                        className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground"
-                      >
-                        <MoreHorizontal size={16} />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        {pendingTarget && (
-                          <DropdownMenuItem
-                            onClick={() => {
-                              notes.change(draft, pendingTarget);
-                              setPendingTarget(null);
-                            }}
-                          >
-                            Use selected passage
-                          </DropdownMenuItem>
-                        )}
-                        {quote && (
-                          <DropdownMenuItem
-                            onClick={() => {
-                              if (target)
-                                notes.change(draft, {
-                                  kind: "page",
-                                  anchor: target.anchor,
-                                });
-                              onClearQuote();
-                            }}
-                          >
-                            Remove quote
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  ))}
-                {footerInput && mobileAnnotation && (
-                  <button
-                    aria-label="Show highlight tools"
-                    className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground"
-                    onClick={() => {
-                      input.current?.blur();
-                      setWriting(false);
-                      setShowTools(true);
-                    }}
-                  >
-                    <Palette size={16} />
-                  </button>
-                )}
-              </div>
-            )}
-            {/* Mobile keeps its existing internal send slot. Desktop reserves space outside the field. */}
+            {quoteRow}
+            {/* The phone sheet keeps an internal send slot. Desktop reserves space outside the field. */}
             <div
-              className={`relative flex items-end gap-1 ${desktop ? "px-3" : "pr-10"}`}
+              className={`relative flex items-end gap-1 ${desktop ? "px-3" : "pr-10 pl-2"}`}
             >
-              {!desktop && (
-                <button
-                  aria-label="Open notebook"
-                  aria-expanded={notebook}
-                  onClick={() => {
-                    input.current?.blur();
-                    onActiveChange(true);
-                    mobileAnnotation?.close();
-                    setPendingTarget(null);
-                    setShowTools(false);
-                    setNotebook(!notebook);
-                  }}
-                  className={`${iconButton} relative`}
-                  aria-description={`${noteCount} ${noteCount === 1 ? "note" : "notes"} in this book`}
-                >
-                  <NotebookCountIcon count={noteCount} />
-                </button>
-              )}
-              <NoteTextInput
-                ref={inNotebook ? sidebarInput : input}
-                autoFocus={
-                  desktop
-                    ? open && !inNotebook
-                    : !notebook && !mobileAnnotation && !hasDraftText
-                }
-                onFocus={() => {
-                  if (desktop || inNotebook) return;
-                  setWriting(true);
-                  setShowTools(false);
-                  if (!mobileAnnotation) return;
-                  if (
-                    capturedAnnotation.current !== mobileAnnotation.identity
-                  ) {
-                    capturedAnnotation.current = mobileAnnotation.identity;
-                    const selectedTarget = mobileAnnotation.captureTarget();
-                    if (selectedTarget) {
-                      if (
-                        hasDraftText &&
-                        target &&
-                        !sameNotePassage(target, selectedTarget)
-                      )
-                        setPendingTarget(selectedTarget);
-                      else {
-                        setPendingTarget(null);
-                        if (!hasDraftText) notes.change(draft, selectedTarget);
-                      }
-                    }
-                  }
-                  onActiveChange(true);
-                }}
-                aria-label={editingInComposer ? "Edit note" : "Write a note"}
-                placeholder="Write a note…"
-                value={draft}
-                disabled={!notes.ready || inlineEditing}
-                readOnly={notes.saving}
-                rows={1}
-                onChange={(event) => {
-                  const nextTarget =
-                    target ?? resolver.capture(pagination.spread);
-                  if (nextTarget) notes.change(event.target.value, nextTarget);
-                }}
-                onKeyDown={(event) => {
-                  if (
-                    event.key === "Enter" &&
-                    (event.metaKey || event.ctrlKey) &&
-                    !event.nativeEvent.isComposing
-                  ) {
-                    event.preventDefault();
-                    send();
-                  }
-                  if (event.key === "Escape") {
-                    if (notes.editingId) void notes.cancelEdit();
-                    else close();
-                  }
-                }}
-                className={`${desktop ? "min-h-8 text-sm" : "min-h-8 text-base"} min-w-0 flex-1 resize-none bg-transparent py-1 leading-6 outline-none placeholder:text-muted-foreground`}
-              />
+              {field}
               {!desktop && sendButton}
             </div>
           </div>
@@ -711,7 +907,9 @@ export function ReaderNotesPrototype({
                 transform: reduceMotion ? "none" : "translateY(12px)",
               }
         }
-        transition={desktop || embeddedNotebook ? { duration: 0 } : transition}
+        transition={
+          desktop || embeddedNotebook ? { duration: 0 } : MOTION.enter
+        }
         aria-label="Book notebook"
         className="flex min-h-0 flex-1 flex-col overflow-hidden"
       >
@@ -719,50 +917,81 @@ export function ReaderNotesPrototype({
           <h2 className="flex flex-1 items-center gap-2 text-sm font-medium">
             <span>Notebook</span>{" "}
             <span className="text-xs font-normal text-muted-foreground font-numeric tabular-nums">
-              {entries.length}
+              {filtering
+                ? `${shownEntries.length} of ${notebookEntries.length}`
+                : notebookEntries.length}
             </span>
           </h2>
           <DropdownMenu>
             <DropdownMenuTrigger
               aria-label="Notebook order"
-              className="flex size-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"
+              className="relative flex size-8 items-center justify-center rounded-full before:absolute before:content-[''] before:-inset-1.5 text-muted-foreground hover:bg-muted"
             >
-              <SlidersHorizontal size={15} />
+              <ArrowUpDown size={15} />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuRadioGroup value={order} onValueChange={changeOrder}>
-                <DropdownMenuRadioItem value="time">
+                <DropdownMenuRadioItem value="time" closeOnClick>
                   By time
                 </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="chapter">
+                <DropdownMenuRadioItem value="chapter" closeOnClick>
                   By chapter
                 </DropdownMenuRadioItem>
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>
-          {!desktop && (
+          {!desktop && !embeddedNotebook && (
             <button
               aria-label="Close notebook"
-              onClick={() => setNotebook(false)}
-              className="flex size-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"
+              onClick={close}
+              className="relative flex size-8 items-center justify-center rounded-full before:absolute before:content-[''] before:-inset-1.5 text-muted-foreground hover:bg-muted"
             >
               <X size={15} />
             </button>
           )}
         </header>
+        {notebookEntries.length > 0 && (
+          <NotebookFilters
+            kind={kindFilter}
+            colors={colorFilter}
+            onKindChange={changeKindFilter}
+            onColorsChange={changeColorFilter}
+          />
+        )}
         <div
-          ref={list}
+          ref={listRef}
           className={`relative min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain p-4 ${desktop ? "flex-1" : ""}`}
           style={{
-            minHeight: "min(9rem, 24dvh)",
+            minHeight:
+              !desktop && !keyboardOpen && filterHeight
+                ? filterHeight
+                : "min(9rem, 24dvh)",
             maxHeight: desktop ? undefined : keyboardOpen ? "24dvh" : "48dvh",
           }}
         >
-          {!entries.length && (
+          {notebookEntries.length > 0 && !shownEntries.length && (
+            <div className="absolute inset-x-4 top-4 px-4 py-10 text-center">
+              <p className="font-serif text-lg text-muted-foreground">
+                Nothing matches these filters.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterHeight(null);
+                  setKindFilter("all");
+                  setColorFilter([]);
+                }}
+                className="mt-3 h-8 rounded-full px-3 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+              >
+                Show everything
+              </button>
+            </div>
+          )}
+          {!notebookEntries.length && (
             <motion.p
               initial={desktop ? false : { opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ ...transition, delay: reduceMotion ? 0 : 0.16 }}
+              transition={{ ...MOTION.enter, delay: reduceMotion ? 0 : 0.16 }}
               className="absolute inset-x-4 top-4 px-4 py-10 text-center font-serif text-lg text-muted-foreground"
             >
               Write your first note below. Your thoughts and saved quotes will
@@ -795,8 +1024,11 @@ export function ReaderNotesPrototype({
                       }}
                       transition={{
                         duration: reduceMotion ? 0 : 0.18,
-                        ease: transition.ease,
+                        ease: MOTION.enter.ease,
                       }}
+                      data-notebook-group={
+                        order === "chapter" ? entry.chapterIndex : undefined
+                      }
                       className="overflow-hidden"
                     >
                       <h3 className="mb-2 px-1 text-xs font-medium text-muted-foreground">
@@ -821,85 +1053,105 @@ export function ReaderNotesPrototype({
                     height: {
                       duration: reduceMotion ? 0 : 0.18,
                       delay: reduceMotion ? 0 : 0.16,
-                      ease: transition.ease,
+                      ease: MOTION.enter.ease,
                     },
                     opacity: { duration: 0.16 },
                   },
                 }}
                 transition={{
                   duration: reduceMotion ? 0 : 0.18,
-                  ease: transition.ease,
+                  ease: MOTION.enter.ease,
                 }}
                 className="flow-root overflow-hidden"
               >
-                <NotebookCard
-                  text={entry.text}
-                  dimmed={inlineEditing && notes.editingId !== entry.id}
-                  disabled={!notes.ready || notes.saving}
-                  canEdit={entry.kind === "note"}
-                  editing={notes.editingId === entry.id}
-                  onEdit={() => void startEdit(entry.id)}
-                  onDelete={() => deleteNote(entry.id)}
-                >
-                  {entry.quote && (
-                    <blockquote
-                      className="mb-2 whitespace-pre-wrap break-words border-l-[3px] pl-2 text-xs leading-relaxed text-muted-foreground"
-                      style={{
-                        borderColor:
-                          entry.quote.color === "invisible"
-                            ? "var(--muted-foreground)"
-                            : `var(--${entry.quote.color}-secondary)`,
-                      }}
-                    >
-                      {entry.quote.selectedText}
-                    </blockquote>
-                  )}
-                  <NotebookNoteBody
-                    content={entry.text}
-                    edit={
-                      desktop && notes.editingId === entry.id
-                        ? {
-                            value: notes.draft?.content ?? "",
-                            saving: notes.saving,
-                            onChange: (value) => {
-                              if (notes.draft)
-                                notes.change(value, notes.draft.target);
-                            },
-                            onSave: notes.send,
-                            onCancel: () => {
-                              void notes.cancelEdit();
-                            },
-                          }
-                        : undefined
-                    }
+                {entry.highlight ? (
+                  <HighlightEntry
+                    desktop={desktop}
+                    text={entry.highlight.selectedText}
+                    color={entry.highlight.color}
+                    location={`${order === "time" ? `${entry.location.chapter} · ` : ""}${
+                      entry.location.page
+                        ? `p. ${entry.location.page}`
+                        : "Location unavailable"
+                    }`}
+                    createdAt={entry.createdAt}
+                    onSelect={() => {
+                      onVisitHighlight(entry.highlight!);
+                      close();
+                    }}
+                  />
+                ) : (
+                  <NotebookCard
+                    text={entry.text}
+                    dimmed={inlineEditing && notes.editingId !== entry.id}
+                    disabled={!notes.ready || notes.saving}
+                    canEdit={entry.kind === "note"}
+                    editing={notes.editingId === entry.id}
+                    onEdit={() => void startEdit(entry.id)}
+                    onDelete={() => deleteNote(entry.id)}
                   >
-                    <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
-                      <button
-                        disabled={!entry.location.page}
-                        className="min-w-0 truncate text-left hover:text-foreground"
-                        onClick={() => {
-                          onVisit(entry.location.page);
-                          close();
+                    {entry.quote && (
+                      <blockquote
+                        className="mb-2 whitespace-pre-wrap break-words border-l-[3px] pl-2 text-xs leading-relaxed text-muted-foreground"
+                        style={{
+                          borderColor:
+                            entry.quote.color === "invisible"
+                              ? "var(--muted-foreground)"
+                              : `var(--${entry.quote.color}-secondary)`,
                         }}
                       >
-                        {order === "time" ? `${entry.location.chapter} · ` : ""}
-                        {entry.location.page
-                          ? `p. ${entry.location.page}`
-                          : "Location unavailable"}
-                      </button>
-                      <time
-                        dateTime={new Date(entry.createdAt).toISOString()}
-                        title={new Date(entry.createdAt).toLocaleString()}
-                        className="shrink-0"
-                      >
-                        {new Date(entry.createdAt).toLocaleTimeString([], {
-                          hour: "numeric",
-                          minute: "2-digit",
-                        })}
-                      </time>
-                    </div>
-                  </NotebookNoteBody>
-                </NotebookCard>
+                        {entry.quote.selectedText}
+                      </blockquote>
+                    )}
+                    <NotebookNoteBody
+                      content={entry.text}
+                      edit={
+                        desktop && notes.editingId === entry.id
+                          ? {
+                              value: notes.draft?.content ?? "",
+                              saving: notes.saving,
+                              onChange: (value) => {
+                                if (notes.draft)
+                                  notes.change(value, notes.draft.target);
+                              },
+                              onSave: notes.send,
+                              onCancel: () => {
+                                void notes.cancelEdit();
+                              },
+                            }
+                          : undefined
+                      }
+                    >
+                      <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+                        <button
+                          disabled={!entry.location.page}
+                          className="min-w-0 truncate text-left hover:text-foreground"
+                          onClick={() => {
+                            onVisit(entry.location.page);
+                            close();
+                          }}
+                        >
+                          {order === "time"
+                            ? `${entry.location.chapter} · `
+                            : ""}
+                          {entry.location.page
+                            ? `p. ${entry.location.page}`
+                            : "Location unavailable"}
+                        </button>
+                        <time
+                          dateTime={new Date(entry.createdAt).toISOString()}
+                          title={new Date(entry.createdAt).toLocaleString()}
+                          className="shrink-0"
+                        >
+                          {new Date(entry.createdAt).toLocaleTimeString([], {
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })}
+                        </time>
+                      </div>
+                    </NotebookNoteBody>
+                  </NotebookCard>
+                )}
               </motion.div>,
             ])}
           </AnimatePresence>
@@ -907,7 +1159,16 @@ export function ReaderNotesPrototype({
       </motion.section>
     ),
     [
-      entries,
+      notebookEntries,
+      shownEntries,
+      filtering,
+      kindFilter,
+      colorFilter,
+      filterHeight,
+      changeKindFilter,
+      changeColorFilter,
+      listRef,
+      onVisitHighlight,
       restoredEntries,
       orderedEntries,
       startEdit,
@@ -923,7 +1184,6 @@ export function ReaderNotesPrototype({
       onVisit,
       reduceMotion,
       groupLabel,
-      setNotebook,
     ],
   );
   return (
@@ -931,14 +1191,18 @@ export function ReaderNotesPrototype({
       {!desktop && !embeddedNotebook && (
         <ReaderSheet
           open={notebook && open}
-          onOpenChange={setNotebook}
+          onOpenChange={(next) => {
+            // Closing the notebook returns to reading, not to a composer.
+            if (next) setNotebook(true);
+            else close();
+          }}
           title="Notebook"
           showHeader={false}
           bodyClassName="flex min-h-0 flex-col"
         >
           {notebookPanel}
           <div className="shrink-0 px-4 pt-1 pb-[max(8px,env(safe-area-inset-bottom))]">
-            {renderNoteInput(true)}
+            {renderNoteInput("notebook")}
           </div>
         </ReaderSheet>
       )}
@@ -953,7 +1217,7 @@ export function ReaderNotesPrototype({
                   : "shrink-0 p-4"
               }
             >
-              {renderNoteInput(true)}
+              {renderNoteInput("notebook")}
             </div>
           )}
         </div>,
@@ -1018,56 +1282,123 @@ export function ReaderNotesPrototype({
               data-note-composer
               className={marginEntries.length ? "mt-2" : ""}
             >
-              {renderNoteInput()}
+              {renderNoteInput("margin")}
             </div>
           )}
         </aside>
       )}
-      <AnimatePresence
-        onExitComplete={() => {
-          if (!composerOpen || notebook) onMobileComposerPresenceChange(false);
-        }}
-      >
-        {composerOpen && !notebook && (!desktop || margin.width < 220) && (
-          <motion.div
-            ref={composer}
-            data-note-composer
-            key="composer"
-            initial={{
-              opacity: 0,
-              transform: reduceMotion ? "none" : "translateY(8px)",
-            }}
-            animate={{ opacity: 1, transform: "none" }}
-            exit={{
-              opacity: 0,
-              transform: reduceMotion ? "none" : "translateY(8px)",
-            }}
-            transition={transition}
-            className={
-              desktop
-                ? "fixed z-40 max-h-[calc(100dvh-7rem)] overflow-y-auto"
-                : "fixed inset-x-0 bottom-0 z-40 border-t border-border/70 bg-background/88 backdrop-blur-xl"
-            }
-            style={
-              desktop
-                ? {
-                    top: Math.max(
-                      80,
-                      Math.min(commentPosition.top, window.innerHeight - 220),
-                    ),
-                    left: commentLeft,
-                    width: commentWidth,
+      {desktop ? (
+        <AnimatePresence>
+          {composerOpen && !notebook && margin.width < 220 && (
+            <motion.div
+              ref={composer}
+              data-note-composer
+              key="composer"
+              initial={{
+                opacity: 0,
+                transform: reduceMotion ? "none" : "translateY(8px)",
+              }}
+              animate={{ opacity: 1, transform: "none" }}
+              exit={{
+                opacity: 0,
+                transform: reduceMotion ? "none" : "translateY(8px)",
+              }}
+              transition={MOTION.enter}
+              className="fixed z-40 max-h-[calc(100dvh-7rem)] overflow-y-auto"
+              style={{
+                top: Math.max(
+                  80,
+                  Math.min(commentPosition.top, window.innerHeight - 220),
+                ),
+                left: commentLeft,
+                width: commentWidth,
+              }}
+            >
+              {renderNoteInput("margin")}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      ) : (
+        <AnimatePresence
+          onExitComplete={() => {
+            if (islandState === "none") onMobileComposerPresenceChange(false);
+          }}
+        >
+          {islandState !== "none" && (
+            <motion.div
+              ref={composer}
+              key="island"
+              data-notes-island={islandState}
+              data-note-composer={islandState === "compose" ? "" : undefined}
+              initial={{
+                opacity: 0,
+                transform: reduceMotion ? "none" : "translateY(16px)",
+              }}
+              animate={{ opacity: 1, transform: "none" }}
+              exit={{
+                opacity: 0,
+                transform: reduceMotion ? "none" : "translateY(12px)",
+                transition: MOTION.exit,
+              }}
+              transition={MOTION.enter}
+              className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center"
+            >
+              <div
+                className="flex justify-center"
+                style={{
+                  paddingBottom: keyboardOpen
+                    ? 8
+                    : "max(env(safe-area-inset-bottom), 14px)",
+                }}
+              >
+                <IslandSurface
+                  layerKey={islandState}
+                  radius={
+                    islandState === "tools"
+                      ? 26
+                      : islandState === "notice"
+                        ? 22
+                        : 24
                   }
-                : undefined
-            }
-          >
-            {mobileAnnotation &&
-              !mobileContextVisible &&
-              mobileAnnotation.tools}
-            {renderNoteInput()}
-          </motion.div>
-        )}
-      </AnimatePresence>
+                >
+                  {islandState === "tools" && mobileAnnotation && (
+                    <IslandTools
+                      tools={mobileAnnotation.tools}
+                      actionLabel={composeHasText ? "Attach" : "Note"}
+                      onNote={() => void noteOnPassage()}
+                    />
+                  )}
+                  {islandState === "note" && annotationNote && (
+                    <IslandNote
+                      width={islandWidth}
+                      text={annotationNote.content}
+                      meta={noteMeta(
+                        entries.find((entry) => entry.id === annotationNote.id)
+                          ?.location.page ?? 0,
+                        annotationNote.createdAt,
+                      )}
+                      onEdit={() => void startEdit(annotationNote.id)}
+                      onDelete={() => deleteFromIsland(annotationNote.id)}
+                      onShowTools={() => setToolsRequested(true)}
+                      onClose={() => mobileAnnotation?.close()}
+                    />
+                  )}
+                  {islandState === "compose" && renderNoteInput("island")}
+                  {islandState === "notice" && notice && (
+                    <IslandNotice
+                      notice={notice}
+                      onUndo={() => {
+                        setNotice(null);
+                        notice.undo?.();
+                      }}
+                    />
+                  )}
+                </IslandSurface>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      )}
     </>
   );
 }
@@ -1089,4 +1420,64 @@ function NoteTextInput({
     element.style.height = `${Math.min(element.scrollHeight, 144)}px`;
   }, [ref, value]);
   return <textarea {...props} ref={ref} value={value} />;
+}
+
+/** "p. 12 · Today" for a note shown on the island. */
+function noteMeta(page: number, createdAt: number) {
+  const date = new Date(createdAt);
+  const day =
+    date.toDateString() === new Date().toDateString()
+      ? "Today"
+      : date.toLocaleDateString([], { month: "short", day: "numeric" });
+  return page ? `p. ${page} · ${day}` : day;
+}
+
+/** A highlight without a note, in the notebook. Choosing it opens its page. */
+function HighlightEntry({
+  desktop,
+  text,
+  color,
+  location,
+  createdAt,
+  onSelect,
+}: {
+  desktop: boolean;
+  text: string;
+  color: string;
+  location: string;
+  createdAt: number;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={`Go to highlight: ${text}`}
+      onClick={onSelect}
+      className="group relative mb-2 block w-full rounded-2xl text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+    >
+      <div
+        className={`rounded-2xl px-4 py-3 ${desktop ? "bg-secondary/40 transition-colors duration-150 group-hover:bg-secondary/70 group-focus-visible:bg-secondary/70" : "bg-secondary"}`}
+      >
+        <blockquote
+          className="border-l-[3px] pl-3 text-[15px] leading-relaxed break-words whitespace-pre-wrap"
+          style={{ borderColor: `var(--${color}-secondary)` }}
+        >
+          {text}
+        </blockquote>
+        <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+          <span className="min-w-0 truncate">{location}</span>
+          <time
+            dateTime={new Date(createdAt).toISOString()}
+            title={new Date(createdAt).toLocaleString()}
+            className="shrink-0"
+          >
+            {new Date(createdAt).toLocaleTimeString([], {
+              hour: "numeric",
+              minute: "2-digit",
+            })}
+          </time>
+        </div>
+      </div>
+    </button>
+  );
 }

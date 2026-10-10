@@ -26,6 +26,7 @@ export function FileViewTabs({
   panelId = "file-view-panel",
   showChanges = true,
   showBrief = false,
+  showCommit = false,
   changesCount,
   leading,
   trailing,
@@ -38,6 +39,8 @@ export function FileViewTabs({
   showChanges?: boolean;
   /** A saved review's brief comes first, before Changes. */
   showBrief?: boolean;
+  /** Stage, commit, and push a live checkout. */
+  showCommit?: boolean;
   /** Changed-file count shown beside the Changes tab. */
   changesCount?: number;
   /** Controls placed before the tabs and at the end of the tab row. */
@@ -67,7 +70,7 @@ export function FileViewTabs({
           <Tabs.Tab
             value="brief"
             aria-controls={panelId}
-            aria-label="Brief"
+            aria-label="Notes"
             {...stylex.props(
               styles.tab,
               styles.changes,
@@ -76,7 +79,7 @@ export function FileViewTabs({
             )}
           >
             <Icon name="brief" size={14} />
-            Brief
+            Notes
           </Tabs.Tab>
         )}
         {showChanges && (
@@ -91,6 +94,18 @@ export function FileViewTabs({
             {changesCount !== undefined && (
               <span {...stylex.props(styles.count)}>{changesCount.toLocaleString()}</span>
             )}
+          </Tabs.Tab>
+        )}
+        {showCommit && (
+          <Tabs.Tab
+            value="commit"
+            aria-controls={panelId}
+            aria-label="Commit"
+            title="Stage, commit, and push (q)"
+            {...stylex.props(styles.tab, styles.changes, active === "commit" && styles.active)}
+          >
+            <Icon name="commit" size={14} />
+            Commit
           </Tabs.Tab>
         )}
         {tabs.map((tab, index) => (
@@ -177,7 +192,7 @@ const styles = stylex.create({
     gap: 6,
     height: 26,
     borderWidth: 0,
-    borderRadius: 6,
+    borderRadius: `calc(6px * ${tokens.round})`,
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
     color: { default: tokens.muted, ":hover": tokens.text },
     paddingInline: 8,
@@ -205,7 +220,7 @@ const styles = stylex.create({
   count: {
     minWidth: 18,
     paddingInline: 5,
-    borderRadius: 9,
+    borderRadius: `calc(9px * ${tokens.round})`,
     backgroundColor: tokens.fill,
     color: tokens.muted,
     fontFamily: tokens.code,
@@ -232,7 +247,7 @@ const styles = stylex.create({
     height: 18,
     padding: 0,
     borderWidth: 0,
-    borderRadius: 5,
+    borderRadius: `calc(5px * ${tokens.round})`,
     cursor: "pointer",
     backgroundColor: { default: "transparent", ":hover": tokens.fillStrong },
     color: { default: tokens.faint, ":hover": tokens.text },

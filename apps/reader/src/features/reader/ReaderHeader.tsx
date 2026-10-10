@@ -3,6 +3,7 @@ import { ChevronLeft, MoreHorizontal, PanelRight } from "lucide-react";
 import type { ReactNode } from "react";
 import { motion } from "motion/react";
 import type { ReaderChromeSurfaceProps } from "./chrome";
+import { MOTION } from "@/lib/motion";
 import { ReaderDesktopHeader } from "./ReaderDesktopHeader";
 
 const HEADER_HEIGHT_PX = 56;
@@ -26,22 +27,6 @@ const CHROME_SHELL_HEIGHT_PX =
   BOOKMARK_RIBBON_BASE_TOP_PX +
   BOOKMARK_RIBBON_ACTIVE_DROP_PX +
   BOOKMARK_RIBBON_HEIGHT_PX;
-const CHROME_ENTER_TRANSITION = {
-  duration: 0.26,
-  ease: [0.16, 1, 0.3, 1] as const,
-};
-const CHROME_EXIT_TRANSITION = {
-  duration: 0.18,
-  ease: [0.32, 0, 0.67, 0] as const,
-};
-const CHROME_FADE_IN_TRANSITION = {
-  duration: 0.18,
-  ease: "easeOut" as const,
-};
-const CHROME_FADE_OUT_TRANSITION = {
-  duration: 0.14,
-  ease: "easeIn" as const,
-};
 const CHROME_BUTTON_CLASS_NAME =
   "size-8 rounded-full border border-border/70 bg-background/70 text-muted-foreground transition-[color,background-color,transform,scale] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-background hover:text-foreground active:scale-95 motion-reduce:active:scale-100";
 
@@ -91,15 +76,13 @@ export function ReaderHeader({
       ? `calc(-100% + ${BOOKMARK_RIBBON_PEEK_OFFSET_PX}px)`
       : "-100%";
   const chromeShellTransition = chromeVisible
-    ? CHROME_ENTER_TRANSITION
-    : CHROME_EXIT_TRANSITION;
+    ? MOTION.chromeEnter
+    : MOTION.chromeExit;
   const bookmarkRibbonYTransition = isBookmarked
-    ? CHROME_ENTER_TRANSITION
-    : CHROME_EXIT_TRANSITION;
+    ? MOTION.chromeEnter
+    : MOTION.chromeExit;
   const bookmarkRibbonOpacityTransition =
-    chromeVisible || isBookmarked
-      ? CHROME_FADE_IN_TRANSITION
-      : CHROME_FADE_OUT_TRANSITION;
+    chromeVisible || isBookmarked ? MOTION.chromeFadeIn : MOTION.chromeFadeOut;
 
   return (
     <>

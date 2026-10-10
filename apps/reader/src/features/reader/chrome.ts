@@ -1,10 +1,5 @@
 import type { CSSProperties, HTMLAttributes } from "react";
 
-export const DESKTOP_CHROME_FADE_TRANSITION = {
-  duration: 0.16,
-  ease: [0.23, 1, 0.32, 1] as const,
-};
-
 /**
  * Shared interaction props for any visible reader chrome surface that should
  * keep the auto-hiding chrome open while hovered or focused.

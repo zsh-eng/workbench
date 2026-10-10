@@ -188,11 +188,13 @@ describe("SidebarProvider", () => {
     const sidebarContainer = document.querySelector<HTMLElement>(
       '[data-slot="sidebar-container"]',
     );
-    expect(sidebarContainer?.style.transitionDuration).toBe("200ms");
+    const entrance = parseFloat(sidebarContainer!.style.transitionDuration);
 
     fireEvent.click(screen.getByRole("button", { name: "Close sidebar" }));
 
-    expect(sidebarContainer?.style.transitionDuration).toBe("140ms");
+    const exit = parseFloat(sidebarContainer!.style.transitionDuration);
+    expect(exit).toBeGreaterThan(0);
+    expect(exit).toBeLessThan(entrance);
   });
 
   it("reports controlled changes to the app shell", () => {

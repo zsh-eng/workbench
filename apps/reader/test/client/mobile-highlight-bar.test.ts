@@ -27,20 +27,3 @@ it.each(["Highlight with green", "Remove highlight"])(
     ).toHaveBeenCalledOnce();
   },
 );
-
-it("keeps the highlight when its active color is clicked", () => {
-  const onColorSelect = vi.fn();
-  const onDelete = vi.fn();
-  render(
-    createElement(MobileHighlightBar, {
-      onColorSelect,
-      onDelete,
-      currentColor: "yellow",
-    }),
-  );
-  const yellow = screen.getByRole("button", { name: "Highlight with yellow" });
-  expect(yellow.getAttribute("aria-pressed")).toBe("true");
-  fireEvent.click(yellow);
-  expect(onColorSelect).not.toHaveBeenCalled();
-  expect(onDelete).not.toHaveBeenCalled();
-});

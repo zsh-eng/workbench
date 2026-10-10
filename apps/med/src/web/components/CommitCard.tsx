@@ -1,4 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
+import { useEffect, useState } from "react";
 import type { Commit, CommitDetails } from "../../shared/protocol";
 import { relativeTime } from "../data/relative-time";
 import { tokens } from "../theme.stylex";
@@ -39,12 +40,15 @@ export function CommitCard({
   color,
   details,
   now,
+  copyable = false,
 }: {
   commit: Commit;
   color: string;
   /** Undefined while loading; null when the details are not available. */
   details?: CommitDetails | null;
   now: number;
+  /** An interactive card lets its short hash copy the full hash. */
+  copyable?: boolean;
 }) {
   const subject = commit.subject || "(no commit message)";
   const conventional = CONVENTIONAL.exec(subject);
@@ -70,7 +74,11 @@ export function CommitCard({
             {relativeTime(commit.timestamp, now)} · {dateFormatter.format(commit.timestamp)}
           </time>
         </span>
-        <span {...stylex.props(styles.hash)}>{commit.id.slice(0, 7)}</span>
+        {copyable ? (
+          <CopyHash id={commit.id} />
+        ) : (
+          <span {...stylex.props(styles.hash)}>{commit.id.slice(0, 7)}</span>
+        )}
       </header>
       <p {...stylex.props(styles.subject)}>
         {conventional ? (
@@ -111,6 +119,34 @@ export function CommitCard({
         </footer>
       )}
     </div>
+  );
+}
+
+function CopyHash({ id }: { id: string }) {
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+  useEffect(() => {
+    if (state === "idle") return;
+    const timer = setTimeout(() => setState("idle"), 1600);
+    return () => clearTimeout(timer);
+  }, [state]);
+  const title =
+    state === "copied" ? "Copied" : state === "failed" ? "Could not copy" : "Copy commit hash";
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      {...stylex.props(styles.hash, styles.copy)}
+      onClick={() =>
+        void navigator.clipboard.writeText(id).then(
+          () => setState("copied"),
+          () => setState("failed"),
+        )
+      }
+    >
+      {id.slice(0, 7)}
+      <Icon name={state === "copied" ? "check" : "copy"} size={11} />
+    </button>
   );
 }
 
@@ -159,13 +195,25 @@ const styles = stylex.create({
     flexShrink: 0,
     alignSelf: "flex-start",
     paddingInline: 6,
-    borderRadius: 5,
+    borderRadius: `calc(5px * ${tokens.round})`,
     backgroundColor: tokens.fill,
     color: tokens.muted,
     fontFamily: tokens.code,
     fontSize: 10.5,
     lineHeight: "18px",
     fontVariantNumeric: "tabular-nums",
+  },
+  copy: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    borderWidth: 0,
+    cursor: "pointer",
+    color: { default: tokens.muted, ":hover": tokens.text },
+    backgroundColor: {
+      default: tokens.fill,
+      ":hover": `color-mix(in srgb, ${tokens.text} 12%, ${tokens.fill})`,
+    },
   },
   subject: {
     margin: 0,
@@ -181,7 +229,7 @@ const styles = stylex.create({
     gap: 4,
     marginInlineEnd: 6,
     paddingInline: 5,
-    borderRadius: 4,
+    borderRadius: `calc(4px * ${tokens.round})`,
     backgroundColor: `color-mix(in srgb, ${lane} 15%, transparent)`,
     color: lane,
     fontFamily: tokens.code,
@@ -222,7 +270,7 @@ const styles = stylex.create({
     gap: 4,
     maxWidth: 180,
     paddingInline: 6,
-    borderRadius: 5,
+    borderRadius: `calc(5px * ${tokens.round})`,
     backgroundColor: tokens.accentSoft,
     color: tokens.accent,
     fontSize: 11,

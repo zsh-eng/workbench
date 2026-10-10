@@ -8,7 +8,7 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { ShortcutKeys } from "./ShortcutKeys";
 export { ShortcutKeys } from "./ShortcutKeys";
 import { Icon, type IconName } from "./Icon";
-import { tokens, ui } from "../theme.stylex";
+import { picked, tokens, ui } from "../theme.stylex";
 
 export interface Choice {
   value: string;
@@ -20,6 +20,8 @@ export interface MenuAction {
   shortcut?: string;
   /** A toggle. Renders as a checkbox item with its state. */
   checked?: boolean;
+  /** A checked item that is a choice, so choosing it closes the menu. */
+  choice?: boolean;
   disabled?: boolean;
   onClick(): void;
 }
@@ -38,12 +40,17 @@ export function ChoiceSelect({
   onChange,
   label,
   icon,
+  trigger,
+  disabled,
 }: {
   value: string;
   choices: Choice[];
   onChange(value: string): void;
   label: string;
   icon?: ReactNode;
+  /** The trigger's look, in place of a toolbar button. */
+  trigger?: stylex.StyleXStyles;
+  disabled?: boolean;
 }) {
   return (
     <Select.Root
@@ -52,8 +59,12 @@ export function ChoiceSelect({
         if (next !== null) onChange(next);
       }}
       items={choices}
+      disabled={disabled}
     >
-      <Select.Trigger {...stylex.props(ui.button, ui.strong, styles.trigger)} aria-label={label}>
+      <Select.Trigger
+        {...stylex.props(ui.button, ui.strong, styles.trigger, trigger)}
+        aria-label={label}
+      >
         {icon}
         <Select.Value {...stylex.props(styles.value)} />
         <Select.Icon {...stylex.props(styles.chevron)}>
@@ -78,7 +89,7 @@ export function ChoiceSelect({
                       ui.menuItem,
                       styles.choice,
                       !!choice.description && styles.describedChoice,
-                      state.highlighted && ui.menuHighlighted,
+                      state.highlighted && [ui.menuHighlighted, picked],
                     ).className
                   }
                 >
@@ -109,11 +120,16 @@ export function ActionMenu({
   children,
   label = "View options",
   sections,
+  trigger,
+  align = "end",
 }: {
   children?: ReactNode;
   label?: string;
   /** Groups of related actions, separated by rules. */
   sections: MenuAction[][];
+  /** The trigger's look, in place of a toolbar button. */
+  trigger?: stylex.StyleXStyles;
+  align?: "start" | "end";
 }) {
   const toggles = sections.some((section) =>
     section.some((action) => action.checked !== undefined),
@@ -122,14 +138,14 @@ export function ActionMenu({
     <Menu.Root>
       <ActionTooltip label={label}>
         <Menu.Trigger
-          {...stylex.props(ui.button, children ? null : ui.iconButton)}
+          {...stylex.props(trigger ?? [ui.button, children ? null : ui.iconButton])}
           aria-label={label}
         >
           {children ?? <Icon name="settings" size={15} />}
         </Menu.Trigger>
       </ActionTooltip>
       <Menu.Portal>
-        <Menu.Positioner align="end" sideOffset={6} {...stylex.props(styles.positioner)}>
+        <Menu.Positioner align={align} sideOffset={6} {...stylex.props(styles.positioner)}>
           <Menu.Popup {...stylex.props(ui.popup, ui.pop, styles.menu)}>
             {sections
               .filter((section) => section.length)
@@ -156,7 +172,7 @@ export function ActionMenu({
                         </>
                       );
                       const className = (state: { highlighted: boolean }) =>
-                        stylex.props(ui.menuItem, state.highlighted && ui.menuHighlighted)
+                        stylex.props(ui.menuItem, state.highlighted && [ui.menuHighlighted, picked])
                           .className;
                       return action.checked === undefined ? (
                         <Menu.Item
@@ -172,6 +188,7 @@ export function ActionMenu({
                           key={action.label}
                           disabled={action.disabled}
                           checked={action.checked}
+                          closeOnClick={action.choice}
                           onCheckedChange={action.onClick}
                           className={className}
                         >
@@ -302,7 +319,7 @@ export function CommandDialog({
                   ui.button,
                   ui.menuItem,
                   styles.commandRow,
-                  index === active && ui.menuHighlighted,
+                  index === active && [ui.menuHighlighted, picked],
                   command.disabled && styles.disabled,
                 )}
               >
@@ -410,7 +427,7 @@ const styles = stylex.create({
     minHeight: 32,
     paddingInline: 10,
     textAlign: "left",
-    borderRadius: 6,
+    borderRadius: `calc(6px * ${tokens.round})`,
     fontSize: 12.5,
     color: { default: tokens.text, ":hover:not(:disabled)": tokens.text },
   },
@@ -427,7 +444,7 @@ const styles = stylex.create({
     position: "relative",
     display: "flex",
     padding: 2,
-    borderRadius: 8,
+    borderRadius: `calc(8px * ${tokens.round})`,
     backgroundColor: tokens.fill,
     boxShadow: `inset 0 0 0 1px ${tokens.line}`,
   },
@@ -436,8 +453,8 @@ const styles = stylex.create({
     top: 2,
     bottom: 2,
     left: 2,
-    borderRadius: 6,
-    backgroundColor: tokens.raised,
+    borderRadius: `calc(6px * ${tokens.round})`,
+    backgroundColor: tokens.segment,
     boxShadow: `0 0 0 1px ${tokens.lineStrong}, 0 1px 2px #0000001f`,
     transitionProperty: "transform",
     transitionTimingFunction: tokens.easeOut,
@@ -454,9 +471,11 @@ const styles = stylex.create({
     minWidth: 28,
     minHeight: 24,
     height: 24,
-    borderRadius: 6,
+    borderRadius: `calc(6px * ${tokens.round})`,
     backgroundColor: { default: "transparent", ":hover:not(:disabled)": "transparent" },
     color: { default: tokens.faint, ":hover:not(:disabled)": tokens.text },
   },
-  segmentActive: { color: { default: tokens.text, ":hover:not(:disabled)": tokens.text } },
+  segmentActive: {
+    color: { default: tokens.selectedText, ":hover:not(:disabled)": tokens.selectedText },
+  },
 });
