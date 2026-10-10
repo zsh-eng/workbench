@@ -316,7 +316,7 @@ struct ReaderPage: View {
         ReaderNoteComposer(browser: browser, draft: draft).id(draft.id)
           .transition(.opacity)
       } else if let id = browser.selectedAnnotationID,
-        let annotation = browser.annotations.first(where: { $0.id == id }), browser.isReader
+        let annotation = browser.annotations.first(where: { $0.id == id })
       {
         HighlightToolbar(annotation: annotation, browser: browser) {
           sharingPassage = PassageStory(

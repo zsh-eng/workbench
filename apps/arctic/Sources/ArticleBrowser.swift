@@ -51,15 +51,43 @@ enum ArticleRouting {
 
 /// Keep WebKit's selection and edit menu, but write Reader text through UIKit.
 /// Copy uses the selected plain text directly, including on cached documents.
+/// Highlight and Add note follow the system edit actions in both views.
+@MainActor private func annotationMenu(
+  highlightTitle: String, annotate: @escaping (Bool) -> Void
+) -> UIMenu {
+  UIMenu(
+    options: .displayInline,
+    children: [
+      UIAction(title: highlightTitle, image: UIImage(systemName: "highlighter")) { _ in
+        annotate(false)
+      },
+      UIAction(title: "Add note", image: UIImage(systemName: "square.and.pencil")) { _ in
+        annotate(true)
+      },
+    ])
+}
+
 /// WebKit applies a page's scroll only while its view is in a window, so the
 /// website moves to Reader's words after it enters one.
 @MainActor private final class WebsiteWebView: WKWebView {
   var didEnterWindow: (() -> Void)?
+  var annotate: ((Bool) -> Void)?
+  /// A nil title hides the passage actions, for example on a publisher's front page.
+  var highlightTitle: (() -> String?)?
 
   override func didMoveToWindow() {
     super.didMoveToWindow()
     guard didEnterWindow != nil, window != nil else { return }
     Task { @MainActor [weak self] in self?.didEnterWindow?() }
+  }
+
+  override func buildMenu(with builder: UIMenuBuilder) {
+    super.buildMenu(with: builder)
+    guard let title = highlightTitle?() else { return }
+    builder.insertSibling(
+      annotationMenu(highlightTitle: title) { [weak self] note in
+        self?.annotate?(note)
+      }, afterMenu: .standardEdit)
   }
 }
 
@@ -84,19 +112,10 @@ enum ArticleRouting {
 
   override func buildMenu(with builder: UIMenuBuilder) {
     super.buildMenu(with: builder)
-    let actions = UIMenu(
-      options: .displayInline,
-      children: [
-        UIAction(title: highlightTitle?() ?? "Highlight", image: UIImage(systemName: "highlighter"))
-        { [weak self] _ in
-          self?.annotate?(false)
-        },
-        UIAction(title: "Add note", image: UIImage(systemName: "square.and.pencil")) {
-          [weak self] _ in
-          self?.annotate?(true)
-        },
-      ])
-    builder.insertSibling(actions, afterMenu: .standardEdit)
+    builder.insertSibling(
+      annotationMenu(highlightTitle: highlightTitle?() ?? "Highlight") { [weak self] note in
+        self?.annotate?(note)
+      }, afterMenu: .standardEdit)
   }
 
   override func target(forAction action: Selector, withSender sender: Any?) -> Any? {
@@ -156,7 +175,7 @@ enum ArticleRouting {
   }
 }
 
-/// Messages come only from the cleaned Reader's isolated content world.
+/// Messages come only from the app's isolated content world, never from page scripts.
 @MainActor private final class ReaderAnnotationBridge: NSObject, WKScriptMessageHandler {
   weak var browser: ArticleBrowser?
   func userContentController(
@@ -258,16 +277,26 @@ enum ArticleRouting {
   @ObservationIgnored private var noteDrafts: [String: ReaderNoteDraft] = [:]
   var selectedAnnotationID: UUID? {
     didSet {
-      guard oldValue != selectedAnnotationID, readerReady else { return }
+      guard oldValue != selectedAnnotationID else { return }
       // Swift owns focus; keep the app-world mirror current for every entry
       // point, including creation, notebook reveal, removal and dismissal.
-      readerView.callAsyncJavaScript(
-        "globalThis.arcticAnnotations?.setFocused(id, token)",
-        arguments: ["id": selectedAnnotationID?.uuidString ?? "", "token": readerDocumentToken],
-        in: nil, in: .defaultClient
-      ) { _ in }
+      let id = selectedAnnotationID?.uuidString ?? ""
+      if readerReady {
+        readerView.callAsyncJavaScript(
+          "globalThis.arcticAnnotations?.setFocused(id, token)",
+          arguments: ["id": id, "token": readerDocumentToken], in: nil, in: .defaultClient
+        ) { _ in }
+      }
+      if !websiteAnnotationToken.isEmpty {
+        webView.callAsyncJavaScript(
+          "globalThis.arcticAnnotations?.setFocused(id, token)",
+          arguments: ["id": id, "token": websiteAnnotationToken], in: nil, in: .defaultClient
+        ) { _ in }
+      }
     }
   }
+  /// Set when the website document has the passage script; one per document.
+  @ObservationIgnored private var websiteAnnotationToken = ""
   @ObservationIgnored private var pendingAnnotationReveal: UUID?
   var unmatchedAnnotations: Set<String> = []
   #if DEBUG
@@ -408,6 +437,18 @@ enum ArticleRouting {
     websiteConfiguration.userContentController.addUserScript(WKUserScript(
       source: "window.webkit.messageHandlers.arcticPublisherReady.postMessage(true);",
       injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
+    let websiteAnnotationBridge = ReaderAnnotationBridge()
+    websiteAnnotationBridge.browser = self
+    websiteConfiguration.userContentController.add(
+      websiteAnnotationBridge, contentWorld: .defaultClient, name: "arcticAnnotationTap")
+    (webView as? WebsiteWebView)?.highlightTitle = { [weak self] in
+      guard let self, !self.isReader, !self.isPublisherFront, !self.websiteAnnotationToken.isEmpty
+      else { return nil }
+      return self.annotationRequiresSave ? "Save & highlight" : "Highlight"
+    }
+    (webView as? WebsiteWebView)?.annotate = { [weak self] withNote in
+      self?.annotateSelection(withNote: withNote)
+    }
     readerView.navigationDelegate = self
     let readyBridge = ReaderReadyBridge()
     readyBridge.browser = self
@@ -554,6 +595,7 @@ enum ArticleRouting {
   /// unrelated publisher resources. Opening Website restarts that request.
   func activate(preferReader: Bool) {
     speculative = false
+    if websiteReady && websiteAnnotationToken.isEmpty { installWebsiteAnnotations() }
     if preferReader { showReader() }
     else if suspendedPublisher { loadWebsite(sourceURL) }
   }
@@ -1234,6 +1276,7 @@ enum ArticleRouting {
     capturingWords = false
     switchVersion += 1
     if websiteAligning { websiteAligning = false }
+    websiteAnnotationToken = ""
     pageVersion += 1
     extractionTask?.cancel()
     decorationTask?.cancel()
@@ -1288,6 +1331,7 @@ enum ArticleRouting {
     websiteReady = true
     hasLoaded = true
     hasPresentedContent = true
+    installWebsiteAnnotations()
     if refreshWhenReady {
       refreshWhenReady = false
       isOpeningWebsite = false
@@ -1510,6 +1554,20 @@ enum ArticleRouting {
     }
   #endif
 
+  /// The same passages paint on the website. The script runs in the app's own
+  /// content world, so the page's scripts cannot read records or send taps.
+  private func installWebsiteAnnotations() {
+    guard !speculative, let url = Bundle.main.url(forResource: "annotations", withExtension: "js"),
+      let script = try? String(contentsOf: url, encoding: .utf8)
+    else { return }
+    let version = pageVersion
+    webView.evaluateJavaScript(script, in: nil, in: .defaultClient) { [weak self] result in
+      guard let self, self.pageVersion == version, case .success = result else { return }
+      self.websiteAnnotationToken = UUID().uuidString
+      self.refreshAnnotations()
+    }
+  }
+
   /// App-only scripts keep publisher JavaScript disabled and never alter cached HTML.
   private func installAnnotations() {
     guard let url = Bundle.main.url(forResource: "annotations", withExtension: "js"),
@@ -1604,16 +1662,42 @@ enum ArticleRouting {
         }
       }
     }
+    guard !websiteAnnotationToken.isEmpty else { return }
+    let websiteToken = websiteAnnotationToken
+    webView.callAsyncJavaScript(
+      script, arguments: ["records": json, "token": websiteToken], in: nil, in: .defaultClient
+    ) { [weak self] result in
+      guard let self, self.websiteAnnotationToken == websiteToken else { return }
+      var missing: [String]?
+      if case .success(let value) = result { missing = value as? [String] }
+      #if DEBUG
+        if !self.isReader, case .success(let value) = result,
+          let rendered = value as? [String: Any]
+        {
+          missing = rendered["missing"] as? [String]
+          self.annotationRenderState =
+            "painted=\(rendered["painted"] ?? "?"); marks=\(rendered["marks"] ?? "?"); selected=\(rendered["selected"] ?? "?")"
+        }
+      #endif
+      // Reader's text decides which passages are unmatched whenever it exists.
+      guard !self.readerReady, let missing else { return }
+      self.unmatchedAnnotations = Set(missing)
+    }
   }
 
+  /// Passages come from the visible view: Reader, or the website once its
+  /// script is installed. Both share one record set for the article URL.
   private func annotateSelection(withNote: Bool) {
-    guard isReader, readerReady else { return }
+    let reader = isReader
+    guard reader ? readerReady : !websiteAnnotationToken.isEmpty && !isPublisherFront else { return }
+    let view: WKWebView = reader ? readerView : webView
     let url = libraryURL
     let version = pageVersion
-    readerView.evaluateJavaScript(
+    view.evaluateJavaScript(
       "globalThis.arcticAnnotations?.selection()", in: nil, in: .defaultClient
     ) { [weak self] result in
-      guard let self, self.isReader, self.readerReady, self.pageVersion == version, self.libraryURL == url,
+      guard let self, self.isReader == reader, !reader || self.readerReady,
+        self.pageVersion == version, self.libraryURL == url,
         case .success(let value) = result, let selection = value as? [String: Any],
         let data = try? JSONSerialization.data(withJSONObject: selection),
         let quote = try? JSONDecoder().decode(ReaderQuote.self, from: data)
@@ -1623,16 +1707,16 @@ enum ArticleRouting {
         // must not save a preview article or create an empty passage record.
         self.beginNote(
           annotation: self.annotations.first(where: { $0.quote == quote }), quote: quote)
-        self.readerView.evaluateJavaScript(
-          "window.getSelection().removeAllRanges()", in: nil, in: .defaultClient
+        view.evaluateJavaScript(
+          "globalThis.arcticAnnotations?.clearSelection()", in: nil, in: .defaultClient
         ) { _ in }
         return
       }
       do {
         try self.saveForNewAnnotation(in: url)
         let annotation = try AnnotationStore.shared.highlight(quote, in: url)
-        self.readerView.evaluateJavaScript(
-          "window.getSelection().removeAllRanges()", in: nil, in: .defaultClient
+        view.evaluateJavaScript(
+          "globalThis.arcticAnnotations?.clearSelection()", in: nil, in: .defaultClient
         ) { _ in }
         self.selectedAnnotationID = annotation.id
         self.refreshAnnotations()
@@ -1750,9 +1834,9 @@ enum ArticleRouting {
   }
 
   fileprivate func annotationTapped(_ value: String?, token: String, from view: WKWebView?) {
-    guard view === readerView, isReader, readerReady, !token.isEmpty,
-      token == readerDocumentToken
-    else { return }
+    let fromReader = view === readerView && isReader && readerReady && token == readerDocumentToken
+    let fromWebsite = view === webView && !isReader && token == websiteAnnotationToken
+    guard !token.isEmpty, fromReader || fromWebsite else { return }
     guard let value, let id = UUID(uuidString: value),
       annotations.contains(where: { $0.id == id })
     else {
@@ -1771,6 +1855,23 @@ enum ArticleRouting {
       pendingAnnotationReveal = nil
       selectedAnnotationID = nil
       showReader()
+      return
+    }
+    // Stay on the website when it shows the passage; otherwise open Reader.
+    if !isReader, !websiteAnnotationToken.isEmpty, pendingAnnotationReveal != id {
+      let token = websiteAnnotationToken
+      webView.callAsyncJavaScript(
+        "return globalThis.arcticAnnotations?.reveal(id) || false;",
+        arguments: ["id": id.uuidString], in: nil, in: .defaultClient
+      ) { [weak self] result in
+        guard let self, self.websiteAnnotationToken == token, !self.isReader else { return }
+        if case .success(let value) = result, value as? Bool == true {
+          self.selectedAnnotationID = id
+        } else {
+          self.pendingAnnotationReveal = id
+          self.revealAnnotation(id)
+        }
+      }
       return
     }
     pendingAnnotationReveal = id

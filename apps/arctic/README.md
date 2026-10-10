@@ -189,6 +189,16 @@ The top Notes button opens the article conversation with full note text. Empty
 conversations open at medium height. Editing uses explicit **Save** and **Cancel**.
 **Remove highlight** keeps an existing note; **Delete note** keeps its highlight.
 
+Highlights also work in Website mode, with the same records. The passage script
+runs in the app's own WebKit content world, so the site's scripts cannot read
+the records or send taps. It paints the page body, or Unwall's article frame,
+and skips script and style text. A passage highlighted on the website paints in
+Reader, and the reverse. A site can change the text between blocks, so a repeated
+quote is placed by 16 nearby letters on each side; only a single best match is
+used, and an unclear one stays in Notes. **Show passage** stays on the website
+when the passage is there, and otherwise opens Reader. A publisher's front page
+has no passage actions.
+
 The library notebook includes full notes, short quote previews, search and a
 small source link. Its filter/sort work uses cancellable background snapshots;
 stable IDs and lazy rows keep offscreen note views out of the scrolling path.
