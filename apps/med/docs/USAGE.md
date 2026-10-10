@@ -143,7 +143,7 @@ An agent can use the running host to save a commit range or capture working chan
 
 A saved review opens its first target. Select other repositories or ranges from **Review target**. The saved diff and comment context stay fixed even when agents make more changes. **Copy comments** includes comments from all targets in that review, with repository paths, revisions, line numbers, selected source, and adjacent lines. Hover the title for the save time and repository. **Clear**, next to **Copy comments**, clears only that review after confirmation. Copying does not clear comments.
 
-An agent that names its task with a key updates one review over several rounds. Each round is an iteration: the review opens on the latest one and is marked new again. The Brief tab numbers the iterations; choose one to read its brief beside its comparison. **Review target** groups the comparisons by iteration. Comments on earlier iterations stay.
+An agent that names its task with a key updates one review over several rounds. Each round is an iteration: the review opens on the latest one and is marked new again. The Notes tab numbers the iterations; choose one to read its notes beside its comparison. **Review target** groups the comparisons by iteration. Comments on earlier iterations stay.
 
 A review that records its agent session has a Claude or Codex button in the
 toolbar, and **Show agent session** in the command palette. They open the
@@ -154,16 +154,17 @@ a reply opens the file. See [agent sessions](SESSIONS.md).
 
 Saved reviews and their comments persist in `~/.local/state/med`. Normal branch review notes still end with the host process. See [agent integration](AGENT_INTEGRATION.md) for commands, state settings, limits, and suggested `AGENTS.md` guidance.
 
-### Briefs
+### Notes and briefs
 
-A brief is the agent's explanation of a review, in Markdown. Its links open the lines they cite, so you can read the changes in the order the agent explains them.
+A review's **Notes** are the agent's brief and the replies you pin from its session. A brief is the agent's explanation of a review, in Markdown. Its links open the lines they cite, so you can read the changes in the order the agent explains them.
 
 - **Attach.** Copy the agent's last message and press `⌘V` anywhere outside a text field. On a saved review, med attaches the brief. On live changes, med asks for a title and saves the comparison as a review first, so the links keep pointing at the code they describe. Agents can also attach one at creation with `review create --brief`.
-- **Read.** The **Brief** tab comes before **Changes**. Below each paragraph that cites lines, a short diff excerpt shows those lines. `]` and `[` step through the excerpts. Hover a link to highlight its excerpt. In a wide window, code, tables, and images extend past the text column, and table columns take the width their text needs.
+- **Pin a reply.** In the Session sidebar, the reply that ends each turn has **Pin to review**. Med copies the reply into the Notes of the latest iteration, after the brief, because a transcript can lose old replies. Ask the agent to explain something, such as "walk me through the cache", and pin its answer. **Pinned** under a reply goes to its note. Remove a pin from the note's **⋯** menu.
+- **Read.** The **Notes** tab comes before **Changes**. With more than one note, each note has a numbered head, such as `02 / 03`, its source, and its time. A rail of ticks on the right edge marks the notes, their headings, and their excerpts; click a tick to go there. Below each paragraph that cites lines, a short diff excerpt shows those lines. `]` and `[` step through the excerpts. Hover a link to highlight its excerpt. In a wide window, code, tables, and images extend past the text column, and table columns take the width their text needs.
 - **Jump.** Click a link or an excerpt heading to open those lines in **Changes**, selected and centered.
 - **Comment.** Hover a line in an excerpt and click **+**; drag it to cover more lines. You can also select line numbers and press `c`. These are the same notes as in **Changes**, so **Copy comments** includes them. The excerpt heading counts its notes.
-- **Check coverage.** The header shows how many changed files the brief cites. **Not in the brief** lists the changed files it never mentions; read those yourself.
-- **Replace or remove.** Paste again to replace the brief. **Undo** in the confirmation restores the previous one. The **⋯** menu also copies or removes it.
+- **Check coverage.** The header shows how many changed files the notes cite. **Not in the notes** lists the changed files they never mention; read those yourself.
+- **Replace or remove.** Paste again to replace the brief. **Undo** in the confirmation restores the previous one. The **⋯** menu also copies all notes or removes the brief.
 
 med resolves `path`, `path:12`, `path:12-20`, `path#L12-L20`, absolute paths in the repository, editor links, and GitHub blob URLs. A path can be a suffix, such as `App.tsx:42`, when only one changed file matches. A path outside the change opens the file instead. Changing a brief does not change comments.
 

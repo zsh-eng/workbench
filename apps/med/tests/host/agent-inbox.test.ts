@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentInboxState } from "../../src/shared/agent-inbox";
+import type { SavedReview } from "../../src/shared/saved-review";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { runReviewCommand } from "../../src/cli/review";
 
@@ -92,7 +93,7 @@ async function fixture() {
     ).then(() => printed.join("\n"));
     return done;
   };
-  return { api, saved, commentId: comment.notes[0]!.id, wait, queued };
+  return { api, repo, saved, commentId: comment.notes[0]!.id, wait, queued };
 }
 
 test("a message reaches a waiting Claude session through med review wait", async () => {
@@ -150,4 +151,32 @@ test("a message to a Codex session goes to its queue", async () => {
     noteIds: [],
   });
   expect(empty.status).toBe(400);
+});
+
+test("a reply pinned to the review stays with its iteration", async () => {
+  const { api, repo, saved } = await fixture();
+  const pin = async (mutation: unknown) =>
+    (await api(`/api/reviews/${saved.id}/pins`, mutation)).data as SavedReview;
+  const source = { agent: "claude", sessionId: claude, itemId: "msg_01" };
+  const text = "## Why minutes\n\nThe summary rounds in [summary.ts:1](summary.ts:1).";
+  await pin({ add: { text, source } });
+  // Pinning the same reply again keeps one pin.
+  const pinned = await pin({ add: { text, source } });
+  expect(pinned.iterations?.[0]?.pins).toMatchObject([{ text, source }]);
+
+  // The agent's next round has its own Notes; the first round keeps its pin.
+  const next = (
+    await api("/api/reviews", {
+      title: "Format durations",
+      key: "durations",
+      targets: [{ repo, comparison: { kind: "working" } }],
+    })
+  ).data as SavedReview;
+  expect(next.iterations?.map((entry) => entry.pins?.length ?? 0)).toEqual([1, 0]);
+  const later = await pin({ add: { text: "Use minutes everywhere." } });
+  expect(later.iterations?.map((entry) => entry.pins?.length ?? 0)).toEqual([1, 1]);
+
+  const removed = await pin({ remove: pinned.iterations![0]!.pins![0]!.id });
+  expect(removed.iterations?.[0]?.pins).toBeUndefined();
+  expect((await api(`/api/reviews/${saved.id}/pins`, { add: { text: " " } })).status).toBe(400);
 });

@@ -33,6 +33,28 @@ export const briefTextSchema = z
   );
 export const savedBriefSchema = z.object({ text: z.string(), updatedAt: z.string() });
 export type SavedBrief = z.infer<typeof savedBriefSchema>;
+/** An agent reply that the user pinned to a review. The review keeps a copy
+ * of the text, because a transcript can lose old replies. The brief and the
+ * pins of an iteration are its Notes. */
+export const MAX_PINS = 50;
+export const pinSourceSchema = z.object({
+  agent: z.enum(["claude", "codex"]),
+  sessionId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+  /** The reply's item in the session thread. */
+  itemId: z.string().min(1).max(200).optional(),
+});
+export const savedPinSchema = z.object({
+  id: z.string(),
+  text: z.string(),
+  createdAt: z.string(),
+  source: pinSourceSchema.optional(),
+});
+export type SavedPin = z.infer<typeof savedPinSchema>;
+export const pinMutationSchema = z.union([
+  z.object({ add: z.object({ text: briefTextSchema, source: pinSourceSchema.optional() }) }),
+  z.object({ remove: z.string().min(1).max(64) }),
+]);
+export type PinMutation = z.infer<typeof pinMutationSchema>;
 
 /** A name the agent chooses for its task, such as its branch. Creating a
  * review again with the same key adds an iteration to that review instead of
@@ -103,6 +125,7 @@ export const savedIterationSchema = z.object({
   createdAt: z.string(),
   targetIds: z.array(z.string()),
   brief: savedBriefSchema.optional(),
+  pins: z.array(savedPinSchema).optional(),
 });
 export type SavedIteration = z.infer<typeof savedIterationSchema>;
 /** Later details for a review, such as the pull request opened after it. */
@@ -122,6 +145,8 @@ export const savedReviewSchema = z.object({
   /** The PR's own title, shown in the review header in place of the title. */
   pullRequestTitle: z.string().optional(),
   brief: savedBriefSchema.optional(),
+  /** Pins of a review without iterations; otherwise each iteration has its own. */
+  pins: z.array(savedPinSchema).optional(),
   createdAt: z.string(),
   revision: z.number().int().nonnegative(),
   commentCount: z.number().int().nonnegative(),

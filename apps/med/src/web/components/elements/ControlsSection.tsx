@@ -192,13 +192,13 @@ function Menus() {
       </Cell>
       <Cell label="Own trigger">
         <ActionMenu
-          label="Brief options"
+          label="Notes options"
           sections={[
             [
               { label: "Paste a new brief", shortcut: "Mod+V", onClick: noop },
-              { label: "Copy brief text", onClick: noop },
+              { label: "Copy all notes", onClick: noop },
             ],
-            [{ label: "Remove brief", onClick: noop }],
+            [{ label: "Remove the brief", onClick: noop }],
           ]}
         >
           <Icon name="more" size={15} />

@@ -66,7 +66,11 @@ import {
   type AgentInboxState,
 } from "../shared/agent-inbox";
 import type { SessionEvent } from "../shared/agent-session";
-import { reviewKeySchema, savedReviewCreateSchema } from "../shared/saved-review";
+import {
+  pinMutationSchema,
+  reviewKeySchema,
+  savedReviewCreateSchema,
+} from "../shared/saved-review";
 import { getPersistentToken, publishConnection } from "./runtime/connection";
 
 import type { ServiceManager } from "./service/manager";
@@ -925,7 +929,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           const savedRoute =
-            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes)|\/(feedback|clear|brief|details|pull-request))?$/.exec(
+            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes)|\/(feedback|clear|brief|pins|details|pull-request))?$/.exec(
               url.pathname,
             );
           if (savedRoute) {
@@ -1006,6 +1010,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 .parse(await readBody(request, MAX_BRIEF_BODY));
               assertRequestAccess();
               send(await savedReviews.setBrief(id!, input.brief, assertRequestAccess));
+              return;
+            }
+            if (request.method === "POST" && action === "pins") {
+              const input = pinMutationSchema.parse(await readBody(request, MAX_BRIEF_BODY));
+              assertRequestAccess();
+              send(await savedReviews.pin(id!, input, assertRequestAccess));
               return;
             }
             if (request.method === "POST" && action === "details") {

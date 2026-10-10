@@ -1,6 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import type { AgentSession } from "../../../shared/saved-review";
+import type { AgentSession, PinMutation } from "../../../shared/saved-review";
 import { withSentMessages, type AgentInbox } from "../../data/agent-inbox";
 import { createSessionStore } from "../../data/session-store";
 import { followSession, sessionRunning, type SessionStreamState } from "../../data/session-stream";
@@ -9,7 +9,16 @@ import { ChoiceSelect } from "../Controls";
 import { Icon } from "../Icon";
 import { ToolButton } from "../ToolButton";
 import { SessionComposer, type ComposerAttachment } from "./SessionComposer";
-import { SessionThread } from "./SessionThread";
+import { ReplyActionsContext, SessionThread, type ReplyActions } from "./SessionThread";
+
+type PinSource = NonNullable<Extract<PinMutation, { add: unknown }>["add"]["source"]>;
+/** The review's pins, for Pin to review on the agent's replies. */
+export interface SessionPins {
+  /** Pin IDs by `sessionId/itemId`. */
+  pinned: ReadonlyMap<string, string>;
+  pin(source: PinSource, text: string): Promise<void>;
+  show(pinId: string): void;
+}
 
 const AGENTS = { claude: "Claude", codex: "Codex" } as const;
 
@@ -50,8 +59,11 @@ export function SessionPanel({
   inbox,
   attachments = [],
   onRemoveAttachment,
+  pins,
 }: {
   reviewId: string;
+  /** Without it, replies have no Pin to review. */
+  pins?: SessionPins;
   fetcher?: typeof fetch;
   /** Messages to the agent; without it the panel only reads the session. */
   inbox?: AgentInbox;
@@ -92,6 +104,18 @@ export function SessionPanel({
     return () => clearInterval(timer);
   }, [running, store]);
 
+  const replyActions = useMemo<ReplyActions | null>(
+    () =>
+      pins
+        ? {
+            pinned: (itemId) => pins.pinned.get(`${session.id}/${itemId}`),
+            pin: (item) =>
+              pins.pin({ agent: session.agent, sessionId: session.id, itemId: item.id }, item.text),
+            showPin: pins.show,
+          }
+        : null,
+    [pins, session.id, session.agent],
+  );
   const agent = AGENTS[session.agent];
   const waiting = inbox?.state?.waiting.includes(session.id) ?? false;
   const messages = inbox?.state?.messages;
@@ -146,21 +170,23 @@ export function SessionPanel({
         <p {...stylex.props(styles.empty)}>{state.message}</p>
       ) : (
         <div {...stylex.props(styles.thread)}>
-          <SessionThread
-            snapshot={shown}
-            now={running ? now : undefined}
-            before={
-              state.truncated ? (
-                <p {...stylex.props(styles.note)}>
-                  The session is long; the thread starts with its latest work.
-                </p>
-              ) : undefined
-            }
-            onOpenLink={(href) => {
-              const link = sessionLink(href, root);
-              if (link) onOpenPath(link.path, link.line);
-            }}
-          />
+          <ReplyActionsContext.Provider value={replyActions}>
+            <SessionThread
+              snapshot={shown}
+              now={running ? now : undefined}
+              before={
+                state.truncated ? (
+                  <p {...stylex.props(styles.note)}>
+                    The session is long; the thread starts with its latest work.
+                  </p>
+                ) : undefined
+              }
+              onOpenLink={(href) => {
+                const link = sessionLink(href, root);
+                if (link) onOpenPath(link.path, link.line);
+              }}
+            />
+          </ReplyActionsContext.Provider>
         </div>
       )}
       {inbox && (

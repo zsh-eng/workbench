@@ -86,7 +86,7 @@ import { createFilePrefetch } from "./data/file-prefetch";
 import { createRenderDiagnostics } from "./data/render-diagnostics";
 import { findDefinitions } from "./data/definitions";
 import type { SymbolSearch } from "../shared/symbols";
-import { clipboardBrief } from "./data/brief";
+import { clipboardBrief, joinNotes } from "./data/brief";
 import type { BriefLocation } from "./components/BriefView";
 import { SaveReviewDialog } from "./components/SaveReviewDialog";
 import { requestServerRestart } from "./components/UpdateNotice";
@@ -96,6 +96,7 @@ import { highlightRules } from "./code-colors";
 import { createDiffFindHighlights } from "./data/diff-find-highlights";
 import { useAgentInbox } from "./data/agent-inbox";
 import type { ComposerAttachment } from "./components/session/SessionComposer";
+import type { SessionPins } from "./components/session/SessionPanel";
 
 // The brief loads its Markdown worker and excerpt renderer only when shown.
 const BriefView = lazy(() => import("./components/BriefView"));
@@ -855,6 +856,22 @@ export function App({
     : shownIteration
       ? briefSource?.brief
       : state.savedReview?.brief;
+  // The Notes are the brief and the agent replies pinned to the shown iteration.
+  const savedPins = !state.savedView
+    ? undefined
+    : shownIteration
+      ? iterations.find((entry) => entry.number === shownIteration)?.pins
+      : state.savedReview?.pins;
+  const hasNotes = !!savedBrief || !!savedPins?.length;
+  const notesText = useMemo(
+    () =>
+      joinNotes([
+        ...(savedBrief ? [savedBrief.text] : []),
+        ...(savedPins ?? []).map((pin) => pin.text),
+      ]).text,
+    [savedBrief, savedPins],
+  );
+  const [noteReveal, setNoteReveal] = useState<{ key: string; nonce: number }>();
   const showIteration = (number: number) => {
     setBriefIteration(number);
     const first = iterations.find((entry) => entry.number === number)?.targetIds[0];
@@ -862,6 +879,13 @@ export function App({
     pendingIteration.current = first;
     pendingSavedChanges.current = null;
     void controller.selectSavedTarget(first);
+  };
+  // A pinned reply shows in the Notes of its iteration.
+  const showPin = (pinId: string) => {
+    const owner = iterations.find((entry) => entry.pins?.some((pin) => pin.id === pinId));
+    if (owner && owner.number !== shownIteration) showIteration(owner.number);
+    fileWorkspace.select("brief");
+    setNoteReveal({ key: pinId, nonce: Date.now() });
   };
   // Keep the brief mounted once shown, so its scroll position survives tab changes.
   const [briefMounted, setBriefMounted] = useState(false);
@@ -874,18 +898,18 @@ export function App({
   // The tab row in order, for Alt+number and ⌘⇧[ / ⌘⇧]; empty when the row is hidden.
   // Keys read the store at event time, so a quick second key sees the first one's tab.
   const tabRow = useCallback(() => {
-    if (!browseSource && !savedBrief) return { order: [] as string[], active: "" };
+    if (!browseSource && !hasNotes) return { order: [] as string[], active: "" };
     const { tabs, active } = fileWorkspace.getSnapshot();
     return {
       order: [
-        ...(savedBrief ? ["brief"] : []),
+        ...(hasNotes ? ["brief"] : []),
         "changes",
         ...(commitApi ? ["commit"] : []),
         ...tabs.map((tab) => tab.id),
       ],
       active,
     };
-  }, [browseSource, savedBrief, commitApi, fileWorkspace]);
+  }, [browseSource, hasNotes, commitApi, fileWorkspace]);
   const toggleCommit = useCallback(() => {
     if (fileState.active !== "commit") {
       commitReturn.current = fileState.active;
@@ -924,7 +948,7 @@ export function App({
   );
   const briefShown = useRef<string | null>(null);
   useEffect(() => {
-    if (!savedBrief) {
+    if (!hasNotes) {
       if (fileState.active === "brief") fileWorkspace.select("changes");
       return;
     }
@@ -933,7 +957,7 @@ export function App({
     if (briefShown.current === state.savedReview.id) return;
     briefShown.current = state.savedReview.id;
     fileWorkspace.select("brief");
-  }, [savedBrief, state.savedReview, state.status, fileState.active, fileWorkspace]);
+  }, [hasNotes, state.savedReview, state.status, fileState.active, fileWorkspace]);
   useEffect(() => {
     if (fileState.active === "commit" && !commitApi) fileWorkspace.select("changes");
   }, [commitApi, fileState.active, fileWorkspace]);
@@ -978,18 +1002,54 @@ export function App({
       () => showToast("Allow clipboard access, or press ⌘V."),
     );
   }, [attachBrief, showToast]);
-  const copyBrief = useCallback(() => {
-    const text = controller.getSnapshot().savedReview?.brief?.text;
-    if (text)
-      navigator.clipboard.writeText(text).then(
-        () => showToast("Brief copied."),
-        () => showToast("Copying needs clipboard access."),
-      );
-  }, [controller, showToast]);
+  const copyNotes = useCallback(
+    (text: string) => {
+      if (text)
+        navigator.clipboard.writeText(text).then(
+          () => showToast("Copied."),
+          () => showToast("Copying needs clipboard access."),
+        );
+    },
+    [showToast],
+  );
   const removeBrief = useCallback(() => {
     const text = controller.getSnapshot().savedReview?.brief?.text;
     if (text) void setBrief(null, "Brief removed.", text);
   }, [controller, setBrief]);
+  const unpin = useCallback(
+    (id: string) =>
+      controller.pinToReview({ remove: id }).then(
+        () => showToast("Unpinned from Notes."),
+        (error: unknown) =>
+          showToast(error instanceof Error ? error.message : "The pin could not be removed."),
+      ),
+    [controller, showToast],
+  );
+  // Pin to review on the agent's replies. A pin goes to the latest iteration.
+  const showPinRef = useRef(showPin);
+  useEffect(() => {
+    showPinRef.current = showPin;
+  });
+  const savedForPins = state.savedReview;
+  const sessionPins = useMemo<SessionPins | undefined>(() => {
+    if (!savedForPins) return undefined;
+    const pinned = new Map<string, string>();
+    for (const pin of [
+      ...(savedForPins.pins ?? []),
+      ...(savedForPins.iterations ?? []).flatMap((entry) => entry.pins ?? []),
+    ])
+      if (pin.source?.itemId) pinned.set(`${pin.source.sessionId}/${pin.source.itemId}`, pin.id);
+    return {
+      pinned,
+      pin: (source, text) =>
+        controller.pinToReview({ add: { text, source } }).then(
+          () => showToast("Pinned to the review's Notes."),
+          (error: unknown) =>
+            showToast(error instanceof Error ? error.message : "The reply could not be pinned."),
+        ),
+      show: (pinId) => showPinRef.current(pinId),
+    };
+  }, [savedForPins, controller, showToast]);
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {
       if (event.defaultPrevented) return;
@@ -2121,13 +2181,13 @@ export function App({
       label: "Return to Changes",
       run: () => fileWorkspace.select("changes"),
     },
-    ...(savedBrief
+    ...(hasNotes
       ? [
-          { id: "brief", label: "Open the brief", run: () => fileWorkspace.select("brief") },
-          { id: "copy-brief", label: "Copy the brief text", run: copyBrief },
-          { id: "remove-brief", label: "Remove the brief", run: removeBrief },
+          { id: "brief", label: "Open the notes", run: () => fileWorkspace.select("brief") },
+          { id: "copy-brief", label: "Copy the notes", run: () => copyNotes(notesText) },
         ]
       : []),
+    ...(savedBrief ? [{ id: "remove-brief", label: "Remove the brief", run: removeBrief }] : []),
     ...(commitApi
       ? [{ id: "commit", label: "Stage and commit changes", shortcut: "q", run: toggleCommit }]
       : []),
@@ -2698,13 +2758,13 @@ export function App({
     </>
   );
   const mainHeader =
-    browseSource || savedBrief ? (
+    browseSource || hasNotes ? (
       <FileViewTabs
         panelId={`${idPrefix}file-view-panel`}
         pathActions={pathActions}
         leading={leading}
         trailing={viewControls}
-        showBrief={!!savedBrief}
+        showBrief={hasNotes}
         showCommit={!!commitApi}
         tabs={fileState.tabs.map((tab) => ({
           ...tab,
@@ -3022,7 +3082,7 @@ export function App({
                 activeFile
                   ? `File ${activeFile.path}`
                   : fileState.active === "brief"
-                    ? "Brief"
+                    ? "Notes"
                     : fileState.active === "commit"
                       ? "Commit"
                       : "Changes"
@@ -3379,7 +3439,7 @@ export function App({
                   ) : null}
                 </div>
               </div>
-              {savedBrief && briefMounted && state.savedReview && (
+              {hasNotes && briefMounted && state.savedReview && (
                 <div
                   {...stylex.props(
                     styles.reviewSurface,
@@ -3391,15 +3451,28 @@ export function App({
                     <BriefView
                       key={state.savedReview.id}
                       brief={savedBrief}
-                      prerender={iterations.flatMap((entry) =>
-                        entry.brief && entry.brief.text !== savedBrief.text
-                          ? [entry.brief.text]
-                          : [],
-                      )}
+                      briefFrom={
+                        briefSource && briefSource.number !== shownIteration
+                          ? briefSource.number
+                          : undefined
+                      }
+                      pins={savedPins}
+                      reveal={noteReveal}
+                      prerender={iterations.flatMap((entry) => {
+                        if (!entry.brief && !entry.pins?.length) return [];
+                        const brief = iterations.findLast(
+                          (earlier) => earlier.number <= entry.number && earlier.brief,
+                        )?.brief;
+                        const text = joinNotes([
+                          ...(brief ? [brief.text] : []),
+                          ...(entry.pins ?? []).map((pin) => pin.text),
+                        ]).text;
+                        return text !== notesText ? [text] : [];
+                      })}
                       iterations={iterations
-                        .filter((entry) => entry.brief)
+                        .filter((entry) => entry.brief || entry.pins?.length)
                         .map(({ number, createdAt }) => ({ number, createdAt }))}
-                      iteration={briefSource?.number}
+                      iteration={savedPins?.length ? shownIteration : briefSource?.number}
                       onIteration={showIteration}
                       files={state.files}
                       root={state.review?.repo}
@@ -3408,8 +3481,9 @@ export function App({
                       onOpen={openBriefLocation}
                       onOpenPath={(path, line) => fileWorkspace.open(path, true, line)}
                       onPaste={pasteBrief}
-                      onCopy={copyBrief}
+                      onCopy={copyNotes}
                       onRemove={removeBrief}
+                      onUnpin={(id) => void unpin(id)}
                       notes={notes}
                       onMutateNote={(mutation) => controller.mutateNote(mutation)}
                     />
@@ -3525,6 +3599,7 @@ export function App({
                   }
                   onOpenPath={(path, line) => fileWorkspace.open(path, true, line)}
                   onClose={() => setSessionVisible(false)}
+                  pins={sessionPins}
                 />
               </Suspense>
             </aside>

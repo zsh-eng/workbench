@@ -50,6 +50,7 @@ export type IconName =
   | "focusExit"
   | "selector"
   | "brief"
+  | "pin"
   | "more"
   | "jump"
   | "vault"
@@ -85,6 +86,8 @@ const icons: Record<IconName, ReactNode> = {
   selector: <path d="M5.5 6.25 8 3.75l2.5 2.5M5.5 9.75 8 12.25l2.5-2.5" />,
   // Indented lines with a change bar beside one of them: Med's own mark.
   brief: <path d="M6 3.75h7.25M8 8h5.25M6 12.25h4.5M2.75 6.75v2.5" />,
+  // A push pin: the head, the body that widens to its collar, and the point.
+  pin: <path d="M5.25 2.75h5.5M6.5 2.75v3.5L4.5 9.25h7l-2-3V2.75M8 9.25v4" />,
   more: (
     <>
       <circle cx="3.75" cy="8" r="1" fill="currentColor" stroke="none" />

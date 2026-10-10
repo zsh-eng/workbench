@@ -60,12 +60,16 @@
   margin-inline: calc(-1 * var(--med-brief-bleed, 0px));
 }
 /* A table or a lone image widens its block on both sides. */
-.med-brief-prose > .med-md-block:has(> table),
-.med-brief-prose > .med-md-block:has(> p > img:only-child) {
+.med-note > .med-md-block:has(> table),
+.med-note > .med-md-block:has(> p > img:only-child) {
   margin-inline: calc(-1 * var(--med-brief-wide));
 }
-.med-brief-prose > .med-md-block:has(> table) {
+.med-note > .med-md-block:has(> table) {
   overflow-x: auto;
+}
+/* Notes after the first keep a clear break above their head. */
+.med-note + .med-note {
+  margin-top: 56px;
 }
 /* A table takes the width its content needs, up to the widened block. The
    browser then gives long text columns more room, so rows stay short. */

@@ -3,6 +3,7 @@ import { REVIEW_UPDATED } from "./workspaces";
 import {
   savedReviewSchema,
   savedFeedbackSchema,
+  type PinMutation,
   type SavedReview,
   type SavedFeedback,
   type SavedReviewTarget,
@@ -112,6 +113,8 @@ export interface ReviewController {
   clearSavedComments(expectedRevision: number): Promise<void>;
   /** Replace the saved review's brief, or remove it with null. */
   setSavedBrief(text: string | null): Promise<void>;
+  /** Pin an agent reply to the saved review's Notes, or remove a pin. */
+  pinToReview(mutation: PinMutation): Promise<void>;
   /** Save the current Git comparison as a review and return its ID. */
   saveReview(input: { title: string; brief?: string }): Promise<string>;
   selectComparison(comparison: Comparison): Promise<void>;
@@ -1669,6 +1672,27 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
           next.revision >= snapshot.savedReview.revision
             ? next
             : { ...snapshot.savedReview, brief: next.brief },
+      });
+    },
+    async pinToReview(mutation) {
+      const saved = snapshot.savedReview;
+      if (!saved) throw new Error("Open a saved review to pin a reply.");
+      const next = await api.json(
+        `/api/reviews/${encodeURIComponent(saved.id)}/pins`,
+        savedReviewSchema,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(mutation),
+        },
+      );
+      if (disposed || snapshot.savedReview?.id !== saved.id) return;
+      // Pins do not move the comment revision. Keep newer comment counts.
+      update({
+        savedReview:
+          next.revision >= snapshot.savedReview.revision
+            ? next
+            : { ...snapshot.savedReview, pins: next.pins, iterations: next.iterations },
       });
     },
     async saveReview({ title, brief }) {

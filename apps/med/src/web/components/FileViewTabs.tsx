@@ -67,7 +67,7 @@ export function FileViewTabs({
           <Tabs.Tab
             value="brief"
             aria-controls={panelId}
-            aria-label="Brief"
+            aria-label="Notes"
             {...stylex.props(
               styles.tab,
               styles.changes,
@@ -76,7 +76,7 @@ export function FileViewTabs({
             )}
           >
             <Icon name="brief" size={14} />
-            Brief
+            Notes
           </Tabs.Tab>
         )}
         {showChanges && (

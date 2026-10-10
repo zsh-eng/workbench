@@ -17,6 +17,7 @@ import { layoutHistory } from "../../src/web/components/history-layout";
 import { createBrowseApi } from "../../src/web/data/browse";
 import type { BrowseSource } from "../../src/shared/browse";
 import type { AgentInboxState } from "../../src/shared/agent-inbox";
+import type { PinMutation, SavedPin } from "../../src/shared/saved-review";
 import type { BlameLoader } from "../../src/web/data/blame";
 import type { CommitApi } from "../../src/web/data/commit";
 import { createFakeRepository } from "../../src/web/components/elements/commit-fixture";
@@ -154,6 +155,7 @@ async function mountApp(
     worktrees: [{ path: target.repo, head: firstCommit, branch: target.branch }],
   }));
   let brief = options.brief;
+  let pins: SavedPin[] = [];
   const savedNotes: Note[] = [];
   const savedBundle = () => ({
     id: "saved",
@@ -167,6 +169,7 @@ async function mountApp(
       ? { pullRequestUrl: options.pullRequest.url, pullRequestTitle: "Read pull request threads" }
       : {}),
     ...(brief ? { brief: { text: brief, updatedAt: "2026-09-20T00:00:00Z" } } : {}),
+    ...(pins.length ? { pins } : {}),
     ...(options.iterationBriefs
       ? {
           key: "feat/agent",
@@ -217,6 +220,21 @@ async function mountApp(
       if (url.pathname === "/api/reviews/saved/pull-request" && options.pullRequest) {
         pullRequestReads.push(url.search);
         return Response.json(options.pullRequest);
+      }
+      if (url.pathname === "/api/reviews/saved/pins" && init?.method === "POST") {
+        const mutation = JSON.parse(String(init.body)) as PinMutation;
+        if ("add" in mutation)
+          pins = [
+            ...pins,
+            {
+              id: `p_${pins.length + 1}`,
+              text: mutation.add.text,
+              createdAt: "2026-09-21T10:00:00Z",
+              ...(mutation.add.source ? { source: mutation.add.source } : {}),
+            },
+          ];
+        else pins = pins.filter((pin) => pin.id !== mutation.remove);
+        return Response.json(savedBundle());
       }
       if (url.pathname === "/api/reviews/saved/brief" && init?.method === "POST") {
         brief = JSON.parse(String(init.body)).brief ?? undefined;
@@ -1808,7 +1826,7 @@ describe("review brief", () => {
       brief: "# Rename the export\n\nThe constant changes in [alpha.ts:1](src/alpha.ts:1).\n",
     });
     await expect
-      .element(page.getByRole("tab", { name: "Brief" }))
+      .element(page.getByRole("tab", { name: "Notes" }))
       .toHaveAttribute("aria-selected", "true");
     await expect.element(page.getByRole("heading", { name: "Rename the export" })).toBeVisible();
     await expect.element(page.getByText("Cites 1 of 2 changed files")).toBeVisible();
@@ -1816,7 +1834,7 @@ describe("review brief", () => {
       .element(page.getByRole("button", { name: "Open src/alpha.ts L1 in Changes" }))
       .toBeVisible();
     await expect.poll(excerptText).toContain("export const after = 2;");
-    await expect.element(page.getByRole("heading", { name: "Not in the brief 1" })).toBeVisible();
+    await expect.element(page.getByRole("heading", { name: "Not in the notes 1" })).toBeVisible();
     await expect.element(page.getByRole("button", { name: "src/beta.ts +1 −1" })).toBeVisible();
 
     await page.getByRole("link", { name: "alpha.ts:1" }).click();
@@ -1851,7 +1869,7 @@ describe("review brief", () => {
     await expect
       .element(page.getByRole("tab", { name: "Changes" }))
       .toHaveAttribute("aria-selected", "true");
-    await page.getByRole("tab", { name: "Brief" }).click();
+    await page.getByRole("tab", { name: "Notes" }).click();
     await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
   });
 
@@ -1910,7 +1928,7 @@ describe("review brief", () => {
     await page.getByRole("button", { name: "Iteration 1" }).click();
     await expect.element(page.getByRole("heading", { name: "First round" })).toBeVisible();
     observer.disconnect();
-    expect([...shown].filter((state) => !/^ready Brief (First|Second) round$/.test(state))).toEqual(
+    expect([...shown].filter((state) => !/^ready Notes (First|Second) round$/.test(state))).toEqual(
       [],
     );
   });
@@ -2054,20 +2072,20 @@ describe("review brief", () => {
 
   test("attaches a pasted brief to a saved review and undoes it", async () => {
     await mountApp({ savedReview: true });
-    await expect.element(page.getByRole("tab", { name: "Brief" })).not.toBeInTheDocument();
+    await expect.element(page.getByRole("tab", { name: "Notes" })).not.toBeInTheDocument();
     const data = new DataTransfer();
     data.setData("text/plain", "Only [beta.ts:2](src/beta.ts:2) matters.");
     document.body.dispatchEvent(
       new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }),
     );
     await expect
-      .element(page.getByRole("tab", { name: "Brief" }))
+      .element(page.getByRole("tab", { name: "Notes" }))
       .toHaveAttribute("aria-selected", "true");
     await expect.element(page.getByRole("status")).toMatchTextContent("Brief attached.");
     await expect.poll(excerptText).toContain("export const shared = true;");
 
     await page.getByRole("button", { name: "Undo", exact: true }).click();
-    await expect.element(page.getByRole("tab", { name: "Brief" })).not.toBeInTheDocument();
+    await expect.element(page.getByRole("tab", { name: "Notes" })).not.toBeInTheDocument();
     await expect
       .element(page.getByRole("tab", { name: "Changes" }))
       .toHaveAttribute("aria-selected", "true");
@@ -2177,5 +2195,53 @@ describe("agent session", () => {
       .toBeVisible();
     await expect.element(panel.getByRole("textbox", { name: "Message Claude" })).toHaveValue("");
     await expect.element(panel.getByRole("button", { name: "1 comment" })).toBeVisible();
+  });
+
+  test("a reply pinned from the session becomes a note after the brief", async () => {
+    await page.viewport(1280, 800);
+    const events = [
+      {
+        at: 0,
+        update: {
+          sessionUpdate: "user_message_chunk",
+          content: { type: "text", text: "Why rename the export?" },
+        },
+      },
+      {
+        at: 1000,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          messageId: "r1",
+          content: { type: "text", text: "The old name clashed in [alpha.ts:1](src/alpha.ts:1)." },
+        },
+      },
+    ];
+    await mountApp({
+      savedReview: true,
+      brief: "# Rename the export\n\nThe constant changes in [alpha.ts:1](src/alpha.ts:1).\n",
+      session: `event: reset\ndata: ${JSON.stringify({ events, idle: true, modifiedAt: 0, truncated: false })}\n\n`,
+    });
+    const notes = page.getByRole("region", { name: "Notes" });
+    await expect.element(notes.getByRole("heading", { name: "Rename the export" })).toBeVisible();
+    // One note has no note heads.
+    await expect.element(notes.getByRole("region", { name: /^Note 1/ })).not.toBeInTheDocument();
+
+    await page.getByRole("button", { name: "Toggle agent session" }).click();
+    const panel = page.getByRole("complementary", { name: "Agent session" });
+    await panel.getByRole("button", { name: "Pin to review" }).click();
+    await expect.element(page.getByText("Pinned to the review's Notes.")).toBeVisible();
+    const pinned = notes.getByRole("region", { name: "Note 2 of 2" });
+    await expect.element(pinned.getByText("Reply from Claude")).toBeVisible();
+    await expect.element(pinned.getByText(/The old name clashed in/)).toBeVisible();
+    // The pinned reply cites its own lines, as the brief does.
+    await expect.element(pinned.getByRole("button", { name: /Open src\/alpha\.ts/ })).toBeVisible();
+    await expect.element(panel.getByRole("button", { name: "Pinned" })).toBeVisible();
+
+    await pinned.getByRole("button", { name: "Note 2 options" }).click();
+    await page.getByRole("menuitem", { name: "Unpin from review" }).click();
+    await expect
+      .element(notes.getByRole("region", { name: "Note 2 of 2" }))
+      .not.toBeInTheDocument();
+    await expect.element(panel.getByRole("button", { name: "Pin to review" })).toBeVisible();
   });
 });

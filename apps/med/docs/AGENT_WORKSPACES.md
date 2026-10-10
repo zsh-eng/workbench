@@ -211,12 +211,33 @@ The thread alone is not a good place for a review explanation:
 
 So:
 
-- Each agent reply gets **Pin to review**. Med copies the text into the
-  review, not a link, because the transcript can lose the reply.
-- Pinned replies are the review's **Notes**. Today's brief is the first note.
-  A later pin is a new iteration, as brief iterations are now.
+- The reply that ends each turn gets **Pin to review**. Med copies the text
+  into the review, not a link, because the transcript can lose the reply.
+- The brief and the pinned replies are the review's **Notes**. The brief is
+  the first note. A pin goes to the latest iteration; each iteration has its
+  own pins, and the brief carries over as before.
 - To get an explanation, you send a normal prompt, such as "walk me through
   this change", and pin the reply.
+- **Pinned** under a reply goes to its note. A note's **⋯** menu copies it or
+  removes the pin. Pinning the same reply again keeps one pin.
+
+Built: `POST /api/reviews/:id/pins` with `{ add: { text, source } }` or
+`{ remove: id }`. The notes render as one Markdown text, so heading IDs stay
+unique, but each note places its own excerpts.
+
+### What Linear's guide adds
+
+Linear shows an agent's PR as a guide: numbered sections ("01 / 04"), prose
+on the left, the section's files with **Reviewed** boxes on the right, and a
+minimap of ticks. Here is how each part fits Notes:
+
+| Linear guide            | Notes                                                                                                                                                |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Numbered sections       | Yes. With two or more notes, each note has a head: `02 / 03`, its source, and its time. A brief alone has no heads.                                  |
+| Minimap ticks           | Yes. A rail on the right edge marks notes, `#` and `##` headings, and excerpts. Ticks in view are darker.                                            |
+| Files beside the prose  | No. An excerpt sits under the sentence that cites it, which is closer than a side list, and the main view is often narrow while the session is open. |
+| **Reviewed** per file   | Later. Med has no viewed state per file. Add it to Changes first, as GitHub's **Viewed**; then the Notes can show it per note.                       |
+| One guide, written once | No. Notes grow while you talk to the agent. Their order is time, not a tour. Ask for a tour and pin it, and its headings become ticks.               |
 
 ## Layout: one pane column
 
@@ -349,8 +370,9 @@ them.
 ## Phases
 
 1. **Reply path.** Draft comments, **Send to agent**, comment states,
-   `med review wait` for Claude, and `codex queue` for Codex.
+   `med review wait` for Claude, and `codex queue` for Codex. Built.
 2. **Notes and panes.** Pin to review, the Notes rename, and the pane column.
+   Notes: built.
 3. **Owned sessions.** **New session** in a workspace, a prompt box with
    model and effort pickers, permission prompts, Stop, and the `/` menu.
    Claude Code through `stream-json`. OpenCode, Codex (`codex-acp`), and

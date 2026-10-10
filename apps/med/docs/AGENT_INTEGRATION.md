@@ -100,7 +100,7 @@ Add `--key <name>` to name your task, such as its branch. Create the review
 again with the same key after each round of work: Med adds an iteration to that
 review instead of a new workspace. The workspace is marked new again, and the
 new comparison and brief become current. Earlier briefs stay as numbered
-iterations on the Brief tab, and comments stay on their comparisons.
+iterations on the Notes tab, and comments stay on their comparisons.
 
 ```sh
 med review create --key feat/parser --title "Parser recovery" \
@@ -154,8 +154,10 @@ med review create --title "Fix the parser" --repo /path/to/repo \
   --base <commit-before-work> --head <commit-after-work> --brief brief.md
 ```
 
-The Brief tab shows each cited range as a short diff below the sentence that
-cites it, and lists the changed files that the brief does not cite. Cite the
+The Notes tab shows the brief first. Each cited range shows as a short diff
+below the sentence that cites it, and the tab lists the changed files that the
+notes do not cite. Replies that the user pins from your session follow the
+brief, so cite files in replies the same way. Cite the
 files that need attention; a reviewer reads the rest in Changes. Links accept
 `path:line`, `path:start-end`, `path#Lstart-Lend`, absolute paths in the
 repository, and GitHub blob URLs. Use `--brief` with `--manifest` too; links

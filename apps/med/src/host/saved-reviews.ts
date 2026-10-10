@@ -41,8 +41,11 @@ import {
   agentSessionSchema,
   MAX_BRIEF_LENGTH,
   MAX_ITERATIONS,
+  MAX_PINS,
   MAX_SESSIONS,
+  pinSourceSchema,
   type AgentSession,
+  type PinMutation,
   type SavedReview,
   type SavedReviewCreate,
   type CapturedReviewTarget,
@@ -107,6 +110,16 @@ const targetSchema = z.object({
   commentReviewId: text.optional(),
 });
 const briefSchema = z.object({ text: text.max(MAX_BRIEF_LENGTH), updatedAt: text });
+const pinsSchema = z
+  .array(
+    z.object({
+      id: z.string().regex(/^p_[a-f0-9]{12}$/),
+      text: text.max(MAX_BRIEF_LENGTH),
+      createdAt: text,
+      source: pinSourceSchema.optional(),
+    }),
+  )
+  .max(MAX_PINS);
 const savedSchema = z.object({
   id: z.string().regex(REVIEW_ID),
   key: text.optional(),
@@ -114,6 +127,7 @@ const savedSchema = z.object({
   pullRequestUrl: pullRequestUrlSchema.optional(),
   pullRequestTitle: text.optional(),
   brief: briefSchema.optional(),
+  pins: pinsSchema.optional(),
   sessions: z.array(agentSessionSchema).max(MAX_SESSIONS).optional(),
   iterations: z
     .array(
@@ -122,6 +136,7 @@ const savedSchema = z.object({
         createdAt: text,
         targetIds: z.array(z.string().regex(TARGET_ID)),
         brief: briefSchema.optional(),
+        pins: pinsSchema.optional(),
       }),
     )
     .max(MAX_ITERATIONS)
@@ -659,8 +674,10 @@ export class SavedReviewStore {
         createdAt: saved.createdAt,
         targetIds: saved.targets.filter((target) => !target.commentReviewId).map((t) => t.id),
         ...(saved.brief ? { brief: saved.brief } : {}),
+        ...(saved.pins ? { pins: saved.pins } : {}),
       },
     ];
+    delete saved.pins;
     if (iterations.length >= MAX_ITERATIONS)
       throw new HostError(
         "saved-review-limit",
@@ -954,6 +971,49 @@ export class SavedReviewStore {
       if (iteration) {
         if (record.saved.brief) iteration.brief = record.saved.brief;
         else delete iteration.brief;
+      }
+      await this.write(record, beforeCommit);
+      return this.describe(record);
+    }, beforeCommit);
+  }
+
+  /** Pin an agent reply to the current iteration, or remove a pin. Pinning
+   * the same reply again keeps one pin. */
+  pin(id: string, mutation: PinMutation, beforeCommit?: () => void): Promise<SavedReview> {
+    return this.writing(async () => {
+      const record = await this.read(id, true);
+      const saved = record.saved;
+      if ("add" in mutation) {
+        const owner = saved.iterations?.at(-1) ?? saved;
+        const pins = owner.pins ?? [];
+        const { text: body, source } = mutation.add;
+        const same = pins.some(
+          (pin) =>
+            source?.itemId &&
+            pin.source?.itemId === source.itemId &&
+            pin.source.sessionId === source.sessionId,
+        );
+        if (!same) {
+          if (pins.length >= MAX_PINS)
+            throw new HostError(
+              "pin-limit",
+              `An iteration can have at most ${MAX_PINS} pinned replies.`,
+              413,
+            );
+          pins.push({
+            id: `p_${randomBytes(6).toString("hex")}`,
+            text: body,
+            createdAt: new Date().toISOString(),
+            ...(source ? { source } : {}),
+          });
+        }
+        owner.pins = pins;
+      } else {
+        for (const owner of [saved, ...(saved.iterations ?? [])]) {
+          if (!owner.pins) continue;
+          owner.pins = owner.pins.filter((pin) => pin.id !== mutation.remove);
+          if (!owner.pins.length) delete owner.pins;
+        }
       }
       await this.write(record, beforeCommit);
       return this.describe(record);

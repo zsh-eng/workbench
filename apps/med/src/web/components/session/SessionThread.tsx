@@ -1,5 +1,14 @@
 import * as stylex from "@stylexjs/stylex";
-import { memo, useCallback, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  memo,
+  useCallback,
+  useContext,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type { AgentMessage } from "../../../shared/agent-inbox";
 import type { PlanEntry } from "../../../shared/agent-session";
 import type { SessionItem, SessionSnapshot } from "../../data/session-store";
@@ -12,6 +21,17 @@ import { formatSeconds, ToolCall } from "./ToolCall";
 import "./SessionThread.css";
 
 type ToolItem = Extract<SessionItem, { kind: "tool" }>;
+type AgentItem = Extract<SessionItem, { kind: "agent" }>;
+
+/** What a reader can do with an agent's reply, from the panel that shows the session. */
+export interface ReplyActions {
+  /** The pin of this reply, when it is pinned to the review. */
+  pinned(itemId: string): string | undefined;
+  pin(item: AgentItem): Promise<void>;
+  /** Show the pinned reply in the review's Notes. */
+  showPin(pinId: string): void;
+}
+export const ReplyActionsContext = createContext<ReplyActions | null>(null);
 type Unit = { key: string; item: SessionItem } | { key: string; explore: ToolItem[] };
 
 /** A thought shows when it has text or took a while; short silent thoughts only show while they run. */
@@ -45,16 +65,37 @@ function units(items: SessionItem[]): Unit[] {
   return result;
 }
 
+/** The reply that ends each turn: the last agent text before the user's next
+ * message, or at the end of a finished thread. */
+function finalReplies(list: Unit[], live: boolean) {
+  const result = new Set<string>();
+  let open = !live;
+  for (let index = list.length - 1; index >= 0; index--) {
+    const unit = list[index]!;
+    if ("explore" in unit) continue;
+    if (unit.item.kind === "user") open = true;
+    else if (unit.item.kind === "agent" && open) {
+      result.add(unit.item.id);
+      open = false;
+    }
+  }
+  return result;
+}
+
 function Thread({
   items,
   live,
+  root = false,
   onOpenLink,
 }: {
   items: SessionItem[];
   live: boolean;
+  /** The session's own thread, not a subagent's. */
+  root?: boolean;
   onOpenLink?(href: string): void;
 }) {
   const list = units(items);
+  const finals = root ? finalReplies(list, live) : undefined;
   const renderThread = useCallback(
     (nested: SessionItem[]) => <Thread items={nested} live={live} onOpenLink={onOpenLink} />,
     [live, onOpenLink],
@@ -71,6 +112,7 @@ function Thread({
               <Item
                 item={unit.item}
                 last={last}
+                final={finals?.has(unit.item.id) ?? false}
                 renderThread={renderThread}
                 onOpenLink={onOpenLink}
               />
@@ -85,11 +127,14 @@ function Thread({
 const Item = memo(function Item({
   item,
   last,
+  final,
   renderThread,
   onOpenLink,
 }: {
   item: SessionItem;
   last: boolean;
+  /** The reply that ends a turn, which has Copy and Pin to review. */
+  final: boolean;
   renderThread(items: SessionItem[]): ReactNode;
   onOpenLink?(href: string): void;
 }) {
@@ -118,7 +163,12 @@ const Item = memo(function Item({
         </div>
       );
     case "agent":
-      return <SessionMarkdown text={item.text} streaming={last} onOpenLink={onOpenLink} />;
+      return (
+        <>
+          <SessionMarkdown text={item.text} streaming={last} onOpenLink={onOpenLink} />
+          <ReplyBar item={item} final={final && !last} />
+        </>
+      );
     case "thought":
       return <Thought item={item} />;
     case "tool":
@@ -140,6 +190,67 @@ const Item = memo(function Item({
       return <Compaction summary={item.summary} failed={item.failed} />;
   }
 });
+
+/**
+ * Copy and Pin to review under the reply that ends a turn. A pinned reply
+ * keeps a Pinned mark wherever it is, which shows it in the Notes.
+ */
+function ReplyBar({ item, final }: { item: AgentItem; final: boolean }) {
+  const actions = useContext(ReplyActionsContext);
+  const [copied, setCopied] = useState(false);
+  const [pinning, setPinning] = useState(false);
+  const pinId = actions?.pinned(item.id);
+  if (!final && pinId === undefined) return null;
+  const copy = () =>
+    navigator.clipboard.writeText(item.text).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      },
+      () => {},
+    );
+  return (
+    <div {...stylex.props(styles.replyBar)}>
+      {final && (
+        <button
+          type="button"
+          aria-label={copied ? "Copied" : "Copy reply"}
+          title="Copy reply"
+          onClick={() => void copy()}
+          {...stylex.props(styles.replyAction)}
+        >
+          <Icon name={copied ? "check" : "copy"} size={13} />
+        </button>
+      )}
+      {actions &&
+        (pinId !== undefined ? (
+          <button
+            type="button"
+            title="Show in Notes"
+            onClick={() => actions.showPin(pinId)}
+            {...stylex.props(styles.replyAction, styles.replyPinned)}
+          >
+            <Icon name="pin" size={13} />
+            Pinned
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={pinning}
+            title="Keep this reply in the review's Notes"
+            onClick={() => {
+              setPinning(true);
+              actions.pin(item).finally(() => setPinning(false));
+            }}
+            {...stylex.props(styles.replyAction)}
+          >
+            <Icon name="pin" size={13} />
+            Pin to review
+          </button>
+        ))}
+    </div>
+  );
+}
 
 const AGENT_NAMES = { claude: "Claude", codex: "Codex" } as const;
 
@@ -402,7 +513,7 @@ export function SessionThread({
             aria-busy={snapshot.running}
           >
             {before}
-            <Thread items={snapshot.items} live={snapshot.running} onOpenLink={onOpenLink} />
+            <Thread items={snapshot.items} live={snapshot.running} root onOpenLink={onOpenLink} />
             {snapshot.running ? (
               <div {...stylex.props(rowStyles.row, styles.status)}>
                 <span {...stylex.props(rowStyles.icon)}>
@@ -480,6 +591,27 @@ const styles = stylex.create({
   },
   // Rows out of view skip layout and paint; a long thread scrolls at frame rate.
   unit: { minWidth: 0, contentVisibility: "auto", containIntrinsicSize: "auto 60px" },
+  replyBar: { display: "flex", alignItems: "center", gap: 2, marginTop: 4, marginInline: -6 },
+  replyAction: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    height: 24,
+    minWidth: 24,
+    justifyContent: "center",
+    paddingInline: 6,
+    borderWidth: 0,
+    borderRadius: `calc(6px * ${tokens.round})`,
+    backgroundColor: { default: "transparent", ":hover": tokens.fill },
+    color: { default: tokens.faint, ":hover": tokens.text, ":disabled": tokens.faint },
+    fontFamily: tokens.ui,
+    fontSize: 11.5,
+    cursor: { default: "pointer", ":disabled": "default" },
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+    transitionProperty: "background-color, color",
+    transitionDuration: "120ms",
+  },
+  replyPinned: { color: { default: tokens.accent, ":hover": tokens.accent } },
   userRow: {
     display: "flex",
     flexDirection: "column",
