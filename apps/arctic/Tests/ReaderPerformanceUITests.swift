@@ -16,7 +16,7 @@ final class ReaderPerformanceUITests: XCTestCase {
     app.launchEnvironment["TEST_PUBLISHER_ORIGIN"] = replay.origin
     app.launch()
     let shortcut = app.buttons["publisher-www.ft.com"]
-    XCTAssertTrue(shortcut.waitForExistence(timeout: 10), app.debugDescription)
+    XCTAssertTrue(app.buttons["toggle-news"].waitForExistence(timeout: 10), app.debugDescription)
     revealPublishersIfNeeded(app, shortcut: shortcut)
     shortcut.tap()
     XCTAssertTrue(app.webViews.staticTexts["Publisher homepage"].waitForExistence(timeout: 10))
@@ -69,14 +69,12 @@ final class ReaderPerformanceUITests: XCTestCase {
   }
 
   @MainActor private func revealPublishersIfNeeded(_ app: XCUIApplication, shortcut: XCUIElement) {
-    if app.staticTexts["discovery-collapse"].label.hasPrefix("100;") {
-      let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
-      start.press(forDuration: 0.05,
-        thenDragTo: start.withOffset(CGVector(dx: 0, dy: 200)),
-        withVelocity: .slow, thenHoldForDuration: 0.2)
-      expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: shortcut)
-      waitForExpectations(timeout: 5)
-    }
+    let header = app.buttons["toggle-news"]
+    XCTAssertTrue(header.waitForExistence(timeout: 10))
+    if header.value as? String != "Expanded" { header.tap() }
+    XCTAssertTrue(shortcut.waitForExistence(timeout: 5))
+    expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: shortcut)
+    waitForExpectations(timeout: 5)
   }
 
   @MainActor func testFailedWebsiteRetriesWithoutRestart() {

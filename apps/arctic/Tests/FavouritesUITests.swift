@@ -187,7 +187,9 @@ final class FavouritesUITests: XCTestCase {
       "The list must follow an ordinary upward drag")
     for _ in 0..<4 { app.swipeUp() }
     XCTAssertFalse(first.isHittable, "Repeated swipes must move beyond the first article")
-    for _ in 0..<7 { app.swipeDown() }
+    // Stop at the top. Another swipe there would open news, and XCUITest can
+    // synthesize the next swipe while that spring still runs.
+    for _ in 0..<7 where !first.exists || first.frame.minY < initialY - 1 { app.swipeDown() }
     XCTAssertTrue(first.isHittable, "The library must scroll back to its first article")
     revealDiscovery(app)
     for _ in 0..<4 { app.swipeUp() }

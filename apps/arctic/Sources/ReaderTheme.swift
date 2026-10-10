@@ -33,10 +33,12 @@ extension View {
     }
   }
 
-  @ViewBuilder func readerGlass(cornerRadius: CGFloat) -> some View {
+  /// Interactive glass responds to touches itself. Pass false for decorative
+  /// glass that must let touches reach the views below it.
+  @ViewBuilder func readerGlass(cornerRadius: CGFloat, interactive: Bool = true) -> some View {
     let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
     if #available(iOS 26.0, *) {
-      self.glassEffect(.regular.interactive(), in: shape)
+      self.glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
     } else {
       self.background(.regularMaterial, in: shape)
     }

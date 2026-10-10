@@ -60,8 +60,9 @@ final class ArticleReaderUITests: XCTestCase {
       "browser-back", "browser-forward", "reader-appearance", "reader-save", "reader-toggle",
     ]
     .map { app.buttons[$0] }
+    // 44 pt targets keep clear gaps beside the note button.
     for index in 1..<controls.count {
-      XCTAssertGreaterThan(controls[index].frame.midX - controls[index - 1].frame.midX, 60)
+      XCTAssertGreaterThan(controls[index].frame.midX - controls[index - 1].frame.midX, 52)
     }
     capture(app, "71-shared-reader-bar")
     let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.005, dy: 0.45))

@@ -214,13 +214,10 @@ struct LibraryView: View {
       discoveryMotion.setEnabled(available)
     }
     .onChange(of: reduceMotion || appReduceMotion, initial: true) { _, reduced in
-      discoveryMotion.reduceMotion = reduced
+      if discoveryMotion.reduceMotion != reduced { discoveryMotion.reduceMotion = reduced }
     }
     .overlay(alignment: .top) { navigationControls.accessibilityHidden(showingAnnotations) }
-    .overlay {
-      DiscoveryFlightSurface(flight: discoveryMotion.flight)
-        .allowsHitTesting(false).accessibilityHidden(true)
-    }
+    .overlay { DiscoveryGhost(motion: discoveryMotion) }
     .overlay(alignment: .bottomLeading) {
       LibraryPreloadDriver(
         visibility: viewportVisibility, store: store, browsers: browsers, projection: projection,
@@ -306,7 +303,7 @@ struct LibraryView: View {
     }
     .task(id: scenePhase) {
       guard scenePhase == .active else {
-        discoveryMotion.close()
+        discoveryMotion.close(animated: false)
         isLibraryScrolling = false
         store.setLibraryScrolling(false)
         store.flushPendingWrites()
@@ -765,7 +762,7 @@ struct LibraryView: View {
       VStack(spacing: 0) {
         // News is outside the pager. Opening it changes the available viewport,
         // not any page's scroll offset or content inset.
-        Color.clear.frame(height: discoveryAvailable && discoveryMotion.isExpanded ? 128 : 0)
+        Color.clear.frame(height: discoveryAvailable ? discoveryMotion.openness : 0)
         ZStack(alignment: .top) {
           LibraryPager(pages: folderItems, selection: $folder, reduceMotion: reduceMotion) { item in
             GeometryReader { geometry in
@@ -829,17 +826,26 @@ struct LibraryView: View {
           viewportVisibility.libraryBounds = $0
         }
       }
+      .onGeometryChange(for: CGRect.self) { geometry in
+        let frame = geometry.frame(in: .global)
+        return CGRect(
+          x: frame.minX + 12, y: frame.minY + topInset + 8,
+          width: max(0, frame.width - 24), height: DiscoveryShelfLayout.panelHeight)
+      } action: {
+        discoveryMotion.setPanelFrame($0)
+      }
       .overlay(alignment: .top) {
-        if discoveryAvailable && discoveryMotion.isExpanded {
+        // Drawn bubbles carry the motion; the working shelf appears once it settles.
+        if discoveryAvailable && discoveryMotion.isExpanded && discoveryMotion.settled {
           DiscoveryPullChrome(motion: discoveryMotion) {
             discoveryShelf
-              .padding(.vertical, 6)
+              .padding(.vertical, DiscoveryShelfLayout.inset)
               .readerGlass(cornerRadius: 30)
               .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
               .padding(.horizontal, 12)
               .padding(.top, topInset + 8)
           }
-            .transition(.opacity)
+            .transition(discoveryMotion.reduceMotion ? .opacity : .identity)
             .zIndex(1)
         }
       }
@@ -877,12 +883,12 @@ struct LibraryView: View {
 
   private var discoveryShelf: some View {
     LibraryDiscovery(motion: discoveryMotion) { url in
-      discoveryMotion.close()
+      discoveryMotion.close(animated: false)
       // A publisher shortcut is a website destination, never a cached Reader article.
       zoomSource = nil
       selected = browsers.open(url, store: store, preferWebsite: true)
     } weekly: {
-      discoveryMotion.close()
+      discoveryMotion.close(animated: false)
       showingWeeklyFavourites = true
     }
   }

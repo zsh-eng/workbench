@@ -427,7 +427,7 @@ the shelf makes no favicon requests. [Asset sources](Design/publisher-marks.md) 
 News has two states: three small overlapping publisher circles beside the Arctic
 mark/name, or a publisher row above the folder tabs. In the compact state,
 the mark and name shift right to make room for the circles. Tap the header or pull
-down at the top by 44 points to open the row; the pull gives one medium haptic.
+down at the top by 56 points to open the row; the pull gives one haptic.
 A small pull uses the native bounce and stays closed. An upward drag, another tap,
 or leaving Saved closes it. News lives outside the article pager: opening it moves
 the tabs and pager down together by 128 points without changing a page's scroll
@@ -435,18 +435,20 @@ position. The tabs and news follow the list's native top bounce through a read-o
 scroll observation. Only those small header views observe per-frame changes.
 The news row owns a floating glass panel with a gap above the tabs; neither the
 panel nor its horizontal scroller shares the article pager's background or gestures.
-Bubbles travel continuously from the overlapping header stack to the expanded
-row, then return along the same path. One noninteractive overlay carries the
-circles through a 360 ms spring; their native hit targets stay in the row.
-An interrupted transition continues from the circles' current presentation
-frames. A 240 ms transition handles layout and the separate panel fades in.
-Reduce Motion skips circle travel, fades the news and changes the brand position
-immediately. Leaving the library cancels the flight. There are no scroll-inset
-changes or display-link writes to scroll offsets. Publisher availability
-requires a connection. A publisher shortcut starts a fresh website visit, even
-when that homepage has downloaded Reader content. In-page URL changes get their
-own history and article identity, so saving a linked article does not replace
-the homepage's Reader content.
+One glass bubble grows from the overlapping header stack into the row: the
+stack's capsule widens and drops into the panel while the circles spread to
+their slots. A single value, the open distance, drives the bubble. A pull
+scrubs it under the finger; a release past the trigger hands that distance to a
+well-damped spring (440 ms, under 1% overshoot); close runs the same path
+in reverse. The bubble is a drawn, noninteractive overlay; when it settles, the
+real row with its hit targets replaces it. Reduce Motion skips the bubble, fades
+the news and changes the brand position immediately. Leaving the library closes
+the row without animation. There are no scroll-inset changes or display-link
+writes to scroll offsets. Publisher availability requires a connection. A
+publisher shortcut starts a fresh website visit, even when that homepage has
+downloaded Reader content. In-page URL changes get their own history and article
+identity, so saving a linked article does not replace the homepage's Reader
+content.
 
 **This week** shows articles favourited from Monday to Sunday in the current
 time zone, including archived favourites. **All favourites** also includes
