@@ -41,7 +41,7 @@ import {
   type ReviewDocumentV1,
   type ReviewState,
 } from "../../shared/review";
-import { ByteLru, estimateRetainedBytes } from "./cache";
+import { ByteLru } from "../../shared/byte-lru";
 import {
   branchesSchema,
   createApi,
@@ -161,6 +161,10 @@ function immutableComparison(comparison: Comparison): boolean {
         objectId.test(comparison.base) &&
         objectId.test(comparison.head);
 }
+/** Conservative serialized-data budget; includes UTF-16 string storage and object allowance. */
+function estimateRetainedBytes(value: unknown): number {
+  return JSON.stringify(value).length * 4;
+}
 function message(error: unknown): string {
   return error instanceof Error ? error.message : "An unexpected error occurred.";
 }
@@ -191,7 +195,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       if (patch.length > 256 * 1024) throw new Error("This patch requires the background parser.");
       return parseReviewPatch(patch);
     });
-  const reviewCache = new ByteLru<CachedReview>(options.cacheBytes ?? 24 * 1024 * 1024);
+  const reviewCache = new ByteLru<CachedReview>(options.cacheBytes ?? 24 * 1024 * 1024, 24);
   const sourceCache = new ByteLru<SourceResponse>(8 * 1024 * 1024, 12, (_key, source) => {
     if (snapshot.review?.id !== source.reviewId || !snapshot.semantic) return;
     const file = snapshot.files.find((entry) => entry.path === source.path);

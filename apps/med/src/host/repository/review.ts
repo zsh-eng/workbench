@@ -21,7 +21,7 @@ import type {
   ReviewResponse,
   SourceResponse,
 } from "../../shared/protocol";
-import { ByteCache } from "../runtime/cache";
+import { ByteLru } from "../../shared/byte-lru";
 import { HostError } from "../runtime/errors";
 import { git, measureGit, ProcessFailure } from "../runtime/process";
 import { resolveCommit } from "./history";
@@ -232,10 +232,10 @@ async function indexWithRemovedFiles(repo: string, files: SourceFile[], signal?:
 
 /** Keep immutable comparisons and source bytes separate from bounded review retention. */
 export class ReviewService {
-  private reviews = new ByteCache<StoredReview>(64 * 1024 * 1024);
+  private reviews = new ByteLru<StoredReview>(64 * 1024 * 1024);
   private immutable = new Map<string, string>();
   private immutableRequests = new Map<string, string>();
-  private sourceCache = new ByteCache<SourceResponse>(32 * 1024 * 1024);
+  private sourceCache = new ByteLru<SourceResponse>(32 * 1024 * 1024);
   constructor(private allowedInputPaths: ReadonlySet<string> = new Set()) {}
 
   private async inputPath(repo: string, path: string) {

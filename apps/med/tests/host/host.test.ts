@@ -4,7 +4,6 @@ import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { ByteCache } from "../../src/host/runtime/cache";
 import { runProcess } from "../../src/host/runtime/process";
 import { loadHistory, listBranches, listWorktrees } from "../../src/host/repository/history";
 import { ReviewService, parseRawDiff } from "../../src/host/repository/review";
@@ -46,17 +45,6 @@ afterEach(async () => {
 });
 
 describe("bounded host primitives", () => {
-  test("evicts the least recently read bytes and refuses oversized entries", () => {
-    const cache = new ByteCache<number>(8);
-    cache.set("a", 1, 4);
-    cache.set("b", 2, 4);
-    expect(cache.get("a")).toBe(1);
-    cache.set("c", 3, 4);
-    expect(cache.get("b")).toBeUndefined();
-    expect(cache.bytes).toBe(8);
-    cache.set("huge", 9, 10);
-    expect(cache.get("huge")).toBeUndefined();
-  });
   test("terminates output overflow and cancelled children", async () => {
     await expect(
       runProcess(process.execPath, ["-e", "process.stdout.write('x'.repeat(100000))"], {
