@@ -14,7 +14,7 @@ agent works.
 │ one line per block   │   │ tail, poll, subagents  │SSE│ thread, docks, Markdown  │
 └──────────────────────┘   └────────────────────────┘   └──────────────────────────┘
                                       ▲
-                     future: Med starts the agent (ACP over stdio)
+              or Med starts the agent (stream-json, or ACP over stdio)
 ```
 
 Med has one data model for a session: the `session/update` notifications of
@@ -168,7 +168,7 @@ runs. For those, two things differ from a real ACP connection:
 
 To get both, Med can start the agent itself: Claude Code with
 `stream-json`, or an ACP agent such as `opencode acp`
-([owned sessions](AGENT_WORKSPACES.md#built-owned-sessions)). A Claude
+([owned sessions](AGENT_WORKSPACES.md#owned-sessions)). A Claude
 session still feeds the thread from its transcript; Med adds the streaming
 reply on top. Med logs an ACP session's updates and streams them from
 `/sessions/:session/events` as for a transcript. The thread, the docks, and
@@ -176,8 +176,8 @@ the replay do not change.
 
 ## Limits and next steps
 
-[Agent workspaces](AGENT_WORKSPACES.md) proposes the next steps: replies to the
-agent, notes, sessions that Med starts, and long sessions.
+[Agent workspaces](AGENT_WORKSPACES.md) records the design and the remaining
+work.
 
 - The sidebar shows sessions recorded with saved reviews. Branch workspaces
   have no session.
