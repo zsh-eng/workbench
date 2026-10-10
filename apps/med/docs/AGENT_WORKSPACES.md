@@ -74,10 +74,10 @@ So Med starts the unmodified `claude` binary that the user signed in to, with
 reader can convert them. This needs no ACP adapter, and so no Agent SDK and
 no new dependency.
 
-It is not clear whether a local tool that starts the user's own installed
-binary counts as a product that "runs Claude Code". Ask Anthropic before a
-public release has owned Claude sessions, and before Med uses an Agent SDK
-adapter with a subscription login.
+Decision: Med does not install, bundle, or modify an agent. It starts
+binaries that the user installed and signed in to. The Commercial Terms
+clause gives hosted sandboxes and agent infrastructure as examples, not a
+local tool. Med does not use an Agent SDK adapter for Claude.
 
 ## Workspaces and sessions
 
@@ -159,19 +159,24 @@ For an owned session, **Send to agent** is `session/prompt`.
 
 ### Codex
 
-Codex 0.160 keeps sessions in a shared local app-server daemon:
+Codex 0.160 has a durable message queue:
 
-- `codex queue --thread <id> --message <text>` queues a message for an
-  existing session.
-- `codex app-server proxy` connects a client to the daemon's control socket.
-- `codex agents` lists the sessions in the daemon.
+- `codex queue --thread <id> --message <text>` adds a user message to
+  `~/.codex/queue_1.sqlite`. It does not need a running agent.
+- The next Codex process that runs the thread takes the queued messages
+  first, as user turns. Then it runs its own prompt.
+- `codex app-server proxy` connects a client to a shared local app-server
+  daemon, and `codex agents` lists the sessions in it.
 
-If Codex Desktop keeps its sessions in this daemon, Med can send to an
-attached Codex session with `codex queue`. Med can also follow the session
-live through the proxy, with token streaming and approvals, and without a
-second writer. These facts come from `codex --help` only. Test them with a
-scratch session first. `med review wait` is a poor fit for Codex, because
-Codex does not wake the agent when a background command ends.
+Tested on a scratch thread: `codex queue` stored the message, and a later
+`codex exec resume` replied to it before its own prompt. The queue was then
+empty. Not tested yet: whether Codex Desktop takes a queued message while it
+has the thread open, and whether Desktop uses the shared daemon. Codex
+Desktop was not running.
+
+So Med can send to an attached Codex session with `codex queue`. The message
+is a real user turn, not command output. `med review wait` is a poor fit for
+Codex, because Codex does not wake the agent when a background command ends.
 
 ## Comments and replies
 
@@ -326,7 +331,8 @@ look like Responses items because Codex uses that API.
 - **OpenCode** supports many providers. `opencode acp` speaks ACP on stdio,
   with session load, resume, fork, permission requests, and usage. An owned
   OpenCode session needs no new reader. Each provider needs its own key in
-  OpenCode. Claude models through OpenCode need an Anthropic API key, because
+  OpenCode. This is acceptable, because Med's main use is work with API
+  pricing. Claude models through OpenCode need an Anthropic API key, because
   a Claude subscription works only in Anthropic's own apps. To attach to
   OpenCode, Med needs a reader for its storage, which was not checked.
 - **DeepSeek Harness** (`dsh`, MIT) keeps an append-only session event log.
@@ -342,14 +348,13 @@ them.
 
 ## Phases
 
-1. **Reply path.** Draft comments, **Send to agent**, `med review wait`,
-   comment states, and `codex queue` after a test.
+1. **Reply path.** Draft comments, **Send to agent**, comment states,
+   `med review wait` for Claude, and `codex queue` for Codex.
 2. **Notes and panes.** Pin to review, the Notes rename, and the pane column.
 3. **Owned sessions.** **New session** in a workspace, a prompt box with
    model and effort pickers, permission prompts, Stop, and the `/` menu.
-   Claude Code through `stream-json`. Codex through its app-server daemon or
-   `codex-acp`. Other agents through ACP. An adapter package is a new
-   dependency.
+   Claude Code through `stream-json`. OpenCode, Codex (`codex-acp`), and
+   other agents through ACP. An adapter package is a new dependency.
 4. **Workspace list.** States, unread dots, and lead sessions.
 5. **Long sessions.** Pages, the turn index, and the render window.
 
@@ -357,11 +362,8 @@ them.
 
 - Stacked panes or tabs in the right column.
 - Does a session that Med starts also show in Claude Desktop's session list?
-- Does Codex Desktop keep its sessions in the shared app-server daemon, so
-  that `codex queue` reaches them?
-- Do owned Claude sessions in a public Med release need Anthropic's
-  Commercial Terms? Can Med use an Agent SDK adapter with the user's own
-  subscription? Ask Anthropic.
+- Does Codex Desktop take a queued message while it has the thread open?
+  Does it keep its sessions in the shared app-server daemon?
 - Should an owned session keep running when the Med host restarts? herdr
   keeps agents in a background server for this reason.
 
