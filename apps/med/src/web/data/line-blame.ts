@@ -6,7 +6,6 @@ import {
   type BlameEntry,
   type BlameLoader,
 } from "./blame";
-import { relativeTime } from "./relative-time";
 
 export interface LineBlame {
   line: number;
@@ -19,14 +18,6 @@ export interface LineBlame {
 const REST_MS = 250;
 
 export const uncommitted = (entry: BlameEntry) => /^0+$/.test(entry.commit);
-
-/** "Mira, 2 days ago · Add weeks to relative time" */
-export function lineBlameLabel(entry: BlameEntry, now = Date.now()) {
-  if (uncommitted(entry)) return "Not committed yet";
-  const time = Date.parse(entry.date);
-  const when = Number.isFinite(time) ? `, ${relativeTime(time, now)}` : "";
-  return `${entry.author}${when}${entry.summary ? ` · ${entry.summary}` : ""}`;
-}
 
 /**
  * The cursor line's history. It shows when the cursor rests, so holding a

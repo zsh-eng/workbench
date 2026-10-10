@@ -50,9 +50,6 @@ const KINDS: Record<string, ToolKind> = {
   EnterPlanMode: "switch_mode",
   ExitPlanMode: "switch_mode",
 };
-/** Tools that only keep the plan; the plan shows their effect. */
-export const PLAN_TOOLS = new Set(["TodoWrite", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet"]);
-
 /** System reminders and similar wrappers that the agent reads but the user did not write. */
 const HIDDEN = /<(system-reminder|local-command-caveat)>[\s\S]*?<\/\1>/g;
 
