@@ -7,6 +7,7 @@ import {
   renderFileWithHighlighter,
   getHighlighterThemeStyles,
   parsePatchFiles,
+  resolveTheme,
   type DiffsHighlighter,
 } from "@pierre/diffs";
 import {
@@ -205,6 +206,30 @@ describe("In-house grammars through production language loading, adapter, and Pi
       }
     },
   );
+});
+
+describe("Theme selectors with parent and root scopes", () => {
+  // Pierre passes each theme to the adapter as loaded. Shiki normalizes it.
+  it.each([
+    ["json-edge.json", "pierre-dark"],
+    ["jsonc.jsonc", "pierre-light"],
+  ])("colors %s in %s as Shiki does", async (name, themeName) => {
+    const lang = languageOf(name);
+    const theme = await resolveTheme(themeName);
+    await reference.loadTheme(theme);
+    actual.loadThemeSync(theme);
+    const source = readFileSync(
+      new URL(`../fixtures/highlighting/${name}`, import.meta.url),
+      "utf8",
+    );
+    const { fg, bg } = reference.getTheme(themeName);
+    expect(
+      compareRuns(
+        normalizedRuns(renderFile(source, lang, themeName, reference).code, fg, bg),
+        normalizedRuns(renderFile(source, lang, themeName, actual).code, fg, bg),
+      ),
+    ).toEqual([]);
+  });
 });
 
 describe("Twinkleplop CSS with Med's scope map", () => {

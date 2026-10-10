@@ -107,12 +107,15 @@ formats; TypeScript and Vitest check. The lockfile pins all versions.
 
 Twinkleplop gives tokens to the worker and main-thread paths. Med has its own
 grammars for Java, C++, XML, JSON, and JSONC in `src/web/highlighting/languages/`.
-`languages.ts` loads each grammar on demand, and `scopeOverrides` maps
+`languages.ts` loads each grammar on demand and adds the root scope, such as
+`source.json`, to scanners that give scope stacks. `scopeOverrides` maps
 Twinkleplop's CSS token kinds to the scopes that Shiki uses. The adapter
-(`src/web/highlighting/adapter.ts`) maps each token kind to one TextMate scope,
-changes UTF-16 ranges to Pierre's HAST, and adds word-change decorations and
-theme colors. It ignores parent and descendant scope selectors. Markdown fences
-load their embedded grammars. Unsupported languages use plain text.
+(`src/web/highlighting/adapter.ts`) reads each token's scope stack, changes
+UTF-16 ranges to Pierre's HAST, and adds word-change decorations and theme
+colors. It resolves theme rules as vscode-textmate does, with parent and child
+(`>`) selectors and their specificity. Twinkleplop grammars give one scope per
+token kind, so parent selectors seldom match them. Markdown fences load their
+embedded grammars. Unsupported languages use plain text.
 `bun run test:highlighting` compares Med's grammars with Shiki through Pierre.
 
 `tools/pierre-highlighter.ts` patches Pierre 1.4.3 at build time and rejects
