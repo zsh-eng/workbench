@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { comparisonSchema } from "../../shared/protocol";
+import { browserFetch, liveStream } from "./live";
 
 const worktreeSchema = z.object({
   path: z.string(),
@@ -178,6 +179,7 @@ export function createApi(fetcher: typeof fetch, token: string) {
       return result.data;
     },
     stream(url: string, signal: AbortSignal) {
+      if (fetcher === browserFetch) return liveStream(token, url, signal);
       return fetcher(url, { headers: headers({ Accept: "text/event-stream" }), signal });
     },
   };

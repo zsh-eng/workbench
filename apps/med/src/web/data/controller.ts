@@ -56,6 +56,7 @@ import {
   sessionSchema,
   sourceSchema,
 } from "./api";
+import { browserFetch } from "./live";
 import { readServerEvents } from "./sse";
 
 export type { ParsedReviewFile } from "../../shared/review";
@@ -180,7 +181,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     (options.start || typeof location === "undefined"
       ? undefined
       : /^\/review\/([^/]+)\/?$/.exec(location.pathname)?.[1]);
-  const api = createApi(options.fetch ?? globalThis.fetch.bind(globalThis), token);
+  const api = createApi(options.fetch ?? browserFetch, token);
   const parse =
     options.parsePatch ??
     (async (patch: string) => {

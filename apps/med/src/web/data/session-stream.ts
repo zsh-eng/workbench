@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { SessionEvent } from "../../shared/agent-session";
 import { readBrowserToken } from "./auth";
 import { createApi, HttpError } from "./api";
+import { browserFetch } from "./live";
 import type { SessionStore } from "./session-store";
 import { readServerEvents } from "./sse";
 
@@ -57,7 +58,7 @@ export async function followSession(
   store: SessionStore,
   onState: (state: SessionStreamState) => void,
   signal: AbortSignal,
-  fetcher: typeof fetch = globalThis.fetch.bind(globalThis),
+  fetcher: typeof fetch = browserFetch,
 ) {
   const api = createApi(fetcher, readBrowserToken());
   let state: SessionStreamState = { status: "connecting", truncated: false, idle: true };
@@ -123,7 +124,7 @@ export async function loadSessionPage(
   reviewId: string,
   sessionId: string,
   before: number,
-  fetcher: typeof fetch = globalThis.fetch.bind(globalThis),
+  fetcher: typeof fetch = browserFetch,
 ) {
   return createApi(fetcher, readBrowserToken()).json(
     `/api/reviews/${encodeURIComponent(reviewId)}/sessions/${encodeURIComponent(sessionId)}/page?before=${before}`,
@@ -135,7 +136,7 @@ export async function loadSessionPage(
 export async function loadSessionTurns(
   reviewId: string,
   sessionId: string,
-  fetcher: typeof fetch = globalThis.fetch.bind(globalThis),
+  fetcher: typeof fetch = browserFetch,
 ) {
   const result = await createApi(fetcher, readBrowserToken()).json(
     `/api/reviews/${encodeURIComponent(reviewId)}/sessions/${encodeURIComponent(sessionId)}/turns`,

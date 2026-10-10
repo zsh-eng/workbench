@@ -5,8 +5,9 @@ import { fileChanges } from "./repository/file-changes";
 import { markdownAsset } from "./markdown-assets";
 import { browseSourceSchema } from "../shared/browse";
 import { LocalFiles } from "./local-files";
+import { ChannelResponse, channelRequest, LIVE_PATH, liveInputSchema } from "./live-streams";
 import { localPathSchema } from "../shared/local-file";
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { lstat, mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
@@ -242,6 +243,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   // such as a review an agent just created.
   const windows = new Set<ServerResponse>();
   const sessionStreams = new Set<ServerResponse>();
+  // One stream per page that carries the streams above as channels.
+  const lives = new Map<
+    string,
+    { response: ServerResponse; channels: Map<string, ChannelResponse> }
+  >();
   /** Session updates per server event; the browser reads events up to 4 MiB. */
   const SESSION_EVENT_BYTES = 1024 * 1024;
   // The workspace list's states update this often.
@@ -384,7 +390,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     };
   };
 
-  const server = createServer((request, response) => {
+  const handle = (request: IncomingMessage, response: ServerResponse) => {
     const abort = new AbortController();
     const owners = new Set<string>();
     const ownershipChecks = new Set<() => boolean>();
@@ -487,6 +493,65 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             `med_session_${port}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`,
           );
           send({ authenticated: true });
+          return;
+        }
+        if (url.pathname === "/api/live" && request.method === "GET") {
+          if (lives.size >= 32)
+            throw new HostError("too-many-streams", "Too many live streams are open.", 503);
+          const id = randomUUID();
+          response.writeHead(200, {
+            "content-type": "text/event-stream",
+            "cache-control": "no-store",
+            connection: "keep-alive",
+            "x-accel-buffering": "no",
+          });
+          const channels = new Map<string, ChannelResponse>();
+          lives.set(id, { response, channels });
+          response.write(`event: live\ndata: ${JSON.stringify({ id })}\n\n`);
+          response.once("close", () => {
+            lives.delete(id);
+            for (const channel of channels.values()) channel.destroy();
+          });
+          return;
+        }
+        const liveRoute = /^\/api\/live\/([A-Za-z0-9-]{1,80})$/.exec(url.pathname);
+        if (liveRoute && request.method === "POST") {
+          const live = lives.get(liveRoute[1]!);
+          if (!live) throw new HostError("live-not-found", "The live stream has closed.", 404);
+          const input = liveInputSchema.parse(await readBody(request));
+          for (const key of input.close) live.channels.get(key)?.destroy();
+          const refuse = (key: string, status: number, code: string, message: string) => ({
+            key,
+            status,
+            body: { error: { code, message } },
+          });
+          const channels = await Promise.all(
+            input.open.map(async ({ key, path }) => {
+              if (!LIVE_PATH.test(path))
+                return refuse(key, 400, "invalid-channel", "This stream cannot be a channel.");
+              if (live.channels.has(key) || live.channels.size >= 32)
+                return refuse(key, 409, "channel-unavailable", "Choose another channel key.");
+              const channel = new ChannelResponse(key, (text) => {
+                if (!live.response.writableEnded) live.response.write(text);
+              });
+              live.channels.set(key, channel);
+              channel.once("close", () => {
+                if (live.channels.get(key) === channel) live.channels.delete(key);
+              });
+              handle(channelRequest(request, path), channel as unknown as ServerResponse);
+              await channel.head;
+              if (channel.statusCode === 200) return { key, status: 200 };
+              live.channels.delete(key);
+              let body: unknown = null;
+              try {
+                body = JSON.parse(channel.body);
+              } catch {
+                /* The handler sent no JSON body. */
+              }
+              return { key, status: channel.statusCode, body };
+            }),
+          );
+          send({ channels });
           return;
         }
         if (url.pathname === "/api/events" && request.method === "GET") {
@@ -1749,7 +1814,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       .finally(() => {
         activeRequests.delete(abort);
       });
-  });
+  };
+  const server = createServer(handle);
   server.requestTimeout = 35_000;
   server.headersTimeout = 10_000;
   await new Promise<void>((resolvePromise, reject) => {
@@ -1790,6 +1856,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   }
   const heartbeat = setInterval(() => {
     for (const stream of [...streams.keys(), ...windows]) stream.write(": heartbeat\n\n");
+    for (const { response } of lives.values()) response.write(": heartbeat\n\n");
   }, 15_000);
   heartbeat.unref();
   return {
@@ -1803,6 +1870,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       ownedSessions.stopAll();
       for (const abort of activeRequests.keys()) abort.abort();
       for (const stream of [...streams.keys(), ...windows]) stream.end();
+      for (const { response } of lives.values()) response.end();
       streams.clear();
       windows.clear();
       await Promise.allSettled([...watchers.values()].map(async (stop) => (await stop)()));

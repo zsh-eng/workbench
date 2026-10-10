@@ -109,6 +109,12 @@ Updates keep a command but no other raw tool input or output. Text longer than
 64 KiB, diffs over 512 KiB, and images over 512 KiB are cut or replaced. At
 most 8 session streams are open. A reconnect starts with a new `reset`.
 
+In the app, this stream and the page's other event streams are channels of
+one `GET /api/live` stream (`src/web/data/live.ts`, `src/host/live-streams.ts`).
+A browser opens at most six connections to one host, and each open stream
+keeps one: with a separate stream for each view, a review with a session left
+no connection for its requests.
+
 The browser shows **Working** until the agent ends its turn, or until the
 transcript has not changed for 5 minutes, because a stopped process writes
 nothing.

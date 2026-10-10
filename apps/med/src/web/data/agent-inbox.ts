@@ -10,6 +10,7 @@ import {
 import type { SessionItem } from "./session-store";
 import { readBrowserToken } from "./auth";
 import { createApi } from "./api";
+import { browserFetch } from "./live";
 import { readServerEvents } from "./sse";
 
 const pause = (ms: number, signal: AbortSignal) =>
@@ -58,8 +59,6 @@ export interface AgentInbox {
   state: AgentInboxState | null;
   send(input: AgentMessageInput): Promise<AgentMessage>;
 }
-
-const browserFetch: typeof fetch = (...args) => globalThis.fetch(...args);
 
 /** A review's agent inbox while `reviewId` is set. */
 export function useAgentInbox(

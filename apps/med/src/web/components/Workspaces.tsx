@@ -45,6 +45,7 @@ import { ShortcutKeys } from "./ShortcutKeys";
 import { ActionTooltip } from "./ToolButton";
 import { visibleElement } from "../data/palette-focus";
 import { createApi } from "../data/api";
+import { browserFetch } from "../data/live";
 import { readBrowserToken } from "../data/auth";
 import { readServerEvents } from "../data/sse";
 import { renderBrief } from "../markdown/brief-render";
@@ -238,7 +239,7 @@ export function WorkspaceHost({
   fetch?: typeof fetch;
   children: ReactNode;
 }) {
-  const [fetcher] = useState(() => providedFetch ?? globalThis.fetch.bind(globalThis));
+  const [fetcher] = useState(() => providedFetch ?? browserFetch);
   const [store] = useState(() => createWorkspaceStore(location.pathname, history.state));
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [switcher, setSwitcher] = useState<{ held: boolean; reverse: boolean } | null>(null);
