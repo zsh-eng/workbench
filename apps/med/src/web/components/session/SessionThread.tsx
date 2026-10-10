@@ -540,6 +540,15 @@ export function SessionThread({
     };
     const check = () => {
       if (moving.current) return;
+      // A thread that follows the latest opens at the top of its content and
+      // then moves to the end. Until it is there, the top is not a reason to
+      // take earlier rows: the view would stay with them, mid-session.
+      if (
+        stuck.current &&
+        latest.current &&
+        node.scrollHeight - node.scrollTop - node.clientHeight > 32
+      )
+        return;
       if (near(top.current, "top")) {
         if (begin > 0) {
           moving.current = true;
@@ -597,17 +606,24 @@ export function SessionThread({
     const inner = content.current;
     if (!node || !inner) return;
     // The view follows new items while the reader stays at the bottom. Only
-    // a move up stops it: a scroll event can arrive after the thread grew and
-    // before the view followed, and rows that fold into a group make the
-    // thread shorter, which moves the view up but leaves it at the end.
+    // the reader's move up stops it. The view also moves up when the thread
+    // gets shorter, even for a moment within one frame: rows fold into a
+    // group, rows take their real height, a part loads.
     let top = node.scrollTop;
+    // When the reader last scrolled, and whether a pointer is down in the thread.
+    let input = Number.NEGATIVE_INFINITY;
+    let pressed = false;
     // The end of a window that leaves newer units out is not the latest.
     const atEnd = () =>
       latest.current && node.scrollHeight - node.scrollTop - node.clientHeight < 32;
     const check = () => {
       if (atEnd()) stuck.current = true;
-      else if (node.scrollTop + 1 < top) stuck.current = false;
+      else if (node.scrollTop + 1 < top && (pressed || performance.now() - input < 500))
+        stuck.current = false;
       top = node.scrollTop;
+      // While the view follows, it keeps the end in view itself. Browser
+      // anchoring would move it up as rows above take their real height.
+      node.style.overflowAnchor = stuck.current ? "none" : "";
     };
     const follow = () => {
       check();
@@ -619,13 +635,45 @@ export function SessionThread({
       check();
       setAtBottom(stuck.current);
     };
+    const onInput = () => {
+      input = performance.now();
+    };
+    const onPress = () => {
+      pressed = true;
+    };
+    const onRelease = () => {
+      pressed = false;
+      onInput();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest("input, textarea, select, [contenteditable]")) return;
+      if (
+        ["ArrowUp", "PageUp", "Home", "Tab"].includes(event.key) ||
+        (event.key === " " && event.shiftKey)
+      )
+        onInput();
+    };
+    const doc = node.ownerDocument;
     const observer = new ResizeObserver(follow);
     observer.observe(inner);
     node.addEventListener("scroll", onScroll, { passive: true });
+    node.addEventListener("wheel", onInput, { passive: true });
+    node.addEventListener("touchmove", onInput, { passive: true });
+    node.addEventListener("pointerdown", onPress);
+    doc.addEventListener("pointerup", onRelease);
+    doc.addEventListener("pointercancel", onRelease);
+    doc.addEventListener("keydown", onKey);
     follow();
     return () => {
       observer.disconnect();
       node.removeEventListener("scroll", onScroll);
+      node.removeEventListener("wheel", onInput);
+      node.removeEventListener("touchmove", onInput);
+      node.removeEventListener("pointerdown", onPress);
+      doc.removeEventListener("pointerup", onRelease);
+      doc.removeEventListener("pointercancel", onRelease);
+      doc.removeEventListener("keydown", onKey);
     };
   }, []);
 

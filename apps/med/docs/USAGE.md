@@ -229,6 +229,10 @@ cite.
 - **Jump and comment.** Click a link or an excerpt heading to open the lines in
   **Changes**. Hover an excerpt line and click **+**, or select line numbers and
   press `c`. These are the same notes as in **Changes**.
+- **Mark up the notes.** Select words in a note and click **Comment**, or press
+  `c`. The passage stays marked, and the comment shows below its paragraph with
+  its quote. **Copy comments** and **Send to** the agent include the quote. A
+  comment whose passage is gone shows at the end of its note.
 - **Check coverage.** **Not in the notes** lists the changed files that the
   notes never cite; read those yourself.
 - **Replace or remove.** Paste again to replace the brief; **Undo** restores
@@ -331,7 +335,7 @@ branches.
 | Open a branch or worktree         | `⌘⇧G`         | `Ctrl+Shift+G`            |
 | Show workspace 1–9                | `⌘1`–`⌘9`     | `Ctrl+1`–`Ctrl+9`         |
 | Switch to a recent workspace      | `⌃Tab`        | `Ctrl+Tab`                |
-| Toggle history / files sidebar    | `⌘B` / `⌘⇧B`  | `Ctrl+B` / `Ctrl+Shift+B` |
+| Toggle history sidebar / session  | `⌘B` / `⌘⇧B`  | `Ctrl+B` / `Ctrl+Shift+B` |
 | Zen mode                          | `⌥Z`          | `Alt+Z`                   |
 | Add note to selected lines        | `c`           | `c`                       |
 | Paste a brief                     | `⌘V`          | `Ctrl+V`                  |
@@ -359,14 +363,14 @@ or `⌘K`. Enter runs a highlighted row that has a command.
 
 `⌥Z` / `Alt+Z`, the focus button at the top right, or **Enter zen mode** hides
 every bar: tabs, the Changes toolbar, and the status bar. `⌘B` and `⌘⇧B` still
-show or hide the sidebars. To leave, press `⌥Z` again, or click **Leave zen** in
+show or hide the history sidebar and the agent session. To leave, press `⌥Z` again, or click **Leave zen** in
 the top-right corner. Escape does not leave zen mode, so it stays free for
 search, Vim, and dialogs.
 
 ### Side panes
 
-One column on the right holds **Session**, **Files** (`⌘⇧B`), and **Preview**
-(`⌘⇧V`) at one width. Drag its left edge to resize it. It shows the two latest
+One column on the right holds **Session** (`⌘⇧B`), **Files** (the folder
+button), and **Preview** (`⌘⇧V`) at one width. Drag its left edge to resize it. It shows the two latest
 panes, one above the other; a third closes the oldest. **Maximize** gives one
 pane the column, and **Restore** shares it again. **Show side panes as tabs**
 shows one pane at a time, and **Stack side panes** goes back. Both layouts are

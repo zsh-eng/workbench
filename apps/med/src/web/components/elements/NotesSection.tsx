@@ -2,7 +2,7 @@ import * as stylex from "@stylexjs/stylex";
 import { lazy, Suspense, useMemo, useState, useSyncExternalStore } from "react";
 import type { SessionEvent } from "../../../shared/agent-session";
 import { parseReviewPatch, type ParsedReviewFile } from "../../../shared/review";
-import type { SavedPin } from "../../../shared/saved-review";
+import type { BriefComment, BriefCommentMutation, SavedPin } from "../../../shared/saved-review";
 import { createSessionStore } from "../../data/session-store";
 import { tokens } from "../../theme.stylex";
 import { Icon } from "../Icon";
@@ -142,6 +142,64 @@ function PinDemo() {
   );
 }
 
+const commentBrief = {
+  text: "## Durations\n\nThe summary now rounds to whole seconds, so short runs read as 0 s. Callers that need milliseconds use `formatMs` instead.\n\nSelect any words in this note, then choose **Comment** or press C.\n",
+  updatedAt: "2026-10-09T09:00:00Z",
+};
+
+/** Comments on passages of a note, kept in this page. */
+function CommentDemo() {
+  const [comments, setComments] = useState<BriefComment[]>(() => [
+    {
+      id: "c_demo1",
+      section: "brief",
+      quote: "short runs read as 0 s",
+      prefix: "The summary now rounds to whole seconds, so ",
+      text: "Show one decimal below 10 s.",
+      createdAt: "2026-10-09T09:05:00Z",
+      updatedAt: "2026-10-09T09:05:00Z",
+    },
+  ]);
+  const comment = async (mutation: BriefCommentMutation) => {
+    const now = new Date().toISOString();
+    setComments((current) =>
+      "add" in mutation
+        ? [
+            ...current,
+            { ...mutation.add, id: `c_demo${current.length + 2}`, createdAt: now, updatedAt: now },
+          ]
+        : "edit" in mutation
+          ? current.map((item) =>
+              item.id === mutation.edit.id
+                ? { ...item, text: mutation.edit.text, updatedAt: now }
+                : item,
+            )
+          : current.filter((item) => item.id !== mutation.remove),
+    );
+  };
+  return (
+    <div {...stylex.props(styles.frame)}>
+      <Suspense fallback={null}>
+        <BriefView
+          brief={commentBrief}
+          files={[]}
+          active
+          loadSource={noSource}
+          onOpen={noop}
+          onOpenPath={noop}
+          onPaste={noop}
+          onCopy={noop}
+          onRemove={noop}
+          notes={[]}
+          onMutateNote={async () => {}}
+          comments={comments}
+          onCommentBrief={comment}
+        />
+      </Suspense>
+    </div>
+  );
+}
+
 export function NotesSection() {
   const [sample] = useState(() => ({ text: briefMarkdown(), updatedAt: "2026-10-09T09:00:00Z" }));
   return (
@@ -157,6 +215,14 @@ export function NotesSection() {
         zoomable={false}
       >
         <PinDemo />
+      </Specimen>
+      <Specimen
+        title="Comment on a passage"
+        note="Select words in a note and choose Comment, or press C. The passage stays marked, and the comment shows below its paragraph. Copy comments and Send to the agent include it with its quote."
+        padded={false}
+        zoomable={false}
+      >
+        <CommentDemo />
       </Specimen>
       <Specimen
         title="One note"

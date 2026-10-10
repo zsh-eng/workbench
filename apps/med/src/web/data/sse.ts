@@ -38,20 +38,33 @@ export async function readServerEvents(
     }
     line = "";
   };
+  const append = (part: string) => {
+    eventSize += part.length;
+    if (eventSize > maxEventSize) throw new Error("The server sent an invalid event size.");
+    line += part;
+  };
+  // A session's first event can be megabytes: find line ends with indexOf,
+  // not one character at a time.
   const consume = (text: string) => {
-    for (const character of text) {
-      if (previousCR && character === "\n") {
-        previousCR = false;
-        continue;
+    if (!text) return;
+    let start = previousCR && text[0] === "\n" ? 1 : 0;
+    previousCR = false;
+    let lf = text.indexOf("\n", start);
+    let cr = text.indexOf("\r", start);
+    while (start < text.length) {
+      if (lf >= 0 && lf < start) lf = text.indexOf("\n", start);
+      if (cr >= 0 && cr < start) cr = text.indexOf("\r", start);
+      const end = lf < 0 ? cr : cr < 0 ? lf : Math.min(lf, cr);
+      if (end < 0) {
+        append(text.slice(start));
+        return;
       }
-      previousCR = false;
-      if (character === "\r" || character === "\n") {
-        flushLine();
-        previousCR = character === "\r";
-      } else {
-        line += character;
-        eventSize += character.length;
-        if (eventSize > maxEventSize) throw new Error("The server sent an invalid event size.");
+      append(text.slice(start, end));
+      flushLine();
+      start = end + 1;
+      if (end === cr) {
+        if (start === text.length) previousCR = true;
+        else if (text[start] === "\n") start++;
       }
     }
   };

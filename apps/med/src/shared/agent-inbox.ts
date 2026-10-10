@@ -42,9 +42,12 @@ export type AgentMessage = z.infer<typeof agentMessageSchema>;
 /** A comment that the user has not sent to the agent since its last change. */
 export const draftCommentSchema = z.object({
   id: z.string(),
+  /** A file, or "Notes" for a comment on a passage of the Notes. */
   path: z.string(),
-  line: z.number(),
+  line: z.number().optional(),
   endLine: z.number().optional(),
+  /** The passage of the Notes. */
+  quote: z.string().optional(),
   text: z.string(),
   replies: z.number().int().nonnegative(),
 });

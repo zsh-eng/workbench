@@ -18,7 +18,13 @@ import { createBrowseApi } from "../../src/web/data/browse";
 import type { BrowseSource } from "../../src/shared/browse";
 import type { AgentInboxState } from "../../src/shared/agent-inbox";
 import type { CodexReviewRun } from "../../src/shared/codex-review";
-import type { AgentSession, PinMutation, SavedPin } from "../../src/shared/saved-review";
+import type {
+  AgentSession,
+  BriefComment,
+  BriefCommentMutation,
+  PinMutation,
+  SavedPin,
+} from "../../src/shared/saved-review";
 import type { AgentPreset, OwnedAction, OwnedState } from "../../src/shared/owned-session";
 import type { BlameLoader } from "../../src/web/data/blame";
 import type { CommitApi } from "../../src/web/data/commit";
@@ -169,6 +175,7 @@ async function mountApp(
   }));
   let brief = options.brief;
   let pins: SavedPin[] = [];
+  let briefComments: BriefComment[] = [];
   let sessions: AgentSession[] = options.session
     ? [{ agent: "claude", id: "s1", cwd: "/test/repo" }]
     : [];
@@ -202,7 +209,7 @@ async function mountApp(
     title: "Agent review",
     createdAt: "2026-09-20T00:00:00Z",
     revision: 0,
-    commentCount: 0,
+    commentCount: briefComments.length,
     targets: savedTargets,
     ...(sessions.length ? { sessions } : {}),
     ...(options.pullRequest
@@ -210,6 +217,7 @@ async function mountApp(
       : {}),
     ...(brief ? { brief: { text: brief, updatedAt: "2026-09-20T00:00:00Z" } } : {}),
     ...(pins.length ? { pins } : {}),
+    ...(briefComments.length ? { briefComments } : {}),
     ...(options.iterationBriefs
       ? {
           key: "feat/agent",
@@ -326,6 +334,28 @@ async function mountApp(
             },
           ];
         else pins = pins.filter((pin) => pin.id !== mutation.remove);
+        return Response.json(savedBundle());
+      }
+      if (url.pathname === "/api/reviews/saved/brief-comments" && init?.method === "POST") {
+        const mutation = JSON.parse(String(init.body)) as BriefCommentMutation;
+        const now = new Date().toISOString();
+        if ("add" in mutation)
+          briefComments = [
+            ...briefComments,
+            {
+              ...mutation.add,
+              id: `c_${briefComments.length + 1}`,
+              createdAt: now,
+              updatedAt: now,
+            },
+          ];
+        else if ("edit" in mutation)
+          briefComments = briefComments.map((comment) =>
+            comment.id === mutation.edit.id
+              ? { ...comment, text: mutation.edit.text, updatedAt: now }
+              : comment,
+          );
+        else briefComments = briefComments.filter((comment) => comment.id !== mutation.remove);
         return Response.json(savedBundle());
       }
       if (url.pathname === "/api/reviews/saved/brief" && init?.method === "POST") {
@@ -789,7 +819,7 @@ describe("graphical review", () => {
         new KeyboardEvent("keydown", { key: code.at(-1)!, code, bubbles: true, ...options }),
       );
     const exit = page.getByRole("button", { name: "Exit zen mode", exact: true });
-    key("KeyB", { metaKey: true, shiftKey: true });
+    await page.getByRole("button", { name: "Toggle files sidebar" }).click();
     await expect.poll(files).toBe(true);
     await page.getByRole("button", { name: "Enter zen mode", exact: true }).click();
     await expect.element(exit).toBeInTheDocument();
@@ -799,19 +829,17 @@ describe("graphical review", () => {
     // Panel keys work as usual inside zen, and the choice outlasts it.
     key("KeyB", { metaKey: true });
     await expect.poll(sidebar).toBe(false);
-    key("KeyB", { metaKey: true, shiftKey: true });
-    await expect.poll(files).toBe(false);
-    expect(bars()).toBe(false);
+    expect([files(), bars()]).toEqual([true, false]);
     await expect.element(exit).toBeInTheDocument();
     key("KeyZ", { altKey: true });
     await expect.poll(bars).toBe(true);
-    expect([sidebar(), files()]).toEqual([false, false]);
+    expect([sidebar(), files()]).toEqual([false, true]);
     expect(localStorage.getItem("med:zen")).toBe("off");
     key("KeyB", { metaKey: true });
     await expect.poll(sidebar).toBe(true);
     key("KeyZ", { altKey: true });
     await expect.element(exit).toBeInTheDocument();
-    expect([sidebar(), files()]).toEqual([true, false]);
+    expect([sidebar(), files()]).toEqual([true, true]);
     expect(localStorage.getItem("med:zen")).toBe("on");
     await exit.click();
     await expect.poll(bars).toBe(true);
@@ -1005,18 +1033,19 @@ describe("graphical review", () => {
       .element(page.getByRole("combobox", { name: "Find file", exact: true }))
       .not.toBeInTheDocument();
   });
-  test("Command Shift B toggles only the files sidebar", async () => {
+  test("the folder button toggles only the files sidebar; it has no shortcut", async () => {
     await page.viewport(1280, 800);
     await mountApp();
+    // Without an agent session, Command Shift B does nothing.
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "B", metaKey: true, shiftKey: true, bubbles: true }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(
+      document.querySelector('[aria-label="Workspace files"]')?.checkVisibility() ?? false,
+    ).toBe(false);
     for (const visible of [true, false]) {
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "B",
-          metaKey: true,
-          shiftKey: true,
-          bubbles: true,
-        }),
-      );
+      await page.getByRole("button", { name: "Toggle files sidebar" }).click();
       await expect
         .poll(
           () =>
@@ -1040,9 +1069,7 @@ describe("graphical review", () => {
   test("side panes share one column: Files and the Markdown preview stack", async () => {
     await page.viewport(1280, 800);
     await mountApp();
-    window.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "B", metaKey: true, shiftKey: true, bubbles: true }),
-    );
+    await page.getByRole("button", { name: "Toggle files sidebar" }).click();
     const files = page.getByRole("complementary", { name: "Workspace files", exact: true });
     await files.getByRole("treeitem", { name: "GUIDE.md", exact: true }).click();
     await page.getByRole("button", { name: "Toggle Markdown preview" }).click();
@@ -1076,15 +1103,7 @@ describe("graphical review", () => {
   test("files sidebar retains its tree and collapsed folders across toggles", async () => {
     await page.viewport(1280, 800);
     await mountApp({ branches: true });
-    const toggle = () =>
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "B",
-          metaKey: true,
-          shiftKey: true,
-          bubbles: true,
-        }),
-      );
+    const toggle = () => page.getByRole("button", { name: "Toggle files sidebar" }).click();
     await expect
       .poll(() => {
         const tree = document.querySelector('[aria-label="Workspace files"] file-tree-container');
@@ -1095,7 +1114,7 @@ describe("graphical review", () => {
       '[aria-label="Workspace files"] file-tree-container',
     );
     expect(preparedHost?.checkVisibility()).toBe(false);
-    toggle();
+    await toggle();
     const sidebar = page.getByRole("complementary", { name: "Workspace files", exact: true });
     const folder = sidebar.getByRole("treeitem", { name: "src", exact: true });
     await expect.element(folder).toHaveAttribute("aria-expanded", "true");
@@ -1103,9 +1122,9 @@ describe("graphical review", () => {
     await expect.element(folder).toHaveAttribute("aria-expanded", "false");
     const host = document.querySelector('[aria-label="Workspace files"] file-tree-container');
     expect(host).toBe(preparedHost);
-    toggle();
+    await toggle();
     await expect.poll(() => host?.checkVisibility()).toBe(false);
-    toggle();
+    await toggle();
     await expect.poll(() => host?.checkVisibility()).toBe(true);
     expect(document.querySelector('[aria-label="Workspace files"] file-tree-container')).toBe(host);
     await expect.element(folder).toHaveAttribute("aria-expanded", "false");
@@ -1524,11 +1543,23 @@ describe("graphical review", () => {
       )
       .toBeVisible();
     await page.getByRole("button", { name: "Add note to line", exact: true }).first().click();
-    await page.getByRole("textbox", { name: "Review note text" }).fill("Both lines");
+    // The composer opens below the last selected line, as the saved note shows.
+    const slot = (element: Element) => element.closest("[slot]")?.getAttribute("slot");
+    const composer = page.getByRole("textbox", { name: "Review note text" });
+    await expect.poll(() => slot(composer.element())).toBe("annotation-additions-2");
+    await composer.fill("Both lines");
     await page.getByRole("button", { name: "Save note", exact: true }).click();
     await expect
       .poll(() => controller.getSnapshot().notes?.notes[0])
       .toMatchObject({ line: 1, endLine: 2, side: "new", text: "Both lines" });
+    await expect
+      .poll(() => {
+        const card = [...document.querySelectorAll("[slot] *")].find(
+          (element) => element.textContent === "Both lines",
+        );
+        return card && slot(card);
+      })
+      .toBe("annotation-additions-2");
   });
 
   test("dragging the gutter plus opens a note for the full range", async () => {
@@ -1985,6 +2016,61 @@ describe("review brief", () => {
       .toBeInTheDocument();
   });
 
+  test("comments on a selected passage of the notes, marks it, and edits the comment", async () => {
+    await mountApp({
+      savedReview: true,
+      brief: "# Rename the export\n\nThe constant changes. Callers keep the old name for now.\n",
+    });
+    const paragraph = page.getByText(/^The constant changes\./);
+    await expect.element(paragraph).toBeVisible();
+    const select = (words: string) => {
+      const text = paragraph.element().firstChild as Text;
+      const range = new Range();
+      range.setStart(text, text.data.indexOf(words));
+      range.setEnd(text, text.data.indexOf(words) + words.length);
+      document.getSelection()!.removeAllRanges();
+      document.getSelection()!.addRange(range);
+    };
+    const marked = () =>
+      [...(CSS.highlights.get("med-brief-comment") ?? [])].map((range) => String(range));
+
+    select("Callers keep the old name");
+    await userEvent.click(page.getByRole("button", { name: "Comment on the selection" }));
+    await userEvent.fill(
+      page.getByRole("textbox", { name: "Comment text" }),
+      "Rename the callers too.",
+    );
+    await userEvent.click(page.getByRole("button", { name: "Save note" }));
+    // The comment shows below its paragraph, and the passage stays marked.
+    const card = page.getByRole("article", { name: "Comment on “Callers keep the old name”" });
+    await expect.element(card.getByText("Rename the callers too.")).toBeVisible();
+    await expect.poll(marked).toEqual(["Callers keep the old name"]);
+    await expect
+      .poll(() => page.getByRole("button", { name: "Copy comments" }).element().textContent)
+      .toMatch(/1$/);
+
+    await userEvent.click(card.getByRole("button", { name: "Edit" }));
+    await userEvent.fill(
+      page.getByRole("textbox", { name: "Edit note text" }),
+      "Rename them here.",
+    );
+    await userEvent.click(card.getByRole("button", { name: "Save" }));
+    await expect.element(card.getByText("Rename them here.")).toBeVisible();
+
+    // C starts a comment on the selection, as on lines in Changes.
+    select("The constant changes");
+    await expect
+      .element(page.getByRole("button", { name: "Comment on the selection" }))
+      .toBeVisible();
+    await userEvent.keyboard("c");
+    await expect.element(page.getByRole("textbox", { name: "Comment text" })).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+
+    await userEvent.click(card.getByRole("button", { name: "Delete review note" }));
+    await expect.element(card).not.toBeInTheDocument();
+    await expect.poll(marked).toEqual([]);
+  });
+
   test("an agent's iterations switch the brief and its comparison together", async () => {
     await page.viewport(1280, 800);
     const { controller } = await mountApp({
@@ -2209,6 +2295,19 @@ describe("review brief", () => {
     expect(pullRequestReads.slice(0, -1).every((search) => search === "")).toBe(true);
   });
 
+  test("⌘⇧B shows and hides the agent session; the files sidebar has a folder button", async () => {
+    await mountApp({ savedReview: true });
+    const session = page.getByRole("button", { name: "Toggle agent session" });
+    await expect.element(session).toHaveAttribute("aria-pressed", "false");
+    await userEvent.keyboard("{Control>}{Shift>}B{/Shift}{/Control}");
+    await expect.element(session).toHaveAttribute("aria-pressed", "true");
+    await userEvent.keyboard("{Control>}{Shift>}B{/Shift}{/Control}");
+    await expect.element(session).toHaveAttribute("aria-pressed", "false");
+    await expect
+      .element(page.getByRole("button", { name: "Toggle files sidebar" }))
+      .toHaveAttribute("aria-pressed", "false");
+  });
+
   test("shows Codex review findings read-only, at their lines or in the Codex panel", async () => {
     const finding = (id: string, path: string, line: number, priority: number, title: string) => ({
       id,
@@ -2285,6 +2384,23 @@ describe("review brief", () => {
       .toHaveAttribute("aria-selected", "true");
     await expect.element(page.getByRole("status")).toHaveTextContent("Brief removed.");
   });
+});
+
+test("collapses every file from the Changes toolbar, then expands them again", async () => {
+  await mountApp();
+  const header = (action: string, path: string) =>
+    page.getByRole("button", { name: `${action} ${path}`, exact: true });
+  await expect.element(header("Collapse", "src/alpha.ts")).toBeVisible();
+  await page.getByRole("button", { name: "Collapse all files" }).click();
+  await expect.element(header("Expand", "src/alpha.ts")).toBeVisible();
+  await expect.element(header("Expand", "src/beta.ts")).toBeVisible();
+  // One open file is enough to collapse all again.
+  await header("Expand", "src/beta.ts").click();
+  await expect.element(page.getByRole("button", { name: "Collapse all files" })).toBeVisible();
+  await page.getByRole("button", { name: "Collapse all files" }).click();
+  await page.getByRole("button", { name: "Expand all files" }).click();
+  await expect.element(header("Collapse", "src/alpha.ts")).toBeVisible();
+  await expect.element(header("Collapse", "src/beta.ts")).toBeVisible();
 });
 
 test("collapses history to a heading that names the selection, and remembers it", async () => {

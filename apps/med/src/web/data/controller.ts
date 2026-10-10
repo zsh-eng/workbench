@@ -4,6 +4,7 @@ import { REVIEW_UPDATED } from "./workspaces";
 import {
   savedReviewSchema,
   savedFeedbackSchema,
+  type BriefCommentMutation,
   type PinMutation,
   type SavedReview,
   type SavedFeedback,
@@ -120,6 +121,8 @@ export interface ReviewController {
   setSavedBrief(text: string | null): Promise<void>;
   /** Pin an agent reply to the saved review's Notes, or remove a pin. */
   pinToReview(mutation: PinMutation): Promise<void>;
+  /** Comment on a passage of the Notes, or edit or remove such a comment. */
+  commentBrief(mutation: BriefCommentMutation): Promise<void>;
   /** Starts an installed agent in the review's repository and returns its session ID. */
   startSession(preset: string): Promise<string>;
   /** Save the current Git comparison as a review and return its ID. */
@@ -1704,6 +1707,35 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
           next.revision >= snapshot.savedReview.revision
             ? next
             : { ...snapshot.savedReview, pins: next.pins, iterations: next.iterations },
+      });
+    },
+    async commentBrief(mutation) {
+      const saved = snapshot.savedReview;
+      if (!saved) throw new Error("Open a saved review to comment on its notes.");
+      const next = await api.json(
+        `/api/reviews/${encodeURIComponent(saved.id)}/brief-comments`,
+        savedReviewSchema,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(mutation),
+        },
+      );
+      if (disposed || snapshot.savedReview?.id !== saved.id) return;
+      // A comment on a diff can finish first; keep its newer count.
+      const current = snapshot.savedReview;
+      update({
+        savedReview:
+          next.revision >= current.revision
+            ? next
+            : {
+                ...current,
+                briefComments: next.briefComments,
+                commentCount:
+                  current.commentCount +
+                  (next.briefComments?.length ?? 0) -
+                  (current.briefComments?.length ?? 0),
+              },
       });
     },
     async startSession(preset) {

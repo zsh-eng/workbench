@@ -83,6 +83,7 @@ import {
 import type { SessionEvent } from "../shared/agent-session";
 import {
   pinMutationSchema,
+  briefCommentMutationSchema,
   reviewKeySchema,
   savedReviewCreateSchema,
 } from "../shared/saved-review";
@@ -899,12 +900,15 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               for (const id of message.noteIds)
                 if ((sent.get(id) ?? "") < message.createdAt) sent.set(id, message.createdAt);
             const comments = await savedReviews.comments(reviewId);
+            // The events stream asks again on each change; read the review again.
+            const { briefComments } = await savedReviews.get(reviewId);
+            const unsent = (comment: { id: string; updatedAt: string }) =>
+              (sent.get(comment.id) ?? "") < comment.updatedAt;
             return {
               messages,
               waiting: inbox.waiting(reviewId),
-              drafts: comments
-                .filter((comment) => (sent.get(comment.id) ?? "") < comment.updatedAt)
-                .map((comment) => ({
+              drafts: [
+                ...comments.filter(unsent).map((comment) => ({
                   id: comment.id,
                   path: comment.path,
                   line: comment.line,
@@ -912,6 +916,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   text: comment.text,
                   replies: comment.replies,
                 })),
+                ...(briefComments ?? []).filter(unsent).map((comment) => ({
+                  id: comment.id,
+                  path: "Notes",
+                  quote: comment.quote,
+                  text: comment.text,
+                  replies: 0,
+                })),
+              ],
             };
           };
           if (!action && request.method === "GET") {
@@ -1277,7 +1289,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           const savedRoute =
-            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes)|\/(feedback|clear|brief|pins|details|pull-request|codex-reviews))?$/.exec(
+            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes)|\/(feedback|clear|brief|brief-comments|pins|details|pull-request|codex-reviews))?$/.exec(
               url.pathname,
             );
           if (savedRoute) {
@@ -1373,6 +1385,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 .parse(await readBody(request, MAX_BRIEF_BODY));
               assertRequestAccess();
               send(await savedReviews.setBrief(id!, input.brief, assertRequestAccess));
+              return;
+            }
+            if (request.method === "POST" && action === "brief-comments") {
+              const input = briefCommentMutationSchema.parse(await readBody(request));
+              assertRequestAccess();
+              send(await savedReviews.commentBrief(id!, input, assertRequestAccess));
+              inbox.touch(id!);
               return;
             }
             if (request.method === "POST" && action === "pins") {

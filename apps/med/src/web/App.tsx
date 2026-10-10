@@ -123,6 +123,21 @@ const NO_SESSIONS: AgentSession[] = [];
 // Pierre's view renders its file headers and comments again whenever it renders.
 const ReviewCodeView = memo(CodeView) as typeof CodeView;
 
+/** A note's card sits below the last line of its range, as on GitHub, when
+ * one hunk shows the whole range; otherwise below its first line. */
+function noteLine(
+  metadata: FileDiffMetadata | null,
+  note: { side: "old" | "new"; line: number; endLine?: number },
+) {
+  const end = note.endLine ?? note.line;
+  const whole = metadata?.hunks.some((hunk) => {
+    const start = note.side === "old" ? hunk.deletionStart : hunk.additionStart;
+    const count = note.side === "old" ? hunk.deletionCount : hunk.additionCount;
+    return note.line >= start && end < start + count;
+  });
+  return whole ? end : note.line;
+}
+
 type Annotation = {
   note?: Note;
   draft?: NoteTarget;
@@ -713,6 +728,12 @@ export function App({
     });
   }, [controller]);
   const files = state.visibleFiles;
+  // Collapse all while any file is open; expand all once every file is closed.
+  const allCollapsed = files.length > 0 && files.every((file) => collapsed.has(file.id));
+  const toggleAllFiles = useCallback(
+    () => setCollapsed(allCollapsed ? new Set() : new Set(files.map((file) => file.id))),
+    [allCollapsed, files],
+  );
   const fileInfoById = useMemo(() => new Map(files.map((file) => [file.id, file.info])), [files]);
   const notes = state.notes?.notes ?? emptyNotes;
   const agentSessions = state.savedReview?.sessions ?? NO_SESSIONS;
@@ -967,6 +988,17 @@ export function App({
       ? iterations.find((entry) => entry.number === shownIteration)?.pins
       : state.savedReview?.pins;
   const hasNotes = !!savedBrief || !!savedPins?.length;
+  // Comments on passages of the shown brief and pins.
+  const allBriefComments = state.savedReview?.briefComments;
+  const briefComments = useMemo(
+    () =>
+      (allBriefComments ?? []).filter((comment) =>
+        comment.section === "brief"
+          ? comment.iteration === briefSource?.number
+          : !!savedPins?.some((pin) => pin.id === comment.section),
+      ),
+    [allBriefComments, briefSource?.number, savedPins],
+  );
   const notesText = useMemo(
     () =>
       joinNotes([
@@ -1249,7 +1281,7 @@ export function App({
               )
               .map((note): DiffLineAnnotation<Annotation> => ({
                 side: note.side === "old" ? "deletions" : "additions",
-                lineNumber: note.line,
+                lineNumber: noteLine(file.metadata, note),
                 metadata: { note },
               })),
           ]
@@ -1257,7 +1289,7 @@ export function App({
       if (visibleDraft?.path === file.path)
         annotations.push({
           side: visibleDraft.side === "old" ? "deletions" : "additions",
-          lineNumber: visibleDraft.line,
+          lineNumber: noteLine(file.metadata, visibleDraft),
           metadata: { draft: visibleDraft },
         });
       return [
@@ -1656,11 +1688,12 @@ export function App({
       )
         return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
-        if (event.shiftKey && !browseSource) return;
+        // ⌘⇧B shows the agent session; the files sidebar has only its button.
+        if (event.shiftKey && !state.savedReview) return;
         event.preventDefault();
         event.stopPropagation();
         if (event.repeat) return;
-        if (event.shiftKey) toggleFilesSidebar();
+        if (event.shiftKey) toggleSession();
         else toggleReviewSidebar();
         return;
       }
@@ -1807,7 +1840,8 @@ export function App({
     selection,
     startNote,
     toggleReviewSidebar,
-    toggleFilesSidebar,
+    toggleSession,
+    state.savedReview,
     toggleZen,
     browseSource,
     openFilePicker,
@@ -2371,14 +2405,23 @@ export function App({
           {
             id: "browse-files",
             label: rightVisible ? "Hide files sidebar" : "Show files sidebar",
-            shortcut: "⌘⇧B",
             run: toggleFilesSidebar,
           },
+          ...(files.length > 1
+            ? [
+                {
+                  id: "fold-files",
+                  label: allCollapsed ? "Expand all files" : "Collapse all files",
+                  run: toggleAllFiles,
+                },
+              ]
+            : []),
           ...(state.savedReview
             ? [
                 {
                   id: "agent-session",
                   label: sessionVisible ? "Hide agent session" : "Show agent session",
+                  shortcut: "⌘⇧B",
                   run: toggleSession,
                 },
                 ...(agentPresets ?? [])
@@ -2878,6 +2921,7 @@ export function App({
       {state.savedReview && (
         <ToolButton
           label={sessionVisible ? "Hide agent session" : "Show agent session"}
+          shortcut="⌘ ⇧ B"
           icon={leadIcon}
           aria-label="Toggle agent session"
           aria-pressed={sessionVisible}
@@ -2888,8 +2932,7 @@ export function App({
       {browseSource && (
         <ToolButton
           label={rightVisible ? "Hide files" : "Show files"}
-          shortcut="⌘ ⇧ B"
-          icon="panelRight"
+          icon="folder"
           aria-label="Toggle files sidebar"
           aria-pressed={rightVisible}
           onClick={toggleFilesSidebar}
@@ -3078,7 +3121,7 @@ export function App({
         data-active-file={activeFile?.path ?? ""}
       >
         {zen ? (
-          <ZenHint loading={state.status === "loading"} />
+          <ZenHint loading={state.status === "loading"} session={!!state.savedReview} />
         ) : (
           !workspace && <BranchStrip model={branches} />
         )}
@@ -3380,6 +3423,14 @@ export function App({
                     </span>
                   )}
                   <span {...stylex.props(ui.grow)} />
+                  {files.length > 1 && (
+                    <ToolButton
+                      label={allCollapsed ? "Expand all files" : "Collapse all files"}
+                      icon={allCollapsed ? "expandAll" : "collapseAll"}
+                      aria-label={allCollapsed ? "Expand all files" : "Collapse all files"}
+                      onClick={toggleAllFiles}
+                    />
+                  )}
                   <SegmentedControl<"split" | "unified">
                     label="Diff layout"
                     value={mode}
@@ -3731,6 +3782,9 @@ export function App({
                       onUnpin={(id) => void unpin(id)}
                       notes={notes}
                       onMutateNote={(mutation) => controller.mutateNote(mutation)}
+                      comments={briefComments}
+                      briefIteration={briefSource?.number}
+                      onCommentBrief={(mutation) => controller.commentBrief(mutation)}
                     />
                   </Suspense>
                 </div>
