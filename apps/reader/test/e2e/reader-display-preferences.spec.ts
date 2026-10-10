@@ -126,10 +126,21 @@ test.describe("reading status prompt", () => {
       .locator("[data-reader-top-prompt]")
       .getByRole("button", { name: "Mark as reading", exact: true });
     await expect(action).toBeVisible();
-    const before = await action.boundingBox();
+    // Measure once the prompt's entrance has settled.
+    let before = await action.boundingBox();
+    await expect
+      .poll(async () => {
+        const next = await action.boundingBox();
+        const settled = JSON.stringify(next) === JSON.stringify(before);
+        before = next;
+        return settled;
+      })
+      .toBe(true);
     expect(before!.y).toBeLessThan(64);
     const note = page.getByRole("button", { name: "Jot a note" });
     for (let toggle = 0; toggle < 2; toggle++) {
+      // A footer that is sliding away still shows its capsule.
+      await expect(page.locator("[data-reader-footer-leaving]")).toHaveCount(0);
       const chromeShown = await note.isVisible();
       await page.touchscreen.tap(195, 350);
       await expect(note).toBeVisible({ visible: !chromeShown });

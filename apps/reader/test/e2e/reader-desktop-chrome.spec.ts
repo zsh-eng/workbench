@@ -155,19 +155,19 @@ test("Escape closes the tools sidebar after menus and the note editor handle it"
   await expect(sidebar).toHaveAttribute("aria-hidden", "false");
 
   // Focus inside the panel returns to the trigger, which keeps the header open.
-  const highlights = toolbar.getByRole("button", {
-    name: "Highlights",
+  const contents = toolbar.getByRole("button", {
+    name: "Contents",
     exact: true,
   });
-  await highlights.click();
-  await expect(highlights).toBeFocused();
+  await contents.click();
+  await expect(contents).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(sidebar).toHaveAttribute("aria-hidden", "true");
   await expect(trigger).toBeFocused();
   await expect(header).toHaveAttribute("aria-hidden", "false");
 
   await trigger.click();
-  await toolbar.getByRole("button", { name: "Notes", exact: true }).click();
+  await toolbar.getByRole("button", { name: "Notebook", exact: true }).click();
   const compose = sidebar.getByRole("textbox", { name: "Write a note" });
   await compose.fill("Escape closes the editor first.");
   await sidebar.getByRole("button", { name: "Save note", exact: true }).click();
