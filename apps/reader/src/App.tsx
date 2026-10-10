@@ -49,6 +49,24 @@ const SystemPage = lazy(() =>
   })),
 );
 
+const ElementsPage = lazy(() =>
+  import("@/features/elements/ElementsPage").then((module) => ({
+    default: module.ElementsPage,
+  })),
+);
+
+const LibraryIdeasPage = lazy(() =>
+  import("@/features/elements/LibraryIdeasPage").then((module) => ({
+    default: module.LibraryIdeasPage,
+  })),
+);
+
+const ElementsFrame = lazy(() =>
+  import("@/features/elements/ElementsFrame").then((module) => ({
+    default: module.ElementsFrame,
+  })),
+);
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -196,6 +214,36 @@ function App() {
                             }
                           >
                             <SystemPage />
+                          </Suspense>
+                        </DebugGate>
+                      }
+                    />
+                    <Route
+                      path="/debug/elements"
+                      element={
+                        <DebugGate>
+                          <Suspense fallback={null}>
+                            <ElementsPage />
+                          </Suspense>
+                        </DebugGate>
+                      }
+                    />
+                    <Route
+                      path="/debug/elements/library"
+                      element={
+                        <DebugGate>
+                          <Suspense fallback={null}>
+                            <LibraryIdeasPage />
+                          </Suspense>
+                        </DebugGate>
+                      }
+                    />
+                    <Route
+                      path="/debug/elements/frame/:specimenId"
+                      element={
+                        <DebugGate>
+                          <Suspense fallback={null}>
+                            <ElementsFrame />
                           </Suspense>
                         </DebugGate>
                       }

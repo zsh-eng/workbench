@@ -60,6 +60,18 @@ export function Settings() {
           </Card>
           {debugEnabled && (
             <Link
+              to="/debug/elements"
+              className="mt-4 block rounded-2xl border border-border p-5 text-sm hover:bg-muted"
+            >
+              <strong>Elements →</strong>
+              <p className="mt-1 text-xs text-muted-foreground">
+                See Reader parts and the Library on desktop and phone side by
+                side, try their states, and compare Library ideas.
+              </p>
+            </Link>
+          )}
+          {debugEnabled && (
+            <Link
               to="/debug/jump-history"
               className="mt-4 block rounded-2xl border border-border p-5 text-sm hover:bg-muted"
             >
@@ -98,7 +110,8 @@ export function Settings() {
             >
               <strong>Design experiments →</strong>
               <p className="mt-1 text-xs text-muted-foreground">
-                Browse interactive studies for the Reader, Library, Highlights, and Sessions.
+                Browse interactive studies for the Reader, Library, Highlights,
+                and Sessions.
               </p>
             </Link>
           )}
