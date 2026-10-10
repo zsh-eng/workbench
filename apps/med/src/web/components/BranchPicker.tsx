@@ -15,7 +15,10 @@ export interface BranchEntry {
   label: string;
   /** The branch name; a detached worktree has none. */
   branch?: string;
+  /** The worktree's absolute path, to open it; the picker never shows it. */
   path?: string;
+  /** The worktree's short name, shown and matched in place of its path. */
+  checkout?: string;
   head: string;
   run(): void;
 }
@@ -59,11 +62,11 @@ export function BranchPicker({
       qualifier: repository.path.split("/").slice(0, -1).join("/"),
     })),
   );
+  const labelOf = new Map(repositories.map((repository, index) => [repository.id, labels[index]]));
   const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
   const allResults = entries.filter((entry) => {
-    const repository = repositories.find((item) => item.id === entry.repositoryId);
     const text =
-      `${repository?.name} ${repository?.path} ${entry.label} ${entry.path ?? ""}`.toLowerCase();
+      `${labelOf.get(entry.repositoryId)} ${entry.label} ${entry.checkout ?? ""}`.toLowerCase();
     return words.every((word) => text.includes(word));
   });
   const results = allResults.slice(0, 200);
@@ -168,17 +171,12 @@ export function BranchPicker({
               {repositories.map((repository, repositoryIndex) => {
                 const grouped = results.filter((entry) => entry.repositoryId === repository.id);
                 const matchesRepository = words.every((word) =>
-                  `${repository.name} ${repository.path}`.toLowerCase().includes(word),
+                  labels[repositoryIndex]!.toLowerCase().includes(word),
                 );
                 if (!grouped.length && !matchesRepository) return null;
                 return (
                   <div key={repository.id} role="group" aria-label={labels[repositoryIndex]}>
-                    <div {...stylex.props(styles.groupTitle)}>
-                      <span>{labels[repositoryIndex]}</span>
-                      <span {...stylex.props(styles.detail)} title={repository.path}>
-                        {repository.path}
-                      </span>
-                    </div>
+                    <div {...stylex.props(styles.groupTitle)}>{labels[repositoryIndex]}</div>
                     {repository.error && (
                       <p role="status" {...stylex.props(styles.notice)}>
                         {repository.error}
@@ -210,7 +208,7 @@ export function BranchPicker({
                           <span {...stylex.props(styles.entry)}>
                             <span>{entry.label}</span>
                             <span {...stylex.props(styles.detail)}>
-                              {entry.path ?? `Committed files only · ${entry.head.slice(0, 7)}`}
+                              {entry.checkout ?? `Committed files only · ${entry.head.slice(0, 7)}`}
                             </span>
                           </span>
                         </div>
@@ -247,10 +245,7 @@ export function BranchPicker({
               <summary {...stylex.props(styles.summary)}>Manage repositories</summary>
               {repositories.map((repository, index) => (
                 <div key={repository.id} {...stylex.props(styles.repository)}>
-                  <span {...stylex.props(styles.entry)}>
-                    <span>{labels[index]}</span>
-                    <span {...stylex.props(styles.detail)}>{repository.path}</span>
-                  </span>
+                  <span {...stylex.props(styles.entry)}>{labels[index]}</span>
                   <button
                     {...stylex.props(ui.button)}
                     disabled={pending}

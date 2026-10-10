@@ -15,18 +15,13 @@ import type { BrowseSearch } from "../../shared/inspect";
 
 import type { RegisteredRepository } from "../../shared/protocol";
 import { isTestFile, matchesFileFilters, parsePickerFilters } from "../data/file-filters";
+import { checkoutName, repositoryLocation } from "../data/checkout-names";
 
 /** A registered worktree. Only its source holds the absolute path: the picker
  * shows and matches the short name and the repository-relative location. */
 type RepositoryScope = { id: string; name: string; location: string; source: BrowseSource };
-/** A worktree's place in its repository; a worktree elsewhere shows its folder name. */
-function repositoryLocation(repository: string, path: string) {
-  if (path === repository) return "";
-  if (path.startsWith(`${repository}/`)) return path.slice(repository.length + 1);
-  return path.slice(path.lastIndexOf("/") + 1);
-}
 function scopeLabel(scope: RepositoryScope) {
-  return scope.location ? `${scope.name} · ${scope.location}` : scope.name;
+  return checkoutName(scope.name, scope.location);
 }
 export interface FilePickerProps {
   repositories?: RegisteredRepository[];

@@ -56,6 +56,7 @@ import { FilePicker } from "./components/FilePicker";
 import { SymbolPicker } from "./components/SymbolPicker";
 import { FullFileView, type BeginFileSymbolPreview } from "./components/FullFileView";
 import { FileViewTabs } from "./components/FileViewTabs";
+import { checkoutNameFor } from "./data/checkout-names";
 import { readBrowserToken } from "./data/auth";
 import {
   PullRequestThreadCard,
@@ -2218,6 +2219,7 @@ export function App({
         tabs={fileState.tabs.map((tab) => ({
           ...tab,
           sourcePath: tab.source.repo,
+          sourceName: checkoutNameFor(state.repositories, tab.source.repo),
           dirty: !!editorDrafts.get(JSON.stringify([tab.source, tab.path]))?.dirty,
         }))}
         active={fileState.active}
@@ -2399,7 +2401,10 @@ export function App({
           >
             <div {...stylex.props(styles.sidebarHeader)}>{identity}</div>
             {workspace && (
-              <WorkspaceList onNew={gitAvailable ? () => openBranchPicker(true) : undefined} />
+              <WorkspaceList
+                onNew={gitAvailable ? () => openBranchPicker(true) : undefined}
+                repositories={state.repositories}
+              />
             )}
             {gitAvailable && (
               <HistoryPanel

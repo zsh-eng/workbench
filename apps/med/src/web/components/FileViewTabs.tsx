@@ -12,7 +12,10 @@ export interface FileViewTab {
   pinned: boolean;
   dirty?: boolean;
   sourceLabel?: string;
+  /** The source checkout's absolute path, to compare sources and reveal files. */
   sourcePath?: string;
+  /** The source checkout's short name, to tell apart tabs with the same path. */
+  sourceName?: string;
 }
 export function FileViewTabs({
   tabs,
@@ -48,7 +51,7 @@ export function FileViewTabs({
     tabs.map((tab) => ({
       label: tab.path.split("/").at(-1)!,
       qualifier: tabs.some((other) => other.id !== tab.id && other.path === tab.path)
-        ? `${tabs.some((other) => other.path === tab.path && other.sourcePath !== tab.sourcePath) ? (tab.sourcePath ?? tab.sourceLabel ?? "File") : (tab.sourceLabel ?? "File")}/${tab.path.split("/").slice(0, -1).join("/")}`
+        ? `${tabs.some((other) => other.path === tab.path && other.sourcePath !== tab.sourcePath) ? (tab.sourceName ?? tab.sourceLabel ?? "File") : (tab.sourceLabel ?? "File")}/${tab.path.split("/").slice(0, -1).join("/")}`
         : tab.path.split("/").slice(0, -1).join("/"),
     })),
   );

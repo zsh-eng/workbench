@@ -42,6 +42,8 @@ import { visibleElement } from "../data/palette-focus";
 import { createApi } from "../data/api";
 import { readBrowserToken } from "../data/auth";
 import { readServerEvents } from "../data/sse";
+import { checkoutNameFor } from "../data/checkout-names";
+import type { RegisteredRepository } from "../../shared/protocol";
 
 /** Workspaces kept mounted, most recently shown first. Older ones reload. */
 const MOUNTED = 4;
@@ -650,7 +652,14 @@ function qualifiers(rows: Workspace[]) {
  * The open workspaces, at the top of a sidebar. It appears with the second
  * workspace; one workspace needs no list.
  */
-export function WorkspaceList({ onNew }: { onNew?(): void }) {
+export function WorkspaceList({
+  onNew,
+  repositories = [],
+}: {
+  onNew?(): void;
+  /** Registered repositories, to name a checkout without its absolute path. */
+  repositories?: RegisteredRepository[];
+}) {
   const snapshot = use(Snapshot);
   const actions = use(Actions);
   // The row whose resume command was just copied says so for a moment.
@@ -704,7 +713,7 @@ export function WorkspaceList({ onNew }: { onNew?(): void }) {
                 aria-keyshortcuts={index < 9 ? `Meta+${index + 1} Control+${index + 1}` : undefined}
                 title={
                   workspace.kind === "repository" && workspace.path
-                    ? `${label}\n${workspace.path}`
+                    ? `${label}\n${checkoutNameFor(repositories, workspace.path)}`
                     : undefined
                 }
                 onClick={() => actions.activate(workspace.id)}

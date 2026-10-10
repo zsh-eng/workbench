@@ -3,6 +3,7 @@ import { Popover } from "@base-ui/react/popover";
 import * as stylex from "@stylexjs/stylex";
 import type { ReviewController, ReviewControllerSnapshot } from "../data/controller";
 import { tokens, ui } from "../theme.stylex";
+import { checkoutNameFor } from "../data/checkout-names";
 import { Icon } from "./Icon";
 import {
   PullRequestPanel,
@@ -52,7 +53,7 @@ export function SavedReviewHeader({
   const details = [
     saved.title,
     `${saving} · ${new Date(saved.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`,
-    ...(target ? [target.repo] : []),
+    ...(target ? [checkoutNameFor(state.repositories, target.repo)] : []),
   ].join("\n");
   useEffect(() => {
     if (!notice || notice.error) return;
@@ -107,7 +108,10 @@ export function SavedReviewHeader({
         <PullRequestPanel state={pullRequest} placement={threadPlacement} />
       )}
       {target && saved.targets.length === 1 && (
-        <span title={target.repo} {...stylex.props(styles.comparison)}>
+        <span
+          title={checkoutNameFor(state.repositories, target.repo)}
+          {...stylex.props(styles.comparison)}
+        >
           {target.branch ?? "Detached HEAD"} · {target.label}
         </span>
       )}
