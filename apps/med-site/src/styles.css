@@ -374,7 +374,9 @@ h3 {
   margin-left: 0.4em;
 }
 
-/* Windows: macOS windows with only their traffic lights. */
+/* Windows: the product window is a macOS window with only its traffic
+   lights. A feature's window shows only its part of Med, without a title
+   bar. */
 
 .window {
   overflow: hidden;
@@ -549,24 +551,6 @@ h3 {
     justify-content: center;
     gap: 4px;
     margin-top: 14px;
-  }
-
-  /* A feature's window shows its scene at twice the size, centred on the
-     part that matters: (--x, --y), as fractions of the scene. */
-  .shot .screen {
-    aspect-ratio: 16 / 10;
-  }
-
-  .shot .screen img {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 200%;
-    max-width: none;
-    transform: translate(
-      clamp(-50%, calc(25% - var(--x, 0.5) * 100%), 0%),
-      clamp(-50%, calc(25% - var(--y, 0.5) * 100%), 0%)
-    );
   }
 }
 

@@ -52,7 +52,9 @@ While it does this, it records every API answer into `public/demo/recording.json
 and `public/demo/vault.json`. Then it builds the live demo, serves it on the
 port after the vault's, and captures each scene of the demo (see
 [Live demo](#live-demo)) in Med's own Med Dawn and Med Night themes. So each
-screenshot shows what the live window shows. It writes AVIF and WebP files to
+screenshot shows what the live window shows. Each feature also gets a capture
+at 390 px for phones, where Med lays its part out again for the narrow
+window. It writes AVIF and WebP files to
 `public/screenshots` and their sizes to `src/screenshots.json`. It never reads
 your repositories, Git identity, or Med state, and it fails if a local path is
 on screen or in a recording. `--demo` records only, without captures.
@@ -111,6 +113,12 @@ the features. The scene sets the panes, opens the tab or note, scrolls to the
 comment, and then marks the page ready. The `notes` scene replays `vault.json`;
 the others replay `recording.json`.
 
+The product window shows all of Med. A feature's scene shows only its part:
+the brief, a short unified diff with the comment, the agent's session, the
+commit dialog, or the note beside its preview. The part fills the window, and
+the rest of Med runs under it, so the part works as it does in the app. When
+the visitor opens something outside the part, the whole app shows.
+
 The demos on a page do not affect each other. Each one keeps its own storage,
 opens its event streams directly (the recording keeps each stream by its path,
 not as a channel of Med's shared live stream), and highlights in one worker.
@@ -120,9 +128,9 @@ Save-Data. After the page loads, it opens each window's scene as the window
 comes near the view: one at a time, the nearest to the middle of the view
 first, when the browser is idle. It shows the scene over the screenshot when
 the scene is ready, so the page does not move. A window out of view pauses its
-demo's animations, which otherwise take work on every frame. Phones keep the
-screenshots: Med is a desktop app. Until the visitor clicks in a window, the
-wheel scrolls the page, not the window.
+demo's animations, which otherwise take work on every frame. Smaller screens
+keep the screenshots: Med is a desktop app. Until the visitor clicks in a
+window, the wheel scrolls the page, not the window.
 
 The first window loads about 780 KB (Brotli). The brief, comment, session, and
 commit windows use the same files from the cache. The notes window adds about

@@ -3,31 +3,91 @@
   "review": {
     "width": 1440,
     "height": 900,
-    "widths": [720, 1120, 1680, 2880]
+    "widths": [
+      720,
+      1120,
+      1680,
+      2880
+    ]
   },
   "brief": {
-    "width": 880,
-    "height": 550,
-    "widths": [880, 1760]
+    "width": 720,
+    "height": 420,
+    "widths": [
+      720,
+      1440
+    ]
   },
   "comment": {
-    "width": 880,
-    "height": 550,
-    "widths": [880, 1760]
+    "width": 720,
+    "height": 400,
+    "widths": [
+      720,
+      1440
+    ]
   },
   "session": {
-    "width": 1040,
-    "height": 650,
-    "widths": [1040, 2080]
+    "width": 720,
+    "height": 520,
+    "widths": [
+      720,
+      1440
+    ]
   },
   "commit": {
-    "width": 880,
-    "height": 550,
-    "widths": [880, 1760]
+    "width": 720,
+    "height": 260,
+    "widths": [
+      720,
+      1440
+    ]
   },
   "notes": {
-    "width": 880,
-    "height": 550,
-    "widths": [880, 1760]
+    "width": 720,
+    "height": 440,
+    "widths": [
+      720,
+      1440
+    ]
+  },
+  "brief-phone": {
+    "width": 390,
+    "height": 460,
+    "widths": [
+      780,
+      1170
+    ]
+  },
+  "comment-phone": {
+    "width": 390,
+    "height": 440,
+    "widths": [
+      780,
+      1170
+    ]
+  },
+  "session-phone": {
+    "width": 390,
+    "height": 556,
+    "widths": [
+      780,
+      1170
+    ]
+  },
+  "commit-phone": {
+    "width": 390,
+    "height": 240,
+    "widths": [
+      780,
+      1170
+    ]
+  },
+  "notes-phone": {
+    "width": 390,
+    "height": 480,
+    "widths": [
+      780,
+      1170
+    ]
   }
 }
