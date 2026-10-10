@@ -75,12 +75,8 @@ describe("ReaderSheetHost", () => {
   it("keeps the existing sheet launcher on mobile", () => {
     renderHost(true);
 
-    expect(screen.getByRole("button", { name: "Notes" })).toBeTruthy();
-    expect(
-      screen
-        .getByRole("button", { name: "Highlights" })
-        .hasAttribute("disabled"),
-    ).toBe(true);
+    expect(screen.getByRole("button", { name: "Notebook" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Highlights" })).toBeNull();
     expect(screen.queryByText("desktop reader sidebar")).toBeNull();
   });
 
@@ -88,7 +84,7 @@ describe("ReaderSheetHost", () => {
     renderHost(false);
 
     expect(screen.getByText("desktop reader sidebar")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Notes" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Notebook" })).toBeNull();
   });
 
   it("keeps the full book actions sheet in the mobile reader tools", () => {
@@ -97,6 +93,6 @@ describe("ReaderSheetHost", () => {
     fireEvent.click(screen.getByRole("button", { name: "Book actions" }));
 
     expect(onOpenSheet).toHaveBeenCalledWith("tools");
-    expect(screen.queryByRole("button", { name: "Notes" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Notebook" })).toBeNull();
   });
 });

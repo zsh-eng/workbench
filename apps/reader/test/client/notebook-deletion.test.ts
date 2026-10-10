@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   toast: Object.assign(
     vi.fn(() => "toast-id"),
     {
+      custom: vi.fn(() => "toast-id"),
       dismiss: vi.fn(),
       error: vi.fn(),
     },
@@ -44,7 +45,7 @@ it("keeps failed restores available and prevents duplicate Undo during a pending
     }),
   );
   await act(async () => {
-    await result.current.deleteNote("note");
+    await result.current.deleteEntry({ kind: "note", id: "note" });
   });
   await act(async () => {
     expect(pressUndo().defaultPrevented).toBe(true);
@@ -74,9 +75,11 @@ it("does not add a failed deletion to the undo history", async () => {
     }),
   );
   await act(async () => {
-    expect(await result.current.deleteNote("note")).toBe(false);
+    expect(await result.current.deleteEntry({ kind: "note", id: "note" })).toBe(
+      false,
+    );
   });
   expect(pressUndo().defaultPrevented).toBe(false);
   expect(restore).not.toHaveBeenCalled();
-  expect(mocks.toast).not.toHaveBeenCalled();
+  expect(mocks.toast.custom).not.toHaveBeenCalled();
 });
