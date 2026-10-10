@@ -17,6 +17,10 @@ public struct LocalMutation: Sendable {
 public struct JournalSnapshot: Sendable {
   public let rows: [String: SyncRecord]
   public let localValues: [String: String]
+  public init(rows: [String: SyncRecord], localValues: [String: String]) {
+    self.rows = rows
+    self.localValues = localValues
+  }
 }
 
 public struct JournalMutation: Sendable {
@@ -48,21 +52,33 @@ public actor SyncStore {
   private var state: State
   private var syncing = false
   private var hasPersisted: Bool
+  /// Keys whose value a pull or upload winner replaced, kept until the owner takes them.
+  private var merged = Set<String>()
   private let validateValue: @Sendable (SyncChange) throws -> Void
+
+  private init(
+    file: URL, database: SQLiteJournal?, state: State, persisted: Bool,
+    validateValue: @escaping @Sendable (SyncChange) throws -> Void
+  ) {
+    self.file = file
+    self.database = database
+    self.state = state
+    hasPersisted = persisted
+    self.validateValue = validateValue
+  }
+
   public init(
     file: URL, accountID: String, deviceID: String = UUID().uuidString,
     validateValue: @escaping @Sendable (SyncChange) throws -> Void = { _ in }
   ) throws {
-    self.validateValue = validateValue
-    self.file = file
-    database = nil
-    hasPersisted = FileManager.default.fileExists(atPath: file.path)
-    if hasPersisted {
+    let persisted = FileManager.default.fileExists(atPath: file.path)
+    var state = State(accountID: accountID, deviceID: deviceID)
+    if persisted {
       state = try JSONDecoder().decode(State.self, from: Data(contentsOf: file))
       guard state.accountID == accountID else { throw SyncFailure.wrongAccount }
-    } else {
-      state = State(accountID: accountID, deviceID: deviceID)
     }
+    self.init(
+      file: file, database: nil, state: state, persisted: persisted, validateValue: validateValue)
   }
   /// A v3 journal cannot reopen under another origin, user, app, or epoch.
   public init(
@@ -88,14 +104,52 @@ public actor SyncStore {
     busyTimeout: Int32 = 5_000,
     validateValue: @escaping @Sendable (SyncChange) throws -> Void = { _ in }
   ) throws {
-    self.validateValue = validateValue
-    self.file = file
+    let (database, state) = try Self.load(
+      file, accountID: accountID, deviceID: deviceID, busyTimeout: busyTimeout,
+      validateValue: validateValue, initial: nil)
+    self.init(
+      file: file, database: database,
+      state: state ?? State(accountID: accountID, deviceID: deviceID),
+      persisted: state != nil, validateValue: validateValue)
+  }
+
+  /// Opens a profile without an actor hop, so the caller can show its rows at
+  /// once. `initial` runs only when nothing has committed yet. Its mutation and
+  /// private values become the first transaction, which marks the copy complete.
+  public static func open(
+    database file: URL, accountID: String, deviceID: String = UUID().uuidString,
+    busyTimeout: Int32 = 5_000,
+    validateValue: @escaping @Sendable (SyncChange) throws -> Void = { _ in },
+    initial: ((JournalSnapshot) throws -> JournalMutation)? = nil
+  ) throws -> (store: SyncStore, snapshot: JournalSnapshot) {
+    let (database, loaded) = try load(
+      file, accountID: accountID, deviceID: deviceID, busyTimeout: busyTimeout,
+      validateValue: validateValue, initial: initial)
+    let state = loaded ?? State(accountID: accountID, deviceID: deviceID)
+    let store = SyncStore(
+      file: file, database: database, state: state, persisted: loaded != nil,
+      validateValue: validateValue)
+    return (store, JournalSnapshot(rows: state.rows, localValues: state.localValues ?? [:]))
+  }
+
+  private static func load(
+    _ file: URL, accountID: String, deviceID: String, busyTimeout: Int32,
+    validateValue: @Sendable (SyncChange) throws -> Void,
+    initial: ((JournalSnapshot) throws -> JournalMutation)?
+  ) throws -> sending (SQLiteJournal, State?) {
     let database = try SQLiteJournal(file: file, busyTimeout: busyTimeout)
-    self.database = database
-    let stored = try database.load()
-    if let stored, stored.accountID != accountID { throw SyncFailure.wrongAccount }
-    state = stored ?? State(accountID: accountID, deviceID: deviceID)
-    hasPersisted = stored != nil
+    if let stored = try database.load() {
+      guard stored.accountID == accountID else { throw SyncFailure.wrongAccount }
+      return (database, stored)
+    }
+    guard let initial else { return (database, nil) }
+    let update = try initial(JournalSnapshot(rows: [:], localValues: [:]))
+    var next = try applying(
+      update.mutations, to: State(accountID: accountID, deviceID: deviceID), now: Date(),
+      validateValue: validateValue)
+    next.localValues = update.localValues
+    try database.persist(next, previous: nil, keys: [])
+    return (database, next)
   }
 
   /// False until the first transaction commits. An import that stopped before
@@ -119,7 +173,8 @@ public actor SyncStore {
     now: Date = Date()
   ) throws -> JournalSnapshot {
     let update = try transform(snapshotState())
-    var next = try applying(update.mutations, now: now)
+    var next = try Self.applying(
+      update.mutations, to: state, now: now, validateValue: validateValue)
     next.localValues = update.localValues
     try persist(next, keys: update.mutations.map(\.key))
     return snapshotState()
@@ -129,10 +184,15 @@ public actor SyncStore {
 
   /// Import batches produce one file write. A failed write publishes no in-memory change.
   public func commit(_ mutations: [LocalMutation], now: Date = Date()) throws {
-    try persist(applying(mutations, now: now), keys: mutations.map(\.key))
+    try persist(
+      Self.applying(mutations, to: state, now: now, validateValue: validateValue),
+      keys: mutations.map(\.key))
   }
 
-  private func applying(_ mutations: [LocalMutation], now: Date) throws -> State {
+  private static func applying(
+    _ mutations: [LocalMutation], to state: State, now: Date,
+    validateValue: (SyncChange) throws -> Void
+  ) throws -> State {
     var next = state
     let millis = Int64(now.timeIntervalSince1970 * 1000)
     for mutation in mutations {
@@ -196,9 +256,11 @@ public actor SyncStore {
         previous = record.serverSeq
       }
       var next = state
-      for record in page.records { merge(record, into: &next) }
+      var replaced: [String] = []
+      for record in page.records where merge(record, into: &next) { replaced.append(record.key) }
       next.cursor = page.cursor
       try persist(next, keys: page.records.map(\.key))
+      merged.formUnion(replaced)
       if !page.hasMore { break }
       head = page.head
     }
@@ -224,20 +286,31 @@ public actor SyncStore {
         else { throw SyncFailure.invalidResponse }
       }
       var next = state
+      var replaced: [String] = []
       for result in response.results {
         let key = result.winner.key
         if next.pending[key] == submitted[key] { next.pending.removeValue(forKey: key) }
-        merge(result.winner, into: &next)
+        if merge(result.winner, into: &next) { replaced.append(key) }
       }
       try persist(next, keys: response.results.map(\.winner.key))
+      merged.formUnion(replaced)
     }
   }
 
-  private func merge(_ record: SyncRecord, into next: inout State) {
+  /// Keys whose committed value changed in a pull or an upload since the last
+  /// call. An acknowledged upload of this device's own value is not a change.
+  public func takeMergedKeys() -> Set<String> {
+    defer { merged.removeAll() }
+    return merged
+  }
+
+  /// True when the record replaced a different value.
+  private func merge(_ record: SyncRecord, into next: inout State) -> Bool {
     next.clock = max(next.clock, record.hlc)
-    if let local = next.rows[record.key] {
+    let local = next.rows[record.key]
+    if let local {
       if local.hlc > record.hlc || (local.hlc == record.hlc && local.deviceId > record.deviceId) {
-        return
+        return false
       }
     }
     next.rows[record.key] = record
@@ -246,6 +319,8 @@ public actor SyncStore {
     {
       next.pending.removeValue(forKey: record.key)
     }
+    return local?.value != record.value || local?.isDeleted != record.isDeleted
+      || local?.schemaVersion != record.schemaVersion
   }
   /// `keys` names every row and outbox entry that `next` can change, so a
   /// one-article edit costs the same in a large library as in a small one.

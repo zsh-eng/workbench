@@ -66,3 +66,25 @@ func failedJournalTransactionPublishesNeitherDomainNorPrivateValues(_ backend: B
     try FileManager.default.attributesOfItem(atPath: written.path)[.modificationDate] as? Date
   #expect(date == oldDate)
 }
+
+@Test func firstOpenCopiesOnceAndAStoppedCopyRunsAgain() throws {
+  let file = Backend.sqlite.location()
+  defer { Backend.sqlite.remove(file) }
+  struct Stopped: Error {}
+  #expect(throws: Stopped.self) {
+    try SyncStore.open(database: file, accountID: "alice", initial: { _ in throw Stopped() })
+  }
+  var copies = 0
+  let copy: (JournalSnapshot) throws -> JournalMutation = { _ in
+    copies += 1
+    return JournalMutation(
+      mutations: [LocalMutation(key: "library/one", value: "saved")],
+      localValues: ["one": "cached"])
+  }
+  let first = try SyncStore.open(database: file, accountID: "alice", initial: copy).snapshot
+  let second = try SyncStore.open(database: file, accountID: "alice", initial: copy).snapshot
+  #expect(copies == 1)
+  #expect(first.rows["library/one"]?.value == "saved")
+  #expect(second.rows == first.rows)
+  #expect(second.localValues == ["one": "cached"])
+}

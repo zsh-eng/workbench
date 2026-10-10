@@ -96,6 +96,27 @@ private actor Remote: SyncRemote {
     #expect(await reopened.cursor == live.cursor)
   }
 }
+@Test(arguments: Backend.allCases) func syncReportsOnlyValuesThatChanged(_ backend: Backend)
+  async throws
+{
+  let remote = Remote()
+  let aFile = backend.location()
+  let bFile = backend.location()
+  defer {
+    backend.remove(aFile)
+    backend.remove(bFile)
+  }
+  let a = try backend.open(aFile, accountID: "alice", deviceID: "a")
+  let b = try backend.open(bFile, accountID: "alice", deviceID: "b")
+  try await a.commit([mutation("first", key: "article/0")], now: Date(timeIntervalSince1970: 100))
+  try await a.sync(using: remote)
+  // An acknowledged upload of this device's own value changes nothing on screen.
+  #expect(await a.takeMergedKeys().isEmpty)
+  try await b.sync(using: remote)
+  #expect(await b.takeMergedKeys() == ["article/0"])
+  try await b.sync(using: remote)
+  #expect(await b.takeMergedKeys().isEmpty)
+}
 @Test(arguments: Backend.allCases) func editDuringUploadStaysQueued(_ backend: Backend) async throws
 {
   let file = backend.location()

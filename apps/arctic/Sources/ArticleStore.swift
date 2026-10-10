@@ -6,7 +6,7 @@ import SwiftSoup
   import UIKit
 #endif
 
-struct SavedArticle: Identifiable, Codable, Sendable {
+struct SavedArticle: Identifiable, Codable, Equatable, Sendable {
   var id = UUID()
   let url: URL
   var title: String
@@ -37,7 +37,7 @@ struct SavedArticle: Identifiable, Codable, Sendable {
 }
 
 /// Codable state lives in the same atomic record as the saved link and its tags.
-struct ArticleTaggingState: Codable, Sendable {
+struct ArticleTaggingState: Codable, Equatable, Sendable {
   var generation = UUID()
   var pendingIdentity: String?
   var completedIdentity: String?

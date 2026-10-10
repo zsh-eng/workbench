@@ -121,7 +121,7 @@ private func measure<T>(_ label: String, _ work: () throws -> T) rethrows -> T {
     let reopen = ContinuousClock.now
     let settled = try await ArticleSyncRepository.open(root: settledRoot, scope: .local)
     print(
-      "  reopen and validate: \(String(format: "%.2f", milliseconds(reopen.duration(to: .now)))) ms"
+      "  reopen and project: \(String(format: "%.2f", milliseconds(reopen.duration(to: .now)))) ms"
     )
     var settledSamples: [Double] = []
     for _ in 0..<3 {

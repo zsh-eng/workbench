@@ -28,28 +28,28 @@ Apple M1 Pro, macOS 27.0.1, SwiftPM debug/release builds. Milliseconds:
 
 | Build | Articles | Full-library transaction | One-article transaction, full import outbox | One-article transaction, empty outbox |
 | --- | ---: | ---: | ---: | ---: |
-| Release | 1,000 | 144 | 1.3 | 0.6 |
-| Release | 10,000 | 1,489 | 7.4 | 5.6 |
-| Debug | 1,000 | 370 | 1.6 | 3.8 |
-| Debug | 10,000 | 3,342 | 14.8 | 5.0 |
+| Release | 1,000 | 147 | 1.1 | 0.4 |
+| Release | 10,000 | 1,445 | 7.0 | 2.5 |
+| Debug | 1,000 | 267 | 1.1 | 0.8 |
+| Debug | 10,000 | 2,533 | 6.4 | 5.1 |
 
 The full outbox contains three pending records per article. An empty-outbox
 fixture imports the same articles and then acknowledges every upload through an
-in-process remote. Its database is 2.49 MB at 1,000 articles and 24.6 MB at
-10,000. SQLite keeps the free pages of a cleared outbox and reuses them for later
-writes.
+in-process remote. Its database is 1.56 MB at 1,000 articles and 15.3 MB at
+10,000, smaller than the JSON journal's 1.66 MB and 16.63 MB. SQLite keeps the
+free pages of a cleared outbox and reuses them for later writes.
 
 Release-mode phase checks for 10,000 articles:
 
 | Operation | Time |
 | --- | ---: |
-| Project the entire journal into articles | 384 ms |
-| Canonicalize and hash every article URL | 28 ms |
-| Build the full-library edit transaction | 798 ms |
+| Project the entire journal into articles | 366 ms |
+| Canonicalize and hash every article URL | 27 ms |
+| Build the full-library edit transaction | 685 ms |
 | Project one article | 0.09 ms |
 | Build one article's transaction | 0.12 ms |
-| Import 30,000 records and outbox entries in one transaction | 463 ms |
-| Reopen the profile and validate every record | 587 ms |
+| Import 30,000 records and outbox entries in one transaction | 218 ms |
+| Reopen the profile and project every article | 400 ms |
 
 Phase checks are separate operations, not additive trace spans. Full transaction
 work includes projection and comparison.
