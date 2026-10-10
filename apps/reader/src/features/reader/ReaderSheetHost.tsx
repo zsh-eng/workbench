@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, type ReactNode, type RefObject } from "react";
 import type { Book, TOCItem } from "@/lib/db";
 import type { ReaderSettings } from "@/types/reader.types";
 import { ReaderContentsPanel } from "./ReaderContentsSheet";
@@ -27,6 +27,8 @@ interface ReaderSheetHostProps {
   onNavigateToHref: (href: string) => boolean;
   notesPanel?: ReactNode;
   onCopyDebugDump?: () => void;
+  /** The desktop header control that opens the tools sidebar. */
+  toolsTriggerRef: RefObject<HTMLButtonElement | null>;
 }
 
 /**
@@ -50,6 +52,7 @@ export function ReaderSheetHost({
   onNavigateToHref,
   onCopyDebugDump,
   notesPanel,
+  toolsTriggerRef,
 }: ReaderSheetHostProps) {
   const [settingsTab, setSettingsTab] =
     useState<ReaderSettingsPanelTab>("theme");
@@ -68,6 +71,7 @@ export function ReaderSheetHost({
         onNavigateToHref={onNavigateToHref}
         notesPanel={notesPanel}
         onCopyDebugDump={onCopyDebugDump}
+        triggerRef={toolsTriggerRef}
       />
     );
   }

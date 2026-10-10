@@ -6,23 +6,35 @@ test("focused Reader controls stay available after the pointer leaves", async ({
 }) => {
   await openLocalBook(page, localBook.id);
   const header = page.locator('[data-reader-header="desktop"]');
-  await header.getByRole("button", { name: "Dismiss reading status prompt" }).click();
+  await header
+    .getByRole("button", { name: "Dismiss reading status prompt" })
+    .click();
   await expect(header.locator("[data-reader-header-accessory]")).toHaveCount(0);
   const viewport = page.viewportSize()!;
   await page.mouse.move(viewport.width / 2, viewport.height / 2);
   await expect(header).toHaveAttribute("aria-hidden", "true");
   await page.locator('[data-reader-chrome-rail="top"]').hover();
-  const bookmark = header.getByRole("button", { name: /bookmark/ });
-  await bookmark.focus();
+  const tools = header.getByRole("button", {
+    name: "Open reader tools",
+    exact: true,
+  });
+  await tools.focus();
   await page.clock.install();
   await page.mouse.move(viewport.width / 2, viewport.height / 2);
   await page.clock.fastForward(300);
   await expect(header).toHaveAttribute("aria-hidden", "false");
-  await expect(bookmark).toBeFocused();
+  await expect(tools).toBeFocused();
   await page.keyboard.press("Enter");
-  await expect(bookmark).toHaveAttribute("aria-pressed", "true");
+  const sidebar = page.locator('aside[aria-label="Reader tools"]');
+  await expect(sidebar).toHaveAttribute("aria-hidden", "false");
+  // Escape returns focus to the trigger, which keeps the header open.
+  await page.keyboard.press("Escape");
+  await expect(sidebar).toHaveAttribute("aria-hidden", "true");
+  await expect(tools).toBeFocused();
+  await page.clock.fastForward(300);
+  await expect(header).toHaveAttribute("aria-hidden", "false");
 
-  await bookmark.evaluate((button) => button.blur());
+  await tools.evaluate((button) => button.blur());
   await page.clock.fastForward(300);
   await expect(header).toHaveAttribute("aria-hidden", "true");
 });

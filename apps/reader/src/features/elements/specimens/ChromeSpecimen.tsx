@@ -61,7 +61,6 @@ export function ChromeSpecimen({
 }) {
   const isMobile = useIsMobile() ?? false;
   const [chromeVisible, setChromeVisible] = useState(true);
-  const [bookmarked, setBookmarked] = useState(false);
   const [page, setPage] = useState(17);
   const [dismissed, setDismissed] = useState(false);
   const [pending, setPending] = useState(false);
@@ -139,8 +138,6 @@ export function ChromeSpecimen({
           bookTitle={SAMPLE_BOOK_TITLE}
           isMobile={isMobile}
           onBackToLibrary={() => {}}
-          isBookmarked={bookmarked}
-          onToggleBookmark={() => setBookmarked((value) => !value)}
           isMenuOpen={false}
           onOpenMenu={() => {}}
         />

@@ -105,6 +105,7 @@ export function Reader() {
   useReaderPerformanceTraceRoute(bookId);
 
   const stageSlotRef = useRef<HTMLDivElement>(null);
+  const toolsTriggerRef = useRef<HTMLButtonElement>(null);
   const [stageSlotElement, setStageSlotElement] =
     useState<HTMLDivElement | null>(null);
   const stageContentRef = useRef<HTMLDivElement>(null);
@@ -491,12 +492,11 @@ export function Reader() {
                 bookTitle={book.title}
                 isMobile={isMobile}
                 onBackToLibrary={() => navigate("/")}
-                isBookmarked={chromeState.isBookmarked}
-                onToggleBookmark={chromeActions.toggleBookmark}
                 isMenuOpen={chromeState.activeReaderSheet !== null}
                 onOpenMenu={() => {
                   if (displayReady) chromeActions.openReaderSheet("tools");
                 }}
+                toolsTriggerRef={toolsTriggerRef}
               />
 
               <ReaderProgressPeek
@@ -717,6 +717,7 @@ export function Reader() {
                         activeSheet={chromeState.activeReaderSheet}
                         onOpenSheet={chromeActions.openReaderSheet}
                         onCloseSheet={chromeActions.closeReaderSheet}
+                        toolsTriggerRef={toolsTriggerRef}
                         book={book}
                         settings={sessionState.settings}
                         onUpdateSettings={sessionActions.updateSettings}

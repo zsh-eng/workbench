@@ -128,7 +128,6 @@ export function NotesIsland() {
   const reduced = useReducedMotionConfig();
   const { notes, add, update, remove } = useLabNotes(seedNotes);
   const [chrome, setChrome] = useState(false);
-  const [bookmarked, setBookmarked] = useState(false);
   const [selection, setSelection] = useState<LabSelection | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -475,12 +474,7 @@ export function NotesIsland() {
         </ReaderSurface>
       </div>
 
-      <ReaderChrome
-        visible={chrome}
-        bare={bare}
-        bookmarked={bookmarked}
-        onToggleBookmark={() => setBookmarked((value) => !value)}
-      />
+      <ReaderChrome visible={chrome} bare={bare} />
 
       <AnimatePresence>
         {state === "notebook" && (
@@ -750,25 +744,13 @@ export function NotesIsland() {
  * The real Reader header and footer with prototype data. In a device frame,
  * the header starts below the status bar, as the safe-area inset would place it.
  */
-function ReaderChrome({
-  visible,
-  bare,
-  bookmarked,
-  onToggleBookmark,
-}: {
-  visible: boolean;
-  bare: boolean;
-  bookmarked: boolean;
-  onToggleBookmark: () => void;
-}) {
+function ReaderChrome({ visible, bare }: { visible: boolean; bare: boolean }) {
   const header = (
     <ReaderHeader
       chromeVisible={visible}
       bookTitle={BOOK.title}
       isMobile
       onBackToLibrary={noop}
-      isBookmarked={bookmarked}
-      onToggleBookmark={onToggleBookmark}
       isMenuOpen={false}
       onOpenMenu={noop}
     />

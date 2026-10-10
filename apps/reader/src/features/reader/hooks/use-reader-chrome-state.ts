@@ -26,12 +26,10 @@ function readSidebarTab(): SidebarTab {
 }
 
 export interface ReaderChromeState {
-  isBookmarked: boolean;
   activeReaderSheet: ReaderSheetId | null;
 }
 
 export interface ReaderChromeActions {
-  toggleBookmark: () => void;
   openReaderSheet: (sheet: ReaderSheetId) => void;
   closeReaderSheet: () => void;
 }
@@ -45,20 +43,15 @@ export interface UseReaderChromeStateResult {
  * Owns Reader chrome state and the device-local desktop sidebar preference.
  *
  * This hook deliberately stays scoped to reader-level chrome concerns like
- * bookmark affordances and the active peer sheet. Chrome visibility itself is
- * owned by ReaderController because hover and touch modes reveal it differently.
+ * the active peer sheet. Chrome visibility itself is owned by
+ * ReaderController because hover and touch modes reveal it differently.
  */
 export function useReaderChromeState(
   isMobile: boolean,
 ): UseReaderChromeStateResult {
   const [lastSidebarTab, setLastSidebarTab] = useState(readSidebarTab);
-  const [isBookmarked, setIsBookmarked] = useState(false);
   const [activeReaderSheet, setActiveReaderSheet] =
     useState<ReaderSheetId | null>(null);
-
-  const toggleBookmark = useCallback(() => {
-    setIsBookmarked((bookmarked) => !bookmarked);
-  }, []);
 
   const openReaderSheet = useCallback(
     (sheet: ReaderSheetId) => {
@@ -82,19 +75,17 @@ export function useReaderChromeState(
 
   const state = useMemo<ReaderChromeState>(
     () => ({
-      isBookmarked,
       activeReaderSheet,
     }),
-    [activeReaderSheet, isBookmarked],
+    [activeReaderSheet],
   );
 
   const actions = useMemo<ReaderChromeActions>(
     () => ({
-      toggleBookmark,
       openReaderSheet,
       closeReaderSheet,
     }),
-    [closeReaderSheet, openReaderSheet, toggleBookmark],
+    [closeReaderSheet, openReaderSheet],
   );
 
   return {
