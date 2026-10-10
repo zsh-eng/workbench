@@ -167,6 +167,9 @@ change.
 
 ## Limits and next steps
 
+[Agent workspaces](AGENT_WORKSPACES.md) proposes the next steps: replies to the
+agent, notes, sessions that Med starts, and long sessions.
+
 - The sidebar shows sessions recorded with saved reviews. Branch workspaces
   have no session.
 - The thread renders every item; a very long tail can be slow. The host's
