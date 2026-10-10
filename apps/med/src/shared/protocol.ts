@@ -51,6 +51,9 @@ export interface Worktree {
   head: string;
   branch: string;
   bare?: boolean;
+  /** Made with `git worktree add`, so Git can remove it. Git lists the main
+   * checkout first, without this mark. */
+  linked?: boolean;
 }
 export interface Session {
   protocol: 1;

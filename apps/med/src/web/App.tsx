@@ -1820,6 +1820,10 @@ export function App({
   const workspaceId = workspace?.id;
   const reportTitle = state.savedReview?.title ?? branches.current?.label ?? state.activeBranch;
   const reportPath = state.session?.repository.path;
+  // A linked worktree, so closing the workspace can remove it.
+  const reportWorktree = state.session?.worktrees.find((entry) => entry.path === reportPath)?.linked
+    ? reportPath
+    : undefined;
   const reportRepository = state.session?.repository.name;
   const reportReady = state.status === "ready";
   const reportCount = state.files.length;
@@ -1838,6 +1842,7 @@ export function App({
         repositoryId: undefined,
         branch: undefined,
         detail: undefined,
+        worktree: undefined,
       });
     reportTo(workspaceId, {
       ...(reportTitle ? { title: reportTitle } : {}),
@@ -1845,6 +1850,7 @@ export function App({
       ...(reportReady ? { detail: reportCount ? String(reportCount) : undefined } : {}),
       ...(reportPath
         ? {
+            worktree: reportWorktree,
             path: reportPath,
             repository: reportRepository,
             repositoryId: state.activeRepositoryId ?? undefined,
@@ -1861,6 +1867,7 @@ export function App({
     reportReady,
     reportCount,
     reportPath,
+    reportWorktree,
     reportRepository,
     state.activeRepositoryId,
     state.activeBranch,

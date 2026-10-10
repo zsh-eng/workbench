@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { access, appendFile, mkdir, readFile } from "node:fs/promises";
-import { delimiter, join } from "node:path";
+import { delimiter, isAbsolute, join, relative } from "node:path";
 import { createInterface } from "node:readline";
 import { z } from "zod";
 import type { SessionEvent, SessionUpdate } from "../shared/agent-session";
@@ -971,6 +971,13 @@ export class OwnedSessions {
     if (runner?.log) return runner.log.events;
     if (!this.options.logDirectory || !/^[A-Za-z0-9_-]+$/.test(sessionId)) return [];
     return SessionLog.read(join(this.options.logDirectory, `${sessionId}.jsonl`));
+  }
+  /** Sessions that still run in a folder or below it. */
+  within(folder: string) {
+    return [...this.runners.values()].filter((runner) => {
+      const inside = relative(folder, runner.session.cwd);
+      return runner.state().status !== "exited" && !inside.startsWith("..") && !isAbsolute(inside);
+    });
   }
   stopAll() {
     for (const runner of this.runners.values())

@@ -132,6 +132,12 @@ The workspace then becomes the review. The same link again uses the same
 worktree and review; a new head adds an iteration. A failed step says why, with
 **Retry**. A repository that Med does not know fails at step 1: add it first.
 
+To finish, right-click the workspace and choose **Close and remove worktree**.
+This works for any workspace in a linked worktree. Med runs
+`git worktree remove` without `--force`, so Git keeps a worktree with changed or
+untracked files, and the row says why. Med also keeps it while an agent works
+there, or when its detached commit is on no branch. The branch stays.
+
 Run `med pr checkout 333` inside a repository. Med runs `gh pr checkout 333`,
 fetches the pull request's base branch, and opens a saved review of the pull
 request: its merge base with the base branch, compared with its head. The review

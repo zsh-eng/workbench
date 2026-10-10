@@ -14,6 +14,8 @@ interface WorkspaceBase {
   unread?: boolean;
   /** Agent sessions that worked on it, to resume from a terminal. */
   sessions?: WorkspaceSession[];
+  /** The linked worktree it works in, which closing it can remove. */
+  worktree?: string;
 }
 export interface WorkspaceSession {
   agent: "claude" | "codex";
@@ -64,6 +66,7 @@ export interface WorkspacePatch {
   path?: string;
   repositoryId?: string;
   branch?: string;
+  worktree?: string;
 }
 export interface WorkspaceSnapshot {
   workspaces: Workspace[];
@@ -119,6 +122,7 @@ function parse(value: unknown): Workspace | null {
     title: optional(entry.title),
     repository: optional(entry.repository),
     detail: optional(entry.detail),
+    worktree: optional(entry.worktree),
     ...(entry.unread === true ? { unread: true } : {}),
     ...(sessionsOf(entry.sessions) ? { sessions: sessionsOf(entry.sessions) } : {}),
   };
@@ -341,9 +345,9 @@ export function createWorkspaceStore(pathname: string, state?: unknown) {
       if (!current) return;
       const allowed: (keyof WorkspacePatch)[] =
         current.kind === "repository"
-          ? ["title", "repository", "detail", "path", "repositoryId", "branch"]
+          ? ["title", "repository", "detail", "path", "repositoryId", "branch", "worktree"]
           : current.kind === "review"
-            ? ["title", "repository", "detail", "sessions"]
+            ? ["title", "repository", "detail", "sessions", "worktree"]
             : current.kind === "pull"
               ? ["title", "repository", "detail", "jobId"]
               : ["title", "repository", "detail"];

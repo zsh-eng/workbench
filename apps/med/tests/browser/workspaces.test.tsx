@@ -19,10 +19,11 @@ const repositories = [
     path: "/test/repo",
     name: "fixture",
     branches,
-    worktrees: branches.map((branch) => ({
+    worktrees: branches.map((branch, index) => ({
       path: branch.worktreePath,
       head,
       branch: branch.name,
+      ...(index ? { linked: true } : {}),
     })),
   },
 ];
@@ -140,9 +141,26 @@ function createHost() {
     pullJob = { ...pullJob, ...patch };
     for (const stream of pullStreams) stream.enqueue(pullFrame());
   };
+  // Worktrees that the host was asked to remove; Git keeps the first one.
+  const removals: string[] = [];
   const fetcher: typeof fetch = async (input, init) => {
     const url = new URL(String(input), "http://localhost");
     const repo = url.searchParams.get("repo") || "/test/repo";
+    if (url.pathname === "/api/worktrees/remove") {
+      removals.push(JSON.parse(String(init?.body)).path);
+      return removals.length === 1
+        ? Response.json(
+            {
+              error: {
+                code: "worktree-changed",
+                message:
+                  "It has changed or untracked files. Commit or discard them, then try again.",
+              },
+            },
+            { status: 409 },
+          )
+        : Response.json({ removed: true });
+    }
     if (url.pathname === "/api/pulls") {
       const id = `job-${pulls.length + 1}`;
       pulls.push({ id, url: JSON.parse(String(init?.body)).url });
@@ -274,7 +292,7 @@ function createHost() {
     }
     throw new Error(`Unexpected request: ${url.pathname}`);
   };
-  return { fetcher, sessions, streams, windows, announce, setStatuses, pulls, setPull };
+  return { fetcher, sessions, streams, windows, announce, setStatuses, pulls, setPull, removals };
 }
 
 function render(host: ReturnType<typeof createHost>) {
@@ -441,6 +459,39 @@ test("a workspace's menu copies its agent's resume command and marks it unread",
   await page.getByRole("menuitem", { name: "Mark as unread" }).click();
   await expect.poll(() => rowLabels()[2]).toBe("Agent review, new");
   copy.mockRestore();
+});
+
+test("a workspace in a linked worktree closes and removes it, unless Git keeps it", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  // The main checkout is not a linked worktree.
+  await page.getByRole("button", { name: /^main/ }).click({ button: "right" });
+  await expect.element(page.getByRole("menuitem", { name: "Mark as unread" })).toBeVisible();
+  expect(document.body.textContent).not.toContain("Close and remove worktree");
+  await userEvent.keyboard("{Escape}");
+
+  await page.getByRole("button", { name: "Open branch", exact: true }).click();
+  await page.getByRole("combobox", { name: "Search branches" }).fill("feature");
+  await userEvent.keyboard("{Control>}{Enter}{/Control}");
+  await expect.poll(rowLabels).toEqual(["notes", "main 2", "feature 1 (current)"]);
+  const row = page.getByRole("button", { name: /^feature/ });
+  const remove = page.getByRole("menuitem", { name: "Close and remove worktree feature" });
+  await row.click({ button: "right" });
+  await remove.click();
+  // Git keeps it: the row stays and says why.
+  await expect
+    .element(page.getByRole("alert"))
+    .toHaveTextContent(
+      "Kept the worktree. It has changed or untracked files. Commit or discard them, then try again.",
+    );
+  expect(rowLabels()).toEqual(["notes", "main 2", "feature 1 (current)"]);
+  await row.click({ button: "right" });
+  await remove.click();
+  await expect.poll(rowLabels).toEqual(["notes", "main 2 (current)"]);
+  expect(host.removals).toEqual(["/test/feature", "/test/feature"]);
+  await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
+  expect(document.querySelector('[role="alert"]')).toBeNull();
 });
 
 test("rows show what each review's agent does, and a turn that ends unseen marks it unread", async () => {

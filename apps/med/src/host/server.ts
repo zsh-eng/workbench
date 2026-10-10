@@ -60,6 +60,7 @@ import { symbolSearchRequestSchema } from "../shared/symbols";
 import { FileSymbolService } from "./search/symbols";
 import { type SearchOptions } from "./search/service";
 import { RepositoryRegistry } from "./repository/registry";
+import { removeWorktree } from "./repository/worktrees";
 import { SavedReviewStore } from "./saved-reviews";
 import {
   findTranscript,
@@ -281,8 +282,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     }
   };
 
-  const registry = new RepositoryRegistry(options.search, async (id, paths) => {
-    for (const [abort, owners] of activeRequests) if (owners.has(id)) abort.abort();
+  /** Ends the event streams and file watchers of checkouts that are gone. */
+  const forgetCheckouts = async (paths: ReadonlySet<string>) => {
     for (const [stream, path] of streams)
       if (paths.has(path)) {
         stream.end();
@@ -295,6 +296,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       browseLiveSources.delete(path);
       if (watcher) await retireWatcher(watcher);
     }
+  };
+  const registry = new RepositoryRegistry(options.search, async (id, paths) => {
+    for (const [abort, owners] of activeRequests) if (owners.has(id)) abort.abort();
+    await forgetCheckouts(paths);
     reviews.removeRepositories(paths);
     notes.removeRepositories(paths);
   });
@@ -1724,6 +1729,28 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 abort.signal,
               ),
             );
+            return;
+          }
+          // Closing a workspace can remove its linked worktree. Git keeps one
+          // with changes; an agent that works there keeps it too.
+          if (url.pathname === "/api/worktrees/remove" && request.method === "POST") {
+            const input = z
+              .object({ path: z.string().min(1).max(8192) })
+              .parse(await readBody(request));
+            // Not requireRepo: the request ends after the path leaves the registry.
+            const { path } = await registry.require(input.path, abort.signal);
+            const agents = ownedSessions.within(path);
+            if (agents.some((runner) => runner.state().status !== "idle"))
+              throw new HostError(
+                "worktree-busy",
+                "An agent is working in this worktree. Stop it, then try again.",
+                409,
+              );
+            await removeWorktree(path, abort.signal);
+            for (const runner of agents) runner.stop();
+            await forgetCheckouts(new Set([path]));
+            await registry.refreshOwner(path, abort.signal);
+            send({ removed: true });
             return;
           }
           if (url.pathname === "/api/reveal" && request.method === "POST") {

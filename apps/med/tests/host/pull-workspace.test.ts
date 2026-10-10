@@ -1,9 +1,11 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { OwnedState } from "../../src/shared/owned-session";
+import type { RegisteredRepository } from "../../src/shared/protocol";
 import type { PullJob } from "../../src/shared/pull-workspace";
 import type { SavedReview } from "../../src/shared/saved-review";
 import { startHost, type RunningHost } from "../../src/host/server";
@@ -23,7 +25,7 @@ const fixture = (name: string) => fileURLToPath(new URL(`../fixtures/${name}`, i
 const git = (cwd: string, ...args: string[]) =>
   execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 
-test("a pasted pull request link opens in a worktree with its review and an agent", async () => {
+test("a pasted pull request link opens in a worktree with its review and an agent, and closing removes the worktree", async () => {
   const directory = await realpath(await mkdtemp(join(tmpdir(), "med pull ")));
   directories.push(directory);
   // GitHub, as a bare repository with the pull request's head ref.
@@ -163,4 +165,53 @@ test("a pasted pull request link opens in a worktree with its review and an agen
   });
   expect(unknown.at(-1)!.steps[0]!.state).toBe("failed");
   expect((await api("/api/pulls", { url: "https://example.com/not-a-pull" })).status).toBe(400);
+
+  // Closing the workspace removes its worktree; an agent at work, the main
+  // checkout, and untracked files keep it.
+  const remove = (path: string) =>
+    api<{ removed?: true; error?: { message: string } }>("/api/worktrees/remove", { path });
+  const owned = `/api/reviews/${job.reviewId}/owned/${review.sessions![0]!.id}`;
+  const status = async () => (await api<OwnedState>(owned)).data.status;
+  await api(owned, { action: "prompt", text: "Wait" });
+  await vi.waitFor(async () => expect(await status()).toBe("working"));
+  expect((await remove(job.worktree!)).data.error?.message).toBe(
+    "An agent is working in this worktree. Stop it, then try again.",
+  );
+  await api(owned, { action: "interrupt" });
+  await vi.waitFor(async () => expect(await status()).toBe("idle"));
+  expect(await remove(repo)).toMatchObject({
+    status: 409,
+    data: {
+      error: {
+        message: "This is the repository's own checkout. Med removes only linked worktrees.",
+      },
+    },
+  });
+  await writeFile(join(job.worktree!, "notes.md"), "Ask about rounding.\n");
+  expect(await remove(job.worktree!)).toMatchObject({
+    status: 409,
+    data: {
+      error: {
+        message: "It has changed or untracked files. Commit or discard them, then try again.",
+      },
+    },
+  });
+  expect(await status()).toBe("idle");
+  await rm(join(job.worktree!, "notes.md"));
+  expect(await remove(job.worktree!)).toEqual({ status: 200, data: { removed: true } });
+  await expect(stat(job.worktree!)).rejects.toThrow("ENOENT");
+  expect(git(repo, "worktree", "list")).not.toContain("pr-7");
+  // The branch keeps its commits, and the agent that worked there stops.
+  expect(git(repo, "rev-parse", "durations")).toBe(head);
+  await vi.waitFor(async () => expect(await status()).toBe("exited"));
+  const listed = await api<{ repositories: RegisteredRepository[] }>("/api/repositories");
+  expect(listed.data.repositories[0]!.worktrees.map((entry) => entry.path)).toEqual([repo]);
+  expect((await remove(job.worktree!)).status).toBe(403);
+
+  // The link opens again in a new worktree, with the same review.
+  const reopened = await follow((await api<PullJob>("/api/pulls", { url: started.data.url })).data);
+  expect(reopened.at(-1)).toMatchObject({ status: "done", reviewId: job.reviewId });
+  expect(reopened.at(-1)!.steps.find((step) => step.id === "worktree")?.label).toBe(
+    "Make a worktree",
+  );
 });

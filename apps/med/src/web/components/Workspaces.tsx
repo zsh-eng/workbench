@@ -83,6 +83,9 @@ interface WorkspaceActions {
   openPull(url: string, agent?: string): void;
   /** Asks the host again for a pull request that it could not open. */
   retryPull(id: string): void;
+  /** Removes the workspace's linked worktree, then closes each workspace in
+   * it. Rejects with Git's reason when Git keeps the worktree. */
+  removeWorktree(id: string): Promise<void>;
   subscribe(listener: () => void): () => void;
   getSnapshot(): WorkspaceSnapshot;
 }
@@ -96,6 +99,8 @@ const Current = createContext<string | null>(null);
 const PullErrors = createContext<ReadonlyMap<string, string>>(new Map());
 const HostFetch = createContext<typeof fetch>(browserFetch);
 const LOST = "Med restarted before it opened this pull request.";
+const removedSchema = z.object({ removed: z.literal(true) });
+const DEMO_KEPT = "It has changed or untracked files. Commit or discard them, then try again.";
 /** Disposers that run when a workspace closes or leaves memory. */
 const Lifetime = createContext<Set<() => void> | null>(null);
 /** Moves the window's one workspace list into a sidebar. */
@@ -344,10 +349,21 @@ export function WorkspaceHost({
         const workspace = store.getSnapshot().workspaces.find((entry) => entry.id === id);
         if (workspace?.kind === "pull") beginPull(id, workspace.url, workspace.agent);
       },
+      async removeWorktree(id) {
+        const path = store.getSnapshot().workspaces.find((entry) => entry.id === id)?.worktree;
+        if (!path) return;
+        await createApi(fetcher, readBrowserToken()).json("/api/worktrees/remove", removedSchema, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path }),
+        });
+        for (const entry of store.getSnapshot().workspaces)
+          if (entry.worktree === path) actions.close(entry.id);
+      },
       subscribe: store.subscribe,
       getSnapshot: store.getSnapshot,
     }),
-    [beginPull, rememberFocus, show, store],
+    [beginPull, fetcher, rememberFocus, show, store],
   );
   // A pull request's workspace takes the title once the host reads it, and
   // becomes the review's workspace once the review is saved.
@@ -1044,7 +1060,24 @@ function WorkspaceRows({ onNew }: { onNew?(): void }) {
   // The row whose resume command was just copied says so for a moment.
   const [copied, setCopied] = useState<string | null>(null);
   const copiedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // The row whose worktree Med removes now, or why Git kept it.
+  const [removal, setRemoval] = useState<{ id: string; problem?: string } | null>(null);
+  const removalTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   if (!snapshot || !actions) return null;
+  const removeWorktree = (id: string) => {
+    clearTimeout(removalTimer.current);
+    setRemoval({ id });
+    actions.removeWorktree(id).then(
+      () => setRemoval(null),
+      (error: unknown) => {
+        setRemoval({
+          id,
+          problem: error instanceof Error ? error.message : "Git kept this worktree.",
+        });
+        removalTimer.current = setTimeout(() => setRemoval(null), 8000);
+      },
+    );
+  };
   const rows = orderedWorkspaces(snapshot);
   if (rows.length < 2) return null;
   const qualifier = qualifiers(rows);
@@ -1073,12 +1106,21 @@ function WorkspaceRows({ onNew }: { onNew?(): void }) {
           const closable = !pinned(workspace);
           const status = workspace.kind === "review" ? statuses.get(workspace.reviewId) : undefined;
           const agentState = status && status.state !== "idle" ? status.state : undefined;
+          // The home workspace stays, so its worktree stays too.
+          const removable =
+            closable &&
+            !!workspace.worktree &&
+            !rows.some((entry) => pinned(entry) && entry.worktree === workspace.worktree);
+          const removing = removal?.id === workspace.id && !removal.problem;
+          const problem = removal?.id === workspace.id ? removal.problem : undefined;
           return (
             <WorkspaceMenu
               key={workspace.id}
               workspace={workspace}
               label={label}
               closable={closable}
+              onRemoveWorktree={removable ? () => removeWorktree(workspace.id) : undefined}
+              removing={removing}
               copied={copied === workspace.id}
               onCopy={(command) => {
                 void navigator.clipboard.writeText(command).then(() => {
@@ -1117,12 +1159,12 @@ function WorkspaceRows({ onNew }: { onNew?(): void }) {
                   )}
                   {workspace.unread && <span {...stylex.props(styles.hidden)}>, new</span>}
                 </span>
-                {copied === workspace.id ? (
+                {copied === workspace.id || removing ? (
                   <span
                     role="status"
                     {...stylex.props(styles.detail, closable && styles.clearClose)}
                   >
-                    Copied
+                    {removing ? "Removing" : "Copied"}
                   </span>
                 ) : workspace.kind === "pull" ? (
                   <PullMark workspace={workspace} hides={closable} />
@@ -1162,6 +1204,11 @@ function WorkspaceRows({ onNew }: { onNew?(): void }) {
                 >
                   <Icon name="close" size={12} />
                 </button>
+              )}
+              {problem && (
+                <p role="alert" {...stylex.props(styles.problem)}>
+                  Kept the worktree. {problem}
+                </p>
               )}
             </WorkspaceMenu>
           );
@@ -1223,6 +1270,9 @@ export function WorkspaceListPreview({
       openSwitcher() {},
       openPull() {},
       retryPull() {},
+      // Git keeps the demo's worktree, as it keeps one with changed files.
+      removeWorktree: () =>
+        new Promise((_, reject) => setTimeout(() => reject(new Error(DEMO_KEPT)), 900)),
       subscribe: () => () => {},
       getSnapshot: () => latest.current,
     };
@@ -1244,12 +1294,16 @@ export function WorkspaceListPreview({
   );
 }
 
+const folderName = (path: string) => path.split("/").filter(Boolean).at(-1) ?? path;
+
 /** A workspace row with its right-click menu: resume its agent sessions in a
- * terminal, mark it unread or read, or close it. */
+ * terminal, mark it unread or read, or close it, with its worktree if it has one. */
 function WorkspaceMenu({
   workspace,
   label,
   closable,
+  onRemoveWorktree,
+  removing,
   copied,
   onCopy,
   children,
@@ -1257,6 +1311,9 @@ function WorkspaceMenu({
   workspace: Workspace;
   label: string;
   closable: boolean;
+  /** Set when the workspace works in a linked worktree that it can remove. */
+  onRemoveWorktree?(): void;
+  removing: boolean;
   copied: boolean;
   onCopy(command: string): void;
   children: ReactNode;
@@ -1328,6 +1385,12 @@ function WorkspaceMenu({
                 className={(state) => item(state)}
               >
                 Close workspace
+              </ContextMenu.Item>
+            )}
+            {onRemoveWorktree && workspace.worktree && !removing && (
+              <ContextMenu.Item onClick={onRemoveWorktree} className={(state) => item(state)}>
+                Close and remove worktree
+                <span {...stylex.props(styles.menuHint)}>{folderName(workspace.worktree)}</span>
               </ContextMenu.Item>
             )}
           </ContextMenu.Popup>
@@ -1536,7 +1599,17 @@ const styles = stylex.create({
     overflowY: "auto",
     scrollbarWidth: "thin",
   },
-  item: { position: "relative", display: "flex" },
+  // A problem wraps below the row.
+  item: { position: "relative", display: "flex", flexWrap: "wrap" },
+  problem: {
+    flexBasis: "100%",
+    marginTop: 2,
+    marginBottom: 6,
+    paddingInline: 30,
+    color: tokens.red,
+    fontSize: 11.5,
+    lineHeight: 1.4,
+  },
   // Clear of the close control, which shows while the row is hovered.
   clearClose: { marginInlineEnd: 18 },
   menuPositioner: { zIndex: 60 },
