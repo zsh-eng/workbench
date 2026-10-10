@@ -72,6 +72,29 @@ Not on roadmap:
 - RTL or Top to bottom layout
 - EPUB CFI for reading progress
 
+## Local real data
+
+To see the Reader with your own library, run:
+
+```bash
+bun run dev:local-data
+```
+
+Then open <http://localhost:5177>. The app signs in as a local user and
+installs the library the way a new device does: it pulls every record and
+downloads each book file when you open it. Give it a few seconds to fill
+the Library on the first visit.
+
+- The data comes from the Workbench Backup mirror in
+  `~/Library/Application Support/Workbench Backup`. Set `READER_BACKUP_DIR`
+  to use a different mirror folder.
+- The mirror opens read-only. Edits, imports and deletions in the browser stay
+  in the dev server's memory and in the browser. They never reach the backup
+  or the production API, and a restart discards them on the server.
+- This mode reads no `.env` file and starts no local Worker. It uses its own
+  port, so its IndexedDB does not mix with `bun run dev` data. To install the
+  data again, clear the site data for `localhost:5177` and reload.
+
 ## Notes on Env
 
 `VITE_BETTER_AUTH_URL` should be defined in `.env.development` and `.env.production`.
