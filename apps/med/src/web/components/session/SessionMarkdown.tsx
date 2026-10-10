@@ -3,6 +3,7 @@ import { renderBrief, renderedBrief } from "../../markdown/brief-render";
 import type { MarkdownResult } from "../../markdown/model";
 import { useTheme } from "../../themes";
 import { DiagramBlock } from "../DiagramBlock";
+import "../MarkdownPreview.css";
 
 /**
  * One reply as Markdown, rendered in the brief's worker. While the reply

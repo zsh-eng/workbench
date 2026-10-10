@@ -84,7 +84,9 @@ export function formatSeconds(milliseconds: number) {
   const seconds = milliseconds / 1000;
   if (seconds < 10) return `${seconds.toFixed(1)}s`;
   if (seconds < 60) return `${Math.round(seconds)}s`;
-  return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+  const whole = Math.round(seconds);
+  if (whole < 3600) return `${Math.floor(whole / 60)}m ${whole % 60}s`;
+  return `${Math.floor(whole / 3600)}h ${Math.floor((whole % 3600) / 60)}m`;
 }
 
 function phrase(call: ToolCallState): { verb?: string; target: string } {
@@ -97,6 +99,19 @@ function phrase(call: ToolCallState): { verb?: string; target: string } {
   const done = call.status === "completed";
   const verb = created ? (done ? "Created" : "Creating") : verbs[done ? 1 : 0];
   return { verb, target: space < 0 ? "" : call.title.slice(space + 1) };
+}
+
+/** The reader's open and closed rows of a thread, by item id. A virtual list
+ * unmounts rows out of view; a row that comes back keeps its state. */
+export const RowOpen = createContext<Map<string, boolean> | null>(null);
+export function useRowOpen<T extends boolean | undefined>(id: string, initial: T) {
+  const rows = useContext(RowOpen);
+  const [open, setOpen] = useState<boolean | T>(() => rows?.get(id) ?? initial);
+  const change = (value: boolean) => {
+    rows?.set(id, value);
+    setOpen(value);
+  };
+  return [open, change] as const;
 }
 
 /**
@@ -114,7 +129,7 @@ export const ToolCall = memo(function ToolCall({
   const { call } = item;
   const diffs = diffsOf(call);
   const subagent = isSubagent(call) || item.items.length > 0;
-  const [open, setOpen] = useState<boolean | undefined>(undefined);
+  const [open, setOpen] = useRowOpen(item.id, undefined);
   // Edits show their diff until the reader closes it.
   const expanded = open ?? diffs.length > 0;
   const running = call.status === "pending" || call.status === "in_progress";

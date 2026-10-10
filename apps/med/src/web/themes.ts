@@ -419,6 +419,93 @@ const cursorDarkSyntax: SyntaxTheme = {
   ],
 };
 
+// Med's own syntax colors, from the painting on Med's website: dusk violet
+// keywords, sea functions, sea-green strings, dawn numbers, and rose tags. Dawn
+// and Night use the same scopes.
+function medSyntax(colors: {
+  foreground: string;
+  comment: string;
+  punctuation: string;
+  keyword: string;
+  string: string;
+  number: string;
+  regexp: string;
+  func: string;
+  type: string;
+  parameter: string;
+  tag: string;
+  deleted: string;
+}): SyntaxTheme {
+  return {
+    foreground: colors.foreground,
+    rules: [
+      {
+        scope: ["comment", "punctuation.definition.comment"],
+        color: colors.comment,
+        style: "italic",
+      },
+      {
+        scope: [
+          "keyword",
+          "storage.type",
+          "storage.modifier",
+          "variable.language",
+          "keyword.operator.new",
+          "keyword.operator.expression",
+        ],
+        color: colors.keyword,
+      },
+      { scope: ["keyword.operator", "punctuation", "meta.brace"], color: colors.punctuation },
+      {
+        scope: ["string", "punctuation.definition.string", "markup.inserted"],
+        color: colors.string,
+      },
+      {
+        scope: [
+          "constant.numeric",
+          "constant.language",
+          "constant.character",
+          "keyword.other.unit",
+        ],
+        color: colors.number,
+      },
+      { scope: ["string.regexp", "constant.character.escape"], color: colors.regexp },
+      {
+        scope: [
+          "entity.name.function",
+          "support.function",
+          "meta.function-call.generic",
+          "entity.other.attribute-name",
+        ],
+        color: colors.func,
+      },
+      {
+        scope: [
+          "entity.name.type",
+          "entity.name.class",
+          "entity.other.inherited-class",
+          "support.type",
+          "support.class",
+        ],
+        color: colors.type,
+      },
+      { scope: ["variable.parameter"], color: colors.parameter },
+      { scope: ["entity.name.tag", "punctuation.definition.tag"], color: colors.tag },
+      {
+        scope: [
+          "variable",
+          "variable.other.property",
+          "meta.object-literal.key",
+          "support.type.property-name",
+        ],
+        color: colors.foreground,
+      },
+      { scope: ["markup.heading", "entity.name.section"], color: colors.func, style: "bold" },
+      { scope: ["markup.deleted", "invalid"], color: colors.deleted },
+    ],
+  };
+}
+
 const geist = '"Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 const systemSans =
   'ui-sans-serif, -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", sans-serif';
@@ -546,8 +633,62 @@ export const aesthetics = {
 // loaded by Pierre from its bundled Shiki themes, or written above for themes
 // that have no Shiki build. Code colors use each theme's own editor keys; where a
 // theme leaves one unset, the comment names what Med uses instead.
-// Graphite is an original neutral palette, not an official Vercel/Geist theme.
+// Med Dawn and Med Night are Med's own, from its website's painting; Med Night
+// is the default. Graphite is an original neutral palette, not an official
+// Vercel/Geist theme.
 export const themes: readonly Theme[] = [
+  {
+    id: "med-night",
+    label: "Med Night",
+    family: "Med",
+    appearance: "dark",
+    syntax: medSyntax({
+      foreground: "#e6e4df",
+      comment: "#7d7c86",
+      punctuation: "#a7a6ae",
+      keyword: "#b8a6ea",
+      string: "#9fd0b4",
+      number: "#eab48e",
+      regexp: "#e7c27e",
+      func: "#8cc3cb",
+      type: "#9fb4e8",
+      parameter: "#e2c09a",
+      tag: "#ee9aa6",
+      deleted: "#ee9690",
+    }),
+    pierreTheme: "med-night",
+    source: null,
+    aesthetic: aesthetics.med,
+    // The sea at night: blue-black frame, sea-glass accent, and the dawn's
+    // peach for selected code.
+    palette: {
+      canvas: "#17181e",
+      panel: "#111217",
+      raised: "#1d1e25",
+      hover: "#25262e",
+      border: "#2b2c35",
+      text: "#ecebe8",
+      muted: "#a09fa8",
+      faint: "#6b6b75",
+      accent: "#8cc3cb",
+      selected: "#1e3236",
+      green: "#8fcb9f",
+      red: "#ee9690",
+      warning: "#e7be7e",
+      shadow: darkShadow,
+    },
+    code: {
+      selection: "#e9b99633",
+      match: "#e7be7e33",
+      matchCurrent: "#e7be7e73",
+      matchBorder: "#e7be7e",
+      lineHighlight: "#ffffff0a",
+      insertedLine: "#8fcb9f26",
+      insertedText: "#8fcb9f3d",
+      removedLine: "#ee969026",
+      removedText: "#ee96903d",
+    },
+  },
   {
     id: "graphite-dark",
     label: "Graphite Dark",
@@ -944,6 +1085,57 @@ export const themes: readonly Theme[] = [
       insertedText: "#4d937550",
       removedLine: "#ab595928",
       removedText: "#ab595950",
+    },
+  },
+  {
+    id: "med-dawn",
+    label: "Med Dawn",
+    family: "Med",
+    appearance: "light",
+    syntax: medSyntax({
+      foreground: "#1b1b1f",
+      comment: "#8d8c93",
+      punctuation: "#6b6a72",
+      keyword: "#6a55a3",
+      string: "#3a7563",
+      number: "#a2582f",
+      regexp: "#91651f",
+      func: "#2f6774",
+      type: "#4a68a0",
+      parameter: "#7d5536",
+      tag: "#a84a5c",
+      deleted: "#b8434c",
+    }),
+    pierreTheme: "med-dawn",
+    source: null,
+    aesthetic: aesthetics.med,
+    // Paper and ink, a deep sea accent, and the dawn's peach for selected code.
+    palette: {
+      canvas: "#fdfcfa",
+      panel: "#f3f2ee",
+      raised: "#ffffff",
+      hover: "#eae8e3",
+      border: "#e2e0da",
+      text: "#1b1b1f",
+      muted: "#5f5e66",
+      faint: "#8d8c93",
+      accent: "#2f6774",
+      selected: "#e1ecee",
+      green: "#2f7a50",
+      red: "#b8434c",
+      warning: "#91651f",
+      shadow: lightShadow,
+    },
+    code: {
+      selection: "#e9b99659",
+      match: "#f2d48a80",
+      matchCurrent: "#e9a94c99",
+      matchBorder: "#b07d24",
+      lineHighlight: "#1b1b1f08",
+      insertedLine: "#2f7a501a",
+      insertedText: "#2f7a5033",
+      removedLine: "#b8434c1a",
+      removedText: "#b8434c33",
     },
   },
   {
