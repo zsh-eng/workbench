@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { comparisonSchema } from "../../shared/protocol";
+import { apiErrorMessage, comparisonSchema } from "../../shared/protocol";
 import { browserFetch, liveStream } from "./live";
 
 const worktreeSchema = z.object({
@@ -169,9 +169,8 @@ export function createApi(fetcher: typeof fetch, token: string) {
       const response = await fetcher(url, { ...init, headers: headers(init.headers) });
       if (!response.ok) {
         const body: unknown = await response.json().catch(() => null);
-        const parsed = z.object({ error: z.object({ message: z.string() }) }).safeParse(body);
         throw new HttpError(
-          parsed.success ? parsed.data.error.message : `Request failed (${response.status}).`,
+          apiErrorMessage(body) ?? `Request failed (${response.status}).`,
           response.status,
         );
       }

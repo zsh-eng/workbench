@@ -1,5 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { apiErrorMessage } from "../../shared/protocol";
 import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
 
@@ -53,10 +54,8 @@ async function restartServer() {
     body: "{}",
   });
   if (!response.ok) {
-    const data = (await response.json().catch(() => null)) as {
-      error?: { message?: string };
-    } | null;
-    throw new Error(data?.error?.message ?? "Med could not restart.");
+    const data: unknown = await response.json().catch(() => null);
+    throw new Error(apiErrorMessage(data) ?? "Med could not restart.");
   }
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {

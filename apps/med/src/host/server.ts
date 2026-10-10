@@ -18,9 +18,11 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import {
+  apiErrorMessage,
   notesRequestSchema,
   noteMutationSchema,
   reviewRequestSchema,
+  type ApiError,
   type ChangeEvent,
   type Comparison,
   type Repository,
@@ -318,12 +320,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
-      const data = (await response.json().catch(() => null)) as {
-        error?: { message?: string };
-      } | null;
+      const data: unknown = await response.json().catch(() => null);
       if (!response.ok)
         throw new Error(
-          data?.error?.message ?? `The host refused the request (${response.status}).`,
+          apiErrorMessage(data) ?? `The host refused the request (${response.status}).`,
         );
       return data as T;
     },
@@ -558,7 +558,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           const refuse = (key: string, status: number, code: string, message: string) => ({
             key,
             status,
-            body: { error: { code, message } },
+            body: { error: { code, message } } satisfies ApiError,
           });
           const channels = await Promise.all(
             input.open.map(async ({ key, path }) => {
@@ -1925,7 +1925,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               : "internal-error";
         const message =
           error instanceof Error ? error.message : "The host could not complete the request.";
-        json(response, status, { error: { code, message } });
+        json(response, status, { error: { code, message } } satisfies ApiError);
       })
       .finally(() => {
         activeRequests.delete(abort);

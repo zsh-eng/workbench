@@ -8,6 +8,7 @@ import {
   savedReviewCreateSchema,
   type AgentSession,
 } from "../shared/saved-review";
+import { apiErrorMessage } from "../shared/protocol";
 import { agentSessions } from "./agent-sessions";
 import {
   DEFAULT_PORT,
@@ -259,9 +260,9 @@ export async function request(
   }
   const data: unknown = await response.json().catch(() => null);
   if (!response.ok) {
-    const parsed = z.object({ error: z.object({ message: z.string() }) }).safeParse(data);
-    const detail = parsed.success
-      ? parsed.data.error.message.replaceAll(connection.token, "[credential]")
+    const message = apiErrorMessage(data);
+    const detail = message
+      ? message.replaceAll(connection.token, "[credential]")
       : `HTTP ${response.status}`;
     throw new Error(`Med request failed: ${detail}`);
   }

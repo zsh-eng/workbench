@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { SessionEvent } from "../../shared/agent-session";
+import { apiErrorMessage } from "../../shared/protocol";
 import { readBrowserToken } from "./auth";
 import { createApi, HttpError } from "./api";
 import { browserFetch } from "./live";
@@ -75,10 +76,10 @@ export async function followSession(
         signal,
       );
       if (response.status === 404) {
-        const body = (await response.json().catch(() => ({}))) as { error?: { message?: string } };
+        const body: unknown = await response.json().catch(() => null);
         set({
           status: "missing",
-          message: body.error?.message ?? "The session's transcript is not on this computer.",
+          message: apiErrorMessage(body) ?? "The session's transcript is not on this computer.",
         });
         return;
       }
