@@ -388,3 +388,34 @@ test("the notebook opens at the current chapter", async ({
   await expect(groups.nth(2)).toBeInViewport();
   await expect(groups.first()).not.toBeInViewport();
 });
+
+test("a notebook highlight has the note menu on phones too", async ({
+  page,
+  localBook,
+}) => {
+  await openLocalBook(page, localBook.id);
+  for (let i = 0; i < 8; i++) await nextSpread(page);
+  await selectPassage(page);
+  await page.getByRole("button", { name: "Highlight with blue" }).click();
+  await expect(page.locator("[data-notes-island]")).toHaveCount(0);
+  await showChrome(page);
+  await page
+    .getByRole("button", { name: "Open notebook", exact: true })
+    .click();
+  const notebook = page.getByRole("region", { name: "Book notebook" });
+  const entry = notebook.locator('[aria-label^="Highlight;"]');
+  // A long press opens the same menu as a note's, without Edit.
+  await entry.dispatchEvent("contextmenu");
+  await expect(page.getByRole("menuitem", { name: "Edit note" })).toHaveCount(
+    0,
+  );
+  await expect(
+    page.getByRole("menuitem", { name: "Copy text", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("menuitem", { name: "Delete highlight", exact: true })
+    .click();
+  await expect(entry).toHaveCount(0);
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(entry).toHaveCount(1);
+});

@@ -198,7 +198,7 @@ test("desktop notes edit in place with stable rows and keep compose and edit dra
   await expect(compose).toHaveValue("An unsent thought.");
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
   await first.locator("article").click({ button: "right" });
-  await page.getByRole("menuitem", { name: "Copy Text", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Copy text", exact: true }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
     "Saved when I change panels.",
   );
@@ -327,4 +327,63 @@ test("desktop deletion undo follows deletion order and leaves text undo to the e
   await page.keyboard.press(`${modifier}+z`);
   await expect(rows).toHaveCount(3);
   expect(await deletedIds()).toEqual([]);
+});
+
+test("a notebook highlight has the note menu: copy, delete, and Undo", async ({
+  page,
+  localBook,
+}) => {
+  const { nextSpread } = await import("./helpers/fixtures");
+  await openLocalBook(page, localBook.id);
+  for (let i = 0; i < 8; i++) await nextSpread(page);
+  const selected = await page.evaluate(() => {
+    const root = document.querySelector(
+      '[data-reader-spread-layer="current"]',
+    )!;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    while (node && (node.textContent?.trim().length ?? 0) < 30)
+      node = walker.nextNode();
+    const range = document.createRange();
+    range.setStart(node!, 0);
+    range.setEnd(node!, 25);
+    getSelection()!.removeAllRanges();
+    getSelection()!.addRange(range);
+    return range.toString();
+  });
+  await expect
+    .poll(() => page.evaluate(() => getSelection()?.toString().length))
+    .toBe(25);
+  await page.evaluate(() =>
+    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })),
+  );
+  await page.getByRole("button", { name: "Highlight with green" }).click();
+  const mark = page.locator(
+    '[data-reader-spread-layer="current"] mark[data-color="green"]',
+  );
+  await expect(mark.first()).toBeVisible();
+  await page.mouse.move(200, 10);
+  await page
+    .getByRole("button", { name: "Open reader tools", exact: true })
+    .click();
+  const tools = page.getByRole("complementary", {
+    name: "Reader tools",
+    exact: true,
+  });
+  await tools.getByRole("button", { name: "Notebook", exact: true }).click();
+  const entry = tools.locator('[aria-label^="Highlight;"]');
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await entry.locator("article").click({ button: "right" });
+  await expect(page.getByRole("menuitem", { name: "Edit" })).toHaveCount(0);
+  await page.getByRole("menuitem", { name: "Copy text", exact: true }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+    selected,
+  );
+  await entry.locator("article").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
+  await expect(entry).toHaveCount(0);
+  await expect(mark).toHaveCount(0);
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(entry).toHaveCount(1);
+  await expect(mark.first()).toBeVisible();
 });

@@ -7,7 +7,14 @@ import type { Highlight } from "@/types/highlight";
 import type { HighlightColor } from "@/lib/highlight-constants";
 import { NotebookFilters, type NotebookKindFilter } from "./NotebookFilters";
 import { useReaderNotes } from "./hooks/use-reader-notes";
-import { useNotebookDeletion } from "./hooks/use-notebook-deletion";
+import {
+  useNotebookDeletion,
+  type NotebookEntryRef,
+} from "./hooks/use-notebook-deletion";
+import { deleteHighlight, restoreHighlight } from "@/data/highlights";
+import { highlightKeys } from "@/hooks/use-highlights-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   createNoteLocationResolver,
   highlightNoteTarget,
@@ -126,9 +133,39 @@ export function ReaderNotesPrototype({
   // A tapped passage with a note shows the note; Palette asks for its colours.
   const [toolsRequested, setToolsRequested] = useState(false);
   const notes = useReaderNotes(bookId);
-  const { deleteNote, restoredEntries } = useNotebookDeletion({
-    remove: notes.remove,
-    restore: notes.restore,
+  const queryClient = useQueryClient();
+  const removeNote = notes.remove;
+  const restoreNote = notes.restore;
+  // Notes and highlights share one deletion stack, so Undo follows the order.
+  const removeEntry = useCallback(
+    async (entry: NotebookEntryRef) => {
+      if (entry.kind === "note") return removeNote(entry.id);
+      try {
+        await deleteHighlight(entry.id);
+      } catch {
+        toast.error("Could not delete the highlight.");
+        return false;
+      }
+      await queryClient.invalidateQueries({
+        queryKey: highlightKeys.book(bookId),
+      });
+      return true;
+    },
+    [removeNote, queryClient, bookId],
+  );
+  const restoreEntry = useCallback(
+    async (entry: NotebookEntryRef) => {
+      if (entry.kind === "note") return restoreNote(entry.id);
+      await restoreHighlight(entry.id);
+      await queryClient.invalidateQueries({
+        queryKey: highlightKeys.book(bookId),
+      });
+    },
+    [restoreNote, queryClient, bookId],
+  );
+  const { deleteEntry, restoredEntries } = useNotebookDeletion({
+    remove: removeEntry,
+    restore: restoreEntry,
     shortcutEnabled: desktop && open && notebook && !notes.editingId,
   });
   const composerDraft = desktop ? notes.composeDraft : notes.draft;
@@ -585,7 +622,7 @@ export function ReaderNotesPrototype({
 
   function deleteFromIsland(id: string) {
     mobileAnnotation?.close();
-    void deleteNote(id, (undo) => {
+    void deleteEntry({ kind: "note", id }, (undo) => {
       const key = Date.now();
       setNotice({ key, label: "Note deleted", undo });
       return () =>
@@ -1065,30 +1102,43 @@ export function ReaderNotesPrototype({
                 className="flow-root overflow-hidden"
               >
                 {entry.highlight ? (
-                  <HighlightEntry
-                    desktop={desktop}
+                  <NotebookCard
+                    kind="highlight"
                     text={entry.highlight.selectedText}
-                    color={entry.highlight.color}
-                    location={`${order === "time" ? `${entry.location.chapter} · ` : ""}${
-                      entry.location.page
-                        ? `p. ${entry.location.page}`
-                        : "Location unavailable"
-                    }`}
-                    createdAt={entry.createdAt}
-                    onSelect={() => {
-                      onVisitHighlight(entry.highlight!);
-                      close();
-                    }}
-                  />
+                    dimmed={inlineEditing}
+                    disabled={!notes.ready}
+                    canEdit={false}
+                    editing={false}
+                    onEdit={() => {}}
+                    onDelete={() =>
+                      deleteEntry({ kind: "highlight", id: entry.id })
+                    }
+                  >
+                    <HighlightBody
+                      text={entry.highlight.selectedText}
+                      color={entry.highlight.color}
+                      location={`${order === "time" ? `${entry.location.chapter} · ` : ""}${
+                        entry.location.page
+                          ? `p. ${entry.location.page}`
+                          : "Location unavailable"
+                      }`}
+                      createdAt={entry.createdAt}
+                      onSelect={() => {
+                        onVisitHighlight(entry.highlight!);
+                        close();
+                      }}
+                    />
+                  </NotebookCard>
                 ) : (
                   <NotebookCard
+                    kind="note"
                     text={entry.text}
                     dimmed={inlineEditing && notes.editingId !== entry.id}
                     disabled={!notes.ready || notes.saving}
                     canEdit={entry.kind === "note"}
                     editing={notes.editingId === entry.id}
                     onEdit={() => void startEdit(entry.id)}
-                    onDelete={() => deleteNote(entry.id)}
+                    onDelete={() => deleteEntry({ kind: "note", id: entry.id })}
                   >
                     {entry.quote && (
                       <blockquote
@@ -1172,7 +1222,7 @@ export function ReaderNotesPrototype({
       restoredEntries,
       orderedEntries,
       startEdit,
-      deleteNote,
+      deleteEntry,
       notes,
       inlineEditing,
       NotebookCard,
@@ -1432,16 +1482,15 @@ function noteMeta(page: number, createdAt: number) {
   return page ? `p. ${page} · ${day}` : day;
 }
 
-/** A highlight without a note, in the notebook. Choosing it opens its page. */
-function HighlightEntry({
-  desktop,
+/** A highlight without a note, inside its notebook card. Choosing it opens
+ * its page. It is not a <button>, so a swipe can start on it. */
+function HighlightBody({
   text,
   color,
   location,
   createdAt,
   onSelect,
 }: {
-  desktop: boolean;
   text: string;
   color: string;
   location: string;
@@ -1449,35 +1498,38 @@ function HighlightEntry({
   onSelect: () => void;
 }) {
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       aria-label={`Go to highlight: ${text}`}
       onClick={onSelect}
-      className="group relative mb-2 block w-full rounded-2xl text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        onSelect();
+      }}
+      className="-mx-4 -my-3 block cursor-pointer rounded-2xl px-4 py-3 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
-      <div
-        className={`rounded-2xl px-4 py-3 ${desktop ? "bg-secondary/40 transition-colors duration-150 group-hover:bg-secondary/70 group-focus-visible:bg-secondary/70" : "bg-secondary"}`}
+      <blockquote
+        className="border-l-[3px] pl-3 text-[15px] leading-relaxed break-words whitespace-pre-wrap"
+        style={{ borderColor: `var(--${color}-secondary)` }}
       >
-        <blockquote
-          className="border-l-[3px] pl-3 text-[15px] leading-relaxed break-words whitespace-pre-wrap"
-          style={{ borderColor: `var(--${color}-secondary)` }}
+        {text}
+      </blockquote>
+      <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+        <span className="min-w-0 truncate">{location}</span>
+        <time
+          dateTime={new Date(createdAt).toISOString()}
+          title={new Date(createdAt).toLocaleString()}
+          className="shrink-0"
         >
-          {text}
-        </blockquote>
-        <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
-          <span className="min-w-0 truncate">{location}</span>
-          <time
-            dateTime={new Date(createdAt).toISOString()}
-            title={new Date(createdAt).toLocaleString()}
-            className="shrink-0"
-          >
-            {new Date(createdAt).toLocaleTimeString([], {
-              hour: "numeric",
-              minute: "2-digit",
-            })}
-          </time>
-        </div>
+          {new Date(createdAt).toLocaleTimeString([], {
+            hour: "numeric",
+            minute: "2-digit",
+          })}
+        </time>
       </div>
-    </button>
+    </div>
   );
 }
