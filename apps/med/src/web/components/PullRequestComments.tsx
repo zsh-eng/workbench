@@ -1,6 +1,15 @@
 import { Popover } from "@base-ui/react/popover";
 import * as stylex from "@stylexjs/stylex";
-import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  Fragment,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type {
   PullRequestComment,
   PullRequestComments,
@@ -219,6 +228,45 @@ function CopyButton({ text, label }: { text: () => string; label: string }) {
   );
 }
 
+/** The agent session's next message, when the review has one: GitHub
+ * comments can go into it. */
+export interface AgentReplyTarget {
+  agent: string;
+  add(attachment: { label: string; text: string }): void;
+}
+export const AgentReplyContext = createContext<AgentReplyTarget | null>(null);
+
+function AddToReplyButton({ label, text }: { label: string; text: () => string }) {
+  const target = useContext(AgentReplyContext);
+  const [added, setAdded] = useState(false);
+  useEffect(() => {
+    if (!added) return;
+    const timer = setTimeout(() => setAdded(false), 1600);
+    return () => clearTimeout(timer);
+  }, [added]);
+  if (!target) return null;
+  const title = added
+    ? `Added to the message for ${target.agent}`
+    : `Add to the message for ${target.agent}`;
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      {...stylex.props(ui.button, ui.iconButton, styles.tool)}
+      onClick={() => {
+        target.add({ label, text: text() });
+        setAdded(true);
+      }}
+    >
+      <Icon name={added ? "check" : "reply"} size={13} />
+    </button>
+  );
+}
+
+const threadLabel = (thread: PullRequestThread) =>
+  `${thread.path.split("/").at(-1)}:${lineLabel(thread)}`;
+
 function OpenButton({ url }: { url: string }) {
   return (
     <a
@@ -326,6 +374,7 @@ export function PullRequestThreadCard({
         mark
         tools={
           <>
+            <AddToReplyButton label={threadLabel(thread)} text={() => threadText(thread)} />
             <CopyButton label="Copy thread" text={() => threadText(thread)} />
             <OpenButton url={first.url} />
           </>
@@ -483,7 +532,13 @@ export function PanelContent({
                     tools={
                       <>
                         {comment.body.trim() && (
-                          <CopyButton label="Copy comment" text={() => commentText(comment)} />
+                          <>
+                            <AddToReplyButton
+                              label={`@${comment.author}`}
+                              text={() => commentText(comment)}
+                            />
+                            <CopyButton label="Copy comment" text={() => commentText(comment)} />
+                          </>
                         )}
                         <OpenButton url={comment.url} />
                       </>
@@ -496,7 +551,10 @@ export function PanelContent({
             )}
           </section>
           <section aria-label="Code comments" {...stylex.props(styles.section)}>
-            <h3 {...stylex.props(ui.label, styles.heading)}>Code comments</h3>
+            <div {...stylex.props(styles.headingRow)}>
+              <h3 {...stylex.props(ui.label, styles.heading)}>Code comments</h3>
+              <AddAllToReply threads={data.threads.filter((thread) => thread.line !== null)} />
+            </div>
             {inline > 0 && (
               <p {...stylex.props(styles.lede)}>
                 {inline} {inline === 1 ? "thread shows" : "threads show"} in the diff.
@@ -525,7 +583,32 @@ export function PanelContent({
   );
 }
 
+/** Adds every current code thread to the agent's next message. */
+function AddAllToReply({ threads }: { threads: PullRequestThread[] }) {
+  const target = useContext(AgentReplyContext);
+  const [added, setAdded] = useState(false);
+  if (!target || !threads.length) return null;
+  return (
+    <button
+      type="button"
+      {...stylex.props(ui.button, styles.addAll)}
+      onClick={() => {
+        target.add({
+          label: `${threads.length} GitHub ${threads.length === 1 ? "thread" : "threads"}`,
+          text: threads.map(threadText).join("\n\n---\n\n"),
+        });
+        setAdded(true);
+      }}
+    >
+      <Icon name={added ? "check" : "reply"} size={12} />
+      {added ? "Added" : `Add all to ${target.agent}`}
+    </button>
+  );
+}
+
 const styles = stylex.create({
+  headingRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  addAll: { minHeight: 22, paddingInline: 6, fontSize: 11.5 },
   // The same card as a local note, so both read as one system; the GitHub
   // mark and the author line set it apart.
   card: {

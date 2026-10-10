@@ -1,12 +1,14 @@
 import * as stylex from "@stylexjs/stylex";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { AgentSession } from "../../../shared/saved-review";
+import { withSentMessages, type AgentInbox } from "../../data/agent-inbox";
 import { createSessionStore } from "../../data/session-store";
 import { followSession, sessionRunning, type SessionStreamState } from "../../data/session-stream";
 import { tokens } from "../../theme.stylex";
 import { ChoiceSelect } from "../Controls";
 import { Icon } from "../Icon";
 import { ToolButton } from "../ToolButton";
+import { SessionComposer, type ComposerAttachment } from "./SessionComposer";
 import { SessionThread } from "./SessionThread";
 
 const AGENTS = { claude: "Claude", codex: "Codex" } as const;
@@ -45,9 +47,17 @@ export function SessionPanel({
   onOpenPath,
   onClose,
   fetcher,
+  inbox,
+  attachments = [],
+  onRemoveAttachment,
 }: {
   reviewId: string;
   fetcher?: typeof fetch;
+  /** Messages to the agent; without it the panel only reads the session. */
+  inbox?: AgentInbox;
+  /** Text to add to the next message, such as GitHub comments. */
+  attachments?: ComposerAttachment[];
+  onRemoveAttachment?(id: string): void;
   sessions: AgentSession[];
   /** The repository's path, to open absolute links to its files. */
   root?: string;
@@ -83,6 +93,12 @@ export function SessionPanel({
   }, [running, store]);
 
   const agent = AGENTS[session.agent];
+  const waiting = inbox?.state?.waiting.includes(session.id) ?? false;
+  const messages = inbox?.state?.messages;
+  const shown = useMemo(() => {
+    const sent = messages?.filter((message) => message.sessionId === session.id) ?? [];
+    return sent.length ? { ...snapshot, items: withSentMessages(snapshot.items, sent) } : snapshot;
+  }, [snapshot, messages, session.id]);
   const status =
     state.status === "connecting"
       ? "Connecting"
@@ -92,7 +108,9 @@ export function SessionPanel({
           ? "Unavailable"
           : running
             ? "Working"
-            : "Idle";
+            : waiting
+              ? "Waiting for you"
+              : "Idle";
 
   return (
     <section aria-label={`${agent} session`} {...stylex.props(styles.panel)}>
@@ -102,7 +120,13 @@ export function SessionPanel({
           {snapshot.title ?? `${agent} session`}
         </span>
         <span {...stylex.props(styles.status)}>
-          <span {...stylex.props(styles.dot, running && styles.dotLive)} />
+          <span
+            {...stylex.props(
+              styles.dot,
+              running && styles.dotLive,
+              !running && waiting && styles.dotWaiting,
+            )}
+          />
           {status}
         </span>
         {sessions.length > 1 && (
@@ -123,7 +147,7 @@ export function SessionPanel({
       ) : (
         <div {...stylex.props(styles.thread)}>
           <SessionThread
-            snapshot={snapshot}
+            snapshot={shown}
             now={running ? now : undefined}
             before={
               state.truncated ? (
@@ -138,6 +162,17 @@ export function SessionPanel({
             }}
           />
         </div>
+      )}
+      {inbox && (
+        <SessionComposer
+          key={session.id}
+          agent={session.agent}
+          waiting={waiting}
+          drafts={inbox.state?.drafts ?? []}
+          attachments={attachments}
+          onRemoveAttachment={(id) => onRemoveAttachment?.(id)}
+          onSend={(message) => inbox.send({ sessionId: session.id, ...message })}
+        />
       )}
     </section>
   );
@@ -178,6 +213,7 @@ const styles = stylex.create({
   status: { display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: tokens.faint },
   dot: { width: 6, height: 6, borderRadius: "50%", backgroundColor: tokens.lineStrong },
   dotLive: { backgroundColor: tokens.green },
+  dotWaiting: { backgroundColor: tokens.accent },
   thread: { flex: "1", minHeight: 0 },
   note: { margin: 0, marginBottom: 8, color: tokens.faint, fontSize: 11.5, textAlign: "center" },
   empty: {

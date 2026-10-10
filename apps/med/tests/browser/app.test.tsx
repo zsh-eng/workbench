@@ -16,6 +16,7 @@ import { initializeTheme, themeController } from "../../src/web/themes";
 import { layoutHistory } from "../../src/web/components/history-layout";
 import { createBrowseApi } from "../../src/web/data/browse";
 import type { BrowseSource } from "../../src/shared/browse";
+import type { AgentInboxState } from "../../src/shared/agent-inbox";
 import type { BlameLoader } from "../../src/web/data/blame";
 import type { CommitApi } from "../../src/web/data/commit";
 import { createFakeRepository } from "../../src/web/components/elements/commit-fixture";
@@ -109,6 +110,8 @@ async function mountApp(
     commitApi?: CommitApi;
     /** A Claude Code session recorded with the saved review, as server events. */
     session?: string;
+    /** The saved review's messages to its agent: drafts and who waits. */
+    inbox?: AgentInboxState;
   } = {},
 ) {
   initializeTheme();
@@ -139,6 +142,8 @@ async function mountApp(
     };
   });
   const pullRequestReads: string[] = [];
+  let inbox = options.inbox;
+  const agentMessages: unknown[] = [];
   const savedRepositories = savedTargets.slice(0, options.oneBranch ? 1 : 2).map((target) => ({
     id: target.repositoryId,
     path: target.repo,
@@ -185,6 +190,30 @@ async function mountApp(
       if (url.pathname === "/api/reviews/saved") return Response.json(savedBundle());
       if (url.pathname === "/api/reviews/saved/sessions/s1/events" && options.session)
         return new Response(options.session, { headers: { "content-type": "text/event-stream" } });
+      if (url.pathname === "/api/reviews/saved/agent/events" && inbox)
+        return new Response(`event: state\ndata: ${JSON.stringify(inbox)}\n\n`, {
+          headers: { "content-type": "text/event-stream" },
+        });
+      if (url.pathname === "/api/reviews/saved/agent/messages" && inbox) {
+        const input = JSON.parse(String(init?.body)) as { text: string; noteIds: string[] };
+        agentMessages.push(input);
+        const message: AgentInboxState["messages"][number] = {
+          id: `m${agentMessages.length}`,
+          sessionId: "s1",
+          agent: "claude",
+          text: input.text,
+          noteIds: input.noteIds,
+          attachmentCount: 0,
+          createdAt: new Date().toISOString(),
+          delivery: "delivered",
+        };
+        inbox = {
+          messages: [...inbox.messages, message],
+          waiting: [],
+          drafts: inbox.drafts.filter((draft) => !input.noteIds.includes(draft.id)),
+        };
+        return Response.json({ message, state: inbox });
+      }
       if (url.pathname === "/api/reviews/saved/pull-request" && options.pullRequest) {
         pullRequestReads.push(url.search);
         return Response.json(options.pullRequest);
@@ -395,7 +424,7 @@ async function mountApp(
   await expect
     .poll(() => document.querySelectorAll("diffs-container").length)
     .toBeGreaterThanOrEqual(briefFirst ? 0 : options.review ? 1 : 2);
-  return { controller, requests, fileRequests, pullRequestReads };
+  return { controller, requests, fileRequests, pullRequestReads, agentMessages };
 }
 
 async function openBranch(name: string) {
@@ -2112,5 +2141,41 @@ describe("agent session", () => {
     await expect.element(page.getByRole("tab", { name: "alpha.ts", exact: true })).toBeVisible();
     await panel.getByRole("button", { name: "Hide session" }).click();
     await expect.element(panel).not.toBeInTheDocument();
+  });
+
+  test("comments go to the waiting agent from the review", async () => {
+    const { agentMessages } = await mountApp({
+      savedReview: true,
+      session: `event: reset\ndata: ${JSON.stringify({ events: [], idle: true, modifiedAt: 0, truncated: false })}\n\n`,
+      inbox: {
+        messages: [],
+        waiting: ["s1"],
+        drafts: [
+          { id: "n1", path: "src/alpha.ts", line: 1, text: "Rename it.", replies: 0 },
+          { id: "n2", path: "src/beta.ts", line: 2, text: "Keep this one.", replies: 0 },
+        ],
+      },
+    });
+    await page.getByRole("button", { name: "Send comments to Claude" }).click();
+    const panel = page.getByRole("complementary", { name: "Agent session" });
+    await expect.element(panel.getByText("Claude is waiting for your review")).toBeVisible();
+    await expect.element(panel.getByText("Waiting for you")).toBeVisible();
+
+    // Choose one of the two comments, then write and send.
+    await panel.getByRole("button", { name: "2 comments" }).click();
+    await panel.getByRole("checkbox", { name: /beta\.ts:2/ }).click();
+    await expect.element(panel.getByRole("button", { name: "1 of 2 comments" })).toBeVisible();
+    await panel.getByRole("textbox", { name: "Message Claude" }).fill("Use minutes.");
+    await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
+
+    await expect
+      .poll(() => agentMessages)
+      .toEqual([{ sessionId: "s1", text: "Use minutes.", noteIds: ["n1"], attachments: [] }]);
+    await expect.element(panel.getByText("Use minutes.")).toBeVisible();
+    await expect
+      .element(panel.getByText("Sent from Med · 1 comment · Claude took it"))
+      .toBeVisible();
+    await expect.element(panel.getByRole("textbox", { name: "Message Claude" })).toHaveValue("");
+    await expect.element(panel.getByRole("button", { name: "1 comment" })).toBeVisible();
   });
 });

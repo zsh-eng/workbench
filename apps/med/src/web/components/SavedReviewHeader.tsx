@@ -19,8 +19,11 @@ export function SavedReviewHeader({
   threadPlacement,
   onReturn,
   onTarget,
+  sendTo,
 }: {
   controller: ReviewController;
+  /** The agent session that comments can go to, and how to open its message. */
+  sendTo?: { agent: "claude" | "codex"; drafts: number; open(): void };
   state: ReviewControllerSnapshot;
   /** GitHub comments, when the review has a pull request. */
   pullRequest?: PullRequestState;
@@ -176,6 +179,20 @@ export function SavedReviewHeader({
           <span>
             Return<span {...stylex.props(styles.desktop)}> to review</span>
           </span>
+        </button>
+      )}
+      {sendTo && (
+        <button
+          {...stylex.props(ui.button, ui.pressable, styles.fixed)}
+          aria-label={`Send comments to ${sendTo.agent === "codex" ? "Codex" : "Claude"}`}
+          title="Write to the agent with your comments"
+          onClick={sendTo.open}
+        >
+          <Icon name={sendTo.agent} size={14} />
+          <span {...stylex.props(styles.desktop)}>
+            Send to {sendTo.agent === "codex" ? "Codex" : "Claude"}
+          </span>
+          {sendTo.drafts > 0 && <span>{sendTo.drafts}</span>}
         </button>
       )}
       {/* During copy, handlers block actions without native disabled dimming both buttons. */}

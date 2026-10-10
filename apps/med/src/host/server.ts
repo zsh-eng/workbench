@@ -59,6 +59,12 @@ import { type SearchOptions } from "./search/service";
 import { RepositoryRegistry } from "./repository/registry";
 import { SavedReviewStore } from "./saved-reviews";
 import { followTranscript, findTranscript } from "./agent-transcripts";
+import { AgentInbox } from "./agent-inbox";
+import {
+  agentMessageInputSchema,
+  deliveredText,
+  type AgentInboxState,
+} from "../shared/agent-inbox";
 import type { SessionEvent } from "../shared/agent-session";
 import { reviewKeySchema, savedReviewCreateSchema } from "../shared/saved-review";
 import { getPersistentToken, publishConnection } from "./runtime/connection";
@@ -81,6 +87,8 @@ export interface StartHostOptions {
   stateDir?: string;
   /** Shows a file in the system file manager; tests replace it. */
   reveal?: (path: string) => void;
+  /** Adds a message to a Codex thread's queue; tests replace `codex queue`. */
+  queueCodex?: (threadId: string, text: string) => Promise<void>;
 }
 export interface RunningHost {
   url: string;
@@ -184,6 +192,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     ? undefined
     : await mkdtemp(join(tmpdir(), "med-reviews-"));
   const savedReviews = new SavedReviewStore(join(options.stateDir ?? temporaryState!, "reviews"));
+  const inbox = new AgentInbox(join(options.stateDir ?? temporaryState!, "agent-messages"), {
+    ...(options.queueCodex ? { queueCodex: options.queueCodex } : {}),
+  });
+  const inboxStreams = new Set<ServerResponse>();
 
   const watchers = new Map<string, Promise<() => Promise<void>>>();
   const watcherModes = new Map<string, boolean>();
@@ -523,6 +535,133 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           ).catch(() => response.end());
           return;
         }
+        // Messages from the review to its agent sessions. `wait` is the long
+        // poll behind `med review wait`, so it stays outside the request limit.
+        const agentRoute =
+          /^\/api\/reviews\/([A-Za-z0-9_-]+)\/agent(?:\/(wait|messages|events))?$/.exec(
+            url.pathname,
+          );
+        if (agentRoute) {
+          const reviewId = agentRoute[1]!;
+          const action = agentRoute[2];
+          const bundle = await savedReviews.get(reviewId);
+          const inboxState = async (): Promise<AgentInboxState> => {
+            const messages = await inbox.messages(reviewId);
+            const sent = new Map<string, string>();
+            for (const message of messages)
+              for (const id of message.noteIds)
+                if ((sent.get(id) ?? "") < message.createdAt) sent.set(id, message.createdAt);
+            const comments = await savedReviews.comments(reviewId);
+            return {
+              messages,
+              waiting: inbox.waiting(reviewId),
+              drafts: comments
+                .filter((comment) => (sent.get(comment.id) ?? "") < comment.updatedAt)
+                .map((comment) => ({
+                  id: comment.id,
+                  path: comment.path,
+                  line: comment.line,
+                  ...(comment.endLine ? { endLine: comment.endLine } : {}),
+                  text: comment.text,
+                  replies: comment.replies,
+                })),
+            };
+          };
+          if (!action && request.method === "GET") {
+            send(await inboxState());
+            return;
+          }
+          if (action === "events" && request.method === "GET") {
+            if (inboxStreams.size >= 16)
+              throw new HostError(
+                "too-many-streams",
+                "Too many agent inbox streams are open.",
+                503,
+              );
+            response.writeHead(200, {
+              "content-type": "text/event-stream",
+              "cache-control": "no-store",
+              connection: "keep-alive",
+              "x-accel-buffering": "no",
+            });
+            inboxStreams.add(response);
+            let queued = false;
+            const push = () => {
+              if (queued) return;
+              queued = true;
+              setTimeout(() => {
+                queued = false;
+                void inboxState()
+                  .then((state) =>
+                    response.write(`event: state\ndata: ${JSON.stringify(state)}\n\n`),
+                  )
+                  .catch(() => {});
+              }, 50);
+            };
+            const unsubscribe = inbox.subscribe(reviewId, push);
+            response.once("close", () => {
+              inboxStreams.delete(response);
+              unsubscribe();
+            });
+            push();
+            return;
+          }
+          if (action === "messages" && request.method === "POST") {
+            const input = agentMessageInputSchema.parse(await readBody(request, MAX_BRIEF_BODY));
+            const session = bundle.sessions?.find((entry) => entry.id === input.sessionId);
+            if (!session)
+              throw new HostError(
+                "session-not-found",
+                "This review has no such agent session.",
+                404,
+              );
+            const parts: string[] = [];
+            if (input.text.trim()) parts.push(input.text.trim());
+            if (input.noteIds.length) {
+              const feedback = await savedReviews.feedback(reviewId, new Set(input.noteIds));
+              if (feedback.count) parts.push(feedback.text);
+            }
+            for (const attachment of input.attachments)
+              parts.push(`## ${attachment.label}\n\n${attachment.text}`);
+            if (!parts.length)
+              throw new HostError(
+                "empty-message",
+                "Write a message or choose comments to send.",
+                400,
+              );
+            const message = await inbox.send(
+              reviewId,
+              session,
+              {
+                text: input.text.trim(),
+                noteIds: input.noteIds,
+                attachmentCount: input.attachments.length,
+              },
+              parts.join("\n\n"),
+            );
+            send({ message, state: await inboxState() });
+            return;
+          }
+          if (action === "wait" && request.method === "POST") {
+            const input = z
+              .object({
+                session: z
+                  .string()
+                  .regex(/^[A-Za-z0-9_-]{1,128}$/)
+                  .optional(),
+                timeout: z.number().int().min(1).max(25_000).default(25_000),
+              })
+              .parse(await readBody(request));
+            const result = await inbox.wait(reviewId, input.session, input.timeout, abort.signal);
+            send(
+              result && "body" in result
+                ? { message: deliveredText(bundle.title, [{ body: result.body }]) }
+                : { message: null, ...(result ? { superseded: true } : {}) },
+            );
+            return;
+          }
+          throw new HostError("method-not-allowed", "This agent action is not supported.", 405);
+        }
         if (url.pathname === "/api/windows" && request.method === "GET") {
           if (windows.size >= 16)
             throw new HostError("too-many-windows", "Too many Med windows are open.", 503);
@@ -777,6 +916,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   },
             );
             send({ ...state, reviewId });
+            inbox.touch(id!);
             return;
           }
           if (url.pathname === "/api/reviews/by-key" && request.method === "POST") {
@@ -857,6 +997,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   assertRequestAccess,
                 ),
               );
+              inbox.touch(id!);
               return;
             }
             if (request.method === "POST" && action === "brief") {
@@ -879,6 +1020,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 .parse(await readBody(request));
               assertRequestAccess();
               send(await savedReviews.clear(id!, input.expectedRevision, assertRequestAccess));
+              inbox.touch(id!);
               return;
             }
             throw new HostError(

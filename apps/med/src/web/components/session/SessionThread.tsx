@@ -1,5 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { memo, useCallback, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import type { AgentMessage } from "../../../shared/agent-inbox";
 import type { PlanEntry } from "../../../shared/agent-session";
 import type { SessionItem, SessionSnapshot } from "../../data/session-store";
 import { tokens } from "../../theme.stylex";
@@ -113,6 +114,7 @@ const Item = memo(function Item({
               ) : null,
             )}
           </div>
+          {item.sent && <Delivery message={item.sent} />}
         </div>
       );
     case "agent":
@@ -138,6 +140,36 @@ const Item = memo(function Item({
       return <Compaction summary={item.summary} failed={item.failed} />;
   }
 });
+
+const AGENT_NAMES = { claude: "Claude", codex: "Codex" } as const;
+
+/** Where a message sent from Med is: waiting for the agent, taken, or queued. */
+function Delivery({ message }: { message: AgentMessage }) {
+  const agent = AGENT_NAMES[message.agent];
+  const comments = message.noteIds.length;
+  const extra = message.attachmentCount;
+  const parts = [
+    "Sent from Med",
+    ...(comments && message.text ? [`${comments} ${comments === 1 ? "comment" : "comments"}`] : []),
+    ...(extra ? [`${extra} ${extra === 1 ? "attachment" : "attachments"}`] : []),
+    message.delivery === "pending"
+      ? `Waiting for ${agent} to take it`
+      : message.delivery === "delivered"
+        ? `${agent} took it`
+        : message.delivery === "queued"
+          ? `Queued for ${agent}`
+          : `Not sent: ${message.error ?? "an error occurred"}`,
+  ];
+  return (
+    <span
+      role={message.delivery === "failed" ? "alert" : undefined}
+      {...stylex.props(styles.delivery, message.delivery === "failed" && styles.deliveryFailed)}
+    >
+      {message.delivery === "pending" && <span {...stylex.props(styles.pendingDot)} />}
+      {parts.join(" · ")}
+    </span>
+  );
+}
 
 function Thought({ item }: { item: Extract<SessionItem, { kind: "thought" }> }) {
   const [open, setOpen] = useState(false);
@@ -473,6 +505,23 @@ const styles = stylex.create({
   },
   image: { display: "block", maxWidth: "100%", borderRadius: `calc(6px * ${tokens.round})` },
   queued: { color: tokens.faint, fontSize: 11 },
+  delivery: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    maxWidth: "86%",
+    color: tokens.faint,
+    fontSize: 11,
+    textAlign: "right",
+  },
+  deliveryFailed: { color: tokens.red },
+  pendingDot: {
+    width: 6,
+    height: 6,
+    flexShrink: 0,
+    borderRadius: "50%",
+    backgroundColor: tokens.accent,
+  },
   verb: { color: tokens.text, fontWeight: 500 },
   thought: { color: tokens.faint, cursor: { default: "pointer", ":disabled": "default" } },
   thoughtText: {

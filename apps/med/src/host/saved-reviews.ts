@@ -980,8 +980,30 @@ export class SavedReviewStore {
     }, beforeCommit);
   }
 
+  /** Top-level comments across the review's targets, for the agent's drafts. */
+  comments(id: string): Promise<(Note & { replies: number })[]> {
+    return this.serial(async () => {
+      const record = await this.read(id);
+      return record.captures.flatMap((target) =>
+        target.notes.notes
+          .filter((note) => !note.parentId)
+          .map((note) => {
+            const replies = target.notes.notes.filter((item) => item.parentId === note.id);
+            // A reply changes the thread, so the newest change counts.
+            const updatedAt = [note, ...replies]
+              .map((item) => item.updatedAt)
+              .sort()
+              .at(-1)!;
+            return { ...note, updatedAt, replies: replies.length };
+          }),
+      );
+    });
+  }
+
+  /** The comments as text for an agent; `include` limits it to those threads. */
   feedback(
     id: string,
+    include?: ReadonlySet<string>,
   ): Promise<{ text: string; count: number; repositoryCount: number; revision: number }> {
     return this.serial(async () => {
       const record = await this.read(id);
@@ -1013,7 +1035,10 @@ export class SavedReviewStore {
       const repositories = new Set<string>();
       let index = 0;
       for (const target of record.captures) {
-        if (!target.notes.notes.length) continue;
+        const threads = target.notes.notes.filter(
+          (note) => !note.parentId && (!include || include.has(note.id)),
+        );
+        if (!threads.length) continue;
         const info = record.saved.targets.find((item) => item.id === target.targetId)!;
         repositories.add(info.repositoryId);
         let parsed: FileDiffMetadata[] = [];
@@ -1079,7 +1104,7 @@ export class SavedReviewStore {
           for (const reply of target.notes.notes.filter((item) => item.parentId === note.id))
             append(reply, number);
         };
-        for (const note of target.notes.notes.filter((item) => !item.parentId)) append(note);
+        for (const note of threads) append(note);
       }
       if (!index) appendText("No comments.");
       return {

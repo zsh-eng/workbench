@@ -8,6 +8,7 @@ import type {
   ToolCallStatus,
   ToolKind,
 } from "../../shared/agent-session";
+import type { AgentMessage } from "../../shared/agent-inbox";
 
 export interface ToolCallState {
   toolCallId: string;
@@ -25,7 +26,15 @@ export interface ToolCallState {
 
 /** One row of a thread. Items never change in place; an update replaces the item. */
 export type SessionItem =
-  | { kind: "user"; id: string; at: number; content: ContentBlock[]; queued?: boolean }
+  | {
+      kind: "user";
+      id: string;
+      at: number;
+      content: ContentBlock[];
+      queued?: boolean;
+      /** A message that the user sent from Med, and how far it got. */
+      sent?: AgentMessage;
+    }
   | { kind: "agent"; id: string; at: number; text: string }
   | { kind: "thought"; id: string; at: number; text: string; durationMs?: number }
   | {

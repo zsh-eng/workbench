@@ -63,6 +63,8 @@ import { createApi } from "./data/api";
 import { createCommitApi, type CommitApi } from "./data/commit";
 import {
   PullRequestThreadCard,
+  AgentReplyContext,
+  type AgentReplyTarget,
   usePullRequestComments,
   type ThreadPlacement,
 } from "./components/PullRequestComments";
@@ -92,6 +94,8 @@ import type { PathActions } from "./components/PathMenu";
 import { diffSurfaceStyle, EXPANSION_LINES } from "./components/diff-surface";
 import { highlightRules } from "./code-colors";
 import { createDiffFindHighlights } from "./data/diff-find-highlights";
+import { useAgentInbox } from "./data/agent-inbox";
+import type { ComposerAttachment } from "./components/session/SessionComposer";
 
 // The brief loads its Markdown worker and excerpt renderer only when shown.
 const BriefView = lazy(() => import("./components/BriefView"));
@@ -668,6 +672,30 @@ export function App({
   const fileInfoById = useMemo(() => new Map(files.map((file) => [file.id, file.info])), [files]);
   const notes = state.notes?.notes ?? emptyNotes;
   const agentSessions = state.savedReview?.sessions ?? NO_SESSIONS;
+  const agentInbox = useAgentInbox(
+    agentSessions.length && state.savedReview ? state.savedReview.id : null,
+    sessionFetch,
+  );
+  const [agentAttachments, setAgentAttachments] = useState<ComposerAttachment[]>([]);
+  const replyAgent = agentSessions.at(-1)?.agent;
+  const agentReply = useMemo<AgentReplyTarget | null>(
+    () =>
+      replyAgent
+        ? {
+            agent: replyAgent === "codex" ? "Codex" : "Claude",
+            add: (attachment) => {
+              setAgentAttachments((list) => [
+                ...list.filter(
+                  (entry) => entry.label !== attachment.label || entry.text !== attachment.text,
+                ),
+                { id: crypto.randomUUID(), ...attachment },
+              ]);
+              setSessionVisible(true);
+            },
+          }
+        : null,
+    [replyAgent],
+  );
   const savedTarget = state.savedReview?.targets.find(
     (target) => target.id === state.savedTargetId,
   );
@@ -2737,52 +2765,81 @@ export function App({
     );
 
   return (
-    <div
-      {...stylex.props(styles.app)}
-      data-theme={activeTheme.id}
-      data-sidebar-visible={sidebarVisible}
-      data-selected-branch={state.activeBranch ?? ""}
-      data-selected-repository={state.activeRepositoryId ?? ""}
-      data-selected-commit={loadedCommit}
-      data-review-id={state.review?.id ?? ""}
-      data-review-status={state.status}
-      data-file-count={state.files.length}
-      data-active-file={activeFile?.path ?? ""}
-    >
-      {zen ? (
-        <ZenHint loading={state.status === "loading"} />
-      ) : (
-        !workspace && <BranchStrip model={branches} />
-      )}
-      {branchPicker}
-      <SaveReviewDialog
-        brief={pendingBrief}
-        files={state.files}
-        root={state.review?.repo}
-        comparisonLabel={state.review?.label ?? "These changes"}
-        onClose={() => setPendingBrief(null)}
-        onSave={async (title) => {
-          const id = await controller.saveReview({ title, brief: pendingBrief ?? undefined });
-          setPendingBrief(null);
-          onOpenReview(id);
-        }}
-      />
-      <ThemePicker open={themePickerOpen} onOpenChange={setThemePickerOpen} />
-      {definitions && (
-        <SymbolPicker
-          open
-          mode="project"
-          definitionResult={definitions}
-          source={definitions.source}
-          sourceLabel={sourceLabel}
-          api={browseApi}
-          onOpenChange={(open) => {
-            if (!open) setDefinitions(null);
+    <AgentReplyContext.Provider value={agentReply}>
+      <div
+        {...stylex.props(styles.app)}
+        data-theme={activeTheme.id}
+        data-sidebar-visible={sidebarVisible}
+        data-selected-branch={state.activeBranch ?? ""}
+        data-selected-repository={state.activeRepositoryId ?? ""}
+        data-selected-commit={loadedCommit}
+        data-review-id={state.review?.id ?? ""}
+        data-review-status={state.status}
+        data-file-count={state.files.length}
+        data-active-file={activeFile?.path ?? ""}
+      >
+        {zen ? (
+          <ZenHint loading={state.status === "loading"} />
+        ) : (
+          !workspace && <BranchStrip model={branches} />
+        )}
+        {branchPicker}
+        <SaveReviewDialog
+          brief={pendingBrief}
+          files={state.files}
+          root={state.review?.repo}
+          comparisonLabel={state.review?.label ?? "These changes"}
+          onClose={() => setPendingBrief(null)}
+          onSave={async (title) => {
+            const id = await controller.saveReview({ title, brief: pendingBrief ?? undefined });
+            setPendingBrief(null);
+            onOpenReview(id);
           }}
+        />
+        <ThemePicker open={themePickerOpen} onOpenChange={setThemePickerOpen} />
+        {definitions && (
+          <SymbolPicker
+            open
+            mode="project"
+            definitionResult={definitions}
+            source={definitions.source}
+            sourceLabel={sourceLabel}
+            api={browseApi}
+            onOpenChange={(open) => {
+              if (!open) setDefinitions(null);
+            }}
+            onOpen={(path, line, source, column) =>
+              fileWorkspace.open(
+                path,
+                true,
+                line,
+                source,
+                source.kind === "commit" ? `Commit ${source.oid.slice(0, 8)}` : sourceLabel,
+                column,
+              )
+            }
+          />
+        )}
+        <SymbolPicker
+          sidebarWidth={leftVisible ? sidebarWidth : 316}
+          beginFilePreview={beginFilePreview}
+          open={symbolPickerOpen}
+          onOpenChange={setSymbolPickerOpen}
+          mode={symbolMode}
+          onModeChange={setSymbolMode}
+          source={symbolMode === "file" ? (activeFile?.source ?? null) : browseSource}
+          path={activeFile?.path}
+          identity={fileState.file?.kind === "text" ? fileState.file.identity : undefined}
+          currentFile={fileState.file}
+          sourceRevision={state.sourceRevision}
+          sourceLabel={
+            symbolMode === "file" ? (activeFile?.sourceLabel ?? sourceLabel) : sourceLabel
+          }
+          api={browseApi}
           onOpen={(path, line, source, column) =>
             fileWorkspace.open(
               path,
-              true,
+              false,
               line,
               source,
               source.kind === "commit" ? `Commit ${source.oid.slice(0, 8)}` : sourceLabel,
@@ -2790,771 +2847,775 @@ export function App({
             )
           }
         />
-      )}
-      <SymbolPicker
-        sidebarWidth={leftVisible ? sidebarWidth : 316}
-        beginFilePreview={beginFilePreview}
-        open={symbolPickerOpen}
-        onOpenChange={setSymbolPickerOpen}
-        mode={symbolMode}
-        onModeChange={setSymbolMode}
-        source={symbolMode === "file" ? (activeFile?.source ?? null) : browseSource}
-        path={activeFile?.path}
-        identity={fileState.file?.kind === "text" ? fileState.file.identity : undefined}
-        currentFile={fileState.file}
-        sourceRevision={state.sourceRevision}
-        sourceLabel={symbolMode === "file" ? (activeFile?.sourceLabel ?? sourceLabel) : sourceLabel}
-        api={browseApi}
-        onOpen={(path, line, source, column) =>
-          fileWorkspace.open(
-            path,
-            false,
-            line,
-            source,
-            source.kind === "commit" ? `Commit ${source.oid.slice(0, 8)}` : sourceLabel,
-            column,
-          )
-        }
-      />
-      <FilePicker
-        repositories={state.repositories}
-        open={filePickerOpen && !!browseSource}
-        onOpenChange={setFilePickerOpen}
-        entries={repositoryFiles.entries}
-        loading={repositoryFiles.loading}
-        error={repositoryFiles.error}
-        sourceLabel={sourceLabel}
-        source={browseSource}
-        api={browseApi}
-        sourceRevision={state.sourceRevision}
-        openPaths={fileState.tabs
-          .filter((tab) => browseSource && sourceKey(tab.source) === sourceKey(browseSource))
-          .map((tab) => tab.path)}
-        recentPaths={fileState.recentPaths}
-        initialMode={pickerMode}
-        initialQuery={pickerQuery}
-        resume={pickerResume}
-        onOpen={(path, line, source, keep) =>
-          fileWorkspace.open(
-            path,
-            keep,
-            line,
-            source,
-            source?.kind === "commit"
-              ? `Commit ${source.oid.slice(0, 8)}`
-              : (source?.repo ?? sourceLabel),
-          )
-        }
-      />
-      <div
-        {...stylex.props(
-          styles.workspace,
-          (zen || workspace || branches.visible.length < 2) && styles.workspaceTop,
-          zen && styles.zenWorkspace,
-        )}
-        id={`${idPrefix}review-workspace`}
-        role="tabpanel"
-        aria-label={`${state.activeBranch ?? "Workspace"} review`}
-      >
-        {sidebarMounted && (
-          <aside
-            id={`${idPrefix}review-sidebar`}
-            className={stylex.props(styles.sidebar, !leftVisible && styles.hiddenSurface).className}
-            style={{ width: sidebarWidth }}
-            hidden={!leftVisible}
+        <FilePicker
+          repositories={state.repositories}
+          open={filePickerOpen && !!browseSource}
+          onOpenChange={setFilePickerOpen}
+          entries={repositoryFiles.entries}
+          loading={repositoryFiles.loading}
+          error={repositoryFiles.error}
+          sourceLabel={sourceLabel}
+          source={browseSource}
+          api={browseApi}
+          sourceRevision={state.sourceRevision}
+          openPaths={fileState.tabs
+            .filter((tab) => browseSource && sourceKey(tab.source) === sourceKey(browseSource))
+            .map((tab) => tab.path)}
+          recentPaths={fileState.recentPaths}
+          initialMode={pickerMode}
+          initialQuery={pickerQuery}
+          resume={pickerResume}
+          onOpen={(path, line, source, keep) =>
+            fileWorkspace.open(
+              path,
+              keep,
+              line,
+              source,
+              source?.kind === "commit"
+                ? `Commit ${source.oid.slice(0, 8)}`
+                : (source?.repo ?? sourceLabel),
+            )
+          }
+        />
+        <div
+          {...stylex.props(
+            styles.workspace,
+            (zen || workspace || branches.visible.length < 2) && styles.workspaceTop,
+            zen && styles.zenWorkspace,
+          )}
+          id={`${idPrefix}review-workspace`}
+          role="tabpanel"
+          aria-label={`${state.activeBranch ?? "Workspace"} review`}
+        >
+          {sidebarMounted && (
+            <aside
+              id={`${idPrefix}review-sidebar`}
+              className={
+                stylex.props(styles.sidebar, !leftVisible && styles.hiddenSurface).className
+              }
+              style={{ width: sidebarWidth }}
+              hidden={!leftVisible}
+            >
+              {/* The tab row holds the identity while the sidebar is hidden. */}
+              <div {...stylex.props(styles.sidebarHeader)}>{leftVisible && identity}</div>
+              {workspace && (
+                <WorkspaceList onNew={gitAvailable ? () => openBranchPicker(true) : undefined} />
+              )}
+              {gitAvailable && (
+                <HistoryPanel
+                  key={JSON.stringify([state.session?.repository.path, state.activeBranch])}
+                  commits={state.history}
+                  selected={
+                    state.comparison.kind === "commit" ? state.comparison.commit : undefined
+                  }
+                  selectedRange={
+                    state.comparison.kind === "range" && state.comparison.includeBase
+                      ? state.comparison
+                      : undefined
+                  }
+                  working={state.comparison.kind === "working"}
+                  workingAvailable={workingAvailable}
+                  collapsed={historyCollapsed}
+                  onCollapsedChange={setHistoryCollapsed}
+                  loading={state.historyLoading}
+                  hasMore={state.historyHasMore}
+                  error={state.historyError}
+                  loadDetails={controller.loadCommitDetails}
+                  onSelect={selectCommit}
+                  onSelectRange={selectCommitRange}
+                  onLoadMore={loadMoreHistory}
+                  onWorking={selectWorking}
+                />
+              )}
+              <FileSidebar
+                repo={state.session?.repository.path ?? null}
+                pathActions={pathActions}
+                files={files}
+                total={state.files.length}
+                selected={state.selectedFileId}
+                filter={state.filter}
+                onFilter={controller.setFilter}
+                onSelect={reveal}
+                onPrefetch={prefetchFile}
+                onOpen={browseSource ? openChangedFile : undefined}
+                filterRef={filterRef}
+              />
+            </aside>
+          )}
+          {leftVisible && (
+            <div
+              role="separator"
+              aria-label="Resize sidebar"
+              aria-orientation="vertical"
+              aria-valuenow={sidebarWidth}
+              aria-valuemin={220}
+              aria-valuemax={520}
+              tabIndex={0}
+              {...stylex.props(styles.divider, stylex.defaultMarker())}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+                  event.preventDefault();
+                  setSidebarWidth((width) =>
+                    Math.max(220, Math.min(520, width + (event.key === "ArrowLeft" ? -16 : 16))),
+                  );
+                }
+              }}
+              onPointerDown={(event) => {
+                event.currentTarget.setPointerCapture(event.pointerId);
+              }}
+              onPointerMove={(event) => {
+                if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+                const left =
+                  event.currentTarget.previousElementSibling?.getBoundingClientRect().left ?? 0;
+                setSidebarWidth(Math.max(220, Math.min(520, event.clientX - left)));
+              }}
+            >
+              <span {...stylex.props(styles.dividerLine)} />
+            </div>
+          )}
+          <main
+            {...stylex.props(styles.main, !leftVisible && styles.mainFlush)}
+            aria-label="Continuous review"
           >
-            {/* The tab row holds the identity while the sidebar is hidden. */}
-            <div {...stylex.props(styles.sidebarHeader)}>{leftVisible && identity}</div>
-            {workspace && (
-              <WorkspaceList onNew={gitAvailable ? () => openBranchPicker(true) : undefined} />
-            )}
-            {gitAvailable && (
-              <HistoryPanel
-                key={JSON.stringify([state.session?.repository.path, state.activeBranch])}
-                commits={state.history}
-                selected={state.comparison.kind === "commit" ? state.comparison.commit : undefined}
-                selectedRange={
-                  state.comparison.kind === "range" && state.comparison.includeBase
-                    ? state.comparison
+            {/* The review's own row heads the card, level with the sidebar's
+            identity, so the sidebar keeps its place between workspaces. */}
+            {state.savedReview && (
+              <SavedReviewHeader
+                controller={controller}
+                state={state}
+                pullRequest={pullRequest}
+                threadPlacement={pullRequestThreads.placement}
+                sendTo={
+                  replyAgent
+                    ? {
+                        agent: replyAgent,
+                        drafts: agentInbox.state?.drafts.length ?? 0,
+                        open: () => setSessionVisible(true),
+                      }
                     : undefined
                 }
-                working={state.comparison.kind === "working"}
-                workingAvailable={workingAvailable}
-                collapsed={historyCollapsed}
-                onCollapsedChange={setHistoryCollapsed}
-                loading={state.historyLoading}
-                hasMore={state.historyHasMore}
-                error={state.historyError}
-                loadDetails={controller.loadCommitDetails}
-                onSelect={selectCommit}
-                onSelectRange={selectCommitRange}
-                onLoadMore={loadMoreHistory}
-                onWorking={selectWorking}
+                browsing={isFileTab(fileState.active)}
+                browsingSourceLabel={activeFile?.sourceLabel ?? sourceLabel}
+                onReturn={() => {
+                  pendingSavedChanges.current = state.savedTargetId;
+                  fileWorkspace.select("changes");
+                  void controller.returnToSavedReview();
+                }}
+                onTarget={(id) => {
+                  pendingSavedChanges.current = id;
+                  pendingIteration.current = null;
+                  fileWorkspace.select("changes");
+                  void controller.selectSavedTarget(id);
+                }}
               />
             )}
-            <FileSidebar
-              repo={state.session?.repository.path ?? null}
-              pathActions={pathActions}
-              files={files}
-              total={state.files.length}
-              selected={state.selectedFileId}
-              filter={state.filter}
-              onFilter={controller.setFilter}
-              onSelect={reveal}
-              onPrefetch={prefetchFile}
-              onOpen={browseSource ? openChangedFile : undefined}
-              filterRef={filterRef}
-            />
-          </aside>
-        )}
-        {leftVisible && (
-          <div
-            role="separator"
-            aria-label="Resize sidebar"
-            aria-orientation="vertical"
-            aria-valuenow={sidebarWidth}
-            aria-valuemin={220}
-            aria-valuemax={520}
-            tabIndex={0}
-            {...stylex.props(styles.divider, stylex.defaultMarker())}
-            onKeyDown={(event) => {
-              if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-                event.preventDefault();
-                setSidebarWidth((width) =>
-                  Math.max(220, Math.min(520, width + (event.key === "ArrowLeft" ? -16 : 16))),
-                );
-              }
-            }}
-            onPointerDown={(event) => {
-              event.currentTarget.setPointerCapture(event.pointerId);
-            }}
-            onPointerMove={(event) => {
-              if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
-              const left =
-                event.currentTarget.previousElementSibling?.getBoundingClientRect().left ?? 0;
-              setSidebarWidth(Math.max(220, Math.min(520, event.clientX - left)));
-            }}
-          >
-            <span {...stylex.props(styles.dividerLine)} />
-          </div>
-        )}
-        <main
-          {...stylex.props(styles.main, !leftVisible && styles.mainFlush)}
-          aria-label="Continuous review"
-        >
-          {/* The review's own row heads the card, level with the sidebar's
-            identity, so the sidebar keeps its place between workspaces. */}
-          {state.savedReview && (
-            <SavedReviewHeader
-              controller={controller}
-              state={state}
-              pullRequest={pullRequest}
-              threadPlacement={pullRequestThreads.placement}
-              browsing={isFileTab(fileState.active)}
-              browsingSourceLabel={activeFile?.sourceLabel ?? sourceLabel}
-              onReturn={() => {
-                pendingSavedChanges.current = state.savedTargetId;
-                fileWorkspace.select("changes");
-                void controller.returnToSavedReview();
-              }}
-              onTarget={(id) => {
-                pendingSavedChanges.current = id;
-                pendingIteration.current = null;
-                fileWorkspace.select("changes");
-                void controller.selectSavedTarget(id);
-              }}
-            />
-          )}
-          {fileLinkError && (
-            <div role="alert" {...stylex.props(styles.notice, styles.error)}>
-              {fileLinkError}
-            </div>
-          )}
-          {zen ? <ZenExit onExit={toggleZen} /> : mainHeader}
-          <div
-            id={`${idPrefix}file-view-panel`}
-            role="tabpanel"
-            aria-label={
-              activeFile
-                ? `File ${activeFile.path}`
-                : fileState.active === "brief"
-                  ? "Brief"
-                  : fileState.active === "commit"
-                    ? "Commit"
-                    : "Changes"
-            }
-            {...stylex.props(styles.reviewSurface)}
-          >
+            {fileLinkError && (
+              <div role="alert" {...stylex.props(styles.notice, styles.error)}>
+                {fileLinkError}
+              </div>
+            )}
+            {zen ? <ZenExit onExit={toggleZen} /> : mainHeader}
             <div
-              {...stylex.props(
-                styles.reviewSurface,
-                fileState.active !== "changes" && styles.hiddenSurface,
-              )}
-              aria-hidden={fileState.active !== "changes"}
+              id={`${idPrefix}file-view-panel`}
+              role="tabpanel"
+              aria-label={
+                activeFile
+                  ? `File ${activeFile.path}`
+                  : fileState.active === "brief"
+                    ? "Brief"
+                    : fileState.active === "commit"
+                      ? "Commit"
+                      : "Changes"
+              }
+              {...stylex.props(styles.reviewSurface)}
             >
-              <div {...stylex.props(styles.toolbar, zen && styles.hiddenSurface)} hidden={zen}>
-                <ChoiceSelect
-                  label="Comparison"
-                  value={comparisonValue}
-                  choices={comparisonChoices}
-                  onChange={(value) => {
-                    if (["working", "staged", "unstaged"].includes(value))
-                      void controller.selectComparison({ kind: value } as Comparison);
-                  }}
-                />
-                {actionRepo &&
-                  state.status === "ready" &&
-                  state.session?.repository.git !== false && (
-                    <ComparisonActions
-                      key={`${actionRepo}:${actionHead}:${actionBranch}`}
-                      repo={actionRepo}
-                      head={actionHead}
-                      sourceBranch={actionBranch}
-                      comparison={state.comparison}
-                      onCompare={(base, head) => {
-                        fileWorkspace.select("changes");
-                        void controller.selectComparison({
-                          kind: "range",
-                          base,
-                          head,
-                          mergeBase: true,
-                        });
-                      }}
-                    />
-                  )}
-                {state.review && (
-                  <span {...stylex.props(styles.toolbarTotals)}>
-                    <ChangeTotals
-                      files={state.review.files}
-                      range={`${shortRevision(state.review.base)} → ${shortRevision(state.review.head)}`}
-                    />
-                  </span>
+              <div
+                {...stylex.props(
+                  styles.reviewSurface,
+                  fileState.active !== "changes" && styles.hiddenSurface,
                 )}
-                <span {...stylex.props(ui.grow)} />
-                <SegmentedControl<"split" | "unified">
-                  label="Diff layout"
-                  value={mode}
-                  onChange={setMode}
-                  options={[
-                    { value: "split", label: "Split", icon: "split" },
-                    { value: "unified", label: "Unified", icon: "unified" },
-                  ]}
-                />
-                <ActionTooltip label={showNotes ? "Hide comments" : "Show comments"}>
-                  <button
-                    {...stylex.props(
-                      ui.button,
-                      ui.pressable,
-                      styles.notesButton,
-                      showNotes && ui.active,
+                aria-hidden={fileState.active !== "changes"}
+              >
+                <div {...stylex.props(styles.toolbar, zen && styles.hiddenSurface)} hidden={zen}>
+                  <ChoiceSelect
+                    label="Comparison"
+                    value={comparisonValue}
+                    choices={comparisonChoices}
+                    onChange={(value) => {
+                      if (["working", "staged", "unstaged"].includes(value))
+                        void controller.selectComparison({ kind: value } as Comparison);
+                    }}
+                  />
+                  {actionRepo &&
+                    state.status === "ready" &&
+                    state.session?.repository.git !== false && (
+                      <ComparisonActions
+                        key={`${actionRepo}:${actionHead}:${actionBranch}`}
+                        repo={actionRepo}
+                        head={actionHead}
+                        sourceBranch={actionBranch}
+                        comparison={state.comparison}
+                        onCompare={(base, head) => {
+                          fileWorkspace.select("changes");
+                          void controller.selectComparison({
+                            kind: "range",
+                            base,
+                            head,
+                            mergeBase: true,
+                          });
+                        }}
+                      />
                     )}
-                    aria-label="Toggle notes"
-                    aria-pressed={showNotes}
-                    onClick={() => setShowNotes(!showNotes)}
-                  >
-                    <Icon name="note" size={15} />
-                    {notes.length > 0 && (
-                      <span {...stylex.props(styles.notesCount)}>{notes.length}</span>
-                    )}
-                  </button>
-                </ActionTooltip>
-                <ActionMenu
-                  sections={[
-                    selectedFile && browseSource
-                      ? [
-                          {
-                            label:
-                              browseSource.kind === "worktree"
-                                ? "Open working file"
-                                : "Open snapshot file",
-                            onClick: () => openWorkingFile(selectedFile.path),
-                          },
-                          { label: "Show files sidebar", onClick: showFiles },
-                        ]
-                      : [],
-                    [
-                      { label: "Find in diffs", shortcut: "⌘ F", onClick: openFind },
-                      ...(gitAvailable
+                  {state.review && (
+                    <span {...stylex.props(styles.toolbarTotals)}>
+                      <ChangeTotals
+                        files={state.review.files}
+                        range={`${shortRevision(state.review.base)} → ${shortRevision(state.review.head)}`}
+                      />
+                    </span>
+                  )}
+                  <span {...stylex.props(ui.grow)} />
+                  <SegmentedControl<"split" | "unified">
+                    label="Diff layout"
+                    value={mode}
+                    onChange={setMode}
+                    options={[
+                      { value: "split", label: "Split", icon: "split" },
+                      { value: "unified", label: "Unified", icon: "unified" },
+                    ]}
+                  />
+                  <ActionTooltip label={showNotes ? "Hide comments" : "Show comments"}>
+                    <button
+                      {...stylex.props(
+                        ui.button,
+                        ui.pressable,
+                        styles.notesButton,
+                        showNotes && ui.active,
+                      )}
+                      aria-label="Toggle notes"
+                      aria-pressed={showNotes}
+                      onClick={() => setShowNotes(!showNotes)}
+                    >
+                      <Icon name="note" size={15} />
+                      {notes.length > 0 && (
+                        <span {...stylex.props(styles.notesCount)}>{notes.length}</span>
+                      )}
+                    </button>
+                  </ActionTooltip>
+                  <ActionMenu
+                    sections={[
+                      selectedFile && browseSource
                         ? [
                             {
-                              label: "Compare revisions…",
-                              onClick: () => setRangeOpen(!rangeOpen),
+                              label:
+                                browseSource.kind === "worktree"
+                                  ? "Open working file"
+                                  : "Open snapshot file",
+                              onClick: () => openWorkingFile(selectedFile.path),
                             },
+                            { label: "Show files sidebar", onClick: showFiles },
                           ]
-                        : []),
-                    ],
-                    [
-                      {
-                        label: "Show comments",
-                        checked: showNotes,
-                        onClick: () => setShowNotes(!showNotes),
-                      },
-                      { label: "Wrap long lines", checked: wrap, onClick: () => setWrap(!wrap) },
-                    ],
-                    [
-                      { label: "Zen mode", shortcut: "⌥ Z", onClick: toggleZen },
-                      {
-                        label: "Refresh review",
-                        disabled: state.status === "loading",
-                        onClick: () => void controller.refresh(),
-                      },
-                    ],
-                  ]}
-                />
-                {state.status === "loading" && (
-                  <span role="presentation" {...stylex.props(styles.loadingTrack)}>
-                    <span {...stylex.props(styles.loadingBar)} />
-                  </span>
-                )}
-              </div>
-              {rangeOpen && (
-                <form
-                  {...stylex.props(styles.rangeBar)}
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    if (baseRef && headRef) {
-                      void controller.selectComparison({
-                        kind: "range",
-                        base: baseRef,
-                        head: headRef,
-                      });
-                      setRangeOpen(false);
-                    }
-                  }}
-                >
-                  <Icon name="compare" size={14} />
-                  <span>Compare</span>
-                  <input
-                    aria-label="Base revision"
-                    value={baseRef}
-                    onChange={(event) => setBaseRef(event.target.value)}
-                    {...stylex.props(ui.input, styles.revisionInput)}
+                        : [],
+                      [
+                        { label: "Find in diffs", shortcut: "⌘ F", onClick: openFind },
+                        ...(gitAvailable
+                          ? [
+                              {
+                                label: "Compare revisions…",
+                                onClick: () => setRangeOpen(!rangeOpen),
+                              },
+                            ]
+                          : []),
+                      ],
+                      [
+                        {
+                          label: "Show comments",
+                          checked: showNotes,
+                          onClick: () => setShowNotes(!showNotes),
+                        },
+                        { label: "Wrap long lines", checked: wrap, onClick: () => setWrap(!wrap) },
+                      ],
+                      [
+                        { label: "Zen mode", shortcut: "⌥ Z", onClick: toggleZen },
+                        {
+                          label: "Refresh review",
+                          disabled: state.status === "loading",
+                          onClick: () => void controller.refresh(),
+                        },
+                      ],
+                    ]}
                   />
-                  <Icon name="arrowUp" size={12} style={{ transform: "rotate(90deg)" }} />
-                  <input
-                    aria-label="Head revision"
-                    value={headRef}
-                    onChange={(event) => setHeadRef(event.target.value)}
-                    {...stylex.props(ui.input, styles.revisionInput)}
-                  />
-                  <button type="submit" {...stylex.props(ui.button, ui.primary, ui.pressable)}>
-                    Review
-                  </button>
-                  <button
-                    type="button"
-                    {...stylex.props(ui.button, ui.iconButton)}
-                    aria-label="Close revision comparison"
-                    onClick={() => setRangeOpen(false)}
+                  {state.status === "loading" && (
+                    <span role="presentation" {...stylex.props(styles.loadingTrack)}>
+                      <span {...stylex.props(styles.loadingBar)} />
+                    </span>
+                  )}
+                </div>
+                {rangeOpen && (
+                  <form
+                    {...stylex.props(styles.rangeBar)}
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      if (baseRef && headRef) {
+                        void controller.selectComparison({
+                          kind: "range",
+                          base: baseRef,
+                          head: headRef,
+                        });
+                        setRangeOpen(false);
+                      }
+                    }}
                   >
-                    <Icon name="close" size={13} />
-                  </button>
-                </form>
-              )}
-              {state.error && (
-                <div role="alert" {...stylex.props(styles.notice, styles.error)}>
-                  <span>{state.error}</span>
-                  <button {...stylex.props(ui.button)} onClick={() => void controller.refresh()}>
-                    Retry
-                  </button>
-                </div>
-              )}
-              {state.notesError && (
-                <div role="alert" {...stylex.props(styles.notice, styles.error)}>
-                  Notes: {state.notesError}
-                </div>
-              )}
-              {orphaned.length > 0 && showNotes && (
-                <details {...stylex.props(styles.orphanPanel)}>
-                  <summary>
-                    {orphaned.length} preserved {orphaned.length === 1 ? "note" : "notes"} outside
-                    this diff
-                  </summary>
-                  {orphaned.map((note) => (
-                    <NoteCard
-                      key={note.id}
-                      note={note}
-                      replies={notes.filter((reply) => reply.parentId === note.id)}
-                      onMutate={(mutation) => controller.mutateNote(mutation)}
-                    />
-                  ))}
-                </details>
-              )}
-              {contextError && (
-                <div role="alert" {...stylex.props(styles.notice, styles.error)}>
-                  <span>{contextError}</span>
-                  <button {...stylex.props(ui.button)} onClick={() => setContextError(null)}>
-                    Dismiss
-                  </button>
-                </div>
-              )}
-              {state.review?.warnings.map((warning) => (
-                <div key={warning} {...stylex.props(styles.notice)}>
-                  {warning}
-                </div>
-              ))}
-              <div {...stylex.props(styles.stream)}>
-                {findOpen && (
-                  <div {...stylex.props(styles.findWidget)}>
-                    <Icon name="search" size={14} />
+                    <Icon name="compare" size={14} />
+                    <span>Compare</span>
                     <input
-                      ref={findRef}
-                      value={find}
-                      onChange={(event) => {
-                        setFind(event.target.value);
-                        setFindIndex(0);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          jumpHit(event.shiftKey ? findIndex - 1 : findIndex + 1);
-                        }
-                        if (event.key === "Escape") {
-                          event.stopPropagation();
-                          setFindOpen(false);
-                        }
-                      }}
-                      aria-label="Find in diff contents"
-                      placeholder="Find in changed hunks"
-                      {...stylex.props(styles.findInput)}
+                      aria-label="Base revision"
+                      value={baseRef}
+                      onChange={(event) => setBaseRef(event.target.value)}
+                      {...stylex.props(ui.input, styles.revisionInput)}
                     />
-                    <span
-                      {...stylex.props(
-                        styles.findCount,
-                        !!find && !hits.length && styles.findEmpty,
+                    <Icon name="arrowUp" size={12} style={{ transform: "rotate(90deg)" }} />
+                    <input
+                      aria-label="Head revision"
+                      value={headRef}
+                      onChange={(event) => setHeadRef(event.target.value)}
+                      {...stylex.props(ui.input, styles.revisionInput)}
+                    />
+                    <button type="submit" {...stylex.props(ui.button, ui.primary, ui.pressable)}>
+                      Review
+                    </button>
+                    <button
+                      type="button"
+                      {...stylex.props(ui.button, ui.iconButton)}
+                      aria-label="Close revision comparison"
+                      onClick={() => setRangeOpen(false)}
+                    >
+                      <Icon name="close" size={13} />
+                    </button>
+                  </form>
+                )}
+                {state.error && (
+                  <div role="alert" {...stylex.props(styles.notice, styles.error)}>
+                    <span>{state.error}</span>
+                    <button {...stylex.props(ui.button)} onClick={() => void controller.refresh()}>
+                      Retry
+                    </button>
+                  </div>
+                )}
+                {state.notesError && (
+                  <div role="alert" {...stylex.props(styles.notice, styles.error)}>
+                    Notes: {state.notesError}
+                  </div>
+                )}
+                {orphaned.length > 0 && showNotes && (
+                  <details {...stylex.props(styles.orphanPanel)}>
+                    <summary>
+                      {orphaned.length} preserved {orphaned.length === 1 ? "note" : "notes"} outside
+                      this diff
+                    </summary>
+                    {orphaned.map((note) => (
+                      <NoteCard
+                        key={note.id}
+                        note={note}
+                        replies={notes.filter((reply) => reply.parentId === note.id)}
+                        onMutate={(mutation) => controller.mutateNote(mutation)}
+                      />
+                    ))}
+                  </details>
+                )}
+                {contextError && (
+                  <div role="alert" {...stylex.props(styles.notice, styles.error)}>
+                    <span>{contextError}</span>
+                    <button {...stylex.props(ui.button)} onClick={() => setContextError(null)}>
+                      Dismiss
+                    </button>
+                  </div>
+                )}
+                {state.review?.warnings.map((warning) => (
+                  <div key={warning} {...stylex.props(styles.notice)}>
+                    {warning}
+                  </div>
+                ))}
+                <div {...stylex.props(styles.stream)}>
+                  {findOpen && (
+                    <div {...stylex.props(styles.findWidget)}>
+                      <Icon name="search" size={14} />
+                      <input
+                        ref={findRef}
+                        value={find}
+                        onChange={(event) => {
+                          setFind(event.target.value);
+                          setFindIndex(0);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            jumpHit(event.shiftKey ? findIndex - 1 : findIndex + 1);
+                          }
+                          if (event.key === "Escape") {
+                            event.stopPropagation();
+                            setFindOpen(false);
+                          }
+                        }}
+                        aria-label="Find in diff contents"
+                        placeholder="Find in changed hunks"
+                        {...stylex.props(styles.findInput)}
+                      />
+                      <span
+                        {...stylex.props(
+                          styles.findCount,
+                          !!find && !hits.length && styles.findEmpty,
+                        )}
+                      >
+                        {find
+                          ? hits.length
+                            ? `${Math.min(findIndex + 1, hits.length)} / ${hits.length} hunks`
+                            : "No matches"
+                          : ""}
+                      </span>
+                      <button
+                        {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
+                        aria-label="Previous match"
+                        disabled={!hits.length}
+                        onClick={() => jumpHit(findIndex - 1)}
+                      >
+                        <Icon name="arrowUp" size={14} />
+                      </button>
+                      <button
+                        {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
+                        aria-label="Next match"
+                        disabled={!hits.length}
+                        onClick={() => jumpHit(findIndex + 1)}
+                      >
+                        <Icon name="arrowDown" size={14} />
+                      </button>
+                      <button
+                        {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
+                        aria-label="Close find"
+                        onClick={() => setFindOpen(false)}
+                      >
+                        <Icon name="close" size={14} />
+                      </button>
+                    </div>
+                  )}
+                  {selection && (
+                    <div
+                      data-line-selection-controls
+                      role="toolbar"
+                      aria-label="Line selection"
+                      {...stylex.props(styles.selectionbar)}
+                    >
+                      <span {...stylex.props(styles.selectionRange)}>
+                        L{selection.range.start}
+                        {selection.range.end !== selection.range.start
+                          ? `–${selection.range.end}`
+                          : ""}
+                      </span>
+                      <span {...stylex.props(styles.selectionLabel)}>selected</span>
+                      <button
+                        {...stylex.props(
+                          ui.button,
+                          ui.primary,
+                          ui.pressable,
+                          styles.selectionAction,
+                        )}
+                        aria-label="Add note"
+                        onClick={startNote}
+                      >
+                        <Icon name="note" size={14} />
+                        Add note
+                        <kbd {...stylex.props(styles.selectionKey)}>c</kbd>
+                      </button>
+                      <button
+                        {...stylex.props(ui.button, ui.iconButton, styles.selectionClose)}
+                        aria-label="Clear line selection"
+                        onClick={clearLineSelection}
+                      >
+                        <Icon name="close" size={14} />
+                      </button>
+                    </div>
+                  )}
+                  {items.length > 0 ? (
+                    <ReviewCodeView
+                      key={`${reviewScope}:${state.review?.id}`}
+                      ref={viewer}
+                      onScroll={onReviewScroll}
+                      items={items}
+                      selectedLines={selection}
+                      onSelectedLinesChange={setSelection}
+                      options={options}
+                      className={stylex.props(styles.codeView).className}
+                      style={diffSurfaceStyle}
+                      renderCustomHeader={renderCustomHeader}
+                      renderAnnotation={renderAnnotation}
+                      renderCodeViewFooter={renderCodeViewFooter}
+                    />
+                  ) : skipped.length && state.status !== "loading" && !state.error ? (
+                    <div style={{ overflow: "auto", height: "100%" }}>{renderMetadataRows()}</div>
+                  ) : state.status !== "loading" && !state.error ? (
+                    <div {...stylex.props(styles.emptyState)}>
+                      <span
+                        {...stylex.props(styles.emptyMark, !skipped.length && styles.emptyDone)}
+                      >
+                        <Icon name={skipped.length ? "file" : "check"} size={20} />
+                      </span>
+                      <h1 {...stylex.props(styles.emptyTitle)}>
+                        {state.filter
+                          ? "No matching diffs"
+                          : skipped.length
+                            ? "No text diff to display"
+                            : "All caught up"}
+                      </h1>
+                      {skipped.length ? (
+                        renderMetadataRows()
+                      ) : (
+                        <p {...stylex.props(styles.emptyDescription)}>
+                          {state.comparison.kind === "working"
+                            ? "Working tree clean."
+                            : "No changed text files."}
+                        </p>
                       )}
-                    >
-                      {find
-                        ? hits.length
-                          ? `${Math.min(findIndex + 1, hits.length)} / ${hits.length} hunks`
-                          : "No matches"
-                        : ""}
-                    </span>
-                    <button
-                      {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
-                      aria-label="Previous match"
-                      disabled={!hits.length}
-                      onClick={() => jumpHit(findIndex - 1)}
-                    >
-                      <Icon name="arrowUp" size={14} />
-                    </button>
-                    <button
-                      {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
-                      aria-label="Next match"
-                      disabled={!hits.length}
-                      onClick={() => jumpHit(findIndex + 1)}
-                    >
-                      <Icon name="arrowDown" size={14} />
-                    </button>
-                    <button
-                      {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
-                      aria-label="Close find"
-                      onClick={() => setFindOpen(false)}
-                    >
-                      <Icon name="close" size={14} />
-                    </button>
-                  </div>
-                )}
-                {selection && (
-                  <div
-                    data-line-selection-controls
-                    role="toolbar"
-                    aria-label="Line selection"
-                    {...stylex.props(styles.selectionbar)}
-                  >
-                    <span {...stylex.props(styles.selectionRange)}>
-                      L{selection.range.start}
-                      {selection.range.end !== selection.range.start
-                        ? `–${selection.range.end}`
-                        : ""}
-                    </span>
-                    <span {...stylex.props(styles.selectionLabel)}>selected</span>
-                    <button
-                      {...stylex.props(ui.button, ui.primary, ui.pressable, styles.selectionAction)}
-                      aria-label="Add note"
-                      onClick={startNote}
-                    >
-                      <Icon name="note" size={14} />
-                      Add note
-                      <kbd {...stylex.props(styles.selectionKey)}>c</kbd>
-                    </button>
-                    <button
-                      {...stylex.props(ui.button, ui.iconButton, styles.selectionClose)}
-                      aria-label="Clear line selection"
-                      onClick={clearLineSelection}
-                    >
-                      <Icon name="close" size={14} />
-                    </button>
-                  </div>
-                )}
-                {items.length > 0 ? (
-                  <ReviewCodeView
-                    key={`${reviewScope}:${state.review?.id}`}
-                    ref={viewer}
-                    onScroll={onReviewScroll}
-                    items={items}
-                    selectedLines={selection}
-                    onSelectedLinesChange={setSelection}
-                    options={options}
-                    className={stylex.props(styles.codeView).className}
-                    style={diffSurfaceStyle}
-                    renderCustomHeader={renderCustomHeader}
-                    renderAnnotation={renderAnnotation}
-                    renderCodeViewFooter={renderCodeViewFooter}
-                  />
-                ) : skipped.length && state.status !== "loading" && !state.error ? (
-                  <div style={{ overflow: "auto", height: "100%" }}>{renderMetadataRows()}</div>
-                ) : state.status !== "loading" && !state.error ? (
-                  <div {...stylex.props(styles.emptyState)}>
-                    <span {...stylex.props(styles.emptyMark, !skipped.length && styles.emptyDone)}>
-                      <Icon name={skipped.length ? "file" : "check"} size={20} />
-                    </span>
-                    <h1 {...stylex.props(styles.emptyTitle)}>
-                      {state.filter
-                        ? "No matching diffs"
-                        : skipped.length
-                          ? "No text diff to display"
-                          : "All caught up"}
-                    </h1>
-                    {skipped.length ? (
-                      renderMetadataRows()
-                    ) : (
-                      <p {...stylex.props(styles.emptyDescription)}>
-                        {state.comparison.kind === "working"
-                          ? "Working tree clean."
-                          : "No changed text files."}
-                      </p>
-                    )}
-                  </div>
-                ) : null}
+                    </div>
+                  ) : null}
+                </div>
               </div>
-            </div>
-            {savedBrief && briefMounted && state.savedReview && (
-              <div
-                {...stylex.props(
-                  styles.reviewSurface,
-                  fileState.active !== "brief" && styles.hiddenSurface,
-                )}
-                aria-hidden={fileState.active !== "brief"}
-              >
-                <Suspense fallback={null}>
-                  <BriefView
-                    key={state.savedReview.id}
-                    brief={savedBrief}
-                    prerender={iterations.flatMap((entry) =>
-                      entry.brief && entry.brief.text !== savedBrief.text ? [entry.brief.text] : [],
-                    )}
-                    iterations={iterations
-                      .filter((entry) => entry.brief)
-                      .map(({ number, createdAt }) => ({ number, createdAt }))}
-                    iteration={briefSource?.number}
-                    onIteration={showIteration}
-                    files={state.files}
-                    root={state.review?.repo}
-                    active={fileState.active === "brief"}
-                    loadSource={controller.loadSources}
-                    onOpen={openBriefLocation}
-                    onOpenPath={(path, line) => fileWorkspace.open(path, true, line)}
-                    onPaste={pasteBrief}
-                    onCopy={copyBrief}
-                    onRemove={removeBrief}
-                    notes={notes}
-                    onMutateNote={(mutation) => controller.mutateNote(mutation)}
-                  />
-                </Suspense>
-              </div>
-            )}
-            {commitApi && commitMounted && (
-              <div
-                {...stylex.props(
-                  styles.reviewSurface,
-                  fileState.active !== "commit" && styles.hiddenSurface,
-                )}
-                aria-hidden={fileState.active !== "commit"}
-              >
-                <Suspense fallback={null}>
-                  <CommitView
-                    api={commitApi}
-                    revision={state.sourceRevision}
-                    active={fileState.active === "commit"}
-                    draftKey={`med:commit-message:${commitRepo}`}
-                    onOpenFile={openCommitFile}
-                  />
-                </Suspense>
-              </div>
-            )}
-            {activeFile && (
-              <FullFileView
-                editor={fileEditor}
-                file={fileState.file}
-                path={activeFile.path}
-                loading={fileState.loading}
-                error={fileState.error}
-                stale={fileState.stale}
-                loadBlame={loadBlame}
-                loadChanges={browseApi.changes ? loadFileChanges : undefined}
-                blameEnabled={blameEnabled}
-                onBlameEnabledChange={setFileBlame}
-                lineBlame={lineBlame}
-                loadCommit={loadCommit}
-                sourceLabel={activeFile.sourceLabel}
-                line={activeFile.line}
-                column={activeFile.column}
-                vimEnabled={vimEnabled}
-                onNavigationReady={onNavigationReady}
-                onSelectionReaderReady={onSelectionReaderReady}
-                onDefinition={goToDefinition}
-                onSymbolPreviewReady={onSymbolPreviewReady}
-                onRefresh={refreshFile}
-                onClose={closeActiveFile}
-                onOpenFile={openLinkedFile}
-                onOpenBefore={openBefore}
-                onOpenAfter={openAfter}
-              />
-            )}
-          </div>
-          {toast && (
-            <div key={toast.id} role="status" {...stylex.props(styles.toast)}>
-              {toast.text}
-              {toast.restore !== undefined && (
-                <button
-                  {...stylex.props(styles.toastAction)}
-                  onClick={() => {
-                    const restore = toast.restore!;
-                    setToast(null);
-                    void setBrief(restore, restore ? "Brief restored." : "Brief removed.");
-                  }}
+              {savedBrief && briefMounted && state.savedReview && (
+                <div
+                  {...stylex.props(
+                    styles.reviewSurface,
+                    fileState.active !== "brief" && styles.hiddenSurface,
+                  )}
+                  aria-hidden={fileState.active !== "brief"}
                 >
-                  Undo
-                </button>
+                  <Suspense fallback={null}>
+                    <BriefView
+                      key={state.savedReview.id}
+                      brief={savedBrief}
+                      prerender={iterations.flatMap((entry) =>
+                        entry.brief && entry.brief.text !== savedBrief.text
+                          ? [entry.brief.text]
+                          : [],
+                      )}
+                      iterations={iterations
+                        .filter((entry) => entry.brief)
+                        .map(({ number, createdAt }) => ({ number, createdAt }))}
+                      iteration={briefSource?.number}
+                      onIteration={showIteration}
+                      files={state.files}
+                      root={state.review?.repo}
+                      active={fileState.active === "brief"}
+                      loadSource={controller.loadSources}
+                      onOpen={openBriefLocation}
+                      onOpenPath={(path, line) => fileWorkspace.open(path, true, line)}
+                      onPaste={pasteBrief}
+                      onCopy={copyBrief}
+                      onRemove={removeBrief}
+                      notes={notes}
+                      onMutateNote={(mutation) => controller.mutateNote(mutation)}
+                    />
+                  </Suspense>
+                </div>
+              )}
+              {commitApi && commitMounted && (
+                <div
+                  {...stylex.props(
+                    styles.reviewSurface,
+                    fileState.active !== "commit" && styles.hiddenSurface,
+                  )}
+                  aria-hidden={fileState.active !== "commit"}
+                >
+                  <Suspense fallback={null}>
+                    <CommitView
+                      api={commitApi}
+                      revision={state.sourceRevision}
+                      active={fileState.active === "commit"}
+                      draftKey={`med:commit-message:${commitRepo}`}
+                      onOpenFile={openCommitFile}
+                    />
+                  </Suspense>
+                </div>
+              )}
+              {activeFile && (
+                <FullFileView
+                  editor={fileEditor}
+                  file={fileState.file}
+                  path={activeFile.path}
+                  loading={fileState.loading}
+                  error={fileState.error}
+                  stale={fileState.stale}
+                  loadBlame={loadBlame}
+                  loadChanges={browseApi.changes ? loadFileChanges : undefined}
+                  blameEnabled={blameEnabled}
+                  onBlameEnabledChange={setFileBlame}
+                  lineBlame={lineBlame}
+                  loadCommit={loadCommit}
+                  sourceLabel={activeFile.sourceLabel}
+                  line={activeFile.line}
+                  column={activeFile.column}
+                  vimEnabled={vimEnabled}
+                  onNavigationReady={onNavigationReady}
+                  onSelectionReaderReady={onSelectionReaderReady}
+                  onDefinition={goToDefinition}
+                  onSymbolPreviewReady={onSymbolPreviewReady}
+                  onRefresh={refreshFile}
+                  onClose={closeActiveFile}
+                  onOpenFile={openLinkedFile}
+                  onOpenBefore={openBefore}
+                  onOpenAfter={openAfter}
+                />
               )}
             </div>
-          )}
-        </main>
-        {browseSource && (
-          <aside
-            {...stylex.props(styles.filesSidebar, !rightVisible && styles.hiddenSurface)}
-            aria-label="Workspace files"
-            hidden={!rightVisible}
-          >
-            <RepositoryFiles
-              key={JSON.stringify([sourceKey(browseSource), repositoryFiles.ignored])}
-              {...repositoryFiles}
-              sourceLabel={sourceLabel}
-              repo={browseSource?.repo ?? null}
-              pathActions={pathActions}
-              selectedPath={activeFile?.path ?? selectedFile?.path ?? null}
-              onPrefetch={prefetchFile}
-              onPreview={previewWorkingFile}
-              onPin={openWorkingFile}
-              onIgnoredChange={repositoryFiles.setIgnored}
-              onRefresh={repositoryFiles.refresh}
-              onClose={hideFilesSidebar}
-            />
-          </aside>
-        )}
-        {agentSessions.length > 0 && state.savedReview && sessionMounted && (
-          <aside
-            {...stylex.props(styles.sessionSidebar, !sessionVisible && styles.hiddenSurface)}
-            aria-label="Agent session"
-            hidden={!sessionVisible}
-          >
-            <Suspense fallback={null}>
-              <SessionPanel
-                key={state.savedReview.id}
-                reviewId={state.savedReview.id}
-                sessions={agentSessions}
-                root={state.review?.repo}
-                fetcher={sessionFetch}
-                onOpenPath={(path, line) => fileWorkspace.open(path, true, line)}
-                onClose={() => setSessionVisible(false)}
-              />
-            </Suspense>
-          </aside>
-        )}
-      </div>
-      <footer
-        {...stylex.props(styles.statusbar, stylex.defaultMarker(), zen && styles.hiddenSurface)}
-        hidden={zen}
-      >
-        <span {...stylex.props(styles.statusItem)}>
-          <span
-            key={state.sourceRevision}
-            data-connection={state.connection}
-            {...stylex.props(
-              styles.statusDot,
-              state.connection === "reconnecting" && styles.statusWaiting,
-              state.connection !== "connected" &&
-                state.connection !== "reconnecting" &&
-                styles.statusIdle,
+            {toast && (
+              <div key={toast.id} role="status" {...stylex.props(styles.toast)}>
+                {toast.text}
+                {toast.restore !== undefined && (
+                  <button
+                    {...stylex.props(styles.toastAction)}
+                    onClick={() => {
+                      const restore = toast.restore!;
+                      setToast(null);
+                      void setBrief(restore, restore ? "Brief restored." : "Brief removed.");
+                    }}
+                  >
+                    Undo
+                  </button>
+                )}
+              </div>
             )}
-          />
-          {activeFile
-            ? editorDrafts.get(JSON.stringify([activeFile.source, activeFile.path]))?.editing
-              ? "Editing file · Vim"
-              : fileState.file?.media
-                ? fileState.file.kind === "video"
-                  ? "Video"
-                  : "Image"
-                : vimEnabled
-                  ? "Read-only file · Vim"
-                  : "Read-only file"
-            : state.comparison.kind === "patch"
-              ? "Patch review"
-              : state.comparison.kind === "files"
-                ? "File comparison"
-                : state.comparison.kind === "commit" || state.comparison.kind === "range"
-                  ? "Commit review"
-                  : state.connection === "connected"
-                    ? "Live review"
-                    : state.connection === "reconnecting"
-                      ? "Reconnecting…"
-                      : "Connecting…"}
-        </span>
-        {activeFile && (
-          <span>
-            {fileState.file
-              ? `${fileState.file.size.toLocaleString()} bytes`
-              : activeFile.sourceLabel}
+          </main>
+          {browseSource && (
+            <aside
+              {...stylex.props(styles.filesSidebar, !rightVisible && styles.hiddenSurface)}
+              aria-label="Workspace files"
+              hidden={!rightVisible}
+            >
+              <RepositoryFiles
+                key={JSON.stringify([sourceKey(browseSource), repositoryFiles.ignored])}
+                {...repositoryFiles}
+                sourceLabel={sourceLabel}
+                repo={browseSource?.repo ?? null}
+                pathActions={pathActions}
+                selectedPath={activeFile?.path ?? selectedFile?.path ?? null}
+                onPrefetch={prefetchFile}
+                onPreview={previewWorkingFile}
+                onPin={openWorkingFile}
+                onIgnoredChange={repositoryFiles.setIgnored}
+                onRefresh={repositoryFiles.refresh}
+                onClose={hideFilesSidebar}
+              />
+            </aside>
+          )}
+          {agentSessions.length > 0 && state.savedReview && sessionMounted && (
+            <aside
+              {...stylex.props(styles.sessionSidebar, !sessionVisible && styles.hiddenSurface)}
+              aria-label="Agent session"
+              hidden={!sessionVisible}
+            >
+              <Suspense fallback={null}>
+                <SessionPanel
+                  key={state.savedReview.id}
+                  reviewId={state.savedReview.id}
+                  sessions={agentSessions}
+                  root={state.review?.repo}
+                  fetcher={sessionFetch}
+                  inbox={agentInbox}
+                  attachments={agentAttachments}
+                  onRemoveAttachment={(id) =>
+                    setAgentAttachments((list) => list.filter((entry) => entry.id !== id))
+                  }
+                  onOpenPath={(path, line) => fileWorkspace.open(path, true, line)}
+                  onClose={() => setSessionVisible(false)}
+                />
+              </Suspense>
+            </aside>
+          )}
+        </div>
+        <footer
+          {...stylex.props(styles.statusbar, stylex.defaultMarker(), zen && styles.hiddenSurface)}
+          hidden={zen}
+        >
+          <span {...stylex.props(styles.statusItem)}>
+            <span
+              key={state.sourceRevision}
+              data-connection={state.connection}
+              {...stylex.props(
+                styles.statusDot,
+                state.connection === "reconnecting" && styles.statusWaiting,
+                state.connection !== "connected" &&
+                  state.connection !== "reconnecting" &&
+                  styles.statusIdle,
+              )}
+            />
+            {activeFile
+              ? editorDrafts.get(JSON.stringify([activeFile.source, activeFile.path]))?.editing
+                ? "Editing file · Vim"
+                : fileState.file?.media
+                  ? fileState.file.kind === "video"
+                    ? "Video"
+                    : "Image"
+                  : vimEnabled
+                    ? "Read-only file · Vim"
+                    : "Read-only file"
+              : state.comparison.kind === "patch"
+                ? "Patch review"
+                : state.comparison.kind === "files"
+                  ? "File comparison"
+                  : state.comparison.kind === "commit" || state.comparison.kind === "range"
+                    ? "Commit review"
+                    : state.connection === "connected"
+                      ? "Live review"
+                      : state.connection === "reconnecting"
+                        ? "Reconnecting…"
+                        : "Connecting…"}
           </span>
-        )}
-        <span {...stylex.props(ui.grow)} />
-        <span {...stylex.props(styles.selectedPath)}>{activeFile?.path ?? selectedFile?.path}</span>
-        {!activeFile && state.metrics && (
-          <span
-            title="Request includes transfer; parse runs in a worker; frame measures React update to a frame after Pierre rendered."
-            {...stylex.props(styles.performance, styles.onStatusHover)}
-          >
-            {Math.round(state.metrics.requestMs)} ms request · {Math.round(state.metrics.parseMs)}{" "}
-            ms parse{frameMs !== null ? ` · ${Math.round(frameMs)} ms frame` : ""} ·{" "}
-            {state.metrics.cacheHit
-              ? "client cache"
-              : state.review?.metrics.cacheHit
-                ? "server cache"
-                : "fresh"}
+          {activeFile && (
+            <span>
+              {fileState.file
+                ? `${fileState.file.size.toLocaleString()} bytes`
+                : activeFile.sourceLabel}
+            </span>
+          )}
+          <span {...stylex.props(ui.grow)} />
+          <span {...stylex.props(styles.selectedPath)}>
+            {activeFile?.path ?? selectedFile?.path}
           </span>
-        )}
-        <ActionTooltip label="Shortcuts and commands" shortcut="?">
-          <button
-            {...stylex.props(ui.button, styles.helpButton)}
-            onClick={() => setHelpOpen(true)}
-            aria-label="Shortcuts and commands"
-          >
-            <kbd>?</kbd>
-          </button>
-        </ActionTooltip>
-      </footer>
-      <CommandDialog
-        open={commandsOpen}
-        onOpenChange={setCommandsOpen}
-        commands={[...commands].sort((a, b) => commandRank(a.id) - commandRank(b.id))}
-      />
-      <ShortcutGuide
-        open={helpOpen}
-        onOpenChange={setHelpOpen}
-        context={guideContext}
-        commands={commands}
-      />
-    </div>
+          {!activeFile && state.metrics && (
+            <span
+              title="Request includes transfer; parse runs in a worker; frame measures React update to a frame after Pierre rendered."
+              {...stylex.props(styles.performance, styles.onStatusHover)}
+            >
+              {Math.round(state.metrics.requestMs)} ms request · {Math.round(state.metrics.parseMs)}{" "}
+              ms parse{frameMs !== null ? ` · ${Math.round(frameMs)} ms frame` : ""} ·{" "}
+              {state.metrics.cacheHit
+                ? "client cache"
+                : state.review?.metrics.cacheHit
+                  ? "server cache"
+                  : "fresh"}
+            </span>
+          )}
+          <ActionTooltip label="Shortcuts and commands" shortcut="?">
+            <button
+              {...stylex.props(ui.button, styles.helpButton)}
+              onClick={() => setHelpOpen(true)}
+              aria-label="Shortcuts and commands"
+            >
+              <kbd>?</kbd>
+            </button>
+          </ActionTooltip>
+        </footer>
+        <CommandDialog
+          open={commandsOpen}
+          onOpenChange={setCommandsOpen}
+          commands={[...commands].sort((a, b) => commandRank(a.id) - commandRank(b.id))}
+        />
+        <ShortcutGuide
+          open={helpOpen}
+          onOpenChange={setHelpOpen}
+          context={guideContext}
+          commands={commands}
+        />
+      </div>
+    </AgentReplyContext.Provider>
   );
 }
 

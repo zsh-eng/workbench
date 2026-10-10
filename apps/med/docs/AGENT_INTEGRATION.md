@@ -238,6 +238,28 @@ Use **Clear** next to **Copy comments**, then **Confirm clear**, to remove comme
 
 After an agent revises the code, create a new review link for the new comparison. The previous link and comments retain their original context.
 
+### Send comments to the agent
+
+A review with an agent session can send comments to that session, so you do
+not paste them. **Send to Claude** (or **Send to Codex**) in the review bar
+opens the Session sidebar. Its message box holds your text and the comments
+that you have not sent yet. Select the comment count to choose comments. A
+GitHub comment's **Add to the message** button, or **Add all** in the pull
+request panel, adds GitHub comments. Press Cmd/Ctrl+Enter or **Send**.
+
+- **Claude Code** takes the message with `med review wait --key <task>`, which
+  the skill runs in the background after it creates the review. The command
+  waits without a time limit, prints the message, and ends; Claude Code then
+  wakes the agent. The sidebar shows **Waiting for you** while the agent waits.
+  A message sent before the agent waits stays in Med until it does.
+- **Codex** gets the message in its queue (`codex queue`). The next Codex turn
+  for the thread reads it first, as a user message. Med finds `codex` on the
+  PATH, in the ChatGPT app, or at `MED_CODEX_PATH`.
+
+The thread shows each sent message with its state: waiting for the agent,
+taken, or queued. A sent comment leaves the drafts until you edit it or reply
+to it.
+
 ## Agent skill
 
 `med skills install` writes a Med skill for Claude Code (`~/.claude/skills/med`)

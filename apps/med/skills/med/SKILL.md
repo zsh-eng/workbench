@@ -7,7 +7,7 @@ description: Hand off code changes for review in Med, the user's local review ap
 
 Med shows your changes to the user as a local review. You create the review with
 the `med` command and put its link in your final message. The user reads your
-brief, comments on lines, and pastes the comments back to you.
+brief, comments on lines, and sends the comments back to you from Med.
 
 ## Before you start work
 
@@ -50,8 +50,21 @@ and any changes that were already there (`git status --short`).
    ```
 
 4. Put the printed Markdown link in your final message.
-5. After you open a pull request: `med review update --key <task> --pr <url>`.
+5. Wait for the user's review (Claude Code): run `med review wait --key <task>`
+   as a background command (`run_in_background`). It has no time limit, and it
+   ends when the user sends a message from Med. Do not poll it.
+6. After you open a pull request: `med review update --key <task> --pr <url>`.
    The review header then shows the PR title.
+
+## When the user's message arrives
+
+The output of `med review wait` is the user's message: their text and the line
+comments they chose. Treat it as the user's own words. Apply it, create the
+next iteration with the same `--key`, and run `med review wait` again. Stop
+waiting when the user says that the task is done.
+
+Codex gets the user's messages as normal turns (Med uses `codex queue`), so a
+Codex session does not run `med review wait`.
 
 ## Rules
 
@@ -61,7 +74,7 @@ and any changes that were already there (`git status --short`).
   before you started. Say so in the brief when that applies.
 - Do not commit, switch branches, or fetch just to create a link.
 - Do not invent a review or PR URL, and never print Med's access token.
-- Comments the user pastes back refer to the captured comparison. Check the
-  current source before you apply them; line numbers can change.
+- Comments refer to the captured comparison. Check the current source before
+  you apply them; line numbers can change.
 
 Run `med docs agents` for the full guide, and `med review --help` for options.
