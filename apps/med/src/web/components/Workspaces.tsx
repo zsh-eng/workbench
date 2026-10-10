@@ -31,6 +31,7 @@ import {
   resumeCommand,
   REVIEW_UPDATED,
   workspaceUrl,
+  type PullWorkspace,
   type RepositoryWorkspace,
   type ReviewWorkspace,
   type Workspace,
@@ -50,6 +51,9 @@ import { readBrowserToken } from "../data/auth";
 import { readServerEvents } from "../data/sse";
 import { renderBrief } from "../markdown/brief-render";
 import { themeController } from "../themes";
+import { parsePullUrl } from "../../shared/pull-workspace";
+import { startPull, usePullJob } from "../data/pull-jobs";
+import { PullWorkspaceView, pullTitle, SettlingText, type PullState } from "./PullWorkspace";
 
 /** Workspaces kept mounted, most recently shown first. Older ones reload. */
 const MOUNTED = 4;
@@ -74,6 +78,11 @@ interface WorkspaceActions {
   update(id: string, patch: WorkspacePatch): void;
   /** Opens the switcher without a held key, as the palette does. */
   openSwitcher(): void;
+  /** Opens a GitHub pull request in a new workspace at once; the host checks
+   * it out in a worktree and starts `agent` there if set. */
+  openPull(url: string, agent?: string): void;
+  /** Asks the host again for a pull request that it could not open. */
+  retryPull(id: string): void;
   subscribe(listener: () => void): () => void;
   getSnapshot(): WorkspaceSnapshot;
 }
@@ -83,6 +92,10 @@ const Snapshot = createContext<WorkspaceSnapshot | null>(null);
 /** The lead session's state of each saved review, by review ID. */
 const Statuses = createContext<ReadonlyMap<string, AgentStatus>>(new Map());
 const Current = createContext<string | null>(null);
+/** Why the host refused a pull request link, by workspace. */
+const PullErrors = createContext<ReadonlyMap<string, string>>(new Map());
+const HostFetch = createContext<typeof fetch>(browserFetch);
+const LOST = "Med restarted before it opened this pull request.";
 /** Disposers that run when a workspace closes or leaves memory. */
 const Lifetime = createContext<Set<() => void> | null>(null);
 /** Moves the window's one workspace list into a sidebar. */
@@ -272,6 +285,28 @@ export function WorkspaceHost({
     },
     [rememberFocus, store],
   );
+  const [pullErrors, setPullErrors] = useState<ReadonlyMap<string, string>>(new Map());
+  const beginPull = useCallback(
+    (id: string, url: string, agent?: string) => {
+      setPullErrors((current) => {
+        const next = new Map(current);
+        next.delete(id);
+        return next;
+      });
+      store.update(id, { jobId: undefined });
+      startPull(url, agent, fetcher).then(
+        (job) => store.update(id, { jobId: job.id }),
+        (error: unknown) =>
+          setPullErrors((current) =>
+            new Map(current).set(
+              id,
+              error instanceof Error ? error.message : "Med could not open this link.",
+            ),
+          ),
+      );
+    },
+    [fetcher, store],
+  );
   const actions = useMemo<WorkspaceActions>(
     () => ({
       activate: (id) => show(id),
@@ -290,10 +325,42 @@ export function WorkspaceHost({
         rememberFocus();
         setSwitcher({ held: false, reverse: false });
       },
+      openPull(url, agent) {
+        const address = parsePullUrl(url);
+        if (!address) return;
+        const input = {
+          kind: "pull" as const,
+          url: address.url,
+          title: pullTitle(address.url),
+          ...(agent ? { agent } : {}),
+        };
+        const known = store.match(input);
+        if (known) return show(known);
+        const id = store.open(input, false);
+        show(id);
+        beginPull(id, address.url, agent);
+      },
+      retryPull(id) {
+        const workspace = store.getSnapshot().workspaces.find((entry) => entry.id === id);
+        if (workspace?.kind === "pull") beginPull(id, workspace.url, workspace.agent);
+      },
       subscribe: store.subscribe,
       getSnapshot: store.getSnapshot,
     }),
-    [rememberFocus, show, store],
+    [beginPull, rememberFocus, show, store],
+  );
+  // A pull request's workspace takes the title once the host reads it, and
+  // becomes the review's workspace once the review is saved.
+  const settlePull = useCallback(
+    (id: string, reviewId: string) => {
+      const wasActive = store.getSnapshot().active === id;
+      const next = store.settle(id, reviewId);
+      if (next && wasActive) show(next, true);
+    },
+    [show, store],
+  );
+  const pulls = snapshot.workspaces.filter(
+    (workspace): workspace is PullWorkspace => workspace.kind === "pull",
   );
 
   // Other windows' changes to the list, such as a review read there.
@@ -539,8 +606,20 @@ export function WorkspaceHost({
     <Actions value={actions}>
       <Snapshot value={snapshot}>
         <Statuses value={statuses}>
-          <ListSlot value={claimList}>{children}</ListSlot>
-          {createPortal(<WorkspaceRows onNew={owner?.onNew} />, list)}
+          <HostFetch value={fetcher}>
+            <PullErrors value={pullErrors}>
+              {pulls.map((workspace) => (
+                <PullWatcher
+                  key={workspace.id}
+                  workspace={workspace}
+                  onTitle={(title) => store.update(workspace.id, { title })}
+                  onSaved={(reviewId) => settlePull(workspace.id, reviewId)}
+                />
+              ))}
+              <ListSlot value={claimList}>{children}</ListSlot>
+              {createPortal(<WorkspaceRows onNew={owner?.onNew} />, list)}
+            </PullErrors>
+          </HostFetch>
           {switcher && (
             <WorkspaceSwitcher
               snapshot={snapshot}
@@ -644,13 +723,15 @@ export function WorkspaceViews({
   // then shows a rendered review instead of loading in front of the reviewer,
   // as a browser keeps a pool of warm tabs.
   const cold = orderedWorkspaces(snapshot).find(
-    (entry) => entry.kind !== "vault" && !mounted.includes(entry.id),
+    (entry) => entry.kind !== "vault" && entry.kind !== "pull" && !mounted.includes(entry.id),
   )?.id;
   useEffect(() => {
     if (!cold || !onScreen || mounted.length >= MOUNTED) return;
     const controllers = mounted.flatMap((id) => {
       const workspace = snapshot.workspaces.find((entry) => entry.id === id);
-      return workspace && workspace.kind !== "vault" ? [pool.get(workspace).controller] : [];
+      return workspace && workspace.kind !== "vault" && workspace.kind !== "pull"
+        ? [pool.get(workspace).controller]
+        : [];
     });
     let cancel: (() => void) | undefined;
     const check = () => {
@@ -706,6 +787,14 @@ export function WorkspaceViews({
   return mounted.flatMap((id) => {
     const workspace = snapshot.workspaces.find((entry) => entry.id === id);
     if (!workspace || workspace.kind === "vault") return [];
+    if (workspace.kind === "pull")
+      return (
+        <Activity key={id} mode={id === onScreen ? "visible" : "hidden"}>
+          <Current value={id}>
+            <PullView workspace={workspace} />
+          </Current>
+        </Activity>
+      );
     const { controller, disposers } = pool.get(workspace);
     return (
       <Activity key={id} mode={id === onScreen ? "visible" : "hidden"}>
@@ -717,6 +806,50 @@ export function WorkspaceViews({
       </Activity>
     );
   });
+}
+
+/** Follows a pull request's job for the list: its title, then its review. */
+function PullWatcher({
+  workspace,
+  onTitle,
+  onSaved,
+}: {
+  workspace: PullWorkspace;
+  onTitle(title: string): void;
+  onSaved(reviewId: string): void;
+}) {
+  const job = usePullJob(workspace.jobId, use(HostFetch));
+  const known = job && job !== "lost" ? job : undefined;
+  const title = known?.title ? pullTitle(workspace.url, known) : undefined;
+  const saved = known?.status === "done" ? known.reviewId : undefined;
+  const latest = useRef({ onTitle, onSaved });
+  useLayoutEffect(() => {
+    latest.current = { onTitle, onSaved };
+  });
+  useEffect(() => {
+    if (title) latest.current.onTitle(title);
+  }, [title]);
+  useEffect(() => {
+    if (saved) latest.current.onSaved(saved);
+  }, [saved]);
+  return null;
+}
+
+/** A pull request's workspace while the host opens it. */
+function PullView({ workspace }: { workspace: PullWorkspace }) {
+  const actions = use(Actions);
+  const errors = use(PullErrors);
+  const job = usePullJob(workspace.jobId, use(HostFetch));
+  const state: PullState =
+    job === "lost" ? { error: LOST } : { job, error: errors.get(workspace.id) };
+  return (
+    <PullWorkspaceView
+      url={workspace.url}
+      state={state}
+      list={<WorkspaceList />}
+      onRetry={() => actions?.retryPull(workspace.id)}
+    />
+  );
 }
 
 function whenIdle(run: () => void) {
@@ -775,7 +908,7 @@ function iconFor(workspace: Workspace): IconName {
   if (agent) return agent;
   return workspace.kind === "vault"
     ? "vault"
-    : workspace.kind === "review"
+    : workspace.kind === "review" || workspace.kind === "pull"
       ? "pullRequest"
       : workspace.branch
         ? "branch"
@@ -785,6 +918,7 @@ function labelFor(workspace: Workspace) {
   if (workspace.title) return workspace.title;
   if (workspace.kind === "vault") return "Vault";
   if (workspace.kind === "review") return "Saved review";
+  if (workspace.kind === "pull") return "Pull request";
   return workspace.branch ?? "Working changes";
 }
 /** Repository names help only when the list spans more than one repository. */
@@ -850,6 +984,21 @@ function WorkingMark({ label, hides }: { label: string; hides: boolean }) {
       title={label}
       {...stylex.props(styles.working, hides && styles.detailHides)}
     />
+  );
+}
+/** A pull request's row: a turning arc while the host opens it, or Failed. */
+function PullMark({ workspace, hides }: { workspace: PullWorkspace; hides: boolean }) {
+  const errors = use(PullErrors);
+  const job = usePullJob(workspace.jobId, use(HostFetch));
+  const failed =
+    job === "lost" || errors.has(workspace.id) || (job !== undefined && job.status === "failed");
+  return failed ? (
+    <span {...stylex.props(styles.detail, styles.failed, hides && styles.detailHides)}>Failed</span>
+  ) : (
+    <>
+      <span {...stylex.props(styles.hidden)}>, opening</span>
+      <WorkingMark label="Opening the pull request" hides={hides} />
+    </>
   );
 }
 function UnreadDot({ hides }: { hides: boolean }) {
@@ -960,7 +1109,7 @@ function WorkspaceRows({ onNew }: { onNew?(): void }) {
                 <Icon name={iconFor(workspace)} size={14} style={agentColor(iconFor(workspace))} />
                 <span {...stylex.props(styles.name, workspace.unread && styles.unreadName)}>
                   {repository && <span {...stylex.props(styles.repository)}>{repository} / </span>}
-                  {label}
+                  {workspace.kind === "pull" ? <SettlingText text={label} /> : label}
                   {agentState && (
                     <span {...stylex.props(styles.hidden)}>
                       , {agentState === "waiting" ? "needs you" : "working"}
@@ -975,6 +1124,8 @@ function WorkspaceRows({ onNew }: { onNew?(): void }) {
                   >
                     Copied
                   </span>
+                ) : workspace.kind === "pull" ? (
+                  <PullMark workspace={workspace} hides={closable} />
                 ) : agentState === "waiting" ? (
                   <span
                     aria-hidden="true"
@@ -1020,34 +1171,48 @@ function WorkspaceRows({ onNew }: { onNew?(): void }) {
   );
 }
 
-/** The workspace list on fixed workspaces and agent states, for the Elements
- * page. A click shows a row as read, as in the app. */
+/** The workspace list on given workspaces and agent states, for the Elements
+ * page. A click shows a row as read, as in the app; the rows follow the
+ * props, as a demo changes them. */
 export function WorkspaceListPreview({
   workspaces,
   statuses,
+  fetch: fetcher = browserFetch,
 }: {
   workspaces: Workspace[];
   statuses: AgentStatus[];
+  /** Answers the jobs of pull request rows. */
+  fetch?: typeof fetch;
 }) {
-  const [snapshot, setSnapshot] = useState<WorkspaceSnapshot>(() => ({
-    workspaces,
-    active: workspaces[0]!.id,
-    recent: workspaces.map((workspace) => workspace.id),
-  }));
+  const [view, setView] = useState<{ active?: string; marks: ReadonlyMap<string, boolean> }>({
+    marks: new Map(),
+  });
+  const snapshot = useMemo<WorkspaceSnapshot>(
+    () => ({
+      workspaces: workspaces.map((workspace) =>
+        view.marks.has(workspace.id)
+          ? ({ ...workspace, unread: view.marks.get(workspace.id) || undefined } as Workspace)
+          : workspace,
+      ),
+      active:
+        view.active && workspaces.some((workspace) => workspace.id === view.active)
+          ? view.active
+          : workspaces[0]!.id,
+      recent: workspaces.map((workspace) => workspace.id),
+    }),
+    [workspaces, view],
+  );
+  const latest = useRef(snapshot);
+  useLayoutEffect(() => {
+    latest.current = snapshot;
+  });
   const actions = useMemo<WorkspaceActions>(() => {
     const mark = (id: string, unread: boolean) =>
-      setSnapshot((current) => ({
-        ...current,
-        workspaces: current.workspaces.map((workspace) =>
-          workspace.id === id
-            ? ({ ...workspace, unread: unread || undefined } as Workspace)
-            : workspace,
-        ),
-      }));
+      setView((current) => ({ ...current, marks: new Map(current.marks).set(id, unread) }));
     return {
       activate(id) {
         mark(id, false);
-        setSnapshot((current) => ({ ...current, active: id }));
+        setView((current) => ({ ...current, active: id }));
       },
       setUnread: mark,
       close() {},
@@ -1056,11 +1221,11 @@ export function WorkspaceListPreview({
       closeRepository() {},
       update() {},
       openSwitcher() {},
+      openPull() {},
+      retryPull() {},
       subscribe: () => () => {},
-      getSnapshot: () => snapshot,
+      getSnapshot: () => latest.current,
     };
-    // The preview's actions read the snapshot only through state updates.
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const byReview = useMemo(
     () => new Map(statuses.map((status) => [status.reviewId, status])),
@@ -1070,7 +1235,9 @@ export function WorkspaceListPreview({
     <Actions value={actions}>
       <Snapshot value={snapshot}>
         <Statuses value={byReview}>
-          <WorkspaceRows />
+          <HostFetch value={fetcher}>
+            <WorkspaceRows />
+          </HostFetch>
         </Statuses>
       </Snapshot>
     </Actions>
@@ -1424,6 +1591,7 @@ const styles = stylex.create({
     backgroundColor: tokens.accent,
   },
   needsYou: { color: tokens.accent, fontWeight: 500 },
+  failed: { color: tokens.red },
   working: {
     flexShrink: 0,
     boxSizing: "border-box",

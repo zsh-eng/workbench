@@ -39,13 +39,25 @@ export interface VaultWorkspace extends WorkspaceBase {
   kind: "vault";
   sourceId: string;
 }
-export type Workspace = ReviewWorkspace | RepositoryWorkspace | VaultWorkspace;
+/** A GitHub pull request that the host opens in a worktree. It becomes its
+ * review's workspace once the review is saved. */
+export interface PullWorkspace extends WorkspaceBase {
+  kind: "pull";
+  url: string;
+  /** The host's job; empty until the host accepts the link. */
+  jobId?: string;
+  /** The agent to start in the worktree, so Retry asks for it again. */
+  agent?: string;
+}
+export type Workspace = ReviewWorkspace | RepositoryWorkspace | VaultWorkspace | PullWorkspace;
 export type WorkspaceInput =
   | Omit<ReviewWorkspace, "id">
   | Omit<RepositoryWorkspace, "id">
-  | Omit<VaultWorkspace, "id">;
+  | Omit<VaultWorkspace, "id">
+  | Omit<PullWorkspace, "id">;
 export interface WorkspacePatch {
   title?: string;
+  jobId?: string;
   sessions?: WorkspaceSession[];
   repository?: string;
   detail?: string;
@@ -114,6 +126,14 @@ function parse(value: unknown): Workspace | null {
     return { ...base, kind: "review", reviewId: entry.reviewId as string };
   if (entry.kind === "vault" && optional(entry.sourceId))
     return { ...base, kind: "vault", sourceId: entry.sourceId as string };
+  if (entry.kind === "pull" && optional(entry.url))
+    return {
+      ...base,
+      kind: "pull",
+      url: entry.url as string,
+      jobId: optional(entry.jobId),
+      agent: optional(entry.agent),
+    };
   if (entry.kind === "repository")
     return {
       ...base,
@@ -173,6 +193,7 @@ function write(snapshot: WorkspaceSnapshot) {
 function matches(input: WorkspaceInput, entry: Workspace) {
   if (input.kind === "review") return entry.kind === "review" && entry.reviewId === input.reviewId;
   if (input.kind === "vault") return entry.kind === "vault" && entry.sourceId === input.sourceId;
+  if (input.kind === "pull") return entry.kind === "pull" && entry.url === input.url;
   if (entry.kind !== "repository") return false;
   if (!input.branch) return !!input.path && !entry.branch && input.path === entry.path;
   return (
@@ -323,7 +344,9 @@ export function createWorkspaceStore(pathname: string, state?: unknown) {
           ? ["title", "repository", "detail", "path", "repositoryId", "branch"]
           : current.kind === "review"
             ? ["title", "repository", "detail", "sessions"]
-            : ["title", "repository", "detail"];
+            : current.kind === "pull"
+              ? ["title", "repository", "detail", "jobId"]
+              : ["title", "repository", "detail"];
       const same = (key: keyof WorkspacePatch) =>
         key === "sessions"
           ? JSON.stringify(current.sessions ?? []) === JSON.stringify(patch.sessions ?? [])
@@ -351,6 +374,30 @@ export function createWorkspaceStore(pathname: string, state?: unknown) {
         ),
         recent: snapshot.recent.filter((entry) => entry !== duplicate?.id),
       });
+    },
+    /** A pull request's workspace becomes its review's workspace, in its
+     * place in the list. A workspace that has the review already stays. */
+    settle(id: string, reviewId: string) {
+      const current = find(id);
+      if (current?.kind !== "pull") return;
+      const existing = snapshot.workspaces.find(
+        (entry) => entry.kind === "review" && entry.reviewId === reviewId,
+      );
+      const next: Workspace = existing ?? {
+        id: `review-${reviewId}`,
+        kind: "review",
+        reviewId,
+        ...(current.title ? { title: current.title } : {}),
+        ...(current.repository ? { repository: current.repository } : {}),
+      };
+      publish({
+        workspaces: existing
+          ? snapshot.workspaces.filter((entry) => entry.id !== id)
+          : snapshot.workspaces.map((entry) => (entry.id === id ? next : entry)),
+        active: snapshot.active === id ? next.id : snapshot.active,
+        recent: [...new Set(snapshot.recent.map((entry) => (entry === id ? next.id : entry)))],
+      });
+      return next.id;
     },
     /** Closes the workspaces of a repository that was removed, except the one
      * that removed it, which has already moved to another repository. The
@@ -422,8 +469,8 @@ export function createWorkspaceStore(pathname: string, state?: unknown) {
       if (overlayAddress(path) && current) return;
       const wanted = (historyState as { workspace?: unknown } | null)?.workspace;
       const named = typeof wanted === "string" ? find(wanted) : undefined;
-      if (named?.kind === "repository") return store.activate(named.id);
-      if (current?.kind === "repository") return;
+      if (named?.kind === "repository" || named?.kind === "pull") return store.activate(named.id);
+      if (current?.kind === "repository" || current?.kind === "pull") return;
       // A review link or a vault left the address: show the last branch.
       const last = snapshot.recent
         .map((id) => find(id))

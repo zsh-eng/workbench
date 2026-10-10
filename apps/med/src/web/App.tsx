@@ -711,8 +711,9 @@ export function App({
     sessionFetch,
   );
   const [agentAttachments, setAgentAttachments] = useState<ComposerAttachment[]>([]);
-  // The agents that Med can start in a saved review's repository.
-  const agentPresets = useAgentPresets(!!state.savedReview, sessionFetch);
+  // The agents that Med can start in a saved review's repository, or in a
+  // pull request's worktree from the branch picker.
+  const agentPresets = useAgentPresets(!!state.savedReview || branchPickerOpen, sessionFetch);
   const sessionStarter = useMemo<SessionStarter>(
     () => ({
       agents: agentPresets,
@@ -2948,6 +2949,8 @@ export function App({
         workspace ? openBranch(entry, newWorkspace || branchPickerNew) : branches.open(entry)
       }
       workspaces={workspace ? (branchPickerNew ? "new" : "here") : undefined}
+      onPullRequest={workspace?.openPull}
+      agents={agentPresets?.filter((agent) => agent.available)}
       onAddRepository={controller.addRepository}
       onRemoveRepository={async (id) => {
         await controller.removeRepository(id);

@@ -6,6 +6,8 @@ import { markdownAsset } from "./markdown-assets";
 import { browseSourceSchema } from "../shared/browse";
 import { LocalFiles } from "./local-files";
 import { ChannelResponse, channelRequest, LIVE_PATH, liveInputSchema } from "./live-streams";
+import { PullJobs } from "./pull-workspace";
+import { parsePullUrl, pullStartSchema } from "../shared/pull-workspace";
 import { localPathSchema } from "../shared/local-file";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -104,6 +106,8 @@ export interface StartHostOptions {
   queueCodex?: (threadId: string, text: string) => Promise<void>;
   /** The agents Med can start; tests replace the installed ones. */
   agents?: () => Promise<RunnableAgent[]>;
+  /** The GitHub CLI that opens pull requests; tests give a fake one. */
+  gh?: { command: string; args: string[] };
 }
 export interface RunningHost {
   url: string;
@@ -294,6 +298,30 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     reviews.removeRepositories(paths);
     notes.removeRepositories(paths);
   });
+  // GitHub pull requests that open as workspaces. A job saves its review and
+  // starts its agent through this host's own API.
+  const pullJobs = new PullJobs({
+    repositories: () => registry.snapshot(),
+    refresh: (path) => registry.refreshOwner(path),
+    gh: options.gh ?? { command: "gh", args: [] },
+    worktrees: join(options.stateDir ?? temporaryState!, "worktrees"),
+    async api<T>(path: string, body?: unknown) {
+      const response = await fetch(`http://127.0.0.1:${port}${path}`, {
+        method: body === undefined ? "GET" : "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+      const data = (await response.json().catch(() => null)) as {
+        error?: { message?: string };
+      } | null;
+      if (!response.ok)
+        throw new Error(
+          data?.error?.message ?? `The host refused the request (${response.status}).`,
+        );
+      return data as T;
+    },
+  });
+  const pullStreams = new Set<ServerResponse>();
   if (repository.git !== false) {
     await registry.register(repository.path);
     for (const path of options.repos ?? []) await registry.register(path);
@@ -687,6 +715,48 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           ).catch(() => response.end());
           return;
         }
+        // A pull request that opens as a workspace, and its progress.
+        if (url.pathname === "/api/pulls" && request.method === "POST") {
+          const input = pullStartSchema.parse(await readBody(request));
+          const address = parsePullUrl(input.url);
+          if (!address)
+            throw new HostError("invalid-pull-request", "Paste a GitHub pull request link.", 400);
+          const agent = input.agent
+            ? (await ownedSessions.agents()).find((entry) => entry.id === input.agent)
+            : undefined;
+          if (input.agent && !agent?.available)
+            throw new HostError("agent-not-found", "Med cannot start this agent.", 404);
+          send(pullJobs.start(address, agent && { id: agent.id, name: agent.name }));
+          return;
+        }
+        const pullRoute = /^\/api\/pulls\/([A-Za-z0-9-]{1,80})(\/events)?$/.exec(url.pathname);
+        if (pullRoute && request.method === "GET") {
+          const id = pullRoute[1]!;
+          if (!pullJobs.get(id))
+            throw new HostError("pull-job-not-found", "Med restarted before this job ended.", 404);
+          if (!pullRoute[2]) {
+            send(pullJobs.get(id));
+            return;
+          }
+          if (pullStreams.size >= 32)
+            throw new HostError("too-many-streams", "Too many pull request streams are open.", 503);
+          response.writeHead(200, {
+            "content-type": "text/event-stream",
+            "cache-control": "no-store",
+            connection: "keep-alive",
+            "x-accel-buffering": "no",
+          });
+          pullStreams.add(response);
+          const push = () =>
+            response.write(`event: state\ndata: ${JSON.stringify(pullJobs.get(id))}\n\n`);
+          const unsubscribe = pullJobs.subscribe(id, push);
+          response.once("close", () => {
+            pullStreams.delete(response);
+            unsubscribe();
+          });
+          push();
+          return;
+        }
         // The workspace list: each saved review's lead session, sent when it changes.
         if (url.pathname === "/api/agent-status/events" && request.method === "GET") {
           const ids = [
@@ -752,7 +822,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 `Register the repository for ${target.repo} to start an agent there.`,
                 409,
               );
-            const cwd = await requireRepo(entry.path);
+            // The agent works in the reviewed checkout, such as a pull request's
+            // worktree, while that checkout stays.
+            const cwd = await requireRepo(target.repo).catch(() => requireRepo(entry.path));
             assertRequestAccess();
             const runner = await ownedSessions.start(input.preset, cwd);
             const review = await savedReviews.details(

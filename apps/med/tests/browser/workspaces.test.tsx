@@ -130,9 +130,45 @@ function createHost() {
     agentStatuses = statuses;
     for (const stream of statusStreams) stream.enqueue(statusFrame());
   };
+  // The pull request jobs that the host runs; the test moves the latest one.
+  const pulls: { id: string; url: string }[] = [];
+  let pullJob: Record<string, unknown> = {};
+  const pullStreams = new Set<ReadableStreamDefaultController<Uint8Array>>();
+  const pullFrame = () =>
+    new TextEncoder().encode(`event: state\ndata: ${JSON.stringify(pullJob)}\n\n`);
+  const setPull = (patch: Record<string, unknown>) => {
+    pullJob = { ...pullJob, ...patch };
+    for (const stream of pullStreams) stream.enqueue(pullFrame());
+  };
   const fetcher: typeof fetch = async (input, init) => {
     const url = new URL(String(input), "http://localhost");
     const repo = url.searchParams.get("repo") || "/test/repo";
+    if (url.pathname === "/api/pulls") {
+      const id = `job-${pulls.length + 1}`;
+      pulls.push({ id, url: JSON.parse(String(init?.body)).url });
+      pullJob = {
+        id,
+        url: pulls.at(-1)!.url,
+        slug: "acme/trails",
+        number: 7,
+        status: "running",
+        steps: [{ id: "repository", label: "Find acme/trails", state: "running" }],
+      };
+      return Response.json(pullJob);
+    }
+    if (url.pathname === `/api/pulls/${String(pullJob.id)}/events`) {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          pullStreams.add(controller);
+          controller.enqueue(pullFrame());
+          init?.signal?.addEventListener("abort", () => {
+            pullStreams.delete(controller);
+            controller.error(new DOMException("Aborted", "AbortError"));
+          });
+        },
+      });
+      return new Response(body, { headers: { "content-type": "text/event-stream" } });
+    }
     const saved = /^\/api\/reviews\/(\w+)(?:\/targets\/[\w-]+\/(review|notes))?$/.exec(
       url.pathname,
     );
@@ -238,7 +274,7 @@ function createHost() {
     }
     throw new Error(`Unexpected request: ${url.pathname}`);
   };
-  return { fetcher, sessions, streams, windows, announce, setStatuses };
+  return { fetcher, sessions, streams, windows, announce, setStatuses, pulls, setPull };
 }
 
 function render(host: ReturnType<typeof createHost>) {
@@ -443,4 +479,48 @@ test("rows show what each review's agent does, and a turn that ends unseen marks
   // Read rows show their changed-file count again.
   await expect.poll(() => rowLabels()[3]).toMatch(/^Second review( \d+)?$/);
   expect(rowLabels()[2]).toMatch(/^Agent review( \d+)?$/);
+});
+
+test("a pasted pull request link opens a workspace at once, which becomes its review", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  await page.getByRole("button", { name: "New workspace" }).click();
+  await page
+    .getByRole("combobox", { name: "Search branches" })
+    .fill("https://github.com/acme/trails/pull/7/files");
+  await expect.element(page.getByRole("option", { name: /Open pull request #7/ })).toBeVisible();
+  await userEvent.keyboard("{Enter}");
+
+  // The workspace shows at once, with a placeholder name, and its progress.
+  const row = page.getByRole("button", { name: /^acme\/trails #7\s?, opening/ });
+  await expect.element(row).toBeVisible();
+  const progress = page.getByRole("region", { name: "Opening the pull request" });
+  await expect.element(progress).toBeVisible();
+  expect(host.pulls).toEqual([{ id: "job-1", url: "https://github.com/acme/trails/pull/7" }]);
+
+  // A failed step says why, and Retry asks the host again.
+  host.setPull({
+    status: "failed",
+    error: "Add a clone of acme/trails to Med, then open the link again.",
+    steps: [{ id: "repository", label: "Find acme/trails", state: "failed" }],
+  });
+  const problem = () =>
+    document.querySelector('[aria-label="Opening the pull request"] [role="alert"]')?.textContent;
+  await expect
+    .poll(problem)
+    .toMatch(/^Add a clone of acme\/trails to Med, then open the link again\./);
+  await page.getByRole("button", { name: "Retry" }).click();
+  await expect.poll(() => host.pulls.length).toBe(2);
+  await expect.poll(problem).toBeUndefined();
+
+  // The title replaces the placeholder; the saved review takes the workspace's place.
+  host.setPull({ title: "Add durations" });
+  await expect
+    .element(page.getByRole("button", { name: /^#7 Add durations\s?, opening/ }))
+    .toBeVisible();
+  host.setPull({ status: "done", reviewId: "agent" });
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("agent-target");
+  expect(location.pathname).toBe("/review/agent");
+  await expect.poll(rowLabels).toEqual(["notes", "main 2", "Agent review 2 (current)"]);
 });

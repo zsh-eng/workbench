@@ -114,6 +114,24 @@ Browsers keep `⌘1`–`⌘9` and `⌃Tab` for their own tabs. Use the installed
 
 ### Pull requests
 
+Paste a pull request link, such as `https://github.com/owner/repo/pull/333`, in
+**New workspace…**. Choose **Open pull request #333**, or **Open and review with**
+an installed agent. The workspace shows at once and lists each step:
+
+1. Find the registered repository whose Git remote is `owner/repo`.
+2. Read the pull request with `gh`.
+3. Make a worktree in Med's state folder (`worktrees/<repo>/pr-333`). Your
+   checkout and its branch stay as they are.
+4. Check out the pull request there with `gh pr checkout`. If its branch is in
+   use in another worktree, Med checks out its commit without a branch.
+5. Fetch the base branch if it is not local, and save the review.
+6. Start the agent in the worktree with a prompt to review the pull request,
+   if you chose one.
+
+The workspace then becomes the review. The same link again uses the same
+worktree and review; a new head adds an iteration. A failed step says why, with
+**Retry**. A repository that Med does not know fails at step 1: add it first.
+
 Run `med pr checkout 333` inside a repository. Med runs `gh pr checkout 333`,
 fetches the pull request's base branch, and opens a saved review of the pull
 request: its merge base with the base branch, compared with its head. The review
