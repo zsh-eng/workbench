@@ -17,6 +17,7 @@ import { layoutHistory } from "../../src/web/components/history-layout";
 import { createBrowseApi } from "../../src/web/data/browse";
 import type { BrowseSource } from "../../src/shared/browse";
 import type { AgentInboxState } from "../../src/shared/agent-inbox";
+import type { CodexReviewRun } from "../../src/shared/codex-review";
 import type { AgentSession, PinMutation, SavedPin } from "../../src/shared/saved-review";
 import type { AgentPreset, OwnedAction, OwnedState } from "../../src/shared/owned-session";
 import type { BlameLoader } from "../../src/web/data/blame";
@@ -111,6 +112,8 @@ async function mountApp(
     review?: { paths: string[]; patch: string };
     /** GitHub comments; the first saved target compares the pull request head. */
     pullRequest?: PullRequestComments;
+    /** Codex reviews; the first saved target compares the first run's commit. */
+    codexReviews?: CodexReviewRun[];
     loadBlame?: BlameLoader;
     /** The Commit tab's repository. */
     commitApi?: CommitApi;
@@ -133,9 +136,10 @@ async function mountApp(
   const savedTargets = (
     options.oneBranch ? ["/test/repo", "/test/repo"] : ["/test/repo", "/test/feature"]
   ).map((repo, index) => {
+    const reviewed = options.pullRequest?.head ?? options.codexReviews?.[0]?.commit;
     const commit =
-      options.pullRequest && !index
-        ? options.pullRequest.head
+      reviewed && !index
+        ? reviewed
         : options.oneBranch
           ? [firstCommit, secondCommit][index]
           : undefined;
@@ -148,7 +152,7 @@ async function mountApp(
       comparison: (commit ? { kind: "commit", commit } : { kind: "working" }) as Comparison,
       base: secondCommit,
       head: commit ?? "working",
-      captured: !(options.pullRequest && !index),
+      captured: !(reviewed && !index),
     };
   });
   const pullRequestReads: string[] = [];
@@ -303,6 +307,8 @@ async function mountApp(
         };
         return Response.json({ message, state: inbox });
       }
+      if (url.pathname === "/api/reviews/saved/codex-reviews")
+        return Response.json({ runs: options.codexReviews ?? [] });
       if (url.pathname === "/api/reviews/saved/pull-request" && options.pullRequest) {
         pullRequestReads.push(url.search);
         return Response.json(options.pullRequest);
@@ -2201,6 +2207,61 @@ describe("review brief", () => {
     await panel.getByRole("button", { name: "Read again from GitHub" }).click();
     await expect.poll(() => pullRequestReads.at(-1)).toBe("?refresh=1");
     expect(pullRequestReads.slice(0, -1).every((search) => search === "")).toBe(true);
+  });
+
+  test("shows Codex review findings read-only, at their lines or in the Codex panel", async () => {
+    const finding = (id: string, path: string, line: number, priority: number, title: string) => ({
+      id,
+      title,
+      body: `Because ${title.toLowerCase()}.`,
+      priority,
+      confidence: 0.9,
+      path,
+      startLine: line,
+      endLine: line,
+    });
+    const run = (id: string, commit: string, findings: ReturnType<typeof finding>[]) => ({
+      id,
+      threadId: id.split(":")[0]!,
+      repo: "/test/repo",
+      commit,
+      createdAt: "2026-09-20T00:00:00Z",
+      target: "changes against 'main'",
+      verdict: "patch is incorrect",
+      explanation: "The exporter reads a field that trails do not have.",
+      findings,
+    });
+    await mountApp({
+      savedReview: true,
+      codexReviews: [
+        run("t1:0", firstCommit, [
+          finding("t1:0:0", "src/alpha.ts", 1, 1, "Use the existing field"),
+          finding("t1:0:1", "src/beta.ts", 40, 3, "Name the constant"),
+        ]),
+        run("t0:0", secondCommit, [finding("t0:0:0", "src/alpha.ts", 1, 2, "An older finding")]),
+      ],
+    });
+    // The finding of the commit on screen shows on its line, with no way to write.
+    const card = page.getByRole("article", { name: "Codex finding at R1, read-only" });
+    await expect.element(card).toBeVisible();
+    expect(card.element().textContent).toMatch(
+      /Codex\s*P1.*Use the existing field.*Because use the existing field\./,
+    );
+    expect(card.element().querySelector("textarea, [contenteditable]")).toBeNull();
+    expect(document.querySelectorAll("[data-codex-finding]")).toHaveLength(1);
+
+    // The panel holds each verdict, and the findings the diff cannot show.
+    await page.getByRole("button", { name: "3 Codex findings" }).click();
+    const panel = page.getByRole("dialog", { name: "Codex reviews" });
+    await expect.element(panel).toBeVisible();
+    const text = panel.element().textContent;
+    expect(text).toMatch(/Codex\s*Patch is incorrect.*The exporter reads a field/);
+    expect(text).toContain("1 finding shows in the diff.");
+    expect(text).toMatch(/src\/beta\.ts\s*R40.*P3.*Name the constant/);
+    expect(text).toContain(
+      `Lines refer to ${secondCommit.slice(0, 7)}, the commit that Codex reviewed. This comparison shows ${firstCommit.slice(0, 7)}, so they are listed here.`,
+    );
+    expect(text).toContain("An older finding");
   });
 
   test("attaches a pasted brief to a saved review and undoes it", async () => {

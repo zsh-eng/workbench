@@ -162,6 +162,23 @@ comments. Med reads them with `gh`; it never posts, replies, or resolves.
   seconds. The refresh button in the panel reads at once. **Hide comments**
   hides both kinds.
 
+### Codex reviews
+
+A saved review also shows the findings of Codex reviews in its checkouts: run
+`codex review --base main` in the review's worktree, or `/review` in a Codex
+session there. Med reads Codex's session files in `~/.codex/sessions`; it does
+not run Codex or change its files. It lists reviews of a commit that the review
+shows, and reviews that ran after the review was saved.
+
+- **In the diff.** When the comparison shows the commit that Codex reviewed,
+  each finding shows at its last line, with the Codex mark and its priority,
+  such as **P1**.
+- **Panel.** The Codex count beside the title opens each review's verdict and
+  explanation, and the findings that the diff cannot show. Copy a review's
+  `codex resume` command there to answer in the Codex session.
+- **To an agent.** **Add to message** puts a finding, or all of a review's
+  findings, in the next message to the review's agent.
+
 ### Saved agent reviews
 
 An agent can use the running host to save a commit range or capture working changes, then return a clean local review link. Open the launch URL once in the browser to authorize access. Saved links in that browser then use the same local session.

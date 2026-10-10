@@ -61,6 +61,7 @@ import { FileSymbolService } from "./search/symbols";
 import { type SearchOptions } from "./search/service";
 import { RepositoryRegistry } from "./repository/registry";
 import { removeWorktree } from "./repository/worktrees";
+import { CodexReviews } from "./codex-reviews";
 import { SavedReviewStore } from "./saved-reviews";
 import {
   findTranscript,
@@ -222,6 +223,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     logDirectory: join(options.stateDir ?? temporaryState!, "sessions"),
   });
   const ownedStreams = new Set<ServerResponse>();
+  const codexReviews = new CodexReviews();
   const reviewStatus = createAgentStatus({
     owned(sessionId) {
       const runner = ownedSessions.get(sessionId);
@@ -1275,7 +1277,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           const savedRoute =
-            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes)|\/(feedback|clear|brief|pins|details|pull-request))?$/.exec(
+            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes)|\/(feedback|clear|brief|pins|details|pull-request|codex-reviews))?$/.exec(
               url.pathname,
             );
           if (savedRoute) {
@@ -1321,6 +1323,21 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                     url.searchParams.get("refresh") === "1",
                   ),
                 );
+              } else if (action === "codex-reviews") {
+                // Reviews of a head that the review shows, or run since it was saved.
+                const heads = new Set(bundle.targets.map((target) => target.head));
+                const runs = await codexReviews.find(
+                  [...new Set(bundle.targets.map((target) => target.repo))],
+                  Date.parse(bundle.createdAt) - 7 * 24 * 60 * 60 * 1000,
+                );
+                send({
+                  runs: runs
+                    .filter(
+                      (run) =>
+                        (run.commit && heads.has(run.commit)) || run.createdAt >= bundle.createdAt,
+                    )
+                    .slice(0, 20),
+                });
               } else if (!action) send(bundle);
               else
                 throw new HostError(
