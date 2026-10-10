@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { Bookmark, PanelRight } from "lucide-react";
+import { PanelRight } from "lucide-react";
 import { motion } from "motion/react";
 import { ReaderDesktopToolbar } from "./ReaderDesktopToolbar";
 import { MOTION } from "@/lib/motion";
@@ -14,14 +14,12 @@ type ReaderDesktopHeaderProps = Omit<
   "isMobile" | "onBackToLibrary"
 >;
 
-/** Desktop controls fade in place. Mobile keeps its sliding header and ribbon. */
+/** Desktop controls fade in place. Mobile keeps its sliding header. */
 export function ReaderDesktopHeader({
   chromeVisible,
   accessory,
   chromeSurfaceProps,
   bookTitle,
-  isBookmarked,
-  onToggleBookmark,
   isMenuOpen,
   onOpenMenu,
   toolsTriggerRef,
@@ -47,33 +45,18 @@ export function ReaderDesktopHeader({
         navigation={<SidebarTrigger className={CHROME_BUTTON_CLASS_NAME} />}
         accessory={accessory}
         actions={
-          <>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onToggleBookmark}
-              aria-label={isBookmarked ? "Remove bookmark" : "Add bookmark"}
-              aria-pressed={isBookmarked}
-              className={CHROME_BUTTON_CLASS_NAME}
-            >
-              <Bookmark
-                className="size-[1.15rem]"
-                fill={isBookmarked ? "currentColor" : "none"}
-              />
-            </Button>
-            <Button
-              ref={toolsTriggerRef}
-              variant="ghost"
-              size="icon"
-              onClick={onOpenMenu}
-              aria-label="Open reader tools"
-              aria-expanded={isMenuOpen}
-              aria-pressed={isMenuOpen}
-              className={CHROME_BUTTON_CLASS_NAME}
-            >
-              <PanelRight className="size-[1.15rem]" />
-            </Button>
-          </>
+          <Button
+            ref={toolsTriggerRef}
+            variant="ghost"
+            size="icon"
+            onClick={onOpenMenu}
+            aria-label="Open reader tools"
+            aria-expanded={isMenuOpen}
+            aria-pressed={isMenuOpen}
+            className={CHROME_BUTTON_CLASS_NAME}
+          >
+            <PanelRight className="size-[1.15rem]" />
+          </Button>
         }
       />
     </motion.header>

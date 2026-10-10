@@ -35,50 +35,42 @@ test("desktop chrome fades in place and hides all navigation controls together",
   }));
   expect(leftButtonShape.radius).toBeGreaterThan(0);
   expect(leftButtonShape.radius).toBeLessThan(leftButtonShape.height / 2);
-  const bookmark = page.getByRole("button", {
-    name: "Add bookmark",
-    exact: true,
-  });
-  const toolsButton = page.getByRole("button", {
+  // Bookmarks are not stored yet, so the header has no bookmark control. One
+  // control on each side keeps the title centred.
+  await expect(header.getByRole("button", { name: /bookmark/i })).toHaveCount(
+    0,
+  );
+  const toolsButton = header.getByRole("button", {
     name: "Open reader tools",
     exact: true,
   });
-  const bookmarkBounds = (await bookmark.boundingBox())!;
+  const leftBounds = (await leftButton.boundingBox())!;
   const toolsBounds = (await toolsButton.boundingBox())!;
-  expect(toolsBounds.x - bookmarkBounds.x - bookmarkBounds.width).toBe(4);
-  expect(bookmarkBounds.y).toBe(toolsBounds.y);
-  await expect(bookmark).toHaveCSS("clip-path", "none");
-  await bookmark.click();
-  await expect(
-    page.getByRole("button", { name: "Remove bookmark", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
+  const titleBounds = (await header
+    .locator("[data-reader-header-title]")
+    .boundingBox())!;
+  expect(toolsBounds.y).toBe(leftBounds.y);
+  expect(1280 - toolsBounds.x - toolsBounds.width).toBeCloseTo(leftBounds.x, 0);
+  expect(titleBounds.x + titleBounds.width / 2).toBeCloseTo(640, 0);
   await page.screenshot({
     path: testInfo.outputPath("desktop-chrome-visible.png"),
   });
 
-  // A focused control keeps chrome open even when the pointer leaves.
-  await page
-    .getByRole("button", { name: "Remove bookmark", exact: true })
-    .evaluate((button) => button.blur());
   await page.mouse.move(640, 400);
   await expect(header).toHaveCSS("opacity", "0");
   await expect(header).toHaveCSS("transform", "none");
   await expect(footer).toHaveCount(0);
   await expect(leftButton).toHaveCount(0);
-  await expect(
-    page.getByRole("button", { name: "Remove bookmark", exact: true }),
-  ).toHaveCount(0);
+  await expect(toolsButton).toHaveCount(0);
   await page.screenshot({
     path: testInfo.outputPath("desktop-chrome-hidden.png"),
   });
 
-  // Bottom-edge hover reveals the same controls and retains the bookmark state.
+  // Bottom-edge hover reveals the same controls.
   await page.locator('[data-reader-chrome-rail="bottom"]').hover();
   await expect(header).toHaveCSS("opacity", "1");
   await expect(footer).toHaveCSS("opacity", "1");
-  await expect(
-    page.getByRole("button", { name: "Remove bookmark", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
+  await expect(toolsButton).toBeVisible();
   await leftButton.click();
   const sidebar = page.locator('[data-slot="sidebar"]');
   await expect(sidebar).toHaveAttribute("data-state", "expanded");
@@ -168,13 +160,13 @@ test("Escape closes the tools sidebar after menus and the note editor handle it"
   await expect(trigger).toBeFocused();
 });
 
-test.describe("mobile chrome remains unchanged", () => {
+test.describe("mobile chrome", () => {
   test.use({
     viewport: { width: 390, height: 844 },
     isMobile: true,
     hasTouch: true,
   });
-  test("keeps the sliding bars and bookmark ribbon", async ({
+  test("slides both bars away and shows no bookmark ribbon", async ({
     page,
     localBook,
   }, testInfo) => {
@@ -190,29 +182,30 @@ test.describe("mobile chrome remains unchanged", () => {
     await expect(back).toBeVisible();
     await expect(back).toHaveCSS("border-width", "1px");
     await expect(
-      header.locator('header > [class*="bg-border/70"]'),
+      header.locator(':scope > [class*="bg-border/70"]'),
     ).toHaveCount(1);
-    const bookmark = page.getByRole("button", {
-      name: "Add bookmark",
-      exact: true,
-    });
-    await expect(bookmark).toHaveCSS("height", "52px");
-    await expect(bookmark.locator("svg polygon")).toHaveCount(1);
+    await expect(page.getByRole("button", { name: /bookmark/i })).toHaveCount(
+      0,
+    );
     await expect(
       page.getByRole("button", { name: "Toggle sidebar", exact: true }),
     ).toHaveCount(0);
-    await bookmark.click();
+    // Back and Tools sit at matching insets, so the title stays centred.
+    const backBounds = (await back.boundingBox())!;
+    const toolsBounds = (await page
+      .getByRole("button", { name: "Open reader tools", exact: true })
+      .boundingBox())!;
+    expect(toolsBounds.y).toBe(backBounds.y);
+    expect(390 - toolsBounds.x - toolsBounds.width).toBe(backBounds.x);
+    await page.screenshot({
+      path: testInfo.outputPath("mobile-chrome-visible.png"),
+    });
     await page.touchscreen.tap(195, 350);
-    await expect(header).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, -80)");
+    await expect(header).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, -56)");
     await expect(page.locator("[data-reader-footer]")).not.toHaveCSS(
       "transform",
       "none",
     );
-    await expect(
-      page.getByRole("button", { name: "Remove bookmark", exact: true }),
-    ).toBeInViewport();
-    await page.screenshot({
-      path: testInfo.outputPath("mobile-bookmark-ribbon.png"),
-    });
+    await expect(header).not.toBeInViewport();
   });
 });
