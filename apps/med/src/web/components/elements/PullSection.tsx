@@ -45,6 +45,8 @@ function OpeningDemo() {
             kind: "review",
             reviewId: saved,
             title: pullTitle(DEMO_PULL_URL, known),
+            // Its menu can close it and remove the worktree.
+            ...(known.worktree ? { worktree: known.worktree } : {}),
             ...(run.agent
               ? { sessions: [{ agent: "claude" as const, id: "s", cwd: known.worktree ?? "" }] }
               : {}),
@@ -132,7 +134,7 @@ export function PullSection() {
     >
       <Specimen
         title="Opening a pull request"
-        note="The real workspace row and progress, with a scripted host. New workspace… opens the picker with a link pasted."
+        note="The real workspace row and progress, with a scripted host. New workspace… opens the picker with a link pasted. Right-click the saved review for Close and remove worktree; here Git keeps the worktree, as it keeps one with changed files."
         padded={false}
         zoomable={false}
       >

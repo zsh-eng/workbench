@@ -132,6 +132,12 @@ The workspace then becomes the review. The same link again uses the same
 worktree and review; a new head adds an iteration. A failed step says why, with
 **Retry**. A repository that Med does not know fails at step 1: add it first.
 
+To finish, right-click the workspace and choose **Close and remove worktree**.
+This works for any workspace in a linked worktree. Med runs
+`git worktree remove` without `--force`, so Git keeps a worktree with changed or
+untracked files, and the row says why. Med also keeps it while an agent works
+there, or when its detached commit is on no branch. The branch stays.
+
 Run `med pr checkout 333` inside a repository. Med runs `gh pr checkout 333`,
 fetches the pull request's base branch, and opens a saved review of the pull
 request: its merge base with the base branch, compared with its head. The review
@@ -155,6 +161,23 @@ comments. Med reads them with `gh`; it never posts, replies, or resolves.
 - **Updates.** Med reads again when its window gets focus, at most every 30
   seconds. The refresh button in the panel reads at once. **Hide comments**
   hides both kinds.
+
+### Codex reviews
+
+A saved review also shows the findings of Codex reviews in its checkouts: run
+`codex review --base main` in the review's worktree, or `/review` in a Codex
+session there. Med reads Codex's session files in `~/.codex/sessions`; it does
+not run Codex or change its files. It lists reviews of a commit that the review
+shows, and reviews that ran after the review was saved.
+
+- **In the diff.** When the comparison shows the commit that Codex reviewed,
+  each finding shows at its last line, with the Codex mark and its priority,
+  such as **P1**.
+- **Panel.** The Codex count beside the title opens each review's verdict and
+  explanation, and the findings that the diff cannot show. Copy a review's
+  `codex resume` command there to answer in the Codex session.
+- **To an agent.** **Add to message** puts a finding, or all of a review's
+  findings, in the next message to the review's agent.
 
 ### Saved agent reviews
 

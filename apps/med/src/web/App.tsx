@@ -60,16 +60,21 @@ import { FilePicker } from "./components/FilePicker";
 import { SymbolPicker } from "./components/SymbolPicker";
 import { FullFileView, type BeginFileSymbolPreview } from "./components/FullFileView";
 import { FileViewTabs } from "./components/FileViewTabs";
+import { checkoutNameFor } from "./data/checkout-names";
 import { readBrowserToken } from "./data/auth";
 import { createApi } from "./data/api";
 import { createCommitApi, type CommitApi } from "./data/commit";
 import {
   PullRequestThreadCard,
   AgentReplyContext,
+  CodexFindingCard,
   type AgentReplyTarget,
+  type FindingPlacement,
+  useCodexReviews,
   usePullRequestComments,
   type ThreadPlacement,
 } from "./components/PullRequestComments";
+import type { CodexFinding, CodexReviewRun } from "../shared/codex-review";
 import { SavedReviewHeader } from "./components/SavedReviewHeader";
 import { ShortcutGuide } from "./components/ShortcutGuide";
 import { ZenExit, ZenHint } from "./components/ZenExit";
@@ -118,7 +123,12 @@ const NO_SESSIONS: AgentSession[] = [];
 // Pierre's view renders its file headers and comments again whenever it renders.
 const ReviewCodeView = memo(CodeView) as typeof CodeView;
 
-type Annotation = { note?: Note; draft?: NoteTarget; thread?: PullRequestThread };
+type Annotation = {
+  note?: Note;
+  draft?: NoteTarget;
+  thread?: PullRequestThread;
+  finding?: { finding: CodexFinding; run: CodexReviewRun };
+};
 type Selection = {
   id: string;
   range: {
@@ -799,6 +809,47 @@ export function App({
     }
     return { byPath, placement: inline };
   }, [pullRequest.data, state.savedView, savedTarget, files]);
+  const codexReviews = useCodexReviews(
+    useCallback(() => controller.loadCodexReviews(), [controller]),
+    state.savedReview?.id ?? null,
+  );
+  // Codex finding lines refer to the commit that Codex reviewed, as GitHub
+  // thread lines refer to the pull request's head.
+  const codexFindings = useMemo(() => {
+    const byPath = new Map<string, { finding: CodexFinding; run: CodexReviewRun }[]>();
+    const inline = new Set<string>();
+    const reasons = new Map<string, string>();
+    for (const run of codexReviews.runs ?? []) {
+      const head = run.commit
+        ? `Lines refer to ${run.commit.slice(0, 7)}, the commit that Codex reviewed.`
+        : "Codex did not record the commit it reviewed, so they are listed here.";
+      if (!run.commit) reasons.set(run.id, head);
+      else if (!state.savedView || !savedTarget)
+        reasons.set(run.id, `${head} Return to the saved review to see them in the diff.`);
+      else if (
+        savedTarget.repo !== run.repo ||
+        savedTarget.captured ||
+        savedTarget.head !== run.commit
+      )
+        reasons.set(
+          run.id,
+          `${head} This comparison shows ${savedTarget.repo !== run.repo ? "another checkout" : savedTarget.captured ? "captured working changes" : savedTarget.head.slice(0, 7)}, so they are listed here.`,
+        );
+      else
+        for (const finding of run.findings) {
+          const metadata = files.find((file) => file.path === finding.path)?.metadata;
+          const shown = metadata?.hunks.some(
+            (hunk) =>
+              finding.endLine >= hunk.additionStart &&
+              finding.endLine < hunk.additionStart + hunk.additionCount,
+          );
+          if (!shown) continue;
+          inline.add(finding.id);
+          byPath.set(finding.path, [...(byPath.get(finding.path) ?? []), { finding, run }]);
+        }
+    }
+    return { byPath, placement: { inline, reasons } satisfies FindingPlacement };
+  }, [codexReviews.runs, state.savedView, savedTarget, files]);
   const submitted = pendingDraft;
   // The controller publishes the saved note before its save promise completes.
   // Replace that draft in the same render so the diff never reserves two cards.
@@ -1159,6 +1210,8 @@ export function App({
     [...collapsed],
     pullRequest.threadsRevision,
     pullRequestThreads.placement.kind === "inline" ? [...pullRequestThreads.placement.ids] : [],
+    codexReviews.revision,
+    [...codexFindings.placement.inline],
   ]);
   const [itemVersion, setItemVersion] = useState({ key: itemKey, files, notes, value: 0 });
   let currentVersion = itemVersion.value;
@@ -1177,6 +1230,13 @@ export function App({
                 side: thread.side === "old" ? "deletions" : "additions",
                 lineNumber: thread.line!,
                 metadata: { thread },
+              }),
+            ),
+            ...(codexFindings.byPath.get(file.path) ?? []).map(
+              (finding): DiffLineAnnotation<Annotation> => ({
+                side: "additions",
+                lineNumber: finding.finding.endLine,
+                metadata: { finding },
               }),
             ),
             ...notes
@@ -1211,7 +1271,16 @@ export function App({
         },
       ];
     });
-  }, [files, notes, showNotes, visibleDraft, collapsed, currentVersion, pullRequestThreads]);
+  }, [
+    files,
+    notes,
+    showNotes,
+    visibleDraft,
+    collapsed,
+    currentVersion,
+    pullRequestThreads,
+    codexFindings,
+  ]);
 
   useEffect(() => {
     diagnostics.record("comparison", {
@@ -1820,6 +1889,10 @@ export function App({
   const workspaceId = workspace?.id;
   const reportTitle = state.savedReview?.title ?? branches.current?.label ?? state.activeBranch;
   const reportPath = state.session?.repository.path;
+  // A linked worktree, so closing the workspace can remove it.
+  const reportWorktree = state.session?.worktrees.find((entry) => entry.path === reportPath)?.linked
+    ? reportPath
+    : undefined;
   const reportRepository = state.session?.repository.name;
   const reportReady = state.status === "ready";
   const reportCount = state.files.length;
@@ -1838,6 +1911,7 @@ export function App({
         repositoryId: undefined,
         branch: undefined,
         detail: undefined,
+        worktree: undefined,
       });
     reportTo(workspaceId, {
       ...(reportTitle ? { title: reportTitle } : {}),
@@ -1845,6 +1919,7 @@ export function App({
       ...(reportReady ? { detail: reportCount ? String(reportCount) : undefined } : {}),
       ...(reportPath
         ? {
+            worktree: reportWorktree,
             path: reportPath,
             repository: reportRepository,
             repositoryId: state.activeRepositoryId ?? undefined,
@@ -1861,6 +1936,7 @@ export function App({
     reportReady,
     reportCount,
     reportPath,
+    reportWorktree,
     reportRepository,
     state.activeRepositoryId,
     state.activeBranch,
@@ -2736,6 +2812,11 @@ export function App({
         />
       ) : annotation.metadata?.thread ? (
         <PullRequestThreadCard thread={annotation.metadata.thread} />
+      ) : annotation.metadata?.finding ? (
+        <CodexFindingCard
+          finding={annotation.metadata.finding.finding}
+          run={annotation.metadata.finding.run}
+        />
       ) : annotation.metadata?.note ? (
         <NoteCard
           note={annotation.metadata.note}
@@ -2834,6 +2915,7 @@ export function App({
         tabs={fileState.tabs.map((tab) => ({
           ...tab,
           sourcePath: tab.source.repo,
+          sourceName: checkoutNameFor(state.repositories, tab.source.repo),
           dirty: !!editorDrafts.get(JSON.stringify([tab.source, tab.path]))?.dirty,
         }))}
         active={fileState.active}
@@ -3082,7 +3164,7 @@ export function App({
           initialMode={pickerMode}
           initialQuery={pickerQuery}
           resume={pickerResume}
-          onOpen={(path, line, source, keep) =>
+          onOpen={(path, line, source, keep, label) =>
             fileWorkspace.open(
               path,
               keep,
@@ -3090,7 +3172,7 @@ export function App({
               source,
               source?.kind === "commit"
                 ? `Commit ${source.oid.slice(0, 8)}`
-                : (source?.repo ?? sourceLabel),
+                : (label ?? sourceLabel),
             )
           }
         />
@@ -3116,7 +3198,10 @@ export function App({
               {/* The tab row holds the identity while the sidebar is hidden. */}
               <div {...stylex.props(styles.sidebarHeader)}>{leftVisible && identity}</div>
               {workspace && (
-                <WorkspaceList onNew={gitAvailable ? () => openBranchPicker(true) : undefined} />
+                <WorkspaceList
+                  onNew={gitAvailable ? () => openBranchPicker(true) : undefined}
+                  repositories={state.repositories}
+                />
               )}
               {gitAvailable && (
                 <HistoryPanel
@@ -3202,6 +3287,8 @@ export function App({
                 state={state}
                 pullRequest={pullRequest}
                 threadPlacement={pullRequestThreads.placement}
+                codexReviews={codexReviews}
+                findingPlacement={codexFindings.placement}
                 sendTo={
                   replyAgent
                     ? {

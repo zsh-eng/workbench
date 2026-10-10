@@ -7,6 +7,7 @@ import { tokens } from "../theme.stylex";
 import type { BranchEntry } from "./BranchPicker";
 import { Icon } from "./Icon";
 import { distinctLabels } from "../data/tab-labels";
+import { checkoutName, repositoryLocation } from "../data/checkout-names";
 
 export interface BranchTabsOptions {
   repositories: RegisteredRepository[];
@@ -44,6 +45,12 @@ export function useBranchTabs({
           label: branch.name,
           branch: branch.name,
           path: branch.worktreePath,
+          checkout: branch.worktreePath
+            ? checkoutName(
+                repository.name,
+                repositoryLocation(repository.path, branch.worktreePath),
+              )
+            : undefined,
           head: branch.head,
           run: () => onBranch(branch.name, repository.id),
         })),
@@ -54,6 +61,7 @@ export function useBranchTabs({
             repositoryId: repository.id,
             label: `Detached · ${tree.head.slice(0, 7)}`,
             path: tree.path,
+            checkout: checkoutName(repository.name, repositoryLocation(repository.path, tree.path)),
             head: tree.head,
             run: () => onWorktree(tree.path, repository.id),
           })),
@@ -158,7 +166,7 @@ export function BranchStrip({ model }: { model: BranchTabsModel }) {
               <ActionTooltip
                 label={
                   entry.path
-                    ? `${entry.label}\nWorktree: ${entry.path}`
+                    ? `${entry.label}\nWorktree: ${entry.checkout}`
                     : `${entry.label}\nCommit ${entry.head.slice(0, 7)} · no worktree`
                 }
               >

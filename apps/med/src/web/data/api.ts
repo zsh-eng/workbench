@@ -7,6 +7,7 @@ const worktreeSchema = z.object({
   head: z.string(),
   branch: z.string(),
   bare: z.boolean().optional(),
+  linked: z.boolean().optional(),
 });
 export const branchesSchema = z.array(
   z.object({

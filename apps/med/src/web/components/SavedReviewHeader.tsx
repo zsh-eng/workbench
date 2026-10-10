@@ -3,9 +3,13 @@ import { Popover } from "@base-ui/react/popover";
 import * as stylex from "@stylexjs/stylex";
 import type { ReviewController, ReviewControllerSnapshot } from "../data/controller";
 import { tokens, ui } from "../theme.stylex";
+import { checkoutNameFor } from "../data/checkout-names";
 import { Icon, type IconName } from "./Icon";
 import {
+  CodexReviewPanel,
   PullRequestPanel,
+  type CodexReviewState,
+  type FindingPlacement,
   type PullRequestState,
   type ThreadPlacement,
 } from "./PullRequestComments";
@@ -17,6 +21,8 @@ export function SavedReviewHeader({
   browsingSourceLabel,
   pullRequest,
   threadPlacement,
+  codexReviews,
+  findingPlacement,
   onReturn,
   onTarget,
   sendTo,
@@ -28,6 +34,9 @@ export function SavedReviewHeader({
   /** GitHub comments, when the review has a pull request. */
   pullRequest?: PullRequestState;
   threadPlacement?: ThreadPlacement;
+  /** Codex reviews of the review's checkouts. */
+  codexReviews?: CodexReviewState;
+  findingPlacement?: FindingPlacement;
   browsing?: boolean;
   browsingSourceLabel?: string;
   onReturn(): void;
@@ -58,7 +67,7 @@ export function SavedReviewHeader({
     heading,
     ...(heading !== saved.title ? [`Workspace: ${saved.title}`] : []),
     `${saving} · ${new Date(saved.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`,
-    ...(target ? [target.repo] : []),
+    ...(target ? [checkoutNameFor(state.repositories, target.repo)] : []),
   ].join("\n");
   useEffect(() => {
     if (!notice || notice.error) return;
@@ -112,8 +121,14 @@ export function SavedReviewHeader({
       {saved.pullRequestUrl && pullRequest && threadPlacement && (
         <PullRequestPanel state={pullRequest} placement={threadPlacement} />
       )}
+      {codexReviews && findingPlacement && (codexReviews.runs?.length || codexReviews.error) && (
+        <CodexReviewPanel state={codexReviews} placement={findingPlacement} />
+      )}
       {target && saved.targets.length === 1 && (
-        <span title={target.repo} {...stylex.props(styles.comparison)}>
+        <span
+          title={checkoutNameFor(state.repositories, target.repo)}
+          {...stylex.props(styles.comparison)}
+        >
           {target.branch ?? "Detached HEAD"} · {target.label}
         </span>
       )}
