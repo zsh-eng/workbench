@@ -171,6 +171,14 @@ For a prediction:
   the view can still change size.
 - A render can come between a scroll and its scroll event. If the view moved
   since the anchor was saved, use the reader's new position.
+- Measure with rapid continuous scroll. The CDP command
+  `Input.synthesizeScrollGesture` scrolls on the compositor, as a trackpad
+  fling does. In a capture-phase scroll listener, before the list renders,
+  add up the part of the view that no rendered row covers. Record frame times
+  and long tasks as well.
+- Keep costly rows closed until the reader opens them. In Med, edits that show
+  only their file and line counts, as in Claude Desktop, removed all frames
+  over 33 ms and all empty views from a 30,000 px/s fling.
 
 ## A repeatable acceptance check
 
