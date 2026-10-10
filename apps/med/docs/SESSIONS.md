@@ -126,8 +126,13 @@ nothing.
   Subagent updates go into the thread of their call.
 - `components/session/SessionThread.tsx` renders the thread. Reads and
   searches in a row form one "Explored" group. Edits show Pierre diffs. The
-  view follows new items while the reader is at the bottom; only a move up
-  stops it. The Background and Tasks docks sit under the thread.
+  thread opens at its end. The view follows new items while the reader is at
+  the bottom; only the reader's move up (wheel, touch, keys, or the pointer)
+  stops it. A thread that gets shorter also moves the view up, and that move
+  does not stop it. While the view follows, browser scroll anchoring is off.
+  The Background and Tasks docks sit under the thread.
+- `data/sse.ts` parses the event streams. It finds line ends with `indexOf`,
+  because the first event of a long session holds megabytes.
 - `SessionMarkdown.tsx` renders replies in the brief's Markdown worker, with a
   separate cache of 200 results. A streaming reply has one render in flight;
   partial text is not cached.

@@ -89,7 +89,7 @@ test("scrolling up stops following, and Latest returns to the newest item", asyn
   await expect
     .poll(() => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight)
     .toBeLessThan(32);
-  scroller.scrollTop = 0;
+  await userEvent.wheel(scroller, { delta: { y: -100000 } });
   await userEvent.click(replay.getByRole("button", { name: "Latest" }));
   await expect.element(replay.getByRole("button", { name: "Latest" })).not.toBeInTheDocument();
   expect(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight).toBeLessThan(32);
@@ -130,7 +130,7 @@ test("a long thread keeps a window of units in the page and moves it as you scro
 
   // Toward the top, the window takes earlier units, up to 600, and leaves the newest out.
   for (let step = 0; step < 20 && units().at(-1)!.dataset.unit === "r699"; step++) {
-    scroller().scrollTop = 0;
+    await userEvent.wheel(scroller(), { delta: { y: -100000 } });
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   expect(units().at(-1)!.dataset.unit).not.toBe("r699");
@@ -185,7 +185,7 @@ test("a long thread renders each edit's diff once it comes near the view", async
   expect(diffs("pending")).toBe(80 - diffs("rendered"));
   expect(document.querySelector('[data-unit="edit-79"] [data-diff-pending]')).toBeNull();
 
-  scroller().scrollTop = 0;
+  await userEvent.wheel(scroller(), { delta: { y: -100000 } });
   await expect
     .poll(() => document.querySelector('[data-unit="edit-0"] figure:not([data-diff-pending])'))
     .not.toBeNull();
