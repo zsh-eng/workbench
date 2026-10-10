@@ -87,133 +87,136 @@ function FileUploadInitializer({ children }: { children: React.ReactNode }) {
 function App() {
   return (
     <MotionConfig reducedMotion="user">
-    <QueryClientProvider client={queryClient}>
-      <ReaderSettingsProvider>
-        <SyncProvider>
-          <FileUploadInitializer>
-            <AppRouter>
-              <EpubImportProvider>
-                <Routes>
-                  <Route element={<AppShell />}>
-                    <Route index element={<Library />} />
-                    <Route path="/reader/:bookId" element={<Reader />} />
-                    <Route path="/highlights" element={<HighlightsMasonry />} />
-                    <Route path="/devices" element={<Devices />} />
-                    <Route path="/settings" element={<Settings />} />
+      <QueryClientProvider client={queryClient}>
+        <ReaderSettingsProvider>
+          <SyncProvider>
+            <FileUploadInitializer>
+              <AppRouter>
+                <EpubImportProvider>
+                  <Routes>
+                    <Route element={<AppShell />}>
+                      <Route index element={<Library />} />
+                      <Route path="/reader/:bookId" element={<Reader />} />
+                      <Route
+                        path="/highlights"
+                        element={<HighlightsMasonry />}
+                      />
+                      <Route path="/devices" element={<Devices />} />
+                      <Route path="/settings" element={<Settings />} />
+                      <Route
+                        path="/reading-sessions"
+                        element={<ReadingSessions />}
+                      />
+                      <Route
+                        path="/reader-traces"
+                        element={
+                          <DebugGate>
+                            <ReaderTraceViewer />
+                          </DebugGate>
+                        }
+                      />
+                      <Route
+                        path="/sessions"
+                        element={<Navigate to="/devices" replace />}
+                      />
+                    </Route>
                     <Route
-                      path="/reading-sessions"
-                      element={<ReadingSessions />}
-                    />
-                    <Route
-                      path="/reader-traces"
+                      path="/debug/jump-history"
                       element={
                         <DebugGate>
-                          <ReaderTraceViewer />
+                          <ReaderJumpHistoryDebug />
                         </DebugGate>
                       }
                     />
                     <Route
-                      path="/sessions"
-                      element={<Navigate to="/devices" replace />}
+                      path="/debug/reader/:bookId"
+                      element={
+                        <DebugGate>
+                          <ReaderDebug />
+                        </DebugGate>
+                      }
                     />
-                  </Route>
-                  <Route
-                    path="/debug/jump-history"
-                    element={
-                      <DebugGate>
-                        <ReaderJumpHistoryDebug />
-                      </DebugGate>
-                    }
-                  />
-                  <Route
-                    path="/debug/reader/:bookId"
-                    element={
-                      <DebugGate>
-                        <ReaderDebug />
-                      </DebugGate>
-                    }
-                  />
-                  <Route
-                    path="/debug/chrome-accessories"
-                    element={
-                      <DebugGate>
-                        <Suspense
-                          fallback={
-                            <div className="p-8 text-sm text-muted-foreground">
-                              Loading preview…
-                            </div>
-                          }
-                        >
-                          <ReaderChromeDebug />
-                        </Suspense>
-                      </DebugGate>
-                    }
-                  />
-                  <Route
-                    path="/debug/notes-lab"
-                    element={
-                      <DebugGate>
-                        <Suspense
-                          fallback={
-                            <div className="p-8 text-sm text-muted-foreground">
-                              Loading Notes Lab…
-                            </div>
-                          }
-                        >
-                          <NotesLab />
-                        </Suspense>
-                      </DebugGate>
-                    }
-                  />
-                  <Route
-                    path="/debug/experiments"
-                    element={
-                      <DebugGate>
-                        <Suspense
-                          fallback={
-                            <div className="p-8 text-sm text-muted-foreground">
-                              Loading experiments…
-                            </div>
-                          }
-                        >
-                          <Experiments />
-                        </Suspense>
-                      </DebugGate>
-                    }
-                  />
-                  <Route
-                    path="/debug/experiments/system"
-                    element={
-                      <DebugGate>
-                        <Suspense
-                          fallback={
-                            <div className="p-8 text-sm text-muted-foreground">
-                              Loading prototype…
-                            </div>
-                          }
-                        >
-                          <SystemPage />
-                        </Suspense>
-                      </DebugGate>
-                    }
-                  />
-                  <Route
-                    path="/diagnostics/reader"
-                    element={
-                      <DebugGate>
-                        <ReaderDiagnostics />
-                      </DebugGate>
-                    }
-                  />
-                </Routes>
-                <Toaster position="top-right" />
-                {!getLabRuntime() && <ReloadPrompt />}
-              </EpubImportProvider>
-            </AppRouter>
-          </FileUploadInitializer>
-        </SyncProvider>
-      </ReaderSettingsProvider>
-    </QueryClientProvider>
+                    <Route
+                      path="/debug/chrome-accessories"
+                      element={
+                        <DebugGate>
+                          <Suspense
+                            fallback={
+                              <div className="p-8 text-sm text-muted-foreground">
+                                Loading preview…
+                              </div>
+                            }
+                          >
+                            <ReaderChromeDebug />
+                          </Suspense>
+                        </DebugGate>
+                      }
+                    />
+                    <Route
+                      path="/debug/notes-lab"
+                      element={
+                        <DebugGate>
+                          <Suspense
+                            fallback={
+                              <div className="p-8 text-sm text-muted-foreground">
+                                Loading Notes Lab…
+                              </div>
+                            }
+                          >
+                            <NotesLab />
+                          </Suspense>
+                        </DebugGate>
+                      }
+                    />
+                    <Route
+                      path="/debug/experiments"
+                      element={
+                        <DebugGate>
+                          <Suspense
+                            fallback={
+                              <div className="p-8 text-sm text-muted-foreground">
+                                Loading experiments…
+                              </div>
+                            }
+                          >
+                            <Experiments />
+                          </Suspense>
+                        </DebugGate>
+                      }
+                    />
+                    <Route
+                      path="/debug/experiments/system"
+                      element={
+                        <DebugGate>
+                          <Suspense
+                            fallback={
+                              <div className="p-8 text-sm text-muted-foreground">
+                                Loading prototype…
+                              </div>
+                            }
+                          >
+                            <SystemPage />
+                          </Suspense>
+                        </DebugGate>
+                      }
+                    />
+                    <Route
+                      path="/diagnostics/reader"
+                      element={
+                        <DebugGate>
+                          <ReaderDiagnostics />
+                        </DebugGate>
+                      }
+                    />
+                  </Routes>
+                  <Toaster position="top-center" />
+                  {!getLabRuntime() && <ReloadPrompt />}
+                </EpubImportProvider>
+              </AppRouter>
+            </FileUploadInitializer>
+          </SyncProvider>
+        </ReaderSettingsProvider>
+      </QueryClientProvider>
     </MotionConfig>
   );
 }

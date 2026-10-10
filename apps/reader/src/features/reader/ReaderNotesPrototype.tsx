@@ -43,6 +43,7 @@ import {
 import { ArrowUp, ArrowUpDown, Check, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { MOTION } from "@/lib/motion";
+import { UNDO_SECONDS } from "@/components/UndoToast";
 import {
   useLayoutEffect,
   useEffect,
@@ -230,7 +231,10 @@ export function ReaderNotesPrototype({
   );
   useEffect(() => {
     if (!notice) return;
-    const timer = setTimeout(() => setNotice(null), notice.undo ? 8000 : 1300);
+    const timer = setTimeout(
+      () => setNotice(null),
+      notice.undo ? UNDO_SECONDS * 1000 : 1300,
+    );
     return () => clearTimeout(timer);
   }, [notice]);
   const resolver = useMemo(

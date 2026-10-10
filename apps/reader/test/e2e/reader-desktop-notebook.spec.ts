@@ -383,6 +383,14 @@ test("a notebook highlight has the note menu: copy, delete, and Undo", async ({
   await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
   await expect(entry).toHaveCount(0);
   await expect(mark).toHaveCount(0);
+  // The countdown holds while the pointer rests on the toast.
+  const offer = page
+    .getByRole("status")
+    .filter({ hasText: "Highlight deleted" });
+  await offer.hover();
+  const held = await offer.innerText();
+  await page.waitForTimeout(1300);
+  expect(await offer.innerText()).toBe(held);
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await expect(entry).toHaveCount(1);
   await expect(mark.first()).toBeVisible();

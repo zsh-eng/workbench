@@ -1,6 +1,7 @@
 import { useCallback, useRef } from "react";
 import { useHotkey } from "@tanstack/react-hotkeys";
 import { toast } from "sonner";
+import { showUndoToast } from "@/components/UndoToast";
 
 /** A notebook entry: a note, or a highlight without a note. */
 export type NotebookEntryRef = { kind: "note" | "highlight"; id: string };
@@ -56,20 +57,10 @@ export function useNotebookDeletion({
       if (notify) deletion.dismiss = notify(undoDeletion);
       else {
         const noun = NOUN[entry.kind];
-        const toastId = toast(
-          `${noun[0].toUpperCase()}${noun.slice(1)} deleted`,
-          {
-            duration: 8000,
-            action: {
-              label: "Undo",
-              onClick: (event) => {
-                event.preventDefault();
-                undoDeletion();
-              },
-            },
-          },
-        );
-        deletion.dismiss = () => toast.dismiss(toastId);
+        deletion.dismiss = showUndoToast({
+          message: `${noun[0].toUpperCase()}${noun.slice(1)} deleted`,
+          onUndo: undoDeletion,
+        });
       }
       deletions.current.push(deletion);
       return true;
