@@ -483,13 +483,14 @@ command** on the workspace.
 ## Limits and evidence
 
 Syntax highlighting covers JavaScript/JSX, TypeScript/TSX, CSS, HTML, JSON/JSONC,
-Markdown, YAML, TOML, Bash, Go, Python, Rust, SQL, Svelte, diff, INI, HTTP,
-dotenv, shell sessions, Java, Gradle, C++, and XML. Twinkleplop supplies most
-grammars; Med's own grammars cover Java, C++, XML, and JSON/JSONC. Markdown code
-fences use the matching grammar. C, Zig, and other missing languages show as
-plain text. Colors can differ from Shiki: most grammars give token kinds or
-short scope stacks, not full TextMate scope stacks, so theme rules that match
-parent scopes can miss them.
+Markdown, YAML, TOML, Bash, Go, Python, Rust, Swift, SQL, Svelte, diff, INI,
+HTTP, dotenv, shell sessions, Java, Gradle, C++, and XML. Twinkleplop supplies
+most grammars; Med's own grammars cover Java, C++, XML, JSON/JSONC, Go, Rust,
+and Swift. Markdown code fences use the matching grammar. C, Zig, and other
+missing languages show as plain text. Colors can differ from Shiki: most
+grammars give token kinds or short scope stacks, not full TextMate scope stacks,
+so theme rules that match parent scopes can miss them. Go, Rust, and Swift give
+Shiki's full scope stacks.
 
 Images render in before/after diff cards, and the file viewer plays
 browser-supported videos. Other binary files and unsupported encodings show

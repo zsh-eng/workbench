@@ -20,10 +20,11 @@ const loaders = {
   yaml: () => import("@twinkleplop/yaml"),
   toml: () => import("@twinkleplop/toml"),
   bash: () => import("@twinkleplop/bash"),
-  go: () => import("@twinkleplop/go"),
+  go: () => import("./languages/go"),
   python: () => import("@twinkleplop/python"),
-  rust: () => import("@twinkleplop/rust"),
+  rust: () => import("./languages/rust"),
   sql: () => import("@twinkleplop/sql"),
+  swift: () => import("./languages/swift"),
   svelte: () => import("@twinkleplop/svelte"),
   diff: () => import("@twinkleplop/diff"),
   ini: () => import("@twinkleplop/ini"),
@@ -76,6 +77,9 @@ const scopeOverrides: Partial<Record<Language, Record<string, string>>> = {
 const rootScopes: Partial<Record<Language, string>> = {
   json: "source.json",
   jsonc: "source.json.comments",
+  go: "source.go",
+  rust: "source.rust",
+  swift: "source.swift",
 };
 const tokenizers = new Map<Language, (source: string) => TokenizeResult>();
 const pending = new Map<Language, Promise<void>>();

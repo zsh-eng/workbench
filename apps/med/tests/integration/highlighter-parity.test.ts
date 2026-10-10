@@ -2,6 +2,7 @@ import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { createHighlighter } from "shiki";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
+import { createOnigurumaEngine } from "shiki/engine/oniguruma";
 import {
   renderDiffWithHighlighter,
   renderFileWithHighlighter,
@@ -21,19 +22,31 @@ import {
 } from "../../helpers/highlighting/parity";
 
 import { compactFile, expandCompactFile } from "../../src/web/highlighting/compact-file";
+import { ensureLanguages, tokenize } from "../../src/web/highlighting/languages";
 
 let reference: Awaited<ReturnType<typeof createHighlighter>>;
+let oniguruma: Awaited<ReturnType<typeof createHighlighter>>;
 let actual: Awaited<ReturnType<typeof twinkleplop>>;
+// Go, Rust, and Swift follow Shiki's Oniguruma engine. Its JavaScript engine
+// misses Swift's trailing `//` comments and fails on some Go files.
+const onigurumaLanguages = new Set(["go", "rs", "swift"]);
+const oracle = (lang: string) => (onigurumaLanguages.has(lang) ? oniguruma : reference);
 beforeAll(async () => {
   reference = await createHighlighter({
     themes: ["github-light", "github-dark", diagnosticTheme],
     langs: ["java", "cpp", "json", "jsonc", "css"],
     engine: createJavaScriptRegexEngine(),
   });
+  oniguruma = await createHighlighter({
+    themes: ["github-light", "github-dark", diagnosticTheme],
+    langs: ["go", "rust", "swift"],
+    engine: createOnigurumaEngine(import("shiki/wasm")),
+  });
   actual = await twinkleplop(themeNames.map((n) => reference.getTheme(n)));
 });
 afterAll(() => {
   reference?.dispose();
+  oniguruma?.dispose();
   actual?.dispose();
 });
 const fixtures = [
@@ -46,6 +59,12 @@ const fixtures = [
   "json.json",
   "json-edge.json",
   "jsonc.jsonc",
+  "go.go",
+  "go-edge.go",
+  "rust.rs",
+  "rust-edge.rs",
+  "swift.swift",
+  "swift-edge.swift",
 ];
 const languageOf = (name: string) => name.slice(name.lastIndexOf(".") + 1);
 function compare(
@@ -122,7 +141,7 @@ describe("In-house grammars through production language loading, adapter, and Pi
           const text = source.replaceAll("\n", ending);
           expect(
             compare(
-              renderFile(text, lang, theme, reference).code,
+              renderFile(text, lang, theme, oracle(lang)).code,
               renderFile(text, lang, theme, actual).code,
               theme,
             ),
@@ -187,7 +206,7 @@ describe("In-house grammars through production language loading, adapter, and Pi
       compare(a.code, renderFile(source + "x", "cpp", "github-dark", actual).code, "github-dark"),
     ).toThrow("source text");
   });
-  it.each(["java", "cpp", "json", "jsonc"])(
+  it.each(["java", "cpp", "json", "jsonc", "go", "rs", "swift"])(
     "keeps partial edits, Unicode, and long lines intact for %s",
     (lang) => {
       for (const source of [
@@ -210,25 +229,57 @@ describe("In-house grammars through production language loading, adapter, and Pi
 
 describe("Theme selectors with parent and root scopes", () => {
   // Pierre passes each theme to the adapter as loaded. Shiki normalizes it.
+  // Gruvbox and Nord select Go and Rust tokens by the grammar's root scope.
   it.each([
     ["json-edge.json", "pierre-dark"],
     ["jsonc.jsonc", "pierre-light"],
+    ["go.go", "tokyo-night"],
+    ["go.go", "gruvbox-dark-medium"],
+    ["rust.rs", "nord"],
+    ["swift.swift", "vitesse-dark"],
   ])("colors %s in %s as Shiki does", async (name, themeName) => {
     const lang = languageOf(name);
     const theme = await resolveTheme(themeName);
-    await reference.loadTheme(theme);
+    await oracle(lang).loadTheme(theme);
     actual.loadThemeSync(theme);
     const source = readFileSync(
       new URL(`../fixtures/highlighting/${name}`, import.meta.url),
       "utf8",
     );
-    const { fg, bg } = reference.getTheme(themeName);
+    const { fg, bg } = oracle(lang).getTheme(themeName);
     expect(
       compareRuns(
-        normalizedRuns(renderFile(source, lang, themeName, reference).code, fg, bg),
+        normalizedRuns(renderFile(source, lang, themeName, oracle(lang)).code, fg, bg),
         normalizedRuns(renderFile(source, lang, themeName, actual).code, fg, bg),
       ),
     ).toEqual([]);
+  });
+});
+
+describe("In-house scanners on long single lines", () => {
+  // Each line made some rule rescan the rest of the line from every token, or
+  // loop at the nesting limit. Linear scanning takes a few milliseconds.
+  it.each([
+    [
+      "go",
+      [
+        "a, ".repeat(40000),
+        "x = a" + ".a".repeat(60000),
+        "x = " + "*".repeat(120000),
+        "a[".repeat(60000),
+        "switch...".repeat(15000),
+        "if " + "a<".repeat(60000),
+      ],
+    ],
+    ["rust", ["/*".repeat(60000), "a::<".repeat(30000)]],
+    ["swift", ["#".repeat(120000), "{\n" + "\\(".repeat(60000), "let x = " + "##".repeat(60000)]],
+  ] as const)("tokenizes adversarial %s lines in linear time", async (lang, lines) => {
+    await ensureLanguages([lang]);
+    for (const line of lines) {
+      const start = performance.now();
+      expect(tokenize(line, lang)).toBeDefined();
+      expect(performance.now() - start, `${line.slice(0, 12)}`).toBeLessThan(1000);
+    }
   });
 });
 
