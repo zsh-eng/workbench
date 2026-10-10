@@ -293,6 +293,8 @@ export async function showNotesCapsule(page: Page): Promise<void> {
   const capsule = page.locator("[data-notes-capsule]");
   // A notice from the previous action owns the bottom edge for a moment.
   await expect(page.locator("[data-notes-island]")).toHaveCount(0);
+  // A footer that is sliding away still shows its capsule.
+  await expect(page.locator("[data-reader-footer-leaving]")).toHaveCount(0);
   if (!(await capsule.isVisible())) {
     const spread = (await page
       .locator('[data-reader-spread-layer="current"]')

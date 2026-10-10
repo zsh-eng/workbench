@@ -1,7 +1,7 @@
 import type { ReaderChromeSurfaceProps } from "@/features/reader/chrome";
 import { MOTION } from "@/lib/motion";
 import type { ChapterEntry } from "@/features/reader/types";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, useIsPresent } from "motion/react";
 import { useCallback, useState, type ReactNode } from "react";
 import { FooterChapterRow } from "./FooterChapterRow";
 import { FooterScrubberLoading } from "./FooterLoadingState";
@@ -126,139 +126,156 @@ export function ReaderFooter({
             paddingBottom: "max(env(safe-area-inset-bottom), 0.75rem)",
           }}
         >
-          {noteAccessory && (
-            <div
-              // A capsule action stops a scrubber fling before it opens notes.
-              onClickCapture={interruptScrubberMomentum}
-              className="pointer-events-none absolute inset-x-0 bottom-[calc(100%+0.5rem)] flex flex-col"
-            >
-              {noteAccessory}
-            </div>
-          )}
+          <LeavingInert>
+            {noteAccessory && (
+              <div
+                // A capsule action stops a scrubber fling before it opens notes.
+                onClickCapture={interruptScrubberMomentum}
+                className="pointer-events-none absolute inset-x-0 bottom-[calc(100%+0.5rem)] flex flex-col"
+              >
+                {noteAccessory}
+              </div>
+            )}
 
-          <div className="mx-auto flex max-w-7xl flex-col px-3 pt-1 sm:px-4">
-            <FooterChapterRow
-              currentChapterIndex={currentChapterIndex}
-              displayChapterIndex={displayChapterIndex}
-              chapterEntries={chapterEntries}
-              detailCurrentChapterIndex={detailCurrentChapterIndex}
-              currentChapterEndIndex={currentChapterEndIndex}
-              detailCurrentChapterEndIndex={detailCurrentChapterEndIndex}
-              chapterStartPages={detailChapterStartPages}
-              showPageNumbers={showPageNumbers}
-              currentPage={detailCurrentPage}
-              totalPages={detailTotalPages}
-              onGoToChapter={handleGoToChapter}
-              onPrevChapter={handlePrevChapter}
-              onOpenContents={onOpenContents}
-              isContentsOpen={isContentsOpen}
-              isLoading={isLoading}
-              preserveDetailsWhileLoading={preserveDetailsWhileLoading}
-              animateReadyDetails={animateReadyTransition}
-            />
-            <div className="px-1">
-              <div className="relative h-14">
-                <AnimatePresence>
-                  {isLoading ? (
-                    <motion.div
-                      key="loading"
-                      className="absolute inset-0"
-                      initial={
-                        animateLoadingTransition
-                          ? { opacity: 0, filter: "blur(6px)" }
-                          : false
-                      }
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0, filter: "blur(6px)" }}
-                      transition={
-                        animateLoadingTransition
-                          ? { duration: 0.22, ease: [0.22, 1, 0.36, 1] }
-                          : undefined
-                      }
-                    >
-                      <FooterScrubberLoading />
-                    </motion.div>
-                  ) : (
-                    <motion.div
-                      key="ready"
-                      className="absolute inset-0"
-                      initial={
-                        animateReadyTransition
-                          ? {
-                              opacity: 0,
-                              filter: "blur(8px)",
-                              clipPath: "inset(0 50% 0 50%)",
-                            }
-                          : false
-                      }
-                      animate={{
-                        opacity: 1,
-                        filter: "blur(0px)",
-                        clipPath: "inset(0 0% 0 0%)",
-                      }}
-                      exit={{ opacity: 0, filter: "blur(4px)" }}
-                      transition={
-                        animateReadyTransition
-                          ? {
-                              opacity: {
-                                duration: 0.22,
-                                ease: [0.22, 1, 0.36, 1],
-                              },
-                              filter: {
-                                duration: 0.22,
-                                ease: [0.22, 1, 0.36, 1],
-                              },
-                              clipPath: {
-                                duration: 0.46,
-                                ease: [0.22, 1, 0.36, 1],
-                              },
-                            }
-                          : undefined
-                      }
-                    >
+            <div className="mx-auto flex max-w-7xl flex-col px-3 pt-1 sm:px-4">
+              <FooterChapterRow
+                currentChapterIndex={currentChapterIndex}
+                displayChapterIndex={displayChapterIndex}
+                chapterEntries={chapterEntries}
+                detailCurrentChapterIndex={detailCurrentChapterIndex}
+                currentChapterEndIndex={currentChapterEndIndex}
+                detailCurrentChapterEndIndex={detailCurrentChapterEndIndex}
+                chapterStartPages={detailChapterStartPages}
+                showPageNumbers={showPageNumbers}
+                currentPage={detailCurrentPage}
+                totalPages={detailTotalPages}
+                onGoToChapter={handleGoToChapter}
+                onPrevChapter={handlePrevChapter}
+                onOpenContents={onOpenContents}
+                isContentsOpen={isContentsOpen}
+                isLoading={isLoading}
+                preserveDetailsWhileLoading={preserveDetailsWhileLoading}
+                animateReadyDetails={animateReadyTransition}
+              />
+              <div className="px-1">
+                <div className="relative h-14">
+                  <AnimatePresence>
+                    {isLoading ? (
                       <motion.div
+                        key="loading"
+                        className="absolute inset-0"
                         initial={
-                          animateReadyTransition ? { opacity: 0.72 } : false
+                          animateLoadingTransition
+                            ? { opacity: 0, filter: "blur(6px)" }
+                            : false
                         }
                         animate={{ opacity: 1 }}
+                        exit={{ opacity: 0, filter: "blur(6px)" }}
                         transition={
-                          animateReadyTransition
-                            ? { duration: 0.18 }
+                          animateLoadingTransition
+                            ? { duration: 0.22, ease: [0.22, 1, 0.36, 1] }
                             : undefined
                         }
                       >
-                        <FooterScrubberCanvas
-                          pageStep={pageStep}
-                          currentPage={currentPage}
-                          totalPages={totalPages}
-                          chapterStartPages={chapterStartPages}
-                          onScrubCommit={onScrubCommit}
-                          onScrubPreview={onScrubPreview}
-                          cancelMomentumSignal={cancelMomentumSignal}
-                        />
+                        <FooterScrubberLoading />
                       </motion.div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                    ) : (
+                      <motion.div
+                        key="ready"
+                        className="absolute inset-0"
+                        initial={
+                          animateReadyTransition
+                            ? {
+                                opacity: 0,
+                                filter: "blur(8px)",
+                                clipPath: "inset(0 50% 0 50%)",
+                              }
+                            : false
+                        }
+                        animate={{
+                          opacity: 1,
+                          filter: "blur(0px)",
+                          clipPath: "inset(0 0% 0 0%)",
+                        }}
+                        exit={{ opacity: 0, filter: "blur(4px)" }}
+                        transition={
+                          animateReadyTransition
+                            ? {
+                                opacity: {
+                                  duration: 0.22,
+                                  ease: [0.22, 1, 0.36, 1],
+                                },
+                                filter: {
+                                  duration: 0.22,
+                                  ease: [0.22, 1, 0.36, 1],
+                                },
+                                clipPath: {
+                                  duration: 0.46,
+                                  ease: [0.22, 1, 0.36, 1],
+                                },
+                              }
+                            : undefined
+                        }
+                      >
+                        <motion.div
+                          initial={
+                            animateReadyTransition ? { opacity: 0.72 } : false
+                          }
+                          animate={{ opacity: 1 }}
+                          transition={
+                            animateReadyTransition
+                              ? { duration: 0.18 }
+                              : undefined
+                          }
+                        >
+                          <FooterScrubberCanvas
+                            pageStep={pageStep}
+                            currentPage={currentPage}
+                            totalPages={totalPages}
+                            chapterStartPages={chapterStartPages}
+                            onScrubCommit={onScrubCommit}
+                            onScrubPreview={onScrubPreview}
+                            cancelMomentumSignal={cancelMomentumSignal}
+                          />
+                        </motion.div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
+              <div className="relative">
+                {showPageNumbers && !isLoading && pageIndicator ? (
+                  pageIndicator
+                ) : (
+                  <FooterPageIndicator
+                    showPageNumbers={showPageNumbers}
+                    currentPage={detailCurrentPage}
+                    totalPages={detailTotalPages}
+                    isLoading={isLoading}
+                    preserveDetailsWhileLoading={preserveDetailsWhileLoading}
+                    animateReadyDetails={animateReadyTransition}
+                  />
+                )}
               </div>
             </div>
-            <div className="relative">
-              {showPageNumbers && !isLoading && pageIndicator ? (
-                pageIndicator
-              ) : (
-                <FooterPageIndicator
-                  showPageNumbers={showPageNumbers}
-                  currentPage={detailCurrentPage}
-                  totalPages={detailTotalPages}
-                  isLoading={isLoading}
-                  preserveDetailsWhileLoading={preserveDetailsWhileLoading}
-                  animateReadyDetails={animateReadyTransition}
-                />
-              )}
-            </div>
-          </div>
+          </LeavingInert>
         </motion.div>
       )}
     </AnimatePresence>
+  );
+}
+
+/** A footer that is sliding away still shows, but takes no input: hidden
+ * chrome is not a target. The mark lets tests wait for the exit to end. */
+function LeavingInert({ children }: { children: ReactNode }) {
+  const present = useIsPresent();
+  return (
+    <div
+      inert={!present}
+      data-reader-footer-leaving={present ? undefined : ""}
+      className="contents"
+    >
+      {children}
+    </div>
   );
 }
