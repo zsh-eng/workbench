@@ -87,6 +87,9 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   const request = new Request(input, init);
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/")) return realFetch(input, init);
+  // Without the shared live stream, each event stream is direct, and the
+  // recording keeps each one by its path.
+  if (url.pathname === "/api/live") return new Response(null, { status: 404 });
   const body = typeof init?.body === "string" ? init.body : undefined;
   const path = url.pathname + url.search;
   const entry =
@@ -158,17 +161,57 @@ if (parent !== window) {
     },
     { capture: true, passive: false },
   );
+  // While its window is out of view, the demo's motion stops. A browser does
+  // not slow a frame of the same origin, and the work-in-progress shimmer
+  // paints on each frame.
+  const still = document.createElement("style");
+  still.textContent = "*, ::before, ::after { animation-play-state: paused !important }";
+  addEventListener("message", (event: MessageEvent<{ type?: string; visible?: boolean }>) => {
+    if (event.source !== parent || event.data?.type !== "med-demo") return;
+    if (event.data.visible === true) still.remove();
+    if (event.data.visible === false) document.head.append(still);
+  });
 }
 
 const dark = matchMedia("(prefers-color-scheme: dark)");
 const theme = () => (dark.matches ? "med-night" : "med-dawn");
-try {
-  for (const [name, value] of Object.entries(recording.storage)) localStorage.setItem(name, value);
-  localStorage.setItem("med:theme:v1", theme());
-} catch {
-  // Without storage the demo opens with Med's defaults.
+
+// The demos on a page share one origin, and so one storage: a scene's layout
+// would open in the next demo, and each write would reach the others as a
+// storage event. Each demo keeps its own storage, for as long as it runs.
+class MemoryStorage {
+  readonly #items = new Map<string, string>();
+  get length() {
+    return this.#items.size;
+  }
+  key(index: number) {
+    return [...this.#items.keys()][index] ?? null;
+  }
+  getItem(key: string) {
+    return this.#items.get(key) ?? null;
+  }
+  setItem(key: string, value: string) {
+    this.#items.set(key, String(value));
+  }
+  removeItem(key: string) {
+    this.#items.delete(key);
+  }
+  clear() {
+    this.#items.clear();
+  }
 }
+const storage = new MemoryStorage();
+for (const [name, value] of Object.entries(recording.storage)) storage.setItem(name, value);
+storage.setItem("med:theme:v1", theme());
+Object.defineProperty(window, "localStorage", { value: storage, configurable: true });
+Object.defineProperty(window, "sessionStorage", {
+  value: new MemoryStorage(),
+  configurable: true,
+});
 history.replaceState(null, "", recording.path);
+// A page can show several demos at once, so each one highlights in a single
+// worker: Med sizes its pool from the processor count.
+Object.defineProperty(navigator, "hardwareConcurrency", { value: 2 });
 await import("./main");
 const { themeController } = await import("./themes");
 dark.addEventListener("change", () => themeController.preview(theme()));
