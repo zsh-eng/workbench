@@ -125,11 +125,13 @@ nothing.
   only the items that it changes, so memoized rows do not render again.
   Subagent updates go into the thread of their call.
 - `components/session/SessionThread.tsx` renders the thread. Reads and
-  searches in a row form one "Explored" group. Edits show Pierre diffs. The
-  thread opens at its end. The view follows new items while the reader is at
-  the bottom; only the reader's move up (wheel, touch, keys, or the pointer)
-  stops it. A thread that gets shorter also moves the view up, and that move
-  does not stop it. The Background and Tasks docks sit under the thread.
+  searches in a row form one "Explored" group. An edit is a row with its file
+  and its added and removed lines; its Pierre diff renders when the reader
+  opens the row, as in Claude Desktop. The thread opens at its end. The view
+  follows new items while the reader is at the bottom; only the reader's move
+  up (wheel, touch, keys, or the pointer) stops it. A thread that gets shorter
+  also moves the view up, and that move does not stop it. The Background and
+  Tasks docks sit under the thread.
 - The thread is a virtual list. Only the units within 1,200 px of the view
   render; spacers hold the height of the others. A unit's height is its own
   from when it last rendered, or an estimate (`thread-heights.ts`). Browser
@@ -148,7 +150,8 @@ nothing.
   replies, rows, and tables are exact or within 1 px for 93 to 100% of units
   in four themes; the sum is within 0.4%. Open edits are the weak part: 66%
   are exact, because the estimate does not know Pierre's hunks and
-  separators.
+  separators. Edits are closed until the reader opens one, so this error
+  stays small.
 - Items without an ID take one from their kind and time, so they keep it
   when an earlier page builds the thread again.
 - Once the review is idle, the Session pane mounts hidden: the thread
@@ -209,8 +212,7 @@ work.
 
 - The sidebar shows sessions recorded with saved reviews. Branch workspaces
   have no session.
-- Nested subagent threads render whole inside their call. An edit's diff
-  renders when its row comes within two screens of the view.
+- Nested subagent threads render whole inside their call.
 - Estimates of open edits miss Pierre's hunk separators. A wrong estimate
   costs only a move of the units below it when the edit renders.
 - Not shown yet for attached sessions: context usage, permission requests

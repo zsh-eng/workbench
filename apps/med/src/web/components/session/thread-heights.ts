@@ -573,10 +573,10 @@ const CONSOLE_MAX_HEIGHT = 220;
 /** A console shows about a dozen lines; more text only scrolls. */
 const CONSOLE_TEXT = 4000;
 
-function toolHeight(item: ToolItem, m: ThreadMetrics, open: boolean | undefined) {
+function toolHeight(item: ToolItem, m: ThreadMetrics, open = false) {
   const { call } = item;
+  if (!open) return m.row;
   const diffs = call.content.filter((block) => block.type === "diff");
-  if (!(open ?? diffs.length > 0)) return m.row;
   const parts: number[] = [];
   const input = call.rawInput as { command?: unknown } | undefined;
   const command = typeof input?.command === "string" ? input.command : "";

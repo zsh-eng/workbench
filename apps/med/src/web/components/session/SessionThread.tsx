@@ -23,7 +23,7 @@ import { Icon } from "../Icon";
 import { motion, rowStyles } from "./session-styles";
 import { BackgroundDock } from "./BackgroundDock";
 import { SessionMarkdown } from "./SessionMarkdown";
-import { formatSeconds, RowOpen, ThreadScroller, ToolCall, useRowOpen } from "./ToolCall";
+import { formatSeconds, RowOpen, ToolCall, useRowOpen } from "./ToolCall";
 import { finalReplies, lastTurn, units, type ToolItem, type Unit } from "./thread-model";
 import {
   estimateUnit,
@@ -967,28 +967,26 @@ export function SessionThread({
             )}
             <div ref={head} {...stylex.props(styles.space(above))} />
             <RowOpen value={rows}>
-              <ThreadScroller value={scroller}>
-                {all.slice(start, end).map((unit, offset) => {
-                  const at = start + offset;
-                  return (
-                    <div
-                      key={unit.key}
-                      ref={unitRef}
-                      data-unit={unit.key}
-                      data-rise={appended.has(unit.key) ? "" : undefined}
-                      {...stylex.props(styles.unit)}
-                    >
-                      <UnitBody
-                        unit={unit}
-                        last={snapshot.running && at === count - 1}
-                        final={"item" in unit && finals.has(unit.item.id)}
-                        renderThread={renderThread}
-                        onOpenLink={onOpenLink}
-                      />
-                    </div>
-                  );
-                })}
-              </ThreadScroller>
+              {all.slice(start, end).map((unit, offset) => {
+                const at = start + offset;
+                return (
+                  <div
+                    key={unit.key}
+                    ref={unitRef}
+                    data-unit={unit.key}
+                    data-rise={appended.has(unit.key) ? "" : undefined}
+                    {...stylex.props(styles.unit)}
+                  >
+                    <UnitBody
+                      unit={unit}
+                      last={snapshot.running && at === count - 1}
+                      final={"item" in unit && finals.has(unit.item.id)}
+                      renderThread={renderThread}
+                      onOpenLink={onOpenLink}
+                    />
+                  </div>
+                );
+              })}
             </RowOpen>
             <div {...stylex.props(styles.space(below))} />
             {snapshot.running ? (

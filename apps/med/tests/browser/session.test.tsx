@@ -318,7 +318,7 @@ test("a turn from the index goes to the top of the view", async () => {
   expect(Math.abs(firstInView().top)).toBeLessThan(2);
 });
 
-test("a long thread renders each edit's diff once it comes near the view", async () => {
+test("an edit shows its file and line counts, and its diff when the reader opens it", async () => {
   await page.viewport(1280, 900);
   initializeTheme();
   const store = createSessionStore();
@@ -336,7 +336,7 @@ test("a long thread renders each edit's diff once it comes near the view", async
             type: "diff" as const,
             path: `/repo/file-${turn}.ts`,
             oldText: `export const value = ${turn};\n`,
-            newText: `export const value = ${turn + 1};\n`,
+            newText: `export const value = ${turn + 1};\nexport const next = ${turn + 2};\n`,
           },
         ],
       },
@@ -347,19 +347,14 @@ test("a long thread renders each edit's diff once it comes near the view", async
   document.body.append(mount);
   root = createRoot(mount);
   root.render(<SessionThread snapshot={store.getSnapshot()} />);
-  const diffs = (state: "rendered" | "pending") =>
-    document.querySelectorAll(
-      state === "pending" ? "[data-diff-pending]" : "[data-unit] figure:not([data-diff-pending])",
-    ).length;
-  const scroller = () => document.querySelector('[aria-label="Session"]')!.parentElement!;
-  await expect.poll(() => diffs("rendered")).toBeGreaterThan(0);
-  // Edits near the view render; the others are not in the page.
-  expect(diffs("rendered") + diffs("pending")).toBeLessThan(40);
-  expect(document.querySelector('[data-unit="edit-0"]')).toBeNull();
-  expect(document.querySelector('[data-unit="edit-79"] [data-diff-pending]')).toBeNull();
+  const row = () => document.querySelector<HTMLButtonElement>('[data-unit="edit-79"] button')!;
+  await expect.poll(() => row()?.textContent).toContain("file-79.ts");
+  expect(row().textContent).toContain("+2");
+  expect(row().textContent).toContain("−1");
+  expect(row().getAttribute("aria-expanded")).toBe("false");
+  expect(document.querySelector("[data-unit] figure")).toBeNull();
 
-  await userEvent.wheel(scroller(), { delta: { y: -100000 } });
-  await expect
-    .poll(() => document.querySelector('[data-unit="edit-0"] figure:not([data-diff-pending])'))
-    .not.toBeNull();
+  await userEvent.click(row());
+  await expect.poll(() => document.querySelector('[data-unit="edit-79"] figure')).not.toBeNull();
+  expect(document.querySelectorAll("[data-unit] figure")).toHaveLength(1);
 });
