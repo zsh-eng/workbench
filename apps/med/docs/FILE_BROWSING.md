@@ -38,7 +38,7 @@ A branch without a worktree needs no checkout. Its source includes the full reso
 
 ## File and sidebar shortcuts
 
-Press **⌘⇧K** to open the file picker. **⌘B** toggles the left review sidebar; **⌘⇧B** toggles the right Files sidebar. **⌘K** opens commands. Control is also accepted in place of Command.
+Press **⌘⇧K** to open the file picker. **⌘B** toggles the left review sidebar; the folder button toggles the right Files sidebar. **⌘K** opens commands. Control is also accepted in place of Command.
 
 Space has no application shortcut. Press `?` to see and run all commands with keycaps. The separate title bar is removed; branch tabs appear once two branches are open.
 
@@ -82,4 +82,4 @@ flowchart LR
 
 The host exposes authenticated `POST /api/browse/list` and `POST /api/browse/read` endpoints. Both accept the source explicitly. The UI validates responses against that source and cancels obsolete requests.
 
-Content search and selected-line Git blame are available through authenticated source-scoped endpoints. See [the navigation guide](SNACKS_REVIEW.md) for behavior and shortcuts. File editing, saved navigation across app restarts, paged directory loading, and split-to-side full-file previews are not implemented. Standalone patch and two-file sessions do not expose repository browsing.
+Content search and selected-line Git blame are available through authenticated source-scoped endpoints. See [usage](USAGE.md#symbols-and-vim-navigation) for behavior and shortcuts. File editing, saved navigation across app restarts, paged directory loading, and split-to-side full-file previews are not implemented. Standalone patch and two-file sessions do not expose repository browsing.

@@ -51,6 +51,9 @@ export interface Worktree {
   head: string;
   branch: string;
   bare?: boolean;
+  /** Made with `git worktree add`, so Git can remove it. Git lists the main
+   * checkout first, without this mark. */
+  linked?: boolean;
 }
 export interface Session {
   protocol: 1;
@@ -167,8 +170,15 @@ export interface ChangeEvent {
   repo: string;
   revision: number;
 }
-export interface ApiError {
-  error: { code: string; message: string };
+/** The body of every failed host request. The host always sends a code; clients read only the message. */
+export const apiErrorSchema = z.object({
+  error: z.object({ code: z.string().optional(), message: z.string() }),
+});
+export type ApiError = z.infer<typeof apiErrorSchema>;
+/** The message of a failed host request, when the body has the host's error shape. */
+export function apiErrorMessage(body: unknown): string | undefined {
+  const parsed = apiErrorSchema.safeParse(body);
+  return parsed.success ? parsed.data.error.message : undefined;
 }
 export const noteInputSchema = z.object({
   path: z.string().min(1),

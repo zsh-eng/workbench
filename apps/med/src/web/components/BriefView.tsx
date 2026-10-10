@@ -5,11 +5,27 @@ import {
   type FileDiffOptions,
   type SelectedLineRange,
 } from "@pierre/diffs/react";
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import {
+  Fragment,
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { createPortal } from "react-dom";
 import type { Note, NoteInput, NoteMutation } from "../../shared/protocol";
 import type { ParsedReviewFile } from "../../shared/review";
-import { agentName, type SavedBrief, type SavedPin } from "../../shared/saved-review";
+import {
+  agentName,
+  type BriefComment,
+  type BriefCommentMutation,
+  type SavedBrief,
+  type SavedPin,
+} from "../../shared/saved-review";
 import {
   annotateBrief,
   diffExcerpt,
@@ -32,6 +48,16 @@ import { diffSurfaceStyle, EXPANSION_LINES } from "./diff-surface";
 import "./MarkdownPreview.css";
 import "./BriefView.css";
 import { visibleElement } from "../data/palette-focus";
+import {
+  blockOf,
+  findPassage,
+  markPassages,
+  PassageButton,
+  PassageComments,
+  PassageDraft,
+  selectedPassage,
+  type Passage,
+} from "./BriefComments";
 
 export interface BriefLocation {
   fileId: string;
@@ -70,6 +96,11 @@ export interface BriefViewProps {
   /** Notes of the open comparison; excerpts show those on their lines. */
   notes: readonly Note[];
   onMutateNote(mutation: NoteMutation): Promise<void>;
+  /** Comments on passages of the shown notes. */
+  comments?: readonly BriefComment[];
+  /** The iteration of the shown brief, for a new comment on it. */
+  briefIteration?: number;
+  onCommentBrief?(mutation: BriefCommentMutation): Promise<void>;
 }
 interface Draft {
   key: string;
@@ -82,6 +113,14 @@ interface Submission {
   error?: string;
 }
 type Annotation = { note?: Note; draft?: NoteTarget };
+/** Where the comments on passages show: after a block, or at the end of
+ * their note when the passage is gone. */
+interface Placement {
+  blocks: Map<number, BriefComment[]>;
+  lost: Map<string, BriefComment[]>;
+  ranges: Range[];
+}
+const NO_COMMENTS: readonly BriefComment[] = [];
 
 const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -112,17 +151,28 @@ const noteTime = (at: string) =>
   });
 
 const Block = memo(
-  function Block({ html, start, end }: { html: string; start: number; end: number }) {
+  function Block({
+    html,
+    index,
+    start,
+    end,
+  }: {
+    html: string;
+    index: number;
+    start: number;
+    end: number;
+  }) {
     return (
       <div
         className="med-md-block"
+        data-block-index={index}
         data-block-line={start}
         data-block-end={end}
         dangerouslySetInnerHTML={{ __html: html }}
       />
     );
   },
-  (a, b) => a.html === b.html && a.start === b.start && a.end === b.end,
+  (a, b) => a.html === b.html && a.index === b.index && a.start === b.start && a.end === b.end,
 );
 
 /** The review's Notes: the agent's brief and the replies pinned to the
@@ -149,6 +199,9 @@ export default function BriefView({
   onIteration,
   notes,
   onMutateNote,
+  comments = NO_COMMENTS,
+  briefIteration,
+  onCommentBrief,
 }: BriefViewProps) {
   const { active: theme } = useTheme();
   const sections = useMemo<NoteSection[]>(
@@ -217,12 +270,17 @@ export default function BriefView({
   // scroll. A pin added to the shown notes keeps them.
   const shownBrief = shown && `${iteration ?? ""}\0${shown.sections[0]?.text ?? ""}`;
   const [shownText, setShownText] = useState(shownBrief);
+  // A selected passage of the notes, and the comment being written on one.
+  const [passage, setPassage] = useState<(Passage & { top: number; left: number }) | null>(null);
+  const [passageDraft, setPassageDraft] = useState<(Passage & { block: number }) | null>(null);
   if (shown && shownBrief !== shownText) {
     setShownText(shownBrief);
     setDraft(null);
     setSelected(null);
     setSubmitted(null);
     setLinked(null);
+    setPassage(null);
+    setPassageDraft(null);
   }
   const lastText = useRef(shownText);
   useLayoutEffect(() => {
@@ -358,20 +416,97 @@ export default function BriefView({
     return () => window.removeEventListener("keydown", keydown);
   }, [active]);
 
-  // c starts a note on the lines selected in an excerpt, as in Changes.
+  // Selected text of a note offers a comment on that passage.
   useEffect(() => {
-    if (!active || !selected) return;
+    if (!active || !onCommentBrief) return;
+    let frame = 0;
+    const update = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const found = selectedPassage(article.current);
+        const scroller = pane.current;
+        if (!found || !scroller) {
+          setPassage(null);
+          return;
+        }
+        const rects = found.range.getClientRects();
+        const end = rects[rects.length - 1] ?? found.range.getBoundingClientRect();
+        const box = scroller.getBoundingClientRect();
+        setPassage({
+          ...found,
+          top: end.bottom - box.top + scroller.scrollTop + 6,
+          left: Math.max(
+            8,
+            Math.min(end.right - box.left + scroller.scrollLeft - 44, scroller.clientWidth - 120),
+          ),
+        });
+      });
+    };
+    document.addEventListener("selectionchange", update);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("selectionchange", update);
+      setPassage(null);
+    };
+  }, [active, onCommentBrief]);
+  const startPassage = useCallback((found: Passage) => {
+    const block = blockOf(found.range.endContainer);
+    if (block === undefined) return;
+    setPassageDraft({ ...found, block });
+    setPassage(null);
+    document.getSelection()?.removeAllRanges();
+  }, []);
+
+  // c starts a note on the lines selected in an excerpt, as in Changes, or
+  // on the selected passage of a note.
+  useEffect(() => {
+    if (!active || (!selected && !passage)) return;
     const keydown = (event: KeyboardEvent) => {
       if (event.key !== "c" || event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest("input, textarea, select, [contenteditable]")) return;
       if (visibleElement('[role="dialog"]')) return;
       event.preventDefault();
-      setDraft(selected);
+      if (passage) startPassage(passage);
+      else if (selected) setDraft(selected);
     };
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
-  }, [active, selected]);
+  }, [active, selected, passage, startPassage]);
+
+  // Each comment finds its passage in the rendered notes; the browser marks it.
+  const [placement, setPlacement] = useState<Placement>(() => ({
+    blocks: new Map(),
+    lost: new Map(),
+    ranges: [],
+  }));
+  useLayoutEffect(() => {
+    const host = article.current;
+    const next: Placement = { blocks: new Map(), lost: new Map(), ranges: [] };
+    for (const comment of comments) {
+      const section = host?.querySelector(`[data-note-section="${CSS.escape(comment.section)}"]`);
+      if (!section) continue;
+      const range = findPassage(section, comment.quote, comment.prefix);
+      const block = range ? blockOf(range.endContainer) : undefined;
+      if (range && block !== undefined) {
+        next.ranges.push(range);
+        next.blocks.set(block, [...(next.blocks.get(block) ?? []), comment]);
+      } else next.lost.set(comment.section, [...(next.lost.get(comment.section) ?? []), comment]);
+    }
+    // The passages exist only in the rendered HTML, so they are read after commit.
+    // oxlint-disable-next-line react/set-state-in-effect
+    setPlacement(next);
+  }, [annotated, comments]);
+  const [owner] = useState(() => ({}));
+  useEffect(() => {
+    markPassages(owner, placement.ranges, passageDraft?.range ?? null);
+  }, [owner, placement, passageDraft]);
+  useEffect(() => () => markPassages(owner, [], null), [owner]);
+  const mutateComment = async (mutation: NoteMutation) => {
+    if (mutation.type === "edit")
+      await onCommentBrief?.({ edit: { id: mutation.id, text: mutation.text } });
+    else if (mutation.type === "remove") await onCommentBrief?.({ remove: mutation.id });
+  };
 
   // Links resolve through delegation: the Markdown is HTML, not React elements.
   const handlers = useRef({ onOpen, onOpenPath });
@@ -537,12 +672,46 @@ export default function BriefView({
                   onRemove={section.pin ? () => onUnpin?.(section.pin!.id) : onRemove}
                 />
               )}
-              {blocks.map(({ block, index }) =>
-                block.diagram !== undefined ? (
-                  <DiagramBlock key={index} block={block} dark={theme.appearance === "dark"} />
-                ) : (
-                  <Block key={index} html={block.html} start={block.start} end={block.end} />
-                ),
+              {blocks.map(({ block, index }) => (
+                <Fragment key={index}>
+                  {block.diagram !== undefined ? (
+                    <DiagramBlock block={block} dark={theme.appearance === "dark"} />
+                  ) : (
+                    <Block html={block.html} index={index} start={block.start} end={block.end} />
+                  )}
+                  {placement.blocks.has(index) && (
+                    <PassageComments
+                      comments={placement.blocks.get(index)!}
+                      onMutate={mutateComment}
+                    />
+                  )}
+                  {passageDraft?.section === section.key && passageDraft.block === index && (
+                    <PassageDraft
+                      quote={passageDraft.quote}
+                      onSave={async (text) => {
+                        await onCommentBrief?.({
+                          add: {
+                            section: passageDraft.section,
+                            ...(passageDraft.section === "brief" && briefIteration
+                              ? { iteration: briefIteration }
+                              : {}),
+                            quote: passageDraft.quote,
+                            prefix: passageDraft.prefix,
+                            text,
+                          },
+                        });
+                      }}
+                      onCancel={() => setPassageDraft(null)}
+                    />
+                  )}
+                </Fragment>
+              ))}
+              {placement.lost.has(section.key) && (
+                <PassageComments
+                  comments={placement.lost.get(section.key)!}
+                  lost
+                  onMutate={mutateComment}
+                />
               )}
             </section>
           ))}
@@ -604,6 +773,13 @@ export default function BriefView({
               )}
             </div>
           </footer>
+        )}
+        {passage && !passageDraft && (
+          <PassageButton
+            top={passage.top}
+            left={passage.left}
+            onComment={() => startPassage(passage)}
+          />
         )}
       </div>
       {annotated && (
@@ -767,11 +943,16 @@ function ExcerptCard({
   const shown = diff ?? (source && source !== "missing" ? source : null);
   const open = (side = range.side, start = range.start, end = range.end) =>
     onOpen({ fileId: file.id, side, start, end });
-  // Notes and drafts on the lines this excerpt shows. Pierre places each below
-  // its first line, as in Changes.
+  // Notes and drafts on the lines this excerpt shows. Each sits below the last
+  // line of its range that the excerpt shows, as in Changes.
   const annotations = useMemo<DiffLineAnnotation<Annotation>[]>(() => {
     if (!shown) return [];
     const visible = { old: new Set(shown.lines.old), new: new Set(shown.lines.new) };
+    const lastShown = (target: NoteTarget) => {
+      for (let line = target.endLine ?? target.line; line > target.line; line--)
+        if (visible[target.side].has(line)) return line;
+      return target.line;
+    };
     const list: DiffLineAnnotation<Annotation>[] = notes
       .filter(
         (note) =>
@@ -783,13 +964,13 @@ function ExcerptCard({
       )
       .map((note) => ({
         side: note.side === "old" ? "deletions" : "additions",
-        lineNumber: note.line,
+        lineNumber: lastShown(note),
         metadata: { note },
       }));
     if (draft && visible[draft.target.side].has(draft.target.line))
       list.push({
         side: draft.target.side === "old" ? "deletions" : "additions",
-        lineNumber: draft.target.line,
+        lineNumber: lastShown(draft.target),
         metadata: { draft: draft.target },
       });
     return list;

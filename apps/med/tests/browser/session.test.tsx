@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { page, userEvent } from "vitest/browser";
+import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { SessionSection } from "../../src/web/components/elements/SessionSection";
 import { SessionThread } from "../../src/web/components/session/SessionThread";
@@ -89,18 +90,27 @@ test("scrolling up stops following, and Latest returns to the newest item", asyn
   await expect
     .poll(() => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight)
     .toBeLessThan(32);
-  scroller.scrollTop = 0;
+  await userEvent.wheel(scroller, { delta: { y: -100000 } });
   await userEvent.click(replay.getByRole("button", { name: "Latest" }));
   await expect.element(replay.getByRole("button", { name: "Latest" })).not.toBeInTheDocument();
   expect(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight).toBeLessThan(32);
 });
 
-test("a long thread keeps a window of units in the page and moves it as you scroll", async () => {
-  await page.viewport(1280, 900);
-  initializeTheme();
+/** A thread of prompts and replies, in a frame of 600 pixels. */
+function longThread(turns: number, first = 0) {
   const store = createSessionStore();
-  store.applyAll(
-    Array.from({ length: 700 }, (_, turn) => [
+  store.applyAll(turnEvents(first, turns));
+  mount = document.createElement("div");
+  mount.style.height = "600px";
+  mount.style.width = "520px";
+  document.body.append(mount);
+  root = createRoot(mount);
+  return store;
+}
+function turnEvents(first: number, count: number) {
+  return Array.from({ length: count }, (_, index) => {
+    const turn = first + index;
+    return [
       {
         at: turn * 1000,
         update: {
@@ -113,34 +123,243 @@ test("a long thread keeps a window of units in the page and moves it as you scro
         update: {
           sessionUpdate: "agent_message_chunk" as const,
           messageId: `r${turn}`,
-          content: { type: "text" as const, text: `Reply ${turn}` },
+          content: {
+            type: "text" as const,
+            // Replies of different lengths, so the estimates matter.
+            text: `Reply ${turn}. ${"The change keeps the view still. ".repeat(turn % 7)}`,
+          },
         },
       },
-    ]).flat(),
+    ];
+  }).flat();
+}
+const units = () => [...document.querySelectorAll<HTMLElement>("[data-unit]")];
+const threadScroller = () => document.querySelector('[aria-label="Session"]')!.parentElement!;
+/** The first unit whose bottom is in view, and its top in the frame. */
+function firstInView() {
+  const frame = threadScroller().getBoundingClientRect();
+  const unit = units().find((element) => element.getBoundingClientRect().bottom > frame.top + 1)!;
+  return {
+    key: unit.dataset.unit!,
+    text: unit.textContent!,
+    top: unit.getBoundingClientRect().top - frame.top,
+  };
+}
+const topOf = (key: string) =>
+  document.querySelector(`[data-unit="${key}"]`)!.getBoundingClientRect().top -
+  threadScroller().getBoundingClientRect().top;
+
+test("a long thread renders only the units near the view", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(700);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r699");
+  const scroller = threadScroller();
+  await expect
+    .poll(() => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight)
+    .toBeLessThan(32);
+  expect(units().length).toBeLessThan(120);
+
+  // The view goes to the start of the thread, and the newest units leave the page.
+  for (let step = 0; step < 40 && !units()[0]?.textContent?.includes("Prompt 0"); step++) {
+    await userEvent.wheel(scroller, { delta: { y: -20000 } });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  }
+  expect(units()[0]!.textContent).toContain("Prompt 0");
+  expect(units().length).toBeLessThan(120);
+  expect(document.querySelector('[data-unit="r699"]')).toBeNull();
+
+  // Latest brings back the newest work.
+  await userEvent.click(page.getByRole("button", { name: "Latest" }));
+  await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r699");
+  await expect
+    .poll(() => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight)
+    .toBeLessThan(32);
+});
+
+test("a thread that arrives in batches still renders only the units near the view", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  // A frame taller than the newest units that render before the thread has a size.
+  mount!.style.height = "1600px";
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  // The stream adds the newest work in parts, as a long tail does.
+  for (const [first, count] of [
+    [0, 150],
+    [150, 150],
+    [300, 300],
+  ]) {
+    store.applyAll(turnEvents(first!, count!));
+    root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r599");
+  expect(units().length).toBeLessThan(120);
+});
+
+test("the units in view keep their place as earlier work loads above them", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(40, 300);
+  let loads = 0;
+  let resolve = () => {};
+  const render = (more: boolean, loading = false) =>
+    root!.render(
+      <SessionThread
+        snapshot={store.getSnapshot()}
+        earlier={
+          more
+            ? {
+                loading,
+                load: () => {
+                  loads++;
+                  return new Promise<void>((done) => (resolve = done));
+                },
+              }
+            : undefined
+        }
+      />,
+    );
+  render(true);
+  await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r339");
+  const scroller = threadScroller();
+  await userEvent.wheel(scroller, { delta: { y: -100000 } });
+  await expect.poll(() => loads).toBe(1);
+  render(true, true);
+  const before = firstInView();
+
+  // A page of 300 turns arrives above the view.
+  store.prepend(turnEvents(0, 300));
+  render(false);
+  resolve();
+  await expect.poll(() => units()[0]?.textContent?.includes("Prompt 300")).toBe(false);
+  expect(before.text).toContain("Prompt 300");
+  expect(Math.abs(topOf(before.key) - before.top)).toBeLessThan(2);
+  // The thread holds the earlier work's space above the view.
+  expect(scroller.scrollTop).toBeGreaterThan(2000);
+});
+
+test("an update that renders during the reader's scroll does not pull the view back", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(200);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r199");
+  const scroller = threadScroller();
+  await expect
+    .poll(() => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight)
+    .toBeLessThan(32);
+
+  // The reader scrolls up, and new work renders before the scroll event comes.
+  scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -1000, bubbles: true }));
+  scroller.scrollTop = 2000;
+  store.applyAll(turnEvents(200, 1));
+  flushSync(() => root!.render(<SessionThread snapshot={store.getSnapshot()} />));
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  expect(Math.abs(scroller.scrollTop - 2000)).toBeLessThan(100);
+  await expect.element(page.getByRole("button", { name: "Latest" })).toBeVisible();
+});
+
+test("a row keeps its state when it leaves the view and comes back", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(200);
+  store.applyAll([
+    {
+      at: 300_000,
+      update: {
+        sessionUpdate: "tool_call" as const,
+        toolCallId: "run-tests",
+        title: "Run the tests",
+        kind: "execute" as const,
+        status: "completed" as const,
+        rawInput: { command: "bun test" },
+        content: [{ type: "content", content: { type: "text", text: "12 pass" } }],
+      },
+    },
+  ]);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  const call = page.getByRole("button", { name: /Run the tests/ });
+  await userEvent.click(call);
+  await expect.element(page.getByText("12 pass")).toBeVisible();
+
+  const scroller = threadScroller();
+  for (let step = 0; step < 40 && document.querySelector('[data-unit="run-tests"]'); step++) {
+    await userEvent.wheel(scroller, { delta: { y: -20000 } });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  }
+  expect(document.querySelector('[data-unit="run-tests"]')).toBeNull();
+  await userEvent.click(page.getByRole("button", { name: "Latest" }));
+  await expect.element(page.getByText("12 pass")).toBeVisible();
+});
+
+test("a turn from the index goes to the top of the view", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(300);
+  const prompt = store
+    .getSnapshot()
+    .items.find(
+      (item) =>
+        item.kind === "user" &&
+        item.content.some((block) => block.type === "text" && block.text === "Prompt 120"),
+    )!;
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r299");
+  root!.render(
+    <SessionThread snapshot={store.getSnapshot()} reveal={{ id: prompt.id, nonce: 1 }} />,
+  );
+  await expect.poll(() => firstInView().text).toContain("Prompt 120");
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  // It stays there as the units around it take their own heights.
+  expect(firstInView().text).toContain("Prompt 120");
+  expect(Math.abs(firstInView().top)).toBeLessThan(2);
+});
+
+test("a long thread renders each edit's diff once it comes near the view", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = createSessionStore();
+  store.applyAll(
+    Array.from({ length: 80 }, (_, turn) => ({
+      at: turn * 1000,
+      update: {
+        sessionUpdate: "tool_call" as const,
+        toolCallId: `edit-${turn}`,
+        title: `Edit file-${turn}.ts`,
+        kind: "edit" as const,
+        status: "completed" as const,
+        content: [
+          {
+            type: "diff" as const,
+            path: `/repo/file-${turn}.ts`,
+            oldText: `export const value = ${turn};\n`,
+            newText: `export const value = ${turn + 1};\n`,
+          },
+        ],
+      },
+    })),
   );
   mount = document.createElement("div");
   mount.style.height = "600px";
   document.body.append(mount);
   root = createRoot(mount);
   root.render(<SessionThread snapshot={store.getSnapshot()} />);
-  const units = () => [...document.querySelectorAll<HTMLElement>("[data-unit]")];
+  const diffs = (state: "rendered" | "pending") =>
+    document.querySelectorAll(
+      state === "pending" ? "[data-diff-pending]" : "[data-unit] figure:not([data-diff-pending])",
+    ).length;
   const scroller = () => document.querySelector('[aria-label="Session"]')!.parentElement!;
-  await expect.poll(() => units().length).toBe(300);
-  expect(units().at(-1)!.dataset.unit).toBe("r699");
+  await expect.poll(() => diffs("rendered")).toBeGreaterThan(0);
+  // Edits near the view render; the others are not in the page.
+  expect(diffs("rendered") + diffs("pending")).toBeLessThan(40);
+  expect(document.querySelector('[data-unit="edit-0"]')).toBeNull();
+  expect(document.querySelector('[data-unit="edit-79"] [data-diff-pending]')).toBeNull();
 
-  // Toward the top, the window takes earlier units, up to 600, and leaves the newest out.
-  for (let step = 0; step < 20 && units().at(-1)!.dataset.unit === "r699"; step++) {
-    scroller().scrollTop = 0;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  expect(units().at(-1)!.dataset.unit).not.toBe("r699");
-  expect(units()).toHaveLength(600);
-  expect(Number(/\d+/.exec(units()[0]!.textContent!)![0])).toBeLessThan(550);
-  // The rows in view stay in view: the window grew above them.
-  expect(scroller().scrollTop).toBeGreaterThan(0);
-
-  // Latest brings back the newest work.
-  await userEvent.click(page.getByRole("button", { name: "Latest" }));
-  await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r699");
-  expect(units()).toHaveLength(300);
+  await userEvent.wheel(scroller(), { delta: { y: -100000 } });
+  await expect
+    .poll(() => document.querySelector('[data-unit="edit-0"] figure:not([data-diff-pending])'))
+    .not.toBeNull();
 });

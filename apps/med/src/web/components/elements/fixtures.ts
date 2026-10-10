@@ -1,4 +1,5 @@
 import type { BrowseRead } from "../../../shared/browse";
+import type { CodexReviewRun } from "../../../shared/codex-review";
 import type { Commit, CommitDetails, Note, PullRequestComments } from "../../../shared/protocol";
 
 // Sample data for the elements page. It uses Med's own vocabulary so each
@@ -256,6 +257,42 @@ export const pullRequest: PullRequestComments = {
 };
 
 /** A change with context, a word-level edit, removals, and additions. */
+/** A Codex review of the same change, as `codex review --base main` writes it:
+ * a finding in the diff and one beside it. */
+export const codexReview: CodexReviewRun = {
+  id: "019a6b2e-7c41-7d10-9e55-3f0c2a9b8d14:0",
+  threadId: "019a6b2e-7c41-7d10-9e55-3f0c2a9b8d14",
+  repo: "/Users/you/work/med",
+  commit: id("c4f81e2"),
+  createdAt: at(2 * hour),
+  target: "changes against 'main'",
+  verdict: "patch is correct",
+  explanation:
+    "The week unit fits between days and months. One label changes for dates that the history panel shows often.",
+  findings: [
+    {
+      id: "019a6b2e-7c41-7d10-9e55-3f0c2a9b8d14:0:0",
+      title: "Expect 4 wk for 28 and 29 days",
+      body: "With `week` before `30 * day`, a commit from 29 days ago now reads `4 wk`, where the history panel showed `29 day`. Check that this is the label you want for the last days of a month.",
+      priority: 2,
+      confidence: 0.7,
+      path: notePath,
+      startLine: 18,
+      endLine: 19,
+    },
+    {
+      id: "019a6b2e-7c41-7d10-9e55-3f0c2a9b8d14:0:1",
+      title: "Cover the week boundary",
+      body: "No test reaches 7 days, so a change of `week` to `<=` would pass. Add cases for 6 and 7 days.",
+      priority: 3,
+      confidence: 0.6,
+      path: "tests/relative-time.test.ts",
+      startLine: 12,
+      endLine: 12,
+    },
+  ],
+};
+
 export const relativeTimePatch = `diff --git a/${notePath} b/${notePath}
 index 3f2a1c4..8be90d2 100644
 --- a/${notePath}

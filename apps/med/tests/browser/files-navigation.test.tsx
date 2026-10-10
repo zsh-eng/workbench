@@ -2,11 +2,17 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { useEffect, useLayoutEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { FilePicker, findFiles, parseFileQuery } from "../../src/web/components/FilePicker";
+import {
+  FilePicker,
+  findFiles,
+  parseFileQuery,
+  type FilePickerProps,
+} from "../../src/web/components/FilePicker";
 import { RepositoryFiles } from "../../src/web/components/RepositoryFiles";
 import { useBrowseFiles, type BrowseApi } from "../../src/web/data/browse";
 import type { BrowseSearch } from "../../src/shared/inspect";
 import type { BrowseEntry, BrowseList, BrowseSource } from "../../src/shared/browse";
+import type { RegisteredRepository } from "../../src/shared/protocol";
 import "../../src/web/reset.css";
 
 beforeEach(async () => {
@@ -72,6 +78,90 @@ test("picker opens only a scoped result with an optional line", async () => {
   await userEvent.keyboard("{Enter}");
   await expect.poll(() => onOpen.mock.calls).toEqual([["src/main.ts", 42, undefined, false]]);
   await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+});
+
+test("repository scopes show and match relative names but open the absolute worktree", async () => {
+  const home = "/Users/alice";
+  const worktree = `${home}/workbench/.claude/worktrees/keen`;
+  const repositories: RegisteredRepository[] = [
+    {
+      id: "workbench",
+      name: "workbench",
+      path: `${home}/workbench`,
+      branches: [],
+      worktrees: [
+        { path: `${home}/workbench`, head: "a".repeat(40), branch: "main" },
+        { path: worktree, head: "b".repeat(40), branch: "claude/keen" },
+      ],
+    },
+  ];
+  const api: BrowseApi = {
+    list: async (source) => ({
+      source,
+      entries: [{ path: "src/keen.ts", kind: "file" }],
+      truncated: false,
+    }),
+    read: async (source, path) => ({ source, path, kind: "binary", size: 1, identity: path }),
+  };
+  const onOpen = vi.fn<FilePickerProps["onOpen"]>();
+  function Harness() {
+    const [open, setOpen] = useState(true);
+    return (
+      <FilePicker
+        repositories={repositories}
+        open={open}
+        onOpenChange={setOpen}
+        entries={entries}
+        loading={false}
+        error={null}
+        sourceLabel="Working files · main"
+        source={{ kind: "worktree", repo: `${home}/workbench` }}
+        api={api}
+        onOpen={onOpen}
+      />
+    );
+  }
+  // Text, tooltips, and accessible names all reach screenshots or screen readers.
+  const shown = () => {
+    const dialog = document.querySelector('[role="dialog"]')!;
+    return [
+      dialog.textContent,
+      ...[...dialog.querySelectorAll("[title], [aria-label]")].flatMap((node) => [
+        node.getAttribute("title"),
+        node.getAttribute("aria-label"),
+      ]),
+    ].join("\n");
+  };
+  render(<Harness />);
+  const input = page.getByRole("combobox", { name: "Find file" });
+  await input.fill("alice");
+  await expect.element(page.getByText("No matching files.")).toBeVisible();
+  await input.fill("keen");
+  await expect
+    .element(page.getByRole("option", { name: "Repository workbench · .claude/worktrees/keen" }))
+    .toBeVisible();
+  await expect
+    .element(page.getByLabelText("File preview").getByText(".claude/worktrees/keen"))
+    .toBeVisible();
+  expect(shown()).not.toContain(home);
+  await userEvent.keyboard("{Tab}");
+  await expect.element(page.getByRole("option", { name: "keen.ts src" })).toBeVisible();
+  await expect
+    .element(page.getByText("Working files · workbench · .claude/worktrees/keen"))
+    .toBeVisible();
+  expect(shown()).not.toContain(home);
+  await userEvent.keyboard("{Enter}");
+  await expect
+    .poll(() => onOpen.mock.calls)
+    .toEqual([
+      [
+        "src/keen.ts",
+        undefined,
+        { kind: "worktree", repo: worktree },
+        false,
+        "Working files · workbench · .claude/worktrees/keen",
+      ],
+    ]);
 });
 
 test("tree click previews, double-click pins, and directory clicks do not open files", async () => {

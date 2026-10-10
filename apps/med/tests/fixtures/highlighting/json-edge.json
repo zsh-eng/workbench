@@ -1,0 +1,11 @@
+"key": "a fragment at the top level", 42, true, word
+{
+  bare: 1,
+  "escapes": "\q \u12G4 \😀",
+  "numbers": 01, "minus": -, "dot": 1., "exponent": 1e, "fraction": .5,
+  "words": nul, "longer": trueish, "joined": true1,
+  "single": 'quoted',
+  "array": [1 2, }, :, ],
+  // a line comment
+  /* block */ /** doc */ /**/ /***/
+  "open": "no closing quote

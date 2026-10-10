@@ -36,7 +36,7 @@ specified Hunk source revision, and uses Zed/Snacks as behavior references. Arct
 did not import Telegram's custom list renderer. Name the type of reuse clearly.
 
 The med checkout records these decisions in `upstream/THEMES.md`,
-`upstream/HUNK.md`, `docs/SNACKS_REVIEW.md` and its README. Hunk source records pin
+`upstream/HUNK.md`, and its README. Hunk source records pin
 revision `9b95a71b76c472bad21ffa5cc6b01b204e2f6f7a` and retain the original MIT notice
 and matching tests. Keep that level of provenance when source is copied.
 

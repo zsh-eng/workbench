@@ -321,6 +321,7 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
           }
         } else if (
           key === "b" &&
+          !event.shiftKey &&
           locationState.id &&
           // On macOS, unshifted Control+B in the editor stays Vim's page up.
           !(
@@ -333,7 +334,7 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
               .some((node) => node instanceof HTMLElement && node.classList.contains("cm-content"))
           )
         ) {
-          // ⌘B, as in reviews; ⌘⇧B, the files sidebar's shortcut there.
+          // ⌘B, as in reviews.
           event.preventDefault();
           event.stopImmediatePropagation();
           setSidebar((value) => !value);

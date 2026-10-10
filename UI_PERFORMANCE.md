@@ -139,6 +139,39 @@ For Reader navigation, scope async extraction, caches and callbacks to the curre
 document identity. Preparing a linked page must not overwrite its saved parent.
 A fast but incorrect restore is not a performance improvement.
 
+## Predict text heights for long lists
+
+A virtual list needs the height of rows that have not rendered.
+[Pretext](https://github.com/chenglou/pretext) measures text with canvas and
+counts lines with arithmetic, without DOM layout. Use it in one of two ways:
+
+- **Layout authority.** The app places every line itself, so the prediction is
+  the rendering. Reader's [pagination](apps/reader/docs/0001-pagination-v2.md)
+  works this way.
+- **Prediction.** The browser renders the row, for example Markdown with code
+  and tables, and Pretext only estimates it. The row's own height replaces the
+  estimate after it renders. Med's [session thread](apps/med/docs/SESSIONS.md)
+  works this way.
+
+For a prediction:
+
+- Read fonts, line heights, and margins from a hidden sample of each part.
+  Clear Pretext's cache when a font finishes loading, because it keeps widths
+  by font name.
+- Pretext counts lines; the boxes around them are your model. In Med, plain
+  paragraphs matched the browser in all 337 samples in four themes, which
+  included system fonts and a monospace font. The errors were in the model:
+  inline code (until it used rich-inline items with the code font and
+  padding), margins that collapse, list gaps, and table columns.
+- A monospace font does not make the estimate more exact. Text measurement
+  was already exact; the remaining errors were in the model.
+- Load the same CSS in tests as in the app. A style sheet that only another
+  module loads hides errors.
+- Keep the first row that starts in view in place. A row cut at the top of
+  the view can still change size.
+- A render can come between a scroll and its scroll event. If the view moved
+  since the anchor was saved, use the reader's new position.
+
 ## A repeatable acceptance check
 
 1. Test a cold import with controlled local responses and a warm long list without

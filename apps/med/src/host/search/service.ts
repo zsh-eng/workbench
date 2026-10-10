@@ -120,7 +120,8 @@ export class ZoektSearchService {
   private indexed: IndexedBranch[] = [];
   private current: SearchIndexStatus = {
     state: "unavailable",
-    message: "Run med-diff --setup-search to enable indexed search.",
+    message:
+      "Indexed search is not set up. Initial Zoekt setup needs the Workbench checkout and Go; see med docs usage.",
     branches: [],
   };
 

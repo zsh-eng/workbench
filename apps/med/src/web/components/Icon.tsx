@@ -63,7 +63,9 @@ export type IconName =
   | "play"
   | "pause"
   | "stop"
-  | "tasks";
+  | "tasks"
+  | "collapseAll"
+  | "expandAll";
 
 const branch = (
   <>
@@ -159,6 +161,8 @@ const icons: Record<IconName, ReactNode> = {
     </>
   ),
   chevron: <path d="M4.5 6.25 8 9.75l3.5-3.5" />,
+  collapseAll: <path d="M4.5 2.5 8 6l3.5-3.5M4.5 13.5 8 10l3.5 3.5" />,
+  expandAll: <path d="M4.5 5.5 8 2l3.5 3.5M4.5 10.5 8 14l3.5-3.5" />,
   file: (
     <>
       <path d="M9.25 1.75h-4.5a1.5 1.5 0 0 0-1.5 1.5v9.5a1.5 1.5 0 0 0 1.5 1.5h6.5a1.5 1.5 0 0 0 1.5-1.5v-7.5z" />

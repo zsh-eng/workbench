@@ -25,7 +25,7 @@ Completion requires a new successful file-highlight worker response, at least 20
 
 Both sides use Tokyo Night, a 1120 × 800 viewport, Chromium 153.0.8010.12, and an Apple M1 Pro on macOS/arm64. Runs were sequential with the test suites stopped. OS caches were warm. The worker pool was initialized before timing; language modules may already be loaded by the initial review. The target file result was uncached. Bun used commit `26e7a4b3690dce60d4dcd7f47a12b531deb00837`. med's source file was unchanged from `5eb273655e4f13b66bb411a12342218c5f768a83`; its initial review included this integration's working changes. Matching SHA-256 hashes confirm identical target source on each side. All four captures had zero browser errors.
 
-The Shiki baseline uses Pierre's original JavaScript regex engine, not its Oniguruma/WASM option. See the [earlier repeated engine benchmark](HIGHLIGHTERS.md) for separate tokenizer measurements. Those figures omit the adapter and visible UI work measured here.
+The Shiki baseline uses Pierre's original JavaScript regex engine, not its Oniguruma/WASM option. Tokenizer-only timings are in [Java and C++ highlighting](JAVA_CPP_HIGHLIGHTING.md).
 
 ## Integration
 
@@ -40,9 +40,9 @@ There is one engine per build, so cached render results cannot cross engines. Th
 
 ### Coverage and limits
 
-The build contains 21 language factories: JavaScript, TypeScript, TSX, CSS, HTML, JSON, JSONC, Markdown, YAML, TOML, Bash, Go, Python, Rust, SQL, Svelte, diff, INI, HTTP, dotenv, and shell session. JSX maps to TSX. Markdown fences use installed language factories; HTML and Svelte supply embedded script/style tokens.
+This record describes the first integration. Med has since added its own grammars for Java, C++, XML, and JSON/JSONC; [usage](../USAGE.md#limits-and-evidence) lists the current languages. JSX maps to TSX. Markdown fences use installed language factories; HTML and Svelte supply embedded script/style tokens.
 
-C, C++, Zig, and other missing grammars use plain text. Their files and diffs remain usable, including navigation and comments. A full-file view identifies a known unsupported syntax language. This is reduced syntax coverage compared with Shiki.
+C, Zig, and other missing grammars use plain text. Their files and diffs remain usable, including navigation and comments. A full-file view identifies a known unsupported syntax language. This is reduced syntax coverage compared with Shiki.
 
 Twinkleplop emits semantic token kinds, not full TextMate scope stacks. The adapter maps these to the existing theme palette. Parent/context scope selectors cannot be reproduced exactly, so some colours differ. The adapter implements Pierre's current transform contract, not every Shiki API or arbitrary third-party transformer.
 

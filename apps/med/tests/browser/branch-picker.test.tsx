@@ -130,7 +130,7 @@ test("groups identical branches by repository and focuses existing cross-reposit
   expect(selections.at(-1)).toBe("frontend:main");
 });
 
-test("searches canonical paths, qualifies matching repo names, and opens detached worktrees", async () => {
+test("qualifies matching repo names and opens detached worktrees", async () => {
   const { selections } = await setup([
     repository("one", "/work/one/project", "project"),
     repository("two", "/work/two/project", "project"),
@@ -138,12 +138,69 @@ test("searches canonical paths, qualifies matching repo names, and opens detache
   await page.getByRole("button", { name: "Open branch", exact: true }).click();
   await expect.element(page.getByRole("group", { name: "one/project", exact: true })).toBeVisible();
   await expect.element(page.getByRole("group", { name: "two/project", exact: true })).toBeVisible();
-  await page.getByRole("combobox", { name: "Search branches" }).fill("/work/two/project-detached");
+  await page.getByRole("combobox", { name: "Search branches" }).fill("two/project detached");
   await userEvent.keyboard("{Enter}");
   expect(selections.at(-1)).toBe("two:/work/two/project-detached");
   await expect
     .element(page.getByRole("tab", { name: "two/project / Detached · ccccccc", exact: true }))
     .toHaveAttribute("aria-selected", "true");
+});
+
+test("shows and matches worktrees by repository-relative location but opens the absolute path", async () => {
+  const home = "/Users/alice";
+  const root = `${home}/workbench`;
+  const keen = `${root}/.claude/worktrees/keen`;
+  const { selections } = await setup([
+    {
+      id: "workbench",
+      name: "workbench",
+      path: root,
+      branches: [{ name: "main", head: "a".repeat(40), current: true, worktreePath: root }],
+      worktrees: [
+        { path: root, head: "a".repeat(40), branch: "main" },
+        { path: keen, head: "c".repeat(40), branch: "Detached HEAD" },
+      ],
+    },
+  ]);
+  // Text, tooltips, and accessible names all reach screenshots or screen readers.
+  const shown = () =>
+    [
+      document.body.textContent,
+      ...[...document.querySelectorAll("[title], [aria-label]")].flatMap((node) => [
+        node.getAttribute("title"),
+        node.getAttribute("aria-label"),
+      ]),
+    ].join("\n");
+  await page.getByRole("button", { name: "Open branch", exact: true }).click();
+  await page.getByText("Manage repositories", { exact: true }).click();
+  await expect
+    .element(page.getByRole("button", { name: "Remove repository workbench", exact: true }))
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("option", { name: "main workbench", exact: true }))
+    .toBeVisible();
+  expect(shown()).not.toContain(home);
+  const search = page.getByRole("combobox", { name: "Search branches" });
+  await search.fill("alice");
+  await expect.element(page.getByText("No matching branches or worktrees.")).toBeVisible();
+  await search.fill("worktrees/keen");
+  await expect
+    .element(
+      page.getByRole("option", {
+        name: "Detached · ccccccc workbench · .claude/worktrees/keen",
+        exact: true,
+      }),
+    )
+    .toBeVisible();
+  await userEvent.keyboard("{Enter}");
+  expect(selections.at(-1)).toBe(`workbench:${keen}`);
+  const tab = page.getByRole("tab", { name: "Detached · ccccccc", exact: true });
+  await expect.element(tab).toHaveAttribute("aria-selected", "true");
+  await tab.hover();
+  await expect
+    .poll(() => document.querySelector('[role="tooltip"]')?.textContent)
+    .toContain("Worktree: workbench · .claude/worktrees/keen");
+  expect(shown()).not.toContain(home);
 });
 
 test("adds repositories, reports failures, removes their tabs, and keeps committed-only sources explicit", async () => {

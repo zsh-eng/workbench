@@ -21,8 +21,7 @@ export const themeNames = ["github-light", "github-dark", "med-diagnostic"];
 export async function twinkleplop(themes: AdapterTheme[]) {
   const h = await createTwinkleplop();
   for (const theme of themes) h.loadThemeSync(theme);
-  await h.prepareSource("java", "");
-  await h.prepareSource("cpp", "");
+  for (const lang of ["java", "cpp", "json", "jsonc", "css"]) await h.prepareSource(lang, "");
   return h;
 }
 export const renderOptions = (theme: string) => ({

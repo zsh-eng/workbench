@@ -9,13 +9,13 @@ const loaders = {
   java: () => import("./languages/java"),
   cpp: () => import("./languages/cpp"),
   xml: () => import("./languages/xml"),
+  json: () => import("./languages/json"),
+  jsonc: () => import("./languages/jsonc"),
   javascript: () => import("@twinkleplop/javascript"),
   typescript: () => import("@twinkleplop/typescript"),
   tsx: () => import("@twinkleplop/tsx"),
   css: () => import("@twinkleplop/css"),
   html: () => import("@twinkleplop/html"),
-  json: () => import("@twinkleplop/json"),
-  jsonc: () => import("@twinkleplop/jsonc"),
   markdown: () => import("@twinkleplop/markdown"),
   yaml: () => import("@twinkleplop/yaml"),
   toml: () => import("@twinkleplop/toml"),
@@ -59,6 +59,18 @@ export function supportedLanguage(name: string): Language | undefined {
       ? aliases[name]
       : undefined;
 }
+// Twinkleplop token kinds are shared by all languages, and the adapter gives
+// each kind one scope. These kinds read better as the scopes of Shiki's CSS
+// grammar, where most themes color property names, variables, and values.
+const scopeOverrides: Partial<Record<Language, Record<string, string>>> = {
+  css: {
+    property: "support.type.property-name.css",
+    css_variable: "variable.css",
+    function: "support.function.misc.css",
+    identifier: "support.constant.property-value.css",
+    unit: "constant.numeric.css|keyword.other.unit.css",
+  },
+};
 const tokenizers = new Map<Language, (source: string) => TokenizeResult>();
 const pending = new Map<Language, Promise<void>>();
 export async function ensureLanguages(names: readonly string[], preloadEmbedded = false) {
@@ -75,7 +87,18 @@ export async function ensureLanguages(names: readonly string[], preloadEmbedded 
       if (!request) {
         request = loaders[language]()
           .then((module) => {
-            tokenizers.set(language, module.tokenize({ fidelity: "high" }));
+            const tokenize = module.tokenize({ fidelity: "high" });
+            const scopes = scopeOverrides[language];
+            tokenizers.set(
+              language,
+              scopes
+                ? (source) => {
+                    const result = tokenize(source);
+                    const types = result.token_types.map((type) => scopes[type] ?? type);
+                    return { ...result, token_types: types };
+                  }
+                : tokenize,
+            );
           })
           .finally(() => pending.delete(language));
         pending.set(language, request);

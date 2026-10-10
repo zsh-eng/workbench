@@ -17,7 +17,14 @@ import { layoutHistory } from "../../src/web/components/history-layout";
 import { createBrowseApi } from "../../src/web/data/browse";
 import type { BrowseSource } from "../../src/shared/browse";
 import type { AgentInboxState } from "../../src/shared/agent-inbox";
-import type { AgentSession, PinMutation, SavedPin } from "../../src/shared/saved-review";
+import type { CodexReviewRun } from "../../src/shared/codex-review";
+import type {
+  AgentSession,
+  BriefComment,
+  BriefCommentMutation,
+  PinMutation,
+  SavedPin,
+} from "../../src/shared/saved-review";
 import type { AgentPreset, OwnedAction, OwnedState } from "../../src/shared/owned-session";
 import type { BlameLoader } from "../../src/web/data/blame";
 import type { CommitApi } from "../../src/web/data/commit";
@@ -111,6 +118,8 @@ async function mountApp(
     review?: { paths: string[]; patch: string };
     /** GitHub comments; the first saved target compares the pull request head. */
     pullRequest?: PullRequestComments;
+    /** Codex reviews; the first saved target compares the first run's commit. */
+    codexReviews?: CodexReviewRun[];
     loadBlame?: BlameLoader;
     /** The Commit tab's repository. */
     commitApi?: CommitApi;
@@ -133,9 +142,10 @@ async function mountApp(
   const savedTargets = (
     options.oneBranch ? ["/test/repo", "/test/repo"] : ["/test/repo", "/test/feature"]
   ).map((repo, index) => {
+    const reviewed = options.pullRequest?.head ?? options.codexReviews?.[0]?.commit;
     const commit =
-      options.pullRequest && !index
-        ? options.pullRequest.head
+      reviewed && !index
+        ? reviewed
         : options.oneBranch
           ? [firstCommit, secondCommit][index]
           : undefined;
@@ -148,7 +158,7 @@ async function mountApp(
       comparison: (commit ? { kind: "commit", commit } : { kind: "working" }) as Comparison,
       base: secondCommit,
       head: commit ?? "working",
-      captured: !(options.pullRequest && !index),
+      captured: !(reviewed && !index),
     };
   });
   const pullRequestReads: string[] = [];
@@ -165,6 +175,7 @@ async function mountApp(
   }));
   let brief = options.brief;
   let pins: SavedPin[] = [];
+  let briefComments: BriefComment[] = [];
   let sessions: AgentSession[] = options.session
     ? [{ agent: "claude", id: "s1", cwd: "/test/repo" }]
     : [];
@@ -198,7 +209,7 @@ async function mountApp(
     title: "Agent review",
     createdAt: "2026-09-20T00:00:00Z",
     revision: 0,
-    commentCount: 0,
+    commentCount: briefComments.length,
     targets: savedTargets,
     ...(sessions.length ? { sessions } : {}),
     ...(options.pullRequest
@@ -206,6 +217,7 @@ async function mountApp(
       : {}),
     ...(brief ? { brief: { text: brief, updatedAt: "2026-09-20T00:00:00Z" } } : {}),
     ...(pins.length ? { pins } : {}),
+    ...(briefComments.length ? { briefComments } : {}),
     ...(options.iterationBriefs
       ? {
           key: "feat/agent",
@@ -303,6 +315,8 @@ async function mountApp(
         };
         return Response.json({ message, state: inbox });
       }
+      if (url.pathname === "/api/reviews/saved/codex-reviews")
+        return Response.json({ runs: options.codexReviews ?? [] });
       if (url.pathname === "/api/reviews/saved/pull-request" && options.pullRequest) {
         pullRequestReads.push(url.search);
         return Response.json(options.pullRequest);
@@ -320,6 +334,28 @@ async function mountApp(
             },
           ];
         else pins = pins.filter((pin) => pin.id !== mutation.remove);
+        return Response.json(savedBundle());
+      }
+      if (url.pathname === "/api/reviews/saved/brief-comments" && init?.method === "POST") {
+        const mutation = JSON.parse(String(init.body)) as BriefCommentMutation;
+        const now = new Date().toISOString();
+        if ("add" in mutation)
+          briefComments = [
+            ...briefComments,
+            {
+              ...mutation.add,
+              id: `c_${briefComments.length + 1}`,
+              createdAt: now,
+              updatedAt: now,
+            },
+          ];
+        else if ("edit" in mutation)
+          briefComments = briefComments.map((comment) =>
+            comment.id === mutation.edit.id
+              ? { ...comment, text: mutation.edit.text, updatedAt: now }
+              : comment,
+          );
+        else briefComments = briefComments.filter((comment) => comment.id !== mutation.remove);
         return Response.json(savedBundle());
       }
       if (url.pathname === "/api/reviews/saved/brief" && init?.method === "POST") {
@@ -783,7 +819,7 @@ describe("graphical review", () => {
         new KeyboardEvent("keydown", { key: code.at(-1)!, code, bubbles: true, ...options }),
       );
     const exit = page.getByRole("button", { name: "Exit zen mode", exact: true });
-    key("KeyB", { metaKey: true, shiftKey: true });
+    await page.getByRole("button", { name: "Toggle files sidebar" }).click();
     await expect.poll(files).toBe(true);
     await page.getByRole("button", { name: "Enter zen mode", exact: true }).click();
     await expect.element(exit).toBeInTheDocument();
@@ -793,19 +829,17 @@ describe("graphical review", () => {
     // Panel keys work as usual inside zen, and the choice outlasts it.
     key("KeyB", { metaKey: true });
     await expect.poll(sidebar).toBe(false);
-    key("KeyB", { metaKey: true, shiftKey: true });
-    await expect.poll(files).toBe(false);
-    expect(bars()).toBe(false);
+    expect([files(), bars()]).toEqual([true, false]);
     await expect.element(exit).toBeInTheDocument();
     key("KeyZ", { altKey: true });
     await expect.poll(bars).toBe(true);
-    expect([sidebar(), files()]).toEqual([false, false]);
+    expect([sidebar(), files()]).toEqual([false, true]);
     expect(localStorage.getItem("med:zen")).toBe("off");
     key("KeyB", { metaKey: true });
     await expect.poll(sidebar).toBe(true);
     key("KeyZ", { altKey: true });
     await expect.element(exit).toBeInTheDocument();
-    expect([sidebar(), files()]).toEqual([true, false]);
+    expect([sidebar(), files()]).toEqual([true, true]);
     expect(localStorage.getItem("med:zen")).toBe("on");
     await exit.click();
     await expect.poll(bars).toBe(true);
@@ -999,18 +1033,19 @@ describe("graphical review", () => {
       .element(page.getByRole("combobox", { name: "Find file", exact: true }))
       .not.toBeInTheDocument();
   });
-  test("Command Shift B toggles only the files sidebar", async () => {
+  test("the folder button toggles only the files sidebar; it has no shortcut", async () => {
     await page.viewport(1280, 800);
     await mountApp();
+    // Without an agent session, Command Shift B does nothing.
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "B", metaKey: true, shiftKey: true, bubbles: true }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(
+      document.querySelector('[aria-label="Workspace files"]')?.checkVisibility() ?? false,
+    ).toBe(false);
     for (const visible of [true, false]) {
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "B",
-          metaKey: true,
-          shiftKey: true,
-          bubbles: true,
-        }),
-      );
+      await page.getByRole("button", { name: "Toggle files sidebar" }).click();
       await expect
         .poll(
           () =>
@@ -1034,9 +1069,7 @@ describe("graphical review", () => {
   test("side panes share one column: Files and the Markdown preview stack", async () => {
     await page.viewport(1280, 800);
     await mountApp();
-    window.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "B", metaKey: true, shiftKey: true, bubbles: true }),
-    );
+    await page.getByRole("button", { name: "Toggle files sidebar" }).click();
     const files = page.getByRole("complementary", { name: "Workspace files", exact: true });
     await files.getByRole("treeitem", { name: "GUIDE.md", exact: true }).click();
     await page.getByRole("button", { name: "Toggle Markdown preview" }).click();
@@ -1070,15 +1103,7 @@ describe("graphical review", () => {
   test("files sidebar retains its tree and collapsed folders across toggles", async () => {
     await page.viewport(1280, 800);
     await mountApp({ branches: true });
-    const toggle = () =>
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "B",
-          metaKey: true,
-          shiftKey: true,
-          bubbles: true,
-        }),
-      );
+    const toggle = () => page.getByRole("button", { name: "Toggle files sidebar" }).click();
     await expect
       .poll(() => {
         const tree = document.querySelector('[aria-label="Workspace files"] file-tree-container');
@@ -1089,7 +1114,7 @@ describe("graphical review", () => {
       '[aria-label="Workspace files"] file-tree-container',
     );
     expect(preparedHost?.checkVisibility()).toBe(false);
-    toggle();
+    await toggle();
     const sidebar = page.getByRole("complementary", { name: "Workspace files", exact: true });
     const folder = sidebar.getByRole("treeitem", { name: "src", exact: true });
     await expect.element(folder).toHaveAttribute("aria-expanded", "true");
@@ -1097,9 +1122,9 @@ describe("graphical review", () => {
     await expect.element(folder).toHaveAttribute("aria-expanded", "false");
     const host = document.querySelector('[aria-label="Workspace files"] file-tree-container');
     expect(host).toBe(preparedHost);
-    toggle();
+    await toggle();
     await expect.poll(() => host?.checkVisibility()).toBe(false);
-    toggle();
+    await toggle();
     await expect.poll(() => host?.checkVisibility()).toBe(true);
     expect(document.querySelector('[aria-label="Workspace files"] file-tree-container')).toBe(host);
     await expect.element(folder).toHaveAttribute("aria-expanded", "false");
@@ -1518,11 +1543,23 @@ describe("graphical review", () => {
       )
       .toBeVisible();
     await page.getByRole("button", { name: "Add note to line", exact: true }).first().click();
-    await page.getByRole("textbox", { name: "Review note text" }).fill("Both lines");
+    // The composer opens below the last selected line, as the saved note shows.
+    const slot = (element: Element) => element.closest("[slot]")?.getAttribute("slot");
+    const composer = page.getByRole("textbox", { name: "Review note text" });
+    await expect.poll(() => slot(composer.element())).toBe("annotation-additions-2");
+    await composer.fill("Both lines");
     await page.getByRole("button", { name: "Save note", exact: true }).click();
     await expect
       .poll(() => controller.getSnapshot().notes?.notes[0])
       .toMatchObject({ line: 1, endLine: 2, side: "new", text: "Both lines" });
+    await expect
+      .poll(() => {
+        const card = [...document.querySelectorAll("[slot] *")].find(
+          (element) => element.textContent === "Both lines",
+        );
+        return card && slot(card);
+      })
+      .toBe("annotation-additions-2");
   });
 
   test("dragging the gutter plus opens a note for the full range", async () => {
@@ -1979,6 +2016,61 @@ describe("review brief", () => {
       .toBeInTheDocument();
   });
 
+  test("comments on a selected passage of the notes, marks it, and edits the comment", async () => {
+    await mountApp({
+      savedReview: true,
+      brief: "# Rename the export\n\nThe constant changes. Callers keep the old name for now.\n",
+    });
+    const paragraph = page.getByText(/^The constant changes\./);
+    await expect.element(paragraph).toBeVisible();
+    const select = (words: string) => {
+      const text = paragraph.element().firstChild as Text;
+      const range = new Range();
+      range.setStart(text, text.data.indexOf(words));
+      range.setEnd(text, text.data.indexOf(words) + words.length);
+      document.getSelection()!.removeAllRanges();
+      document.getSelection()!.addRange(range);
+    };
+    const marked = () =>
+      [...(CSS.highlights.get("med-brief-comment") ?? [])].map((range) => String(range));
+
+    select("Callers keep the old name");
+    await userEvent.click(page.getByRole("button", { name: "Comment on the selection" }));
+    await userEvent.fill(
+      page.getByRole("textbox", { name: "Comment text" }),
+      "Rename the callers too.",
+    );
+    await userEvent.click(page.getByRole("button", { name: "Save note" }));
+    // The comment shows below its paragraph, and the passage stays marked.
+    const card = page.getByRole("article", { name: "Comment on “Callers keep the old name”" });
+    await expect.element(card.getByText("Rename the callers too.")).toBeVisible();
+    await expect.poll(marked).toEqual(["Callers keep the old name"]);
+    await expect
+      .poll(() => page.getByRole("button", { name: "Copy comments" }).element().textContent)
+      .toMatch(/1$/);
+
+    await userEvent.click(card.getByRole("button", { name: "Edit" }));
+    await userEvent.fill(
+      page.getByRole("textbox", { name: "Edit note text" }),
+      "Rename them here.",
+    );
+    await userEvent.click(card.getByRole("button", { name: "Save" }));
+    await expect.element(card.getByText("Rename them here.")).toBeVisible();
+
+    // C starts a comment on the selection, as on lines in Changes.
+    select("The constant changes");
+    await expect
+      .element(page.getByRole("button", { name: "Comment on the selection" }))
+      .toBeVisible();
+    await userEvent.keyboard("c");
+    await expect.element(page.getByRole("textbox", { name: "Comment text" })).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+
+    await userEvent.click(card.getByRole("button", { name: "Delete review note" }));
+    await expect.element(card).not.toBeInTheDocument();
+    await expect.poll(marked).toEqual([]);
+  });
+
   test("an agent's iterations switch the brief and its comparison together", async () => {
     await page.viewport(1280, 800);
     const { controller } = await mountApp({
@@ -2203,6 +2295,74 @@ describe("review brief", () => {
     expect(pullRequestReads.slice(0, -1).every((search) => search === "")).toBe(true);
   });
 
+  test("⌘⇧B shows and hides the agent session; the files sidebar has a folder button", async () => {
+    await mountApp({ savedReview: true });
+    const session = page.getByRole("button", { name: "Toggle agent session" });
+    await expect.element(session).toHaveAttribute("aria-pressed", "false");
+    await userEvent.keyboard("{Control>}{Shift>}B{/Shift}{/Control}");
+    await expect.element(session).toHaveAttribute("aria-pressed", "true");
+    await userEvent.keyboard("{Control>}{Shift>}B{/Shift}{/Control}");
+    await expect.element(session).toHaveAttribute("aria-pressed", "false");
+    await expect
+      .element(page.getByRole("button", { name: "Toggle files sidebar" }))
+      .toHaveAttribute("aria-pressed", "false");
+  });
+
+  test("shows Codex review findings read-only, at their lines or in the Codex panel", async () => {
+    const finding = (id: string, path: string, line: number, priority: number, title: string) => ({
+      id,
+      title,
+      body: `Because ${title.toLowerCase()}.`,
+      priority,
+      confidence: 0.9,
+      path,
+      startLine: line,
+      endLine: line,
+    });
+    const run = (id: string, commit: string, findings: ReturnType<typeof finding>[]) => ({
+      id,
+      threadId: id.split(":")[0]!,
+      repo: "/test/repo",
+      commit,
+      createdAt: "2026-09-20T00:00:00Z",
+      target: "changes against 'main'",
+      verdict: "patch is incorrect",
+      explanation: "The exporter reads a field that trails do not have.",
+      findings,
+    });
+    await mountApp({
+      savedReview: true,
+      codexReviews: [
+        run("t1:0", firstCommit, [
+          finding("t1:0:0", "src/alpha.ts", 1, 1, "Use the existing field"),
+          finding("t1:0:1", "src/beta.ts", 40, 3, "Name the constant"),
+        ]),
+        run("t0:0", secondCommit, [finding("t0:0:0", "src/alpha.ts", 1, 2, "An older finding")]),
+      ],
+    });
+    // The finding of the commit on screen shows on its line, with no way to write.
+    const card = page.getByRole("article", { name: "Codex finding at R1, read-only" });
+    await expect.element(card).toBeVisible();
+    expect(card.element().textContent).toMatch(
+      /Codex\s*P1.*Use the existing field.*Because use the existing field\./,
+    );
+    expect(card.element().querySelector("textarea, [contenteditable]")).toBeNull();
+    expect(document.querySelectorAll("[data-codex-finding]")).toHaveLength(1);
+
+    // The panel holds each verdict, and the findings the diff cannot show.
+    await page.getByRole("button", { name: "3 Codex findings" }).click();
+    const panel = page.getByRole("dialog", { name: "Codex reviews" });
+    await expect.element(panel).toBeVisible();
+    const text = panel.element().textContent;
+    expect(text).toMatch(/Codex\s*Patch is incorrect.*The exporter reads a field/);
+    expect(text).toContain("1 finding shows in the diff.");
+    expect(text).toMatch(/src\/beta\.ts\s*R40.*P3.*Name the constant/);
+    expect(text).toContain(
+      `Lines refer to ${secondCommit.slice(0, 7)}, the commit that Codex reviewed. This comparison shows ${firstCommit.slice(0, 7)}, so they are listed here.`,
+    );
+    expect(text).toContain("An older finding");
+  });
+
   test("attaches a pasted brief to a saved review and undoes it", async () => {
     await mountApp({ savedReview: true });
     await expect.element(page.getByRole("tab", { name: "Notes" })).not.toBeInTheDocument();
@@ -2224,6 +2384,23 @@ describe("review brief", () => {
       .toHaveAttribute("aria-selected", "true");
     await expect.element(page.getByRole("status")).toHaveTextContent("Brief removed.");
   });
+});
+
+test("collapses every file from the Changes toolbar, then expands them again", async () => {
+  await mountApp();
+  const header = (action: string, path: string) =>
+    page.getByRole("button", { name: `${action} ${path}`, exact: true });
+  await expect.element(header("Collapse", "src/alpha.ts")).toBeVisible();
+  await page.getByRole("button", { name: "Collapse all files" }).click();
+  await expect.element(header("Expand", "src/alpha.ts")).toBeVisible();
+  await expect.element(header("Expand", "src/beta.ts")).toBeVisible();
+  // One open file is enough to collapse all again.
+  await header("Expand", "src/beta.ts").click();
+  await expect.element(page.getByRole("button", { name: "Collapse all files" })).toBeVisible();
+  await page.getByRole("button", { name: "Collapse all files" }).click();
+  await page.getByRole("button", { name: "Expand all files" }).click();
+  await expect.element(header("Collapse", "src/alpha.ts")).toBeVisible();
+  await expect.element(header("Collapse", "src/beta.ts")).toBeVisible();
 });
 
 test("collapses history to a heading that names the selection, and remembers it", async () => {
@@ -2292,6 +2469,42 @@ describe("agent session", () => {
     await expect.element(page.getByRole("tab", { name: "alpha.ts", exact: true })).toBeVisible();
     await panel.getByRole("button", { name: "Close session" }).click();
     await expect.element(panel).not.toBeInTheDocument();
+  });
+
+  test("a saved review prepares its session out of view, so the pane opens with its thread", async () => {
+    const events = [
+      {
+        at: 0,
+        update: {
+          sessionUpdate: "user_message_chunk",
+          content: { type: "text", text: "Rename the export." },
+        },
+      },
+      {
+        at: 2000,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "Renamed **alpha** in `src/alpha.ts`." },
+        },
+      },
+    ];
+    await mountApp({
+      savedReview: true,
+      session: `event: reset\ndata: ${JSON.stringify({ events, idle: true, modifiedAt: 0, truncated: false })}\n\n`,
+    });
+    const panel = page.getByRole("complementary", { name: "Agent session" });
+    // Once the review is idle, the thread streams and renders in a hidden pane.
+    await expect
+      .poll(() => document.querySelector('[aria-label="Session"]')?.textContent ?? "")
+      .toContain("Rename the export.");
+    await expect.element(panel).not.toBeInTheDocument();
+    await expect
+      .poll(() => document.querySelector('[aria-label="Session"] [data-unit] strong')?.textContent)
+      .toBe("alpha");
+
+    await page.getByRole("button", { name: "Toggle agent session" }).click();
+    expect(panel.getByText("Rename the export.").element()).toBeVisible();
+    expect(panel.getByText("alpha", { exact: true }).element()).toBeVisible();
   });
 
   test("a long session loads its earlier work and jumps to a turn", async () => {

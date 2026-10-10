@@ -9,9 +9,8 @@ import {
 } from "../../shared/owned-session";
 import { readBrowserToken } from "./auth";
 import { createApi } from "./api";
+import { browserFetch } from "./live";
 import { readServerEvents } from "./sse";
-
-const browserFetch: typeof fetch = (...args) => globalThis.fetch(...args);
 
 const pause = (ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve) => {

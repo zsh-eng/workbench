@@ -5,8 +5,11 @@ import { fileChanges } from "./repository/file-changes";
 import { markdownAsset } from "./markdown-assets";
 import { browseSourceSchema } from "../shared/browse";
 import { LocalFiles } from "./local-files";
+import { ChannelResponse, channelRequest, LIVE_PATH, liveInputSchema } from "./live-streams";
+import { PullJobs } from "./pull-workspace";
+import { parsePullUrl, pullStartSchema } from "../shared/pull-workspace";
 import { localPathSchema } from "../shared/local-file";
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { lstat, mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
@@ -15,9 +18,11 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import {
+  apiErrorMessage,
   notesRequestSchema,
   noteMutationSchema,
   reviewRequestSchema,
+  type ApiError,
   type ChangeEvent,
   type Comparison,
   type Repository,
@@ -57,6 +62,8 @@ import { symbolSearchRequestSchema } from "../shared/symbols";
 import { FileSymbolService } from "./search/symbols";
 import { type SearchOptions } from "./search/service";
 import { RepositoryRegistry } from "./repository/registry";
+import { removeWorktree } from "./repository/worktrees";
+import { CodexReviews } from "./codex-reviews";
 import { SavedReviewStore } from "./saved-reviews";
 import {
   findTranscript,
@@ -76,6 +83,7 @@ import {
 import type { SessionEvent } from "../shared/agent-session";
 import {
   pinMutationSchema,
+  briefCommentMutationSchema,
   reviewKeySchema,
   savedReviewCreateSchema,
 } from "../shared/saved-review";
@@ -103,6 +111,8 @@ export interface StartHostOptions {
   queueCodex?: (threadId: string, text: string) => Promise<void>;
   /** The agents Med can start; tests replace the installed ones. */
   agents?: () => Promise<RunnableAgent[]>;
+  /** The GitHub CLI that opens pull requests; tests give a fake one. */
+  gh?: { command: string; args: string[] };
 }
 export interface RunningHost {
   url: string;
@@ -216,6 +226,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     logDirectory: join(options.stateDir ?? temporaryState!, "sessions"),
   });
   const ownedStreams = new Set<ServerResponse>();
+  const codexReviews = new CodexReviews();
   const reviewStatus = createAgentStatus({
     owned(sessionId) {
       const runner = ownedSessions.get(sessionId);
@@ -242,6 +253,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   // such as a review an agent just created.
   const windows = new Set<ServerResponse>();
   const sessionStreams = new Set<ServerResponse>();
+  // One stream per page that carries the streams above as channels.
+  const lives = new Map<
+    string,
+    { response: ServerResponse; channels: Map<string, ChannelResponse> }
+  >();
   /** Session updates per server event; the browser reads events up to 4 MiB. */
   const SESSION_EVENT_BYTES = 1024 * 1024;
   // The workspace list's states update this often.
@@ -271,8 +287,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     }
   };
 
-  const registry = new RepositoryRegistry(options.search, async (id, paths) => {
-    for (const [abort, owners] of activeRequests) if (owners.has(id)) abort.abort();
+  /** Ends the event streams and file watchers of checkouts that are gone. */
+  const forgetCheckouts = async (paths: ReadonlySet<string>) => {
     for (const [stream, path] of streams)
       if (paths.has(path)) {
         stream.end();
@@ -285,9 +301,35 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       browseLiveSources.delete(path);
       if (watcher) await retireWatcher(watcher);
     }
+  };
+  const registry = new RepositoryRegistry(options.search, async (id, paths) => {
+    for (const [abort, owners] of activeRequests) if (owners.has(id)) abort.abort();
+    await forgetCheckouts(paths);
     reviews.removeRepositories(paths);
     notes.removeRepositories(paths);
   });
+  // GitHub pull requests that open as workspaces. A job saves its review and
+  // starts its agent through this host's own API.
+  const pullJobs = new PullJobs({
+    repositories: () => registry.snapshot(),
+    refresh: (path) => registry.refreshOwner(path),
+    gh: options.gh ?? { command: "gh", args: [] },
+    worktrees: join(options.stateDir ?? temporaryState!, "worktrees"),
+    async api<T>(path: string, body?: unknown) {
+      const response = await fetch(`http://127.0.0.1:${port}${path}`, {
+        method: body === undefined ? "GET" : "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+      const data: unknown = await response.json().catch(() => null);
+      if (!response.ok)
+        throw new Error(
+          apiErrorMessage(data) ?? `The host refused the request (${response.status}).`,
+        );
+      return data as T;
+    },
+  });
+  const pullStreams = new Set<ServerResponse>();
   if (repository.git !== false) {
     await registry.register(repository.path);
     for (const path of options.repos ?? []) await registry.register(path);
@@ -384,7 +426,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     };
   };
 
-  const server = createServer((request, response) => {
+  const handle = (request: IncomingMessage, response: ServerResponse) => {
     const abort = new AbortController();
     const owners = new Set<string>();
     const ownershipChecks = new Set<() => boolean>();
@@ -487,6 +529,65 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             `med_session_${port}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`,
           );
           send({ authenticated: true });
+          return;
+        }
+        if (url.pathname === "/api/live" && request.method === "GET") {
+          if (lives.size >= 32)
+            throw new HostError("too-many-streams", "Too many live streams are open.", 503);
+          const id = randomUUID();
+          response.writeHead(200, {
+            "content-type": "text/event-stream",
+            "cache-control": "no-store",
+            connection: "keep-alive",
+            "x-accel-buffering": "no",
+          });
+          const channels = new Map<string, ChannelResponse>();
+          lives.set(id, { response, channels });
+          response.write(`event: live\ndata: ${JSON.stringify({ id })}\n\n`);
+          response.once("close", () => {
+            lives.delete(id);
+            for (const channel of channels.values()) channel.destroy();
+          });
+          return;
+        }
+        const liveRoute = /^\/api\/live\/([A-Za-z0-9-]{1,80})$/.exec(url.pathname);
+        if (liveRoute && request.method === "POST") {
+          const live = lives.get(liveRoute[1]!);
+          if (!live) throw new HostError("live-not-found", "The live stream has closed.", 404);
+          const input = liveInputSchema.parse(await readBody(request));
+          for (const key of input.close) live.channels.get(key)?.destroy();
+          const refuse = (key: string, status: number, code: string, message: string) => ({
+            key,
+            status,
+            body: { error: { code, message } } satisfies ApiError,
+          });
+          const channels = await Promise.all(
+            input.open.map(async ({ key, path }) => {
+              if (!LIVE_PATH.test(path))
+                return refuse(key, 400, "invalid-channel", "This stream cannot be a channel.");
+              if (live.channels.has(key) || live.channels.size >= 32)
+                return refuse(key, 409, "channel-unavailable", "Choose another channel key.");
+              const channel = new ChannelResponse(key, (text) => {
+                if (!live.response.writableEnded) live.response.write(text);
+              });
+              live.channels.set(key, channel);
+              channel.once("close", () => {
+                if (live.channels.get(key) === channel) live.channels.delete(key);
+              });
+              handle(channelRequest(request, path), channel as unknown as ServerResponse);
+              await channel.head;
+              if (channel.statusCode === 200) return { key, status: 200 };
+              live.channels.delete(key);
+              let body: unknown = null;
+              try {
+                body = JSON.parse(channel.body);
+              } catch {
+                /* The handler sent no JSON body. */
+              }
+              return { key, status: channel.statusCode, body };
+            }),
+          );
+          send({ channels });
           return;
         }
         if (url.pathname === "/api/events" && request.method === "GET") {
@@ -622,6 +723,48 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           ).catch(() => response.end());
           return;
         }
+        // A pull request that opens as a workspace, and its progress.
+        if (url.pathname === "/api/pulls" && request.method === "POST") {
+          const input = pullStartSchema.parse(await readBody(request));
+          const address = parsePullUrl(input.url);
+          if (!address)
+            throw new HostError("invalid-pull-request", "Paste a GitHub pull request link.", 400);
+          const agent = input.agent
+            ? (await ownedSessions.agents()).find((entry) => entry.id === input.agent)
+            : undefined;
+          if (input.agent && !agent?.available)
+            throw new HostError("agent-not-found", "Med cannot start this agent.", 404);
+          send(pullJobs.start(address, agent && { id: agent.id, name: agent.name }));
+          return;
+        }
+        const pullRoute = /^\/api\/pulls\/([A-Za-z0-9-]{1,80})(\/events)?$/.exec(url.pathname);
+        if (pullRoute && request.method === "GET") {
+          const id = pullRoute[1]!;
+          if (!pullJobs.get(id))
+            throw new HostError("pull-job-not-found", "Med restarted before this job ended.", 404);
+          if (!pullRoute[2]) {
+            send(pullJobs.get(id));
+            return;
+          }
+          if (pullStreams.size >= 32)
+            throw new HostError("too-many-streams", "Too many pull request streams are open.", 503);
+          response.writeHead(200, {
+            "content-type": "text/event-stream",
+            "cache-control": "no-store",
+            connection: "keep-alive",
+            "x-accel-buffering": "no",
+          });
+          pullStreams.add(response);
+          const push = () =>
+            response.write(`event: state\ndata: ${JSON.stringify(pullJobs.get(id))}\n\n`);
+          const unsubscribe = pullJobs.subscribe(id, push);
+          response.once("close", () => {
+            pullStreams.delete(response);
+            unsubscribe();
+          });
+          push();
+          return;
+        }
         // The workspace list: each saved review's lead session, sent when it changes.
         if (url.pathname === "/api/agent-status/events" && request.method === "GET") {
           const ids = [
@@ -687,7 +830,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 `Register the repository for ${target.repo} to start an agent there.`,
                 409,
               );
-            const cwd = await requireRepo(entry.path);
+            // The agent works in the reviewed checkout, such as a pull request's
+            // worktree, while that checkout stays.
+            const cwd = await requireRepo(target.repo).catch(() => requireRepo(entry.path));
             assertRequestAccess();
             const runner = await ownedSessions.start(input.preset, cwd);
             const review = await savedReviews.details(
@@ -755,12 +900,15 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               for (const id of message.noteIds)
                 if ((sent.get(id) ?? "") < message.createdAt) sent.set(id, message.createdAt);
             const comments = await savedReviews.comments(reviewId);
+            // The events stream asks again on each change; read the review again.
+            const { briefComments } = await savedReviews.get(reviewId);
+            const unsent = (comment: { id: string; updatedAt: string }) =>
+              (sent.get(comment.id) ?? "") < comment.updatedAt;
             return {
               messages,
               waiting: inbox.waiting(reviewId),
-              drafts: comments
-                .filter((comment) => (sent.get(comment.id) ?? "") < comment.updatedAt)
-                .map((comment) => ({
+              drafts: [
+                ...comments.filter(unsent).map((comment) => ({
                   id: comment.id,
                   path: comment.path,
                   line: comment.line,
@@ -768,6 +916,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   text: comment.text,
                   replies: comment.replies,
                 })),
+                ...(briefComments ?? []).filter(unsent).map((comment) => ({
+                  id: comment.id,
+                  path: "Notes",
+                  quote: comment.quote,
+                  text: comment.text,
+                  replies: 0,
+                })),
+              ],
             };
           };
           if (!action && request.method === "GET") {
@@ -1133,7 +1289,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           const savedRoute =
-            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes)|\/(feedback|clear|brief|pins|details|pull-request))?$/.exec(
+            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes)|\/(feedback|clear|brief|brief-comments|pins|details|pull-request|codex-reviews))?$/.exec(
               url.pathname,
             );
           if (savedRoute) {
@@ -1179,6 +1335,21 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                     url.searchParams.get("refresh") === "1",
                   ),
                 );
+              } else if (action === "codex-reviews") {
+                // Reviews of a head that the review shows, or run since it was saved.
+                const heads = new Set(bundle.targets.map((target) => target.head));
+                const runs = await codexReviews.find(
+                  [...new Set(bundle.targets.map((target) => target.repo))],
+                  Date.parse(bundle.createdAt) - 7 * 24 * 60 * 60 * 1000,
+                );
+                send({
+                  runs: runs
+                    .filter(
+                      (run) =>
+                        (run.commit && heads.has(run.commit)) || run.createdAt >= bundle.createdAt,
+                    )
+                    .slice(0, 20),
+                });
               } else if (!action) send(bundle);
               else
                 throw new HostError(
@@ -1214,6 +1385,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 .parse(await readBody(request, MAX_BRIEF_BODY));
               assertRequestAccess();
               send(await savedReviews.setBrief(id!, input.brief, assertRequestAccess));
+              return;
+            }
+            if (request.method === "POST" && action === "brief-comments") {
+              const input = briefCommentMutationSchema.parse(await readBody(request));
+              assertRequestAccess();
+              send(await savedReviews.commentBrief(id!, input, assertRequestAccess));
+              inbox.touch(id!);
               return;
             }
             if (request.method === "POST" && action === "pins") {
@@ -1589,6 +1767,28 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             );
             return;
           }
+          // Closing a workspace can remove its linked worktree. Git keeps one
+          // with changes; an agent that works there keeps it too.
+          if (url.pathname === "/api/worktrees/remove" && request.method === "POST") {
+            const input = z
+              .object({ path: z.string().min(1).max(8192) })
+              .parse(await readBody(request));
+            // Not requireRepo: the request ends after the path leaves the registry.
+            const { path } = await registry.require(input.path, abort.signal);
+            const agents = ownedSessions.within(path);
+            if (agents.some((runner) => runner.state().status !== "idle"))
+              throw new HostError(
+                "worktree-busy",
+                "An agent is working in this worktree. Stop it, then try again.",
+                409,
+              );
+            await removeWorktree(path, abort.signal);
+            for (const runner of agents) runner.stop();
+            await forgetCheckouts(new Set([path]));
+            await registry.refreshOwner(path, abort.signal);
+            send({ removed: true });
+            return;
+          }
           if (url.pathname === "/api/reveal" && request.method === "POST") {
             const input = z
               .object({ repo: z.string().optional(), path: z.string().min(1) })
@@ -1744,12 +1944,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               : "internal-error";
         const message =
           error instanceof Error ? error.message : "The host could not complete the request.";
-        json(response, status, { error: { code, message } });
+        json(response, status, { error: { code, message } } satisfies ApiError);
       })
       .finally(() => {
         activeRequests.delete(abort);
       });
-  });
+  };
+  const server = createServer(handle);
   server.requestTimeout = 35_000;
   server.headersTimeout = 10_000;
   await new Promise<void>((resolvePromise, reject) => {
@@ -1790,6 +1991,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   }
   const heartbeat = setInterval(() => {
     for (const stream of [...streams.keys(), ...windows]) stream.write(": heartbeat\n\n");
+    for (const { response } of lives.values()) response.write(": heartbeat\n\n");
   }, 15_000);
   heartbeat.unref();
   return {
@@ -1803,6 +2005,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       ownedSessions.stopAll();
       for (const abort of activeRequests.keys()) abort.abort();
       for (const stream of [...streams.keys(), ...windows]) stream.end();
+      for (const { response } of lives.values()) response.end();
       streams.clear();
       windows.clear();
       await Promise.allSettled([...watchers.values()].map(async (stop) => (await stop)()));

@@ -180,3 +180,51 @@ test("a reply pinned to the review stays with its iteration", async () => {
   expect(removed.iterations?.[0]?.pins).toBeUndefined();
   expect((await api(`/api/reviews/${saved.id}/pins`, { add: { text: " " } })).status).toBe(400);
 });
+
+test("a comment on a passage of the Notes counts, copies, and reaches the agent with its quote", async () => {
+  const { api, saved, commentId, queued } = await fixture();
+  const comment = (mutation: unknown) => api(`/api/reviews/${saved.id}/brief-comments`, mutation);
+  const add = {
+    section: "brief",
+    iteration: 1,
+    quote: "rounds to whole seconds",
+    prefix: "The summary ",
+    text: "Round to minutes instead.",
+  };
+  // Only notes that the review has take comments.
+  expect((await comment({ add })).status).toBe(404);
+  await api(`/api/reviews/${saved.id}/brief`, {
+    brief: "# Durations\n\nThe summary rounds to whole seconds.",
+  });
+  const commented = (await comment({ add })).data as SavedReview;
+  expect(commented.briefComments).toMatchObject([add]);
+  expect(commented.commentCount).toBe(2);
+  const id = commented.briefComments![0]!.id;
+
+  const inbox = (await api(`/api/reviews/${saved.id}/agent`)).data as AgentInboxState;
+  expect(inbox.drafts).toMatchObject([
+    { id: commentId, path: "summary.ts" },
+    { id, path: "Notes", quote: add.quote, text: add.text },
+  ]);
+  const feedback = (await api(`/api/reviews/${saved.id}/feedback`)).data as {
+    text: string;
+    count: number;
+  };
+  expect(feedback.count).toBe(2);
+  expect(feedback.text).toContain(
+    `On: the review's brief (iteration 1)\nComment ID: ${id}\n\nQuote:\n> rounds to whole seconds\n\nComment:\nRound to minutes instead.`,
+  );
+  await api(`/api/reviews/${saved.id}/agent/messages`, {
+    sessionId: codex,
+    text: "",
+    noteIds: [id],
+  });
+  expect(queued[0]![1]).toContain("> rounds to whole seconds");
+  expect(queued[0]![1]).not.toContain("File: summary.ts");
+
+  const edited = (await comment({ edit: { id, text: "Use minutes." } })).data as SavedReview;
+  expect(edited.briefComments?.[0]).toMatchObject({ id, text: "Use minutes." });
+  const removed = (await comment({ remove: id })).data as SavedReview;
+  expect(removed.briefComments).toBeUndefined();
+  expect(removed.commentCount).toBe(1);
+});

@@ -45,7 +45,7 @@ import "./pierre-theme";
 import { useTheme } from "./themes";
 import { ThemePicker } from "./components/ThemePicker";
 import { BranchStrip, BranchSwitch, useBranchTabs } from "./components/BranchTabs";
-import { useDisposeOnClose, useWorkspace, WorkspaceList } from "./components/Workspaces";
+import { useDisposeOnClose, useWorkspace, whenIdle, WorkspaceList } from "./components/Workspaces";
 import type { BranchEntry } from "./components/BranchPicker";
 import { visibleElement } from "./data/palette-focus";
 import { setFilePreviewShown, useFilePreviewShown } from "./data/picker-preferences";
@@ -60,16 +60,21 @@ import { FilePicker } from "./components/FilePicker";
 import { SymbolPicker } from "./components/SymbolPicker";
 import { FullFileView, type BeginFileSymbolPreview } from "./components/FullFileView";
 import { FileViewTabs } from "./components/FileViewTabs";
+import { checkoutNameFor } from "./data/checkout-names";
 import { readBrowserToken } from "./data/auth";
 import { createApi } from "./data/api";
 import { createCommitApi, type CommitApi } from "./data/commit";
 import {
   PullRequestThreadCard,
   AgentReplyContext,
+  CodexFindingCard,
   type AgentReplyTarget,
+  type FindingPlacement,
+  useCodexReviews,
   usePullRequestComments,
   type ThreadPlacement,
 } from "./components/PullRequestComments";
+import type { CodexFinding, CodexReviewRun } from "../shared/codex-review";
 import { SavedReviewHeader } from "./components/SavedReviewHeader";
 import { ShortcutGuide } from "./components/ShortcutGuide";
 import { ZenExit, ZenHint } from "./components/ZenExit";
@@ -118,7 +123,27 @@ const NO_SESSIONS: AgentSession[] = [];
 // Pierre's view renders its file headers and comments again whenever it renders.
 const ReviewCodeView = memo(CodeView) as typeof CodeView;
 
-type Annotation = { note?: Note; draft?: NoteTarget; thread?: PullRequestThread };
+/** A note's card sits below the last line of its range, as on GitHub, when
+ * one hunk shows the whole range; otherwise below its first line. */
+function noteLine(
+  metadata: FileDiffMetadata | null,
+  note: { side: "old" | "new"; line: number; endLine?: number },
+) {
+  const end = note.endLine ?? note.line;
+  const whole = metadata?.hunks.some((hunk) => {
+    const start = note.side === "old" ? hunk.deletionStart : hunk.additionStart;
+    const count = note.side === "old" ? hunk.deletionCount : hunk.additionCount;
+    return note.line >= start && end < start + count;
+  });
+  return whole ? end : note.line;
+}
+
+type Annotation = {
+  note?: Note;
+  draft?: NoteTarget;
+  thread?: PullRequestThread;
+  finding?: { finding: CodexFinding; run: CodexReviewRun };
+};
 type Selection = {
   id: string;
   range: {
@@ -703,6 +728,12 @@ export function App({
     });
   }, [controller]);
   const files = state.visibleFiles;
+  // Collapse all while any file is open; expand all once every file is closed.
+  const allCollapsed = files.length > 0 && files.every((file) => collapsed.has(file.id));
+  const toggleAllFiles = useCallback(
+    () => setCollapsed(allCollapsed ? new Set() : new Set(files.map((file) => file.id))),
+    [allCollapsed, files],
+  );
   const fileInfoById = useMemo(() => new Map(files.map((file) => [file.id, file.info])), [files]);
   const notes = state.notes?.notes ?? emptyNotes;
   const agentSessions = state.savedReview?.sessions ?? NO_SESSIONS;
@@ -711,8 +742,17 @@ export function App({
     sessionFetch,
   );
   const [agentAttachments, setAgentAttachments] = useState<ComposerAttachment[]>([]);
-  // The agents that Med can start in a saved review's repository.
-  const agentPresets = useAgentPresets(!!state.savedReview, sessionFetch);
+  // Once the review is idle, the session pane prepares hidden, so it opens at
+  // once: its thread streams, and its newest replies render ahead.
+  const [sessionReady, setSessionReady] = useState(false);
+  const hasSessions = agentSessions.length > 0;
+  useEffect(() => {
+    if (sessionReady || !hasSessions) return;
+    return whenIdle(() => setSessionReady(true));
+  }, [sessionReady, hasSessions]);
+  // The agents that Med can start in a saved review's repository, or in a
+  // pull request's worktree from the branch picker.
+  const agentPresets = useAgentPresets(!!state.savedReview || branchPickerOpen, sessionFetch);
   const sessionStarter = useMemo<SessionStarter>(
     () => ({
       agents: agentPresets,
@@ -798,6 +838,47 @@ export function App({
     }
     return { byPath, placement: inline };
   }, [pullRequest.data, state.savedView, savedTarget, files]);
+  const codexReviews = useCodexReviews(
+    useCallback(() => controller.loadCodexReviews(), [controller]),
+    state.savedReview?.id ?? null,
+  );
+  // Codex finding lines refer to the commit that Codex reviewed, as GitHub
+  // thread lines refer to the pull request's head.
+  const codexFindings = useMemo(() => {
+    const byPath = new Map<string, { finding: CodexFinding; run: CodexReviewRun }[]>();
+    const inline = new Set<string>();
+    const reasons = new Map<string, string>();
+    for (const run of codexReviews.runs ?? []) {
+      const head = run.commit
+        ? `Lines refer to ${run.commit.slice(0, 7)}, the commit that Codex reviewed.`
+        : "Codex did not record the commit it reviewed, so they are listed here.";
+      if (!run.commit) reasons.set(run.id, head);
+      else if (!state.savedView || !savedTarget)
+        reasons.set(run.id, `${head} Return to the saved review to see them in the diff.`);
+      else if (
+        savedTarget.repo !== run.repo ||
+        savedTarget.captured ||
+        savedTarget.head !== run.commit
+      )
+        reasons.set(
+          run.id,
+          `${head} This comparison shows ${savedTarget.repo !== run.repo ? "another checkout" : savedTarget.captured ? "captured working changes" : savedTarget.head.slice(0, 7)}, so they are listed here.`,
+        );
+      else
+        for (const finding of run.findings) {
+          const metadata = files.find((file) => file.path === finding.path)?.metadata;
+          const shown = metadata?.hunks.some(
+            (hunk) =>
+              finding.endLine >= hunk.additionStart &&
+              finding.endLine < hunk.additionStart + hunk.additionCount,
+          );
+          if (!shown) continue;
+          inline.add(finding.id);
+          byPath.set(finding.path, [...(byPath.get(finding.path) ?? []), { finding, run }]);
+        }
+    }
+    return { byPath, placement: { inline, reasons } satisfies FindingPlacement };
+  }, [codexReviews.runs, state.savedView, savedTarget, files]);
   const submitted = pendingDraft;
   // The controller publishes the saved note before its save promise completes.
   // Replace that draft in the same render so the diff never reserves two cards.
@@ -915,6 +996,17 @@ export function App({
       ? iterations.find((entry) => entry.number === shownIteration)?.pins
       : state.savedReview?.pins;
   const hasNotes = !!savedBrief || !!savedPins?.length;
+  // Comments on passages of the shown brief and pins.
+  const allBriefComments = state.savedReview?.briefComments;
+  const briefComments = useMemo(
+    () =>
+      (allBriefComments ?? []).filter((comment) =>
+        comment.section === "brief"
+          ? comment.iteration === briefSource?.number
+          : !!savedPins?.some((pin) => pin.id === comment.section),
+      ),
+    [allBriefComments, briefSource?.number, savedPins],
+  );
   const notesText = useMemo(
     () =>
       joinNotes([
@@ -1158,6 +1250,8 @@ export function App({
     [...collapsed],
     pullRequest.threadsRevision,
     pullRequestThreads.placement.kind === "inline" ? [...pullRequestThreads.placement.ids] : [],
+    codexReviews.revision,
+    [...codexFindings.placement.inline],
   ]);
   const [itemVersion, setItemVersion] = useState({ key: itemKey, files, notes, value: 0 });
   let currentVersion = itemVersion.value;
@@ -1178,6 +1272,13 @@ export function App({
                 metadata: { thread },
               }),
             ),
+            ...(codexFindings.byPath.get(file.path) ?? []).map(
+              (finding): DiffLineAnnotation<Annotation> => ({
+                side: "additions",
+                lineNumber: finding.finding.endLine,
+                metadata: { finding },
+              }),
+            ),
             ...notes
               .filter(
                 (note) =>
@@ -1188,7 +1289,7 @@ export function App({
               )
               .map((note): DiffLineAnnotation<Annotation> => ({
                 side: note.side === "old" ? "deletions" : "additions",
-                lineNumber: note.line,
+                lineNumber: noteLine(file.metadata, note),
                 metadata: { note },
               })),
           ]
@@ -1196,7 +1297,7 @@ export function App({
       if (visibleDraft?.path === file.path)
         annotations.push({
           side: visibleDraft.side === "old" ? "deletions" : "additions",
-          lineNumber: visibleDraft.line,
+          lineNumber: noteLine(file.metadata, visibleDraft),
           metadata: { draft: visibleDraft },
         });
       return [
@@ -1210,7 +1311,16 @@ export function App({
         },
       ];
     });
-  }, [files, notes, showNotes, visibleDraft, collapsed, currentVersion, pullRequestThreads]);
+  }, [
+    files,
+    notes,
+    showNotes,
+    visibleDraft,
+    collapsed,
+    currentVersion,
+    pullRequestThreads,
+    codexFindings,
+  ]);
 
   useEffect(() => {
     diagnostics.record("comparison", {
@@ -1586,11 +1696,12 @@ export function App({
       )
         return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
-        if (event.shiftKey && !browseSource) return;
+        // ⌘⇧B shows the agent session; the files sidebar has only its button.
+        if (event.shiftKey && !state.savedReview) return;
         event.preventDefault();
         event.stopPropagation();
         if (event.repeat) return;
-        if (event.shiftKey) toggleFilesSidebar();
+        if (event.shiftKey) toggleSession();
         else toggleReviewSidebar();
         return;
       }
@@ -1737,7 +1848,8 @@ export function App({
     selection,
     startNote,
     toggleReviewSidebar,
-    toggleFilesSidebar,
+    toggleSession,
+    state.savedReview,
     toggleZen,
     browseSource,
     openFilePicker,
@@ -1819,6 +1931,10 @@ export function App({
   const workspaceId = workspace?.id;
   const reportTitle = state.savedReview?.title ?? branches.current?.label ?? state.activeBranch;
   const reportPath = state.session?.repository.path;
+  // A linked worktree, so closing the workspace can remove it.
+  const reportWorktree = state.session?.worktrees.find((entry) => entry.path === reportPath)?.linked
+    ? reportPath
+    : undefined;
   const reportRepository = state.session?.repository.name;
   const reportReady = state.status === "ready";
   const reportCount = state.files.length;
@@ -1837,6 +1953,7 @@ export function App({
         repositoryId: undefined,
         branch: undefined,
         detail: undefined,
+        worktree: undefined,
       });
     reportTo(workspaceId, {
       ...(reportTitle ? { title: reportTitle } : {}),
@@ -1844,6 +1961,7 @@ export function App({
       ...(reportReady ? { detail: reportCount ? String(reportCount) : undefined } : {}),
       ...(reportPath
         ? {
+            worktree: reportWorktree,
             path: reportPath,
             repository: reportRepository,
             repositoryId: state.activeRepositoryId ?? undefined,
@@ -1860,6 +1978,7 @@ export function App({
     reportReady,
     reportCount,
     reportPath,
+    reportWorktree,
     reportRepository,
     state.activeRepositoryId,
     state.activeBranch,
@@ -2294,14 +2413,23 @@ export function App({
           {
             id: "browse-files",
             label: rightVisible ? "Hide files sidebar" : "Show files sidebar",
-            shortcut: "⌘⇧B",
             run: toggleFilesSidebar,
           },
+          ...(files.length > 1
+            ? [
+                {
+                  id: "fold-files",
+                  label: allCollapsed ? "Expand all files" : "Collapse all files",
+                  run: toggleAllFiles,
+                },
+              ]
+            : []),
           ...(state.savedReview
             ? [
                 {
                   id: "agent-session",
                   label: sessionVisible ? "Hide agent session" : "Show agent session",
+                  shortcut: "⌘⇧B",
                   run: toggleSession,
                 },
                 ...(agentPresets ?? [])
@@ -2735,6 +2863,11 @@ export function App({
         />
       ) : annotation.metadata?.thread ? (
         <PullRequestThreadCard thread={annotation.metadata.thread} />
+      ) : annotation.metadata?.finding ? (
+        <CodexFindingCard
+          finding={annotation.metadata.finding.finding}
+          run={annotation.metadata.finding.run}
+        />
       ) : annotation.metadata?.note ? (
         <NoteCard
           note={annotation.metadata.note}
@@ -2796,6 +2929,7 @@ export function App({
       {state.savedReview && (
         <ToolButton
           label={sessionVisible ? "Hide agent session" : "Show agent session"}
+          shortcut="⌘ ⇧ B"
           icon={leadIcon}
           aria-label="Toggle agent session"
           aria-pressed={sessionVisible}
@@ -2806,8 +2940,7 @@ export function App({
       {browseSource && (
         <ToolButton
           label={rightVisible ? "Hide files" : "Show files"}
-          shortcut="⌘ ⇧ B"
-          icon="panelRight"
+          icon="folder"
           aria-label="Toggle files sidebar"
           aria-pressed={rightVisible}
           onClick={toggleFilesSidebar}
@@ -2833,6 +2966,7 @@ export function App({
         tabs={fileState.tabs.map((tab) => ({
           ...tab,
           sourcePath: tab.source.repo,
+          sourceName: checkoutNameFor(state.repositories, tab.source.repo),
           dirty: !!editorDrafts.get(JSON.stringify([tab.source, tab.path]))?.dirty,
         }))}
         active={fileState.active}
@@ -2856,6 +2990,7 @@ export function App({
             label: "Session",
             ariaLabel: "Agent session",
             icon: leadIcon,
+            preload: sessionReady && hasSessions,
             render: (controls: ReactNode) => (
               <Suspense fallback={null}>
                 {agentSessions.length === 0 ? (
@@ -2948,6 +3083,8 @@ export function App({
         workspace ? openBranch(entry, newWorkspace || branchPickerNew) : branches.open(entry)
       }
       workspaces={workspace ? (branchPickerNew ? "new" : "here") : undefined}
+      onPullRequest={workspace?.openPull}
+      agents={agentPresets?.filter((agent) => agent.available)}
       onAddRepository={controller.addRepository}
       onRemoveRepository={async (id) => {
         await controller.removeRepository(id);
@@ -2993,7 +3130,7 @@ export function App({
         data-active-file={activeFile?.path ?? ""}
       >
         {zen ? (
-          <ZenHint loading={state.status === "loading"} />
+          <ZenHint loading={state.status === "loading"} session={!!state.savedReview} />
         ) : (
           !workspace && <BranchStrip model={branches} />
         )}
@@ -3079,7 +3216,7 @@ export function App({
           initialMode={pickerMode}
           initialQuery={pickerQuery}
           resume={pickerResume}
-          onOpen={(path, line, source, keep) =>
+          onOpen={(path, line, source, keep, label) =>
             fileWorkspace.open(
               path,
               keep,
@@ -3087,7 +3224,7 @@ export function App({
               source,
               source?.kind === "commit"
                 ? `Commit ${source.oid.slice(0, 8)}`
-                : (source?.repo ?? sourceLabel),
+                : (label ?? sourceLabel),
             )
           }
         />
@@ -3113,7 +3250,10 @@ export function App({
               {/* The tab row holds the identity while the sidebar is hidden. */}
               <div {...stylex.props(styles.sidebarHeader)}>{leftVisible && identity}</div>
               {workspace && (
-                <WorkspaceList onNew={gitAvailable ? () => openBranchPicker(true) : undefined} />
+                <WorkspaceList
+                  onNew={gitAvailable ? () => openBranchPicker(true) : undefined}
+                  repositories={state.repositories}
+                />
               )}
               {gitAvailable && (
                 <HistoryPanel
@@ -3199,6 +3339,8 @@ export function App({
                 state={state}
                 pullRequest={pullRequest}
                 threadPlacement={pullRequestThreads.placement}
+                codexReviews={codexReviews}
+                findingPlacement={codexFindings.placement}
                 sendTo={
                   replyAgent
                     ? {
@@ -3290,6 +3432,14 @@ export function App({
                     </span>
                   )}
                   <span {...stylex.props(ui.grow)} />
+                  {files.length > 1 && (
+                    <ToolButton
+                      label={allCollapsed ? "Expand all files" : "Collapse all files"}
+                      icon={allCollapsed ? "expandAll" : "collapseAll"}
+                      aria-label={allCollapsed ? "Expand all files" : "Collapse all files"}
+                      onClick={toggleAllFiles}
+                    />
+                  )}
                   <SegmentedControl<"split" | "unified">
                     label="Diff layout"
                     value={mode}
@@ -3641,6 +3791,9 @@ export function App({
                       onUnpin={(id) => void unpin(id)}
                       notes={notes}
                       onMutateNote={(mutation) => controller.mutateNote(mutation)}
+                      comments={briefComments}
+                      briefIteration={briefSource?.number}
+                      onCommentBrief={(mutation) => controller.commentBrief(mutation)}
                     />
                   </Suspense>
                 </div>

@@ -4,6 +4,7 @@ import * as stylex from "@stylexjs/stylex";
 import { Dialog } from "@base-ui/react/dialog";
 import { useEffect, useId, useRef, useState } from "react";
 import type { RegisteredRepository } from "../../shared/protocol";
+import { parsePullUrl } from "../../shared/pull-workspace";
 import { picked, tokens, ui } from "../theme.stylex";
 import { focusPaletteInput } from "../data/palette-focus";
 import { distinctLabels } from "../data/tab-labels";
@@ -15,7 +16,10 @@ export interface BranchEntry {
   label: string;
   /** The branch name; a detached worktree has none. */
   branch?: string;
+  /** The worktree's absolute path, to open it; the picker never shows it. */
   path?: string;
+  /** The worktree's short name, shown and matched in place of its path. */
+  checkout?: string;
   head: string;
   run(): void;
 }
@@ -30,6 +34,9 @@ export function BranchPicker({
   onRemoveRepository,
   onRefresh,
   workspaces,
+  onPullRequest,
+  agents = [],
+  initialQuery = "",
 }: {
   repositories: RegisteredRepository[];
   entries: BranchEntry[];
@@ -42,12 +49,18 @@ export function BranchPicker({
   onRefresh(): Promise<unknown>;
   /** With workspaces, where a plain ↵ opens the branch: here, or in a new one. */
   workspaces?: "here" | "new";
+  /** Opens a pasted GitHub pull request link in a new workspace. */
+  onPullRequest?(url: string, agent?: string): void;
+  /** Installed agents that can review the pull request in its worktree. */
+  agents?: { id: string; name: string }[];
+  /** The search it opens with, such as a link on the Elements page. */
+  initialQuery?: string;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const pathInput = useRef<HTMLInputElement>(null);
   const resultList = useRef<HTMLDivElement>(null);
   const id = useId();
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
   const [active, setActive] = useState(0);
   const [adding, setAdding] = useState(false);
   const [path, setPath] = useState("");
@@ -59,16 +72,27 @@ export function BranchPicker({
       qualifier: repository.path.split("/").slice(0, -1).join("/"),
     })),
   );
+  const labelOf = new Map(repositories.map((repository, index) => [repository.id, labels[index]]));
   const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
   const allResults = entries.filter((entry) => {
-    const repository = repositories.find((item) => item.id === entry.repositoryId);
     const text =
-      `${repository?.name} ${repository?.path} ${entry.label} ${entry.path ?? ""}`.toLowerCase();
+      `${labelOf.get(entry.repositoryId)} ${entry.label} ${entry.checkout ?? ""}`.toLowerCase();
     return words.every((word) => text.includes(word));
   });
   const results = allResults.slice(0, 200);
+  // A pasted pull request link opens it, alone or with an agent to review it.
+  const pull = onPullRequest ? parsePullUrl(query) : undefined;
+  const pullRows = pull
+    ? [{ id: "", name: "" }, ...agents].map((agent) => ({
+        agent: agent.id || undefined,
+        label: agent.id
+          ? `Open and review with ${agent.name}`
+          : `Open pull request #${pull.number}`,
+      }))
+    : [];
+  const count = pull ? pullRows.length : results.length;
   const resultIndex = new Map(results.map((entry, index) => [entry.key, index]));
-  const selectedIndex = Math.min(active, Math.max(0, results.length - 1));
+  const selectedIndex = Math.min(active, Math.max(0, count - 1));
   useEffect(() => {
     resultList.current
       ?.querySelector('[aria-selected="true"]')
@@ -87,6 +111,13 @@ export function BranchPicker({
     } finally {
       setPending(false);
     }
+  }
+  function openPull(row: (typeof pullRows)[number] | undefined) {
+    if (!pull || !row) return;
+    onPullRequest?.(pull.url, row.agent);
+    onOpenChange(false);
+    setQuery(initialQuery);
+    setActive(0);
   }
   function select(entry: BranchEntry | undefined, newWorkspace = false) {
     if (!entry || pending) return;
@@ -138,23 +169,30 @@ export function BranchPicker({
               onKeyDown={(event) => {
                 if (event.key === "ArrowDown") {
                   event.preventDefault();
-                  setActive(Math.min(selectedIndex + 1, Math.max(0, results.length - 1)));
+                  setActive(Math.min(selectedIndex + 1, Math.max(0, count - 1)));
                 } else if (event.key === "ArrowUp") {
                   event.preventDefault();
                   setActive(Math.max(0, selectedIndex - 1));
                 } else if (event.key === "Enter") {
                   event.preventDefault();
-                  select(results[selectedIndex], event.metaKey || event.ctrlKey);
+                  if (pull) openPull(pullRows[selectedIndex]);
+                  else select(results[selectedIndex], event.metaKey || event.ctrlKey);
                 }
               }}
               {...stylex.props(styles.field)}
-              placeholder="Search branches, worktrees, or repositories"
+              placeholder={
+                onPullRequest
+                  ? "Search branches, or paste a pull request link"
+                  : "Search branches, worktrees, or repositories"
+              }
               aria-label="Search branches"
               role="combobox"
               aria-expanded="true"
               aria-controls={`${id}-results`}
               aria-activedescendant={
-                results[selectedIndex] ? `${id}-result-${selectedIndex}` : undefined
+                (pull ? pullRows[selectedIndex] : results[selectedIndex])
+                  ? `${id}-result-${selectedIndex}`
+                  : undefined
               }
             />
           </div>
@@ -165,61 +203,99 @@ export function BranchPicker({
               </p>
             )}
             <div id={`${id}-results`} role="listbox" aria-label="Branches and worktrees">
-              {repositories.map((repository, repositoryIndex) => {
-                const grouped = results.filter((entry) => entry.repositoryId === repository.id);
-                const matchesRepository = words.every((word) =>
-                  `${repository.name} ${repository.path}`.toLowerCase().includes(word),
-                );
-                if (!grouped.length && !matchesRepository) return null;
-                return (
-                  <div key={repository.id} role="group" aria-label={labels[repositoryIndex]}>
-                    <div {...stylex.props(styles.groupTitle)}>
-                      <span>{labels[repositoryIndex]}</span>
-                      <span {...stylex.props(styles.detail)} title={repository.path}>
-                        {repository.path}
+              {pull && (
+                <div role="group" aria-label="Pull request">
+                  <div {...stylex.props(styles.groupTitle)}>
+                    <span>Pull request</span>
+                    <span {...stylex.props(styles.detail)}>
+                      {pull.owner}/{pull.name} #{pull.number}
+                    </span>
+                  </div>
+                  {pullRows.map((row, index) => (
+                    <div
+                      key={row.agent ?? ""}
+                      id={`${id}-result-${index}`}
+                      role="option"
+                      tabIndex={-1}
+                      aria-selected={index === selectedIndex}
+                      onClick={() => openPull(row)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          openPull(row);
+                        }
+                      }}
+                      onPointerMove={() => setActive(index)}
+                      {...stylex.props(
+                        styles.option,
+                        index === selectedIndex && [styles.selected, picked],
+                      )}
+                    >
+                      <Icon name={row.agent ? "agent" : "pullRequest"} size={14} />
+                      <span {...stylex.props(styles.entry)}>
+                        <span>{row.label}</span>
+                        <span {...stylex.props(styles.detail)}>
+                          {row.agent
+                            ? "Check out in a worktree, then start the agent there"
+                            : "Check out in a worktree and open its review"}
+                        </span>
                       </span>
                     </div>
-                    {repository.error && (
-                      <p role="status" {...stylex.props(styles.notice)}>
-                        {repository.error}
-                      </p>
-                    )}
-                    {grouped.map((entry) => {
-                      const index = resultIndex.get(entry.key)!;
-                      return (
-                        <div
-                          key={entry.key}
-                          id={`${id}-result-${index}`}
-                          role="option"
-                          tabIndex={-1}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter" || event.key === " ") {
-                              event.preventDefault();
-                              select(entry, event.metaKey || event.ctrlKey);
-                            }
-                          }}
-                          aria-selected={index === selectedIndex}
-                          onClick={(event) => select(entry, event.metaKey || event.ctrlKey)}
-                          onPointerMove={() => setActive(index)}
-                          {...stylex.props(
-                            styles.option,
-                            index === selectedIndex && [styles.selected, picked],
-                          )}
-                        >
-                          <Icon name="branch" size={14} />
-                          <span {...stylex.props(styles.entry)}>
-                            <span>{entry.label}</span>
-                            <span {...stylex.props(styles.detail)}>
-                              {entry.path ?? `Committed files only · ${entry.head.slice(0, 7)}`}
+                  ))}
+                </div>
+              )}
+              {!pull &&
+                repositories.map((repository, repositoryIndex) => {
+                  const grouped = results.filter((entry) => entry.repositoryId === repository.id);
+                  const matchesRepository = words.every((word) =>
+                    labels[repositoryIndex]!.toLowerCase().includes(word),
+                  );
+                  if (!grouped.length && !matchesRepository) return null;
+                  return (
+                    <div key={repository.id} role="group" aria-label={labels[repositoryIndex]}>
+                      <div {...stylex.props(styles.groupTitle)}>{labels[repositoryIndex]}</div>
+                      {repository.error && (
+                        <p role="status" {...stylex.props(styles.notice)}>
+                          {repository.error}
+                        </p>
+                      )}
+                      {grouped.map((entry) => {
+                        const index = resultIndex.get(entry.key)!;
+                        return (
+                          <div
+                            key={entry.key}
+                            id={`${id}-result-${index}`}
+                            role="option"
+                            tabIndex={-1}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                select(entry, event.metaKey || event.ctrlKey);
+                              }
+                            }}
+                            aria-selected={index === selectedIndex}
+                            onClick={(event) => select(entry, event.metaKey || event.ctrlKey)}
+                            onPointerMove={() => setActive(index)}
+                            {...stylex.props(
+                              styles.option,
+                              index === selectedIndex && [styles.selected, picked],
+                            )}
+                          >
+                            <Icon name="branch" size={14} />
+                            <span {...stylex.props(styles.entry)}>
+                              <span>{entry.label}</span>
+                              <span {...stylex.props(styles.detail)}>
+                                {entry.checkout ??
+                                  `Committed files only · ${entry.head.slice(0, 7)}`}
+                              </span>
                             </span>
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })}
-              {!results.length && (
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              {!pull && !results.length && (
                 <p {...stylex.props(styles.notice)}>No matching branches or worktrees.</p>
               )}
             </div>
@@ -247,10 +323,7 @@ export function BranchPicker({
               <summary {...stylex.props(styles.summary)}>Manage repositories</summary>
               {repositories.map((repository, index) => (
                 <div key={repository.id} {...stylex.props(styles.repository)}>
-                  <span {...stylex.props(styles.entry)}>
-                    <span>{labels[index]}</span>
-                    <span {...stylex.props(styles.detail)}>{repository.path}</span>
-                  </span>
+                  <span {...stylex.props(styles.entry)}>{labels[index]}</span>
                   <button
                     {...stylex.props(ui.button)}
                     disabled={pending}

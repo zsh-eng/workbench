@@ -1,7 +1,9 @@
 import { z } from "zod";
 import type { SessionEvent } from "../../shared/agent-session";
+import { apiErrorMessage } from "../../shared/protocol";
 import { readBrowserToken } from "./auth";
 import { createApi, HttpError } from "./api";
+import { browserFetch } from "./live";
 import type { SessionStore } from "./session-store";
 import { readServerEvents } from "./sse";
 
@@ -57,7 +59,7 @@ export async function followSession(
   store: SessionStore,
   onState: (state: SessionStreamState) => void,
   signal: AbortSignal,
-  fetcher: typeof fetch = globalThis.fetch.bind(globalThis),
+  fetcher: typeof fetch = browserFetch,
 ) {
   const api = createApi(fetcher, readBrowserToken());
   let state: SessionStreamState = { status: "connecting", truncated: false, idle: true };
@@ -74,10 +76,10 @@ export async function followSession(
         signal,
       );
       if (response.status === 404) {
-        const body = (await response.json().catch(() => ({}))) as { error?: { message?: string } };
+        const body: unknown = await response.json().catch(() => null);
         set({
           status: "missing",
-          message: body.error?.message ?? "The session's transcript is not on this computer.",
+          message: apiErrorMessage(body) ?? "The session's transcript is not on this computer.",
         });
         return;
       }
@@ -123,7 +125,7 @@ export async function loadSessionPage(
   reviewId: string,
   sessionId: string,
   before: number,
-  fetcher: typeof fetch = globalThis.fetch.bind(globalThis),
+  fetcher: typeof fetch = browserFetch,
 ) {
   return createApi(fetcher, readBrowserToken()).json(
     `/api/reviews/${encodeURIComponent(reviewId)}/sessions/${encodeURIComponent(sessionId)}/page?before=${before}`,
@@ -135,7 +137,7 @@ export async function loadSessionPage(
 export async function loadSessionTurns(
   reviewId: string,
   sessionId: string,
-  fetcher: typeof fetch = globalThis.fetch.bind(globalThis),
+  fetcher: typeof fetch = browserFetch,
 ) {
   const result = await createApi(fetcher, readBrowserToken()).json(
     `/api/reviews/${encodeURIComponent(reviewId)}/sessions/${encodeURIComponent(sessionId)}/turns`,

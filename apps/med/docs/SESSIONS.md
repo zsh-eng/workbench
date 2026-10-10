@@ -14,7 +14,7 @@ agent works.
 │ one line per block   │   │ tail, poll, subagents  │SSE│ thread, docks, Markdown  │
 └──────────────────────┘   └────────────────────────┘   └──────────────────────────┘
                                       ▲
-                     future: Med starts the agent (ACP over stdio)
+              or Med starts the agent (stream-json, or ACP over stdio)
 ```
 
 Med has one data model for a session: the `session/update` notifications of
@@ -109,6 +109,12 @@ Updates keep a command but no other raw tool input or output. Text longer than
 64 KiB, diffs over 512 KiB, and images over 512 KiB are cut or replaced. At
 most 8 session streams are open. A reconnect starts with a new `reset`.
 
+In the app, this stream and the page's other event streams are channels of
+one `GET /api/live` stream (`src/web/data/live.ts`, `src/host/live-streams.ts`).
+A browser opens at most six connections to one host, and each open stream
+keeps one: with a separate stream for each view, a review with a session left
+no connection for its requests.
+
 The browser shows **Working** until the agent ends its turn, or until the
 transcript has not changed for 5 minutes, because a stopped process writes
 nothing.
@@ -120,8 +126,36 @@ nothing.
   Subagent updates go into the thread of their call.
 - `components/session/SessionThread.tsx` renders the thread. Reads and
   searches in a row form one "Explored" group. Edits show Pierre diffs. The
-  view follows new items while the reader is at the bottom; only a move up
-  stops it. The Background and Tasks docks sit under the thread.
+  thread opens at its end. The view follows new items while the reader is at
+  the bottom; only the reader's move up (wheel, touch, keys, or the pointer)
+  stops it. A thread that gets shorter also moves the view up, and that move
+  does not stop it. The Background and Tasks docks sit under the thread.
+- The thread is a virtual list. Only the units within 1,200 px of the view
+  render; spacers hold the height of the others. A unit's height is its own
+  from when it last rendered, or an estimate (`thread-heights.ts`). Browser
+  scroll anchoring is off, because it would count the spacers. The list
+  keeps the first unit that starts in view at its place when heights above it
+  change or an earlier page arrives. A render that comes between the
+  reader's scroll and its scroll event keeps the reader's place. Open rows
+  keep their state when they leave the view and come back.
+- `thread-heights.ts` estimates a unit from its text. Pretext measures the
+  text with canvas and counts its lines; the file models the CSS around the
+  lines (collapsing margins, list gaps, code blocks, tables). A hidden sample
+  of each part in the thread gives the fonts and sizes of the current theme,
+  so a theme change moves the estimates. Inline code and bold use Pretext's
+  rich-inline layout. Estimates for 930 units of a synthetic thread take about
+  25 ms with no prepared text, and 2 to 5 ms at a new width. Prompts, prose
+  replies, rows, and tables are exact or within 1 px for 93 to 100% of units
+  in four themes; the sum is within 0.4%. Open edits are the weak part: 66%
+  are exact, because the estimate does not know Pierre's hunks and
+  separators.
+- Items without an ID take one from their kind and time, so they keep it
+  when an earlier page builds the thread again.
+- Once the review is idle, the Session pane mounts hidden: the thread
+  streams, and its newest units and their Markdown render before the pane
+  opens. A hidden thread does not load earlier pages.
+- `data/sse.ts` parses the event streams. It finds line ends with `indexOf`,
+  because the first event of a long session holds megabytes.
 - `SessionMarkdown.tsx` renders replies in the brief's Markdown worker, with a
   separate cache of 200 results. A streaming reply has one render in flight;
   partial text is not cached.
@@ -162,7 +196,7 @@ runs. For those, two things differ from a real ACP connection:
 
 To get both, Med can start the agent itself: Claude Code with
 `stream-json`, or an ACP agent such as `opencode acp`
-([owned sessions](AGENT_WORKSPACES.md#built-owned-sessions)). A Claude
+([owned sessions](AGENT_WORKSPACES.md#owned-sessions)). A Claude
 session still feeds the thread from its transcript; Med adds the streaming
 reply on top. Med logs an ACP session's updates and streams them from
 `/sessions/:session/events` as for a transcript. The thread, the docks, and
@@ -170,13 +204,15 @@ the replay do not change.
 
 ## Limits and next steps
 
-[Agent workspaces](AGENT_WORKSPACES.md) proposes the next steps: replies to the
-agent, notes, sessions that Med starts, and long sessions.
+[Agent workspaces](AGENT_WORKSPACES.md) records the design and the remaining
+work.
 
 - The sidebar shows sessions recorded with saved reviews. Branch workspaces
   have no session.
-- The thread renders at most 600 top-level rows; nested subagent threads
-  render whole.
+- Nested subagent threads render whole inside their call. An edit's diff
+  renders when its row comes within two screens of the view.
+- Estimates of open edits miss Pierre's hunk separators. A wrong estimate
+  costs only a move of the units below it when the edit renders.
 - Not shown yet for attached sessions: context usage, permission requests
   (owned sessions show both), questions that the agent asked the user, and the
   dev servers that Claude Desktop starts from

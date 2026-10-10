@@ -24,23 +24,20 @@ Put the executable on your PATH to use `med` directly. It includes the runtime,
 browser assets, fonts, workers, and offline guides. Git is required for repository
 features. The macOS release is not Developer ID signed or notarized.
 
-`med web` starts one background server and opens the browser. Closing the terminal
-or browser does not stop it. Use `med status` and `med stop`. Sources persist in
-`~/.local/state/med`; the default port is **4173**. Use matching `--port` and
-`--state-dir` options for another profile. Med does not silently choose another
-port. `med serve` runs in the foreground. Optional macOS login startup requires
-an explicit choice: **Open at login** in setup, `med service login on`, or
+`med web` starts one background server and opens the browser. Closing the
+terminal or browser does not stop it; use `med status` and `med stop`. Sources
+persist in `~/.local/state/med`, and the default port is **4173**. Use matching
+`--port` and `--state-dir` options for another profile; Med does not silently
+choose another port. `med serve` runs in the foreground. Login startup is your
+choice: **Open at login** in setup, `med service login on`, or
 `med service install`.
 
 After a rebuild, an open page tells you when Med is out of date. **Restart**
-replaces a server that runs older code; **Reload** loads a newer page. Med first
-checks that the new build starts. If it does not, the current server keeps
-running and the notice shows the error. A server started with `med serve` or
-`med-diff` in a terminal asks you to restart it there.
-
-The command palette has the same two actions at any time. **Reload Med** loads
-the page again. **Restart Med server and reload** restarts the server, waits for
-the new one, and then loads the page.
+replaces a server that runs older code, and **Reload** loads a newer page. Med
+first checks that the new build starts; if it does not, the current server
+keeps running and the notice shows the error. The command palette has **Reload
+Med** and **Restart Med server and reload** at any time. A server started with
+`med serve` or `med-diff` asks you to restart it in its terminal.
 
 ### First run
 
@@ -51,33 +48,26 @@ When `med web` opens a server with nothing registered, Med shows one setup page.
   two months) start selected. Linked worktrees, dependency folders, and hidden
   folders are left out. Desktop, Documents, and Downloads are searched only when
   you choose **Search them too**, because macOS asks permission first.
-  **Select all** and **Clear** change a whole list.
-- **Add a folder by path** adds any repository or vault that the search missed.
-- **Open at login** starts Med in the background when you log in. It takes
-  effect at the next login and leaves the running server as it is.
+- **Add a folder by path** adds a repository or vault that the search missed.
+- **Open at login** starts Med when you log in, from the next login.
 
-Open the welcome again with **Add sources…** on the Sources page, or **Set up
-Med…** in the command palette. Setup reads folder names and Git metadata only;
-it does not read or change your files.
-
-The **Sources** page (**Open registered sources** in the command palette) lists
-repositories and vaults. Click a row to open it as a workspace. Its **⋯** menu
-can index a vault again, copy the path, or remove the source from Med; removal
-keeps the folder. Escape returns to the workspace.
+Setup reads folder names and Git metadata only. Open it again with **Add
+sources…** on the Sources page, or **Set up Med…** in the command palette. The
+**Sources** page lists repositories and vaults; a row's **⋯** menu can index a
+vault again, copy the path, or remove the source. Removal keeps the folder.
 
 ### Install as an app
 
-Open Med in Chrome or Edge, then select the install icon in the address bar, or
-**Install Med** in the browser menu. Med then has its own window and Dock icon,
-without browser tabs or a toolbar. The title bar follows the Med theme. The app
-uses the background server: run `med service install` to start the server at
-login. Each port is a separate app. Med does not keep an offline copy of the
-interface, so a new `med` version shows when the window opens again.
+In Chrome or Edge, select the install icon in the address bar, or **Install
+Med** in the browser menu. Med then has its own window and Dock icon, and gets
+the shortcuts that a browser keeps for its tabs. The app uses the background
+server, so run `med service install` to start the server at login. Each port is
+a separate app.
 
-Use `med add /path/to/vault` for Obsidian, or `--type vault` for a Markdown folder.
-See [vaults, watchers and service commands](VAULTS.md). `med docs usage` prints this
-guide offline. Existing `node dist/cli.js ...` and `med-diff ...` commands remain
-available as legacy foreground modes; do not run them on a managed service's port.
+Use `med add /path/to/vault` for Obsidian, or `--type vault` for a Markdown
+folder; see [vaults, watchers and service commands](VAULTS.md). `med docs usage`
+prints this guide offline. The legacy `node dist/cli.js ...` and `med-diff ...`
+foreground modes remain; do not run them on a managed service's port.
 
 ### Multiple repositories
 
@@ -85,125 +75,200 @@ available as legacy foreground modes; do not run them on a managed service's por
 med add /path/to/frontend
 med add /path/to/backend
 med web
-# Development:
-bun run dev -- /path/to/frontend /path/to/backend
 ```
 
-Use the branch switcher at the top of the sidebar, or `⌘⇧G` / `Ctrl+Shift+G`, to search the registered repositories' branches and worktrees. The picker shows repository groups and worktree paths. Add another repository by entering its local path in the picker. Remove a repository there to close its views and release its resources; this does not delete files or Git branches.
+The branch switcher at the top of the sidebar (`⌘⇧G` / `Ctrl+Shift+G`) searches
+the branches and worktrees of all registered repositories. Add a repository by
+entering its path in the picker. Remove one there to close its views; this does
+not delete files or branches. `↵` opens a branch in the current workspace, and
+`⌘↵` / `Ctrl+Enter` (or a ⌘-click) opens it as a new [workspace](#workspaces).
+History, files, search, and symbols use the workspace's repository and branch.
 
-Opening the launch URL starts with one workspace. In the branch picker, `↵` opens the branch in the current workspace, and `⌘↵` / `Ctrl+Enter` (or a ⌘-click) opens it as a new workspace. See [Workspaces](#workspaces). The history, files, content search, and symbols all use the workspace's repository and branch or worktree. Content search still reads committed content.
-
-Linked worktrees belong to one repository entry. Separate clones remain separate entries, even when they use the same remote. Managed service registration persists across restarts, including changes from the branch picker. Legacy foreground registration lasts for that server session. Patch and file-pair inputs remain separate launch modes.
+Linked worktrees belong to one repository entry. Separate clones stay separate,
+even with the same remote. Registration persists across restarts.
 
 ### Workspaces
 
-A workspace is one task: a branch or worktree, a saved review, or a registered vault. Each one keeps its own comparison, open files, notes, and scroll position.
+A workspace is one task: a branch or worktree, a saved review, or a registered
+vault. Each keeps its own comparison, open files, notes, and scroll position.
 
-- The **Workspaces** list at the top of the left sidebar appears once two are open. Registered vaults are pinned first, then the home workspace, which opens on the default branch. Each row shows the number of changed files.
-- `⌘1`–`⌘9` / `Ctrl+1`–`Ctrl+9` show the workspace at that place in the list.
-- `⌃Tab` shows recent workspaces. Hold Control and press Tab to step; release Control to go. A quick `⌃Tab` returns to the previous workspace. The palette command **Switch workspace…** does the same without a held key.
-- **+** in the list, or **New workspace…** in the palette, opens the branch picker for a new workspace. Opening a saved review link adds a workspace for that review.
-- Select a row and press `Delete`, or click its **×**, to close it. Vaults and the home workspace stay.
-- A review that an agent creates joins the list in every open Med window, marked new with an accent dot until you open it. An agent that passes `--open` also shows the review in the window you used last. See [agent integration](AGENT_INTEGRATION.md#create-a-review).
-- A saved review with an agent session shows what its lead session does: a turning mark while the agent works, **Needs you** while it waits for a permission answer or in `med review wait`, and the accent dot when a turn ended while you looked at another workspace. The lead is the newest session that works or waits, else the newest one. Med keeps the last update that you saw in the browser.
-- A review that a Claude Code or Codex session made shows that agent's icon. Right-click a row to open it, copy a command that resumes the agent's session in its directory, mark it as read or unread, or close it. On a branch or worktree row, **Copy lazygit command** copies `cd <checkout> && lazygit` for the Git operations that the [Commit tab](#commit-and-push) does not have.
+- The **Workspaces** list at the top of the left sidebar appears once two are
+  open. Vaults come first, then the home workspace on the default branch. Each
+  row shows the number of changed files.
+- `⌘1`–`⌘9` / `Ctrl+1`–`Ctrl+9` show the workspace at that place. `⌃Tab` shows
+  recent workspaces: hold Control, press Tab to step, and release to go.
+  **Switch workspace…** in the palette does the same.
+- **+**, or **New workspace…** in the palette, opens the branch picker. A saved
+  review link adds a workspace for that review. `Delete` or **×** closes a row;
+  vaults and the home workspace stay.
+- A review that an agent creates joins the list in every Med window, with an
+  accent dot until you open it. With `--open`, it also shows in the window you
+  used last. See [agent integration](AGENT_INTEGRATION.md#create-a-review).
+- A review with an agent session shows its lead session's state: a turning mark
+  while the agent works, **Needs you** while it waits for a permission answer or
+  in `med review wait`, and the accent dot when a turn ended while you were
+  elsewhere.
+- Right-click a row to open it, copy a command that resumes the agent's session,
+  mark it read or unread, or close it. On a branch row, **Copy lazygit command**
+  copies `cd <checkout> && lazygit` for Git work that the
+  [Commit tab](#commit-and-push) does not do.
 
-The four most recently shown workspaces stay loaded; switching between them is immediate. Only the workspace on screen receives live updates; the others catch up when you return. Older workspaces load again when you open them. The list and the active workspace persist across reloads and restarts, and windows share the list; each window keeps its own workspace on screen. The address follows the active workspace: a saved review keeps its `/review/<id>` link, and Back and Forward move between workspaces.
-
-Browsers keep `⌘1`–`⌘9` and `⌃Tab` for their own tabs. Use the installed app window, `Ctrl+1`–`Ctrl+9`, or the palette in a browser tab.
+The four most recently shown workspaces stay loaded, so a switch is immediate.
+Only the workspace on screen gets live updates; the others catch up when you
+return. The list persists and windows share it, but each window keeps its own
+workspace on screen. A saved review keeps its `/review/<id>` address, and Back
+and Forward move between workspaces. In a browser tab, use `Ctrl+1`–`Ctrl+9`,
+the installed app, or the palette.
 
 ### Pull requests
 
-Run `med pr checkout 333` inside a repository. Med runs `gh pr checkout 333`,
-fetches the pull request's base branch, and opens a saved review of the pull
-request: its merge base with the base branch, compared with its head. The review
-title and heading link to the pull request. Med starts its background server
-and registers the repository when needed. Requires the GitHub CLI (`gh`),
-signed in. Pass `gh pr checkout` options through, such as `--force` or
-`--branch <name>`; `--no-open` prints the launch URL instead of opening it.
+Paste a pull request link, such as `https://github.com/owner/repo/pull/333`, in
+**New workspace…**. Choose **Open pull request #333**, or **Open and review with**
+an installed agent. The workspace lists each step:
 
-A saved review with a pull request link shows the pull request's GitHub
-comments. Med reads them with `gh`; it never posts, replies, or resolves.
+1. Find the registered repository whose Git remote is `owner/repo`.
+2. Read the pull request with `gh`.
+3. Make a worktree in Med's state folder (`worktrees/<repo>/pr-333`). Your
+   checkout and its branch stay as they are.
+4. Check out the pull request there with `gh pr checkout`. If its branch is in
+   use in another worktree, Med checks out its commit without a branch.
+5. Fetch the base branch if it is not local, and save the review.
+6. Start the agent in the worktree with a review prompt, if you chose one.
 
-- **In the diff.** When the comparison shows the pull request's head commit, each
-  code thread shows on its line, above Med's notes. A GitHub thread has the
-  GitHub mark and author names; a Med note has neither.
+The same link again uses the same worktree and review; a new head adds an
+iteration. A failed step says why, with **Retry**. Add an unknown repository
+first. To finish, right-click the workspace and choose **Close and remove
+worktree**. Med runs `git worktree remove` without `--force`, and keeps a
+worktree with changes, a working agent, or a commit on no branch. The branch
+stays.
+
+In a terminal, `med pr checkout 333` runs `gh pr checkout 333`, fetches the base
+branch, and opens a saved review from the merge base to the head. It passes
+options such as `--force` or `--branch <name>` to `gh`; `--no-open` prints the
+launch URL. It needs the GitHub CLI, signed in.
+
+A saved review with a pull request link shows its GitHub comments. Med reads
+them with `gh`; it never posts, replies, or resolves.
+
+- **In the diff.** When the comparison shows the pull request's head commit,
+  each code thread shows on its line, with the GitHub mark.
 - **Conversation.** The comment count beside the title opens the reviews, the
-  general comments, and the threads that the diff cannot show: outdated threads,
-  and all threads when the comparison shows another commit.
-- **Reply on GitHub.** Hover a comment for **Copy**, which copies it as quoted
-  text, and **Open on GitHub**. Reply there.
-- **Local notes stay local.** **Copy comments** copies only Med's notes.
-- **Updates.** Med reads again when its window gets focus, at most every 30
-  seconds. The refresh button in the panel reads at once. **Hide comments**
-  hides both kinds.
+  general comments, and the threads that the diff cannot show.
+- **Reply on GitHub.** Hover a comment for **Copy** and **Open on GitHub**.
+  **Copy comments** copies only Med's notes.
+- **Updates.** Med reads again on window focus, at most every 30 seconds, or at
+  once with the refresh button. **Hide comments** hides both kinds.
+
+### Codex reviews
+
+A saved review shows the findings of Codex reviews in its checkouts: run
+`codex review --base main` in the worktree, or `/review` in a Codex session
+there. Med reads `~/.codex/sessions`; it does not run Codex or change its files.
+It lists reviews of a commit that the review shows, and reviews that ran after
+the review was saved.
+
+- **In the diff.** On the commit that Codex reviewed, each finding shows at its
+  last line with its priority, such as **P1**.
+- **Panel.** The Codex count beside the title opens each verdict and the
+  findings that the diff cannot show, with a `codex resume` command.
+- **To an agent.** **Add to message** puts a finding, or all of a review's
+  findings, in the next message to the review's agent.
 
 ### Saved agent reviews
 
-An agent can use the running host to save a commit range or capture working changes, then return a clean local review link. Open the launch URL once in the browser to authorize access. Saved links in that browser then use the same local session.
+An agent saves a commit range or captures working changes through the running
+host, then returns a local review link. Open the launch URL once to authorize
+the browser; saved links then use the same session.
 
-A saved review opens its first target. Select other repositories or ranges from **Review target**. The saved diff and comment context stay fixed even when agents make more changes. **Copy comments** includes comments from all targets in that review, with repository paths, revisions, line numbers, selected source, and adjacent lines. Hover the title for the save time and repository. **Clear**, next to **Copy comments**, clears only that review after confirmation. Copying does not clear comments.
+A saved review opens its first target; choose others from **Review target**.
+The saved diff stays fixed when agents make more changes. **Copy comments**
+copies the comments of all targets, with paths, revisions, line numbers, and
+nearby source. **Clear** clears that review after confirmation. Copying does
+not clear comments.
 
-An agent that names its task with a key updates one review over several rounds. Each round is an iteration: the review opens on the latest one and is marked new again. The Notes tab numbers the iterations; choose one to read its notes beside its comparison. **Review target** groups the comparisons by iteration. Comments on earlier iterations stay.
+An agent that names its task with a key updates one review over several rounds.
+Each round is an iteration: the review opens on the latest one and is marked new
+again. Comments on earlier iterations stay.
 
 A review that records its agent session has a Claude or Codex button in the
-toolbar, and **Show agent session** in the command palette. They open the
-Session sidebar: the prompts, replies, thoughts, tool calls with their output
-and diffs, the plan, and background shells and agents. The sidebar follows the
-session while the agent works and shows **Working** or **Idle**. A file link in
-a reply opens the file. A long session opens on its latest work; scroll to the
-top for earlier work, or choose a prompt from **Turns** (the clock) to jump to
-it. See [agent sessions](SESSIONS.md).
+toolbar, and **Show agent session** in the palette. They open the Session pane:
+prompts, replies, thoughts, tool calls with output and diffs, the plan, and
+background shells and agents. It follows the session live. A long session opens
+on its latest work; scroll up for earlier work, or jump to a prompt from
+**Turns** (the clock). See [agent sessions](SESSIONS.md).
 
-A saved review can also start an agent. Open the Session pane: a review
-without a session lists the agents that Med found, and the **+** menu in the
-pane starts another. Med starts Claude Code, OpenCode, Codex (`codex-acp`),
-or Gemini CLI in the review's repository, with your own sign-in; it does not
-install them. Then the prompt box has pickers for the model, the effort, and
-the mode, a context meter, and **Stop** (or `Esc`) while the agent works.
-Type `/` for the agent's own commands. A tool call that needs your answer
-shows **Allow** and **Deny** above the prompt box. Med stops its agents when
-the host stops.
+A saved review can also start an agent. A Session pane without a session lists
+the agents that Med found, and its **+** menu starts another. Med starts Claude
+Code, OpenCode, Codex (`codex-acp`), or Gemini CLI in the review's repository,
+with your own sign-in; it does not install them. The prompt box then has model,
+effort, and mode pickers, a context meter, `/` commands, and **Stop** (or
+`Esc`). A tool call that needs an answer shows **Allow** and **Deny**. Med stops
+its agents when the host stops.
 
-Saved reviews and their comments persist in `~/.local/state/med`. Normal branch review notes still end with the host process. See [agent integration](AGENT_INTEGRATION.md) for commands, state settings, limits, and suggested `AGENTS.md` guidance.
+Saved reviews persist in `~/.local/state/med`; normal branch notes end with the
+host. See [agent integration](AGENT_INTEGRATION.md) for commands, limits, and
+suggested `AGENTS.md` guidance.
 
 ### Notes and briefs
 
-A review's **Notes** are the agent's brief and the replies you pin from its session. A brief is the agent's explanation of a review, in Markdown. Its links open the lines they cite, so you can read the changes in the order the agent explains them.
+A review's **Notes** are the agent's brief and the replies you pin from its
+session. A brief explains the review in Markdown; its links open the lines they
+cite.
 
-- **Attach.** Copy the agent's last message and press `⌘V` anywhere outside a text field. On a saved review, med attaches the brief. On live changes, med asks for a title and saves the comparison as a review first, so the links keep pointing at the code they describe. Agents can also attach one at creation with `review create --brief`.
-- **Pin a reply.** In the Session sidebar, the reply that ends each turn has **Pin to review**. Med copies the reply into the Notes of the latest iteration, after the brief, because a transcript can lose old replies. Ask the agent to explain something, such as "walk me through the cache", and pin its answer. **Pinned** under a reply goes to its note. Remove a pin from the note's **⋯** menu.
-- **Read.** The **Notes** tab comes before **Changes**. With more than one note, each note has a numbered head, such as `02 / 03`, its source, and its time. A rail of ticks on the right edge marks the notes, their headings, and their excerpts; click a tick to go there. Below each paragraph that cites lines, a short diff excerpt shows those lines. `]` and `[` step through the excerpts. Hover a link to highlight its excerpt. In a wide window, code, tables, and images extend past the text column, and table columns take the width their text needs.
-- **Jump.** Click a link or an excerpt heading to open those lines in **Changes**, selected and centered.
-- **Comment.** Hover a line in an excerpt and click **+**; drag it to cover more lines. You can also select line numbers and press `c`. These are the same notes as in **Changes**, so **Copy comments** includes them. The excerpt heading counts its notes.
-- **Check coverage.** The header shows how many changed files the notes cite. **Not in the notes** lists the changed files they never mention; read those yourself.
-- **Replace or remove.** Paste again to replace the brief. **Undo** in the confirmation restores the previous one. The **⋯** menu also copies all notes or removes the brief.
+- **Attach.** Copy the agent's last message and press `⌘V` outside a text field.
+  On live changes, Med asks for a title and saves the review first, so the links
+  keep pointing at the code they describe. Agents can pass
+  [`--brief`](AGENT_INTEGRATION.md#attach-a-brief) instead.
+- **Pin a reply.** In the Session pane, the reply that ends each turn has **Pin
+  to review**. Med copies it into the latest iteration's Notes, because a
+  transcript can lose old replies. Remove a pin from the note's **⋯** menu.
+- **Read.** The **Notes** tab comes before **Changes**. With more than one note,
+  each has a head such as `02 / 03`, and a rail on the right marks notes,
+  headings, and excerpts. Below each paragraph that cites lines, a short diff
+  excerpt shows them. `]` and `[` step through the excerpts.
+- **Jump and comment.** Click a link or an excerpt heading to open the lines in
+  **Changes**. Hover an excerpt line and click **+**, or select line numbers and
+  press `c`. These are the same notes as in **Changes**.
+- **Mark up the notes.** Select words in a note and click **Comment**, or press
+  `c`. The passage stays marked, and the comment shows below its paragraph with
+  its quote. **Copy comments** and **Send to** the agent include the quote. A
+  comment whose passage is gone shows at the end of its note.
+- **Check coverage.** **Not in the notes** lists the changed files that the
+  notes never cite; read those yourself.
+- **Replace or remove.** Paste again to replace the brief; **Undo** restores
+  it. The **⋯** menu copies all notes or removes the brief.
 
-med resolves `path`, `path:12`, `path:12-20`, `path#L12-L20`, absolute paths in the repository, editor links, and GitHub blob URLs. A path can be a suffix, such as `App.tsx:42`, when only one changed file matches. A path outside the change opens the file instead. Changing a brief does not change comments.
-
-Review endpoints can be branch names: `review create --repo /path/to/feature-worktree --base main --head HEAD`. This compares the tips directly and saves their exact commits. Use the common ancestor for a pull-request-style diff, and create a new link after merging the base branch. See [branch comparisons](AGENT_INTEGRATION.md#compare-with-a-base-branch) for commands. In the app, **Compare revisions…** accepts the same refs.
+Links can be `path`, `path:12`, `path:12-20`, `path#L12-L20`, absolute paths,
+editor links, or GitHub blob URLs. A unique suffix such as `App.tsx:42` works.
+**Compare revisions…** accepts branch names; see
+[branch comparisons](AGENT_INTEGRATION.md#compare-with-a-base-branch).
 
 ### Indexed branch search
 
-Set up the optional [Zoekt](https://github.com/sourcegraph/zoekt) search helper once. This command builds pinned binaries and saves them in the user cache:
+Set up the optional [Zoekt](https://github.com/sourcegraph/zoekt) search helper
+once, from a built Workbench checkout. It needs Go (`brew install go` on macOS,
+`sudo pacman -S go` on Omarchy) and saves pinned binaries in the user cache:
 
 ```sh
 node dist/cli.js --setup-search
-# Run from the built Workbench checkout. Requires Go.
 ```
 
-The standalone executable reuses an existing Zoekt cache. Initial setup needs
-the Workbench checkout and Go; the Go helper sources are not embedded. If Go is missing, install it with `brew install go` on macOS or `sudo pacman -S go` on Omarchy, then repeat the command. Normal use needs only the compiled binaries, not Go. There is no Docker container, system service, or Git hook to install.
+The standalone executable reuses an existing Zoekt cache. Normal use needs only
+the binaries; there is no container, service, or Git hook.
 
-Start med as usual. The first content or project-symbol search starts that repository's search service and builds its index in the background when the helper is installed. Listing repositories does not start indexing. **Content search reads committed branch content** and opens results from the exact commit shown in the picker. Unsaved, uncommitted, and untracked content is not included. The file-name picker and Files sidebar still browse the current worktree.
+The first content or project-symbol search starts the repository's search
+service and indexes in the background. **Content search reads committed branch
+content** and opens results from the exact commit shown; uncommitted and
+untracked content is not included. Med indexes up to 64 branch tips for each
+repository, worktree branches first, and updates the index when commits change.
+While the helper is missing or the index builds, search uses Git on the same
+commits.
 
-Active search services check branch commit IDs when repository watchers report changes, with a 10-second poll as a backup. New commits trigger incremental index builds. Adding or deleting an indexed branch triggers a full rebuild. Index builds share one queue across repositories. Up to 64 local branch tips are indexed per repository, with branches used by worktrees given priority. At most four search services remain active; an idle service can close and restart when needed. Its disk cache remains available.
-
-If the helper is missing, the index is rebuilding, or indexing fails, search falls back to Git against the same committed content. Historical commits outside the index also use Git. You can use the app during the initial build.
-
-The default cache is `~/.cache/med/search`, or `$XDG_CACHE_HOME/med/search` when set. Use `MED_SEARCH_CACHE` to choose another location. For an existing helper build, set `MED_ZOEKT_BIN` to the directory containing both `zoekt-git-index` and `med-zoekt`.
-
-The [integration report](validation/ZOEKT_INTEGRATION.md) includes a search screenshot, data flow, checks, and built-host API timings. The [engine benchmark](validation/ZOEKT.md) records index costs and a ten-branch workload. These measurements exclude browser rendering.
+The cache is `~/.cache/med/search`, or `$XDG_CACHE_HOME/med/search`. Set
+`MED_SEARCH_CACHE` for another place, or `MED_ZOEKT_BIN` to a directory with
+`zoekt-git-index` and `med-zoekt`. See the
+[integration report](validation/ZOEKT_INTEGRATION.md) and the
+[engine benchmark](validation/ZOEKT.md).
 
 ### Other inputs
 
@@ -213,65 +278,50 @@ git diff | node dist/cli.js --patch -
 node dist/cli.js --files old.ts new.ts
 ```
 
-To check the packaged launch path locally:
-
-```sh
-npm pack
-npx --yes --package ./med-diff-0.1.0.tgz med-diff /path/to/repository
-bunx --package ./med-diff-0.1.0.tgz med-diff /path/to/repository
-```
-
-The legacy JavaScript CLI uses Node, including when launched through `bunx`. The package serves compiled assets; it does not need a Vite development server.
-
 ## Files across repositories
 
 Open **Find file** with `⌘⇧K` / `Ctrl+Shift+K`. Type part of a registered
-repository name, then press **Tab** to scope the picker to it. Arrow keys and
-Enter also select repository rows. The scope shows its full path, including
-worktree paths, so separate clones and names with spaces remain distinct.
-Only the chosen repository's file list is requested. Med does not scan nearby
-directories or register repositories from this picker.
+repository name, then press **Tab** to scope the picker to it. The scope shows
+its full path, so clones and worktrees stay distinct. Med does not scan nearby
+folders or register repositories from this picker.
 
 Combine **Code**, **Tests**, and **Docs**, or type `type:tests ext:java,kt`.
-Categories and extensions each use OR; the two groups combine with AND.
-For example, `type:code type:docs ext:java,md` finds Java source and Markdown,
-excluding test files. Test icons use language conventions such as `.test.ts`,
-`_test.go`, `test_*.py`, Java `*Test.java`, and `src/test/` source paths.
-An ordinary name such as `Contest.java` is not a test.
+Categories and extensions each use OR; the two groups combine with AND. Test
+files follow language conventions such as `.test.ts`, `_test.go`, `test_*.py`,
+`*Test.java`, and `src/test/`. Backspace in an empty input, **Clear filters**,
+or the scope button returns to the current repository. Picking and previewing
+never change files.
 
-Remove an extension chip, use **Clear filters**, or press Backspace in an empty
-input to return to the current repository. The scope button also goes back.
-Escape closes the picker and restores focus. Opening a result keeps the review
-in place and opens a file tab with the selected repository identity. Picking
-and previewing files never saves or changes their contents.
-
-Right-click a file in a file tree or a file tab for **Reveal in Finder** (**Show
-in Explorer** on Windows, **Show in folder** on Linux), **Copy path**, and
-**Copy relative path**. A file tab also has **Close**, and a preview tab has
-**Keep open**. Reveal works only for files in the working tree.
-
-The panel button beside **Esc** hides the file preview. The picker then shows
-a narrow list and stops reading files for the preview. Med remembers the choice
-for every picker and window. The command palette also has **Hide file preview
-in Find file**.
+Right-click a file in a tree or tab for **Reveal in Finder** (**Show in
+Explorer** on Windows, **Show in folder** on Linux), **Copy path**, and **Copy
+relative path**. The panel button beside **Esc**, or **Hide file preview in Find
+file**, hides the picker's preview for every picker and window.
 
 ## First review
 
-1. Select a commit in the left history panel, or select working changes. Commit diffs compare with the first parent; merge commits are labeled accordingly. Click **History** to collapse the panel to one line that names the selection; med remembers this choice. Hover a commit for its card: author and co-authors, the message body, branches and tags, and the number of changed files and lines.
-2. Select a changed path to move to it in the diff stream. Double-click the path to open its current file in the selected worktree.
-3. Use the branch switcher (`⌘⇧G`) to open another branch here, or `⌘↵` to open it as a new [workspace](#workspaces). A branch with a worktree opens that directory; a branch without one opens committed content.
-4. Use the file picker or right Files sidebar to open unchanged files. A preview does not replace your current review until you open it.
-5. Toggle blame (`⌥B`) in a full file to show author and commit details beside the line numbers. Blame opens for the current file only; another file opens without it. Med keeps the line history it read, so toggling blame or returning to a file does not read it again. Hover a label for 250 ms to see the date and commit message; move to nearby labels for immediate updates.
-6. When the cursor stops on a line, the author, age, and commit subject show after the line's text. Hover them to see the commit card; click the short hash to copy the full hash. Read-only files have a cursor only with Vim navigation on. The gutter and a Visual selection hide this line blame. Use **Hide line blame at the cursor** in the command palette to turn it off. Open the command palette to change theme or find other actions.
+1. Select a commit in the history panel, or working changes. A commit compares
+   with its first parent. Click **History** to collapse the panel to one line.
+   Hover a commit for its author, message, refs, and change counts.
+2. Select a changed path to move to it in the diff stream. Double-click it to
+   open the current file.
+3. Use the branch switcher (`⌘⇧G`) to open another branch here, or `⌘↵` to open
+   it as a new [workspace](#workspaces). A branch without a worktree opens
+   committed content.
+4. Use the file picker or the Files sidebar to open unchanged files. A preview
+   does not replace your review until you open it.
+5. Toggle blame (`⌥B`) in a full file. Hover a label for the date and message.
+6. When the cursor rests on a line, its author, age, and commit subject show
+   after the text. Click the short hash to copy the full hash. **Hide line blame
+   at the cursor** in the palette turns it off.
 
-Drag the gutter **+** across lines to start a note for the whole range. You can also drag over line numbers, or click the first number and Shift-click the last number on the same diff side, then click **Add note**. The saved comment keeps the full range.
+Drag the gutter **+** across lines to start a note for the range, or select line
+numbers and press `c`. Hover the **+/−** totals to split them into code, tests,
+docs, config and data, and lockfiles.
 
-Hover or focus the **+/−** totals in the Changes toolbar to split them by kind:
-code, tests, docs, config and data, and lockfiles. Lockfiles are known by name,
-such as `bun.lock`, `package-lock.json`, `Cargo.lock`, `go.sum`, and other
-`*.lock` or `*-lock.json` files.
-
-Shift-click another commit to select an inclusive range. The comparison runs from the oldest selected commit's first parent to the newest selected commit. A root commit uses the empty tree. This compares endpoint snapshots; it does not add individual patches across merged branches. Shift+Up/Down extends the selection; a plain click resets it.
+Shift-click another commit to select an inclusive range, from the oldest
+commit's first parent to the newest commit. Shift+Up/Down extends it; a plain
+click resets it. This compares snapshots; it does not add patches across merged
+branches.
 
 | Action                            | macOS         | Omarchy Linux             |
 | --------------------------------- | ------------- | ------------------------- |
@@ -285,7 +335,7 @@ Shift-click another commit to select an inclusive range. The comparison runs fro
 | Open a branch or worktree         | `⌘⇧G`         | `Ctrl+Shift+G`            |
 | Show workspace 1–9                | `⌘1`–`⌘9`     | `Ctrl+1`–`Ctrl+9`         |
 | Switch to a recent workspace      | `⌃Tab`        | `Ctrl+Tab`                |
-| Toggle history / files sidebar    | `⌘B` / `⌘⇧B`  | `Ctrl+B` / `Ctrl+Shift+B` |
+| Toggle history sidebar / session  | `⌘B` / `⌘⇧B`  | `Ctrl+B` / `Ctrl+Shift+B` |
 | Zen mode                          | `⌥Z`          | `Alt+Z`                   |
 | Add note to selected lines        | `c`           | `c`                       |
 | Paste a brief                     | `⌘V`          | `Ctrl+V`                  |
@@ -300,375 +350,256 @@ Shift-click another commit to select an inclusive range. The comparison runs fro
 | Close all files in this workspace | `⌥⇧W`         | `Alt+Shift+W`             |
 | Close other files                 | `⌥⇧O`         | `Alt+Shift+O`             |
 
-Close actions preserve the Changes tab and other workspaces. In Find file, `↵` opens the file in the preview tab, which the next preview replaces; `⌘↵` opens a tab that stays open. Tab keys count Brief, Changes, and Commit with the file tabs. A browser tab keeps `⌘⇧[` and `⌘⇧]` for its own tabs; the installed app receives them. Desktop or browser shortcuts can take priority over a web app; the command palette provides the same actions.
+Close actions keep the Changes tab and other workspaces. In Find file, `↵` opens
+the preview tab, which the next preview replaces; `⌘↵` opens a tab that stays.
+Tab keys count Brief, Changes, and Commit with the file tabs. A browser can take
+some shortcuts first; the command palette has the same actions.
 
-`?` opens the shortcuts guide on your current context: Review, a read-only File,
-the Editor, or Pickers. Type to search every context by action or by key, such
-as `close`, `zz`, or `⌘K`. Sequences show a `›` between keys; dashed keys are
-values you type, such as a character or mark. Enter runs a highlighted row that
-has a command. Keys follow your platform: `⌘ ⌥ ⇧` on macOS, `Ctrl Alt Shift`
-elsewhere.
+`?` opens the shortcuts guide for your context: Review, File, Editor, or
+Pickers. Type to search every context by action or key, such as `close`, `zz`,
+or `⌘K`. Enter runs a highlighted row that has a command.
 
 ### Zen mode
 
-Press `⌥Z` / `Alt+Z`, use the focus button at the top right, or run **Enter zen
-mode** from the command palette. Zen mode hides every bar: branch and file tabs,
-the Changes toolbar, and the status bar. The sidebars stay as they are: `⌘B` and
-`⌘⇧B` show or hide the history and files sidebars in and out of zen mode. To
-leave, press `⌥Z` again or move the pointer to the top-right corner and click
-**Leave zen**. Escape does not leave zen mode, so it stays free for search, Vim,
-and dialogs. The setting is remembered in this browser.
+`⌥Z` / `Alt+Z`, the focus button at the top right, or **Enter zen mode** hides
+every bar: tabs, the Changes toolbar, and the status bar. `⌘B` and `⌘⇧B` still
+show or hide the history sidebar and the agent session. To leave, press `⌥Z` again, or click **Leave zen** in
+the top-right corner. Escape does not leave zen mode, so it stays free for
+search, Vim, and dialogs.
 
 ### Side panes
 
-One column on the right holds three panes at one width: **Session** (the
-agent's session), **Files** (`⌘⇧B`), and **Preview** (the Markdown preview,
-`⌘⇧V`). Drag the column's left edge to resize it; Med keeps the width. The
-column shows the two latest panes, one above the other. Opening a third closes
-the oldest. **Maximize** in a pane's header gives it the column and leaves the
-other pane as its header; **Restore** shares the column again.
-
-Run **Show side panes as tabs** from the command palette to show one pane at a
-time behind tabs, and **Stack side panes** to go back. Both layouts are
+One column on the right holds **Session** (`⌘⇧B`), **Files** (the folder
+button), and **Preview** (`⌘⇧V`) at one width. Drag its left edge to resize it. It shows the two latest
+panes, one above the other; a third closes the oldest. **Maximize** gives one
+pane the column, and **Restore** shares it again. **Show side panes as tabs**
+shows one pane at a time, and **Stack side panes** goes back. Both layouts are
 prototypes.
 
 ## Symbols and Vim navigation
 
-Command-click a diff filename or a file in the Changes list to open a pinned background tab without leaving Changes. Use Ctrl-click on Linux. Closing the active file selects the file to its right, then its left; Changes is selected only when no files remain.
+Command-click a diff filename or a file in the Changes list (Ctrl-click on
+Linux) to open a background tab. Closing the active file selects the file to its
+right, then its left.
 
 ![In-file symbol palette with a live jump in the current file](validation/symbol-navigation.png)
 
-In-file symbol search (`⌘O`) opens a narrow palette over the left sidebar. It starts with the symbol nearest to the cursor. Typed matches keep name relevance first, then use cursor distance to break ties. Arrow keys jump in the current file and highlight the symbol name. Enter keeps that position; Escape restores the original cursor and scroll position. Project symbol search (`⌘⇧O`) keeps a separate file preview and searches the selected repository’s indexed commit. Both palettes retain and select the last query.
+In-file symbol search (`⌘O`) starts with the symbol nearest to the cursor and
+ranks ties by distance. Arrow keys jump in the file; Enter keeps the position,
+and Escape restores it. Project symbol search (`⌘⇧O`) searches the repository's
+indexed commit with its own preview. Both keep the last query.
 
-Symbol extraction uses Universal Ctags. Install it with `brew install universal-ctags` on macOS or `sudo pacman -S ctags` on Omarchy. The project index and individual file extraction share this binary. Project symbols require the optional Zoekt setup above. After updating from a text-only search build, run `node dist/cli.js --setup-search` again to install the updated helper. Existing text-only indexes rebuild when symbol extraction is enabled. Language coverage follows the installed Ctags parsers: Universal Ctags 6.2.1 covers TypeScript and C/C++, but does not include a Zig parser. Text search still works for Zig.
+Symbols come from Universal Ctags: `brew install universal-ctags` on macOS or
+`sudo pacman -S ctags` on Omarchy. Project symbols also need the
+[Zoekt setup](#indexed-branch-search). Coverage follows the installed Ctags
+parsers; for example, Ctags 6.2.1 has no Zig parser, but text search still
+works for Zig.
 
-Vim navigation is enabled by default. Use the command palette to disable or enable it. This preference is saved for the current browser address. Files take keyboard focus when opened, ready for normal-mode navigation:
+Vim navigation is on by default; the command palette turns it off for this
+browser address. Files take focus when opened, in Normal mode:
 
 - `h j k l`, `w b e`, `0 ^ $`, and counts such as `10j`.
-- `v` selects characters; `V` selects whole lines. Use motions to extend the selection, `o` to move to the other end, `y` to copy, and Escape to cancel. Selection and copy include source lines outside the visible view.
-- `viw` selects a word or punctuation group; `vaw` includes adjacent spaces. `viW` / `vaW` select a non-space WORD, including its punctuation. `v2iw` selects the word and the next space group; `v2aw` selects two words.
-- `vip` selects the current paragraph; `vap` includes the adjacent empty lines. Empty lines separate paragraphs; a line with only spaces stays in its paragraph. `v2ap` selects two paragraphs. Repeat `ip` or `ap` in visual mode to extend the selection.
-- `vi"` / `va"`, `vi'` / `va'`, and backtick objects select quoted text on the current line. Inner objects omit the quotes; around objects include the quotes and adjacent spaces. Escaped quotes stay inside the selection.
-- `vi(` / `va(`, `vi[` / `va[`, and `vi{` / `va{` select nested bracket contents or the whole pair across lines. Closing brackets work too; `ib` / `ab` are parentheses and `iB` / `aB` are braces. A count such as `v2i(` selects the next outer pair. Repeat the object to expand outward. These are lexical pairs; they do not parse language syntax.
-- `gd` finds declarations for the identifier at the cursor. It first checks the current file with Universal Ctags, then the ctags-backed project index. Multiple candidates open a picker; project results open their indexed commit. Ctags does not resolve types or imports like an LSP.
-- `gg`, `G`, `42G`, `{` / `}` for paragraphs, and `Ctrl+D` / `Ctrl+U` for half pages.
-- `''` returns to the previous jump's line at its first non-space character; double backtick returns to the exact column. Repeating either swaps between the two locations. Line-number jumps, file/paragraph jumps, search matches, and accepted in-file symbol/definition jumps record the origin. Cancelled previews do not.
-- `ma` through `mz` set local marks; `'a` goes to mark a's line and backtick followed by `a` goes to its exact position. Marks and jump-back are local to the current loaded file snapshot. They reset when the file changes or is reloaded; cross-file jump history and persistent marks are not included.
-- `f` / `F` / `t` / `T` followed by a character, `;` / `,` to repeat, and `Shift+A` to move to the end of the line.
-- `:123` then Enter to jump to line 123. Escape cancels; a number past the end goes to the last line.
-- `zz` / `zt` / `zb` to place the current line at the middle / top / bottom of the view. These keep the cursor column. `zt` and `zb` leave four lines of space from the edge.
-- `/` / `?` for live forward/backward file search, `n` / `N` for matches, and `*` / `#` for the word at the cursor. Lowercase queries ignore case; uppercase letters enable case-sensitive matching. Matches use the theme's own find colors: other matches take its match color, and the current match takes its current-match color, underlined when the theme sets a match border. Enter accepts the preview. Escape cancels a preview and clears highlights; in normal mode it clears highlights while keeping the search.
+- `v` selects characters and `V` whole lines. Extend with motions, `o` moves to
+  the other end, `y` copies, and Escape cancels. Selections include lines
+  outside the view.
+- Text objects: `iw`/`aw`, `iW`/`aW`, `ip`/`ap`, quotes (`i"`, `a'`, backtick),
+  and brackets (`i(`, `a[`, `i{`, `ib`, `aB`). Counts such as `v2i(` and
+  repeated objects expand outward. Brackets are lexical pairs, not syntax.
+- `gd` finds declarations for the identifier at the cursor, first in the file,
+  then in the project index. Several candidates open a picker. Ctags does not
+  resolve types or imports like an LSP.
+- `gg`, `G`, `42G`, `{` / `}`, and `Ctrl+D` / `Ctrl+U`.
+- `''` returns to the previous jump's line, and double backtick to its exact
+  column. Repeat to swap. `ma`–`mz` set marks; `'a` and backtick-`a` go to them.
+  Marks and jumps reset when the file reloads.
+- `f` / `F` / `t` / `T` with `;` / `,`, and `Shift+A` for the end of the line.
+- `:123` then Enter jumps to line 123.
+- `zz` / `zt` / `zb` place the line at the middle, top, or bottom.
+- `/` / `?` search live, `n` / `N` step, and `*` / `#` search the word at the
+  cursor. Uppercase letters make a search case-sensitive. Enter accepts, and
+  Escape cancels or clears highlights.
 
-Writable files open directly in Vim Normal mode. Press `i` to insert text. Commit snapshots and dropped files remain read-only. While a Vim file pane has focus, `?` searches backward; `⌘K` / `Ctrl+K` still opens commands. Palettes and text inputs keep their normal keyboard behavior. Symbol search does not require Vim mode.
+Writable files open in Vim Normal mode; press `i` to insert. While a Vim pane
+has focus, `?` searches backward and `⌘K` / `Ctrl+K` still opens commands.
 
 ## Edit working files
 
-Eligible local and working-tree files open in Vim Normal mode. There is no
-Edit/Done toggle: navigate immediately, then press `i` to insert text.
-Use `i`, `a`, `o`, `dd`, `ciw`, visual selections, `p`, `.`, `u`, and Ctrl+R.
-Vim Visual selections and mouse selections use the same visible selection colour.
-Default yanks (`y`, `yiw`, `yy`) also copy to the system clipboard. Named and
-black-hole registers retain their Vim behavior. ⌘⇧F / Ctrl+Shift+F searches the
-selected text in the repository; ⌘⇧K / Ctrl+Shift+K opens the file picker in both
-Normal and Insert modes. App shortcuts take precedence over Vim bindings, with
-one exception on macOS: Control+B, Control+F, and Control+O in the editor reach
-Vim (page up, page down, jump back) because Command runs Med's shortcuts. On
-Linux these Control keys still run Med's sidebar, find, and symbol shortcuts.
+Eligible local and working-tree files open in Vim Normal mode; there is no
+Edit toggle. Use `i`, `a`, `o`, `dd`, `ciw`, Visual selections, `p`, `.`, `u`,
+and Ctrl+R. Default yanks (`y`, `yiw`, `yy`) also copy to the clipboard; named
+and black-hole registers keep their Vim behavior. App shortcuts come before Vim
+bindings, except on macOS: Control+B, Control+F, and Control+O reach Vim,
+because Command runs Med's shortcuts.
 
-Git blame keeps its gutter width while editing. Attribution and the line blame
-at the cursor are hidden while the draft is unsaved or the disk contents have
-changed, and update after saving.
+Escape returns to Normal mode. `:w`, ⌘S / Ctrl+S, or **Save** writes the file;
+`:wq` saves, then closes if the save succeeds. A hollow dot means saved and a
+filled dot means unsaved. **Close file** or `:q` with unsaved text asks you to
+**Discard draft** or **Keep editing**. Saving does not stage or commit; use the
+[Commit tab](#commit-and-push). Blame hides while a draft is unsaved.
 
-Escape returns to Normal mode. `:w`, ⌘S / Ctrl+S, or **Save** writes the file.
-`:wq` saves and closes the file only if the save succeeds.
+Drafts and undo history stay in memory across tab switches and closes; open the
+file again to resume. Med keeps up to 24 drafts. A reload warns about unsaved
+work but does not keep drafts.
 
-A hollow dot means saved. A filled dot means the draft differs from the last
-saved contents. Dirty tabs also show a dot. Undo after saving can make the file
-dirty again. **Close file** / `:q` closes the tab; unsaved text requires an explicit
-**Discard draft** or **Keep editing** choice. Saving does not stage or commit; use
-the [Commit tab](#commit-and-push).
+If another process changed the file, saving reports a conflict and keeps your
+draft. There is no force save. Commit and saved-review files are read-only.
+Editing works for existing UTF-8 text files up to 1 MiB; symlinks, hard links,
+and paths through nested repositories cannot be saved. Med keeps uniform CRLF
+line endings and executable bits.
 
-Drafts and undo history stay in memory across tab switches and tab closes. Open
-the same working file to resume. Up to 24 drafts are retained; clean drafts can
-be evicted at that limit. Reloading or closing the browser warns about unsaved
-work but does not persist drafts. Vim starts in Normal mode when reattached.
-
-If an agent or another process changed the file, saving reports a conflict and
-keeps your draft. Copy any text you need before discarding and reopening the
-current disk version. There is no force-save command. Files from commits and
-saved review snapshots remain read-only; open the working-tree version to edit.
-Editing is limited to existing, complete UTF-8 text files up to 1 MiB. Symlinks,
-hard-linked files, and paths through nested repositories cannot be saved.
-Uniform CRLF line endings and ordinary executable permission bits are preserved.
-
-To link directly to a registered working file, URL-encode the canonical worktree
-path and repository-relative file path:
+Link to a registered working file with a URL-encoded worktree path and
+repository-relative path:
 
 ```text
 http://127.0.0.1:4173/file?repo=%2Fpath%2Fto%2Frepo&path=src%2Fexample.ts&edit=1
 ```
 
-`edit=1` is optional; writable files open in Vim Normal mode. The browser must already be authorized
-with the host's launch URL, as for saved review links. A file link opens live
-working content; it does not freeze a review or register another repository.
+The browser must already be authorized with the launch URL. A file link opens
+live content; it does not freeze a review or register a repository.
 
 ## Commit and push
 
 Press `q` in a review of live changes, or click the **Commit** tab, to stage
-files, commit them, and push the branch. It is the part of lazygit that a review
-needs. Press `q` again to return to the review.
+files, commit them, and push the branch. Press `q` again to return.
 
 - **Files and diffs.** The list shows each changed file: ● staged, ◐ partly
-  staged, ○ not staged. The diffs of all files follow in the same order. `j` /
-  `k` move through the files and scroll the diffs; scrolling the diffs moves the
-  list. A partly staged file shows its staged and unstaged parts. As in
-  Changes, `Enter` opens the focused file in a tab, and a click on a file name
-  in the diffs opens it too (`⌘`-click opens it behind the Commit tab).
-- **Filter.** `/` filters the list and the diffs by path. `↑` / `↓` move while
-  you type; `Enter` keeps the filter. `Esc` clears it, in the field or in the
-  list, as in a search.
-- **Stage.** `Space`, or a click on the mark in the list or in a diff header,
-  stages or unstages the whole file. `a` stages every file shown, or unstages
-  them when all are staged. The mark changes at once; Git's answer follows.
-- **Commit.** `c`, **Commit…**, or `⌘↵` opens the message in the middle of the
-  window; it takes no space until then. `⌘↵` / `Ctrl+Enter` commits the staged
-  files, and `Esc` closes the message and keeps it as a draft across reloads.
-  Hooks run. If a hook stops the commit, its output shows under the message, and
-  nothing is committed.
-- **Push.** `⇧P` pushes the branch to its upstream. A branch without an upstream
-  asks first, then pushes to the push remote (usually `origin`) and tracks it.
-  Med never force-pushes.
+  staged, ○ not staged. The diffs follow in the same order. `j` / `k` move
+  through the files and scroll the diffs. `Enter` opens the focused file in a
+  tab.
+- **Filter.** `/` filters by path; `Enter` keeps the filter and `Esc` clears it.
+- **Stage.** `Space`, or a click on the mark, stages or unstages the whole file.
+  `a` stages every file shown, or unstages them when all are staged.
+- **Commit.** `c`, **Commit…**, or `⌘↵` opens the message. `⌘↵` / `Ctrl+Enter`
+  commits the staged files; `Esc` keeps the message as a draft. Hooks run. If a
+  hook stops the commit, its output shows under the message.
+- **Push.** `⇧P` pushes to the upstream. A branch without an upstream asks
+  first, then pushes to the push remote (usually `origin`) and tracks it. Med
+  never force-pushes.
 
-If the staged files change outside Med after the tab read them, the commit stops
-and the tab reads them again. For hunks, amends, rebases, and branch switches,
-use lazygit: right-click the workspace and choose **Copy lazygit command**.
-
-## Development
-
-med lives in `apps/med`. Install dependencies from the Workbench root with `bun install --frozen-lockfile`. The commands below run from `apps/med`; root shortcuts include `bun run dev:med`, `bun run build:med`, and `bun run check:med`.
-
-```sh
-bun run dev -- /path/to/repository
-```
-
-Open the Vite URL with the `#token=…` fragment printed by the API host. Vite proxies API requests to that host. Production builds need no proxy.
-
-### Elements page
-
-Open `/elements` (or run **Open elements page** from the command palette) to
-inspect Med's own components on fixed sample data: the palette and derived
-layers, the theme's aesthetic, type, shape, icons, controls, review parts such as the history panel,
-commit card, Med notes, and GitHub threads, every code color state, and a sample
-brief. Code states include diff lines and
-changed words, line selection over context, additions, and removals, find
-matches, and the editor. The theme menu previews any theme on the page without
-saving it; **Use in Med** saves it. Zoom enlarges the non-code specimens, outline
-mode draws every box, and inspect mode lists the clicked element's size, type,
-and colors as theme tokens with its text contrast. Each specimen can sit on the
-frame, card, or popover surface. The **Commit flow** section runs the Commit tab
-on a pretend repository, with switches for a failing hook, a rejected push, a
-branch without an upstream, and slow commands. The **Agent session** section
-replays a recorded Claude Code session at 1×, 4×, or 16×, and shows every part
-of the thread on sample updates. The **Agents** section runs the real Session
-pane with a scripted agent: send a message, answer its permission request, try
-the pickers and the `/` menu, or stop it.
-
-Run the complete check from the Workbench root:
-
-```sh
-bun run check:med
-```
-
-For a focused run, use `bun run test:med` for host integrations, browser tests,
-and remaining unit regressions. `bun run --cwd apps/med test:e2e` builds med and
-exercises the real CLI and browser with temporary repositories. See
-[test design and coverage boundaries](TESTING.md) before adding tests.
-
-To run the login service from Workbench's latest `main` on macOS:
-
-```sh
-bun scripts/track-main.ts install
-```
-
-The script builds `main` in a separate worktree under `~/.local/share/med`,
-installs that executable as the login service, and adds a watcher. When `main`
-moves, the watcher builds the new commit and restarts the service. Uncommitted
-work in the checkout never reaches the service. A failed build keeps the previous
-executable and shows a notification; `~/.local/share/med/update.log` has the
-details. `bun scripts/track-main.ts uninstall` removes the watcher, the service,
-and the build. Sources and reviews remain.
-
-The UI uses React, [Pierre Diffs and Trees](https://pierre.computer/), Base UI, and StyleX. Vite 8 uses Rolldown and Oxc; Oxlint, Oxfmt, and Vitest provide checks. Zod validates the host protocol. [Architecture](../ARCHITECTURE.md) describes the boundaries and data flow.
+If the staged files change outside Med, the commit stops and the tab reads them
+again. For hunks, amends, rebases, and branch switches, use **Copy lazygit
+command** on the workspace.
 
 ## Limits and evidence
 
-Syntax highlighting uses Twinkleplop. This build includes JavaScript/JSX, TypeScript/TSX, CSS, HTML, JSON/JSONC, Markdown, YAML, TOML, Bash, Go, Python, Rust, SQL, Svelte, diff, INI, HTTP, dotenv, and shell-session grammars. Markdown code fences use the matching installed grammar. C, C++, Zig, and other missing grammars display as plain text; files, diffs, selection, and comments still work. Syntax colours can differ from Shiki because semantic token kinds do not contain full TextMate scope stacks.
+Syntax highlighting covers JavaScript/JSX, TypeScript/TSX, CSS, HTML, JSON/JSONC,
+Markdown, YAML, TOML, Bash, Go, Python, Rust, SQL, Svelte, diff, INI, HTTP,
+dotenv, shell sessions, Java, Gradle, C++, and XML. Twinkleplop supplies most
+grammars; Med's own grammars cover Java, C++, XML, and JSON/JSONC. Markdown code
+fences use the matching grammar. C, Zig, and other missing languages show as
+plain text. Colors can differ from Shiki: most grammars give token kinds, not
+full TextMate scope stacks, and Med ignores theme rules that match parent
+scopes.
 
-Images render in compact before/after diff cards. The file viewer also plays browser-supported videos. Other binary files and files with unsupported encodings show metadata only. Text above 8 MiB, 200,000 lines, or 250,000 characters on one line is not rendered. Large supported text uses plain rendering. File manifests stop at 50,000 entries. Missing files are shown as missing; historical content is not silently substituted. See [file browsing](FILE_BROWSING.md) for details.
+Images render in before/after diff cards, and the file viewer plays
+browser-supported videos. Other binary files and unsupported encodings show
+metadata only. Text above 8 MiB, 200,000 lines, or 250,000 characters on one
+line is not rendered; large text uses plain rendering. File lists stop at 50,000
+entries. Missing files show as missing. See [file browsing](FILE_BROWSING.md).
 
-History follows the selected worktree's HEAD ancestry. Shallow clones can lack the parent needed for a comparison. Blame has the same history limit and is unavailable for files without history or files that require Git content conversion.
+History follows the selected worktree's HEAD. Shallow clones can lack the
+parent that a comparison needs. Blame has the same limit, and does not work for
+files that need Git content conversion. Med is a browser app with a local
+server; native desktop packaging and shared persistent review notes are not
+implemented.
 
-This is a browser app backed by a local server. Native desktop packaging, shared persistent review notes, and complete Hunk feature parity are not implemented.
-
-- [Search, definitions, commit ranges, and gutter blame](validation/REVIEW_NAVIGATION.md)
-- [Hover prefetch, compact UI, and render diagnostics](validation/HOVER_AND_RENDERING.md)
-- [Navigation validation and screenshots](validation/NAVIGATION.md)
-- [Zoekt benchmark: setup cost, search latency, and reproducible harness](validation/ZOEKT.md)
-- [Twinkleplop integration and timed comparison videos](validation/HIGHLIGHTER_INTEGRATION.md)
-- [Baseline diff performance](validation/RESULTS.md)
-- [Theme and workspace validation](validation/UI_UPDATE.md)
+- [Zoekt benchmark](validation/ZOEKT.md)
+- [Twinkleplop integration and comparison videos](validation/HIGHLIGHTER_INTEGRATION.md)
 - [Everyday interaction latency](validation/INTERACTIONS.md)
-- [Feature status and navigation behavior](SNACKS_REVIEW.md)
+- [Ctags and Zoekt symbol benchmarks](validation/SYMBOL_SEARCH.md) and
+  [Vim cursor benchmarks](validation/VIM_NAVIGATION.md)
 
-Hunk's retained semantic source and tests carry their original [MIT notice](../upstream/HUNK-LICENSE). [Source provenance](../upstream/HUNK.md) records the pinned revision and adaptations.
-
-Symbol and navigation validation: [Ctags and Zoekt benchmarks](validation/SYMBOL_SEARCH.md), [Vim cursor benchmarks](validation/VIM_NAVIGATION.md), [file symbol palette](validation/file-symbols.png), [Vim file search](validation/vim-navigation.png).
+Hunk's retained source and tests carry their [MIT notice](../upstream/HUNK-LICENSE);
+[source provenance](../upstream/HUNK.md) records the revision and changes.
 
 ## Standalone files and dropped previews
 
-Open **Open standalone file** from the command palette, or visit `/files` on the
-running host. Use **Open file…** or **⌘O / Ctrl+O** in Files to enter an absolute
-path. **⌘K / Ctrl+K** opens Files commands, including opening a path, switching
-tabs, themes, and returning to repositories. Tabs and actions share one row.
-Browser Back and Forward restore Files after switching to repositories.
-The file does not need
-to belong to a Git repository. Vim Normal mode, the saved-state dot, and
-conflict-checked saves work as they do for working files. Both file toolbars are
-32 px high. Files open ready to navigate without a mode-toggle toolbar.
-
-To start a file workspace from a directory without Git:
-
-```sh
-bun run --cwd apps/med build
-node apps/med/dist/cli.js --editor
-```
+Run **Open standalone file** from the command palette, or visit `/files`. Use
+**Open file…** or **⌘O / Ctrl+O** to enter an absolute path; the file does not
+need to be in a Git repository. Vim, the saved-state dot, and conflict-checked
+saves work as for working files. In a built checkout,
+`node dist/cli.js --editor` starts a file workspace without a repository.
 
 An agent can print a link through the running host:
 
 ```sh
-node /path/to/workbench/apps/med/dist/cli.js open /absolute/path/Example.java --line 42 --column 8
+med open /absolute/path/Example.java --line 42 --column 8
 ```
 
-Add `--edit` to start in the editor. `--port` and `--state-dir` select the same
-connection as review commands. The command prints a token-free Markdown link:
-`http://127.0.0.1:4173/file/absolute/path/Example.java?line=42&column=8`.
-The browser must first open the host's launch URL. **Copy link** is also available
-in the standalone file tabs. These links read the current file, not a snapshot.
-Paths are URL-encoded; the CLI handles spaces, Unicode, `#`, and other characters.
-Opening one file grants host access to that exact file, not its parent directory.
-The host retains at most 256 standalone file grants until restart.
+Add `--edit` to start in the editor; `--port` and `--state-dir` work as for
+review commands. The command prints a token-free link, such as
+`http://127.0.0.1:4173/file/absolute/path/Example.java?line=42&column=8`. The
+link reads the current file, not a snapshot. Opening a file grants access to
+that file only, not its folder; the host keeps at most 256 grants until restart.
 
-Drop text, image, or video files anywhere in med for read-only previews. Dropped
-files stay in the browser and have no disk-write control or agent link. Drop up
-to 12 files at once; the workspace holds at most 24 tabs. Text is limited to
-8 MiB per file, 24 MiB per drop, and 32 MiB retained. Media uses browser file
-URLs and does not enter the retained text budget. Use **Open file** to edit a
-file on disk. Drafts and dropped previews do not survive page reload.
+Drop text, image, or video files anywhere in Med for read-only previews. Dropped
+files stay in the browser. Drop up to 12 files at once; the workspace holds at
+most 24 tabs. Text is limited to 8 MiB for each file, 24 MiB for each drop, and
+32 MiB in total. Drafts and dropped previews do not survive a reload.
 
 ## Images and videos
 
-Image diffs show **Before** and **After** in cards under 240 px tall. Click the
-header to collapse a card; click its filename to open the file viewer. Images
-load near the visible area. The viewer fits images to its pane; **1:1** switches
-to actual size. SVG, PNG, JPEG, WebP, AVIF, GIF, APNG, BMP, and ICO use the
-browser's image decoder. TIFF, HEIC/HEIF, and JPEG XL depend on browser support.
+Image diffs show **Before** and **After** in compact cards that load near the
+visible area. Click the header to collapse a card, or the filename to open the
+viewer. The viewer fits images to the pane; **1:1** shows actual size. SVG, PNG,
+JPEG, WebP, AVIF, GIF, APNG, BMP, and ICO use the browser's decoder; TIFF,
+HEIC/HEIF, and JPEG XL depend on the browser.
 
-The file viewer uses native video controls for play, pause, seeking, volume,
-playback speed where available, and fullscreen. MP4/M4V, WebM, MOV, OGV, and MKV
-are passed to the browser; actual playback depends on its installed codecs.
-Unsupported or corrupt media gets an inline message. Med does not transcode.
-
-Image files are limited to 32 MiB and videos to 4 GiB. Video bytes stream on
-demand with byte-range requests, not through the text or syntax pipeline.
-New saved reviews freeze image bytes within their existing 24 MiB per-target
-capture budget. Older saved reviews may lack images; create a new review to
-capture them. Videos are viewable files, not captured video comparisons.
+Videos use native controls. MP4/M4V, WebM, MOV, OGV, and MKV play when the
+browser has the codec; Med does not transcode. Images are limited to 32 MiB and
+videos to 4 GiB. Saved reviews keep image bytes within the 24 MiB capture budget
+for each target; videos are not captured.
 
 ## Full-file change markers
 
-When opening a full file from a diff, the line-number gutter shows green bars
-for added lines and red bars for deleted lines in the before version. A deletion
-with no remaining row appears as a red tick at its gap in the after version.
-Blue bars identify working-file additions and replacements. The header has a
-compact color legend; each marker identifies its comparison on hover.
+A full file opened from a diff shows green gutter bars for added lines and red
+bars for deleted lines. A deletion with no remaining row shows as a red tick at
+its gap. Blue bars mark working-file additions and replacements. Hover a marker
+for its comparison.
 
 Markers use the selected comparison only when its captured text matches the
-file being viewed. If live working content differs from that snapshot, markers
-show changes against HEAD instead. **Open before** and **Open after** show the
-exact commit versions. Markers are removed from stale views until refresh;
-line numbers from an older snapshot are not applied to new content.
+file on screen; otherwise they compare live content with HEAD. **Open before**
+and **Open after** show the exact commit versions. A stale view drops its
+markers until refresh.
 
 ## Markdown preview
 
-Open a `.md`, `.markdown`, `.mdown`, or `.mkd` file and select **Preview** in
-its toolbar. In a repository window, the preview opens as the Preview pane in
-the [side panes](#side-panes), and the source keeps the view's width. The pane
-follows the Markdown file in the main view: it closes for other files and
-opens again for the next Markdown file. In a vault or a dropped file, the
-rendered pane sits beside the source, or below it in narrow windows. The
-browser remembers whether Preview is open. It works in both the
-file viewer and Vim editor, including read-only dropped Markdown.
+Open a `.md`, `.markdown`, `.mdown`, or `.mkd` file and select **Preview**, or
+press `⌘⇧V` / `Ctrl+Shift+V` while the file is active. In a repository, the preview opens as the
+Preview [side pane](#side-panes) and follows the Markdown file in the main
+view. In a vault or a dropped file, it sits beside the source, or below it in
+narrow windows. Med remembers whether Preview is open.
 
-The preview follows the source cursor and source scrolling. You can also scroll
-it independently or use **On this page**, which appears when the preview has
-at least 760 pixels of width. Editing updates the preview after a short pause;
-it does not save the file. **Save** and Vim `:w` still control disk writes.
+The preview follows the source cursor and scrolling. Scroll it on its own, or
+use **On this page** when it is at least 760 pixels wide. Contents links move
+the source cursor. Edits update the preview after a short pause; they do not
+save the file.
 
-Rendering includes GFM tables, task lists, strikethrough, autolinks and footnotes;
-inline and display LaTeX through KaTeX; Mermaid fences; syntax-colored code; and
-images. A single source newline stays in the same paragraph. A blank line starts
-a new paragraph; two trailing spaces or a backslash give an explicit hard break.
-Headings use the system SF Pro font on macOS; body text uses Geist with a limited
-line length. Motion follows the system reduced-motion preference.
+Rendering includes GFM tables, task lists, strikethrough, autolinks, and
+footnotes; LaTeX through KaTeX; Mermaid fences; colored code; and images. A
+single newline stays in the paragraph; a blank line starts a new one.
 
-Relative images in a standalone file must be in its folder or descendants.
-Repository images resolve from the Markdown path within the same repository or
-commit. PNG, JPEG, GIF, WebP, AVIF and SVG are supported, up to 8 MiB each. Remote
-HTTP(S) images can load directly and send no referrer. Dropped files can show
-remote and embedded raster images, but cannot find relative files on disk.
-Opening an image does not grant permission to edit it. Raw HTML is omitted;
-relative document links are shown but do not open another local file.
+Relative images in a standalone file must be in its folder or below it.
+Repository images resolve in the same repository or commit. PNG, JPEG, GIF,
+WebP, AVIF, and SVG are supported, up to 8 MiB each. Remote images load
+directly and send no referrer. Raw HTML is left out.
 
 Preview is limited to 512 KiB of Markdown. Diagrams are limited to 20,000
-characters and 500 edges. Invalid diagrams retain their source and a syntax
-notice; invalid math remains visible. The source editor stays available when a
-preview cannot render.
-
-Try [the reading queue design note](examples/reading-queue.md), which includes
-paragraphs, two diagrams, equations, a local image, a table and TypeScript.
-
-Toggle Markdown Preview with **Cmd+Shift+V** on macOS or **Ctrl+Shift+V** on
-Windows/Linux from anywhere in the app while a Markdown file is active. The toolbar button
-shows the shortcut on hover. Contents links move the source cursor in both
-editor and viewer modes; the preview follows the source position. In-document
-anchor links stay within the preview.
-Source scrolling follows fractional line positions with continuous interpolation
-and a short ease-out; reduced-motion mode moves directly to the target.
-
-Contents navigation gives the destination source line one soft, 650 ms accent
-fade. It does not blink repeatedly or move the layout. Reduced-motion mode
-omits this cue. The insert caret is 2 px wide, fully rounded, and follows the
-normal caret's 65 ms ease-out movement.
+characters and 500 edges. An invalid diagram keeps its source with a notice;
+invalid math stays visible. Try
+[the reading queue design note](examples/reading-queue.md).
 
 ### Links in Markdown preview
 
 Click a relative file link to open it in a file tab. Paths resolve from the
-displayed Markdown file's folder, including `../` and URL-encoded filenames.
-Repository links stay in the same worktree or exact commit as the source file.
-Standalone file links use the local file workspace; vault links use the vault
-tabs. `#L42` suffixes select a line in repository and standalone files.
-
-Same-page heading links keep their preview navigation. Web and mail links keep
-their external behavior. Dropped previews have no disk location, so relative
-file links are unavailable there. Missing files use the normal file-open error.
+Markdown file's folder, including `../` and URL-encoded names, in the same
+worktree or commit. Standalone links use the file workspace, and vault links
+the vault. `#L42` selects a line. Heading, web, and mail links work as usual.
+Dropped previews have no folder, so relative file links do not work there.
 
 ### Review titles and PR links
 
-`med review create --title "Navigation fix" ...` uses that title in the
-workspace list and browser tab. Keep it to 2–4 words; the workspace list is
-narrow. Add `--pr https://github.com/owner/repo/pull/123` to make the review
-header a link. Once the review has a PR, the header shows the PR title, read
-with `gh`; the workspace keeps the short title. Without `--title`, med uses the
-matching PR title when `gh` can resolve it. Single-repository GitHub branch
-reviews can infer the link; `--no-pr` skips lookup. See [agent guidance](AGENT_INTEGRATION.md#titles-and-pull-requests)
-for scope and fallback behavior. File tabs use the filename in the browser title.
+`med review create --title "Navigation fix"` names the review in the workspace
+list and browser tab; keep it to 2–4 words. `--pr <url>` links the header to
+the pull request and shows its title. See
+[titles and pull requests](AGENT_INTEGRATION.md#titles-and-pull-requests).

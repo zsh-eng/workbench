@@ -1,0 +1,10 @@
+// Settings for a tool.
+{
+  /* Comments and trailing commas are allowed. */
+  "compilerOptions": {
+    "strict": true, // stay strict
+    "paths": { "@/*": ["./src/*",], },
+  },
+  /** A documentation comment. */
+  "exclude": ["dist", "node_modules",],
+}

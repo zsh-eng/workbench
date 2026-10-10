@@ -57,6 +57,32 @@ export const pinMutationSchema = z.union([
   z.object({ remove: z.string().min(1).max(64) }),
 ]);
 export type PinMutation = z.infer<typeof pinMutationSchema>;
+/** A comment on a passage of the Notes: the brief or a pinned reply. */
+export const MAX_QUOTE_LENGTH = 4000;
+const commentTextSchema = z.string().trim().min(1).max(16384);
+export const briefCommentInputSchema = z.object({
+  /** "brief", or the pinned reply's ID. */
+  section: z.string().regex(/^(?:brief|p_[a-f0-9]{12})$/),
+  /** The iteration of the brief. A review without iterations has none. */
+  iteration: z.number().int().positive().optional(),
+  quote: z.string().trim().min(1).max(MAX_QUOTE_LENGTH),
+  /** The text just before the quote, which tells a repeated passage apart. */
+  prefix: z.string().max(64).optional(),
+  text: commentTextSchema,
+});
+export type BriefCommentInput = z.infer<typeof briefCommentInputSchema>;
+export const briefCommentSchema = briefCommentInputSchema.extend({
+  id: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type BriefComment = z.infer<typeof briefCommentSchema>;
+export const briefCommentMutationSchema = z.union([
+  z.object({ add: briefCommentInputSchema }),
+  z.object({ edit: z.object({ id: z.string().min(1).max(64), text: commentTextSchema }) }),
+  z.object({ remove: z.string().min(1).max(64) }),
+]);
+export type BriefCommentMutation = z.infer<typeof briefCommentMutationSchema>;
 
 /** A name the agent chooses for its task, such as its branch. Creating a
  * review again with the same key adds an iteration to that review instead of
@@ -88,7 +114,11 @@ export const agentSessionSchema = z.object({
 export type AgentSession = z.infer<typeof agentSessionSchema>;
 /** A session's agent for the UI: Claude, Codex, or an ACP agent's own name. */
 export const agentName = (session: { agent: AgentSession["agent"]; name?: string }) =>
-  session.agent === "claude" ? "Claude" : session.agent === "codex" ? "Codex" : (session.name ?? "Agent");
+  session.agent === "claude"
+    ? "Claude"
+    : session.agent === "codex"
+      ? "Codex"
+      : (session.name ?? "Agent");
 export const MAX_SESSIONS = 32;
 /** At most this many iterations; the oldest briefs and comparisons stay. */
 export const MAX_ITERATIONS = 64;
@@ -156,6 +186,8 @@ export const savedReviewSchema = z.object({
   brief: savedBriefSchema.optional(),
   /** Pins of a review without iterations; otherwise each iteration has its own. */
   pins: z.array(savedPinSchema).optional(),
+  /** Comments on passages of the Notes. `commentCount` counts them. */
+  briefComments: z.array(briefCommentSchema).optional(),
   createdAt: z.string(),
   revision: z.number().int().nonnegative(),
   commentCount: z.number().int().nonnegative(),

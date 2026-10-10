@@ -1,8 +1,10 @@
+import { codexReviewsSchema, type CodexReviewRun } from "../../shared/codex-review";
 import { readBrowserToken } from "./auth";
 import { REVIEW_UPDATED } from "./workspaces";
 import {
   savedReviewSchema,
   savedFeedbackSchema,
+  type BriefCommentMutation,
   type PinMutation,
   type SavedReview,
   type SavedFeedback,
@@ -40,7 +42,7 @@ import {
   type ReviewDocumentV1,
   type ReviewState,
 } from "../../shared/review";
-import { ByteLru, estimateRetainedBytes } from "./cache";
+import { ByteLru } from "../../shared/byte-lru";
 import {
   branchesSchema,
   createApi,
@@ -56,6 +58,7 @@ import {
   sessionSchema,
   sourceSchema,
 } from "./api";
+import { browserFetch } from "./live";
 import { readServerEvents } from "./sse";
 
 export type { ParsedReviewFile } from "../../shared/review";
@@ -111,11 +114,15 @@ export interface ReviewController {
   /** The saved review's GitHub pull request comments, read-only. `refresh`
    * skips the host's 30-second cache. */
   loadPullRequestComments(refresh?: boolean): Promise<PullRequestComments>;
+  /** Codex reviews of the saved review's checkouts, with their findings. */
+  loadCodexReviews(): Promise<CodexReviewRun[]>;
   clearSavedComments(expectedRevision: number): Promise<void>;
   /** Replace the saved review's brief, or remove it with null. */
   setSavedBrief(text: string | null): Promise<void>;
   /** Pin an agent reply to the saved review's Notes, or remove a pin. */
   pinToReview(mutation: PinMutation): Promise<void>;
+  /** Comment on a passage of the Notes, or edit or remove such a comment. */
+  commentBrief(mutation: BriefCommentMutation): Promise<void>;
   /** Starts an installed agent in the review's repository and returns its session ID. */
   startSession(preset: string): Promise<string>;
   /** Save the current Git comparison as a review and return its ID. */
@@ -157,6 +164,10 @@ function immutableComparison(comparison: Comparison): boolean {
         objectId.test(comparison.base) &&
         objectId.test(comparison.head);
 }
+/** Conservative serialized-data budget; includes UTF-16 string storage and object allowance. */
+function estimateRetainedBytes(value: unknown): number {
+  return JSON.stringify(value).length * 4;
+}
 function message(error: unknown): string {
   return error instanceof Error ? error.message : "An unexpected error occurred.";
 }
@@ -180,14 +191,14 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     (options.start || typeof location === "undefined"
       ? undefined
       : /^\/review\/([^/]+)\/?$/.exec(location.pathname)?.[1]);
-  const api = createApi(options.fetch ?? globalThis.fetch.bind(globalThis), token);
+  const api = createApi(options.fetch ?? browserFetch, token);
   const parse =
     options.parsePatch ??
     (async (patch: string) => {
       if (patch.length > 256 * 1024) throw new Error("This patch requires the background parser.");
       return parseReviewPatch(patch);
     });
-  const reviewCache = new ByteLru<CachedReview>(options.cacheBytes ?? 24 * 1024 * 1024);
+  const reviewCache = new ByteLru<CachedReview>(options.cacheBytes ?? 24 * 1024 * 1024, 24);
   const sourceCache = new ByteLru<SourceResponse>(8 * 1024 * 1024, 12, (_key, source) => {
     if (snapshot.review?.id !== source.reviewId || !snapshot.semantic) return;
     const file = snapshot.files.find((entry) => entry.path === source.path);
@@ -1698,6 +1709,35 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
             : { ...snapshot.savedReview, pins: next.pins, iterations: next.iterations },
       });
     },
+    async commentBrief(mutation) {
+      const saved = snapshot.savedReview;
+      if (!saved) throw new Error("Open a saved review to comment on its notes.");
+      const next = await api.json(
+        `/api/reviews/${encodeURIComponent(saved.id)}/brief-comments`,
+        savedReviewSchema,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(mutation),
+        },
+      );
+      if (disposed || snapshot.savedReview?.id !== saved.id) return;
+      // A comment on a diff can finish first; keep its newer count.
+      const current = snapshot.savedReview;
+      update({
+        savedReview:
+          next.revision >= current.revision
+            ? next
+            : {
+                ...current,
+                briefComments: next.briefComments,
+                commentCount:
+                  current.commentCount +
+                  (next.briefComments?.length ?? 0) -
+                  (current.briefComments?.length ?? 0),
+              },
+      });
+    },
     async startSession(preset) {
       const saved = snapshot.savedReview;
       if (!saved) throw new Error("Open a saved review to start a session.");
@@ -1791,6 +1831,16 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       const repo = snapshot.session?.repository.path;
       if (!repo) throw new Error("Open a repository first.");
       return api.json(`/api/commit?${query({ repo, id })}`, commitDetailsSchema, { signal });
+    },
+    async loadCodexReviews() {
+      const saved = snapshot.savedReview;
+      if (!saved) return [];
+      return (
+        await api.json(
+          `/api/reviews/${encodeURIComponent(saved.id)}/codex-reviews`,
+          codexReviewsSchema,
+        )
+      ).runs;
     },
     async loadPullRequestComments(refresh = false) {
       const saved = snapshot.savedReview;

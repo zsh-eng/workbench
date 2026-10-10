@@ -13,7 +13,9 @@ Include line numbers when useful. Preserve unrelated edits.
 - Root guides document reusable patterns; keep them easy to read.
 
 Read [Architecture](docs/ARCHITECTURE.md) before changes to data, caching, sync,
-or performance. Read the owning app's architecture and tests as well.
+or performance. Read the owning app's architecture and tests as well. Read
+[Dependencies](docs/DEPENDENCIES.md) before you add, replace, or remove a
+dependency.
 
 ## Tools and checks
 

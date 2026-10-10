@@ -1,0 +1,8 @@
+{
+  "name": "@workbench/med",
+  "private": true,
+  "nested": { "list": [1, -2.5e+3, 0.25, 1E-3, null, false], "empty": {}, "none": [] },
+  "escapes": "quote \" slash \/ back \\ tab \t unicode é 😀",
+  "text": "😀 日本語",
+  "deep": [[{ "a": [{ "b": { "c": "d" } }] }]]
+}

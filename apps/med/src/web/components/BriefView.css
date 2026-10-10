@@ -15,8 +15,9 @@
   initial-value: 0px;
 }
 .med-md-prose.med-brief-prose {
-  /* A brief is read at length, so its text is a step larger than a preview's. */
-  font-size: 16px;
+  /* A brief is read at length, so its text is a half step larger than a
+     preview's. */
+  font-size: 15px;
 }
 .med-brief-prose {
   /* Excerpts and code reach past the text column when the pane has room. */
@@ -81,4 +82,19 @@
 }
 .med-brief-prose img {
   box-shadow: 0 0 0 1px var(--med-border);
+}
+/* The Comment button beside a selected passage sits in the scrolled content. */
+.med-brief-scroll {
+  position: relative;
+}
+/* Passages with comments, and the one being commented on. */
+::highlight(med-brief-comment) {
+  background-color: color-mix(in srgb, var(--med-warning, #e8c17a) 24%, transparent);
+}
+::highlight(med-brief-draft) {
+  background-color: color-mix(in srgb, var(--med-warning, #e8c17a) 42%, transparent);
+}
+/* Comment cards sit in the prose; its paragraph spacing does not apply. */
+.med-md-prose [data-passage-ui] p {
+  margin: 0;
 }

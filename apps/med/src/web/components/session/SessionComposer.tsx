@@ -285,9 +285,11 @@ export function SessionComposer({
             {drafts.map((draft) => {
               const on = !left.has(draft.id);
               const lines =
-                draft.endLine && draft.endLine !== draft.line
-                  ? `${draft.line}–${draft.endLine}`
-                  : `${draft.line}`;
+                draft.line === undefined
+                  ? ""
+                  : draft.endLine && draft.endLine !== draft.line
+                    ? `:${draft.line}–${draft.endLine}`
+                    : `:${draft.line}`;
               return (
                 <li key={draft.id}>
                   <label {...stylex.props(styles.draft)}>
@@ -303,7 +305,8 @@ export function SessionComposer({
                       {...stylex.props(styles.check)}
                     />
                     <span {...stylex.props(styles.draftPath)}>
-                      {draft.path.split("/").at(-1)}:{lines}
+                      {draft.path.split("/").at(-1)}
+                      {lines}
                     </span>
                     <span {...stylex.props(styles.draftText)}>{draft.text}</span>
                   </label>
