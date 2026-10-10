@@ -68,6 +68,39 @@ final class ReaderPerformanceUITests: XCTestCase {
     capture(app, "publisher-home-after-unsaved-reader-and-relaunch")
   }
 
+  @MainActor func testFollowedLinkReturnsToLoadedPage() throws {
+    let ready = expectation(description: "Local publisher replay is listening")
+    let replay = try PublisherReplay(ready: ready)
+    defer { replay.stop() }
+    wait(for: [ready], timeout: 5)
+    let app = XCUIApplication()
+    app.launchArguments = [
+      "-ui-testing", "-reset-store", "-reset-appearance", "-disable-preloading",
+    ]
+    app.launchEnvironment["TEST_PUBLISHER_ORIGIN"] = replay.origin
+    app.launch()
+    let shortcut = app.buttons["publisher-www.ft.com"]
+    revealPublishersIfNeeded(app, shortcut: shortcut)
+    shortcut.tap()
+    let home = app.webViews.staticTexts["Publisher homepage"]
+    XCTAssertTrue(home.waitForExistence(timeout: 10))
+    // A followed link opens above the page, which stays loaded below it.
+    app.webViews.links["Open linked story"].tap()
+    XCTAssertTrue(app.webViews.staticTexts["Linked story"].waitForExistence(timeout: 10))
+    let prompt = app.buttons["reader-back-prompt"]
+    for _ in 0..<8 where !prompt.exists { app.swipeUp() }
+    XCTAssertEqual(prompt.label, "Back to Financial Times")
+    prompt.tap()
+    XCTAssertTrue(home.waitForExistence(timeout: 5))
+    // The bottom Back control returns the same way.
+    app.webViews.links["Open linked story"].tap()
+    XCTAssertTrue(app.webViews.staticTexts["Linked story"].waitForExistence(timeout: 10))
+    app.buttons["browser-back"].tap()
+    XCTAssertTrue(home.waitForExistence(timeout: 5))
+    XCTAssertEqual(replay.homepageRequests, 1, "Returning must not load the page again")
+    capture(app, "followed-link-returned-to-loaded-page")
+  }
+
   @MainActor private func revealPublishersIfNeeded(_ app: XCUIApplication, shortcut: XCUIElement) {
     let header = app.buttons["toggle-news"]
     XCTAssertTrue(header.waitForExistence(timeout: 10))
@@ -171,6 +204,9 @@ final class ReaderPerformanceUITests: XCTestCase {
     showReader(app)
     XCTAssertEqual(bookmark.value as? String, "Not saved")
     XCTAssertTrue(app.webViews.staticTexts["A second story"].exists)
+    // The followed story is a page above the saved one; leave both.
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    XCTAssertTrue(app.webViews.staticTexts["A little room to think"].waitForExistence(timeout: 5))
     app.navigationBars.buttons.element(boundBy: 0).tap()
     app.buttons["article-story"].tap()
     showReader(app)
@@ -440,14 +476,16 @@ final class ReaderPerformanceUITests: XCTestCase {
 private final class PublisherReplay {
   private let listener: NWListener
   private let queue = DispatchQueue(label: "arctic.publisher-replay")
+  private var homepageCount = 0
   var origin: String { "http://127.0.0.1:\(listener.port!.rawValue)" }
+  var homepageRequests: Int { queue.sync { homepageCount } }
 
   init(ready: XCTestExpectation) throws {
     listener = try NWListener(using: .tcp, on: .any)
     listener.stateUpdateHandler = { state in
       if case .ready = state { ready.fulfill() }
     }
-    listener.newConnectionHandler = { [queue] connection in
+    listener.newConnectionHandler = { [queue, unowned self] connection in
       connection.start(queue: queue)
       connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, _, _ in
         guard let data else {
@@ -455,14 +493,17 @@ private final class PublisherReplay {
           return
         }
         let request = String(decoding: data, as: UTF8.self)
+        let isLinked = request.hasPrefix("GET /content/linked-story ")
         let isArticle = request.hasPrefix("GET /content/")
-        let title = isArticle ? "Publisher article" : "Publisher homepage"
+        if request.hasPrefix("GET / ") { self.homepageCount += 1 }
+        let title =
+          isLinked ? "Linked story" : isArticle ? "Publisher article" : "Publisher homepage"
         let paragraphs = String(
           repeating: "<p>A reading room holds the stories we return to. This article describes how patient attention changes our understanding of the world. A reader can save a passage, compare an idea with another writer, and return to the original source. The words remain available even when a connection is interrupted. Every article has its own address and every visit should preserve that boundary.</p>",
-          count: 5)
+          count: isLinked ? 12 : 5)
         let html = """
           <!doctype html><html><head><meta name="viewport" content="width=device-width"><title>\(title)</title><link rel="icon" href="data:,"></head>
-          <body><main><article><h1>\(title)</h1><button onclick="history.pushState({}, '', '/content/test-article'); document.title='Publisher article'; document.querySelector('h1').textContent='Publisher article'; this.remove()">Read publisher article</button>\(paragraphs)</article></main></body></html>
+          <body><main><article><h1>\(title)</h1><button onclick="history.pushState({}, '', '/content/test-article'); document.title='Publisher article'; document.querySelector('h1').textContent='Publisher article'; this.remove()">Read publisher article</button><p><a href="/content/linked-story">Open linked story</a></p>\(paragraphs)</article></main></body></html>
           """
         let body = Data(html.utf8)
         var response = Data(

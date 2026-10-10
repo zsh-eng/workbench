@@ -117,6 +117,11 @@ enable `group.com.zsheng.ArticleReader` in App Groups for both targets. Both use
   offline Reader. Following a link uses its own save state, notes and HTML target.
   Back and Forward restore that identity; a detour cannot replace the original
   saved article. Website form/scroll state is not retained across history loads.
+- A link followed from a page opens as a new page above it, with its own web
+  views, like a tab. Back closes the new page and shows the previous page as you
+  left it: same scroll position, no reload, and no second Unwall request. Forward
+  reopens the last closed page while the previous page stays open. Pages close
+  when you return to the library.
 - Leading article images stay in their editorial position and suppress the OG
   hero. Large standalone images extend through the text gutter. Wide media caps
   at 60% of viewport height; other body images cap at 70%, without cropping.
@@ -136,8 +141,10 @@ enable `group.com.zsheng.ArticleReader` in App Groups for both targets. Both use
   Favourite, Archive article, **Reading time**, **Refresh Reader**, Reload and Try Unwall.
   Refresh Reader uses the current page DOM, or loads the source if only cached
   HTML is open. A failed extraction keeps the previous saved document.
-  A saved, unarchived article also offers **Archive and close** after you scroll near
-  its end. Both archive actions return to the library only after storage succeeds.
+  Near the end of a page, a saved, unarchived article offers **Archive and close**,
+  or **Archive and go back** when you opened it from another page. An unsaved page
+  opened from another page offers **Back to** that publisher instead. Both archive
+  actions leave the page only after storage succeeds.
 - Empty folders use muted ink-wash landscapes and botanical studies: a shoreline,
   sheltered pine, snow trail, layered ridges, plum branch, reeds, pale sun and bird.
   Transparent edges and native multiply/screen blending let the light or dark
@@ -421,8 +428,10 @@ checks remain open.
 
 ## Discovery and passage images
 
-The Saved shelf opens NY Times, Financial Times, Economist, New Yorker and
-Atlantic homepages through the existing Unwall route. The actual publisher marks are bundled assets;
+The Saved shelf opens the NY Times, Financial Times, New Yorker and Atlantic
+homepages, and the Economist's latest Weekly Edition. Shortcuts load the publisher
+directly, because some publishers block Unwall; articles opened from that page
+use the usual routing. The actual publisher marks are bundled assets;
 the shelf makes no favicon requests. [Asset sources](Design/publisher-marks.md) record provenance.
 News has two states: three small overlapping publisher circles beside the Arctic
 mark/name, or a publisher row above the folder tabs. In the compact state,
@@ -446,9 +455,10 @@ the news and changes the brand position immediately. Leaving the library closes
 the row without animation. There are no scroll-inset changes or display-link
 writes to scroll offsets. Publisher availability requires a connection. A
 publisher shortcut starts a fresh website visit, even when that homepage has
-downloaded Reader content. In-page URL changes get their own history and article
-identity, so saving a linked article does not replace the homepage's Reader
-content.
+downloaded Reader content. Stories opened from it return to the loaded homepage,
+as described in the history section. In-page URL changes get their own history
+and article identity, so saving a linked article does not replace the homepage's
+Reader content.
 
 **This week** shows articles favourited from Monday to Sunday in the current
 time zone, including archived favourites. **All favourites** also includes

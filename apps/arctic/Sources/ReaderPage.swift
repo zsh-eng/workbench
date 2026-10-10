@@ -37,6 +37,19 @@ struct ReaderPage: View {
       && article?.downloadedAt == nil
   }
   private var canArchive: Bool { isSaved && article?.isArchived != true }
+  /// Back first walks this page's own history, then returns to the page whose
+  /// link opened it.
+  private var canGoBack: Bool { browser.canGoBack || browser.opener != nil }
+  /// The page below, named by its publisher or site for the end prompt.
+  private var openerName: String? {
+    guard let opener = browser.opener else { return nil }
+    func site(_ url: URL?) -> String {
+      (url?.host ?? "").replacingOccurrences(of: "www.", with: "")
+    }
+    let host = site(opener.sourceURL)
+    return ArcticPublisher.all.first { site($0.url) == host }?.name
+      ?? (host.isEmpty ? "previous page" : host)
+  }
   init(browser: ArticleBrowser, store: ArticleStore) {
     _browser = State(initialValue: browser)
     self.store = store
@@ -266,13 +279,29 @@ struct ReaderPage: View {
 
   private var interactiveBottomControls: some View {
     VStack(spacing: 10) {
-      if browser.selectedAnnotationID == nil, !appearance, nearEnd, canArchive {
-        Button(action: archive) {
-          Label("Archive and close", systemImage: "archivebox")
+      if browser.selectedAnnotationID == nil, !appearance, nearEnd {
+        // A page opened from another page returns there; a library page closes.
+        if canArchive {
+          Button(action: archive) {
+            Label(
+              openerName == nil ? "Archive and close" : "Archive and go back",
+              systemImage: "archivebox"
+            )
             .font(.subheadline.weight(.semibold)).padding(.horizontal, 20).frame(height: 44)
+          }
+          .readerGlass().accessibilityIdentifier("reader-archive-prompt")
+          .transition(reduceMotion ? .opacity : .offset(y: 8).combined(with: .opacity))
+        } else if let openerName {
+          Button {
+            dismiss()
+          } label: {
+            Label("Back to " + openerName, systemImage: "chevron.left")
+              .font(.subheadline.weight(.semibold)).lineLimit(1)
+              .padding(.horizontal, 20).frame(height: 44)
+          }
+          .readerGlass().accessibilityIdentifier("reader-back-prompt")
+          .transition(reduceMotion ? .opacity : .offset(y: 8).combined(with: .opacity))
         }
-        .readerGlass().accessibilityIdentifier("reader-archive-prompt")
-        .transition(reduceMotion ? .opacity : .offset(y: 8).combined(with: .opacity))
       }
       if let draft = browser.noteDraft {
         ReaderNoteComposer(browser: browser, draft: draft).id(draft.id)
@@ -317,14 +346,17 @@ struct ReaderPage: View {
 
   private var navigationControls: some View {
     HStack(spacing: 0) {
-      Button("Back", systemImage: "chevron.left", action: browser.back)
-        .labelStyle(.iconOnly).frame(width: 44, height: 44).disabled(!browser.canGoBack)
-        .accessibilityIdentifier("browser-back")
-        .opacity(browser.canGoBack ? 1 : 0.28).frame(maxWidth: .infinity)
-      Button("Forward", systemImage: "chevron.right", action: browser.forward)
-        .labelStyle(.iconOnly).frame(width: 44, height: 44).disabled(!browser.canGoForward)
+      Button("Back", systemImage: "chevron.left") {
+        if browser.canGoBack { browser.back() } else { dismiss() }
+      }
+      .labelStyle(.iconOnly).frame(width: 44, height: 44).disabled(!canGoBack)
+      .accessibilityIdentifier("browser-back")
+      .opacity(canGoBack ? 1 : 0.28).frame(maxWidth: .infinity)
+      Button("Forward", systemImage: "chevron.right", action: browser.goForward)
+        .labelStyle(.iconOnly).frame(width: 44, height: 44)
+        .disabled(!browser.canGoForwardPage)
         .accessibilityIdentifier("browser-forward")
-        .opacity(browser.canGoForward ? 1 : 0.28).frame(maxWidth: .infinity)
+        .opacity(browser.canGoForwardPage ? 1 : 0.28).frame(maxWidth: .infinity)
       Button {
         if !browser.isReader { browser.toggleReader() }
         appearance = true

@@ -227,6 +227,13 @@ enum ArticleRouting {
   var annotationPresentation: AnnotationPresentation?
   var noteDraft: ReaderNoteDraft?
   var noteDismissRequest = 0
+  /// Shows a page above this one. With it, a followed link opens as a new page
+  /// and Back returns to this page as it was; without it, links load in place.
+  @ObservationIgnored var present: ((ArticleBrowser) -> Void)?
+  /// The page whose link opened this one.
+  @ObservationIgnored weak var opener: ArticleBrowser?
+  /// The page Back left, still loaded, for Forward. A new link replaces it.
+  private(set) var forwardPage: ArticleBrowser?
   // Set only by the visible Reader. Warm browsers never own a reading session.
   @ObservationIgnored var readingActivity: (() -> Void)?
   @ObservationIgnored var readingDocumentEnded: (() -> Void)?
@@ -322,8 +329,14 @@ enum ArticleRouting {
   @ObservationIgnored private var suspendedPublisher = false
   @ObservationIgnored private var retriedXRedirect = false
 
-  init(url: URL, store: ArticleStore, downloadedFile: URL? = nil, speculative: Bool = false) {
+  /// `direct` loads the publisher's own page, not Unwall. Index pages are free
+  /// to read and load faster there; articles opened from them still use Unwall.
+  init(
+    url: URL, store: ArticleStore, downloadedFile: URL? = nil, speculative: Bool = false,
+    direct: Bool = false
+  ) {
     self.speculative = speculative
+    bypassRouting = direct
     currentURL = url
     cacheIdentity = url
     articleIdentity = url
@@ -601,6 +614,47 @@ enum ArticleRouting {
       loadWebsite(entry.source)
       wantsReader = entry.reader
     }
+  }
+
+  /// A user-followed link. Article identity drops Unwall and test replay
+  /// addresses, as the in-place history does.
+  private func open(link url: URL) {
+    guard let present, let store else {
+      followLink(url)
+      return
+    }
+    captureReaderPosition()
+    discardForward()
+    let identity = ArticleRouting.original(websiteAddress(url))
+    let page = ArticleBrowser(
+      url: identity, store: store, downloadedFile: store.downloadedFile(for: identity))
+    page.opener = self
+    page.present = present
+    present(page)
+  }
+
+  /// Forward walks this page's own history, then reopens the page Back left.
+  var canGoForwardPage: Bool { canGoForward || forwardPage != nil }
+  func goForward() {
+    if canGoForward {
+      forward()
+    } else if let page = forwardPage, let present {
+      forwardPage = nil
+      present(page)
+    }
+  }
+
+  func keepForward(_ page: ArticleBrowser) {
+    discardForward()
+    forwardPage = page
+  }
+
+  /// Stops the pages Forward could reopen.
+  func discardForward() {
+    guard let page = forwardPage else { return }
+    forwardPage = nil
+    page.discardForward()
+    page.stop()
   }
 
   private func followLink(_ url: URL) {
@@ -1190,7 +1244,7 @@ enum ArticleRouting {
     }
     if TestMode.enabled, url.isFileURL {
       decisionHandler(.cancel)
-      followLink(URL(string: "https://fixture.example/" + url.deletingPathExtension().lastPathComponent)!)
+      open(link: URL(string: "https://fixture.example/" + url.deletingPathExtension().lastPathComponent)!)
       return
     }
     guard ["https", "http"].contains(url.scheme ?? "") else {
@@ -1199,7 +1253,7 @@ enum ArticleRouting {
     }
     if webView === readerView || navigationAction.targetFrame?.isMainFrame != false {
       decisionHandler(.cancel)
-      followLink(url)
+      open(link: url)
       return
     }
     decisionHandler(.allow)
@@ -1210,9 +1264,16 @@ enum ArticleRouting {
     for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures
   ) -> WKWebView? {
     if let url = navigationAction.request.url, ["http", "https"].contains(url.scheme ?? "") {
-      followLink(url)
+      open(link: url)
     }
     return nil
+  }
+
+  /// WebKit can end a background page's process under memory pressure. Reload
+  /// the website, so a page kept below a followed link is not blank on return.
+  func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+    guard webView === self.webView, hasLoaded else { return }
+    webView.reload()
   }
 
   func applyAppearance(completion: (() -> Void)? = nil) {
@@ -1722,8 +1783,8 @@ struct WebSurface: UIViewRepresentable {
     trim()
     // Library cards reuse in-flight preparation, including unfinished local
     // HTML and fonts, instead of replacing it with another WebView.
-    // Publisher shortcuts start a fresh website visit. Even a pending cached
-    // Reader load must not later replace the homepage the user requested.
+    // Publisher shortcuts start a fresh website visit from the publisher. Even a
+    // pending cached Reader load must not later replace the page requested.
     if !preferWebsite, let browser = browsers[url], browser.cacheIdentity == url {
       lastOpenState = browser.readerReady ? "prepared" : "preparing"
       browser.retryFailedWebsiteOnOpen()
@@ -1735,7 +1796,8 @@ struct WebSurface: UIViewRepresentable {
     }
     browsers[url]?.stop()
     let browser = ArticleBrowser(
-      url: url, store: store, downloadedFile: preferWebsite ? nil : store.downloadedFile(for: url))
+      url: url, store: store, downloadedFile: preferWebsite ? nil : store.downloadedFile(for: url),
+      direct: preferWebsite)
     browsers[url] = browser
     lastOpenState = "cold"
     recordOpen(since: began)

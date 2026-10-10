@@ -107,7 +107,19 @@ struct LibraryView: View {
     @State private var testSharing = false
   #endif
   @Bindable var store: ArticleStore
-  @State private var selected: ArticleBrowser?
+  /// Pages above the library. The first opens from the library; each later
+  /// page is a link followed from the one below it, which stays loaded.
+  @State private var pages: [ArticleBrowser] = []
+  /// The visible page. Setting it starts a new stack from the library.
+  private var selected: ArticleBrowser? {
+    get { pages.last }
+    nonmutating set {
+      if let browser = newValue { connect(browser) }
+      let removed = pages.filter { $0 !== newValue }
+      pages = newValue.map { [$0] } ?? []
+      retire(removed)
+    }
+  }
   @State private var choosingImport = false
   @State private var showingTaggingSettings = false
   @State private var showingSyncTrial = false
@@ -193,21 +205,19 @@ struct LibraryView: View {
   }
 
   var body: some View {
-    NavigationStack {
+    NavigationStack(path: route) {
       page
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .toolbarBackground(.hidden, for: .navigationBar)
-        .navigationDestination(
-          isPresented: Binding(get: { selected != nil }, set: { if !$0 { selected = nil } })
-        ) {
-          if let selected {
-            ReaderPage(browser: selected, store: store).id(ObjectIdentifier(selected))
-              .modifier(
-                ArticleZoomDestination(
-                  source: appReduceMotion ? nil : zoomSource, namespace: articleZoom))
-          }
+        .navigationDestination(for: ReaderRoute.self) { route in
+          ReaderPage(browser: route.browser, store: store).id(ObjectIdentifier(route.browser))
+            .modifier(
+              ArticleZoomDestination(
+                // Only the library card zooms; a followed link uses the native push.
+                source: appReduceMotion || route.browser.opener != nil ? nil : zoomSource,
+                namespace: articleZoom))
         }
     }
     .onChange(of: discoveryAvailable, initial: true) { _, available in
@@ -480,7 +490,7 @@ struct LibraryView: View {
         .transition(.opacity)
       }
       if let selected {
-        ReaderNavigationBar(browser: selected, store: store) { self.selected = nil }
+        ReaderNavigationBar(browser: selected, store: store) { pop() }
           .foregroundStyle(palette.foreground).tint(palette.foreground)
           .transition(.opacity)
       }
@@ -549,6 +559,40 @@ struct LibraryView: View {
       DiscoveryHeader(motion: discoveryMotion, available: discoveryAvailable)
     }
     .padding(.horizontal, 16)
+  }
+
+  private var route: Binding<[ReaderRoute]> {
+    Binding {
+      pages.map(ReaderRoute.init)
+    } set: { routes in
+      let kept = routes.map(\.browser)
+      let removed = pages.filter { page in !kept.contains { $0 === page } }
+      pages = kept
+      retire(removed)
+    }
+  }
+
+  private func pop() {
+    guard let page = pages.popLast() else { return }
+    retire([page])
+  }
+
+  /// Links from a page open above it, so Back returns to that page as it was.
+  private func connect(_ browser: ArticleBrowser) {
+    browser.present = { pages.append($0) }
+  }
+
+  /// A page left by Back stays loaded for Forward. Other followed pages stop;
+  /// the pool keeps the library's own page warm for an immediate reopen.
+  private func retire(_ removed: [ArticleBrowser]) {
+    for page in removed {
+      if let opener = page.opener, opener === pages.last {
+        opener.keepForward(page)
+      } else {
+        page.discardForward()
+        if page.opener != nil { page.stop() }
+      }
+    }
   }
 
   private func selectFolder(_ target: ArticleFolder) {
@@ -1123,6 +1167,13 @@ private struct ImportSummarySheet: View {
     }
     .tint(ArcticBrand.accent)
   }
+}
+
+/// A page in the reading stack, compared by identity.
+private struct ReaderRoute: Hashable {
+  let browser: ArticleBrowser
+  static func == (lhs: Self, rhs: Self) -> Bool { lhs.browser === rhs.browser }
+  func hash(into hasher: inout Hasher) { hasher.combine(ObjectIdentifier(browser)) }
 }
 
 /// Cards grow into the Reader page on iOS 18 and later. Other entry points keep

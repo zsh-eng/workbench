@@ -213,7 +213,11 @@ final class ArticleReaderUITests: XCTestCase {
     XCTAssertFalse(app.buttons["browser-back"].isEnabled)
     app.buttons["browser-forward"].tap()
     XCTAssertTrue(app.webViews.staticTexts["A second story"].waitForExistence(timeout: 5))
-    app.navigationBars.buttons.element(boundBy: 0).tap()
+    // The followed story is a page above the first; leave both.
+    let close = app.navigationBars.buttons.element(boundBy: 0)
+    close.tap()
+    XCTAssertTrue(next.waitForExistence(timeout: 5))
+    close.tap()
     XCTAssertTrue(card.waitForExistence(timeout: 5))
     XCTAssertFalse(app.buttons["article-next"].exists)
     app.buttons["folder-history"].tap()
