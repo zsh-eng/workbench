@@ -19,7 +19,7 @@ import { Icon } from "../Icon";
 import { motion, rowStyles } from "./session-styles";
 import { BackgroundDock } from "./BackgroundDock";
 import { SessionMarkdown } from "./SessionMarkdown";
-import { formatSeconds, ToolCall } from "./ToolCall";
+import { formatSeconds, ThreadScroller, ToolCall } from "./ToolCall";
 import "./SessionThread.css";
 
 type ToolItem = Extract<SessionItem, { kind: "tool" }>;
@@ -666,13 +666,15 @@ export function SessionThread({
             ) : (
               before
             )}
-            <Thread
-              items={snapshot.items}
-              live={snapshot.running}
-              root
-              window={window}
-              onOpenLink={onOpenLink}
-            />
+            <ThreadScroller value={scroller}>
+              <Thread
+                items={snapshot.items}
+                live={snapshot.running}
+                root
+                window={window}
+                onOpenLink={onOpenLink}
+              />
+            </ThreadScroller>
             {skipEnd > 0 && <div ref={bottom} {...stylex.props(styles.edge)} />}
             {skipEnd > 0 ? null : snapshot.running ? (
               <div {...stylex.props(rowStyles.row, styles.status)}>
