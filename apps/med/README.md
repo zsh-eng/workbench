@@ -139,7 +139,26 @@ Install dependencies from the Workbench root. Use the root `bun.lock`; do not cr
 bun run dev:med /path/to/repository
 ```
 
-Open the Vite URL with the `#token=…` fragment printed by the API host.
+Open the Vite URL with the `#token=…` fragment printed by the API host. Vite
+proxies API requests to that host; production builds need no proxy.
+
+Open `/elements`, or **Open elements page** in the command palette, to inspect
+Med's components on fixed sample data: palette, type, icons, controls, review
+parts, code color states, and a brief. It previews any theme without saving it,
+outlines or inspects elements, runs the Commit tab on a pretend repository,
+replays a recorded agent session, and runs the Session pane with a scripted
+agent.
+
+To run the login service from Workbench's latest `main` on macOS, run
+`bun scripts/track-main.ts install`. It builds `main` in a separate worktree
+under `~/.local/share/med`, installs that executable as the login service, and
+rebuilds and restarts when `main` moves. A failed build keeps the previous
+executable; `~/.local/share/med/update.log` has the details. `uninstall`
+removes the watcher, the service, and the build.
+
+To check the packaged launch path, run `npm pack`, then
+`bunx --package ./med-diff-0.1.0.tgz med-diff /path/to/repository`. The legacy
+JavaScript CLI uses Node, also through `bunx`.
 
 See the [architecture](ARCHITECTURE.md), [test design and commands](docs/TESTING.md), and [limits and validation reports](docs/USAGE.md#limits-and-evidence).
 
