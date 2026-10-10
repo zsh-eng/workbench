@@ -108,7 +108,10 @@ review's repository, `session/prompt`, `session/cancel`, and
 `session/set_mode`). Med answers `session/request_permission` with the
 option that the user chose. An ACP agent writes no transcript that Med can
 read, so Med appends its updates to `sessions/<id>.jsonl` in the state
-directory. Med finds `claude`, `opencode acp`, `codex-acp`, and `gemini
+directory. OpenCode 1.3.17 sends each prompt back as a user update; Med
+drops that copy. When OpenCode cannot use a model, it ends the turn with no
+reply and no error. For example, its free models refuse requests from outside
+its own app. Med then adds a notice to the thread. Med finds `claude`, `opencode acp`, `codex-acp`, and `gemini
 --experimental-acp` on `PATH` and in their usual folders, and reads other ACP
 agents from `agents.json` in the state directory:
 

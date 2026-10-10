@@ -270,10 +270,34 @@ test("Med runs an ACP agent and keeps its thread", async () => {
   await session.act({ action: "interrupt" });
   await session.until((state) => state.status === "idle");
 
+  // A turn without a reply says so; the prompt shows once, though the agent sends it back.
+  await session.act({ action: "prompt", text: "Silent please." });
+  await session.until((state) => state.status === "idle");
+  const log = async () =>
+    (await readFile(join(stateDir, "sessions", `${session.id}.jsonl`), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => (JSON.parse(line) as SessionEvent).update);
+  await vi.waitFor(async () =>
+    expect((await log()).at(-1)).toMatchObject({
+      sessionUpdate: "notice",
+      title: "Fake ACP ended the turn without a reply",
+    }),
+  );
+  const prompts = (await log()).filter((update) => update.sessionUpdate === "user_message_chunk");
+  expect(prompts.map((update) => "content" in update && update.content)).toEqual(
+    [
+      "Format the durations.",
+      "Check it.",
+      "Edit summary.ts.",
+      "Wait for the build.",
+      "Silent please.",
+    ].map((text) => ({ type: "text", text })),
+  );
+
   // Med keeps the updates, so the thread stays after the agent stops.
   await session.act({ action: "stop" });
-  const log = await readFile(join(stateDir, "sessions", `${session.id}.jsonl`), "utf8");
-  expect(log).toContain("Outcome: selected allow");
+  expect(JSON.stringify(await log())).toContain("Outcome: selected allow");
   const again = await thread(session.id);
   await vi.waitFor(() => expect(again()).toEqual(replies()));
 });

@@ -65,6 +65,14 @@ async function handle(method, params) {
       return {};
     case "session/prompt": {
       const text = params.prompt.map((block) => block.text).join("");
+      // OpenCode sends the prompt back as a user update.
+      update({
+        sessionUpdate: "user_message_chunk",
+        messageId: "u",
+        content: { type: "text", text },
+      });
+      // OpenCode ends a turn without a word when its model refuses the request.
+      if (text.includes("Silent")) return { stopReason: "end_turn" };
       if (text.includes("Edit")) {
         const answer = await ask("session/request_permission", {
           sessionId: "s1",

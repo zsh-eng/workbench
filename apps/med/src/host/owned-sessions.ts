@@ -541,6 +541,26 @@ function configSettings(options: unknown): OwnedSetting[] {
   });
 }
 
+/** A note in the thread for a turn that ended early or without a reply. */
+function stopNotice(name: string, reason: string | undefined, answered: boolean) {
+  const notice = (title: string, description?: string): SessionUpdate => ({
+    sessionUpdate: "notice",
+    title,
+    severity: "warning",
+    ...(description ? { description } : {}),
+  });
+  if (reason === "cancelled") return notice("Interrupted");
+  if (reason === "refusal") return notice(`${name} refused the request`);
+  if (reason === "max_tokens" || reason === "max_turn_requests")
+    return notice(`${name} stopped at its limit`);
+  if (!answered)
+    return notice(
+      `${name} ended the turn without a reply`,
+      `Check that ${name} can use the chosen model: run it once in a terminal with that model.`,
+    );
+  return undefined;
+}
+
 /**
  * An agent through the Agent Client Protocol, such as `opencode acp`. Med is
  * the client: it creates a session in the review's repository, sends prompts,
@@ -566,6 +586,9 @@ export function startAcp(agent: RunnableAgent, cwd: string, logDirectory?: strin
   const legacy = new Set<string>();
   let answer: ((option: string | null) => void) | undefined;
   let stopping = false;
+  // The prompt of the turn in progress, which some agents, such as OpenCode,
+  // send back as a user update; and whether the agent answered it.
+  let turn: { text: string; answered: boolean } | undefined;
   // New config options replace the old ones; settings from `models` and `modes` stay.
   const withConfig = (options: unknown) => [
     ...configSettings(options),
@@ -651,7 +674,22 @@ export function startAcp(agent: RunnableAgent, cwd: string, logDirectory?: strin
             store.set({ context: { used: update.used, total: update.size } });
           log.push(update as SessionUpdate);
           return;
+        case "user_message_chunk": {
+          const content = update.content as { type?: string; text?: string } | undefined;
+          // Med logged the prompt when it sent it.
+          if (turn && content?.type === "text" && content.text && turn.text.includes(content.text))
+            return;
+          log.push(update as SessionUpdate);
+          return;
+        }
         default:
+          if (
+            turn &&
+            ["agent_message_chunk", "agent_thought_chunk", "tool_call"].includes(
+              update.sessionUpdate,
+            )
+          )
+            turn.answered = true;
           log.push(update as SessionUpdate);
       }
     },
@@ -723,18 +761,29 @@ export function startAcp(agent: RunnableAgent, cwd: string, logDirectory?: strin
         throw new HostError("session-stopped", "This session has stopped.", 409);
       log.push({ sessionUpdate: "user_message_chunk", content: { type: "text", text } });
       store.set({ status: "working", turns: store.get().turns + 1, error: undefined });
+      const current = { text, answered: false };
+      turn = current;
       rpc
         .request<{ stopReason?: string }>("session/prompt", {
           sessionId: acpSession,
           prompt: [{ type: "text", text }],
         })
         .then(
-          () => store.set({ status: "idle" }),
+          (result) => {
+            // An agent can end a turn without a word, as OpenCode does when its
+            // model refuses the request; the thread says so.
+            const notice = stopNotice(agent.name, result?.stopReason, current.answered);
+            if (notice) log.push(notice);
+            store.set({ status: "idle" });
+          },
           (error: unknown) => {
             fail(error);
             if (store.get().status !== "exited") store.set({ status: "idle" });
           },
-        );
+        )
+        .finally(() => {
+          if (turn === current) turn = undefined;
+        });
     },
     answer(_id, option) {
       answer?.(option);
