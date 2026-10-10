@@ -76,6 +76,7 @@ final class ReaderPerformanceUITests: XCTestCase {
     let app = XCUIApplication()
     app.launchArguments = [
       "-ui-testing", "-reset-store", "-reset-appearance", "-disable-preloading",
+      "-test-reading-time",
     ]
     app.launchEnvironment["TEST_PUBLISHER_ORIGIN"] = replay.origin
     app.launch()
@@ -84,14 +85,25 @@ final class ReaderPerformanceUITests: XCTestCase {
     shortcut.tap()
     let home = app.webViews.staticTexts["Publisher homepage"]
     XCTAssertTrue(home.waitForExistence(timeout: 10))
+    // Reading time skips the front page but counts the unsaved story in Website.
+    let reading = app.staticTexts["reading-time-state"]
+    func expectReading(_ value: String) {
+      let ready = expectation(
+        for: NSPredicate(format: "label == %@", value), evaluatedWith: reading)
+      wait(for: [ready], timeout: 10)
+    }
+    XCTAssertTrue(app.buttons["reader-toggle"].waitForExistence(timeout: 10))
+    expectReading("Paused")
     // A followed link opens above the page, which stays loaded below it.
     app.webViews.links["Open linked story"].tap()
     XCTAssertTrue(app.webViews.staticTexts["Linked story"].waitForExistence(timeout: 10))
+    expectReading("Tracking")
     let prompt = app.buttons["reader-back-prompt"]
     for _ in 0..<8 where !prompt.exists { app.swipeUp() }
     XCTAssertEqual(prompt.label, "Back to Financial Times")
     prompt.tap()
     XCTAssertTrue(home.waitForExistence(timeout: 5))
+    expectReading("Paused")
     // The bottom Back control returns the same way.
     app.webViews.links["Open linked story"].tap()
     XCTAssertTrue(app.webViews.staticTexts["Linked story"].waitForExistence(timeout: 10))

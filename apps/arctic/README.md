@@ -200,11 +200,14 @@ Open **Sort and filter → Reading stats** for the library, or
 seven days of activity, selectable day bubbles, today's time, weekly articles/visits,
 and an all-time total. Visits are grouped by their start day in the current
 time zone. Summaries use one in-memory snapshot when opened; no timer drives
-the chart or reads article content. Only a
-saved article's visible Reader content counts, including archived articles.
-Website mode, loading, background, notes and appearance controls pause tracking.
-Gaps longer than 120 seconds are discarded in full. Saving starts tracking from
-that point; unsaving stops it without deleting earlier time.
+the chart or reads article content. Any visible article counts, saved or not,
+including archived articles. Reader counts once its text is ready; Website counts
+once Reader extraction has found article text in the page. A publisher front page
+opened from the shelf never counts, but stories opened from it do. Loading,
+background, notes and appearance controls pause tracking. Gaps longer than 120
+seconds are discarded in full. Time is keyed by URL, so time read before saving
+stays with the article. A page opened above another starts its own visit; the
+covered page cannot pause or end it.
 
 Records use separate local files and background checkpoints. They are not synced.
 See [the reusable session guide](../../READING_TIME.md) for rules and tests.

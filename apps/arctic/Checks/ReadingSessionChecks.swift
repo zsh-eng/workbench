@@ -129,8 +129,26 @@ import Foundation
     let retried = ReadingSessions(directory: failureDirectory)
     try await ready(retried)
     precondition(retried.total(for: first) == 12)
+
+    // A page opened above another begins its own visit before the covered page
+    // disappears. The covered page's late pause or end must not stop it.
+    let pages = ReadingSessions(
+      directory: directory.appending(path: "pages"), monotonicNow: { clock.tick },
+      wallNow: { clock.date })
+    try await ready(pages)
+    pages.begin(url: first)
+    clock.advance(3)
+    pages.begin(url: next)
+    clock.advance(4)
+    pages.pause(url: first)
+    pages.end(url: first)
+    clock.advance(5)
+    pages.end(url: next)
+    try await settled(pages)
+    precondition(pages.total(for: first) == 3)
+    precondition(pages.total(for: next) == 9)
     print(
-      "Reading sessions: 120-second boundary, discarded idle gaps, pause/resume, navigation, clock regression, checkpoint ordering, restart, damaged record isolation and retained retry passed"
+      "Reading sessions: 120-second boundary, discarded idle gaps, pause/resume, navigation, clock regression, checkpoint ordering, restart, damaged record isolation, retained retry and scoped page lifecycle passed"
     )
   }
 

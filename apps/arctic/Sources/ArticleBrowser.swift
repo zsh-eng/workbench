@@ -311,6 +311,10 @@ enum ArticleRouting {
   @ObservationIgnored private var websiteNavigation: WKNavigation?
   @ObservationIgnored private var websiteReady = false
   @ObservationIgnored private var bypassRouting = false
+  /// A publisher shortcut opens an index page. Stories opened from it, or later
+  /// addresses in the same view, are articles.
+  @ObservationIgnored private let frontPage: URL?
+  var isPublisherFront: Bool { frontPage == articleIdentity }
   private(set) var isOpeningWebsite = false
   /// The URL requested by the library is stable across initial publisher redirects.
   /// Following another article clears it, so the pool cannot reuse the wrong page.
@@ -337,6 +341,7 @@ enum ArticleRouting {
   ) {
     self.speculative = speculative
     bypassRouting = direct
+    frontPage = direct ? url : nil
     currentURL = url
     cacheIdentity = url
     articleIdentity = url

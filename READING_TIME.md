@@ -30,18 +30,19 @@ The view owns eligibility. The accounting module does not inspect UI state.
 
 | Event or state | Policy |
 | --- | --- |
-| Saved article, readable Reader content, foreground | Start or resume an interval |
-| Archived but still saved article | Same policy as any saved article |
+| Article with readable text, saved or not, foreground | Start or resume an interval |
+| Archived article | Same policy as any article |
 | Scroll, tap, text selection, reader keyboard action | Report deliberate activity |
 | Loading, speculative preload, image decode, restored scroll | Do not report activity |
-| Website mode, background, lock, notes or settings UI | Pause; exclude the time away |
+| Website mode with extracted article text | Same policy as Reader |
+| Website page without article text, or a publisher front page | Do not start tracking |
+| Background, lock, notes or settings UI | Pause; exclude the time away |
 | Return from a pause | Start a fresh boundary; keep the visit record |
 | Navigate to another document | End the outgoing visit before changing identity |
 | Same-document anchor | Keep the article identity |
 | Back to a previous article | Start a new visit; exclude time on the other page |
-| Unsaved article | Do not start tracking |
-| Save while reading | Start now; do not add time from before saving |
-| Unsave | Stop tracking; keep existing history and annotations |
+| Page opened above another | Start its visit; the covered page's late pause or end has no effect |
+| Save or unsave while reading | Keep the visit; time is keyed by URL either way |
 
 A WebView wrapper can outlive the article it first opened. Key sessions to the
 **current document identity**, not the wrapper's original URL. Scope delayed

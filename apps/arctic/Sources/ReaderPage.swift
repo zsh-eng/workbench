@@ -84,7 +84,10 @@ struct ReaderPage: View {
           guard let browser else { return }
           ReadingSessions.shared.activity(for: browser.libraryURL)
         }
-        browser.readingDocumentEnded = { ReadingSessions.shared.end() }
+        browser.readingDocumentEnded = { [weak browser] in
+          guard let browser else { return }
+          ReadingSessions.shared.end(url: browser.libraryURL)
+        }
         readingVisible = true
         updateReadingSession()
       }
@@ -93,7 +96,7 @@ struct ReaderPage: View {
         browser.showingReadingTime = false
         browser.readingActivity = nil
         browser.readingDocumentEnded = nil
-        ReadingSessions.shared.end()
+        ReadingSessions.shared.end(url: browser.libraryURL)
         browser.captureReaderPosition()
         if browser.selectedAnnotationID != nil { browser.selectedAnnotationID = nil }
       }
@@ -148,27 +151,29 @@ struct ReaderPage: View {
 
   private struct ReadingContext: Equatable {
     let url: URL
-    let saved: Bool
     let eligible: Bool
   }
 
+  /// Any article counts, saved or not. Website counts once Reader extraction has
+  /// found article text in the page; a publisher's front page never counts.
   private var readingContext: ReadingContext {
-    ReadingContext(
-      url: browser.libraryURL, saved: isSaved,
-      eligible: readingVisible && scenePhase == .active && isSaved && browser.isReader
-        && browser.readerReady && browser.positionReady && !appearance
+    let readable = browser.readerReady && (!browser.isReader || browser.positionReady)
+    return ReadingContext(
+      url: browser.libraryURL,
+      eligible: readingVisible && scenePhase == .active && readable
+        && !browser.isPublisherFront && !appearance
         && browser.noteDraft == nil && browser.annotationPresentation == nil
         && !browser.showingReadingTime && sharingPassage == nil
         && browser.errorMessage == nil && actionError == nil)
   }
 
+  /// Calls carry this page's URL, so a covered page cannot stop the visible one.
   private func updateReadingSession() {
     let context = readingContext
-    if !context.saved { ReadingSessions.shared.end(); return }
     if context.eligible {
       ReadingSessions.shared.begin(url: context.url)
     } else {
-      ReadingSessions.shared.pause()
+      ReadingSessions.shared.pause(url: context.url)
     }
   }
 
@@ -207,6 +212,7 @@ struct ReaderPage: View {
             WebSurface(
               webView: browser.webView, insets: geometry.safeAreaInsets,
               isActive: { !browser.isReader }, nearEnd: $nearEnd,
+              onReadingActivity: { browser.readingActivity?() },
               onTap: browser.noteDraft == nil ? nil : { browser.noteDismissRequest += 1 }
             )
             .transition(.opacity)
@@ -469,7 +475,7 @@ struct ReaderNavigationBar: View {
           .disabled(!browser.hasLoaded || browser.noteDraft != nil)
           .accessibilityIdentifier("reader-find")
         Button("Reading time", systemImage: "clock") {
-          ReadingSessions.shared.pause()
+          ReadingSessions.shared.pause(url: browser.libraryURL)
           browser.showingReadingTime = true
         }.accessibilityIdentifier("reader-reading-time")
         Divider()
