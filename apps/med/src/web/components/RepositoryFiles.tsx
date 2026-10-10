@@ -2,10 +2,19 @@ import { ToolButton } from "./ToolButton";
 import * as stylex from "@stylexjs/stylex";
 import { prepareFileTreeInput } from "@pierre/trees";
 import { StableFileTree, useStableFileTree } from "./StableFileTree";
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
+import {
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import type { BrowseEntry } from "../../shared/browse";
 import { tokens, ui } from "../theme.stylex";
 import { treeIcons } from "./tree-icons";
+import { Icon } from "./Icon";
 import { PathContextMenu, treeRowPath, type PathActions } from "./PathMenu";
 
 export interface RepositoryFilesProps {
@@ -26,6 +35,8 @@ export interface RepositoryFilesProps {
   label?: string;
   onRefresh(): void;
   onClose(): void;
+  /** The column's pane controls, in place of the close button. */
+  controls?: ReactNode;
 }
 
 /** Memoized: the review renders again for unrelated state, such as a palette. */
@@ -46,6 +57,7 @@ export const RepositoryFiles = memo(function RepositoryFiles(props: RepositoryFi
     onIgnoredChange,
     onRefresh,
     onClose,
+    controls,
   } = props;
   const latest = useRef({ entries, onPreview });
   useLayoutEffect(() => {
@@ -105,13 +117,26 @@ export const RepositoryFiles = memo(function RepositoryFiles(props: RepositoryFi
       onPin(path);
   }
   return (
-    <aside {...stylex.props(styles.panel)} aria-label={props.label ?? "Repository files"}>
-      <div {...stylex.props(styles.heading)}>
-        <span {...stylex.props(ui.label)}>Files</span>
-        <span {...stylex.props(ui.grow)} />
-        <ToolButton label="Refresh files" icon="refresh" onClick={onRefresh} />
-        <ToolButton label="Close files sidebar" icon="close" onClick={onClose} />
-      </div>
+    <aside
+      {...stylex.props(styles.panel, controls !== undefined && styles.inColumn)}
+      aria-label={props.label ?? "Repository files"}
+    >
+      {controls !== undefined ? (
+        <div {...stylex.props(styles.paneHeading)}>
+          <Icon name="folder" size={14} />
+          <span {...stylex.props(styles.paneTitle)}>Files</span>
+          <span {...stylex.props(ui.grow)} />
+          <ToolButton label="Refresh files" icon="refresh" onClick={onRefresh} />
+          {controls}
+        </div>
+      ) : (
+        <div {...stylex.props(styles.heading)}>
+          <span {...stylex.props(ui.label)}>Files</span>
+          <span {...stylex.props(ui.grow)} />
+          <ToolButton label="Refresh files" icon="refresh" onClick={onRefresh} />
+          <ToolButton label="Close files sidebar" icon="close" onClick={onClose} />
+        </div>
+      )}
       <div {...stylex.props(styles.source)} title={sourceLabel}>
         {sourceLabel}
       </div>
@@ -169,7 +194,7 @@ export const RepositoryFiles = memo(function RepositoryFiles(props: RepositoryFi
                 "--trees-font-family-override": tokens.ui,
                 "--trees-theme-sidebar-header-fg": tokens.muted,
                 "--trees-accent-override": tokens.accent,
-                "--trees-theme-sidebar-bg": tokens.panel,
+                "--trees-theme-sidebar-bg": controls !== undefined ? tokens.canvas : tokens.panel,
                 "--trees-theme-sidebar-fg": tokens.text,
                 "--trees-theme-list-active-selection-bg": tokens.selected,
                 "--trees-theme-list-active-selection-fg": tokens.selectedText,
@@ -204,6 +229,23 @@ const styles = stylex.create({
     fontFamily: tokens.ui,
     overflow: "hidden",
   },
+  // In the pane column: the column's card color, and its 40-pixel header.
+  inColumn: { backgroundColor: tokens.canvas },
+  paneHeading: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    height: 40,
+    flexShrink: 0,
+    marginBottom: 8,
+    paddingInlineStart: 14,
+    paddingInlineEnd: 6,
+    color: tokens.muted,
+    borderBottomWidth: 1,
+    borderBottomStyle: "solid",
+    borderBottomColor: tokens.line,
+  },
+  paneTitle: { color: tokens.text, fontSize: 12.5, fontWeight: 500 },
   heading: {
     height: 32,
     minHeight: 32,

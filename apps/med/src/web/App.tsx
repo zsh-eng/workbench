@@ -23,6 +23,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ReactNode,
 } from "react";
 import type { Comparison, Note, NoteInput, PullRequestThread } from "../shared/protocol";
 import { useReviewController, type ReviewController } from "./data/controller";
@@ -54,6 +55,7 @@ import type { AgentSession } from "../shared/saved-review";
 import { createBrowseApi, useBrowseFiles, type BrowseApi } from "./data/browse";
 import { createFileWorkspace, isFileTab, sourceKey, useFileWorkspace } from "./data/file-workspace";
 import { RepositoryFiles } from "./components/RepositoryFiles";
+import { PaneColumn, PaneHeader, usePaneColumn, type PaneSpec } from "./components/PaneColumn";
 import { FilePicker } from "./components/FilePicker";
 import { SymbolPicker } from "./components/SymbolPicker";
 import { FullFileView, type BeginFileSymbolPreview } from "./components/FullFileView";
@@ -201,11 +203,21 @@ export function App({
   const theme = activeTheme.appearance;
   const [themePickerOpen, setThemePickerOpen] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
-  const [filesVisible, setFilesVisible] = useState(false);
-  // The agent session sidebar mounts when first shown and keeps its thread.
-  const [sessionVisible, setSessionVisible] = useState(false);
-  const [sessionMounted, setSessionMounted] = useState(false);
-  if (sessionVisible && !sessionMounted) setSessionMounted(true);
+  // One column on the right holds the Session, Files, and Preview panes. A
+  // pane mounts when first shown and keeps its thread or tree.
+  const panes = usePaneColumn();
+  const filesVisible = panes.isOpen("files");
+  const sessionVisible = panes.isOpen("session");
+  // The Markdown preview follows the main view: it shows while a Markdown
+  // file is open, if you want it. The wish persists, as before.
+  const [previewWanted, setPreviewWanted] = useState(() => {
+    try {
+      return localStorage.getItem("med-markdown-preview") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [previewTarget, setPreviewTarget] = useState<HTMLDivElement | null>(null);
   // Zen hides every bar. The sidebars keep their own state in and out of zen.
   const [zen, setZenState] = useState(() => readPreference("zen", "off", ["on", "off"]) === "on");
   const filePreviewShown = useFilePreviewShown();
@@ -501,28 +513,45 @@ export function App({
     setPickerResume(true);
     setFilePickerOpen(true);
   }, []);
+  const { show: showPane, close: closePane, toggle: togglePane } = panes;
   const showFiles = useCallback(() => {
-    setFilesVisible(true);
+    showPane("files");
     if (window.innerWidth < 1100) setSidebarVisible(false);
-  }, []);
+  }, [showPane]);
   const toggleFilesSidebar = useCallback(() => {
-    if (rightVisible) setFilesVisible(false);
+    if (rightVisible) closePane("files");
     else showFiles();
-  }, [rightVisible, showFiles]);
-  const toggleSession = useCallback(() => {
-    setSessionVisible((visible) => {
-      // Two right sidebars leave too little room for the diff.
-      if (!visible && window.innerWidth < 1300) setFilesVisible(false);
-      return !visible;
-    });
-  }, []);
+  }, [rightVisible, showFiles, closePane]);
+  const toggleSession = useCallback(() => togglePane("session"), [togglePane]);
   const toggleReviewSidebar = useCallback(() => {
     const narrow = window.innerWidth < 1100;
-    setSidebarVisible((visible) => {
-      if (!visible && narrow) setFilesVisible(false);
-      return !visible;
-    });
-  }, []);
+    if (!sidebarVisible && narrow) closePane("files");
+    setSidebarVisible(!sidebarVisible);
+  }, [sidebarVisible, closePane]);
+  const previewable =
+    !!activeFile &&
+    fileState.file?.kind === "text" &&
+    /\.(md|markdown|mdown|mkd)$/i.test(activeFile.path);
+  const togglePreview = useCallback(() => {
+    const next = !previewWanted;
+    setPreviewWanted(next);
+    try {
+      localStorage.setItem("med-markdown-preview", String(next));
+    } catch {
+      /* The choice lasts for this window. */
+    }
+    // Asked for, the preview takes room from the oldest pane.
+    if (next && previewable) showPane("preview");
+  }, [previewWanted, previewable, showPane]);
+  useEffect(() => {
+    if (previewWanted && previewable) showPane("preview", { quiet: true });
+    else closePane("preview");
+  }, [previewWanted, previewable, showPane, closePane]);
+  const previewOpen = panes.isOpen("preview");
+  const previewPane = useMemo(
+    () => ({ open: previewOpen, target: previewTarget, onToggle: togglePreview }),
+    [previewOpen, previewTarget, togglePreview],
+  );
   const zenToggle = useRef<HTMLButtonElement>(null);
   const toggleZen = useCallback(() => setZen((value) => !value), [setZen]);
   // Keep keyboard focus when the control that held it leaves with the chrome.
@@ -691,11 +720,11 @@ export function App({
                 ),
                 { id: crypto.randomUUID(), ...attachment },
               ]);
-              setSessionVisible(true);
+              showPane("session");
             },
           }
         : null,
-    [replyAgent],
+    [replyAgent, showPane],
   );
   const savedTarget = state.savedReview?.targets.find(
     (target) => target.id === state.savedTargetId,
@@ -1822,7 +1851,7 @@ export function App({
     (path: string) => openWorkingFile(path, false),
     [openWorkingFile],
   );
-  const hideFilesSidebar = useCallback(() => setFilesVisible(false), []);
+  const hideFilesSidebar = useCallback(() => closePane("files"), [closePane]);
   const openCommitFile = useCallback(
     (path: string, background: boolean) => openWorkingFile(path, true, background),
     [openWorkingFile],
@@ -2254,6 +2283,11 @@ export function App({
                 },
               ]
             : []),
+          {
+            id: "pane-layout",
+            label: panes.layout === "stack" ? "Show side panes as tabs" : "Stack side panes",
+            run: () => panes.setLayout(panes.layout === "stack" ? "tabs" : "stack"),
+          },
           ...(selectedFile
             ? [
                 {
@@ -2784,6 +2818,87 @@ export function App({
         {viewControls}
       </header>
     );
+  const sidePanes: PaneSpec[] = [
+    ...(agentSessions.length > 0 && state.savedReview
+      ? [
+          {
+            id: "session" as const,
+            label: "Session",
+            ariaLabel: "Agent session",
+            icon: agentSessions.at(-1)!.agent,
+            render: (controls: ReactNode) => (
+              <Suspense fallback={null}>
+                <SessionPanel
+                  key={state.savedReview!.id}
+                  reviewId={state.savedReview!.id}
+                  sessions={agentSessions}
+                  root={state.review?.repo}
+                  fetcher={sessionFetch}
+                  inbox={agentInbox}
+                  attachments={agentAttachments}
+                  onRemoveAttachment={(id) =>
+                    setAgentAttachments((list) => list.filter((entry) => entry.id !== id))
+                  }
+                  onOpenPath={(path, line) => fileWorkspace.open(path, true, line)}
+                  onClose={() => closePane("session")}
+                  pins={sessionPins}
+                  controls={controls}
+                />
+              </Suspense>
+            ),
+          },
+        ]
+      : []),
+    ...(browseSource
+      ? [
+          {
+            id: "files" as const,
+            label: "Files",
+            ariaLabel: "Workspace files",
+            icon: "folder" as const,
+            // The tree prepares in the background, as the sidebar did.
+            preload: true,
+            render: (controls: ReactNode) => (
+              <RepositoryFiles
+                key={JSON.stringify([sourceKey(browseSource), repositoryFiles.ignored])}
+                {...repositoryFiles}
+                sourceLabel={sourceLabel}
+                repo={browseSource?.repo ?? null}
+                pathActions={pathActions}
+                selectedPath={activeFile?.path ?? selectedFile?.path ?? null}
+                onPrefetch={prefetchFile}
+                onPreview={previewWorkingFile}
+                onPin={openWorkingFile}
+                onIgnoredChange={repositoryFiles.setIgnored}
+                onRefresh={repositoryFiles.refresh}
+                onClose={hideFilesSidebar}
+                controls={controls}
+              />
+            ),
+          },
+        ]
+      : []),
+    {
+      id: "preview",
+      label: "Preview",
+      ariaLabel: "Markdown preview",
+      icon: "preview",
+      onClose: togglePreview,
+      render: (controls: ReactNode) => (
+        <>
+          <PaneHeader
+            icon="preview"
+            title="Preview"
+            detail={previewable ? activeFile?.path.split("/").at(-1) : undefined}
+            controls={controls}
+          />
+          {/* The file view renders its preview here, so its source keeps the
+              view's width and both still scroll together. */}
+          <div ref={setPreviewTarget} {...stylex.props(styles.previewPane)} />
+        </>
+      ),
+    },
+  ];
   const branchPicker = gitAvailable && (
     <BranchPicker
       repositories={state.repositories}
@@ -3050,7 +3165,7 @@ export function App({
                     ? {
                         agent: replyAgent,
                         drafts: agentInbox.state?.drafts.length ?? 0,
-                        open: () => setSessionVisible(true),
+                        open: () => showPane("session"),
                       }
                     : undefined
                 }
@@ -3536,6 +3651,7 @@ export function App({
                   onOpenFile={openLinkedFile}
                   onOpenBefore={openBefore}
                   onOpenAfter={openAfter}
+                  previewPane={previewPane}
                 />
               )}
             </div>
@@ -3557,53 +3673,7 @@ export function App({
               </div>
             )}
           </main>
-          {browseSource && (
-            <aside
-              {...stylex.props(styles.filesSidebar, !rightVisible && styles.hiddenSurface)}
-              aria-label="Workspace files"
-              hidden={!rightVisible}
-            >
-              <RepositoryFiles
-                key={JSON.stringify([sourceKey(browseSource), repositoryFiles.ignored])}
-                {...repositoryFiles}
-                sourceLabel={sourceLabel}
-                repo={browseSource?.repo ?? null}
-                pathActions={pathActions}
-                selectedPath={activeFile?.path ?? selectedFile?.path ?? null}
-                onPrefetch={prefetchFile}
-                onPreview={previewWorkingFile}
-                onPin={openWorkingFile}
-                onIgnoredChange={repositoryFiles.setIgnored}
-                onRefresh={repositoryFiles.refresh}
-                onClose={hideFilesSidebar}
-              />
-            </aside>
-          )}
-          {agentSessions.length > 0 && state.savedReview && sessionMounted && (
-            <aside
-              {...stylex.props(styles.sessionSidebar, !sessionVisible && styles.hiddenSurface)}
-              aria-label="Agent session"
-              hidden={!sessionVisible}
-            >
-              <Suspense fallback={null}>
-                <SessionPanel
-                  key={state.savedReview.id}
-                  reviewId={state.savedReview.id}
-                  sessions={agentSessions}
-                  root={state.review?.repo}
-                  fetcher={sessionFetch}
-                  inbox={agentInbox}
-                  attachments={agentAttachments}
-                  onRemoveAttachment={(id) =>
-                    setAgentAttachments((list) => list.filter((entry) => entry.id !== id))
-                  }
-                  onOpenPath={(path, line) => fileWorkspace.open(path, true, line)}
-                  onClose={() => setSessionVisible(false)}
-                  pins={sessionPins}
-                />
-              </Suspense>
-            </aside>
-          )}
+          <PaneColumn state={panes} panes={sidePanes} />
         </div>
         <footer
           {...stylex.props(styles.statusbar, stylex.defaultMarker(), zen && styles.hiddenSurface)}
@@ -3887,27 +3957,8 @@ const styles = stylex.create({
     transitionProperty: "opacity",
     transitionDuration: "160ms",
   },
-  sessionSidebar: {
-    width: 440,
-    maxWidth: "46vw",
-    minWidth: 320,
-    flexShrink: 0,
-    display: "flex",
-    marginInlineStart: 6,
-    overflow: "hidden",
-    borderRadius: `calc(10px * ${tokens.round})`,
-    backgroundColor: tokens.canvas,
-    boxShadow: `inset 0 0 0 1px ${tokens.line}`,
-  },
-  filesSidebar: {
-    width: 280,
-    maxWidth: "42vw",
-    minWidth: 200,
-    flexShrink: 0,
-    display: "flex",
-    marginInlineStart: 6,
-    backgroundColor: tokens.panel,
-  },
+  // The Markdown preview's place in the pane column.
+  previewPane: { flex: "1", minHeight: 0, display: "flex", flexDirection: "column" },
   // A narrow pane drops the totals first, then truncates the comparison
   // labels; the view controls on the right always stay.
   toolbar: {

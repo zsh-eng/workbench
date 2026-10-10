@@ -306,6 +306,19 @@ leave, press `⌥Z` again or move the pointer to the top-right corner and click
 **Leave zen**. Escape does not leave zen mode, so it stays free for search, Vim,
 and dialogs. The setting is remembered in this browser.
 
+### Side panes
+
+One column on the right holds three panes at one width: **Session** (the
+agent's session), **Files** (`⌘⇧B`), and **Preview** (the Markdown preview,
+`⌘⇧V`). Drag the column's left edge to resize it; Med keeps the width. The
+column shows the two latest panes, one above the other. Opening a third closes
+the oldest. **Maximize** in a pane's header gives it the column and leaves the
+other pane as its header; **Restore** shares the column again.
+
+Run **Show side panes as tabs** from the command palette to show one pane at a
+time behind tabs, and **Stack side panes** to go back. Both layouts are
+prototypes.
+
 ## Symbols and Vim navigation
 
 Command-click a diff filename or a file in the Changes list to open a pinned background tab without leaving Changes. Use Ctrl-click on Linux. Closing the active file selects the file to its right, then its left; Changes is selected only when no files remain.
@@ -573,8 +586,12 @@ line numbers from an older snapshot are not applied to new content.
 ## Markdown preview
 
 Open a `.md`, `.markdown`, `.mdown`, or `.mkd` file and select **Preview** in
-its toolbar. The rendered pane sits beside the source, or below it in narrow
-windows. The browser remembers whether Preview is open. It works in both the
+its toolbar. In a repository window, the preview opens as the Preview pane in
+the [side panes](#side-panes), and the source keeps the view's width. The pane
+follows the Markdown file in the main view: it closes for other files and
+opens again for the next Markdown file. In a vault or a dropped file, the
+rendered pane sits beside the source, or below it in narrow windows. The
+browser remembers whether Preview is open. It works in both the
 file viewer and Vim editor, including read-only dropped Markdown.
 
 The preview follows the source cursor and source scrolling. You can also scroll

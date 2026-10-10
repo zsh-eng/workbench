@@ -51,19 +51,23 @@ const commits = [
 let root: Root | undefined;
 let mount: HTMLDivElement | undefined;
 
+const storedPreferences = [
+  "med:vim",
+  "med:zen",
+  "med:history",
+  "med-markdown-preview",
+  "med:pane-layout",
+  "med:pane-width",
+];
 beforeEach(() => {
-  localStorage.removeItem("med:vim");
-  localStorage.removeItem("med:zen");
-  localStorage.removeItem("med:history");
+  for (const key of storedPreferences) localStorage.removeItem(key);
 });
 afterEach(() => {
   root?.unmount();
   mount?.remove();
   root = undefined;
   mount = undefined;
-  localStorage.removeItem("med:vim");
-  localStorage.removeItem("med:zen");
-  localStorage.removeItem("med:history");
+  for (const key of storedPreferences) localStorage.removeItem(key);
 });
 
 function response(comparison: Comparison): ReviewResponse {
@@ -277,7 +281,7 @@ async function mountApp(
         source,
         entries: (source.repo === "/test/feature"
           ? ["src/feature-only.ts"]
-          : ["src/alpha.ts", "src/beta.ts", "image.bin", "missing.ts"]
+          : ["src/alpha.ts", "src/beta.ts", "docs/GUIDE.md", "image.bin", "missing.ts"]
         ).map((path) => ({ path, kind: "file" })),
         truncated: false,
       });
@@ -315,7 +319,9 @@ async function mountApp(
         identity: `${JSON.stringify(source)}:${path}`,
         ...(kind === "text"
           ? {
-              text: `export const workspace = "${source.repo}";\nexport const workingContents = true;\n`,
+              text: path.endsWith(".md")
+                ? "# Guide\n\nRead the review in order.\n"
+                : `export const workspace = "${source.repo}";\nexport const workingContents = true;\n`,
             }
           : {}),
       });
@@ -933,6 +939,42 @@ describe("graphical review", () => {
     await expect
       .element(page.getByRole("combobox", { name: "Find file", exact: true }))
       .toBeVisible();
+  });
+  test("side panes share one column: Files and the Markdown preview stack", async () => {
+    await page.viewport(1280, 800);
+    await mountApp();
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "B", metaKey: true, shiftKey: true, bubbles: true }),
+    );
+    const files = page.getByRole("complementary", { name: "Workspace files", exact: true });
+    await files.getByRole("treeitem", { name: "GUIDE.md", exact: true }).click();
+    await page.getByRole("button", { name: "Toggle Markdown preview" }).click();
+
+    // The preview opens below Files, and the source keeps the view's width.
+    const preview = page.getByRole("complementary", { name: "Markdown preview" });
+    await expect.element(preview.getByRole("heading", { name: "Guide" })).toBeVisible();
+    expect(document.querySelector(".med-markdown-shell")?.getAttribute("data-preview")).toBe(
+      "false",
+    );
+    const heights = () =>
+      [...document.querySelectorAll<HTMLElement>("[data-pane]:not([hidden])")].map(
+        (pane) => [pane.dataset.pane, Math.round(pane.getBoundingClientRect().height)] as const,
+      );
+    expect(heights().map(([id]) => id)).toEqual(["files", "preview"]);
+
+    // Maximize leaves the other pane as its header.
+    await files.getByRole("button", { name: "Maximize files" }).click();
+    // The header and the line above it.
+    await expect.poll(() => heights()[1]?.[1]).toBe(41);
+    await files.getByRole("button", { name: "Restore files" }).click();
+    await expect.poll(() => (heights()[1]?.[1] ?? 0) > 100).toBe(true);
+
+    // Closing the preview is remembered, as the toggle in the file view was.
+    await preview.getByRole("button", { name: "Close preview" }).click();
+    await expect
+      .poll(() => document.querySelector('[data-pane="preview"]')?.checkVisibility())
+      .toBe(false);
+    expect(localStorage.getItem("med-markdown-preview")).toBe("false");
   });
   test("files sidebar retains its tree and collapsed folders across toggles", async () => {
     await page.viewport(1280, 800);
@@ -2157,7 +2199,7 @@ describe("agent session", () => {
 
     await panel.getByText("alpha.ts:1").click();
     await expect.element(page.getByRole("tab", { name: "alpha.ts", exact: true })).toBeVisible();
-    await panel.getByRole("button", { name: "Hide session" }).click();
+    await panel.getByRole("button", { name: "Close session" }).click();
     await expect.element(panel).not.toBeInTheDocument();
   });
 

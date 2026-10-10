@@ -6,6 +6,7 @@ import { ChoiceSelect, SegmentedControl } from "../Controls";
 import { Icon } from "../Icon";
 import { ToolButton } from "../ToolButton";
 import { NotesSection } from "./NotesSection";
+import { PanesSection } from "./PanesSection";
 import { CodeSection } from "./CodeSection";
 import { CommitSection } from "./CommitSection";
 import { ControlsSection } from "./ControlsSection";
@@ -22,6 +23,7 @@ const sections = [
   { id: "review", label: "Review parts" },
   { id: "code", label: "Code colors" },
   { id: "notes", label: "Notes" },
+  { id: "panes", label: "Side panes" },
   { id: "session", label: "Agent session" },
   { id: "commit", label: "Commit flow" },
 ] as const;
@@ -141,6 +143,7 @@ export default function ElementsPage() {
             <ReviewSection />
             <CodeSection />
             <NotesSection />
+            <PanesSection />
             <SessionSection />
             <CommitSection />
           </StageContext.Provider>

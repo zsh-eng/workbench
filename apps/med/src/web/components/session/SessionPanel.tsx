@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { AgentSession, PinMutation } from "../../../shared/saved-review";
 import { withSentMessages, type AgentInbox } from "../../data/agent-inbox";
 import { createSessionStore } from "../../data/session-store";
@@ -60,8 +60,11 @@ export function SessionPanel({
   attachments = [],
   onRemoveAttachment,
   pins,
+  controls,
 }: {
   reviewId: string;
+  /** The column's pane controls, in place of the close button. */
+  controls?: ReactNode;
   /** Without it, replies have no Pin to review. */
   pins?: SessionPins;
   fetcher?: typeof fetch;
@@ -164,7 +167,14 @@ export function SessionPanel({
             onChange={setChosen}
           />
         )}
-        <ToolButton icon="close" label="Hide session" aria-label="Hide session" onClick={onClose} />
+        {controls ?? (
+          <ToolButton
+            icon="close"
+            label="Hide session"
+            aria-label="Hide session"
+            onClick={onClose}
+          />
+        )}
       </header>
       {state.status === "missing" ? (
         <p {...stylex.props(styles.empty)}>{state.message}</p>

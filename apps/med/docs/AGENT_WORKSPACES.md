@@ -241,22 +241,26 @@ minimap of ticks. Here is how each part fits Notes:
 
 ## Layout: one pane column
 
-Today the right side has two asides with different widths: Workspace files
-(280 px) and Agent session (440 px). The Markdown preview splits the file
+Before, the right side had two asides with different widths: Workspace files
+(280 px) and Agent session (440 px). The Markdown preview split the file
 view.
 
-Proposal, after Claude Desktop's stacked panes:
+Built, after Claude Desktop's stacked panes:
 
-- The toolbar has one toggle for each pane: **Session**, **Files**, and
-  **Preview**.
-- All panes share one right column with one width. You can resize the
-  column, and Med keeps its width.
+- The toolbar toggles **Session** and **Files**; the file view's **Preview**
+  button (`⌘⇧V`) toggles the Preview pane.
+- All panes share one right column with one width, 400 px at first. You can
+  resize the column, and Med keeps its width.
 - The column shows at most two panes, one above the other. Each pane has a
-  header, **Maximize**, and **Close**.
+  header with **Maximize** and **Close**. A maximized pane leaves the other
+  pane as its 40 px header.
 - The Preview pane follows the Markdown file in the main view. The file view
-  then keeps its full width.
+  keeps its full width. The file view renders the preview into the pane
+  through a portal, so source and preview still scroll together.
 
-Open: stacked panes or tabs. Make a prototype of both before you decide.
+Open: stacked panes or tabs. Both are built as prototypes. **Show side panes
+as tabs** in the command palette switches the layout, and the Elements page
+shows both under **Side panes**. Keep one after some use.
 
 ## Long sessions: load earlier work
 
@@ -372,7 +376,7 @@ them.
 1. **Reply path.** Draft comments, **Send to agent**, comment states,
    `med review wait` for Claude, and `codex queue` for Codex. Built.
 2. **Notes and panes.** Pin to review, the Notes rename, and the pane column.
-   Notes: built.
+   Built; the stack or tabs choice is open.
 3. **Owned sessions.** **New session** in a workspace, a prompt box with
    model and effort pickers, permission prompts, Stop, and the `/` menu.
    Claude Code through `stream-json`. OpenCode, Codex (`codex-acp`), and

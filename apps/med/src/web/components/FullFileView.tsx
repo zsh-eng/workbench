@@ -23,6 +23,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { createMarkdownModel, type MarkdownModel } from "../markdown/model";
 import "./MarkdownPreview.css";
 import { preloadable } from "./preloadable";
@@ -54,8 +55,16 @@ export interface FileSymbolPreview {
 }
 export type BeginFileSymbolPreview = () => FileSymbolPreview;
 
+/** A pane outside the file view that shows the Markdown preview, so the
+ * source keeps the view's full width. The pane owns whether it is open. */
+export interface MarkdownPreviewPane {
+  open: boolean;
+  target: HTMLElement | null;
+  onToggle(): void;
+}
 export interface FullFileViewProps {
   file: BrowseRead | null;
+  previewPane?: MarkdownPreviewPane;
   previewControl?: ReactNode;
   onSourcePosition?(line: number, reason: "cursor" | "scroll"): void;
   markdownNavigation?: MarkdownModel;
@@ -830,13 +839,15 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
     !props.compact &&
     props.file?.kind === "text" &&
     /\.(md|markdown|mdown|mkd)$/i.test(props.file.path);
-  const [preview, setPreview] = useState(() => {
+  const [ownPreview, setPreview] = useState(() => {
     try {
       return localStorage.getItem("med-markdown-preview") === "true";
     } catch {
       return false;
     }
   });
+  const pane = props.previewPane;
+  const preview = pane ? pane.open : ownPreview;
   const sourceKey = JSON.stringify(props.file?.source) + props.file?.path;
   // The bridge remains stable through disk saves and editor draft notifications.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -851,7 +862,12 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
     (line: number, reason: "cursor" | "scroll") => markdownModel.follow(line, reason),
     [markdownModel],
   );
+  const paneToggle = useRef(pane?.onToggle);
+  useLayoutEffect(() => {
+    paneToggle.current = pane?.onToggle;
+  });
   const togglePreview = () => {
+    if (paneToggle.current) return paneToggle.current();
     // Read the current value in the updater. The keyboard shortcut effect
     // registers once per model, so a closure over `preview` would go stale and
     // make every later toggle repeat the first result.
@@ -902,21 +918,28 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
       onClick={togglePreview}
     />
   ) : undefined;
-  const wrap = (source: ReactNode) => (
-    <div className="med-markdown-shell" data-preview={showPreview}>
-      <div className="med-markdown-source">{source}</div>
-      {showPreview && props.file && (
-        <Suspense fallback={<div className="med-markdown" aria-hidden="true" />}>
-          <MarkdownPreview
-            key={sourceKey}
-            model={markdownModel}
-            onOpenFile={props.onOpenFile}
-            file={draft?.editing ? draft.file : props.file}
-          />
-        </Suspense>
-      )}
-    </div>
+  const previewView = showPreview && props.file && (
+    <Suspense fallback={<div className="med-markdown" aria-hidden="true" />}>
+      <MarkdownPreview
+        key={sourceKey}
+        model={markdownModel}
+        onOpenFile={props.onOpenFile}
+        file={draft?.editing ? draft.file : props.file}
+      />
+    </Suspense>
   );
+  const wrap = (source: ReactNode) =>
+    pane ? (
+      <div className="med-markdown-shell" data-preview={false}>
+        <div className="med-markdown-source">{source}</div>
+        {previewView && pane.target && createPortal(previewView, pane.target)}
+      </div>
+    ) : (
+      <div className="med-markdown-shell" data-preview={showPreview}>
+        <div className="med-markdown-source">{source}</div>
+        {previewView}
+      </div>
+    );
   const canEdit =
     !!props.editor &&
     !props.compact &&

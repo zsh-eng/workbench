@@ -51,6 +51,8 @@ export type IconName =
   | "selector"
   | "brief"
   | "pin"
+  | "maximize"
+  | "restore"
   | "more"
   | "jump"
   | "vault"
@@ -88,6 +90,9 @@ const icons: Record<IconName, ReactNode> = {
   brief: <path d="M6 3.75h7.25M8 8h5.25M6 12.25h4.5M2.75 6.75v2.5" />,
   // A push pin: the head, the body that widens to its collar, and the point.
   pin: <path d="M5.25 2.75h5.5M6.5 2.75v3.5L4.5 9.25h7l-2-3V2.75M8 9.25v4" />,
+  // Out to the corners: fill the column. In from the corners: share it again.
+  maximize: <path d="M9.5 2.75h3.75V6.5M13.25 2.75 9.25 6.75M6.5 13.25H2.75V9.5M2.75 13.25l4-4" />,
+  restore: <path d="M13.25 2.75l-4 4M9.25 3.5v3.25h3.25M2.75 13.25l4-4M6.75 12.5V9.25H3.5" />,
   more: (
     <>
       <circle cx="3.75" cy="8" r="1" fill="currentColor" stroke="none" />
