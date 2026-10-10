@@ -6,7 +6,10 @@ import { tokens, ui } from "../theme.stylex";
 import { checkoutNameFor } from "../data/checkout-names";
 import { Icon, type IconName } from "./Icon";
 import {
+  CodexReviewPanel,
   PullRequestPanel,
+  type CodexReviewState,
+  type FindingPlacement,
   type PullRequestState,
   type ThreadPlacement,
 } from "./PullRequestComments";
@@ -18,6 +21,8 @@ export function SavedReviewHeader({
   browsingSourceLabel,
   pullRequest,
   threadPlacement,
+  codexReviews,
+  findingPlacement,
   onReturn,
   onTarget,
   sendTo,
@@ -29,6 +34,9 @@ export function SavedReviewHeader({
   /** GitHub comments, when the review has a pull request. */
   pullRequest?: PullRequestState;
   threadPlacement?: ThreadPlacement;
+  /** Codex reviews of the review's checkouts. */
+  codexReviews?: CodexReviewState;
+  findingPlacement?: FindingPlacement;
   browsing?: boolean;
   browsingSourceLabel?: string;
   onReturn(): void;
@@ -112,6 +120,9 @@ export function SavedReviewHeader({
       )}
       {saved.pullRequestUrl && pullRequest && threadPlacement && (
         <PullRequestPanel state={pullRequest} placement={threadPlacement} />
+      )}
+      {codexReviews && findingPlacement && (codexReviews.runs?.length || codexReviews.error) && (
+        <CodexReviewPanel state={codexReviews} placement={findingPlacement} />
       )}
       {target && saved.targets.length === 1 && (
         <span

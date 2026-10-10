@@ -1,3 +1,4 @@
+import { codexReviewsSchema, type CodexReviewRun } from "../../shared/codex-review";
 import { readBrowserToken } from "./auth";
 import { REVIEW_UPDATED } from "./workspaces";
 import {
@@ -112,6 +113,8 @@ export interface ReviewController {
   /** The saved review's GitHub pull request comments, read-only. `refresh`
    * skips the host's 30-second cache. */
   loadPullRequestComments(refresh?: boolean): Promise<PullRequestComments>;
+  /** Codex reviews of the saved review's checkouts, with their findings. */
+  loadCodexReviews(): Promise<CodexReviewRun[]>;
   clearSavedComments(expectedRevision: number): Promise<void>;
   /** Replace the saved review's brief, or remove it with null. */
   setSavedBrief(text: string | null): Promise<void>;
@@ -1792,6 +1795,16 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       const repo = snapshot.session?.repository.path;
       if (!repo) throw new Error("Open a repository first.");
       return api.json(`/api/commit?${query({ repo, id })}`, commitDetailsSchema, { signal });
+    },
+    async loadCodexReviews() {
+      const saved = snapshot.savedReview;
+      if (!saved) return [];
+      return (
+        await api.json(
+          `/api/reviews/${encodeURIComponent(saved.id)}/codex-reviews`,
+          codexReviewsSchema,
+        )
+      ).runs;
     },
     async loadPullRequestComments(refresh = false) {
       const saved = snapshot.savedReview;

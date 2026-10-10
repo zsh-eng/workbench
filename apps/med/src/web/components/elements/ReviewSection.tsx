@@ -6,11 +6,18 @@ import { CommitCard } from "../CommitCard";
 import { DiffStat } from "../DiffStat";
 import { HistoryPanel } from "../HistoryPanel";
 import { NoteCard } from "../NoteCard";
-import { PanelContent, PullRequestThreadCard } from "../PullRequestComments";
+import {
+  CodexFindingCard,
+  CodexPanelContent,
+  PanelContent,
+  PullRequestThreadCard,
+} from "../PullRequestComments";
+import type { CodexFinding } from "../../../shared/codex-review";
 import type { Note, PullRequestThread } from "../../../shared/protocol";
 import { Diff } from "./CodeSection";
 import {
   changedFiles,
+  codexReview,
   commitDetails,
   commits,
   loadCommitDetails,
@@ -112,14 +119,19 @@ export function ReviewSection() {
       </Specimen>
       <Specimen
         title="Comments in the diff"
-        note="A GitHub thread and a local note on the same change, as the review shows them."
+        note="A GitHub thread, a Codex finding, and a local note on the same change, as the review shows them."
         padded={false}
       >
-        <Diff<{ note?: Note; thread?: PullRequestThread }>
+        <Diff<{ note?: Note; thread?: PullRequestThread; finding?: CodexFinding }>
           patch={relativeTimePatch}
           header
           annotations={[
             { side: "additions", lineNumber: notes[0]!.line, metadata: { note: notes[0]! } },
+            {
+              side: "additions",
+              lineNumber: codexReview.findings[0]!.endLine,
+              metadata: { finding: codexReview.findings[0]! },
+            },
             {
               side: "additions",
               lineNumber: pullRequest.threads[0]!.line!,
@@ -129,6 +141,8 @@ export function ReviewSection() {
           renderAnnotation={({ metadata }) =>
             metadata?.thread ? (
               <PullRequestThreadCard thread={metadata.thread} now={now} />
+            ) : metadata?.finding ? (
+              <CodexFindingCard finding={metadata.finding} run={codexReview} now={now} />
             ) : metadata?.note ? (
               <NoteCard note={metadata.note} replies={notes.slice(1)} onMutate={async () => {}} />
             ) : null
@@ -148,6 +162,27 @@ export function ReviewSection() {
             placement={{ kind: "inline", ids: new Set([pullRequest.threads[0]!.id]) }}
             now={now}
             onRefresh={() => {}}
+          />
+        </div>
+      </Specimen>
+      <Specimen
+        title="Codex finding"
+        note="From codex review or /review in the review's checkout. Read-only, with its priority."
+        span="half"
+      >
+        <CodexFindingCard finding={codexReview.findings[0]!} run={codexReview} now={now} />
+      </Specimen>
+      <Specimen
+        title="Codex review panel"
+        note="Opens from the Codex count in the review header: each verdict, and findings the diff cannot show."
+        span="half"
+      >
+        <div {...stylex.props(styles.card, styles.panel)}>
+          <CodexPanelContent
+            runs={[codexReview]}
+            error={null}
+            placement={{ inline: new Set([codexReview.findings[0]!.id]), reasons: new Map() }}
+            now={now}
           />
         </div>
       </Specimen>

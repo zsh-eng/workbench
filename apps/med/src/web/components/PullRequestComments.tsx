@@ -10,6 +10,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import type { CodexFinding, CodexReviewRun } from "../../shared/codex-review";
 import type {
   PullRequestComment,
   PullRequestComments,
@@ -17,10 +18,11 @@ import type {
 } from "../../shared/protocol";
 import { relativeTime } from "../data/relative-time";
 import { tokens, ui } from "../theme.stylex";
-import { Icon } from "./Icon";
+import { Icon, type IconName } from "./Icon";
 
-// GitHub pull request comments, read-only. Med shows them beside its own
-// notes but never writes to GitHub: to reply, open the comment on GitHub.
+// Review comments that Med reads but does not write: GitHub pull request
+// comments, and the findings of Codex reviews. Med shows them beside its own
+// notes: to reply on GitHub, open the comment there.
 
 export interface PullRequestState {
   data: PullRequestComments | null;
@@ -282,7 +284,8 @@ function OpenButton({ url }: { url: string }) {
   );
 }
 
-const states: Record<string, { label: string; tone?: "good" | "bad" | "quiet" }> = {
+type Tag = { label: string; tone?: "good" | "bad" | "quiet" };
+const states: Record<string, Tag> = {
   APPROVED: { label: "Approved", tone: "good" },
   CHANGES_REQUESTED: { label: "Changes requested", tone: "bad" },
   DISMISSED: { label: "Dismissed", tone: "quiet" },
@@ -295,22 +298,28 @@ function Entry({
   now,
   mark,
   state,
+  tag,
+  heading,
   tools,
 }: {
-  comment: PullRequestComment;
+  comment: Pick<PullRequestComment, "author" | "body" | "createdAt">;
   now: number;
-  mark?: boolean;
+  mark?: IconName;
   state?: string;
+  /** A label beside the author, such as a finding's priority. */
+  tag?: Tag;
+  /** A finding's title, above its text. */
+  heading?: string;
   tools?: ReactNode;
 }) {
   const created = Date.parse(comment.createdAt);
-  const review = state ? (states[state] ?? { label: state.toLowerCase() }) : null;
+  const review = tag ?? (state ? (states[state] ?? { label: state.toLowerCase() }) : null);
   return (
     <div {...stylex.props(styles.entry, stylex.defaultMarker())}>
       <div {...stylex.props(styles.byline)}>
         {mark && (
           <span {...stylex.props(styles.mark)}>
-            <Icon name="github" size={13} />
+            <Icon name={mark} size={13} />
           </span>
         )}
         <span {...stylex.props(styles.author, ui.truncate)}>{comment.author}</span>
@@ -341,6 +350,7 @@ function Entry({
         <span {...stylex.props(ui.grow)} />
         {tools && <span {...stylex.props(styles.tools)}>{tools}</span>}
       </div>
+      {heading && <p {...stylex.props(styles.heading2)}>{heading}</p>}
       {comment.body.trim() ? <Body text={comment.body} /> : null}
     </div>
   );
@@ -371,7 +381,7 @@ export function PullRequestThreadCard({
       <Entry
         comment={first}
         now={now}
-        mark
+        mark="github"
         tools={
           <>
             <AddToReplyButton label={threadLabel(thread)} text={() => threadText(thread)} />
@@ -585,18 +595,24 @@ export function PanelContent({
 
 /** Adds every current code thread to the agent's next message. */
 function AddAllToReply({ threads }: { threads: PullRequestThread[] }) {
+  return (
+    <AddAll
+      label={`${threads.length} GitHub ${threads.length === 1 ? "thread" : "threads"}`}
+      texts={threads.map(threadText)}
+    />
+  );
+}
+
+function AddAll({ label, texts }: { label: string; texts: string[] }) {
   const target = useContext(AgentReplyContext);
   const [added, setAdded] = useState(false);
-  if (!target || !threads.length) return null;
+  if (!target || !texts.length) return null;
   return (
     <button
       type="button"
       {...stylex.props(ui.button, styles.addAll)}
       onClick={() => {
-        target.add({
-          label: `${threads.length} GitHub ${threads.length === 1 ? "thread" : "threads"}`,
-          text: threads.map(threadText).join("\n\n---\n\n"),
-        });
+        target.add({ label, text: texts.join("\n\n---\n\n") });
         setAdded(true);
       }}
     >
@@ -606,7 +622,279 @@ function AddAllToReply({ threads }: { threads: PullRequestThread[] }) {
   );
 }
 
+export interface CodexReviewState {
+  runs: CodexReviewRun[] | null;
+  error: string | null;
+  loading: boolean;
+  /** Increases only when the findings change, so the diff redraws them. */
+  revision: number;
+  refresh(): void;
+}
+
+/** Loads the Codex reviews of a saved review, again when the window gets focus. */
+export function useCodexReviews(
+  load: () => Promise<CodexReviewRun[]>,
+  key: string | null,
+): CodexReviewState {
+  const [state, setState] = useState<{
+    key: string | null;
+    runs: CodexReviewRun[] | null;
+    error: string | null;
+    revision: number;
+  }>({ key: null, runs: null, error: null, revision: 0 });
+  const request = useRef(0);
+  const read = useCallback(() => {
+    if (!key) return;
+    const id = ++request.current;
+    load().then(
+      (runs) => {
+        if (request.current !== id) return;
+        setState((current) => {
+          const previous = current.key === key ? current : null;
+          const same = JSON.stringify(previous?.runs) === JSON.stringify(runs);
+          return {
+            key,
+            runs: same ? previous!.runs : runs,
+            error: null,
+            revision: (previous?.revision ?? 0) + (same ? 0 : 1),
+          };
+        });
+      },
+      (error: unknown) => {
+        if (request.current !== id) return;
+        setState((current) => ({
+          key,
+          runs: current.key === key ? current.runs : null,
+          error: error instanceof Error ? error.message : "Could not read Codex reviews.",
+          revision: current.key === key ? current.revision : 0,
+        }));
+      },
+    );
+  }, [key, load]);
+  useEffect(() => {
+    read();
+    if (!key) return;
+    window.addEventListener("focus", read);
+    return () => window.removeEventListener("focus", read);
+  }, [key, read]);
+  const current = state.key === key ? state : null;
+  return {
+    runs: current?.runs ?? null,
+    error: current?.error ?? null,
+    loading: !current && key !== null,
+    revision: current?.revision ?? 0,
+    refresh: read,
+  };
+}
+
+const findingLines = (finding: CodexFinding) =>
+  finding.startLine === finding.endLine
+    ? `R${finding.endLine}`
+    : `R${finding.startLine}–R${finding.endLine}`;
+
+/** Plain text for an agent or a note: where, the priority, and what. */
+export function findingText(finding: CodexFinding) {
+  const priority = finding.priority === null ? "" : `[P${finding.priority}] `;
+  return `${finding.path}:${findingLines(finding)}\n\nCodex: ${priority}${finding.title}\n\n${finding.body.trim()}`;
+}
+
+/** P0 and P1 must be fixed; P3 is a nit. */
+const priorityTag = (priority: number | null): Tag | undefined =>
+  priority === null
+    ? undefined
+    : { label: `P${priority}`, tone: priority <= 1 ? "bad" : priority === 3 ? "quiet" : undefined };
+
+const verdictTag = (verdict: string): Tag | undefined =>
+  !verdict
+    ? undefined
+    : {
+        label: verdict.charAt(0).toUpperCase() + verdict.slice(1),
+        tone: /incorrect/i.test(verdict) ? "bad" : /correct/i.test(verdict) ? "good" : undefined,
+      };
+
+/** A Codex finding in the diff, read-only, in the same card as a GitHub thread. */
+export function CodexFindingCard({
+  finding,
+  run,
+  now: fixedNow,
+  embedded = false,
+}: {
+  finding: CodexFinding;
+  run: CodexReviewRun;
+  now?: number;
+  embedded?: boolean;
+}) {
+  const [now] = useState(() => fixedNow ?? Date.now());
+  const label = `${finding.path.split("/").at(-1)}:${findingLines(finding)}`;
+  return (
+    <article
+      data-comment-card
+      data-codex-finding={finding.id}
+      aria-label={`Codex finding at ${findingLines(finding)}, read-only`}
+      {...stylex.props(styles.card, embedded && styles.embedded)}
+    >
+      <Entry
+        comment={{ author: "Codex", body: finding.body, createdAt: run.createdAt }}
+        now={now}
+        mark="codex"
+        tag={priorityTag(finding.priority)}
+        heading={finding.title}
+        tools={
+          <>
+            <AddToReplyButton label={label} text={() => findingText(finding)} />
+            <CopyButton label="Copy finding" text={() => findingText(finding)} />
+          </>
+        }
+      />
+    </article>
+  );
+}
+
+/** Which findings show in the diff, and why each other run's do not. */
+export interface FindingPlacement {
+  inline: ReadonlySet<string>;
+  /** By run: why its findings are listed here. */
+  reasons: ReadonlyMap<string, string>;
+}
+
+/** The Codex reviews: each verdict, and the findings that are not in the diff,
+ * in a popover beside the review title. */
+export function CodexReviewPanel({
+  state,
+  placement,
+}: {
+  state: CodexReviewState;
+  placement: FindingPlacement;
+}) {
+  const [open, setOpen] = useState(false);
+  const count = state.runs?.reduce((sum, run) => sum + run.findings.length, 0) ?? 0;
+  const label = state.error
+    ? "Codex reviews: could not read"
+    : `${count} Codex ${count === 1 ? "finding" : "findings"}`;
+  return (
+    <Popover.Root
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) state.refresh();
+      }}
+    >
+      <Popover.Trigger
+        {...stylex.props(ui.button, ui.pressable, styles.trigger)}
+        aria-label={label}
+        title={label}
+      >
+        <Icon name="codex" size={14} />
+        <span {...stylex.props(styles.count, state.error ? styles.bad : null)}>
+          {state.error ? "!" : count}
+        </span>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Positioner
+          align="start"
+          sideOffset={5}
+          {...stylex.props(styles.positioner, ui.instant)}
+        >
+          <Popover.Popup
+            aria-label="Codex reviews"
+            {...stylex.props(ui.popup, styles.panel, ui.instant)}
+          >
+            <CodexPanelContent runs={state.runs} error={state.error} placement={placement} />
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
+/** The panel's contents; the elements page shows them without the popover. */
+export function CodexPanelContent({
+  runs,
+  error,
+  placement,
+  now: fixedNow,
+}: {
+  runs: CodexReviewRun[] | null;
+  error: string | null;
+  placement: FindingPlacement;
+  now?: number;
+}) {
+  const [openedAt] = useState(Date.now);
+  const now = fixedNow ?? openedAt;
+  return (
+    <div {...stylex.props(styles.content)}>
+      <header {...stylex.props(styles.head)}>
+        <h2 {...stylex.props(styles.title)}>Codex reviews</h2>
+      </header>
+      <p {...stylex.props(styles.lede)}>
+        Read-only from <code {...stylex.props(styles.inlineCode)}>codex review</code> and /review in
+        this review&apos;s checkouts. To answer, resume the Codex session.
+      </p>
+      {error && (
+        <p role="alert" {...stylex.props(styles.error)}>
+          {error}
+        </p>
+      )}
+      {runs?.map((run) => {
+        const others = run.findings.filter((finding) => !placement.inline.has(finding.id));
+        const inline = run.findings.length - others.length;
+        const reason = placement.reasons.get(run.id);
+        return (
+          <section
+            key={run.id}
+            aria-label={`Codex review of ${run.target}`}
+            {...stylex.props(styles.section)}
+          >
+            <div {...stylex.props(styles.headingRow)}>
+              <h3 {...stylex.props(styles.runTitle)}>
+                {run.target.charAt(0).toUpperCase() + run.target.slice(1)}
+              </h3>
+              <AddAll
+                label={`${run.findings.length} Codex ${run.findings.length === 1 ? "finding" : "findings"}`}
+                texts={run.findings.map(findingText)}
+              />
+            </div>
+            <Entry
+              comment={{ author: "Codex", body: run.explanation, createdAt: run.createdAt }}
+              now={now}
+              mark="codex"
+              tag={verdictTag(run.verdict)}
+              tools={
+                <CopyButton
+                  label="Copy resume command"
+                  text={() => `codex resume ${run.threadId}`}
+                />
+              }
+            />
+            {inline > 0 && (
+              <p {...stylex.props(styles.lede)}>
+                {inline} {inline === 1 ? "finding shows" : "findings show"} in the diff.
+              </p>
+            )}
+            {reason && others.length > 0 && <p {...stylex.props(styles.lede)}>{reason}</p>}
+            {others.map((finding) => (
+              <div key={finding.id} {...stylex.props(styles.item)}>
+                <div {...stylex.props(styles.where)}>
+                  <span {...stylex.props(ui.truncate)} title={finding.path}>
+                    {finding.path}
+                  </span>
+                  <span {...stylex.props(styles.line)}>{findingLines(finding)}</span>
+                </div>
+                <CodexFindingCard finding={finding} run={run} now={now} embedded />
+              </div>
+            ))}
+            {!run.findings.length && <p {...stylex.props(styles.lede)}>No findings.</p>}
+          </section>
+        );
+      })}
+      {runs && !runs.length && !error && <p {...stylex.props(styles.lede)}>No Codex reviews.</p>}
+    </div>
+  );
+}
+
 const styles = stylex.create({
+  heading2: { margin: 0, marginBottom: 2, fontSize: 13, fontWeight: 600, lineHeight: "20px" },
+  runTitle: { margin: 0, color: tokens.muted, fontSize: 12, fontWeight: 550 },
   headingRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 },
   addAll: { minHeight: 22, paddingInline: 6, fontSize: 11.5 },
   // The same card as a local note, so both read as one system; the GitHub
