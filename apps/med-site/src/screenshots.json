@@ -3,16 +3,31 @@
   "review": {
     "width": 1440,
     "height": 900,
-    "widths": [720, 1120, 1680, 2240]
+    "widths": [720, 1120, 1680, 2880]
   },
   "brief": {
-    "width": 734,
-    "height": 376,
-    "widths": [560, 1120]
+    "width": 880,
+    "height": 550,
+    "widths": [880, 1760]
   },
-  "search": {
-    "width": 688,
-    "height": 384,
-    "widths": [560, 1120]
+  "comment": {
+    "width": 880,
+    "height": 550,
+    "widths": [880, 1760]
+  },
+  "session": {
+    "width": 1040,
+    "height": 650,
+    "widths": [1040, 2080]
+  },
+  "commit": {
+    "width": 880,
+    "height": 550,
+    "widths": [880, 1760]
+  },
+  "notes": {
+    "width": 880,
+    "height": 550,
+    "widths": [880, 1760]
   }
 }
