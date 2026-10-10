@@ -1,4 +1,10 @@
-import { useState, type ReactNode } from "react";
+import {
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { Button } from "@/components/ui/button";
 import type { TOCItem } from "@/lib/db";
 import { cn } from "@/lib/utils";
@@ -8,7 +14,6 @@ import {
   PanelRight,
   ClipboardCopy,
   NotebookPen,
-  Highlighter,
   List,
   Search,
   Palette,
@@ -19,12 +24,7 @@ import { ReaderSettingsList } from "./ReaderSettingsSheet";
 import type { ChapterEntry, ReaderSheetId } from "./types";
 import { MOTION_MS } from "@/lib/motion";
 
-type ReaderSidebarPanel =
-  | "contents"
-  | "search"
-  | "settings"
-  | "notes"
-  | "highlights";
+type ReaderSidebarPanel = "contents" | "search" | "settings" | "notes";
 
 interface ReaderToolsSidebarProps {
   activeSheet: ReaderSheetId | null;
@@ -38,8 +38,9 @@ interface ReaderToolsSidebarProps {
   currentChapterHref: string;
   onNavigateToHref: (href: string) => boolean;
   notesPanel?: ReactNode;
-  highlightsPanel?: ReactNode;
   onCopyDebugDump?: () => void;
+  /** The header control that opens the sidebar. Escape returns focus to it. */
+  triggerRef: RefObject<HTMLButtonElement | null>;
 }
 
 const SIDEBAR_TOOLS: {
@@ -50,14 +51,12 @@ const SIDEBAR_TOOLS: {
   { id: "contents", label: "Contents", icon: List },
   { id: "search", label: "Search book", icon: Search },
   { id: "settings", label: "Reading appearance", icon: Palette },
-  { id: "highlights", label: "Highlights", icon: Highlighter },
-  { id: "notes", label: "Notes", icon: NotebookPen },
+  { id: "notes", label: "Notebook", icon: NotebookPen },
 ];
 
 function resolveActivePanel(
   activeSheet: ReaderSheetId | null,
 ): ReaderSidebarPanel {
-  if (activeSheet === "highlights") return "highlights";
   if (activeSheet === "notes") return "notes";
   if (activeSheet === "search") return "search";
   if (activeSheet === "settings") return "settings";
@@ -83,7 +82,7 @@ export function ReaderToolsSidebar({
   onNavigateToHref,
   onCopyDebugDump,
   notesPanel,
-  highlightsPanel,
+  triggerRef,
 }: ReaderToolsSidebarProps) {
   // Closing changes visibility, not the content shown during the exit.
   const [retainedPanel, setRetainedPanel] = useState(() =>
@@ -117,11 +116,56 @@ export function ReaderToolsSidebar({
     },
   );
 
+  // Escape closes the sidebar unless a nearer control handled it first. The
+  // inline note editor stops the event to cancel its edit, and Base UI popups
+  // stop it to close themselves, so neither closes the sidebar. The note
+  // composer closes the sidebar itself.
+  const returnFocusToTrigger = useRef(false);
+  useHotkey(
+    "Escape",
+    (event) => {
+      if (event.defaultPrevented || event.isComposing) return;
+      event.preventDefault();
+      returnFocusToTrigger.current = true;
+      onClose();
+    },
+    {
+      target: window,
+      enabled: isOpen,
+      ignoreInputs: false,
+      preventDefault: false,
+      requireReset: true,
+      stopPropagation: false,
+      conflictBehavior: "allow",
+      meta: {
+        name: "Close reader tools",
+        description: "Hide the reader tools sidebar",
+      },
+    },
+  );
+
+  // A close caused by Escape returns focus to the trigger, whichever handler
+  // closed the sidebar. The closed sidebar is inert, so focus inside it would
+  // otherwise fall to the body. The header leaves its own inert state in the
+  // same commit when the chrome is visible; a hidden header cannot take focus.
+  useLayoutEffect(() => {
+    if (isOpen || !returnFocusToTrigger.current) return;
+    returnFocusToTrigger.current = false;
+    triggerRef.current?.focus();
+  }, [isOpen, triggerRef]);
+
   return (
     <aside
       aria-label="Reader tools"
       aria-hidden={!isOpen}
       inert={!isOpen ? true : undefined}
+      onKeyDownCapture={(event) => {
+        returnFocusToTrigger.current =
+          event.key === "Escape" && !event.nativeEvent.isComposing;
+      }}
+      onPointerDownCapture={() => {
+        returnFocusToTrigger.current = false;
+      }}
       className="pointer-events-none fixed inset-0 z-40 hidden text-foreground md:block"
     >
       <button
@@ -220,7 +264,6 @@ export function ReaderToolsSidebar({
 
           <div className="min-h-0 flex-1 overflow-hidden">
             {activePanel === "notes" && notesPanel}
-            {activePanel === "highlights" && highlightsPanel}
             {activePanel === "contents" && (
               <ReaderContentsPanel
                 isOpen={isOpen}

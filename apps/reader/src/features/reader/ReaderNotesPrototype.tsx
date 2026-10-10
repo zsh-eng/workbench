@@ -2,15 +2,24 @@ import { flushSync } from "react-dom";
 import { NotebookNote } from "./NotebookNote";
 import { DesktopNotebookNote, NotebookNoteBody } from "./DesktopNotebookNote";
 import { ReaderSheet } from "./shared/ReaderSheet";
+import { NotebookCountIcon } from "./shared/NotebookCountIcon";
 import type { Note, NoteTarget } from "@/types/note";
 import type { Highlight } from "@/types/highlight";
 import type { HighlightColor } from "@/lib/highlight-constants";
 import { NotebookFilters, type NotebookKindFilter } from "./NotebookFilters";
 import { useReaderNotes } from "./hooks/use-reader-notes";
-import { useNotebookDeletion } from "./hooks/use-notebook-deletion";
+import {
+  useNotebookDeletion,
+  type NotebookEntryRef,
+} from "./hooks/use-notebook-deletion";
+import { deleteHighlight, restoreHighlight } from "@/data/highlights";
+import { highlightKeys } from "@/hooks/use-highlights-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   createNoteLocationResolver,
   highlightNoteTarget,
+  marginPlacement,
   noteMarginTop,
 } from "./note-locations";
 import {
@@ -36,6 +45,7 @@ import {
 import { ArrowUp, ArrowUpDown, Check, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { MOTION } from "@/lib/motion";
+import { UNDO_SECONDS } from "@/components/UndoToast";
 import {
   useLayoutEffect,
   useEffect,
@@ -116,7 +126,6 @@ export function ReaderNotesPrototype({
   onReturnToReading: () => void;
   onVisit: (page: number) => void;
 }) {
-  const composerOpen = open || Boolean(mobileAnnotation);
   const reduceMotion = useReducedMotion();
   // Book order by default, so the notebook opens where you are reading.
   const [order, setOrder] = useState<"time" | "chapter">("chapter");
@@ -126,9 +135,39 @@ export function ReaderNotesPrototype({
   // A tapped passage with a note shows the note; Palette asks for its colours.
   const [toolsRequested, setToolsRequested] = useState(false);
   const notes = useReaderNotes(bookId);
-  const { deleteNote, restoredEntries } = useNotebookDeletion({
-    remove: notes.remove,
-    restore: notes.restore,
+  const queryClient = useQueryClient();
+  const removeNote = notes.remove;
+  const restoreNote = notes.restore;
+  // Notes and highlights share one deletion stack, so Undo follows the order.
+  const removeEntry = useCallback(
+    async (entry: NotebookEntryRef) => {
+      if (entry.kind === "note") return removeNote(entry.id);
+      try {
+        await deleteHighlight(entry.id);
+      } catch {
+        toast.error("Could not delete the highlight.");
+        return false;
+      }
+      await queryClient.invalidateQueries({
+        queryKey: highlightKeys.book(bookId),
+      });
+      return true;
+    },
+    [removeNote, queryClient, bookId],
+  );
+  const restoreEntry = useCallback(
+    async (entry: NotebookEntryRef) => {
+      if (entry.kind === "note") return restoreNote(entry.id);
+      await restoreHighlight(entry.id);
+      await queryClient.invalidateQueries({
+        queryKey: highlightKeys.book(bookId),
+      });
+    },
+    [restoreNote, queryClient, bookId],
+  );
+  const { deleteEntry, restoredEntries } = useNotebookDeletion({
+    remove: removeEntry,
+    restore: restoreEntry,
     shortcutEnabled: desktop && open && notebook && !notes.editingId,
   });
   const composerDraft = desktop ? notes.composeDraft : notes.draft;
@@ -193,7 +232,10 @@ export function ReaderNotesPrototype({
   );
   useEffect(() => {
     if (!notice) return;
-    const timer = setTimeout(() => setNotice(null), notice.undo ? 8000 : 1300);
+    const timer = setTimeout(
+      () => setNotice(null),
+      notice.undo ? UNDO_SECONDS * 1000 : 1300,
+    );
     return () => clearTimeout(timer);
   }, [notice]);
   const resolver = useMemo(
@@ -585,7 +627,7 @@ export function ReaderNotesPrototype({
 
   function deleteFromIsland(id: string) {
     mobileAnnotation?.close();
-    void deleteNote(id, (undo) => {
+    void deleteEntry({ kind: "note", id }, (undo) => {
       const key = Date.now();
       setNotice({ key, label: "Note deleted", undo });
       return () =>
@@ -699,10 +741,18 @@ export function ReaderNotesPrototype({
       entry.location.page >= location.page &&
       entry.location.page <= margin.location.page,
   );
-  // Use one rail geometry for the editor and saved comments. Keep the rail
-  // beside the book text instead of attaching it to the window edge.
-  const commentWidth = Math.min(360, Math.max(320, margin.width - 32));
-  const commentLeft = `calc(100% - ${Math.max(commentWidth + 16, margin.width - 16)}px)`;
+  // One margin geometry for the editor, saved comments, and the count. It
+  // stays in the page margin and never covers the text column.
+  const marginColumn = marginPlacement(margin.width);
+  const marginRail = marginColumn.kind === "rail";
+  // A margin too narrow for the rail has no room for a composer beside the
+  // text. A new note opens in the notebook instead, with its quote and draft.
+  // The notebook then owns the note, so closing it returns to reading.
+  useEffect(() => {
+    if (!desktop || !open || notebook || marginRail) return;
+    setNotebook(true);
+    onActiveChange(false);
+  }, [desktop, open, notebook, marginRail, setNotebook, onActiveChange]);
   const commentSurface =
     "rounded-xl border border-border/80 bg-background/95 p-3 text-sm shadow-sm";
   /** One note field for three surfaces: the phone's Notes Island, the
@@ -1065,30 +1115,43 @@ export function ReaderNotesPrototype({
                 className="flow-root overflow-hidden"
               >
                 {entry.highlight ? (
-                  <HighlightEntry
-                    desktop={desktop}
+                  <NotebookCard
+                    kind="highlight"
                     text={entry.highlight.selectedText}
-                    color={entry.highlight.color}
-                    location={`${order === "time" ? `${entry.location.chapter} · ` : ""}${
-                      entry.location.page
-                        ? `p. ${entry.location.page}`
-                        : "Location unavailable"
-                    }`}
-                    createdAt={entry.createdAt}
-                    onSelect={() => {
-                      onVisitHighlight(entry.highlight!);
-                      close();
-                    }}
-                  />
+                    dimmed={inlineEditing}
+                    disabled={!notes.ready}
+                    canEdit={false}
+                    editing={false}
+                    onEdit={() => {}}
+                    onDelete={() =>
+                      deleteEntry({ kind: "highlight", id: entry.id })
+                    }
+                  >
+                    <HighlightBody
+                      text={entry.highlight.selectedText}
+                      color={entry.highlight.color}
+                      location={`${order === "time" ? `${entry.location.chapter} · ` : ""}${
+                        entry.location.page
+                          ? `p. ${entry.location.page}`
+                          : "Location unavailable"
+                      }`}
+                      createdAt={entry.createdAt}
+                      onSelect={() => {
+                        onVisitHighlight(entry.highlight!);
+                        close();
+                      }}
+                    />
+                  </NotebookCard>
                 ) : (
                   <NotebookCard
+                    kind="note"
                     text={entry.text}
                     dimmed={inlineEditing && notes.editingId !== entry.id}
                     disabled={!notes.ready || notes.saving}
                     canEdit={entry.kind === "note"}
                     editing={notes.editingId === entry.id}
                     onEdit={() => void startEdit(entry.id)}
-                    onDelete={() => deleteNote(entry.id)}
+                    onDelete={() => deleteEntry({ kind: "note", id: entry.id })}
                   >
                     {entry.quote && (
                       <blockquote
@@ -1172,7 +1235,7 @@ export function ReaderNotesPrototype({
       restoredEntries,
       orderedEntries,
       startEdit,
-      deleteNote,
+      deleteEntry,
       notes,
       inlineEditing,
       NotebookCard,
@@ -1227,8 +1290,8 @@ export function ReaderNotesPrototype({
           aria-label="Page margin notes"
           className="fixed z-40 max-h-[calc(100dvh-6rem)] overflow-y-auto"
           style={{
-            left: commentLeft,
-            width: commentWidth,
+            left: marginColumn.left,
+            width: marginColumn.width,
             top: Math.max(
               80,
               Math.min(
@@ -1238,7 +1301,7 @@ export function ReaderNotesPrototype({
             ),
           }}
         >
-          {margin.width >= 220
+          {marginRail
             ? marginEntries.map((entry, index) => (
                 <article
                   key={entry.id}
@@ -1267,16 +1330,15 @@ export function ReaderNotesPrototype({
             : marginEntries.length > 0 && (
                 <button
                   aria-label="Read margin notes"
-                  onClick={() => {
-                    setNotebook(true);
-                    onActiveChange(true);
-                  }}
-                  className="mt-1 text-xs text-muted-foreground"
+                  aria-description={`${marginEntries.length} ${marginEntries.length === 1 ? "note" : "notes"} on these pages`}
+                  title="Read margin notes"
+                  onClick={() => setNotebook(true)}
+                  className="mx-auto flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors duration-150 hover:bg-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
                 >
-                  {marginEntries.length}
+                  <NotebookCountIcon count={marginEntries.length} />
                 </button>
               )}
-          {desktop && open && margin.width >= 220 && (
+          {desktop && open && marginRail && (
             <div
               ref={composer}
               data-note-composer
@@ -1287,38 +1349,7 @@ export function ReaderNotesPrototype({
           )}
         </aside>
       )}
-      {desktop ? (
-        <AnimatePresence>
-          {composerOpen && !notebook && margin.width < 220 && (
-            <motion.div
-              ref={composer}
-              data-note-composer
-              key="composer"
-              initial={{
-                opacity: 0,
-                transform: reduceMotion ? "none" : "translateY(8px)",
-              }}
-              animate={{ opacity: 1, transform: "none" }}
-              exit={{
-                opacity: 0,
-                transform: reduceMotion ? "none" : "translateY(8px)",
-              }}
-              transition={MOTION.enter}
-              className="fixed z-40 max-h-[calc(100dvh-7rem)] overflow-y-auto"
-              style={{
-                top: Math.max(
-                  80,
-                  Math.min(commentPosition.top, window.innerHeight - 220),
-                ),
-                left: commentLeft,
-                width: commentWidth,
-              }}
-            >
-              {renderNoteInput("margin")}
-            </motion.div>
-          )}
-        </AnimatePresence>
-      ) : (
+      {!desktop && (
         <AnimatePresence
           onExitComplete={() => {
             if (islandState === "none") onMobileComposerPresenceChange(false);
@@ -1432,16 +1463,15 @@ function noteMeta(page: number, createdAt: number) {
   return page ? `p. ${page} · ${day}` : day;
 }
 
-/** A highlight without a note, in the notebook. Choosing it opens its page. */
-function HighlightEntry({
-  desktop,
+/** A highlight without a note, inside its notebook card. Choosing it opens
+ * its page. It is not a <button>, so a swipe can start on it. */
+function HighlightBody({
   text,
   color,
   location,
   createdAt,
   onSelect,
 }: {
-  desktop: boolean;
   text: string;
   color: string;
   location: string;
@@ -1449,35 +1479,38 @@ function HighlightEntry({
   onSelect: () => void;
 }) {
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       aria-label={`Go to highlight: ${text}`}
       onClick={onSelect}
-      className="group relative mb-2 block w-full rounded-2xl text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        onSelect();
+      }}
+      className="-mx-4 -my-3 block cursor-pointer rounded-2xl px-4 py-3 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
-      <div
-        className={`rounded-2xl px-4 py-3 ${desktop ? "bg-secondary/40 transition-colors duration-150 group-hover:bg-secondary/70 group-focus-visible:bg-secondary/70" : "bg-secondary"}`}
+      <blockquote
+        className="border-l-[3px] pl-3 text-[15px] leading-relaxed break-words whitespace-pre-wrap"
+        style={{ borderColor: `var(--${color}-secondary)` }}
       >
-        <blockquote
-          className="border-l-[3px] pl-3 text-[15px] leading-relaxed break-words whitespace-pre-wrap"
-          style={{ borderColor: `var(--${color}-secondary)` }}
+        {text}
+      </blockquote>
+      <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+        <span className="min-w-0 truncate">{location}</span>
+        <time
+          dateTime={new Date(createdAt).toISOString()}
+          title={new Date(createdAt).toLocaleString()}
+          className="shrink-0"
         >
-          {text}
-        </blockquote>
-        <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
-          <span className="min-w-0 truncate">{location}</span>
-          <time
-            dateTime={new Date(createdAt).toISOString()}
-            title={new Date(createdAt).toLocaleString()}
-            className="shrink-0"
-          >
-            {new Date(createdAt).toLocaleTimeString([], {
-              hour: "numeric",
-              minute: "2-digit",
-            })}
-          </time>
-        </div>
+          {new Date(createdAt).toLocaleTimeString([], {
+            hour: "numeric",
+            minute: "2-digit",
+          })}
+        </time>
       </div>
-    </button>
+    </div>
   );
 }

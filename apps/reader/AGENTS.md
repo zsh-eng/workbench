@@ -55,6 +55,8 @@ Choose checks from the changed behavior before starting validation:
 - Prefer integration tests with the database for persistence behavior. Run focused tests once with `bun run test --run <test-file>`.
 - Run the full client suite (`bun run test:client --run`) for shared application changes or changes across domains. It is inexpensive; do not replace a fast suite with a longer manual check.
 - Run a focused browser test with `bun run test:e2e <spec-file> --grep <test-name>`. Use `test:e2e:ui` or `test:e2e:headed` when visual inspection is needed.
+- To check a design with real data, run `bun run dev:local-data` and open port 5177. It serves the local Workbench Backup mirror read-only; see the README.
+- The suite serves on port 5190. To run suites from two worktrees at once, give one another port: `E2E_PORT=5192 bun run test:e2e`.
 - Reuse `test/e2e/helpers/fixtures.ts` or the Reader Diagnostic Harness instead of creating temporary browser scripts. For warm Reader checks, use prepared local data and controlled network responses. Keep cold import checks separate; do not clear caches in a warm-cache test.
 - The E2E `localBook` fixture restores imported EPUB rows into each test's isolated database; it does not precompute pagination. `openLocalBook` starts the Reader from those local bytes. The suite uses a dedicated dev server and mocked API, with service workers blocked. Use separate tests for real-server sync and PWA behavior.
 - Wait for observable readiness and completed interactions, not fixed delays. Assert visible results and stored state where relevant; avoid assertions about incidental setup counts. Retain traces and screenshots on failure.

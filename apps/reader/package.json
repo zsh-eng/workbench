@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun run build:packages && vite",
+    "dev:local-data": "bun run build:packages && vite --mode local-data",
     "build": "bun run build:packages && tsc -b && vite build",
     "lint": "oxlint --config ../../.oxlintrc.json .",
     "lint:fix": "oxlint --config ../../.oxlintrc.json --fix .",
@@ -48,6 +49,7 @@
     "@tanstack/react-query": "^5.100.1",
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.14.10",
+    "@workbench/arctic-sync-server": "workspace:*",
     "@zsh-eng/local-sync": "workspace:*",
     "@zsh-eng/text-highlighter": "workspace:*",
     "better-auth": "^1.6.9",
@@ -76,8 +78,7 @@
     "tailwindcss": "^4.2.4",
     "ua-parser-js": "^2.0.9",
     "xxhash-wasm": "^1.1.0",
-    "zod": "^4.3.6",
-    "@workbench/arctic-sync-server": "workspace:*"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@better-auth/cli": "^1.4.21",

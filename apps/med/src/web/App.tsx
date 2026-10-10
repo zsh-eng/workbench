@@ -45,7 +45,7 @@ import "./pierre-theme";
 import { useTheme } from "./themes";
 import { ThemePicker } from "./components/ThemePicker";
 import { BranchStrip, BranchSwitch, useBranchTabs } from "./components/BranchTabs";
-import { useDisposeOnClose, useWorkspace, WorkspaceList } from "./components/Workspaces";
+import { useDisposeOnClose, useWorkspace, whenIdle, WorkspaceList } from "./components/Workspaces";
 import type { BranchEntry } from "./components/BranchPicker";
 import { visibleElement } from "./data/palette-focus";
 import { setFilePreviewShown, useFilePreviewShown } from "./data/picker-preferences";
@@ -742,6 +742,14 @@ export function App({
     sessionFetch,
   );
   const [agentAttachments, setAgentAttachments] = useState<ComposerAttachment[]>([]);
+  // Once the review is idle, the session pane prepares hidden, so it opens at
+  // once: its thread streams, and its newest replies render ahead.
+  const [sessionReady, setSessionReady] = useState(false);
+  const hasSessions = agentSessions.length > 0;
+  useEffect(() => {
+    if (sessionReady || !hasSessions) return;
+    return whenIdle(() => setSessionReady(true));
+  }, [sessionReady, hasSessions]);
   // The agents that Med can start in a saved review's repository, or in a
   // pull request's worktree from the branch picker.
   const agentPresets = useAgentPresets(!!state.savedReview || branchPickerOpen, sessionFetch);
@@ -2982,6 +2990,7 @@ export function App({
             label: "Session",
             ariaLabel: "Agent session",
             icon: leadIcon,
+            preload: sessionReady && hasSessions,
             render: (controls: ReactNode) => (
               <Suspense fallback={null}>
                 {agentSessions.length === 0 ? (

@@ -84,7 +84,15 @@ export function createSessionStore() {
   // Each thread is the root or the subagent thread of one tool call.
   let threads = new Map<string, SessionItem[]>([[ROOT, []]]);
   let where = new Map<string, { thread: string; index: number }>();
-  let sequence = 0;
+  // Items without an ID take one from their kind and time, so they keep it
+  // when an earlier page builds the thread again, and a pin keeps its reply.
+  let named = new Map<string, number>();
+  const nameOf = (kind: string, at: number) => {
+    const base = `${kind}-${at}`;
+    const count = (named.get(base) ?? 0) + 1;
+    named.set(base, count);
+    return count === 1 ? base : `${base}-${count}`;
+  };
   // Every update so far, so an earlier page can go before them.
   let events: SessionEvent[] = [];
   // Updates of calls that have not arrived, such as results at the start of a
@@ -155,7 +163,7 @@ export function createSessionStore() {
         });
       return;
     }
-    const id = messageId ?? `${kind}-${++sequence}`;
+    const id = messageId ?? nameOf(kind, at);
     if (kind === "user")
       append(thread, { kind, id, at, content: [block], ...(meta?.queued ? { queued: true } : {}) });
     else if (kind === "agent") append(thread, { kind, id, at, text: textOf(block) });
@@ -259,7 +267,7 @@ export function createSessionStore() {
       case "notice":
         append(thread, {
           kind: "notice",
-          id: `notice-${++sequence}`,
+          id: nameOf("notice", at),
           at,
           title: update.title,
           severity: update.severity,
@@ -336,6 +344,7 @@ export function createSessionStore() {
       snapshot = empty;
       threads = new Map([[ROOT, []]]);
       where = new Map();
+      named = new Map();
       events = [];
       orphans = new Map();
       emit();
@@ -349,6 +358,7 @@ export function createSessionStore() {
       snapshot = { ...empty, running };
       threads = new Map([[ROOT, []]]);
       where = new Map();
+      named = new Map();
       events = [];
       orphans = new Map();
       applyAll([...page, ...later]);

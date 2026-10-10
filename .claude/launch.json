@@ -8,6 +8,12 @@
       "port": 5188
     },
     {
+      "name": "reader-local-data",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "--cwd", "apps/reader", "dev:local-data"],
+      "port": 5177
+    },
+    {
       "name": "med",
       "runtimeExecutable": "node",
       "runtimeArgs": ["apps/med/scripts/dev.mjs", "."],

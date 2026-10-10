@@ -1,19 +1,25 @@
 import { useCallback, useRef } from "react";
 import { useHotkey } from "@tanstack/react-hotkeys";
 import { toast } from "sonner";
+import { showUndoToast } from "@/components/UndoToast";
 
-type Deletion = { id: string; dismiss: () => void };
+/** A notebook entry: a note, or a highlight without a note. */
+export type NotebookEntryRef = { kind: "note" | "highlight"; id: string };
+type Deletion = NotebookEntryRef & { dismiss: () => void };
+
+const NOUN = { note: "note", highlight: "highlight" } as const;
 
 /** Book-scoped deletion history. Toast, island and keyboard Undo share one
- * stack; failed restores stay available. Text fields retain their native undo
- * history. A caller with its own Undo surface passes `notify` instead of a toast. */
+ * stack for notes and highlights; failed restores stay available. Text fields
+ * retain their native undo history. A caller with its own Undo surface passes
+ * `notify` instead of a toast. */
 export function useNotebookDeletion({
   remove,
   restore,
   shortcutEnabled,
 }: {
-  remove: (id: string) => Promise<boolean>;
-  restore: (id: string) => Promise<void>;
+  remove: (entry: NotebookEntryRef) => Promise<boolean>;
+  restore: (entry: NotebookEntryRef) => Promise<void>;
   shortcutEnabled: boolean;
 }) {
   const deletions = useRef<Deletion[]>([]);
@@ -26,38 +32,35 @@ export function useNotebookDeletion({
       restoring.current = true;
       restoredEntries.current.add(deletion.id);
       try {
-        await restore(deletion.id);
+        await restore(deletion);
         deletions.current = deletions.current.filter(
           (item) => item !== deletion,
         );
         deletion.dismiss();
       } catch {
         restoredEntries.current.delete(deletion.id);
-        toast.error("Could not restore note.");
+        toast.error(`Could not restore the ${NOUN[deletion.kind]}.`);
       } finally {
         restoring.current = false;
       }
     },
     [restore],
   );
-  const deleteNote = useCallback(
-    async (id: string, notify?: (undo: () => void) => () => void) => {
-      if (!(await remove(id))) return false;
-      const deletion: Deletion = { id, dismiss: () => {} };
+  const deleteEntry = useCallback(
+    async (
+      entry: NotebookEntryRef,
+      notify?: (undo: () => void) => () => void,
+    ) => {
+      if (!(await remove(entry))) return false;
+      const deletion: Deletion = { ...entry, dismiss: () => {} };
       const undoDeletion = () => void undo(deletion);
       if (notify) deletion.dismiss = notify(undoDeletion);
       else {
-        const toastId = toast("Note deleted", {
-          duration: 8000,
-          action: {
-            label: "Undo",
-            onClick: (event) => {
-              event.preventDefault();
-              undoDeletion();
-            },
-          },
+        const noun = NOUN[entry.kind];
+        deletion.dismiss = showUndoToast({
+          message: `${noun[0].toUpperCase()}${noun.slice(1)} deleted`,
+          onUndo: undoDeletion,
         });
-        deletion.dismiss = () => toast.dismiss(toastId);
       }
       deletions.current.push(deletion);
       return true;
@@ -80,10 +83,11 @@ export function useNotebookDeletion({
       stopPropagation: false,
       requireReset: true,
       meta: {
-        name: "Undo note deletion",
-        description: "Restore the last deleted note while the notebook is open",
+        name: "Undo notebook deletion",
+        description:
+          "Restore the last deleted note or highlight while the notebook is open",
       },
     },
   );
-  return { deleteNote, restoredEntries };
+  return { deleteEntry, restoredEntries };
 }

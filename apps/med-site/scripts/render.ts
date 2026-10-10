@@ -1,4 +1,4 @@
-// Renders src/index.html. The page inlines its CSS and script; fonts and
+// Renders src/index.html. The page inlines its CSS and scripts; fonts and
 // screenshots are the only other requests.
 //
 // Template syntax. The markers are plain HTML, so a formatter keeps them.

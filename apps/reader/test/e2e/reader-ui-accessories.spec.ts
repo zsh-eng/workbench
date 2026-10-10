@@ -76,13 +76,13 @@ test("desktop keeps status at the header and gives contents continuous hover row
   await page.screenshot({
     path: testInfo.outputPath("desktop-appearance.png"),
   });
-  await tools.getByRole("button", { name: "Highlights", exact: true }).click();
+  // Highlights live in the notebook; there is no separate tab.
   await expect(
-    tools.getByRole("region", { name: "Book highlights" }),
-  ).toContainText("No highlights yet");
+    tools.getByRole("button", { name: "Highlights", exact: true }),
+  ).toHaveCount(0);
 });
 
-test("desktop highlights navigate to the marked passage and retain the selected tab", async ({
+test("desktop notebook highlights navigate to the marked passage and retain the tab", async ({
   page,
   localBook,
 }, testInfo) => {
@@ -126,7 +126,7 @@ test("desktop highlights navigate to the marked passage and retain the selected 
     name: "Reader tools",
     exact: true,
   });
-  await tools.getByRole("button", { name: "Highlights", exact: true }).click();
+  await tools.getByRole("button", { name: "Notebook", exact: true }).click();
   await tools.getByRole("button", { name: /^Go to highlight:/ }).click();
   await expect.poll(() => currentPages(page)).toEqual(markedPages);
   await expect(
@@ -146,7 +146,7 @@ test("desktop highlights navigate to the marked passage and retain the selected 
     .getByRole("button", { name: "Open reader tools", exact: true })
     .click();
   await expect(
-    tools.getByRole("button", { name: "Highlights", exact: true }),
+    tools.getByRole("button", { name: "Notebook", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   await expect(
     tools.getByRole("button", { name: /^Go to highlight:/ }),
@@ -159,16 +159,17 @@ test.describe("mobile Reader accessories", () => {
     isMobile: true,
     hasTouch: true,
   });
-  test("keeps status at the footer and loads the book cover", async ({
+  test("pins status to the top edge and loads the book cover", async ({
     page,
     localBook,
   }, testInfo) => {
     await openLocalBook(page, localBook.id);
     await expect(page.locator("[data-reader-header-accessory]")).toHaveCount(0);
+    await expect(page.locator("[data-reader-footer]")).toHaveCount(0);
     await expect(
       page
-        .locator("[data-reader-footer]")
-        .getByRole("button", { name: "Start reading", exact: true }),
+        .locator("[data-reader-top-prompt]")
+        .getByRole("button", { name: "Mark as reading", exact: true }),
     ).toBeVisible();
     await page.touchscreen.tap(195, 350);
     await page
@@ -176,7 +177,7 @@ test.describe("mobile Reader accessories", () => {
       .click();
     await expect(
       page.getByRole("button", { name: "Highlights", exact: true }),
-    ).toBeDisabled();
+    ).toHaveCount(0);
     await page.getByRole("button", { name: /Book status/ }).click();
     const cover = page
       .getByRole("dialog", { name: "Reading status", exact: true })
@@ -224,16 +225,14 @@ for (const mobile of [false, true]) {
         });
       }, localBook.id);
       const accessory = page.locator(
-        mobile ? "[data-reader-footer]" : "[data-reader-header-accessory]",
+        mobile ? "[data-reader-top-prompt]" : "[data-reader-header-accessory]",
       );
       const action = accessory.getByRole("button", {
-        name: mobile
-          ? /Continue from Test tablet/
-          : /Continue at p\. .* from Test tablet/,
+        name: /Continue at p\. .* from Test tablet/,
       });
       await expect(action).toBeVisible();
       const bounds = (await action.boundingBox())!;
-      expect(mobile ? bounds.y > 500 : bounds.y < 150 && bounds.x > 640).toBe(
+      expect(mobile ? bounds.y < 64 : bounds.y < 150 && bounds.x > 640).toBe(
         true,
       );
       const before = await currentPages(page);
@@ -380,7 +379,7 @@ for (const mobile of [false, true]) {
     await expect(finish).toBeVisible();
     await expect(
       page.locator(
-        mobile ? "[data-reader-footer]" : '[data-reader-header="desktop"]',
+        mobile ? "[data-reader-top-prompt]" : '[data-reader-header="desktop"]',
       ),
     ).toContainText("Mark as finished");
     const readStatus = () =>

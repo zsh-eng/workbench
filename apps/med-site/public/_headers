@@ -1,5 +1,9 @@
-# Cloudflare static assets: files under /assets/ have content hashes.
+# Cloudflare static assets: files under /assets/ have content hashes, and so
+# do the live demo's (Vite names them).
 /assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/demo/assets/*
   Cache-Control: public, max-age=31536000, immutable
 
 /*

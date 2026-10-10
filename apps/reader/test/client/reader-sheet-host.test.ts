@@ -2,7 +2,7 @@ import { ReaderSheetHost } from "@/features/reader/ReaderSheetHost";
 import type { Book } from "@/lib/db";
 import type { ReaderSettings } from "@/types/reader.types";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { createElement } from "react";
+import { createElement, createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/features/reader/ReaderToolsSidebar", () => ({
@@ -63,6 +63,7 @@ function renderHost(
       chapterStartPages: [],
       currentChapterHref: "",
       onNavigateToHref: vi.fn(() => true),
+      toolsTriggerRef: createRef<HTMLButtonElement>(),
     }),
   );
 
@@ -75,12 +76,8 @@ describe("ReaderSheetHost", () => {
   it("keeps the existing sheet launcher on mobile", () => {
     renderHost(true);
 
-    expect(screen.getByRole("button", { name: "Notes" })).toBeTruthy();
-    expect(
-      screen
-        .getByRole("button", { name: "Highlights" })
-        .hasAttribute("disabled"),
-    ).toBe(true);
+    expect(screen.getByRole("button", { name: "Notebook" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Highlights" })).toBeNull();
     expect(screen.queryByText("desktop reader sidebar")).toBeNull();
   });
 
@@ -88,7 +85,7 @@ describe("ReaderSheetHost", () => {
     renderHost(false);
 
     expect(screen.getByText("desktop reader sidebar")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Notes" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Notebook" })).toBeNull();
   });
 
   it("keeps the full book actions sheet in the mobile reader tools", () => {
@@ -97,6 +94,6 @@ describe("ReaderSheetHost", () => {
     fireEvent.click(screen.getByRole("button", { name: "Book actions" }));
 
     expect(onOpenSheet).toHaveBeenCalledWith("tools");
-    expect(screen.queryByRole("button", { name: "Notes" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Notebook" })).toBeNull();
   });
 });

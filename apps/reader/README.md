@@ -72,6 +72,48 @@ Not on roadmap:
 - RTL or Top to bottom layout
 - EPUB CFI for reading progress
 
+## Local real data
+
+To see the Reader with your own library, run:
+
+```bash
+bun run dev:local-data
+```
+
+Then open <http://localhost:5177>. The app signs in as a local user and
+installs the library the way a new device does: it pulls every record and
+downloads each book file when you open it. Give it a few seconds to fill
+the Library on the first visit.
+
+- The data comes from the Workbench Backup mirror in
+  `~/Library/Application Support/Workbench Backup`. Set `READER_BACKUP_DIR`
+  to use a different mirror folder.
+- The mirror opens read-only. Edits, imports and deletions in the browser stay
+  in the dev server's memory and in the browser. They never reach the backup
+  or the production API, and a restart discards them on the server.
+- This mode reads no `.env` file and starts no local Worker. It uses its own
+  port, so its IndexedDB does not mix with `bun run dev` data. To install the
+  data again, clear the site data for `localhost:5177` and reload.
+
+## Elements
+
+With Debug mode on, open **Settings → Elements**, or `/debug/elements`. The
+page shows Reader parts in a desktop frame and a phone frame side by side,
+for design checks on desktop.
+
+- **Foundations** shows each theme's tokens and the type scale.
+- **Specimens** render real components on sample data. Pick a state above a
+  specimen; both frames change without a reload. Choose it again to replay it.
+- **Reader** and **Library** run the whole app in the frames. With
+  `bun run dev:local-data`, they show your own books.
+- **Library ideas** (`/debug/elements/library`) puts the current Library next
+  to an idea, on desktop, phone or both. To add an idea, give it a route that
+  renders it full-window and add it to `IDEAS` in
+  `src/features/elements/LibraryIdeasPage.tsx`.
+
+The frame theme previews the frames only. To add a specimen, add a component
+that takes `state` and `nonce` to `src/features/elements/specimens.tsx`.
+
 ## Notes on Env
 
 `VITE_BETTER_AUTH_URL` should be defined in `.env.development` and `.env.production`.

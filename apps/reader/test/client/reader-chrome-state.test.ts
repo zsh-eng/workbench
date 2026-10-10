@@ -9,11 +9,11 @@ afterEach(() => {
 
 it("restores the desktop tab across mounts and honors explicit destinations", () => {
   const first = renderHook(() => useReaderChromeState(false));
-  act(() => first.result.current.actions.openReaderSheet("highlights"));
+  act(() => first.result.current.actions.openReaderSheet("notes"));
   first.unmount();
   const next = renderHook(() => useReaderChromeState(false));
   act(() => next.result.current.actions.openReaderSheet("tools"));
-  expect(next.result.current.state.activeReaderSheet).toBe("highlights");
+  expect(next.result.current.state.activeReaderSheet).toBe("notes");
   act(() => next.result.current.actions.openReaderSheet("contents"));
   expect(next.result.current.state.activeReaderSheet).toBe("contents");
 });
@@ -34,14 +34,9 @@ it("uses Contents when the stored tab is invalid", () => {
   expect(result.current.state.activeReaderSheet).toBe("contents");
 });
 
-it("uses the mobile launcher when a desktop Highlights panel crosses the breakpoint", () => {
-  const { result, rerender } = renderHook(
-    ({ isMobile }) => useReaderChromeState(isMobile),
-    { initialProps: { isMobile: false } },
-  );
-  act(() => result.current.actions.openReaderSheet("highlights"));
-  rerender({ isMobile: true });
-  expect(result.current.state.activeReaderSheet).toBe("tools");
-  rerender({ isMobile: false });
-  expect(result.current.state.activeReaderSheet).toBe("highlights");
+it("opens the Notebook for a stored Highlights tab, which the notebook replaced", () => {
+  window.localStorage.setItem("epub-reader-sidebar-tab", "highlights");
+  const { result } = renderHook(() => useReaderChromeState(false));
+  act(() => result.current.actions.openReaderSheet("tools"));
+  expect(result.current.state.activeReaderSheet).toBe("notes");
 });

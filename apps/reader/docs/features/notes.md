@@ -23,7 +23,9 @@ returns a conflict; a received deletion cannot be undone by ordinary submission.
 The notebook gathers the book's notes and the highlights that have no note; a
 note on a highlight already shows that passage. It filters by type (All, Notes,
 Highlights) and by any number of highlight colours. A note takes the current
-colour of its highlight. Choosing a highlight opens its page. Filters stay set
+colour of its highlight. Choosing a highlight opens its page. A highlight has a
+note's menu and gestures without Edit: Copy text, and Delete with Undo. Notes
+and highlights share one Undo history. Filters stay set
 while the book is open. The notebook opens in book order at the current
 chapter; time order opens at the newest entry.
 
