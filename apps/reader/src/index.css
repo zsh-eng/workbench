@@ -100,7 +100,11 @@
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
-  --muted-foreground: color-mix(in srgb, var(--foreground) 65%, var(--background));
+  --muted-foreground: color-mix(
+    in srgb,
+    var(--foreground) 65%,
+    var(--background)
+  );
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
@@ -224,7 +228,6 @@
   textarea {
     font: inherit;
   }
-
 }
 
 @layer components {
@@ -288,7 +291,11 @@
   --secondary: hsl(51 33% 92%);
   --secondary-foreground: hsl(0 3% 6%);
   --muted: hsl(51 33% 92%);
-  --muted-foreground: color-mix(in srgb, var(--foreground) 65%, var(--background));
+  --muted-foreground: color-mix(
+    in srgb,
+    var(--foreground) 65%,
+    var(--background)
+  );
   --accent: hsl(51 33% 92%);
   --accent-foreground: hsl(0 3% 6%);
   --destructive: hsl(3 62% 42%);
@@ -361,6 +368,16 @@
   --purple-secondary: hsl(259 42% 43%);
   --magenta-primary: hsl(329 54% 59%);
   --magenta-secondary: #641f46;
+}
+
+/* The Undo countdown ring: one linear drain, paused with its timer. */
+@keyframes undo-drain {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: 1;
+  }
 }
 
 @keyframes smooth-caret-blink {
@@ -442,13 +459,22 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     animation: none !important;
     transition: none !important;
     scroll-behavior: auto !important;
   }
-  [class*="active:scale"], [class*="hover:scale"] { scale: 1 !important; }
-  [class*="hover:-translate"] { translate: none !important; }
+  [class*="active:scale"],
+  [class*="hover:scale"] {
+    scale: 1 !important;
+  }
+  [class*="hover:-translate"] {
+    translate: none !important;
+  }
   [data-slot="drawer-content"][data-starting-style],
-  [data-slot="drawer-content"][data-ending-style] { transform: none !important; }
+  [data-slot="drawer-content"][data-ending-style] {
+    transform: none !important;
+  }
 }

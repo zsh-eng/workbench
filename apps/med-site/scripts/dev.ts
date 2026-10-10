@@ -9,12 +9,14 @@ const { values } = parseArgs({
   options: { dist: { type: "boolean" }, port: { type: "string" } },
 });
 const root = values.dist ? join(import.meta.dir, "../dist") : publicDir;
+// Med's live demo, from `bun run demo`.
+const demo = join(import.meta.dir, "../.demo");
 const port = Number(values.port ?? 4320);
 
-function file(pathname: string): Response {
-  const path = join(root, normalize(decodeURIComponent(pathname)));
+function file(pathname: string, base = root): Response {
+  const path = join(base, normalize(decodeURIComponent(pathname)));
   if (
-    !path.startsWith(root) ||
+    !path.startsWith(base) ||
     !existsSync(path) ||
     statSync(path).isDirectory()
   ) {
@@ -28,6 +30,12 @@ const server = Bun.serve({
   port,
   fetch(request) {
     const { pathname } = new URL(request.url);
+    if (
+      !values.dist &&
+      pathname.startsWith("/demo/") &&
+      existsSync(join(demo, normalize(pathname)))
+    )
+      return file(pathname, demo);
     if (pathname !== "/") return file(pathname);
     if (values.dist) return file("/index.html");
     return new Response(render({ hash: false }).html, {

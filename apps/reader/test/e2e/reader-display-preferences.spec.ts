@@ -25,10 +25,7 @@ for (const mobile of [true, false]) {
           // This fixture has no reading status. Its contextual action mounts
           // only after the Reader accepts chrome interactions.
           await expect(
-            page.getByRole("button", {
-              name: mobile ? "Start reading" : "Mark as reading",
-              exact: true,
-            }),
+            page.getByRole("button", { name: "Mark as reading", exact: true }),
           ).toBeVisible();
           const tools = page.getByRole("button", {
             name: "Open reader tools",
@@ -73,9 +70,9 @@ for (const mobile of [true, false]) {
           });
         await page.reload();
         await waitForReaderReady(page);
-        if (!mobile) {
-          await page.locator('[data-reader-chrome-rail="bottom"]').hover();
-        }
+        // The footer carries the page numbers; show it before checking them.
+        if (mobile) await page.touchscreen.tap(195, 350);
+        else await page.locator('[data-reader-chrome-rail="bottom"]').hover();
         await expect(page.getByTestId("reader-page-indicator")).toHaveCount(0);
         const current = page
           .locator(
@@ -105,43 +102,50 @@ for (const mobile of [true, false]) {
         await expect(pageNumbers).toBeChecked();
         await page.reload();
         await waitForReaderReady(page);
-        if (!mobile) {
-          await page.locator('[data-reader-chrome-rail="bottom"]').hover();
-        }
+        // The footer carries the page numbers; show it before checking them.
+        if (mobile) await page.touchscreen.tap(195, 350);
+        else await page.locator('[data-reader-chrome-rail="bottom"]').hover();
         await expect(page.getByTestId("reader-page-indicator")).toHaveCount(1);
       });
     },
   );
 }
 
-test.describe("reading status footer", () => {
+test.describe("reading status prompt", () => {
   test.use({
     viewport: { width: 390, height: 844 },
     isMobile: true,
     hasTouch: true,
   });
-  test("keeps the note action above the status prompt and saves locally", async ({
+  test("keeps the status prompt in place as the chrome toggles and saves locally", async ({
     page,
     localBook,
   }) => {
     await openLocalBook(page, localBook.id);
-    const action = page.getByRole("button", {
-      name: "Start reading",
-      exact: true,
-    });
+    const action = page
+      .locator("[data-reader-top-prompt]")
+      .getByRole("button", { name: "Mark as reading", exact: true });
     await expect(action).toBeVisible();
-    if (!(await page.getByRole("button", { name: "Jot a note" }).isVisible())) {
-      await page.touchscreen.tap(195, 350);
-    }
-    const note = page.getByRole("button", { name: "Jot a note" });
-    await expect(note).toBeVisible();
+    // Measure once the prompt's entrance has settled.
+    let before = await action.boundingBox();
     await expect
       .poll(async () => {
-        const a = await note.boundingBox();
-        const b = await action.boundingBox();
-        return a && b ? a.y + a.height <= b.y : false;
+        const next = await action.boundingBox();
+        const settled = JSON.stringify(next) === JSON.stringify(before);
+        before = next;
+        return settled;
       })
       .toBe(true);
+    expect(before!.y).toBeLessThan(64);
+    const note = page.getByRole("button", { name: "Jot a note" });
+    for (let toggle = 0; toggle < 2; toggle++) {
+      // A footer that is sliding away still shows its capsule.
+      await expect(page.locator("[data-reader-footer-leaving]")).toHaveCount(0);
+      const chromeShown = await note.isVisible();
+      await page.touchscreen.tap(195, 350);
+      await expect(note).toBeVisible({ visible: !chromeShown });
+      expect(await action.boundingBox()).toEqual(before);
+    }
     await action.click();
     await expect(action).toHaveCount(0);
     await expect

@@ -20,10 +20,11 @@ const loaders = {
   yaml: () => import("@twinkleplop/yaml"),
   toml: () => import("@twinkleplop/toml"),
   bash: () => import("@twinkleplop/bash"),
-  go: () => import("@twinkleplop/go"),
+  go: () => import("./languages/go"),
   python: () => import("@twinkleplop/python"),
-  rust: () => import("@twinkleplop/rust"),
+  rust: () => import("./languages/rust"),
   sql: () => import("@twinkleplop/sql"),
+  swift: () => import("./languages/swift"),
   svelte: () => import("@twinkleplop/svelte"),
   diff: () => import("@twinkleplop/diff"),
   ini: () => import("@twinkleplop/ini"),
@@ -71,6 +72,15 @@ const scopeOverrides: Partial<Record<Language, Record<string, string>>> = {
     unit: "constant.numeric.css|keyword.other.unit.css",
   },
 };
+// These scanners give TextMate scope stacks without the grammar's root scope.
+// Themes also match the root, as in `source.go keyword.package.go`.
+const rootScopes: Partial<Record<Language, string>> = {
+  json: "source.json",
+  jsonc: "source.json.comments",
+  go: "source.go",
+  rust: "source.rust",
+  swift: "source.swift",
+};
 const tokenizers = new Map<Language, (source: string) => TokenizeResult>();
 const pending = new Map<Language, Promise<void>>();
 export async function ensureLanguages(names: readonly string[], preloadEmbedded = false) {
@@ -89,12 +99,20 @@ export async function ensureLanguages(names: readonly string[], preloadEmbedded 
           .then((module) => {
             const tokenize = module.tokenize({ fidelity: "high" });
             const scopes = scopeOverrides[language];
+            const root = rootScopes[language];
+            const scope = (type: string) => {
+              const mapped = scopes?.[type] ?? type;
+              return root ? `${root}|${mapped}` : mapped;
+            };
+            // A tokenizer's type table only grows; map each new type once.
+            let types: string[] = [];
             tokenizers.set(
               language,
-              scopes
+              scopes || root
                 ? (source) => {
                     const result = tokenize(source);
-                    const types = result.token_types.map((type) => scopes[type] ?? type);
+                    if (types.length !== result.token_types.length)
+                      types = [...types, ...result.token_types.slice(types.length).map(scope)];
                     return { ...result, token_types: types };
                   }
                 : tokenize,

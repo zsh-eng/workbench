@@ -9,11 +9,22 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 
+/** Copies an entry's text; notes and highlights share the same menu item. */
+export async function copyEntryText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    toast.error("Could not copy the text.");
+  }
+}
+
 const menuItemClassName =
   "rounded-[calc(var(--radius-2xl)-5px)] hover:bg-secondary data-[highlighted]:bg-secondary focus:bg-secondary";
 
-/** Desktop notes use direct editing and a context menu, without swipe gestures. */
+/** Desktop notebook entries use direct editing and a context menu, without
+ * swipe gestures. A highlight has the same card and menu, without Edit. */
 export function DesktopNotebookNote({
+  kind = "note",
   children,
   onEdit,
   onDelete,
@@ -23,6 +34,7 @@ export function DesktopNotebookNote({
   dimmed,
   text,
 }: {
+  kind?: "note" | "highlight";
   children: ReactNode;
   onEdit: () => void;
   onDelete: () => Promise<boolean>;
@@ -34,20 +46,17 @@ export function DesktopNotebookNote({
 }) {
   const present = useIsPresent();
   const menuDisabled = disabled || !present || editing || dimmed;
-  async function copyText() {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      toast.error("Could not copy note text.");
-    }
-  }
   return (
     <ContextMenu disabled={menuDisabled}>
       <ContextMenuTrigger
         tabIndex={present ? 0 : -1}
         inert={!present}
         aria-hidden={!present}
-        aria-label="Note; double-click or use the context menu to edit"
+        aria-label={
+          kind === "note"
+            ? "Note; double-click or use the context menu to edit"
+            : "Highlight; use the context menu to copy or delete"
+        }
         data-note-editing={editing || undefined}
         onContextMenu={(event) => {
           if (editing || dimmed) event.preventDefault();
@@ -79,21 +88,23 @@ export function DesktopNotebookNote({
         </article>
       </ContextMenuTrigger>
       <ContextMenuContent className="min-w-52 rounded-2xl p-1">
-        <ContextMenuItem
-          disabled={disabled || !canEdit || editing}
-          onClick={onEdit}
-          className={menuItemClassName}
-        >
-          <Pencil size={14} />
-          Edit
-        </ContextMenuItem>
+        {kind === "note" && (
+          <ContextMenuItem
+            disabled={disabled || !canEdit || editing}
+            onClick={onEdit}
+            className={menuItemClassName}
+          >
+            <Pencil size={14} />
+            Edit
+          </ContextMenuItem>
+        )}
         <ContextMenuItem
           disabled={disabled}
-          onClick={() => void copyText()}
+          onClick={() => void copyEntryText(text)}
           className={menuItemClassName}
         >
           <Copy size={14} />
-          Copy Text
+          Copy text
         </ContextMenuItem>
         <ContextMenuItem
           disabled={disabled}

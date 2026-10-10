@@ -57,5 +57,6 @@ Record these numbers in the change description or in the owning app's docs:
 | Twinkleplop replaces Shiki inside Pierre    | Tokenizing is 8–155× faster on repository files; the build has 9 MiB less lazy JavaScript.                                                 |
 | In-house Java, C++, and XML grammars        | 0.3–2.6% of visible characters differ from Shiki ([method](../apps/med/docs/validation/JAVA_CPP_HIGHLIGHTING.md)); Twinkleplop has no XML. |
 | In-house JSON and JSONC scanner             | No differences from Shiki in 4,149 random and repository files; 1.5–5.2× faster than the Twinkleplop grammar.                              |
+| In-house Go, Rust, and Swift scanners       | Shiki scope stacks in 1,148 of 1,150 files; 24–33× faster than Shiki. Go is 1.6× slower than the Twinkleplop grammar.                       |
 | Keep Mermaid, KaTeX, CodeMirror, and remark | Engines and large specifications. They load lazily.                                                                                        |
 | Keep Base UI in the first load              | Accessible menus, dialogs, and comboboxes need focus and keyboard rules that are expensive to own.                                         |

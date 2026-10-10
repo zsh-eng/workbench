@@ -12,12 +12,12 @@
     <meta
       name="theme-color"
       media="(prefers-color-scheme: light)"
-      content="#ffffff"
+      content="#f5f4f1"
     />
     <meta
       name="theme-color"
       media="(prefers-color-scheme: dark)"
-      content="#141416"
+      content="#121318"
     />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -50,29 +50,64 @@
     </noscript>
   </head>
   <body>
-    <header class="wrap top">
-      <a class="brand" href="/">
-        <svg viewBox="0 0 32 32" aria-hidden="true">
-          <rect width="32" height="32" rx="7.5" fill="#18181c" />
-          <g fill="none" stroke-linecap="round" stroke-width="3.2">
-            <path stroke="#62626d" d="M11.5 10H22M11.5 22H17" />
-            <path stroke="#8f9cff" d="M15.5 16H24" />
-            <path stroke="#8f9cff" stroke-width="2.2" d="M7 14.6V17.4" />
-          </g>
-        </svg>
-        Med
-      </a>
-      <nav aria-label="Project">
-        <a href="{{links.github}}">GitHub</a>
-      </nav>
+    <header class="top">
+      <div class="wide">
+        <a class="brand" href="/" aria-label="Med">
+          <!-- Med's icon (apps/med/scripts/render-icons.mjs): Reflection on a
+               painted sea, dawn or moonrise with the system's colour scheme,
+               as the screenshots are. -->
+          <picture>
+            <source
+              media="(prefers-color-scheme: dark)"
+              srcset="{{asset:/icon-night.svg}}"
+            />
+            <img
+              class="mark"
+              src="{{asset:/icon-dawn.svg}}"
+              alt=""
+              width="26"
+              height="26"
+            />
+          </picture>
+          <!-- The wordmark: monoline strokes on a 100-unit x-height. The m's
+               arches and the round letters are circles, as in the icon. -->
+          <svg
+            class="word"
+            viewBox="0 -142 389 146"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="17.5"
+            aria-hidden="true"
+          >
+            <path
+              d="M8.75 0V-58.25A33 33 0 0 1 74.75 -58.25V0M74.75 -58.25A33 33 0 0 1 140.75 -58.25V0"
+            />
+            <path
+              d="M172.25 -50A44.25 44.25 0 0 1 260.75 -50M172.25 -50A44.25 44.25 0 0 0 251.37 -22.76"
+            />
+            <path stroke-width="14.35" d="M163.5 -50H269.5" />
+            <path
+              d="M291.25 -50A44.25 44.25 0 1 1 379.75 -50A44.25 44.25 0 1 1 291.25 -50ZM379.75 0V-142"
+            />
+          </svg>
+        </a>
+        <nav aria-label="Project">
+          <a href="#features">Features</a>
+          <a href="{{links.docs}}">Docs</a>
+          <a href="{{links.github}}">GitHub</a>
+        </nav>
+      </div>
     </header>
 
     <main>
-      <section class="wrap hero" aria-labelledby="title">
-        <h1 id="title">{{heading}}</h1>
+      <section class="intro column" aria-labelledby="title">
+        <h1 id="title">
+          {{heading}}
+          <span>{{tagline}}</span>
+        </h1>
         <p class="lede">{{subtitle}}</p>
 
-        <div class="install">
+        <div class="install card" id="install">
           <div class="tabs" role="tablist" aria-label="Install Med">
             <button
               type="button"
@@ -112,7 +147,7 @@
             <pre><code id="install-command">{{installCommand}}</code></pre>
           </div>
           <div
-            class="panel"
+            class="panel agents"
             role="tabpanel"
             id="panel-agent"
             aria-labelledby="tab-agent"
@@ -122,111 +157,305 @@
               type="button"
               class="copy"
               data-copy="agent-prompt"
-              data-done="Copied the agent prompt."
+              data-done="Copied the prompt for your agent."
             >
-              <span class="copy-label">Copy</span
-              ><span class="sr-only"> the agent prompt</span>
+              <span class="copy-label">Copy prompt</span
+              ><span class="sr-only"> for your agent</span>
             </button>
-            <pre><code id="agent-prompt">{{agentPrompt}}</code></pre>
+            <p>
+              Paste it into your coding agent. The agent installs Med and learns
+              to hand you its work.
+            </p>
+            <!-- Brand marks from Simple Icons (CC0). Codex and OpenCode have
+                 no free mark: Med's own Codex glyph and a prompt stand in. -->
+            <ul class="agent-list">
+              <li>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    fill="currentColor"
+                    d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"
+                  />
+                </svg>
+                Claude Code
+              </li>
+              <li>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    fill="currentColor"
+                    d="M11.503.131 1.891 5.678a.84.84 0 0 0-.42.726v11.188c0 .3.162.575.42.724l9.609 5.55a1 1 0 0 0 .998 0l9.61-5.55a.84.84 0 0 0 .42-.724V6.404a.84.84 0 0 0-.42-.726L12.497.131a1.01 1.01 0 0 0-.996 0M2.657 6.338h18.55c.263 0 .43.287.297.515L12.23 22.918c-.062.107-.229.064-.229-.06V12.335a.59.59 0 0 0-.295-.51l-9.11-5.257c-.109-.063-.064-.23.061-.23"
+                  />
+                </svg>
+                Cursor
+              </li>
+              <li>
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.4"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <rect x="2.25" y="3" width="11.5" height="10" rx="2.25" />
+                  <path d="m5 6.5 1.75 1.5L5 9.5M8.25 10h2.75" />
+                </svg>
+                Codex
+              </li>
+              <li>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    fill="currentColor"
+                    d="M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81"
+                  />
+                </svg>
+                Gemini CLI
+              </li>
+              <li>
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.4"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="m3.25 4.5 3.25 3.25-3.25 3.25M8.5 11.75h4.25" />
+                </svg>
+                OpenCode
+              </li>
+            </ul>
+            <p id="agent-prompt" hidden>{{agentPrompt}}</p>
           </div>
         </div>
         <p class="note">
           {{requirements}}
           <a href="{{links.installDocs}}">Install by hand</a>
         </p>
-        <p class="sr-only" role="status" id="copy-status"></p>
       </section>
 
-      <!-- Product demos. An interactive demo and an agent chat demo come later. -->
-      <section class="wrap demo" id="demo" aria-label="Screenshots">
-        <figure class="shot">
-          <picture data-shot="review"></picture>
-          <figcaption>
-            A review from an agent: its history and changed files beside one
-            continuous diff, with your comment on line 29.
-          </figcaption>
-        </figure>
-        <div class="pair">
-          <figure class="shot">
-            <picture data-shot="brief"></picture>
-            <figcaption>
-              The brief cites changed lines. Each citation opens as a short diff
-              below its sentence.
-            </figcaption>
-          </figure>
-          <figure class="shot">
-            <picture data-shot="search"></picture>
-            <figcaption>
-              Find a file with <kbd>⌘⇧K</kbd> and read it in the preview.
-            </figcaption>
-          </figure>
+      <!-- The product window rises from the painting
+           (scripts/painting/paint.ts). -->
+      <figure class="product">
+        <div class="painting wide">
+          <div class="window">
+            <div class="titlebar" aria-hidden="true">
+              <span class="lights"><i></i><i></i><i></i></span>
+            </div>
+            <!-- On wide screens, src/main.js runs Med itself in each window:
+                 the demo's scene from data-demo, over the screenshot. Narrow
+                 screens show one part of this screenshot at a time, close
+                 enough to read. -->
+            <div class="screen" data-demo="/demo/demo.html?scene=review">
+              <picture data-shot="review"></picture>
+            </div>
+          </div>
+          <!-- Narrow screens: the parts of the review. src/main.js shows the
+               buttons, moves through the parts, and stops at a tap or swipe. -->
+          <div
+            class="stops"
+            role="group"
+            aria-label="Parts of the review"
+            hidden
+          >
+            <button type="button" aria-pressed="true">Comment</button>
+            <button type="button" aria-pressed="false">Agent session</button>
+            <button type="button" aria-pressed="false">History</button>
+          </div>
         </div>
-      </section>
+        <figcaption class="column">
+          A saved review: its history, one continuous diff with your comment,
+          and the agent's session beside it. On a large screen, each window on
+          this page is Med itself, on a recorded review. Click in one to scroll
+          it.
+        </figcaption>
+      </figure>
 
-      <section class="wrap facts" aria-labelledby="facts-title">
-        <h2 id="facts-title">What Med does</h2>
-        <ul>
+      <section class="features" id="features" aria-labelledby="features-title">
+        <h2 id="features-title" class="column">
+          One window for the whole review.
+          <span>From the agent's explanation to the pushed commit.</span>
+        </h2>
+
+        <div class="wide chapters">
+          <article class="chapter" aria-labelledby="understand">
+            <div class="chapter-text">
+              <p class="num">01</p>
+              <h3 id="understand">Read the explanation</h3>
+              <p>
+                The agent explains its work in a brief. Each sentence cites the
+                lines it changed, and each citation opens as a short diff below
+                it.
+              </p>
+              <ul>
+                <li>Diagrams, tables, and images in place</li>
+                <li>Changed files the brief does not mention</li>
+                <li>Comment on a passage of the brief</li>
+              </ul>
+            </div>
+            <figure class="window shot">
+              <div class="screen" data-demo="/demo/demo.html?scene=brief">
+                <picture data-shot="brief"></picture>
+              </div>
+            </figure>
+          </article>
+
+          <article class="chapter" aria-labelledby="review">
+            <div class="chapter-text">
+              <p class="num">02</p>
+              <h3 id="review">Comment on the diff</h3>
+              <p>
+                Commits and working changes read as one continuous diff, split
+                or unified. Comment on a line or a range without leaving the
+                keyboard.
+              </p>
+              <ul>
+                <li>Blame for the line at the cursor</li>
+                <li>Find any file, code, or symbol</li>
+                <li>Vim keys in the editor</li>
+              </ul>
+            </div>
+            <figure class="window shot">
+              <div class="screen" data-demo="/demo/demo.html?scene=comment">
+                <picture data-shot="comment"></picture>
+              </div>
+            </figure>
+          </article>
+
+          <article class="chapter" aria-labelledby="agents">
+            <div class="chapter-text">
+              <p class="num">03</p>
+              <h3 id="agents">Work with your agents</h3>
+              <p>
+                The agent's session streams beside the review: its replies, tool
+                calls, plan, and background work. Send your comments from its
+                message box, and the next round becomes a new iteration of the
+                same review.
+              </p>
+              <ul>
+                <li>Start an agent from a saved review</li>
+                <li>See which agent is waiting for you</li>
+                <li>Allow or deny each request</li>
+              </ul>
+            </div>
+            <figure class="window shot">
+              <div class="screen" data-demo="/demo/demo.html?scene=session">
+                <picture data-shot="session"></picture>
+              </div>
+            </figure>
+          </article>
+
+          <article class="chapter" aria-labelledby="ship">
+            <div class="chapter-text">
+              <p class="num">04</p>
+              <h3 id="ship">Commit, push, and follow the pull request</h3>
+              <p>
+                Stage files, write the message, commit, and push from the Commit
+                tab. Paste a pull request link to open it as a workspace, with
+                its GitHub comments beside the diff.
+              </p>
+              <ul>
+                <li>Med never force-pushes</li>
+                <li>Codex review findings as comments</li>
+                <li>GitHub through your own gh sign-in</li>
+              </ul>
+            </div>
+            <figure class="window shot">
+              <div class="screen" data-demo="/demo/demo.html?scene=commit">
+                <picture data-shot="commit"></picture>
+              </div>
+            </figure>
+          </article>
+
+          <article class="chapter" aria-labelledby="notes">
+            <div class="chapter-text">
+              <p class="num">05</p>
+              <h3 id="notes">Keep your notes beside the code</h3>
+              <p>
+                Add an Obsidian vault next to your repositories. Follow wiki
+                links and backlinks, and edit in Vim with a live preview.
+              </p>
+              <ul>
+                <li>Markdown, math, and Mermaid</li>
+                <li>Image embeds with sizes</li>
+                <li>Your .obsidian settings stay as they are</li>
+              </ul>
+            </div>
+            <figure class="window shot">
+              <div class="screen" data-demo="/demo/demo.html?scene=notes">
+                <picture data-shot="notes"></picture>
+              </div>
+            </figure>
+          </article>
+        </div>
+
+        <ul class="facts column">
           <li>
             <h3>Runs on your machine</h3>
             <p>
-              Med is a local server that you use in your browser. It has no
-              account and no cloud. For pull requests, it reads GitHub through
-              your own gh sign-in.
+              One executable with the UI and offline docs. No account and no
+              cloud.
             </p>
           </li>
           <li>
-            <h3>Review links from agents</h3>
+            <h3>Keyboard first</h3>
             <p>
-              An agent runs <code>med review create</code> and gives you a link.
-              Its brief cites the changed lines.
+              <kbd>c</kbd> comments on the line, <kbd>q</kbd> opens the Commit
+              tab, and <kbd>⌘K</kbd> finds every command.
             </p>
           </li>
           <li>
-            <h3>One review per task</h3>
+            <h3>Open source</h3>
             <p>
-              Later rounds of the same task become iterations of one review.
-              Earlier briefs and comments stay.
-            </p>
-          </li>
-          <li>
-            <h3>Comments go back</h3>
-            <p>
-              Comment on a line or a range. <strong>Copy comments</strong> gives
-              you Markdown to paste into the agent.
-            </p>
-          </li>
-          <li>
-            <h3>One continuous diff</h3>
-            <p>
-              Read commits and working changes as one split or unified diff,
-              with history, files, search, and themes.
-            </p>
-          </li>
-          <li>
-            <h3>One executable</h3>
-            <p>
-              The download includes Bun, the browser UI, and offline docs. You
-              do not need to install Node or Bun.
+              MIT licensed. Saved reviews keep their code and comments across
+              restarts.
             </p>
           </li>
         </ul>
-        <p class="more"><a href="{{links.agentDocs}}">How agents use Med</a></p>
+      </section>
+
+      <section class="end column" aria-labelledby="end-title">
+        <h2 id="end-title">
+          {{closing}}
+          <span>{{closingMore}}</span>
+        </h2>
+        <div class="command card">
+          <button
+            type="button"
+            class="copy"
+            data-copy="install-command-end"
+            data-done="Copied the install command."
+          >
+            <span class="copy-label">Copy</span
+            ><span class="sr-only"> the command</span>
+          </button>
+          <pre><code id="install-command-end">{{installCommand}}</code></pre>
+        </div>
+        <p class="note">
+          {{requirements}}
+          <a href="{{links.installDocs}}">Install by hand</a>
+        </p>
       </section>
     </main>
 
-    <footer class="wrap foot">
+    <footer class="foot column">
       <p>
         Med is open source under the
         <a href="{{links.license}}">{{license}}</a>.
         <a href="{{links.github}}">Source on GitHub</a>.
       </p>
       <p>
-        Set in Geist and Paper Mono under the SIL Open Font License 1.1 (<a
+        The painting is made by
+        <a href="{{links.painting}}">a script in this repository</a>. Set in
+        Geist and Paper Mono under the SIL Open Font License 1.1 (<a
           href="/fonts/GEIST-OFL.txt"
           >Geist</a
-        >, <a href="/fonts/PAPER-MONO-OFL.txt">Paper Mono</a>).
+        >, <a href="/fonts/PAPER-MONO-OFL.txt">Paper Mono</a>). Agent marks from
+        Simple Icons.
       </p>
     </footer>
+    <p class="sr-only" role="status" id="copy-status"></p>
 
     <script data-inline="src/main.js"></script>
   </body>

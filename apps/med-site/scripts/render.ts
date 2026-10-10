@@ -1,4 +1,4 @@
-// Renders src/index.html. The page inlines its CSS and script; fonts and
+// Renders src/index.html. The page inlines its CSS and scripts; fonts and
 // screenshots are the only other requests.
 //
 // Template syntax. The markers are plain HTML, so a formatter keeps them.
@@ -70,22 +70,46 @@ export function render({ hash }: { hash: boolean }): Rendered {
     const shot = shots[name];
     const data = screenshots[name];
     if (!data) throw new Error(`No screenshot named ${name}`);
-    const file = (scheme: string, width: number, format: string) =>
-      asset(`/screenshots/${name}-${scheme}-${width}.${format}`);
-    const srcset = (scheme: string, format: string) =>
-      data.widths.map((w) => `${file(scheme, w, format)} ${w}w`).join(", ");
+    const file = (
+      shotName: string,
+      scheme: string,
+      width: number,
+      format: string,
+    ) => asset(`/screenshots/${shotName}-${scheme}-${width}.${format}`);
+    const set =
+      (shotName: string, widths: number[]) =>
+      (scheme: string, format: string) =>
+        widths
+          .map((w) => `${file(shotName, scheme, w, format)} ${w}w`)
+          .join(", ");
+    const srcset = set(name, data.widths);
     const sizes = escape(shot.sizes);
     const fallback = data.widths[Math.min(1, data.widths.length - 1)]!;
     const dark = "(prefers-color-scheme: dark)";
     const loading = shot.priority
       ? 'fetchpriority="high"'
       : 'loading="lazy" decoding="async"';
+    // Phones show a capture of their own, where Med lays the part out again.
+    const phone = screenshots[`${name}-phone`];
+    const phoneSources: string[] = [];
+    if (phone) {
+      const narrow = "(max-width: 639px)";
+      const phoneSet = set(`${name}-phone`, phone.widths);
+      const box = `sizes="calc(100vw - 32px)" width="${phone.width}" height="${phone.height}"`;
+      phoneSources.push(
+        `<source media="${narrow} and ${dark}" type="image/avif" srcset="${phoneSet("dark", "avif")}" ${box}>`,
+        `<source media="${narrow} and ${dark}" type="image/webp" srcset="${phoneSet("dark", "webp")}" ${box}>`,
+        `<source media="${narrow}" type="image/avif" srcset="${phoneSet("light", "avif")}" ${box}>`,
+        `<source media="${narrow}" type="image/webp" srcset="${phoneSet("light", "webp")}" ${box}>`,
+      );
+    }
     return [
       "<picture>",
+      ...phoneSources,
       `<source media="${dark}" type="image/avif" srcset="${srcset("dark", "avif")}" sizes="${sizes}">`,
       `<source media="${dark}" type="image/webp" srcset="${srcset("dark", "webp")}" sizes="${sizes}">`,
       `<source type="image/avif" srcset="${srcset("light", "avif")}" sizes="${sizes}">`,
-      `<img src="${file("light", fallback, "webp")}" srcset="${srcset("light", "webp")}" sizes="${sizes}" width="${data.width}" height="${data.height}" alt="${escape(shot.alt)}" ${loading}>`,
+      `<img src="${file(name, "light", fallback, "webp")}" srcset="${srcset("light", "webp")}" sizes="${sizes}" width="${data.width}" height="${data.height}" alt="${escape(shot.alt)}" ${loading}>`,
       "</picture>",
     ].join("\n");
   }

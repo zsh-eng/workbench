@@ -1,17 +1,6 @@
 import { MultiFileDiff } from "@pierre/diffs/react";
 import * as stylex from "@stylexjs/stylex";
-import {
-  createContext,
-  memo,
-  useContext,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-  type RefObject,
-} from "react";
+import { createContext, memo, useContext, useMemo, useState, type ReactNode } from "react";
 import type { ToolCallContent, ToolKind } from "../../../shared/agent-session";
 import type { SessionItem, ToolCallState } from "../../data/session-store";
 import { tokens } from "../../theme.stylex";
@@ -84,7 +73,9 @@ export function formatSeconds(milliseconds: number) {
   const seconds = milliseconds / 1000;
   if (seconds < 10) return `${seconds.toFixed(1)}s`;
   if (seconds < 60) return `${Math.round(seconds)}s`;
-  return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+  const whole = Math.round(seconds);
+  if (whole < 3600) return `${Math.floor(whole / 60)}m ${whole % 60}s`;
+  return `${Math.floor(whole / 3600)}h ${Math.floor((whole % 3600) / 60)}m`;
 }
 
 function phrase(call: ToolCallState): { verb?: string; target: string } {
@@ -97,6 +88,19 @@ function phrase(call: ToolCallState): { verb?: string; target: string } {
   const done = call.status === "completed";
   const verb = created ? (done ? "Created" : "Creating") : verbs[done ? 1 : 0];
   return { verb, target: space < 0 ? "" : call.title.slice(space + 1) };
+}
+
+/** The reader's open and closed rows of a thread, by item id. A virtual list
+ * unmounts rows out of view; a row that comes back keeps its state. */
+export const RowOpen = createContext<Map<string, boolean> | null>(null);
+export function useRowOpen(id: string, initial: boolean) {
+  const rows = useContext(RowOpen);
+  const [open, setOpen] = useState(() => rows?.get(id) ?? initial);
+  const change = (value: boolean) => {
+    rows?.set(id, value);
+    setOpen(value);
+  };
+  return [open, change] as const;
 }
 
 /**
@@ -114,9 +118,9 @@ export const ToolCall = memo(function ToolCall({
   const { call } = item;
   const diffs = diffsOf(call);
   const subagent = isSubagent(call) || item.items.length > 0;
-  const [open, setOpen] = useState<boolean | undefined>(undefined);
-  // Edits show their diff until the reader closes it.
-  const expanded = open ?? diffs.length > 0;
+  // An edit shows its file and its added and removed lines; its diff
+  // renders when the reader opens it, as in Claude Desktop.
+  const [open, setOpen] = useRowOpen(item.id, false);
   const running = call.status === "pending" || call.status === "in_progress";
   const stat = useMemo(
     () =>
@@ -145,9 +149,9 @@ export const ToolCall = memo(function ToolCall({
     >
       <button
         type="button"
-        aria-expanded={hasDetails ? expanded : undefined}
+        aria-expanded={hasDetails ? open : undefined}
         disabled={!hasDetails}
-        onClick={() => setOpen(!expanded)}
+        onClick={() => setOpen(!open)}
         {...stylex.props(rowStyles.row, styles.head)}
       >
         <span {...stylex.props(rowStyles.icon, call.status === "failed" && styles.failedIcon)}>
@@ -176,13 +180,13 @@ export const ToolCall = memo(function ToolCall({
             duration !== undefined && duration >= 1000 && <span>{formatSeconds(duration)}</span>
           )}
           {hasDetails && (
-            <span {...stylex.props(styles.chevron, expanded && styles.chevronOpen)}>
+            <span {...stylex.props(styles.chevron, open && styles.chevronOpen)}>
               <Icon name="chevron" size={12} />
             </span>
           )}
         </span>
       </button>
-      {expanded && hasDetails && (
+      {open && hasDetails && (
         <div {...stylex.props(styles.details)}>
           {command && (
             <pre {...stylex.props(styles.console)}>
@@ -196,7 +200,7 @@ export const ToolCall = memo(function ToolCall({
             </pre>
           )}
           {diffs.map((diff, index) => (
-            <EditDiff key={`${diff.path}:${index}`} diff={diff} />
+            <RenderedDiff key={`${diff.path}:${index}`} diff={diff} />
           ))}
           {!command && output && !subagent && (
             <pre
@@ -220,96 +224,6 @@ export const ToolCall = memo(function ToolCall({
 
 /** Edited text often ends inside a line; a final newline keeps the diff from marking it. */
 const ending = (text: string) => (text === "" || text.endsWith("\n") ? text : `${text}\n`);
-
-/** The thread's scroller. A long session holds hundreds of edits, and a diff
- * costs much more to render than the rest of its row, so each diff renders
- * once it comes within two screens of the scroller's view. */
-export const ThreadScroller = createContext<RefObject<HTMLElement | null> | null>(null);
-const NEAR = 2;
-const watchers = new WeakMap<
-  Element,
-  { observer: IntersectionObserver; callbacks: Map<Element, () => void> }
->();
-function whenNear(root: Element, element: Element, callback: () => void) {
-  let watcher = watchers.get(root);
-  if (!watcher) {
-    const callbacks = new Map<Element, () => void>();
-    const observer = new IntersectionObserver(
-      (records) => {
-        for (const record of records) {
-          if (!record.isIntersecting) continue;
-          observer.unobserve(record.target);
-          callbacks.get(record.target)?.();
-          callbacks.delete(record.target);
-        }
-      },
-      { root, rootMargin: `${NEAR * 100}% 0px` },
-    );
-    watcher = { observer, callbacks };
-    watchers.set(root, watcher);
-  }
-  const { observer, callbacks } = watcher;
-  callbacks.set(element, callback);
-  observer.observe(element);
-  return () => {
-    callbacks.delete(element);
-    observer.unobserve(element);
-  };
-}
-
-/** The height of a diff before it renders: its changed lines, three lines of
- * context on each side, and the line above the hunk, up to the figure's limit. */
-function diffHeight(oldText: string, newText: string) {
-  const before = oldText.split("\n");
-  const after = newText.split("\n");
-  let start = 0;
-  while (start < before.length && start < after.length && before[start] === after[start]) start++;
-  let end = 0;
-  while (
-    end < before.length - start &&
-    end < after.length - start &&
-    before[before.length - 1 - end] === after[after.length - 1 - end]
-  )
-    end++;
-  const rows =
-    before.length + after.length - 2 * (start + end) + Math.min(3, start) + Math.min(3, end);
-  return Math.min(DIFF_MAX_HEIGHT, Math.max(1, rows) * 18 + 24);
-}
-
-function EditDiff({ diff }: { diff: DiffContent }) {
-  const scroller = useContext(ThreadScroller);
-  const holder = useRef<HTMLElement>(null);
-  const [near, setNear] = useState(!scroller);
-  // Rows in view render before the first paint; others when they come near.
-  useLayoutEffect(() => {
-    const root = scroller?.current;
-    const element = holder.current;
-    if (near || !root || !element) return;
-    const frame = root.getBoundingClientRect();
-    const box = element.getBoundingClientRect();
-    const margin = frame.height * NEAR;
-    if (box.bottom >= frame.top - margin && box.top <= frame.bottom + margin) setNear(true);
-  }, [near, scroller]);
-  useEffect(() => {
-    const root = scroller?.current;
-    const element = holder.current;
-    if (near || !root || !element) return;
-    return whenNear(root, element, () => setNear(true));
-  }, [near, scroller]);
-  const height = useMemo(
-    () => (near ? 0 : diffHeight(diff.oldText ?? "", diff.newText)),
-    [near, diff.oldText, diff.newText],
-  );
-  if (!near)
-    return (
-      <figure
-        ref={holder}
-        data-diff-pending
-        {...stylex.props(styles.diff, styles.pending(height))}
-      />
-    );
-  return <RenderedDiff diff={diff} />;
-}
 
 function RenderedDiff({ diff }: { diff: DiffContent }) {
   const { active } = useTheme();
@@ -422,8 +336,6 @@ const styles = stylex.create({
   output: { color: tokens.muted },
   error: { color: tokens.red },
   // A long new file scrolls inside its frame, so the thread stays readable.
-  // A diff that has not rendered yet keeps about its height.
-  pending: (height: number) => ({ height }),
   diff: {
     margin: 0,
     maxHeight: DIFF_MAX_HEIGHT,

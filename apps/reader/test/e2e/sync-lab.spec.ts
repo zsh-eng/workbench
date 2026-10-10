@@ -195,7 +195,7 @@ test("sync lab app views open the real Reader and retain local data across modes
       .first(),
   ).toBeVisible();
   await expect(page.getByText("Materialized", { exact: true })).toHaveCount(2);
-  await a.getByRole("button", { name: "Start reading", exact: true }).click();
+  await a.getByRole("button", { name: "Mark as reading", exact: true }).click();
   const aFrame = page
     .frames()
     .find(

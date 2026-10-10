@@ -2,7 +2,7 @@ import { test, expect, waitForReaderReady } from "./helpers/fixtures";
 
 test.use({ hasTouch: true });
 
-test("Reader note button stays above a synced handoff banner", async ({
+test("Reader note button and a synced handoff prompt stay clear of each other", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -35,7 +35,7 @@ test("Reader note button stays above a synced handoff banner", async ({
     .then((element) => element!.contentFrame());
   if (!aFrame) throw new Error("Client A app frame is missing");
   await waitForReaderReady(aFrame);
-  await a.getByRole("button", { name: "Start reading", exact: true }).click();
+  await a.getByRole("button", { name: "Mark as reading", exact: true }).click();
 
   await bControls.getByText("Local actions", { exact: true }).click();
   const position = bControls.getByRole("slider", {
@@ -49,7 +49,10 @@ test("Reader note button stays above a synced handoff banner", async ({
   await bControls.getByRole("button", { name: "Push", exact: true }).click();
   await expect(bControls).toContainText("0 pending");
   await aControls.getByRole("button", { name: "Pull", exact: true }).click();
-  const prompt = a.getByRole("status").filter({ hasText: "Newer position" });
+  const prompt = a.locator("[data-reader-top-prompt]");
+  await expect(
+    prompt.getByRole("button", { name: /^Continue at p\. \d+ from / }),
+  ).toBeVisible();
   await expect(prompt).toBeVisible();
   const note = a.getByRole("button", { name: "Jot a note", exact: true });
   if (!(await note.isVisible())) {
@@ -61,7 +64,7 @@ test("Reader note button stays above a synced handoff banner", async ({
       const noteBounds = await note.boundingBox();
       const promptBounds = await prompt.boundingBox();
       return noteBounds && promptBounds
-        ? promptBounds.y - (noteBounds.y + noteBounds.height)
+        ? noteBounds.y - (promptBounds.y + promptBounds.height)
         : -1;
     })
     .toBeGreaterThan(0);
@@ -75,7 +78,7 @@ test("Reader note button stays above a synced handoff banner", async ({
   await editor.press("Escape");
   await expect(editor).not.toBeVisible();
   await a
-    .getByRole("button", { name: "Dismiss handoff prompt", exact: true })
+    .getByRole("button", { name: "Dismiss sync prompt", exact: true })
     .click();
   await expect(prompt).not.toBeVisible();
   await note.click();

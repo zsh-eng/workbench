@@ -17,7 +17,18 @@ export default defineConfig({
       ),
     },
   },
-  plugins: [pierreHighlighter(), pierreKeepAlive(), stylex.vite({ useCSSLayers: true }), react()],
+  plugins: [
+    pierreHighlighter(),
+    pierreKeepAlive(),
+    // StyleX adds its rules to the app's own stylesheet: index.html's, or
+    // main's in the demo, which imports main after it sets up. Without this
+    // it picks the first CSS file, which can be a lazy route's.
+    stylex.vite({
+      useCSSLayers: true,
+      cssInjectionTarget: (file) => /(^|\/)(index|main)-[\w-]{8,}\.css$/.test(file),
+    }),
+    react(),
+  ],
   optimizeDeps: {
     exclude: ["@pierre/diffs"],
     include: [

@@ -19,6 +19,7 @@ import type { Highlight } from "@/types/highlight";
 import type { Note } from "@/types/note";
 import { useBookNotesQuery } from "@/hooks/use-notes-query";
 import { MOTION } from "@/lib/motion";
+import { UndoCountdown } from "@/components/UndoToast";
 import { NotebookCountIcon } from "./shared/NotebookCountIcon";
 
 /**
@@ -333,22 +334,25 @@ export function IslandNotice({
       role="status"
       className="flex h-11 items-center gap-2.5 pr-1.5 pl-2 text-[13px] font-medium whitespace-nowrap"
     >
-      <span
-        aria-hidden="true"
-        className="flex size-7 items-center justify-center rounded-full"
-        style={{
-          background:
-            !notice.color || notice.color === "invisible"
-              ? "var(--secondary)"
-              : `var(--${notice.color}-secondary)`,
-        }}
-      >
-        {notice.undo ? (
-          <Trash2 className="size-3.5 text-muted-foreground" />
-        ) : (
+      {notice.undo ? (
+        // The ring holds the place of the done mark, at the same size.
+        <span className="flex size-7 items-center justify-center">
+          <UndoCountdown key={notice.key} />
+        </span>
+      ) : (
+        <span
+          aria-hidden="true"
+          className="flex size-7 items-center justify-center rounded-full"
+          style={{
+            background:
+              !notice.color || notice.color === "invisible"
+                ? "var(--secondary)"
+                : `var(--${notice.color}-secondary)`,
+          }}
+        >
           <Check className="size-3.5" strokeWidth={2.4} />
-        )}
-      </span>
+        </span>
+      )}
       {notice.label}
       {notice.undo ? (
         <button

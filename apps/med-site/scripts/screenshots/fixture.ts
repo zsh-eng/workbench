@@ -206,7 +206,7 @@ function score(trail: Trail, text: string): number {
 }
 `;
 
-const filtersV1 = `import type { Trail } from "../trails";
+export const filtersV1 = `import type { Trail } from "../trails";
 import type { TrailFilters } from "./query";
 
 export function matchesFilters(trail: Trail, filters: TrailFilters): boolean {
@@ -224,7 +224,7 @@ export function matchesFilters(trail: Trail, filters: TrailFilters): boolean {
 }
 `;
 
-const filtersV2 = `${filtersV1}
+export const filtersV2 = `${filtersV1}
 /** Labels for the active filters, in the order the search bar shows them. */
 export function describeFilters(filters: TrailFilters): string[] {
   const labels: string[] = [];
@@ -241,7 +241,7 @@ function capitalize(value: string): string {
 }
 `;
 
-const searchBarV1 = `import { useId, useState } from "react";
+export const searchBarV1 = `import { useId, useState } from "react";
 import { searchTrails } from "../search";
 
 export function SearchBar({ onResults }: { onResults: (count: number) => void }) {
@@ -268,7 +268,7 @@ export function SearchBar({ onResults }: { onResults: (count: number) => void })
 }
 `;
 
-const searchBarV2 = `import { useId, useState } from "react";
+export const searchBarV2 = `import { useId, useState } from "react";
 import { searchTrails } from "../search";
 import { describeFilters } from "../search/filters";
 import { parseQuery } from "../search/query";

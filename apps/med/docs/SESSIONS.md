@@ -125,12 +125,38 @@ nothing.
   only the items that it changes, so memoized rows do not render again.
   Subagent updates go into the thread of their call.
 - `components/session/SessionThread.tsx` renders the thread. Reads and
-  searches in a row form one "Explored" group. Edits show Pierre diffs. The
-  thread opens at its end. The view follows new items while the reader is at
-  the bottom; only the reader's move up (wheel, touch, keys, or the pointer)
-  stops it. A thread that gets shorter also moves the view up, and that move
-  does not stop it. While the view follows, browser scroll anchoring is off.
-  The Background and Tasks docks sit under the thread.
+  searches in a row form one "Explored" group. An edit is a row with its file
+  and its added and removed lines; its Pierre diff renders when the reader
+  opens the row, as in Claude Desktop. The thread opens at its end. The view
+  follows new items while the reader is at the bottom; only the reader's move
+  up (wheel, touch, keys, or the pointer) stops it. A thread that gets shorter
+  also moves the view up, and that move does not stop it. The Background and
+  Tasks docks sit under the thread.
+- The thread is a virtual list. Only the units within 1,200 px of the view
+  render; spacers hold the height of the others. A unit's height is its own
+  from when it last rendered, or an estimate (`thread-heights.ts`). Browser
+  scroll anchoring is off, because it would count the spacers. The list
+  keeps the first unit that starts in view at its place when heights above it
+  change or an earlier page arrives. A render that comes between the
+  reader's scroll and its scroll event keeps the reader's place. Open rows
+  keep their state when they leave the view and come back.
+- `thread-heights.ts` estimates a unit from its text. Pretext measures the
+  text with canvas and counts its lines; the file models the CSS around the
+  lines (collapsing margins, list gaps, code blocks, tables). A hidden sample
+  of each part in the thread gives the fonts and sizes of the current theme,
+  so a theme change moves the estimates. Inline code and bold use Pretext's
+  rich-inline layout. Estimates for 930 units of a synthetic thread take about
+  25 ms with no prepared text, and 2 to 5 ms at a new width. Prompts, prose
+  replies, rows, and tables are exact or within 1 px for 93 to 100% of units
+  in four themes; the sum is within 0.4%. Open edits are the weak part: 66%
+  are exact, because the estimate does not know Pierre's hunks and
+  separators. Edits are closed until the reader opens one, so this error
+  stays small.
+- Items without an ID take one from their kind and time, so they keep it
+  when an earlier page builds the thread again.
+- Once the review is idle, the Session pane mounts hidden: the thread
+  streams, and its newest units and their Markdown render before the pane
+  opens. A hidden thread does not load earlier pages.
 - `data/sse.ts` parses the event streams. It finds line ends with `indexOf`,
   because the first event of a long session holds megabytes.
 - `SessionMarkdown.tsx` renders replies in the brief's Markdown worker, with a
@@ -186,9 +212,9 @@ work.
 
 - The sidebar shows sessions recorded with saved reviews. Branch workspaces
   have no session.
-- The thread renders at most 600 top-level rows; nested subagent threads
-  render whole. An edit's diff renders when its row comes within two screens
-  of the view: in a long session, diffs cost more than the rest of the thread.
+- Nested subagent threads render whole inside their call.
+- Estimates of open edits miss Pierre's hunk separators. A wrong estimate
+  costs only a move of the units below it when the edit renders.
 - Not shown yet for attached sessions: context usage, permission requests
   (owned sessions show both), questions that the agent asked the user, and the
   dev servers that Claude Desktop starts from

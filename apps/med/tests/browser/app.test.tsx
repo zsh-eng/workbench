@@ -2471,6 +2471,42 @@ describe("agent session", () => {
     await expect.element(panel).not.toBeInTheDocument();
   });
 
+  test("a saved review prepares its session out of view, so the pane opens with its thread", async () => {
+    const events = [
+      {
+        at: 0,
+        update: {
+          sessionUpdate: "user_message_chunk",
+          content: { type: "text", text: "Rename the export." },
+        },
+      },
+      {
+        at: 2000,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "Renamed **alpha** in `src/alpha.ts`." },
+        },
+      },
+    ];
+    await mountApp({
+      savedReview: true,
+      session: `event: reset\ndata: ${JSON.stringify({ events, idle: true, modifiedAt: 0, truncated: false })}\n\n`,
+    });
+    const panel = page.getByRole("complementary", { name: "Agent session" });
+    // Once the review is idle, the thread streams and renders in a hidden pane.
+    await expect
+      .poll(() => document.querySelector('[aria-label="Session"]')?.textContent ?? "")
+      .toContain("Rename the export.");
+    await expect.element(panel).not.toBeInTheDocument();
+    await expect
+      .poll(() => document.querySelector('[aria-label="Session"] [data-unit] strong')?.textContent)
+      .toBe("alpha");
+
+    await page.getByRole("button", { name: "Toggle agent session" }).click();
+    expect(panel.getByText("Rename the export.").element()).toBeVisible();
+    expect(panel.getByText("alpha", { exact: true }).element()).toBeVisible();
+  });
+
   test("a long session loads its earlier work and jumps to a turn", async () => {
     const chunk = (at: number, kind: string, text: string) => ({
       at,

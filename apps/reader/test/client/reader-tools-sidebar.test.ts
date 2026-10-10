@@ -1,7 +1,7 @@
 import { ReaderToolsSidebar } from "@/features/reader/ReaderToolsSidebar";
 import type { ReaderSettings } from "@/types/reader.types";
 import { cleanup, render } from "@testing-library/react";
-import { createElement } from "react";
+import { createElement, createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const hotkeyHandlers = vi.hoisted(
@@ -59,6 +59,7 @@ function renderSidebar(
       chapterStartPages: [],
       currentChapterHref: "",
       onNavigateToHref: vi.fn(() => true),
+      triggerRef: createRef<HTMLButtonElement>(),
     }),
   );
 }

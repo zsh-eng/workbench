@@ -65,6 +65,22 @@ export async function deleteHighlight(id: string): Promise<void> {
   await db.highlights.delete(id);
 }
 
+/** Undo a deletion through the same synced write path. A live row is left intact,
+ * so an already received restore or edit is never replaced by an older snapshot.
+ */
+export async function restoreHighlight(id: string): Promise<void> {
+  await db.transaction("rw", db.highlights, async () => {
+    const highlight = await db.highlights.get(id);
+    if (!highlight) throw new Error("Deleted highlight is no longer available");
+    if (isNotDeleted(highlight)) return;
+    await db.highlights.put({
+      ...normalizeHighlightTimestamps(highlight),
+      isDeleted: false,
+      updatedAt: Date.now(),
+    });
+  });
+}
+
 export async function updateHighlight(
   id: string,
   changes: Partial<Highlight>,

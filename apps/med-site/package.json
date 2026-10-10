@@ -6,8 +6,10 @@
     "dev": "bun scripts/dev.ts",
     "build": "bun scripts/build.ts",
     "preview": "bun scripts/dev.ts --dist",
+    "demo": "bun scripts/demo.ts",
     "test": "bun run build && playwright test",
     "fonts": "bun scripts/fonts.ts",
+    "paint": "bun scripts/painting/paint.ts",
     "screenshots": "bun scripts/screenshots/capture.ts"
   },
   "devDependencies": {

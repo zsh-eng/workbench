@@ -14,7 +14,8 @@ import {
   useReducedMotion,
   useTransform,
 } from "motion/react";
-import { Pencil, Trash2 } from "lucide-react";
+import { Copy, Pencil, Trash2 } from "lucide-react";
+import { copyEntryText } from "./DesktopNotebookNote";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -28,19 +29,23 @@ const THRESHOLD = 72;
  * Native vertical scrolling wins until a deliberate horizontal drag captures the pointer.
  */
 export function NotebookNote({
+  kind = "note",
   children,
   onEdit,
   onDelete,
   canEdit,
   disabled,
   editing,
+  text,
 }: {
+  kind?: "note" | "highlight";
   children: ReactNode;
   onEdit: () => void;
   onDelete: () => Promise<boolean>;
   canEdit: boolean;
   disabled: boolean;
   editing: boolean;
+  text: string;
 }) {
   const reduceMotion = useReducedMotion();
   const present = useIsPresent();
@@ -144,7 +149,11 @@ export function NotebookNote({
         tabIndex={present ? 0 : -1}
         inert={!present}
         aria-hidden={!present}
-        aria-label="Note; use the context menu to edit or delete"
+        aria-label={
+          kind === "note"
+            ? "Note; use the context menu to edit or delete"
+            : "Highlight; use the context menu to copy or delete"
+        }
         className="group relative mb-2 block overflow-x-clip rounded-2xl focus-visible:outline-2 focus-visible:outline-ring"
         data-swipe-ready={armed || undefined}
         data-swipe-action={action}
@@ -287,9 +296,18 @@ export function NotebookNote({
         </motion.article>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItem disabled={disabled || !canEdit} onClick={onEdit}>
-          <Pencil size={14} />
-          Edit note
+        {kind === "note" && (
+          <ContextMenuItem disabled={disabled || !canEdit} onClick={onEdit}>
+            <Pencil size={14} />
+            Edit note
+          </ContextMenuItem>
+        )}
+        <ContextMenuItem
+          disabled={disabled}
+          onClick={() => void copyEntryText(text)}
+        >
+          <Copy size={14} />
+          Copy text
         </ContextMenuItem>
         <ContextMenuItem
           disabled={disabled}
@@ -297,7 +315,7 @@ export function NotebookNote({
           onClick={() => void requestDelete()}
         >
           <Trash2 size={14} />
-          Delete note
+          {kind === "note" ? "Delete note" : "Delete highlight"}
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
