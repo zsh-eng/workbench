@@ -543,7 +543,7 @@ The UI uses React, [Pierre Diffs and Trees](https://pierre.computer/), Base UI, 
 
 ## Limits and evidence
 
-Syntax highlighting uses Twinkleplop. This build includes JavaScript/JSX, TypeScript/TSX, CSS, HTML, JSON/JSONC, Markdown, YAML, TOML, Bash, Go, Python, Rust, SQL, Svelte, diff, INI, HTTP, dotenv, and shell-session grammars. Markdown code fences use the matching installed grammar. C, C++, Zig, and other missing grammars display as plain text; files, diffs, selection, and comments still work. Syntax colours can differ from Shiki because semantic token kinds do not contain full TextMate scope stacks.
+Syntax highlighting covers JavaScript/JSX, TypeScript/TSX, CSS, HTML, JSON/JSONC, Markdown, YAML, TOML, Bash, Go, Python, Rust, SQL, Svelte, diff, INI, HTTP, dotenv, shell sessions, Java, Gradle, C++, and XML. Twinkleplop supplies most grammars; Med's own grammars cover Java, C++, XML, and JSON/JSONC. Markdown code fences use the matching grammar. C, Zig, and other missing languages display as plain text; files, diffs, selection, and comments still work. Colours can differ from Shiki: most grammars give semantic token kinds, not full TextMate scope stacks, and Med ignores theme rules that match parent scopes, such as JSON keys coloured by depth.
 
 Images render in compact before/after diff cards. The file viewer also plays browser-supported videos. Other binary files and files with unsupported encodings show metadata only. Text above 8 MiB, 200,000 lines, or 250,000 characters on one line is not rendered. Large supported text uses plain rendering. File manifests stop at 50,000 entries. Missing files are shown as missing; historical content is not silently substituted. See [file browsing](FILE_BROWSING.md) for details.
 

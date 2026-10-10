@@ -26,7 +26,7 @@ let actual: Awaited<ReturnType<typeof twinkleplop>>;
 beforeAll(async () => {
   reference = await createHighlighter({
     themes: ["github-light", "github-dark", diagnosticTheme],
-    langs: ["java", "cpp"],
+    langs: ["java", "cpp", "json", "jsonc"],
     engine: createJavaScriptRegexEngine(),
   });
   actual = await twinkleplop(themeNames.map((n) => reference.getTheme(n)));
@@ -42,7 +42,11 @@ const fixtures = [
   "cpp-edge.cpp",
   "java-doc.java",
   "cpp-raw.cpp",
+  "json.json",
+  "json-edge.json",
+  "jsonc.jsonc",
 ];
+const languageOf = (name: string) => name.slice(name.lastIndexOf(".") + 1);
 function compare(
   expected: Parameters<typeof normalizedRuns>[0],
   observed: Parameters<typeof normalizedRuns>[0],
@@ -55,7 +59,7 @@ describe("compact files through Pierre's renderer contract", () => {
   it.each(fixtures)(
     "preserves complete HAST for %s, including lines opened out of order",
     (name) => {
-      const lang = name.endsWith("java") ? "java" : "cpp";
+      const lang = languageOf(name);
       const source = readFileSync(
         new URL(`../fixtures/highlighting/${name}`, import.meta.url),
         "utf8",
@@ -103,11 +107,11 @@ describe("compact files through Pierre's renderer contract", () => {
   );
 });
 
-describe("Java/C++ through production language loading, adapter, and Pierre", () => {
+describe("In-house grammars through production language loading, adapter, and Pierre", () => {
   it.each(fixtures)(
     "matches the pinned Shiki renderer for %s in every theme and line ending",
     (name) => {
-      const lang = name.endsWith("java") ? "java" : "cpp";
+      const lang = languageOf(name);
       const source = readFileSync(
         new URL(`../fixtures/highlighting/${name}`, import.meta.url),
         "utf8",
@@ -126,39 +130,40 @@ describe("Java/C++ through production language loading, adapter, and Pierre", ()
         }
     },
   );
-  it.each(["java", "cpp"])(
-    "matches both diff sides and preserves word-change markers for %s",
-    (lang) => {
-      const patch = `diff --git a/sample.${lang} b/sample.${lang}\n--- a/sample.${lang}\n+++ b/sample.${lang}\n@@ -1,3 +1,3 @@\n // example\n-int count = 42;\n+int count = 43;\n \n`;
-      const diff = parsePatchFiles(patch)[0].files[0];
-      for (const theme of themeNames) {
-        const a = renderDiffWithHighlighter(
-          diff,
-          reference as unknown as DiffsHighlighter,
-          renderOptions(theme),
-        );
-        const b = renderDiffWithHighlighter(
-          diff,
-          actual as unknown as DiffsHighlighter,
-          renderOptions(theme),
-        );
-        for (const side of ["additionLines", "deletionLines"] as const) {
-          expect(compare(a.code[side], b.code[side], theme)).toEqual([]);
-          const marked = (nodes: typeof a.code.additionLines): string[] =>
-            nodes.flatMap((node) => {
-              if (node.type !== "element") return [];
-              return [
-                ...(node.properties["data-diff-span"] !== undefined
-                  ? [JSON.stringify(node.children)]
-                  : []),
-                ...marked(node.children as typeof nodes),
-              ];
-            });
-          expect(marked(b.code[side]).length).toBeGreaterThan(0);
-        }
+  it.each([
+    ["java", "int count = 42;", "int count = 43;"],
+    ["cpp", "int count = 42;", "int count = 43;"],
+    ["json", '  "count": 42,', '  "count": 43,'],
+  ])("matches both diff sides and preserves word-change markers for %s", (lang, before, after) => {
+    const patch = `diff --git a/sample.${lang} b/sample.${lang}\n--- a/sample.${lang}\n+++ b/sample.${lang}\n@@ -1,3 +1,3 @@\n // example\n-${before}\n+${after}\n \n`;
+    const diff = parsePatchFiles(patch)[0].files[0];
+    for (const theme of themeNames) {
+      const a = renderDiffWithHighlighter(
+        diff,
+        reference as unknown as DiffsHighlighter,
+        renderOptions(theme),
+      );
+      const b = renderDiffWithHighlighter(
+        diff,
+        actual as unknown as DiffsHighlighter,
+        renderOptions(theme),
+      );
+      for (const side of ["additionLines", "deletionLines"] as const) {
+        expect(compare(a.code[side], b.code[side], theme)).toEqual([]);
+        const marked = (nodes: typeof a.code.additionLines): string[] =>
+          nodes.flatMap((node) => {
+            if (node.type !== "element") return [];
+            return [
+              ...(node.properties["data-diff-span"] !== undefined
+                ? [JSON.stringify(node.children)]
+                : []),
+              ...marked(node.children as typeof nodes),
+            ];
+          });
+        expect(marked(b.code[side]).length).toBeGreaterThan(0);
       }
-    },
-  );
+    }
+  });
   it("retains empty-line placeholders when token selection is disabled", () => {
     const file = { name: "sample.java", contents: "// first\n\n/* comment\n\nend */\n\n" };
     for (const theme of themeNames) {
@@ -181,20 +186,23 @@ describe("Java/C++ through production language loading, adapter, and Pierre", ()
       compare(a.code, renderFile(source + "x", "cpp", "github-dark", actual).code, "github-dark"),
     ).toThrow("source text");
   });
-  it.each(["java", "cpp"])("keeps partial edits, Unicode, and long lines intact for %s", (lang) => {
-    for (const source of [
-      "/* not closed\n\n😀",
-      'const char* s = "unfinished',
-      "int 日本語 = 1;\n",
-      `/* ${"long ".repeat(10000)}\nnext line */\nint x = 1;`,
-    ]) {
-      const result = renderFile(source, lang, "github-dark", actual);
-      const t = reference.getTheme("github-dark");
-      expect(
-        normalizedRuns(result.code, t.fg, t.bg)
-          .map((r) => r.text)
-          .join(""),
-      ).toBe(source);
-    }
-  });
+  it.each(["java", "cpp", "json", "jsonc"])(
+    "keeps partial edits, Unicode, and long lines intact for %s",
+    (lang) => {
+      for (const source of [
+        "/* not closed\n\n😀",
+        'const char* s = "unfinished',
+        "int 日本語 = 1;\n",
+        `/* ${"long ".repeat(10000)}\nnext line */\nint x = 1;`,
+      ]) {
+        const result = renderFile(source, lang, "github-dark", actual);
+        const t = reference.getTheme("github-dark");
+        expect(
+          normalizedRuns(result.code, t.fg, t.bg)
+            .map((r) => r.text)
+            .join(""),
+        ).toBe(source);
+      }
+    },
+  );
 });

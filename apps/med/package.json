@@ -68,8 +68,6 @@
     "@twinkleplop/http": "0.1.4",
     "@twinkleplop/ini": "0.1.4",
     "@twinkleplop/javascript": "0.1.4",
-    "@twinkleplop/json": "0.1.4",
-    "@twinkleplop/jsonc": "0.1.1",
     "@twinkleplop/markdown": "0.1.4",
     "@twinkleplop/python": "0.1.4",
     "@twinkleplop/rust": "0.1.4",
