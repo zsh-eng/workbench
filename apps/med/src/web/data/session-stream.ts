@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { SessionEvent } from "../../shared/agent-session";
 import { readBrowserToken } from "./auth";
 import { createApi, HttpError } from "./api";
@@ -14,6 +15,10 @@ export interface SessionStreamState {
   status: "connecting" | "live" | "missing" | "error";
   /** The first view starts in the transcript's tail; earlier updates are left out. */
   truncated: boolean;
+  /** The byte offset where the loaded updates start; earlier pages end there. */
+  start?: number;
+  /** Counts first views; each one replaces the thread and its earlier pages. */
+  generation?: number;
   idle: boolean;
   modifiedAt?: number;
   message?: string;
@@ -24,6 +29,7 @@ interface Payload {
   idle: boolean;
   modifiedAt: number;
   truncated?: boolean;
+  start?: number;
 }
 
 const pause = (ms: number, signal: AbortSignal) =>
@@ -90,7 +96,12 @@ export async function followSession(
           }
           if (event.event === "reset") {
             store.reset();
-            set({ status: "live", truncated: payload.truncated ?? false });
+            set({
+              status: "live",
+              generation: (state.generation ?? 0) + 1,
+              truncated: payload.truncated ?? false,
+              ...(payload.start !== undefined ? { start: payload.start } : {}),
+            });
           }
           store.applyAll(payload.events);
           set({ idle: payload.idle, modifiedAt: payload.modifiedAt });
@@ -106,3 +117,32 @@ export async function followSession(
     delay = Math.min(delay * 2, 30_000);
   }
 }
+
+/** The updates before byte offset `before`, and where they start. */
+export async function loadSessionPage(
+  reviewId: string,
+  sessionId: string,
+  before: number,
+  fetcher: typeof fetch = globalThis.fetch.bind(globalThis),
+) {
+  return createApi(fetcher, readBrowserToken()).json(
+    `/api/reviews/${encodeURIComponent(reviewId)}/sessions/${encodeURIComponent(sessionId)}/page?before=${before}`,
+    z.object({ events: z.array(z.custom<SessionEvent>()), start: z.number() }),
+  );
+}
+
+/** The session's prompts, with the byte offsets of their lines. */
+export async function loadSessionTurns(
+  reviewId: string,
+  sessionId: string,
+  fetcher: typeof fetch = globalThis.fetch.bind(globalThis),
+) {
+  const result = await createApi(fetcher, readBrowserToken()).json(
+    `/api/reviews/${encodeURIComponent(reviewId)}/sessions/${encodeURIComponent(sessionId)}/turns`,
+    z.object({
+      turns: z.array(z.object({ offset: z.number(), at: z.number(), text: z.string() })),
+    }),
+  );
+  return result.turns;
+}
+export type SessionTurn = Awaited<ReturnType<typeof loadSessionTurns>>[number];

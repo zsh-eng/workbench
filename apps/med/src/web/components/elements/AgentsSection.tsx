@@ -8,7 +8,7 @@ import { tokens } from "../../theme.stylex";
 import { WorkspaceListPreview } from "../Workspaces";
 import { PermissionCard, SessionComposer } from "../session/SessionComposer";
 import { SessionPanel, SessionStart } from "../session/SessionPanel";
-import { createDemoAgent, demoAgents } from "./owned-fixture";
+import { createDemoAgent, createLongSession, demoAgents } from "./owned-fixture";
 import { Section, Specimen } from "./Specimen";
 
 const DRAFTS = [
@@ -120,6 +120,22 @@ const STATUSES: AgentStatus[] = [
   { reviewId: "r4", sessionId: "s4", agent: "claude", state: "idle", updatedAt: 1 },
 ];
 
+/** The real Session pane on a session of 600 turns. */
+function LongSession() {
+  const [long] = useState(createLongSession);
+  return (
+    <div {...stylex.props(styles.frame)}>
+      <SessionPanel
+        reviewId="demo"
+        sessions={[long.session]}
+        fetcher={long.fetcher}
+        onOpenPath={() => {}}
+        onClose={() => {}}
+      />
+    </div>
+  );
+}
+
 /** One composer state, without an agent behind it. */
 function Still({ state }: { state: OwnedState }) {
   return (
@@ -222,6 +238,14 @@ export function AgentsSection() {
             onAnswer={() => {}}
           />
         </div>
+      </Specimen>
+      <Specimen
+        title="A long session"
+        note="600 turns. The thread holds a window of at most 600 rows; scroll up for earlier rows, then earlier pages. Turns (the clock) lists every prompt and jumps to it."
+        padded={false}
+        zoomable={false}
+      >
+        <LongSession />
       </Specimen>
       <Specimen
         title="Composer states"

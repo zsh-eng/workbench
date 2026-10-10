@@ -182,3 +182,72 @@ test("a session the review does not record, or without a transcript, is not foun
   expect(missing.status).toBe(404);
   expect(await missing.json()).toMatchObject({ error: { code: "transcript-not-found" } });
 });
+
+test("a long session pages back from its tail, and its prompts form a turn index", async () => {
+  const { api, saved, transcript } = await fixture();
+  const user = (second: number, content: unknown) => ({
+    type: "user",
+    timestamp: at(second),
+    uuid: `u${second}`,
+    message: { role: "user", content },
+  });
+  // The early call's result comes after 8.5 MB of replies, in the tail.
+  const filler = "x".repeat(10_000);
+  await writeFile(
+    transcript,
+    line(user(0, "First prompt")) +
+      line(
+        assistant(1, "a1", {
+          type: "tool_use",
+          id: "early",
+          name: "Bash",
+          input: { command: "bun run build", description: "Build" },
+        }),
+      ) +
+      Array.from({ length: 850 }, (_, index) =>
+        line(assistant(2, `f${index}`, { type: "text", text: filler }, "end_turn")),
+      ).join("") +
+      line(user(3, [{ type: "tool_result", tool_use_id: "early", content: "built" }])) +
+      line(user(4, "Second prompt")) +
+      line(assistant(5, "a2", { type: "text", text: "Done." }, "end_turn")),
+  );
+  const received = listen(await api(`/api/reviews/${saved.id}/sessions/${session}/events`));
+  await vi.waitFor(() => expect(received[0]?.event).toBe("reset"));
+  const first = received[0] as unknown as { truncated: boolean; start: number };
+  expect(first.truncated).toBe(true);
+  expect(first.start).toBeGreaterThan(0);
+  const tail = () => received.flatMap((part) => part.events.map((event) => event.update));
+  // The result goes to the browser, which keeps it until the page with its call.
+  await vi.waitFor(() =>
+    expect(tail()).toContainEqual(
+      expect.objectContaining({ sessionUpdate: "tool_call_update", toolCallId: "early" }),
+    ),
+  );
+  expect(JSON.stringify(tail())).not.toContain("First prompt");
+
+  const page = (await (
+    await api(`/api/reviews/${saved.id}/sessions/${session}/page?before=${first.start}`)
+  ).json()) as { events: SessionEvent[]; start: number };
+  expect(page.start).toBe(0);
+  expect(page.events.slice(0, 2).map((event) => event.update)).toMatchObject([
+    { sessionUpdate: "user_message_chunk", content: { text: "First prompt" } },
+    { sessionUpdate: "tool_call", toolCallId: "early", title: "Build" },
+  ]);
+
+  const turns = (await (
+    await api(`/api/reviews/${saved.id}/sessions/${session}/turns`)
+  ).json()) as { turns: { offset: number; text: string }[] };
+  expect(turns.turns.map((turn) => turn.text)).toEqual(["First prompt", "Second prompt"]);
+  expect(turns.turns[0]!.offset).toBe(0);
+  expect(turns.turns[1]!.offset).toBeGreaterThan(first.start);
+  // The index grows with the transcript.
+  await appendFile(transcript, line(user(6, "Third prompt")));
+  const more = (await (await api(`/api/reviews/${saved.id}/sessions/${session}/turns`)).json()) as {
+    turns: { text: string }[];
+  };
+  expect(more.turns.map((turn) => turn.text)).toEqual([
+    "First prompt",
+    "Second prompt",
+    "Third prompt",
+  ]);
+});

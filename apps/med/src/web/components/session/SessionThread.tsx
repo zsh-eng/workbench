@@ -4,7 +4,9 @@ import {
   memo,
   useCallback,
   useContext,
+  useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -33,6 +35,11 @@ export interface ReplyActions {
 }
 export const ReplyActionsContext = createContext<ReplyActions | null>(null);
 type Unit = { key: string; item: SessionItem } | { key: string; explore: ToolItem[] };
+
+/** Units in the render window at first, added per step, and at most. */
+const WINDOW = 300;
+const STEP = 100;
+const MAX_UNITS = 600;
 
 /** A thought shows when it has text or took a while; short silent thoughts only show while they run. */
 const LONG_THOUGHT = 2000;
@@ -86,16 +93,19 @@ function Thread({
   items,
   live,
   root = false,
+  window,
   onOpenLink,
 }: {
   items: SessionItem[];
   live: boolean;
   /** The session's own thread, not a subagent's. */
   root?: boolean;
+  /** The root thread's units in view, and the turn-ending replies of all units. */
+  window?: { list: Unit[]; finals: Set<string>; latest: boolean };
   onOpenLink?(href: string): void;
 }) {
-  const list = units(items);
-  const finals = root ? finalReplies(list, live) : undefined;
+  const list = window?.list ?? units(items);
+  const finals = window?.finals ?? (root ? finalReplies(list, live) : undefined);
   const renderThread = useCallback(
     (nested: SessionItem[]) => <Thread items={nested} live={live} onOpenLink={onOpenLink} />,
     [live, onOpenLink],
@@ -103,9 +113,9 @@ function Thread({
   return (
     <>
       {list.map((unit, index) => {
-        const last = live && index === list.length - 1;
+        const last = live && index === list.length - 1 && (window?.latest ?? true);
         return (
-          <div key={unit.key} {...stylex.props(styles.unit, motion.enter)}>
+          <div key={unit.key} data-unit={unit.key} {...stylex.props(styles.unit, motion.enter)}>
             {"explore" in unit ? (
               <Explore items={unit.explore} renderThread={renderThread} />
             ) : (
@@ -446,11 +456,17 @@ export function SessionThread({
   snapshot,
   now,
   before,
+  earlier,
+  reveal,
   onOpenLink,
 }: {
   snapshot: SessionSnapshot;
   /** Shown above the first item, such as a note that earlier work is left out. */
   before?: ReactNode;
+  /** Loads the page before the first update, while the host has earlier work. */
+  earlier?: { load(): Promise<void>; loading: boolean; failed?: boolean };
+  /** Scrolls to this item once for each nonce, such as a turn from the index. */
+  reveal?: { id: string; nonce: number };
   /** The clock for the elapsed time of a running session. */
   now?: number;
   onOpenLink?(href: string): void;
@@ -459,6 +475,122 @@ export function SessionThread({
   const content = useRef<HTMLDivElement>(null);
   const stuck = useRef(true);
   const [atBottom, setAtBottom] = useState(true);
+
+  // The render window: the last `size` units before the `skipEnd` newest
+  // ones. Counted from the end, it stays put when an earlier page arrives.
+  const all = useMemo(() => units(snapshot.items), [snapshot.items]);
+  const finals = useMemo(() => finalReplies(all, snapshot.running), [all, snapshot.running]);
+  const [view, setView] = useState({ size: WINDOW, skipEnd: 0 });
+  const skipEnd = Math.min(view.skipEnd, Math.max(0, all.length - 1));
+  const end = all.length - skipEnd;
+  const begin = Math.max(0, end - view.size);
+  const window = useMemo(
+    () => ({ list: all.slice(begin, end), finals, latest: skipEnd === 0 }),
+    [all, begin, end, finals, skipEnd],
+  );
+  const latest = useRef(true);
+  const top = useRef<HTMLDivElement>(null);
+  const bottom = useRef<HTMLDivElement>(null);
+  const moving = useRef(false);
+  useLayoutEffect(() => {
+    latest.current = skipEnd === 0;
+    moving.current = false;
+  });
+  // The first unit in view keeps its place when the window changes above it.
+  // Browser scroll anchoring does not apply at the top of the scroller.
+  const anchor = useRef<{ key: string; top: number } | null>(null);
+  const keepAnchor = useCallback(() => {
+    const node = scroller.current;
+    if (!node || !content.current) return;
+    const frame = node.getBoundingClientRect().top;
+    const first = [...content.current.children].find(
+      (element): element is HTMLElement =>
+        element instanceof HTMLElement &&
+        element.dataset.unit !== undefined &&
+        element.getBoundingClientRect().bottom > frame,
+    );
+    anchor.current = first
+      ? { key: first.dataset.unit!, top: first.getBoundingClientRect().top - frame }
+      : null;
+  }, []);
+  useLayoutEffect(() => {
+    const saved = anchor.current;
+    const node = scroller.current;
+    if (!saved || !node || !content.current) return;
+    anchor.current = null;
+    const element = [...content.current.children].find(
+      (child) => child instanceof HTMLElement && child.dataset.unit === saved.key,
+    );
+    if (element)
+      node.scrollTop +=
+        element.getBoundingClientRect().top - node.getBoundingClientRect().top - saved.top;
+  }, [begin, skipEnd]);
+
+  // Near the top, the window takes more units, then the earlier page. Near
+  // the bottom of a window that left newer units out, it moves down.
+  useEffect(() => {
+    const node = scroller.current;
+    if (!node) return;
+    const near = (element: HTMLElement | null, side: "top" | "bottom") => {
+      if (!element) return false;
+      const box = element.getBoundingClientRect();
+      const frame = node.getBoundingClientRect();
+      const margin = frame.height * 2;
+      return side === "top" ? box.bottom >= frame.top - margin : box.top <= frame.bottom + margin;
+    };
+    const check = () => {
+      if (moving.current) return;
+      if (near(top.current, "top")) {
+        if (begin > 0) {
+          moving.current = true;
+          keepAnchor();
+          setView((current) => {
+            const size = current.size + STEP;
+            return size > MAX_UNITS
+              ? { size: MAX_UNITS, skipEnd: current.skipEnd + size - MAX_UNITS }
+              : { size, skipEnd: current.skipEnd };
+          });
+        } else if (earlier && !earlier.loading && !earlier.failed) {
+          keepAnchor();
+          void earlier.load();
+        }
+      } else if (skipEnd > 0 && near(bottom.current, "bottom")) {
+        moving.current = true;
+        keepAnchor();
+        setView((current) => ({ ...current, skipEnd: Math.max(0, current.skipEnd - STEP) }));
+      }
+    };
+    check();
+    node.addEventListener("scroll", check, { passive: true });
+    return () => node.removeEventListener("scroll", check);
+  }, [begin, skipEnd, earlier, keepAnchor]);
+
+  // A turn from the index: bring its unit into the window, then into view.
+  const [handled, setHandled] = useState<number | undefined>(undefined);
+  const target =
+    reveal && reveal.nonce !== handled
+      ? all.findIndex((unit) =>
+          "item" in unit
+            ? unit.item.id === reveal.id
+            : unit.explore.some((item) => item.id === reveal.id),
+        )
+      : -1;
+  if (reveal && target >= 0) {
+    setHandled(reveal.nonce);
+    if (target < begin || target >= end)
+      setView({ size: WINDOW, skipEnd: Math.max(0, all.length - target - WINDOW / 2) });
+  }
+  const scrolled = useRef<number | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (!reveal || handled !== reveal.nonce || scrolled.current === reveal.nonce) return;
+    const element = scroller.current?.querySelector(
+      `[data-unit="${CSS.escape(reveal.id)}"], [data-unit="${CSS.escape(`explore-${reveal.id}`)}"]`,
+    );
+    if (!element) return;
+    scrolled.current = reveal.nonce;
+    stuck.current = false;
+    element.scrollIntoView({ block: "start" });
+  }, [reveal, handled, begin, end]);
 
   useLayoutEffect(() => {
     const node = scroller.current;
@@ -469,7 +601,9 @@ export function SessionThread({
     // before the view followed, and rows that fold into a group make the
     // thread shorter, which moves the view up but leaves it at the end.
     let top = node.scrollTop;
-    const atEnd = () => node.scrollHeight - node.scrollTop - node.clientHeight < 32;
+    // The end of a window that leaves newer units out is not the latest.
+    const atEnd = () =>
+      latest.current && node.scrollHeight - node.scrollTop - node.clientHeight < 32;
     const check = () => {
       if (atEnd()) stuck.current = true;
       else if (node.scrollTop + 1 < top) stuck.current = false;
@@ -512,9 +646,35 @@ export function SessionThread({
             aria-live="polite"
             aria-busy={snapshot.running}
           >
-            {before}
-            <Thread items={snapshot.items} live={snapshot.running} root onOpenLink={onOpenLink} />
-            {snapshot.running ? (
+            {begin > 0 || earlier ? (
+              <div ref={top} {...stylex.props(styles.edge)}>
+                {begin === 0 && earlier && (
+                  <button
+                    type="button"
+                    disabled={earlier.loading}
+                    onClick={() => void earlier.load()}
+                    {...stylex.props(styles.earlier)}
+                  >
+                    {earlier.loading
+                      ? "Loading earlier work…"
+                      : earlier.failed
+                        ? "Earlier work did not load. Try again"
+                        : "Load earlier work"}
+                  </button>
+                )}
+              </div>
+            ) : (
+              before
+            )}
+            <Thread
+              items={snapshot.items}
+              live={snapshot.running}
+              root
+              window={window}
+              onOpenLink={onOpenLink}
+            />
+            {skipEnd > 0 && <div ref={bottom} {...stylex.props(styles.edge)} />}
+            {skipEnd > 0 ? null : snapshot.running ? (
               <div {...stylex.props(rowStyles.row, styles.status)}>
                 <span {...stylex.props(rowStyles.icon)}>
                   <span {...stylex.props(motion.spinner)} />
@@ -535,12 +695,14 @@ export function SessionThread({
             )}
           </div>
         </div>
-        {!atBottom && (
+        {(!atBottom || skipEnd > 0) && (
           <button
             type="button"
             onClick={() => {
               const node = scroller.current;
               if (!node) return;
+              setView({ size: WINDOW, skipEnd: 0 });
+              latest.current = true;
               stuck.current = true;
               node.scrollTop = node.scrollHeight;
             }}
@@ -588,6 +750,20 @@ const styles = stylex.create({
     gap: 6,
     paddingBlock: 20,
     paddingInline: 18,
+  },
+  // Window edges are never the scroll anchor, so the rows in view stay put.
+  edge: { minHeight: 1, overflowAnchor: "none", display: "flex", justifyContent: "center" },
+  earlier: {
+    marginBlock: 4,
+    paddingBlock: 4,
+    paddingInline: 10,
+    borderWidth: 0,
+    borderRadius: 999,
+    backgroundColor: { default: tokens.fill, ":hover": tokens.lineStrong },
+    color: tokens.muted,
+    fontFamily: tokens.ui,
+    fontSize: 11.5,
+    cursor: { default: "pointer", ":disabled": "default" },
   },
   // Rows out of view skip layout and paint; a long thread scrolls at frame rate.
   unit: { minWidth: 0, contentVisibility: "auto", containIntrinsicSize: "auto 60px" },

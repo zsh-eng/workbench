@@ -120,6 +120,8 @@ async function mountApp(
     inbox?: AgentInboxState;
     /** Agents that Med can start; a started one runs as session o1. */
     agents?: AgentPreset[];
+    /** Session s1's earlier page and its prompts. The session stream stays open. */
+    sessionPages?: { page: { events: unknown[]; start: number }; turns: unknown[] };
   } = {},
 ) {
   initializeTheme();
@@ -169,6 +171,7 @@ async function mountApp(
   // The session that Med runs: its state streams to the page until the test changes it.
   let owned: OwnedState | undefined;
   const ownedActions: OwnedAction[] = [];
+  const pageReads: string[] = [];
   const ownedListeners = new Set<() => void>();
   const setOwned = (change: Partial<OwnedState>) => {
     owned = { ...owned!, ...change };
@@ -267,7 +270,15 @@ async function mountApp(
             `event: reset\ndata: ${JSON.stringify({ events: [], idle: true, modifiedAt: 0 })}\n\n`,
         );
       if (url.pathname === "/api/reviews/saved/sessions/s1/events" && options.session)
-        return new Response(options.session, { headers: { "content-type": "text/event-stream" } });
+        return options.sessionPages
+          ? eventStream(() => options.session!)
+          : new Response(options.session, { headers: { "content-type": "text/event-stream" } });
+      if (url.pathname === "/api/reviews/saved/sessions/s1/page" && options.sessionPages) {
+        pageReads.push(url.searchParams.get("before")!);
+        return Response.json(options.sessionPages.page);
+      }
+      if (url.pathname === "/api/reviews/saved/sessions/s1/turns" && options.sessionPages)
+        return Response.json({ turns: options.sessionPages.turns });
       if (url.pathname === "/api/reviews/saved/agent/events" && inbox)
         return new Response(`event: state\ndata: ${JSON.stringify(inbox)}\n\n`, {
           headers: { "content-type": "text/event-stream" },
@@ -527,6 +538,7 @@ async function mountApp(
     agentMessages,
     setOwned,
     ownedActions,
+    pageReads,
   };
 }
 
@@ -2280,6 +2292,80 @@ describe("agent session", () => {
     await expect.element(page.getByRole("tab", { name: "alpha.ts", exact: true })).toBeVisible();
     await panel.getByRole("button", { name: "Close session" }).click();
     await expect.element(panel).not.toBeInTheDocument();
+  });
+
+  test("a long session loads its earlier work and jumps to a turn", async () => {
+    const chunk = (at: number, kind: string, text: string) => ({
+      at,
+      update: { sessionUpdate: kind, content: { type: "text", text } },
+    });
+    // The tail starts after the build call; its result is in the tail.
+    const tail = [
+      {
+        at: 5000,
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "early",
+          status: "completed",
+          content: [{ type: "content", content: { type: "text", text: "built" } }],
+        },
+      },
+      chunk(6000, "user_message_chunk", "Second prompt"),
+      chunk(7000, "agent_message_chunk", "Both builds pass."),
+    ];
+    const earlier = [
+      chunk(0, "user_message_chunk", "First prompt"),
+      {
+        at: 1000,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: "early",
+          title: "Build the app",
+          kind: "execute",
+          status: "in_progress",
+          rawInput: { command: "bun run build" },
+        },
+      },
+    ];
+    const { pageReads } = await mountApp({
+      savedReview: true,
+      session: `event: reset\ndata: ${JSON.stringify({ events: tail, idle: true, modifiedAt: 0, truncated: true, start: 4096 })}\n\n`,
+      sessionPages: {
+        page: { events: earlier, start: 0 },
+        turns: [
+          { offset: 0, at: 0, text: "First prompt" },
+          { offset: 4200, at: 6000, text: "Second prompt" },
+        ],
+      },
+    });
+    await page.getByRole("button", { name: "Toggle agent session" }).click();
+    const panel = page.getByRole("complementary", { name: "Agent session" });
+    // A short thread reaches its top at once, so the earlier page loads.
+    await expect.element(panel.getByText("First prompt")).toBeVisible();
+    expect(pageReads).toEqual(["4096"]);
+    // The result that came first now completes its call: one row, with its title.
+    const build = panel.getByRole("button", { name: /Build the app/ });
+    await expect.element(build).toBeVisible();
+    expect(document.querySelectorAll('[aria-label="Session"] [data-unit="early"]')).toHaveLength(1);
+    await expect
+      .element(panel.getByRole("button", { name: "Load earlier work" }))
+      .not.toBeInTheDocument();
+
+    await expect
+      .element(panel.getByText("The session is long", { exact: false }))
+      .not.toBeInTheDocument();
+
+    // The index lists the prompts, newest first.
+    await panel.getByRole("button", { name: "Turns" }).click();
+    const menu = page.getByRole("menu");
+    await expect.element(menu.getByRole("menuitem", { name: /First prompt/ })).toBeVisible();
+    expect(
+      [...document.querySelectorAll('[role="menu"] [role="menuitem"] > span:last-child')].map(
+        (text) => text.textContent,
+      ),
+    ).toEqual(["Second prompt", "First prompt"]);
+    await menu.getByRole("menuitem", { name: /First prompt/ }).click();
+    await expect.element(menu).not.toBeInTheDocument();
   });
 
   test("comments go to the waiting agent from the review", async () => {

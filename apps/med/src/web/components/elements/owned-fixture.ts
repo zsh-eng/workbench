@@ -343,3 +343,95 @@ export function createDemoAgent(
   };
 }
 export type DemoAgent = ReturnType<typeof createDemoAgent>;
+
+const TOPICS = ["relative times", "export", "theme tokens", "club summary", "durations"];
+
+/**
+ * A session of 600 turns behind a fake host, for the render window, pages,
+ * and the turn index. Each turn has a made-up byte offset of 1,000 bytes; the
+ * first view holds the last 150 turns, and each page 150 more.
+ */
+export function createLongSession() {
+  const sessionId = "demo-long";
+  const turns = 600;
+  const perPage = 150;
+  const turnEvents = (turn: number): SessionEvent[] => {
+    const at = Date.UTC(2026, 9, 10, 8) + turn * 60_000;
+    const topic = TOPICS[turn % TOPICS.length]!;
+    return [
+      {
+        at,
+        update: {
+          sessionUpdate: "user_message_chunk",
+          content: { type: "text", text: `Step ${turn + 1}: check the ${topic}.` },
+        },
+      },
+      {
+        at: at + 5_000,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: `run-${turn}`,
+          title: `Run the ${topic} tests`,
+          kind: "execute",
+          status: "completed",
+          rawInput: { command: `bun test ${topic.replaceAll(" ", "-")}` },
+        },
+      },
+      {
+        at: at + 9_000,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          messageId: `reply-${turn}`,
+          content: { type: "text", text: `Step ${turn + 1} is done; the ${topic} tests pass.` },
+        },
+      },
+    ];
+  };
+  const range = (from: number, to: number) =>
+    Array.from({ length: to - from }, (_, index) => turnEvents(from + index)).flat();
+  const first = turns - perPage;
+  const fetcher: typeof fetch = async (input) => {
+    const url = new URL(String(input), "http://demo");
+    if (url.pathname.endsWith(`/sessions/${sessionId}/events`))
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                `event: reset\ndata: ${JSON.stringify({
+                  events: range(first, turns),
+                  idle: true,
+                  modifiedAt: Date.now(),
+                  truncated: true,
+                  start: first * 1000,
+                })}\n\n`,
+              ),
+            );
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    if (url.pathname.endsWith(`/sessions/${sessionId}/page`)) {
+      const end = Number(url.searchParams.get("before")) / 1000;
+      const from = Math.max(0, end - perPage);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return Response.json({ events: range(from, end), start: from * 1000 });
+    }
+    if (url.pathname.endsWith(`/sessions/${sessionId}/turns`))
+      return Response.json({
+        turns: Array.from({ length: turns }, (_, turn) => {
+          const prompt = turnEvents(turn)[0]!;
+          return {
+            offset: turn * 1000,
+            at: prompt.at,
+            text: (prompt.update as { content: { text: string } }).content.text,
+          };
+        }),
+      });
+    return Response.json({ error: { message: "Not in the demo." } }, { status: 404 });
+  };
+  return {
+    session: { agent: "claude" as const, id: sessionId, cwd: "/work/trail-notes" },
+    fetcher,
+  };
+}

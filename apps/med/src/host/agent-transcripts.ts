@@ -109,12 +109,14 @@ export function compactUpdate(update: SessionUpdate): SessionUpdate {
   } as SessionUpdate;
 }
 
-/** Reads the complete lines from `offset`, and returns where the next read starts. */
+/** Reads the complete lines from `offset`, and returns where the next read
+ * starts and where the first line starts. */
 async function readLines(path: string, offset: number, limit = Number.POSITIVE_INFINITY) {
   const handle = await open(path, "r");
   try {
     const { size } = await handle.stat();
-    if (size < offset) return { lines: [] as string[], next: size, truncated: false, reset: true };
+    if (size < offset)
+      return { lines: [] as string[], next: size, first: size, truncated: false, reset: true };
     let start = offset;
     let truncated = false;
     if (size - start > limit) {
@@ -132,9 +134,11 @@ async function readLines(path: string, offset: number, limit = Number.POSITIVE_I
     const end = text.lastIndexOf("\n");
     const complete = end < 0 ? "" : text.slice(0, end);
     const consumed = end < 0 ? 0 : Buffer.byteLength(text.slice(0, end + 1));
+    const first = truncated ? size - Buffer.byteLength(text) : start;
     return {
       lines: complete ? complete.split("\n") : [],
-      next: truncated ? size - Buffer.byteLength(text) + consumed : start + consumed,
+      next: first + consumed,
+      first,
       truncated,
       reset: false,
     };
@@ -160,6 +164,8 @@ export interface TranscriptFeed {
   events: SessionEvent[];
   /** Earlier lines that the first view leaves out. */
   truncated: boolean;
+  /** The byte offset of the first view's first line; earlier pages end there. */
+  start: number;
   idle: boolean;
   modifiedAt: number;
 }
@@ -185,14 +191,6 @@ export async function followTranscript(
     idle?: () => boolean;
   };
   const sources: Source[] = [];
-  const known = new Set<string>();
-  // A tail can start after a call; its later updates have nothing to update.
-  const keep = (event: SessionEvent) => {
-    const update = event.update;
-    if (update.sessionUpdate === "tool_call") known.add(update.toolCallId);
-    if (update.sessionUpdate === "tool_call_update" && !known.has(update.toolCallId)) return false;
-    return true;
-  };
   const pending: Source[] = [];
   const subagents = join(dirname(path), session.id, "subagents");
   const addSource = (file: string, parentToolCallId?: string) => {
@@ -223,10 +221,12 @@ export async function followTranscript(
 
   const read = async (source: Source, limit?: number) => {
     const result = await readLines(source.path, source.offset, limit).catch(() => undefined);
-    if (!result) return { events: [] as SessionEvent[], truncated: false };
+    if (!result) return { events: [] as SessionEvent[], truncated: false, first: 0 };
     source.offset = result.next;
-    const events = result.lines.flatMap((line) => source.line(line)).filter(keep);
-    return { events, truncated: result.truncated };
+    // A tail can start after a call. Its later updates still go to the
+    // browser, which keeps them until an earlier page brings the call.
+    const events = result.lines.flatMap((line) => source.line(line));
+    return { events, truncated: result.truncated, first: result.first };
   };
   const drain = async () => {
     const events: SessionEvent[] = [];
@@ -244,6 +244,7 @@ export async function followTranscript(
   handlers.onFeed({
     events: events.map((event) => ({ ...event, update: compactUpdate(event.update) })),
     truncated: first.truncated,
+    start: first.first,
     idle: main.idle?.() ?? true,
     modifiedAt: await modified(),
   });
@@ -265,4 +266,150 @@ export async function followTranscript(
       );
     lastModified = modifiedAt;
   }
+}
+
+/** An earlier page reads at most this much before its end. */
+const PAGE_BYTES = 4 * 1024 * 1024;
+
+/**
+ * The updates of the lines before byte offset `before`: a page that ends
+ * where the first view or the page after it starts. Subagents that the page
+ * starts come with it. `start` is where the next earlier page ends.
+ */
+export async function readTranscriptPage(
+  session: Pick<AgentSession, "agent" | "id">,
+  path: string,
+  before: number,
+) {
+  const handle = await open(path, "r");
+  let text: string;
+  let start: number;
+  try {
+    const end = Math.min(Math.max(0, before), (await handle.stat()).size);
+    start = Math.max(0, end - PAGE_BYTES);
+    const buffer = Buffer.alloc(end - start);
+    await handle.read(buffer, 0, buffer.length, start);
+    text = buffer.toString("utf8");
+    // A page starts inside a line unless it starts the file.
+    if (start > 0) {
+      const newline = text.indexOf("\n");
+      text = newline < 0 ? "" : text.slice(newline + 1);
+      start = end - Buffer.byteLength(text);
+    }
+  } finally {
+    await handle.close();
+  }
+  const lines = text.split("\n").filter(Boolean);
+  const events: SessionEvent[] = [];
+  if (session.agent === "codex") {
+    const reader = createCodexRolloutReader();
+    for (const line of lines) events.push(...reader.line(line));
+  } else {
+    const subagents: [string, string][] = [];
+    const reader = createClaudeTranscriptReader({
+      onSubagent: (agentId, toolCallId) => subagents.push([agentId, toolCallId]),
+    });
+    for (const line of lines) events.push(...reader.line(line));
+    for (const [agentId, toolCallId] of subagents) {
+      const sub = join(dirname(path), session.id, "subagents", `agent-${agentId}.jsonl`);
+      const read = await readLines(sub, 0, TAIL_BYTES).catch(() => undefined);
+      if (!read) continue;
+      const subReader = createClaudeTranscriptReader({ parentToolCallId: toolCallId });
+      for (const line of read.lines) events.push(...subReader.line(line));
+    }
+  }
+  return {
+    events: events
+      .sort((a, b) => a.at - b.at)
+      .map((event) => ({ ...event, update: compactUpdate(event.update) })),
+    start,
+  };
+}
+
+/** A prompt in a transcript, for the turn index. */
+export interface TranscriptTurn {
+  /** The byte offset of the prompt's line. */
+  offset: number;
+  at: number;
+  text: string;
+}
+const turnIndexes = new Map<
+  string,
+  { modifiedAt: number; scanned: number; turns: TranscriptTurn[] }
+>();
+/** Lines that can be a prompt: a user line that is not a tool result. */
+const promptLine = (agent: AgentSession["agent"], line: string) =>
+  agent === "codex"
+    ? line.includes('"user_message"')
+    : line.includes('"type":"user"') && !line.includes('"tool_result"');
+
+/**
+ * Each prompt in a transcript, with its byte offset. One scan reads the file
+ * in pages; the index is kept and extended as the transcript grows.
+ */
+export async function transcriptTurns(
+  session: Pick<AgentSession, "agent" | "id">,
+  path: string,
+): Promise<TranscriptTurn[]> {
+  const info = await stat(path);
+  let index = turnIndexes.get(path);
+  if (!index || info.size < index.scanned) index = { modifiedAt: 0, scanned: 0, turns: [] };
+  if (index.modifiedAt === info.mtimeMs) return index.turns;
+  const handle = await open(path, "r");
+  try {
+    let offset = index.scanned;
+    while (offset < info.size) {
+      const length = Math.min(PAGE_BYTES, info.size - offset);
+      const buffer = Buffer.alloc(length);
+      await handle.read(buffer, 0, length, offset);
+      const end = buffer.lastIndexOf(10);
+      // One line longer than a page: skip it whole.
+      if (end < 0) {
+        if (offset + length >= info.size) break;
+        const next = await nextLine(handle, offset + length, info.size);
+        offset = next;
+        continue;
+      }
+      let lineStart = 0;
+      while (lineStart <= end) {
+        const lineEnd = buffer.indexOf(10, lineStart);
+        const line = buffer.toString("utf8", lineStart, lineEnd);
+        if (promptLine(session.agent, line)) {
+          const reader =
+            session.agent === "codex" ? createCodexRolloutReader() : createClaudeTranscriptReader();
+          for (const event of reader.line(line)) {
+            const update = event.update;
+            if (update.sessionUpdate !== "user_message_chunk" || update.content.type !== "text")
+              continue;
+            const text = update.content.text.trim().split("\n")[0]!.slice(0, 160);
+            // Commands and reminders that Claude Code writes as user lines are not prompts.
+            if (text && !text.startsWith("<"))
+              index.turns.push({ offset: offset + lineStart, at: event.at, text });
+            break;
+          }
+        }
+        lineStart = lineEnd + 1;
+      }
+      offset += end + 1;
+    }
+    index.scanned = offset;
+    index.modifiedAt = info.mtimeMs;
+    turnIndexes.set(path, index);
+    return index.turns;
+  } finally {
+    await handle.close();
+  }
+}
+
+/** The offset after the newline at or after `from`. */
+async function nextLine(handle: Awaited<ReturnType<typeof open>>, from: number, size: number) {
+  const buffer = Buffer.alloc(64 * 1024);
+  let offset = from;
+  while (offset < size) {
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, offset);
+    const newline = buffer.subarray(0, bytesRead).indexOf(10);
+    if (newline >= 0) return offset + newline + 1;
+    offset += bytesRead;
+  }
+  return size;
 }

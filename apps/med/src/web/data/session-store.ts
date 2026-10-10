@@ -85,6 +85,11 @@ export function createSessionStore() {
   let threads = new Map<string, SessionItem[]>([[ROOT, []]]);
   let where = new Map<string, { thread: string; index: number }>();
   let sequence = 0;
+  // Every update so far, so an earlier page can go before them.
+  let events: SessionEvent[] = [];
+  // Updates of calls that have not arrived, such as results at the start of a
+  // tail whose calls are on an earlier page.
+  let orphans = new Map<string, SessionEvent[]>();
   const listeners = new Set<() => void>();
   let batch = 0;
   let changed = false;
@@ -154,7 +159,8 @@ export function createSessionStore() {
       });
   }
 
-  function apply({ at, update }: SessionEvent) {
+  function apply(event: SessionEvent) {
+    const { at, update } = event;
     const parent = update._meta?.med?.parentToolCallId;
     const thread = parent && where.has(parent) ? parent : ROOT;
     snapshot = {
@@ -172,6 +178,11 @@ export function createSessionStore() {
       case "tool_call":
       case "tool_call_update": {
         const existing = itemOf(update.toolCallId);
+        // An update without its call and without a title waits for the call.
+        if (!existing && update.sessionUpdate === "tool_call_update" && !update.title) {
+          orphans.set(update.toolCallId, [...(orphans.get(update.toolCallId) ?? []), event]);
+          return;
+        }
         const meta = update._meta?.med;
         const previous: ToolCallState =
           existing?.kind === "tool"
@@ -215,6 +226,11 @@ export function createSessionStore() {
           items: [],
           ...(ended ? { endedAt: at } : {}),
         });
+        const waiting = orphans.get(update.toolCallId);
+        if (waiting) {
+          orphans.delete(update.toolCallId);
+          for (const orphan of waiting) apply(orphan);
+        }
         return;
       }
       case "plan": {
@@ -262,6 +278,23 @@ export function createSessionStore() {
     }
   }
 
+  function applyAll(added: Iterable<SessionEvent>) {
+    batch++;
+    try {
+      for (const event of added) {
+        events.push(event);
+        apply(event);
+      }
+      changed = true;
+    } finally {
+      batch--;
+    }
+    if (changed && !batch) {
+      changed = false;
+      emit();
+    }
+  }
+
   function emit() {
     if (batch) {
       changed = true;
@@ -277,23 +310,12 @@ export function createSessionStore() {
     },
     getSnapshot: () => snapshot,
     apply(event: SessionEvent) {
+      events.push(event);
       apply(event);
       emit();
     },
     /** Applies many updates and notifies once, as when a transcript loads. */
-    applyAll(events: Iterable<SessionEvent>) {
-      batch++;
-      try {
-        for (const event of events) apply(event);
-        changed = true;
-      } finally {
-        batch--;
-      }
-      if (changed && !batch) {
-        changed = false;
-        emit();
-      }
-    },
+    applyAll,
     setRunning(running: boolean) {
       if (snapshot.running === running) return;
       snapshot = { ...snapshot, running };
@@ -303,7 +325,22 @@ export function createSessionStore() {
       snapshot = empty;
       threads = new Map([[ROOT, []]]);
       where = new Map();
+      events = [];
+      orphans = new Map();
       emit();
+    },
+    /** Puts an earlier page before the updates so far. The thread builds again
+     * in order, so results that waited for their calls find them. */
+    prepend(page: SessionEvent[]) {
+      if (!page.length) return;
+      const later = events;
+      const running = snapshot.running;
+      snapshot = { ...empty, running };
+      threads = new Map([[ROOT, []]]);
+      where = new Map();
+      events = [];
+      orphans = new Map();
+      applyAll([...page, ...later]);
     },
   };
 }

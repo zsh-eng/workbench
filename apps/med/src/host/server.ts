@@ -58,7 +58,12 @@ import { FileSymbolService } from "./search/symbols";
 import { type SearchOptions } from "./search/service";
 import { RepositoryRegistry } from "./repository/registry";
 import { SavedReviewStore } from "./saved-reviews";
-import { followTranscript, findTranscript } from "./agent-transcripts";
+import {
+  findTranscript,
+  followTranscript,
+  readTranscriptPage,
+  transcriptTurns,
+} from "./agent-transcripts";
 import { AgentInbox } from "./agent-inbox";
 import { findAgents, OwnedSessions, type RunnableAgent } from "./owned-sessions";
 import { createAgentStatus } from "./agent-status";
@@ -500,6 +505,32 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           );
           streams.set(response, eventRepo);
           response.once("close", () => streams.delete(response));
+          return;
+        }
+        // Earlier work of a long session: a page before a byte offset, and the
+        // index of its prompts.
+        const sessionPage =
+          /^\/api\/reviews\/([A-Za-z0-9_-]+)\/sessions\/([A-Za-z0-9_-]+)\/(page|turns)$/.exec(
+            url.pathname,
+          );
+        if (sessionPage && request.method === "GET") {
+          const bundle = await savedReviews.get(sessionPage[1]!);
+          const session = bundle.sessions?.find((entry) => entry.id === sessionPage[2]);
+          const path = session && session.agent !== "acp" && (await findTranscript(session));
+          if (!session || !path)
+            throw new HostError(
+              "transcript-not-found",
+              "The session's transcript is not on this computer.",
+              404,
+            );
+          if (sessionPage[3] === "turns") {
+            send({ turns: await transcriptTurns(session, path) });
+            return;
+          }
+          const before = Number(url.searchParams.get("before"));
+          if (!Number.isSafeInteger(before) || before < 0)
+            throw new HostError("invalid-offset", "Give the byte offset where the page ends.", 400);
+          send(await readTranscriptPage(session, path, before));
           return;
         }
         // An agent session of a saved review: its transcript's updates, then

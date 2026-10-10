@@ -2,6 +2,8 @@ import { afterEach, expect, test } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { createRoot, type Root } from "react-dom/client";
 import { SessionSection } from "../../src/web/components/elements/SessionSection";
+import { SessionThread } from "../../src/web/components/session/SessionThread";
+import { createSessionStore } from "../../src/web/data/session-store";
 import "../../src/web/pierre-theme";
 import { initializeTheme } from "../../src/web/themes";
 
@@ -91,4 +93,54 @@ test("scrolling up stops following, and Latest returns to the newest item", asyn
   await userEvent.click(replay.getByRole("button", { name: "Latest" }));
   await expect.element(replay.getByRole("button", { name: "Latest" })).not.toBeInTheDocument();
   expect(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight).toBeLessThan(32);
+});
+
+test("a long thread keeps a window of units in the page and moves it as you scroll", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = createSessionStore();
+  store.applyAll(
+    Array.from({ length: 700 }, (_, turn) => [
+      {
+        at: turn * 1000,
+        update: {
+          sessionUpdate: "user_message_chunk" as const,
+          content: { type: "text" as const, text: `Prompt ${turn}` },
+        },
+      },
+      {
+        at: turn * 1000 + 500,
+        update: {
+          sessionUpdate: "agent_message_chunk" as const,
+          messageId: `r${turn}`,
+          content: { type: "text" as const, text: `Reply ${turn}` },
+        },
+      },
+    ]).flat(),
+  );
+  mount = document.createElement("div");
+  mount.style.height = "600px";
+  document.body.append(mount);
+  root = createRoot(mount);
+  root.render(<SessionThread snapshot={store.getSnapshot()} />);
+  const units = () => [...document.querySelectorAll<HTMLElement>("[data-unit]")];
+  const scroller = () => document.querySelector('[aria-label="Session"]')!.parentElement!;
+  await expect.poll(() => units().length).toBe(300);
+  expect(units().at(-1)!.dataset.unit).toBe("r699");
+
+  // Toward the top, the window takes earlier units, up to 600, and leaves the newest out.
+  for (let step = 0; step < 20 && units().at(-1)!.dataset.unit === "r699"; step++) {
+    scroller().scrollTop = 0;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  expect(units().at(-1)!.dataset.unit).not.toBe("r699");
+  expect(units()).toHaveLength(600);
+  expect(Number(/\d+/.exec(units()[0]!.textContent!)![0])).toBeLessThan(550);
+  // The rows in view stay in view: the window grew above them.
+  expect(scroller().scrollTop).toBeGreaterThan(0);
+
+  // Latest brings back the newest work.
+  await userEvent.click(page.getByRole("button", { name: "Latest" }));
+  await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r699");
+  expect(units()).toHaveLength(300);
 });

@@ -349,6 +349,27 @@ In the browser, after Pierre's `Virtualizer`:
 Today `content-visibility: auto` is sufficient for the tail (about 240 items).
 A thread of some thousand items needs the render window.
 
+Built:
+
+- `GET /api/reviews/:id/sessions/:session/page?before=<offset>` reads up to
+  4 MiB before a byte offset, from its first complete line, with the
+  subagents that the page starts. The first view's `reset` event gives
+  `start`, the offset of its first line.
+- `GET …/turns` gives each prompt with its byte offset and time. The host
+  scans the transcript once and extends the index when the file grows.
+- The host now sends a result whose call is before the tail. The store keeps
+  such an update until an earlier page brings the call; then the thread
+  builds again in order.
+- The thread renders a window of at most 600 top-level rows, counted from the
+  newest. Near the top it takes 100 more rows, then loads the earlier page;
+  near the bottom of a window that left newer rows out, it moves down. The
+  first row in view keeps its place, because browser scroll anchoring does not
+  apply at the top of the scroller. Heights are not estimated or measured;
+  rows keep `content-visibility: auto`.
+- **Turns** in the Session pane lists the prompts and jumps to one. It loads
+  each page back to that prompt, so a jump to the start of a session of
+  hundreds of megabytes loads all of it.
+
 ## Model, effort, and commands
 
 Med is a GUI, not a terminal. Common settings get controls. The `/` menu is
@@ -437,7 +458,9 @@ them.
    host restarts.
 4. **Workspace list.** States, unread dots, and lead sessions. Built, except
    pinning a lead.
-5. **Long sessions.** Pages, the turn index, and the render window.
+5. **Long sessions.** Pages, the turn index, and the render window. Built;
+   offset checkpoints and a jump that loads only the pages around a turn are
+   not.
 
 ## Open questions
 

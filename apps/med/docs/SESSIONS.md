@@ -97,8 +97,9 @@ written to both formats.
 1. The host accepts only a session that the review records, and finds its
    transcript (`src/host/agent-transcripts.ts`). No transcript gives a 404.
 2. It reads the last 8 MiB, from the first complete line. Transcripts of long
-   sessions reach hundreds of megabytes. Updates for calls before that point
-   are dropped. The sidebar says when the thread starts late.
+   sessions reach hundreds of megabytes. The thread loads earlier pages of
+   4 MiB when you scroll to its top, and **Turns** jumps to any prompt
+   ([long sessions](AGENT_WORKSPACES.md#long-sessions-load-earlier-work)).
 3. It sends a `reset` event with the updates, `idle`, and the file's
    modification time, in parts of up to 1 MiB.
 4. Every 400 ms it reads new complete lines from the transcript and from each
@@ -174,8 +175,8 @@ agent, notes, sessions that Med starts, and long sessions.
 
 - The sidebar shows sessions recorded with saved reviews. Branch workspaces
   have no session.
-- The thread renders every item; a very long tail can be slow. The host's
-  8 MiB tail bounds it.
+- The thread renders at most 600 top-level rows; nested subagent threads
+  render whole.
 - Not shown yet for attached sessions: context usage, permission requests
   (owned sessions show both), questions that the agent asked the user, and the
   dev servers that Claude Desktop starts from

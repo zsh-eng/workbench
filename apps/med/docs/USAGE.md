@@ -151,7 +151,9 @@ toolbar, and **Show agent session** in the command palette. They open the
 Session sidebar: the prompts, replies, thoughts, tool calls with their output
 and diffs, the plan, and background shells and agents. The sidebar follows the
 session while the agent works and shows **Working** or **Idle**. A file link in
-a reply opens the file. See [agent sessions](SESSIONS.md).
+a reply opens the file. A long session opens on its latest work; scroll to the
+top for earlier work, or choose a prompt from **Turns** (the clock) to jump to
+it. See [agent sessions](SESSIONS.md).
 
 A saved review can also start an agent. Open the Session pane: a review
 without a session lists the agents that Med found, and the **+** menu in the
