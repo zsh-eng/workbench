@@ -26,7 +26,7 @@ let actual: Awaited<ReturnType<typeof twinkleplop>>;
 beforeAll(async () => {
   reference = await createHighlighter({
     themes: ["github-light", "github-dark", diagnosticTheme],
-    langs: ["java", "cpp", "json", "jsonc"],
+    langs: ["java", "cpp", "json", "jsonc", "css"],
     engine: createJavaScriptRegexEngine(),
   });
   actual = await twinkleplop(themeNames.map((n) => reference.getTheme(n)));
@@ -205,4 +205,19 @@ describe("In-house grammars through production language loading, adapter, and Pi
       }
     },
   );
+});
+
+describe("Twinkleplop CSS with Med's scope map", () => {
+  it("colors property names, custom properties, functions, and values as Shiki does", () => {
+    const source =
+      ".card {\n  --accent: #ff00aa;\n  color: var(--accent);\n  margin: 0 auto;\n  display: flex;\n  transform: translateX(4px);\n}\n";
+    for (const theme of themeNames)
+      expect(
+        compare(
+          renderFile(source, "css", theme, reference).code,
+          renderFile(source, "css", theme, actual).code,
+          theme,
+        ),
+      ).toEqual([]);
+  });
 });
