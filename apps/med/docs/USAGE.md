@@ -152,6 +152,16 @@ and diffs, the plan, and background shells and agents. The sidebar follows the
 session while the agent works and shows **Working** or **Idle**. A file link in
 a reply opens the file. See [agent sessions](SESSIONS.md).
 
+A saved review can also start an agent. Open the Session pane: a review
+without a session lists the agents that Med found, and the **+** menu in the
+pane starts another. Med starts Claude Code, OpenCode, Codex (`codex-acp`),
+or Gemini CLI in the review's repository, with your own sign-in; it does not
+install them. Then the prompt box has pickers for the model, the effort, and
+the mode, a context meter, and **Stop** (or `Esc`) while the agent works.
+Type `/` for the agent's own commands. A tool call that needs your answer
+shows **Allow** and **Deny** above the prompt box. Med stops its agents when
+the host stops.
+
 Saved reviews and their comments persist in `~/.local/state/med`. Normal branch review notes still end with the host process. See [agent integration](AGENT_INTEGRATION.md) for commands, state settings, limits, and suggested `AGENTS.md` guidance.
 
 ### Notes and briefs
@@ -456,7 +466,9 @@ frame, card, or popover surface. The **Commit flow** section runs the Commit tab
 on a pretend repository, with switches for a failing hook, a rejected push, a
 branch without an upstream, and slow commands. The **Agent session** section
 replays a recorded Claude Code session at 1×, 4×, or 16×, and shows every part
-of the thread on sample updates.
+of the thread on sample updates. The **Agents** section runs the real Session
+pane with a scripted agent: send a message, answer its permission request, try
+the pickers and the `/` menu, or stop it.
 
 Run the complete check from the Workbench root:
 

@@ -106,14 +106,15 @@ const textOf = (item: SessionItem) =>
 
 /**
  * The thread with the messages sent from Med, each at the time it was sent.
- * A Codex session writes a queued message into its rollout once it reads it;
- * then the rollout's copy stays and Med's copy goes.
+ * A Codex session writes a queued message into its rollout once it reads it,
+ * and a session that Med runs takes it as a prompt; then the thread's copy
+ * stays and Med's copy goes.
  */
 export function withSentMessages(items: SessionItem[], messages: AgentMessage[]) {
   if (!messages.length) return items;
   const sent: SessionItem[] = messages
     .filter((message) => {
-      if (message.agent !== "codex" || !message.text) return true;
+      if (!message.text) return true;
       const start = Date.parse(message.createdAt);
       const needle = message.text.slice(0, 120);
       return !items.some(

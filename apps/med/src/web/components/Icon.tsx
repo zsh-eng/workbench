@@ -62,6 +62,7 @@ export type IconName =
   | "alert"
   | "play"
   | "pause"
+  | "stop"
   | "tasks";
 
 const branch = (
@@ -295,6 +296,7 @@ const icons: Record<IconName, ReactNode> = {
     <path d="M4.75 3.1a.75.75 0 0 1 1.13-.65l7.1 4.9a.75.75 0 0 1 0 1.3l-7.1 4.9a.75.75 0 0 1-1.13-.65z" />
   ),
   pause: <path d="M5.25 3.25v9.5M10.75 3.25v9.5" />,
+  stop: <rect x="4.25" y="4.25" width="7.5" height="7.5" rx="1.5" fill="currentColor" />,
   tasks: <path d="m2.25 4.25 1.25 1.25 2-2.25M2.25 10.75 3.5 12l2-2.25M8 4.5h5.75M8 11h5.75" />,
   command: (
     <path d="M5.75 10.25v-6a1.5 1.5 0 1 0-1.5 1.5h7.5a1.5 1.5 0 1 0-1.5-1.5v7.5a1.5 1.5 0 1 0 1.5-1.5h-7.5a1.5 1.5 0 1 0 1.5 1.5z" />

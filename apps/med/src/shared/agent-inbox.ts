@@ -23,7 +23,7 @@ export type AgentMessageInput = z.input<typeof agentMessageInputSchema>;
 export const agentMessageSchema = z.object({
   id: z.string(),
   sessionId: z.string(),
-  agent: z.enum(["claude", "codex"]),
+  agent: z.enum(["claude", "codex", "acp"]),
   /** What the user wrote. */
   text: z.string(),
   noteIds: z.array(z.string()),

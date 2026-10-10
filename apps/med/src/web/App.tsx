@@ -40,7 +40,7 @@ import { ChangeTotals } from "./components/ChangeTotals";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { FileSidebar } from "./components/FileSidebar";
 import { NoteCard, NoteComposer, type NoteTarget } from "./components/NoteCard";
-import { Icon } from "./components/Icon";
+import { Icon, type IconName } from "./components/Icon";
 import "./pierre-theme";
 import { useTheme } from "./themes";
 import { ThemePicker } from "./components/ThemePicker";
@@ -51,7 +51,7 @@ import { visibleElement } from "./data/palette-focus";
 import { setFilePreviewShown, useFilePreviewShown } from "./data/picker-preferences";
 import { BranchPicker } from "./components/BranchPicker";
 import type { BrowseSource } from "../shared/browse";
-import type { AgentSession } from "../shared/saved-review";
+import { agentName, type AgentSession } from "../shared/saved-review";
 import { createBrowseApi, useBrowseFiles, type BrowseApi } from "./data/browse";
 import { createFileWorkspace, isFileTab, sourceKey, useFileWorkspace } from "./data/file-workspace";
 import { RepositoryFiles } from "./components/RepositoryFiles";
@@ -98,7 +98,8 @@ import { highlightRules } from "./code-colors";
 import { createDiffFindHighlights } from "./data/diff-find-highlights";
 import { useAgentInbox } from "./data/agent-inbox";
 import type { ComposerAttachment } from "./components/session/SessionComposer";
-import type { SessionPins } from "./components/session/SessionPanel";
+import type { SessionPins, SessionStarter } from "./components/session/SessionPanel";
+import { useAgentPresets } from "./data/owned-session";
 
 // The brief loads its Markdown worker and excerpt renderer only when shown.
 const BriefView = lazy(() => import("./components/BriefView"));
@@ -109,6 +110,9 @@ const CommitView = lazy(() =>
 );
 const SessionPanel = lazy(() =>
   import("./components/session/SessionPanel").then((module) => ({ default: module.SessionPanel })),
+);
+const SessionStart = lazy(() =>
+  import("./components/session/SessionPanel").then((module) => ({ default: module.SessionStart })),
 );
 const NO_SESSIONS: AgentSession[] = [];
 // Pierre's view renders its file headers and comments again whenever it renders.
@@ -707,12 +711,31 @@ export function App({
     sessionFetch,
   );
   const [agentAttachments, setAgentAttachments] = useState<ComposerAttachment[]>([]);
-  const replyAgent = agentSessions.at(-1)?.agent;
+  // The agents that Med can start in a saved review's repository.
+  const agentPresets = useAgentPresets(!!state.savedReview, sessionFetch);
+  const sessionStarter = useMemo<SessionStarter>(
+    () => ({
+      agents: agentPresets,
+      start: async (preset) => {
+        await controller.startSession(preset);
+        showPane("session");
+      },
+    }),
+    [agentPresets, controller, showPane],
+  );
+  // The lead session: the latest one. Its agent names the reply controls.
+  const leadSession = agentSessions.at(-1);
+  const replyAgent = leadSession && agentName(leadSession);
+  const leadIcon: IconName = !leadSession
+    ? "agent"
+    : leadSession.agent === "acp"
+      ? "agent"
+      : leadSession.agent;
   const agentReply = useMemo<AgentReplyTarget | null>(
     () =>
       replyAgent
         ? {
-            agent: replyAgent === "codex" ? "Codex" : "Claude",
+            agent: replyAgent,
             add: (attachment) => {
               setAgentAttachments((list) => [
                 ...list.filter(
@@ -2274,13 +2297,20 @@ export function App({
             shortcut: "⌘⇧B",
             run: toggleFilesSidebar,
           },
-          ...(agentSessions.length
+          ...(state.savedReview
             ? [
                 {
                   id: "agent-session",
                   label: sessionVisible ? "Hide agent session" : "Show agent session",
                   run: toggleSession,
                 },
+                ...(agentPresets ?? [])
+                  .filter((agent) => agent.available)
+                  .map((agent) => ({
+                    id: `new-session-${agent.id}`,
+                    label: `New ${agent.name} session`,
+                    run: () => void sessionStarter.start(agent.id).catch(() => {}),
+                  })),
               ]
             : []),
           {
@@ -2763,10 +2793,10 @@ export function App({
         aria-label="Enter zen mode"
         onClick={toggleZen}
       />
-      {agentSessions.length > 0 && (
+      {state.savedReview && (
         <ToolButton
           label={sessionVisible ? "Hide agent session" : "Show agent session"}
-          icon={agentSessions.at(-1)!.agent}
+          icon={leadIcon}
           aria-label="Toggle agent session"
           aria-pressed={sessionVisible}
           active={sessionVisible}
@@ -2819,31 +2849,40 @@ export function App({
       </header>
     );
   const sidePanes: PaneSpec[] = [
-    ...(agentSessions.length > 0 && state.savedReview
+    ...(state.savedReview
       ? [
           {
             id: "session" as const,
             label: "Session",
             ariaLabel: "Agent session",
-            icon: agentSessions.at(-1)!.agent,
+            icon: leadIcon,
             render: (controls: ReactNode) => (
               <Suspense fallback={null}>
-                <SessionPanel
-                  key={state.savedReview!.id}
-                  reviewId={state.savedReview!.id}
-                  sessions={agentSessions}
-                  root={state.review?.repo}
-                  fetcher={sessionFetch}
-                  inbox={agentInbox}
-                  attachments={agentAttachments}
-                  onRemoveAttachment={(id) =>
-                    setAgentAttachments((list) => list.filter((entry) => entry.id !== id))
-                  }
-                  onOpenPath={(path, line) => fileWorkspace.open(path, true, line)}
-                  onClose={() => closePane("session")}
-                  pins={sessionPins}
-                  controls={controls}
-                />
+                {agentSessions.length === 0 ? (
+                  <SessionStart
+                    starter={sessionStarter}
+                    controls={controls}
+                    repo={state.review?.repo}
+                  />
+                ) : (
+                  <SessionPanel
+                    key={state.savedReview!.id}
+                    reviewId={state.savedReview!.id}
+                    sessions={agentSessions}
+                    root={state.review?.repo}
+                    fetcher={sessionFetch}
+                    inbox={agentInbox}
+                    attachments={agentAttachments}
+                    onRemoveAttachment={(id) =>
+                      setAgentAttachments((list) => list.filter((entry) => entry.id !== id))
+                    }
+                    onOpenPath={(path, line) => fileWorkspace.open(path, true, line)}
+                    onClose={() => closePane("session")}
+                    pins={sessionPins}
+                    controls={controls}
+                    starter={sessionStarter}
+                  />
+                )}
               </Suspense>
             ),
           },
@@ -3163,7 +3202,8 @@ export function App({
                 sendTo={
                   replyAgent
                     ? {
-                        agent: replyAgent,
+                        name: replyAgent,
+                        icon: leadIcon,
                         drafts: agentInbox.state?.drafts.length ?? 0,
                         open: () => showPane("session"),
                       }

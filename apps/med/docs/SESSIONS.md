@@ -150,9 +150,8 @@ notifications while it works, and asks `session/request_permission` before a
 tool runs. Claude Code and Codex speak ACP through adapters
 (`claude-agent-acp` and `codex-acp`).
 
-Med does not start the agents today. Claude Desktop, a terminal, or Codex
-runs them, and Med reads the transcripts that they write. Two things differ
-from a real ACP connection:
+Med reads the transcripts of agents that Claude Desktop, a terminal, or Codex
+runs. For those, two things differ from a real ACP connection:
 
 - **Streaming.** A transcript gets a line when a block is complete. Med shows
   replies as whole blocks; only the process that owns the agent sees token
@@ -160,10 +159,13 @@ from a real ACP connection:
 - **Control.** A reader cannot prompt the agent, answer a permission request,
   or stop it.
 
-To get both, Med can start the agent itself through an ACP adapter, or through
-Claude Code's `--output-format stream-json`, and send the updates that it
-receives to the same store. The thread, the docks, and the replay do not
-change.
+To get both, Med can start the agent itself: Claude Code with
+`stream-json`, or an ACP agent such as `opencode acp`
+([owned sessions](AGENT_WORKSPACES.md#built-owned-sessions)). A Claude
+session still feeds the thread from its transcript; Med adds the streaming
+reply on top. Med logs an ACP session's updates and streams them from
+`/sessions/:session/events` as for a transcript. The thread, the docks, and
+the replay do not change.
 
 ## Limits and next steps
 
@@ -174,7 +176,8 @@ agent, notes, sessions that Med starts, and long sessions.
   have no session.
 - The thread renders every item; a very long tail can be slow. The host's
   8 MiB tail bounds it.
-- Not shown yet: context usage, permission requests, questions that the agent
-  asked the user, and the dev servers that Claude Desktop starts from
+- Not shown yet for attached sessions: context usage, permission requests
+  (owned sessions show both), questions that the agent asked the user, and the
+  dev servers that Claude Desktop starts from
   `.claude/launch.json` (the Background dock shows servers that the agent
   started in a shell).

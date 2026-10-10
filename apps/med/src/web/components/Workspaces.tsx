@@ -129,9 +129,15 @@ const reviewEvent = z.object({
   title: z.string(),
   open: z.boolean(),
   updated: z.boolean().default(false),
+  // A terminal resumes Claude and Codex sessions; Med keeps ACP sessions itself.
   sessions: z
-    .array(z.object({ agent: z.enum(["claude", "codex"]), id: z.string(), cwd: z.string() }))
-    .default([]),
+    .array(z.object({ agent: z.enum(["claude", "codex", "acp"]), id: z.string(), cwd: z.string() }))
+    .default([])
+    .transform((list) =>
+      list.flatMap((session) =>
+        session.agent === "acp" ? [] : [{ ...session, agent: session.agent }],
+      ),
+    ),
 });
 
 type ReviewEvent = z.infer<typeof reviewEvent>;

@@ -60,6 +60,8 @@ import { RepositoryRegistry } from "./repository/registry";
 import { SavedReviewStore } from "./saved-reviews";
 import { followTranscript, findTranscript } from "./agent-transcripts";
 import { AgentInbox } from "./agent-inbox";
+import { findAgents, OwnedSessions, type RunnableAgent } from "./owned-sessions";
+import { ownedActionSchema, ownedStartSchema } from "../shared/owned-session";
 import {
   agentMessageInputSchema,
   deliveredText,
@@ -93,6 +95,8 @@ export interface StartHostOptions {
   reveal?: (path: string) => void;
   /** Adds a message to a Codex thread's queue; tests replace `codex queue`. */
   queueCodex?: (threadId: string, text: string) => Promise<void>;
+  /** The agents Med can start; tests replace the installed ones. */
+  agents?: () => Promise<RunnableAgent[]>;
 }
 export interface RunningHost {
   url: string;
@@ -200,6 +204,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     ...(options.queueCodex ? { queueCodex: options.queueCodex } : {}),
   });
   const inboxStreams = new Set<ServerResponse>();
+  // Sessions that Med starts. ACP sessions keep their updates in the state directory.
+  const ownedSessions = new OwnedSessions({
+    agents: options.agents ?? (() => findAgents(options.stateDir)),
+    logDirectory: join(options.stateDir ?? temporaryState!, "sessions"),
+  });
+  const ownedStreams = new Set<ServerResponse>();
 
   const watchers = new Map<string, Promise<() => Promise<void>>>();
   const watcherModes = new Map<string, boolean>();
@@ -490,8 +500,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           const session = bundle.sessions?.find((entry) => entry.id === sessionRoute[2]);
           if (!session)
             throw new HostError("session-not-found", "This review has no such agent session.", 404);
-          const path = await findTranscript(session);
-          if (!path)
+          const runner = ownedSessions.get(session.id);
+          let path = session.agent === "acp" ? undefined : await findTranscript(session);
+          if (!path && session.agent !== "acp" && !runner)
             throw new HostError(
               "transcript-not-found",
               "The session's transcript is not on this computer.",
@@ -509,6 +520,34 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           response.once("close", () => sessionStreams.delete(response));
           const write = (event: string, data: unknown) =>
             response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+          if (session.agent === "acp") {
+            // Med keeps an ACP session's updates itself.
+            const idle = () => runner?.state().status !== "working";
+            write("reset", {
+              events: await ownedSessions.events(session.id),
+              idle: idle(),
+              modifiedAt: Date.now(),
+              truncated: false,
+            });
+            const unsubscribe = [
+              runner?.log?.subscribe((events) =>
+                write("updates", { events, idle: idle(), modifiedAt: Date.now() }),
+              ),
+              runner?.subscribe(() =>
+                write("updates", { events: [], idle: idle(), modifiedAt: Date.now() }),
+              ),
+            ];
+            response.once("close", () => unsubscribe.forEach((stop) => stop?.()));
+            return;
+          }
+          // A session that Med started writes its transcript with the first turn.
+          if (!path)
+            write("reset", { events: [], idle: true, modifiedAt: Date.now(), truncated: false });
+          while (!path && !abort.signal.aborted) {
+            await new Promise((done) => setTimeout(done, 400));
+            path = await findTranscript(session);
+          }
+          if (!path) return;
           // The first view goes in parts, so no event is larger than the client reads.
           const parts = (events: SessionEvent[]) => {
             const result: SessionEvent[][] = [[]];
@@ -525,7 +564,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return result;
           };
           void followTranscript(
-            session,
+            session as Parameters<typeof followTranscript>[0],
             path,
             {
               onFeed: ({ events, ...state }) =>
@@ -538,6 +577,82 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             abort.signal,
           ).catch(() => response.end());
           return;
+        }
+        if (url.pathname === "/api/agents" && request.method === "GET") {
+          send({ agents: await ownedSessions.agents() });
+          return;
+        }
+        // Sessions that Med starts in a review's repository and runs itself.
+        const ownedRoute =
+          /^\/api\/reviews\/([A-Za-z0-9_-]+)\/owned(?:\/([A-Za-z0-9_-]+)(\/events)?)?$/.exec(
+            url.pathname,
+          );
+        if (ownedRoute) {
+          const [, reviewId, sessionId, events] = ownedRoute;
+          const bundle = await savedReviews.get(reviewId!);
+          if (!sessionId && request.method === "POST") {
+            const input = ownedStartSchema.parse(await readBody(request));
+            const target =
+              bundle.targets.find((entry) => entry.id === input.targetId) ??
+              bundle.targets.find((entry) => !entry.commentReviewId) ??
+              bundle.targets[0]!;
+            const entry = registry.snapshot().find((item) => item.id === target.repositoryId);
+            if (!entry)
+              throw new HostError(
+                "repository-unavailable",
+                `Register the repository for ${target.repo} to start an agent there.`,
+                409,
+              );
+            const cwd = await requireRepo(entry.path);
+            assertRequestAccess();
+            const runner = await ownedSessions.start(input.preset, cwd);
+            const review = await savedReviews.details(
+              reviewId!,
+              { sessions: [runner.session] },
+              assertRequestAccess,
+            );
+            send({ review, state: runner.state() });
+            return;
+          }
+          const runner = sessionId ? ownedSessions.get(sessionId) : undefined;
+          if (!runner || !bundle.sessions?.some((entry) => entry.id === sessionId))
+            throw new HostError("session-not-owned", "Med does not run this session.", 404);
+          if (events && request.method === "GET") {
+            if (ownedStreams.size >= 16)
+              throw new HostError("too-many-streams", "Too many session streams are open.", 503);
+            response.writeHead(200, {
+              "content-type": "text/event-stream",
+              "cache-control": "no-store",
+              connection: "keep-alive",
+              "x-accel-buffering": "no",
+            });
+            ownedStreams.add(response);
+            const push = () =>
+              response.write(`event: state\ndata: ${JSON.stringify(runner.state())}\n\n`);
+            const unsubscribe = runner.subscribe(push);
+            response.once("close", () => {
+              ownedStreams.delete(response);
+              unsubscribe();
+            });
+            push();
+            return;
+          }
+          if (!events && request.method === "GET") {
+            send(runner.state());
+            return;
+          }
+          if (!events && request.method === "POST") {
+            const action = ownedActionSchema.parse(await readBody(request, MAX_BRIEF_BODY));
+            assertRequestAccess();
+            if (action.action === "prompt") await runner.prompt(action.text);
+            else if (action.action === "permission") runner.answer(action.id, action.option);
+            else if (action.action === "interrupt") runner.interrupt();
+            else if (action.action === "setting") await runner.set(action.id, action.value);
+            else runner.stop();
+            send(runner.state());
+            return;
+          }
+          throw new HostError("method-not-allowed", "This session action is not supported.", 405);
         }
         // Messages from the review to its agent sessions. `wait` is the long
         // poll behind `med review wait`, so it stays outside the request limit.
@@ -633,6 +748,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 "Write a message or choose comments to send.",
                 400,
               );
+            // A session that Med runs takes the message as its next prompt.
+            const runner = ownedSessions.get(session.id);
             const message = await inbox.send(
               reviewId,
               session,
@@ -642,6 +759,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 attachmentCount: input.attachments.length,
               },
               parts.join("\n\n"),
+              runner && runner.state().status !== "exited"
+                ? (body) => runner.prompt(body)
+                : undefined,
             );
             send({ message, state: await inboxState() });
             return;
@@ -1596,6 +1716,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       if (closing) return;
       closing = true;
       clearInterval(heartbeat);
+      ownedSessions.stopAll();
       for (const abort of activeRequests.keys()) abort.abort();
       for (const stream of [...streams.keys(), ...windows]) stream.end();
       streams.clear();

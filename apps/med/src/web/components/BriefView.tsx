@@ -9,7 +9,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefOb
 import { createPortal } from "react-dom";
 import type { Note, NoteInput, NoteMutation } from "../../shared/protocol";
 import type { ParsedReviewFile } from "../../shared/review";
-import type { SavedBrief, SavedPin } from "../../shared/saved-review";
+import { agentName, type SavedBrief, type SavedPin } from "../../shared/saved-review";
 import {
   annotateBrief,
   diffExcerpt,
@@ -102,7 +102,6 @@ interface Shown {
   files: ParsedReviewFile[];
   root?: string;
 }
-const AGENT_NAMES = { claude: "Claude", codex: "Codex" } as const;
 const pad = (value: number) => String(value).padStart(2, "0");
 const noteTime = (at: string) =>
   new Date(at).toLocaleString(undefined, {
@@ -974,7 +973,7 @@ function NoteHead({
   const source = section.pin?.source;
   const from = section.pin
     ? source
-      ? `Reply from ${AGENT_NAMES[source.agent]}`
+      ? `Reply from ${agentName(source)}`
       : "Pinned reply"
     : briefFrom !== undefined
       ? `Brief from iteration ${briefFrom}`

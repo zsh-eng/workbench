@@ -3,7 +3,7 @@ import { Popover } from "@base-ui/react/popover";
 import * as stylex from "@stylexjs/stylex";
 import type { ReviewController, ReviewControllerSnapshot } from "../data/controller";
 import { tokens, ui } from "../theme.stylex";
-import { Icon } from "./Icon";
+import { Icon, type IconName } from "./Icon";
 import {
   PullRequestPanel,
   type PullRequestState,
@@ -23,7 +23,7 @@ export function SavedReviewHeader({
 }: {
   controller: ReviewController;
   /** The agent session that comments can go to, and how to open its message. */
-  sendTo?: { agent: "claude" | "codex"; drafts: number; open(): void };
+  sendTo?: { name: string; icon: IconName; drafts: number; open(): void };
   state: ReviewControllerSnapshot;
   /** GitHub comments, when the review has a pull request. */
   pullRequest?: PullRequestState;
@@ -184,14 +184,12 @@ export function SavedReviewHeader({
       {sendTo && (
         <button
           {...stylex.props(ui.button, ui.pressable, styles.fixed)}
-          aria-label={`Send comments to ${sendTo.agent === "codex" ? "Codex" : "Claude"}`}
+          aria-label={`Send comments to ${sendTo.name}`}
           title="Write to the agent with your comments"
           onClick={sendTo.open}
         >
-          <Icon name={sendTo.agent} size={14} />
-          <span {...stylex.props(styles.desktop)}>
-            Send to {sendTo.agent === "codex" ? "Codex" : "Claude"}
-          </span>
+          <Icon name={sendTo.icon} size={14} />
+          <span {...stylex.props(styles.desktop)}>Send to {sendTo.name}</span>
           {sendTo.drafts > 0 && <span>{sendTo.drafts}</span>}
         </button>
       )}

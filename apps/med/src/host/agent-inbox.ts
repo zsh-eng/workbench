@@ -125,6 +125,8 @@ export class AgentInbox {
     session: AgentSession,
     message: { text: string; noteIds: string[]; attachmentCount: number },
     body: string,
+    /** Sends to a session that Med owns, as its next prompt. */
+    deliver?: (body: string) => Promise<void>,
   ): Promise<AgentMessage> {
     const stored: StoredMessage = {
       id: randomUUID(),
@@ -137,7 +139,16 @@ export class AgentInbox {
       delivery: "pending",
       body,
     };
-    if (session.agent === "codex") {
+    if (deliver) {
+      try {
+        await deliver(body);
+        stored.delivery = "delivered";
+        stored.deliveredAt = new Date(this.now()).toISOString();
+      } catch (error) {
+        stored.delivery = "failed";
+        stored.error = error instanceof Error ? error.message : String(error);
+      }
+    } else if (session.agent === "codex") {
       try {
         if (Buffer.byteLength(body) > MAX_CODEX_MESSAGE_BYTES)
           throw new Error("The message is too long for codex queue. Send fewer comments.");
@@ -152,7 +163,7 @@ export class AgentInbox {
     await this.change(reviewId, (messages) => {
       messages.push(stored);
     });
-    if (session.agent === "claude") await this.offer(reviewId, session.id);
+    if (!deliver && session.agent === "claude") await this.offer(reviewId, session.id);
     const { body: _body, ...result } =
       (await this.read(reviewId)).find((entry) => entry.id === stored.id) ?? stored;
     return result;

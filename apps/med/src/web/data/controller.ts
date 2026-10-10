@@ -14,6 +14,7 @@ import {
   validateReviewNoteText,
 } from "../../shared/hunk/noteValidation";
 import { useSyncExternalStore } from "react";
+import { z } from "zod";
 import type { FileDiffMetadata } from "@pierre/diffs";
 import type {
   Branch,
@@ -115,6 +116,8 @@ export interface ReviewController {
   setSavedBrief(text: string | null): Promise<void>;
   /** Pin an agent reply to the saved review's Notes, or remove a pin. */
   pinToReview(mutation: PinMutation): Promise<void>;
+  /** Starts an installed agent in the review's repository and returns its session ID. */
+  startSession(preset: string): Promise<string>;
   /** Save the current Git comparison as a review and return its ID. */
   saveReview(input: { title: string; brief?: string }): Promise<string>;
   selectComparison(comparison: Comparison): Promise<void>;
@@ -1694,6 +1697,27 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
             ? next
             : { ...snapshot.savedReview, pins: next.pins, iterations: next.iterations },
       });
+    },
+    async startSession(preset) {
+      const saved = snapshot.savedReview;
+      if (!saved) throw new Error("Open a saved review to start a session.");
+      const result = await api.json(
+        `/api/reviews/${encodeURIComponent(saved.id)}/owned`,
+        z.object({ review: savedReviewSchema, state: z.object({ sessionId: z.string() }) }),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ preset, targetId: snapshot.savedTargetId ?? undefined }),
+        },
+      );
+      if (!disposed && snapshot.savedReview?.id === saved.id)
+        update({
+          savedReview:
+            result.review.revision >= snapshot.savedReview.revision
+              ? result.review
+              : { ...snapshot.savedReview, sessions: result.review.sessions },
+        });
+      return result.state.sessionId;
     },
     async saveReview({ title, brief }) {
       const repo = snapshot.session?.repository.path;

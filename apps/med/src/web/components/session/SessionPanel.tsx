@@ -1,11 +1,13 @@
 import * as stylex from "@stylexjs/stylex";
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
-import type { AgentSession, PinMutation } from "../../../shared/saved-review";
+import type { AgentPreset } from "../../../shared/owned-session";
+import { agentName, type AgentSession, type PinMutation } from "../../../shared/saved-review";
 import { withSentMessages, type AgentInbox } from "../../data/agent-inbox";
-import { createSessionStore } from "../../data/session-store";
+import { useOwnedSession } from "../../data/owned-session";
+import { createSessionStore, type SessionItem } from "../../data/session-store";
 import { followSession, sessionRunning, type SessionStreamState } from "../../data/session-stream";
-import { tokens } from "../../theme.stylex";
-import { ChoiceSelect } from "../Controls";
+import { tokens, ui } from "../../theme.stylex";
+import { ActionMenu, ChoiceSelect } from "../Controls";
 import { Icon } from "../Icon";
 import { ToolButton } from "../ToolButton";
 import { SessionComposer, type ComposerAttachment } from "./SessionComposer";
@@ -20,7 +22,119 @@ export interface SessionPins {
   show(pinId: string): void;
 }
 
-const AGENTS = { claude: "Claude", codex: "Codex" } as const;
+/** Agents that Med can start in the review's repository. */
+export interface SessionStarter {
+  agents: AgentPreset[] | null;
+  start(preset: string): Promise<void>;
+}
+
+/** The reply that streams now, until the transcript has the same text. */
+function withStreaming(items: SessionItem[], streaming?: { id: string; text: string }) {
+  const text = streaming?.text.trim();
+  if (!text) return items;
+  const head = text.slice(0, 200);
+  const recent = items.slice(-6);
+  if (recent.some((item) => item.kind === "agent" && item.text.trim().startsWith(head)))
+    return items;
+  return [
+    ...items,
+    { kind: "agent" as const, id: `streaming-${streaming!.id}`, at: Date.now(), text },
+  ];
+}
+
+/** The menu that starts a new session with an installed agent. */
+function NewSessionMenu({ starter }: { starter: SessionStarter }) {
+  const available = starter.agents?.filter((agent) => agent.available) ?? [];
+  if (!available.length) return null;
+  return (
+    <ActionMenu
+      label="New session"
+      sections={[
+        available.map((agent) => ({
+          label: `New ${agent.name} session`,
+          onClick: () => void starter.start(agent.id).catch(() => {}),
+        })),
+      ]}
+    >
+      <Icon name="plus" size={15} />
+    </ActionMenu>
+  );
+}
+
+/**
+ * The Session pane of a review without a session: the agents that Med can
+ * start in the review's repository.
+ */
+export function SessionStart({
+  starter,
+  controls,
+  repo,
+}: {
+  starter: SessionStarter;
+  controls?: ReactNode;
+  repo?: string;
+}) {
+  const [starting, setStarting] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const agents = starter.agents;
+  return (
+    <section aria-label="Start a session" {...stylex.props(styles.panel)}>
+      <header {...stylex.props(styles.header)}>
+        <Icon name="agent" size={14} />
+        <span {...stylex.props(styles.title)}>Session</span>
+        {controls}
+      </header>
+      <div {...stylex.props(styles.start)}>
+        <p {...stylex.props(styles.startLead)}>
+          Start an agent in {repo ? <strong>{repo.split("/").at(-1)}</strong> : "this repository"}.
+          It works beside the review, and your comments go to it with Send to agent.
+        </p>
+        {agents === null ? (
+          <p {...stylex.props(styles.startNote)}>Looking for installed agents…</p>
+        ) : (
+          <ul {...stylex.props(styles.agents)}>
+            {agents.map((agent) => (
+              <li key={agent.id}>
+                <button
+                  type="button"
+                  disabled={!agent.available || starting !== null}
+                  onClick={() => {
+                    setStarting(agent.id);
+                    setError(null);
+                    starter
+                      .start(agent.id)
+                      .catch((reason: unknown) =>
+                        setError(
+                          reason instanceof Error ? reason.message : "The agent did not start.",
+                        ),
+                      )
+                      .finally(() => setStarting(null));
+                  }}
+                  {...stylex.props(ui.button, ui.pressable, styles.agent)}
+                >
+                  <Icon name={agent.kind === "claude" ? "claude" : "agent"} size={14} />
+                  <span {...stylex.props(styles.agentName)}>{agent.name}</span>
+                  <span {...stylex.props(styles.agentNote)}>
+                    {starting === agent.id ? "Starting…" : agent.available ? "" : "Not installed"}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {error && (
+          <p role="alert" {...stylex.props(styles.startNote, styles.startError)}>
+            {error}
+          </p>
+        )}
+        <p {...stylex.props(styles.startNote)}>
+          Med starts the agent that you installed, with your sign-in. Add other ACP agents in{" "}
+          <code>agents.json</code> in Med's state folder.
+        </p>
+      </div>
+    </section>
+  );
+}
 
 /** A file link in a reply: src/a.ts:12, src/a.ts#L12, or an absolute path in the repository. */
 export function sessionLink(
@@ -61,8 +175,11 @@ export function SessionPanel({
   onRemoveAttachment,
   pins,
   controls,
+  starter,
 }: {
   reviewId: string;
+  /** Starts new sessions; without it the header has no New session menu. */
+  starter?: SessionStarter;
   /** The column's pane controls, in place of the close button. */
   controls?: ReactNode;
   /** Without it, replies have no Pin to review. */
@@ -79,8 +196,13 @@ export function SessionPanel({
   onOpenPath(path: string, line?: number): void;
   onClose(): void;
 }) {
-  const [chosen, setChosen] = useState(() => sessions.at(-1)!.id);
+  const latest = sessions.at(-1)!.id;
+  // A new session, such as one just started, comes to the front.
+  const [pick, setPick] = useState({ latest, id: latest });
+  const chosen = pick.latest === latest ? pick.id : latest;
+  const setChosen = (id: string) => setPick({ latest, id });
   const session = sessions.find((entry) => entry.id === chosen) ?? sessions.at(-1)!;
+  const owned = useOwnedSession(reviewId, session.id, fetcher);
   const [store] = useState(createSessionStore);
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [state, setState] = useState<SessionStreamState>({
@@ -99,7 +221,8 @@ export function SessionPanel({
 
   // The elapsed time moves while the agent works, and a quiet transcript
   // turns idle after a while without a new update.
-  const running = sessionRunning(state, now);
+  const ownedState = owned.state;
+  const running = ownedState ? ownedState.status === "working" : sessionRunning(state, now);
   useEffect(() => {
     store.setRunning(running);
     if (!running) return;
@@ -119,15 +242,32 @@ export function SessionPanel({
         : null,
     [pins, session.id, session.agent],
   );
-  const agent = AGENTS[session.agent];
+  const agent = agentName(session);
   const waiting = inbox?.state?.waiting.includes(session.id) ?? false;
   const messages = inbox?.state?.messages;
+  const streaming = ownedState?.streaming;
   const shown = useMemo(() => {
     const sent = messages?.filter((message) => message.sessionId === session.id) ?? [];
-    return sent.length ? { ...snapshot, items: withSentMessages(snapshot.items, sent) } : snapshot;
-  }, [snapshot, messages, session.id]);
-  const status =
-    state.status === "connecting"
+    const items = withStreaming(
+      sent.length ? withSentMessages(snapshot.items, sent) : snapshot.items,
+      streaming,
+    );
+    return items === snapshot.items && snapshot.running === running
+      ? snapshot
+      : { ...snapshot, items, running };
+  }, [snapshot, messages, session.id, streaming, running]);
+  const needsYou = !!ownedState?.permission;
+  const status = ownedState
+    ? needsYou
+      ? "Needs you"
+      : ownedState.status === "starting"
+        ? "Starting"
+        : ownedState.status === "working"
+          ? "Working"
+          : ownedState.status === "exited"
+            ? "Stopped"
+            : "Idle"
+    : state.status === "connecting"
       ? "Connecting"
       : state.status === "error"
         ? "Reconnecting"
@@ -142,7 +282,7 @@ export function SessionPanel({
   return (
     <section aria-label={`${agent} session`} {...stylex.props(styles.panel)}>
       <header {...stylex.props(styles.header)}>
-        <Icon name={session.agent} size={14} />
+        <Icon name={session.agent === "acp" ? "agent" : session.agent} size={14} />
         <span {...stylex.props(styles.title)} title={snapshot.title ?? `${agent} session`}>
           {snapshot.title ?? `${agent} session`}
         </span>
@@ -150,8 +290,8 @@ export function SessionPanel({
           <span
             {...stylex.props(
               styles.dot,
-              running && styles.dotLive,
-              !running && waiting && styles.dotWaiting,
+              running && !needsYou && styles.dotLive,
+              (needsYou || (!running && waiting)) && styles.dotWaiting,
             )}
           />
           {status}
@@ -162,11 +302,12 @@ export function SessionPanel({
             value={session.id}
             choices={[...sessions].reverse().map((entry, index) => ({
               value: entry.id,
-              label: `${AGENTS[entry.agent]} ${index === 0 ? "· latest" : `· ${entry.id.slice(0, 8)}`}`,
+              label: `${agentName(entry)} ${index === 0 ? "· latest" : `· ${entry.id.slice(0, 8)}`}`,
             }))}
             onChange={setChosen}
           />
         )}
+        {starter && <NewSessionMenu starter={starter} />}
         {controls ?? (
           <ToolButton
             icon="close"
@@ -176,7 +317,7 @@ export function SessionPanel({
           />
         )}
       </header>
-      {state.status === "missing" ? (
+      {state.status === "missing" && !ownedState ? (
         <p {...stylex.props(styles.empty)}>{state.message}</p>
       ) : (
         <div {...stylex.props(styles.thread)}>
@@ -199,16 +340,25 @@ export function SessionPanel({
           </ReplyActionsContext.Provider>
         </div>
       )}
-      {inbox && (
-        <SessionComposer
-          key={session.id}
-          agent={session.agent}
-          waiting={waiting}
-          drafts={inbox.state?.drafts ?? []}
-          attachments={attachments}
-          onRemoveAttachment={(id) => onRemoveAttachment?.(id)}
-          onSend={(message) => inbox.send({ sessionId: session.id, ...message })}
-        />
+      {inbox && session.agent === "acp" && !ownedState ? (
+        // Med ran this agent, and the host has stopped since: the thread stays, the agent does not.
+        <p {...stylex.props(styles.note, styles.stopped)}>
+          {agent} stopped with the Med host. Start a new session to continue.
+        </p>
+      ) : (
+        inbox && (
+          <SessionComposer
+            key={session.id}
+            agent={session.agent}
+            name={agent}
+            waiting={waiting}
+            drafts={inbox.state?.drafts ?? []}
+            attachments={attachments}
+            onRemoveAttachment={(id) => onRemoveAttachment?.(id)}
+            onSend={(message) => inbox.send({ sessionId: session.id, ...message })}
+            owned={ownedState ? { state: ownedState, act: owned.act } : undefined}
+          />
+        )
       )}
     </section>
   );
@@ -252,6 +402,31 @@ const styles = stylex.create({
   dotWaiting: { backgroundColor: tokens.accent },
   thread: { flex: "1", minHeight: 0 },
   note: { margin: 0, marginBottom: 8, color: tokens.faint, fontSize: 11.5, textAlign: "center" },
+  stopped: { flexShrink: 0, marginInline: 12, marginBlock: 12 },
+  start: {
+    flex: "1",
+    minHeight: 0,
+    overflowY: "auto",
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+    padding: 20,
+  },
+  startLead: { margin: 0, color: tokens.text, fontSize: 13, lineHeight: 1.55 },
+  startNote: { margin: 0, color: tokens.faint, fontSize: 11.5, lineHeight: 1.5 },
+  startError: { color: tokens.red },
+  agents: { listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column" },
+  agent: {
+    width: "100%",
+    justifyContent: "flex-start",
+    gap: 9,
+    minHeight: 34,
+    paddingInline: 10,
+    color: tokens.text,
+    fontSize: 12.5,
+  },
+  agentName: { fontWeight: 500 },
+  agentNote: { marginInlineStart: "auto", color: tokens.faint, fontSize: 11.5 },
   empty: {
     margin: 0,
     padding: 24,

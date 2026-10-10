@@ -40,12 +40,17 @@ export function ChoiceSelect({
   onChange,
   label,
   icon,
+  trigger,
+  disabled,
 }: {
   value: string;
   choices: Choice[];
   onChange(value: string): void;
   label: string;
   icon?: ReactNode;
+  /** The trigger's look, in place of a toolbar button. */
+  trigger?: stylex.StyleXStyles;
+  disabled?: boolean;
 }) {
   return (
     <Select.Root
@@ -54,8 +59,12 @@ export function ChoiceSelect({
         if (next !== null) onChange(next);
       }}
       items={choices}
+      disabled={disabled}
     >
-      <Select.Trigger {...stylex.props(ui.button, ui.strong, styles.trigger)} aria-label={label}>
+      <Select.Trigger
+        {...stylex.props(ui.button, ui.strong, styles.trigger, trigger)}
+        aria-label={label}
+      >
         {icon}
         <Select.Value {...stylex.props(styles.value)} />
         <Select.Icon {...stylex.props(styles.chevron)}>

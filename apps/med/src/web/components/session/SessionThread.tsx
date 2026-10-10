@@ -252,7 +252,7 @@ function ReplyBar({ item, final }: { item: AgentItem; final: boolean }) {
   );
 }
 
-const AGENT_NAMES = { claude: "Claude", codex: "Codex" } as const;
+const AGENT_NAMES = { claude: "Claude", codex: "Codex", acp: "the agent" } as const;
 
 /** Where a message sent from Med is: waiting for the agent, taken, or queued. */
 function Delivery({ message }: { message: AgentMessage }) {

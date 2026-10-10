@@ -23,18 +23,18 @@ and reply to them, without leaving the review.
 Med can **attach** to a session that another app started, or **own** a
 session that Med started.
 
-| Feature            | Attach (today)                                  | Own (next)                                           |
-| ------------------ | ----------------------------------------------- | ---------------------------------------------------- |
-| Who starts it      | Claude Desktop, a terminal, or Codex            | The Med host                                         |
-| Source of updates  | Transcript lines, read every 400 ms             | The agent's stdio: ACP, or Claude Code `stream-json` |
-| Replies            | Whole blocks                                    | Token by token                                       |
-| Send a message     | Claude: `med review wait`. Codex: `codex queue` | `session/prompt`                                     |
-| Permission prompts | Not visible                                     | Shown in the thread; you answer them in Med          |
-| Stop the agent     | Not possible                                    | `session/cancel`                                     |
-| Model and effort   | Shown as text                                   | Pickers in the prompt box                            |
-| Context usage      | Codex only                                      | Yes                                                  |
-| Slash commands     | Skills from the transcript                      | The agent's full list                                |
-| History on reload  | The transcript                                  | The transcript, or ACP `session/load`                |
+| Feature            | Attach                                          | Own (built)                                                      |
+| ------------------ | ----------------------------------------------- | ---------------------------------------------------------------- |
+| Who starts it      | Claude Desktop, a terminal, or Codex            | The Med host                                                     |
+| Source of updates  | Transcript lines, read every 400 ms             | Claude: the transcript and `stream-json`. ACP: the agent's stdio |
+| Replies            | Whole blocks                                    | Token by token                                                   |
+| Send a message     | Claude: `med review wait`. Codex: `codex queue` | Claude: a `user` line on stdin. ACP: `session/prompt`            |
+| Permission prompts | Not visible                                     | A card above the prompt box; you answer them in Med              |
+| Stop the agent     | Not possible                                    | Claude: `interrupt`. ACP: `session/cancel`                       |
+| Model and effort   | Shown as text                                   | Pickers in the prompt box                                        |
+| Context usage      | Codex only                                      | A meter after each turn                                          |
+| Slash commands     | Skills from the transcript                      | The agent's own commands, without built-ins                      |
+| History on reload  | The transcript                                  | Claude: the transcript. ACP: Med's log of the updates            |
 
 A transcript gets one line for each complete block: a thought, a reply, a tool
 call, or a tool result. Claude Code does not write partial text to it. So an
@@ -78,6 +78,49 @@ Decision: Med does not install, bundle, or modify an agent. It starts
 binaries that the user installed and signed in to. The Commercial Terms
 clause gives hosted sandboxes and agent infrastructure as examples, not a
 local tool. Med does not use an Agent SDK adapter for Claude.
+
+### Built: owned sessions
+
+`src/host/owned-sessions.ts` starts the agents. Claude Code 2.1.295 was
+probed and checked with `--model haiku`:
+
+- Med starts `claude -p --input-format stream-json --output-format
+stream-json --include-partial-messages --verbose --permission-prompt-tool
+stdio --session-id <id>`, with `--model`, `--effort`, and
+  `--permission-mode` when the user chose them.
+- The first control request is `initialize`. Its reply gives the commands
+  (with `builtin`), the models with their effort levels, and the permission
+  mode. It also names the signed-in account; Med drops that field.
+- With `--permission-prompt-tool stdio`, Claude Code sends `can_use_tool`
+  before a tool runs. Med shows **Allow**, **Allow for this session** (when
+  Claude Code suggests rules), and **Deny**.
+- `interrupt`, `set_model`, and `set_permission_mode` change a running
+  session. There is no `set_effort`: Med starts Claude Code again with
+  `--resume` and the new effort, between turns.
+- After each turn, `get_context_usage` gives `totalTokens` and `maxTokens`
+  for the context meter.
+- The thread still reads the transcript. Text deltas from `stream_event`
+  show the reply while it streams, until the transcript has it.
+
+ACP agents use `src/host/json-rpc.ts`: `initialize`, `session/new` in the
+review's repository, `session/prompt`, `session/cancel`, and
+`session/set_config_option` (or the older `session/set_model` and
+`session/set_mode`). Med answers `session/request_permission` with the
+option that the user chose. An ACP agent writes no transcript that Med can
+read, so Med appends its updates to `sessions/<id>.jsonl` in the state
+directory. Med finds `claude`, `opencode acp`, `codex-acp`, and `gemini
+--experimental-acp` on `PATH` and in their usual folders, and reads other ACP
+agents from `agents.json` in the state directory:
+
+```json
+[{ "id": "my-agent", "name": "My agent", "command": "/path/to/agent", "args": ["acp"] }]
+```
+
+Routes: `GET /api/agents`, `POST /api/reviews/:id/owned` with `{ preset }`,
+`GET /api/reviews/:id/owned/:session/events` (the state as server-sent
+events), and `POST /api/reviews/:id/owned/:session` with an action: `prompt`,
+`permission`, `interrupt`, `setting`, or `stop`. **Send to agent** goes to an
+owned session as its next prompt.
 
 ## Workspaces and sessions
 
@@ -155,7 +198,7 @@ The message reaches the model as the output of its own command, not as a
 user turn. The skill must say that this output is the user's review. The
 app that started the session still owns it, and you can still type there.
 
-For an owned session, **Send to agent** is `session/prompt`.
+For an owned session, **Send to agent** is the session's next prompt.
 
 ### Codex
 
@@ -321,11 +364,11 @@ effort changes between turns, the thread shows a divider.
 
 | Command    | Control                                  |
 | ---------- | ---------------------------------------- |
-| `/clear`   | **New session**                          |
+| `/clear`   | **New session** (built)                  |
 | `/compact` | **Compact**, in the context meter's menu |
-| `/model`   | The model and effort pickers             |
+| `/model`   | The model and effort pickers (built)     |
 | `/resume`  | The session picker                       |
-| `/context` | The context meter                        |
+| `/context` | The context meter (built)                |
 
 **The `/` menu** lists only skills and custom commands. Its sources:
 
@@ -377,10 +420,12 @@ them.
    `med review wait` for Claude, and `codex queue` for Codex. Built.
 2. **Notes and panes.** Pin to review, the Notes rename, and the pane column.
    Built; the stack or tabs choice is open.
-3. **Owned sessions.** **New session** in a workspace, a prompt box with
-   model and effort pickers, permission prompts, Stop, and the `/` menu.
-   Claude Code through `stream-json`. OpenCode, Codex (`codex-acp`), and
-   other agents through ACP. An adapter package is a new dependency.
+3. **Owned sessions.** **New session** in a saved review, a prompt box with
+   model, effort, and mode pickers, permission prompts, Stop, a context
+   meter, and the `/` menu. Claude Code through `stream-json`. OpenCode,
+   Codex (`codex-acp`), and other agents through ACP, with no new dependency.
+   Built. Not built: **Compact**, and resuming an owned session after the
+   host restarts.
 4. **Workspace list.** States, unread dots, and lead sessions.
 5. **Long sessions.** Pages, the turn index, and the render window.
 
@@ -391,7 +436,10 @@ them.
 - Does Codex Desktop take a queued message while it has the thread open?
   Does it keep its sessions in the shared app-server daemon?
 - Should an owned session keep running when the Med host restarts? herdr
-  keeps agents in a background server for this reason.
+  keeps agents in a background server for this reason. Today the host stops
+  its agents when it stops. The Claude transcript and the ACP log stay, so
+  the thread stays readable, but the prompt box goes back to
+  `med review wait`.
 
 ## References
 

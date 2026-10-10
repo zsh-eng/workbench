@@ -17,7 +17,8 @@ import { layoutHistory } from "../../src/web/components/history-layout";
 import { createBrowseApi } from "../../src/web/data/browse";
 import type { BrowseSource } from "../../src/shared/browse";
 import type { AgentInboxState } from "../../src/shared/agent-inbox";
-import type { PinMutation, SavedPin } from "../../src/shared/saved-review";
+import type { AgentSession, PinMutation, SavedPin } from "../../src/shared/saved-review";
+import type { AgentPreset, OwnedAction, OwnedState } from "../../src/shared/owned-session";
 import type { BlameLoader } from "../../src/web/data/blame";
 import type { CommitApi } from "../../src/web/data/commit";
 import { createFakeRepository } from "../../src/web/components/elements/commit-fixture";
@@ -117,6 +118,8 @@ async function mountApp(
     session?: string;
     /** The saved review's messages to its agent: drafts and who waits. */
     inbox?: AgentInboxState;
+    /** Agents that Med can start; a started one runs as session o1. */
+    agents?: AgentPreset[];
   } = {},
 ) {
   initializeTheme();
@@ -160,6 +163,32 @@ async function mountApp(
   }));
   let brief = options.brief;
   let pins: SavedPin[] = [];
+  let sessions: AgentSession[] = options.session
+    ? [{ agent: "claude", id: "s1", cwd: "/test/repo" }]
+    : [];
+  // The session that Med runs: its state streams to the page until the test changes it.
+  let owned: OwnedState | undefined;
+  const ownedActions: OwnedAction[] = [];
+  const ownedListeners = new Set<() => void>();
+  const setOwned = (change: Partial<OwnedState>) => {
+    owned = { ...owned!, ...change };
+    for (const listener of ownedListeners) listener();
+  };
+  const encoder = new TextEncoder();
+  const eventStream = (first: () => string, subscribe?: (push: () => void) => () => void) => {
+    let stop = () => {};
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          const push = () => controller.enqueue(encoder.encode(first()));
+          push();
+          if (subscribe) stop = subscribe(push);
+        },
+        cancel: () => stop(),
+      }),
+      { headers: { "content-type": "text/event-stream" } },
+    );
+  };
   const savedNotes: Note[] = [];
   const savedBundle = () => ({
     id: "saved",
@@ -168,7 +197,7 @@ async function mountApp(
     revision: 0,
     commentCount: 0,
     targets: savedTargets,
-    ...(options.session ? { sessions: [{ agent: "claude", id: "s1", cwd: "/test/repo" }] } : {}),
+    ...(sessions.length ? { sessions } : {}),
     ...(options.pullRequest
       ? { pullRequestUrl: options.pullRequest.url, pullRequestTitle: "Read pull request threads" }
       : {}),
@@ -195,6 +224,48 @@ async function mountApp(
     const url = new URL(String(input), "http://localhost");
     if (options.savedReview) {
       if (url.pathname === "/api/reviews/saved") return Response.json(savedBundle());
+      if (url.pathname === "/api/agents") return Response.json({ agents: options.agents ?? [] });
+      if (url.pathname === "/api/reviews/saved/owned" && init?.method === "POST") {
+        const { preset } = JSON.parse(String(init.body)) as { preset: string };
+        sessions = [...sessions, { agent: "claude", id: "o1", cwd: "/test/repo" }];
+        owned = {
+          sessionId: "o1",
+          preset,
+          name: "Claude Code",
+          status: "starting",
+          settings: [],
+          commands: [],
+          turns: 0,
+        };
+        return Response.json({ review: savedBundle(), state: owned });
+      }
+      if (url.pathname === "/api/reviews/saved/owned/o1/events" && owned)
+        return eventStream(
+          () => `event: state\ndata: ${JSON.stringify(owned)}\n\n`,
+          (push) => {
+            ownedListeners.add(push);
+            return () => ownedListeners.delete(push);
+          },
+        );
+      if (url.pathname === "/api/reviews/saved/owned/o1" && init?.method === "POST") {
+        const action = JSON.parse(String(init.body)) as OwnedAction;
+        ownedActions.push(action);
+        if (action.action === "setting")
+          owned = {
+            ...owned!,
+            settings: owned!.settings.map((setting) =>
+              setting.id === action.id ? { ...setting, value: action.value } : setting,
+            ),
+          };
+        if (action.action === "permission") owned = { ...owned!, permission: undefined };
+        if (action.action === "interrupt") owned = { ...owned!, status: "idle" };
+        return Response.json(owned);
+      }
+      if (url.pathname === "/api/reviews/saved/sessions/o1/events")
+        return eventStream(
+          () =>
+            `event: reset\ndata: ${JSON.stringify({ events: [], idle: true, modifiedAt: 0 })}\n\n`,
+        );
       if (url.pathname === "/api/reviews/saved/sessions/s1/events" && options.session)
         return new Response(options.session, { headers: { "content-type": "text/event-stream" } });
       if (url.pathname === "/api/reviews/saved/agent/events" && inbox)
@@ -448,7 +519,15 @@ async function mountApp(
   await expect
     .poll(() => document.querySelectorAll("diffs-container").length)
     .toBeGreaterThanOrEqual(briefFirst ? 0 : options.review ? 1 : 2);
-  return { controller, requests, fileRequests, pullRequestReads, agentMessages };
+  return {
+    controller,
+    requests,
+    fileRequests,
+    pullRequestReads,
+    agentMessages,
+    setOwned,
+    ownedActions,
+  };
 }
 
 async function openBranch(name: string) {
@@ -2237,6 +2316,93 @@ describe("agent session", () => {
       .toBeVisible();
     await expect.element(panel.getByRole("textbox", { name: "Message Claude" })).toHaveValue("");
     await expect.element(panel.getByRole("button", { name: "1 comment" })).toBeVisible();
+  });
+
+  test("a saved review starts an agent in the Session pane, and the composer drives it", async () => {
+    await page.viewport(1280, 800);
+    const { setOwned, ownedActions, agentMessages } = await mountApp({
+      savedReview: true,
+      inbox: { messages: [], waiting: [], drafts: [] },
+      agents: [
+        { id: "claude", name: "Claude Code", kind: "claude", available: true },
+        { id: "opencode", name: "OpenCode", kind: "acp", available: false },
+      ],
+    });
+    await userEvent.click(page.getByRole("button", { name: "Toggle agent session" }));
+    const start = page.getByRole("region", { name: "Start a session" });
+    await expect.element(start.getByRole("button", { name: /OpenCode/ })).toBeDisabled();
+    await userEvent.click(start.getByRole("button", { name: /Claude Code/ }));
+    const composer = page.getByRole("form", { name: "Message Claude" });
+    await expect.element(composer.getByText("Starting Claude…")).toBeVisible();
+
+    setOwned({
+      status: "idle",
+      settings: [
+        {
+          id: "model",
+          name: "Model",
+          category: "model",
+          value: "default",
+          options: [
+            { value: "default", name: "Default" },
+            { value: "haiku", name: "Haiku" },
+          ],
+        },
+        {
+          id: "mode",
+          name: "Mode",
+          category: "mode",
+          value: "default",
+          options: [
+            { value: "default", name: "Ask" },
+            { value: "plan", name: "Plan" },
+          ],
+        },
+      ],
+      commands: [{ name: "review", description: "Review the current changes" }],
+      context: { used: 40_000, total: 200_000 },
+    });
+    await expect.element(composer.getByRole("img", { name: "Context 20% full" })).toBeVisible();
+    // Model, effort, and mode are pickers, not commands.
+    await userEvent.click(composer.getByRole("combobox", { name: "Model" }));
+    await userEvent.click(page.getByRole("option", { name: "Haiku" }));
+    await expect
+      .element(composer.getByRole("combobox", { name: "Model" }))
+      .toHaveTextContent("Haiku");
+    expect(ownedActions).toContainEqual({ action: "setting", id: "model", value: "haiku" });
+
+    // `/` lists the agent's own commands; Enter completes one.
+    const input = composer.getByRole("combobox", { name: "Message Claude" });
+    await userEvent.click(input);
+    await userEvent.keyboard("/rev");
+    await expect.element(composer.getByRole("option", { name: /\/review/ })).toBeVisible();
+    await userEvent.keyboard("{Enter}");
+    await expect.element(input).toHaveValue("/review ");
+    await userEvent.keyboard("the durations{Meta>}{Enter}{/Meta}");
+    await expect.poll(() => agentMessages).toMatchObject([{ text: "/review the durations" }]);
+
+    // A tool call waits for an answer; while the agent works, Send becomes Stop.
+    setOwned({
+      status: "working",
+      permission: {
+        id: "ask-1",
+        title: "Claude Code wants to use Edit",
+        detail: "src/alpha.ts",
+        options: [
+          { id: "allow", name: "Allow", kind: "allow_once" },
+          { id: "deny", name: "Deny", kind: "reject_once" },
+        ],
+      },
+    });
+    const ask = page.getByRole("group", { name: "Permission request" });
+    await expect.element(ask.getByText("src/alpha.ts")).toBeVisible();
+    await expect.element(page.getByText("Needs you")).toBeVisible();
+    await userEvent.click(ask.getByRole("button", { name: "Allow", exact: true }));
+    await expect.element(ask).not.toBeInTheDocument();
+    expect(ownedActions).toContainEqual({ action: "permission", id: "ask-1", option: "allow" });
+    await userEvent.click(composer.getByRole("button", { name: "Stop" }));
+    await expect.element(composer.getByRole("button", { name: "Send" })).toBeVisible();
+    expect(ownedActions.at(-1)).toEqual({ action: "interrupt" });
   });
 
   test("a reply pinned from the session becomes a note after the brief", async () => {

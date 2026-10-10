@@ -106,6 +106,7 @@ function Replay() {
       <Panel title="Format trail durations" store={store} now={state.playing ? now : undefined}>
         <SessionComposer
           agent="claude"
+          name="Claude"
           waiting={false}
           drafts={[]}
           attachments={[]}
@@ -267,6 +268,7 @@ function ReplyDemo() {
         <SessionComposer
           key={agent}
           agent={agent}
+          name={agent === "codex" ? "Codex" : "Claude"}
           waiting={mode === "waiting"}
           drafts={drafts}
           attachments={attachments}
