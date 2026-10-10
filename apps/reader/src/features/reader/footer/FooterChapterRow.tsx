@@ -4,6 +4,15 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { FOOTER_READY_DETAIL_DELAY } from "./FooterLoadingState";
 
+// Touch targets reach 44 px. They extend up through the footer padding, short
+// of the prompt stack above the footer, and stop at the scrubber's top edge.
+// The 22 px chapter steps gain 17 px above and 5 px below; the 32 px title
+// gains 12 px above.
+const CHAPTER_STEP_TARGET =
+  "relative before:absolute before:-inset-x-2 before:-top-[17px] before:-bottom-[5px] before:content-['']";
+const CHAPTER_TITLE_TARGET =
+  "relative before:absolute before:-inset-x-2 before:-top-3 before:bottom-0 before:content-['']";
+
 interface FooterChapterRowProps {
   currentChapterIndex: number;
   currentChapterEndIndex: number;
@@ -107,6 +116,7 @@ export function FooterChapterRow({
             key="prev"
             onClick={handlePrevClick}
             className={cn(
+              CHAPTER_STEP_TARGET,
               "flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-numeric tabular-nums text-muted-foreground transition-[background-color,color,transform,scale] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97] motion-reduce:active:scale-100",
               showBlurredLoadingDetails
                 ? "pointer-events-none"
@@ -170,6 +180,7 @@ export function FooterChapterRow({
               whileTap={showBlurredLoadingDetails ? undefined : { scale: 0.97 }}
               transition={{ duration: 0.15 }}
               className={cn(
+                CHAPTER_TITLE_TARGET,
                 "pointer-events-auto flex min-h-8 max-w-full min-w-0 items-center justify-center rounded-full px-2.5 py-1 text-[10px] font-medium uppercase leading-tight tracking-[0.16em] text-muted-foreground transition-[background-color,color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
                 showBlurredLoadingDetails
                   ? "pointer-events-none"
@@ -191,6 +202,7 @@ export function FooterChapterRow({
             key="next"
             onClick={handleNextClick}
             className={cn(
+              CHAPTER_STEP_TARGET,
               "ml-auto flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-numeric tabular-nums text-muted-foreground transition-[background-color,color,transform,scale] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97] motion-reduce:active:scale-100",
               showBlurredLoadingDetails
                 ? "pointer-events-none"

@@ -6,8 +6,10 @@ import type { ReaderChromeSurfaceProps } from "./chrome";
 import { MOTION } from "@/lib/motion";
 import { ReaderDesktopHeader } from "./ReaderDesktopHeader";
 
+// A 32 px control with a 44 px touch target. The target is placed from the
+// padding box, inside the 1 px border: 30 px plus 7 px on each side.
 const CHROME_BUTTON_CLASS_NAME =
-  "size-8 rounded-full border border-border/70 bg-background/70 text-muted-foreground transition-[color,background-color,transform,scale] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-background hover:text-foreground active:scale-95 motion-reduce:active:scale-100";
+  "relative size-8 before:absolute before:-inset-[7px] before:content-[''] rounded-full border border-border/70 bg-background/70 text-muted-foreground transition-[color,background-color,transform,scale] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-background hover:text-foreground active:scale-95 motion-reduce:active:scale-100";
 
 export interface ReaderHeaderProps {
   chromeVisible: boolean;

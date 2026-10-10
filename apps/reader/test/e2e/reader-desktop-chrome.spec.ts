@@ -1,4 +1,46 @@
+import type { Locator, Page } from "@playwright/test";
 import { test, expect, openLocalBook } from "./helpers/fixtures";
+
+/**
+ * Counts the pixel rows and columns where taps reach a control, through its
+ * centre lines, by browser hit testing. The count includes a pseudo-element
+ * target and excludes any covering element. Hit testing rounds the pixel
+ * centre probes, so a 44 px target counts as 44 or 45.
+ */
+async function hitArea(control: Locator) {
+  return control.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const x = Math.floor(box.x + box.width / 2) + 0.5;
+    const y = Math.floor(box.y + box.height / 2) + 0.5;
+    const hits = (px: number, py: number) =>
+      element.contains(document.elementFromPoint(px, py));
+    const reach = (dx: number, dy: number) => {
+      let pixels = 0;
+      while (
+        pixels < innerWidth &&
+        hits(x + dx * (pixels + 1), y + dy * (pixels + 1))
+      )
+        pixels += 1;
+      return pixels;
+    };
+    return {
+      width: reach(-1, 0) + 1 + reach(1, 0),
+      height: reach(0, -1) + 1 + reach(0, 1),
+    };
+  });
+}
+
+/** Returns the button at a point, by accessible name. */
+async function buttonAt(page: Page, x: number, y: number) {
+  return page.evaluate(
+    ([x, y]) =>
+      document
+        .elementFromPoint(x, y)
+        ?.closest("button")
+        ?.getAttribute("aria-label") ?? null,
+    [x, y],
+  );
+}
 
 test("desktop chrome fades in place and hides all navigation controls together", async ({
   page,
@@ -207,5 +249,93 @@ test.describe("mobile chrome", () => {
       "none",
     );
     await expect(header).not.toBeInViewport();
+  });
+
+  test("gives the chrome controls 44 px touch targets at their visual size", async ({
+    page,
+    localBook,
+  }) => {
+    await openLocalBook(page, localBook.id);
+    await page.touchscreen.tap(195, 350);
+    await expect(page.locator('[data-reader-header="mobile"]')).toHaveCSS(
+      "transform",
+      "none",
+    );
+    await expect(page.locator("[data-reader-footer]")).toHaveCSS(
+      "transform",
+      "none",
+    );
+    const back = page.getByRole("button", {
+      name: "Back to library",
+      exact: true,
+    });
+    const tools = page.getByRole("button", {
+      name: "Open reader tools",
+      exact: true,
+    });
+    const next = page.getByRole("button", {
+      name: "Next chapter",
+      exact: true,
+    });
+
+    // A tap above the visible Next chapter control still moves on a chapter.
+    const nextBounds = (await next.boundingBox())!;
+    expect(
+      await buttonAt(
+        page,
+        nextBounds.x + nextBounds.width / 2,
+        nextBounds.y - 12,
+      ),
+    ).toBe("Next chapter");
+    await page.touchscreen.tap(
+      nextBounds.x + nextBounds.width / 2,
+      nextBounds.y - 12,
+    );
+    const previous = page.getByRole("button", {
+      name: /^(Previous chapter|Start of current chapter)$/,
+    });
+    await expect(previous).toBeVisible();
+    // Let the press scale settle before measuring.
+    await expect(next).toHaveCSS("scale", "none");
+    const title = page.getByRole("button", {
+      name: "Open table of contents",
+      exact: true,
+    });
+
+    for (const control of [back, tools]) {
+      expect(await control.boundingBox()).toMatchObject({
+        width: 32,
+        height: 32,
+      });
+      const area = await hitArea(control);
+      expect(area.width).toBeGreaterThanOrEqual(44);
+      expect(area.height).toBeGreaterThanOrEqual(44);
+    }
+    const scrubber = (await page
+      .locator("[data-reader-footer] canvas")
+      .boundingBox())!;
+    for (const control of [previous, next, title]) {
+      const visual = (await control.boundingBox())!;
+      expect(visual.height).toBe(control === title ? 32 : 22);
+      const area = await hitArea(control);
+      // Neighbouring targets do not cover any visible part of the control.
+      expect(area.width).toBeGreaterThanOrEqual(Math.max(44, visual.width));
+      expect(area.height).toBeGreaterThanOrEqual(44);
+      // The scrubber keeps its full height under each control.
+      expect(
+        await page.evaluate(
+          ([x, y]) => document.elementFromPoint(x, y)?.tagName,
+          [visual.x + visual.width / 2, scrubber.y + 1],
+        ),
+      ).toBe("CANVAS");
+    }
+
+    // A tap beside the visible Back control still leaves the book.
+    const backBounds = (await back.boundingBox())!;
+    await page.touchscreen.tap(
+      backBounds.x - 5,
+      backBounds.y + backBounds.height / 2,
+    );
+    await expect(page).toHaveURL(/\/$/);
   });
 });
