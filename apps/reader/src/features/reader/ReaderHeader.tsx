@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, MoreHorizontal, PanelRight } from "lucide-react";
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import { motion } from "motion/react";
 import type { ReaderChromeSurfaceProps } from "./chrome";
 import { MOTION } from "@/lib/motion";
@@ -41,6 +41,8 @@ export interface ReaderHeaderProps {
   onToggleBookmark: () => void;
   isMenuOpen: boolean;
   onOpenMenu: () => void;
+  /** The desktop tools trigger, where closing the tools sidebar returns focus. */
+  toolsTriggerRef?: Ref<HTMLButtonElement>;
 }
 
 export function ReaderHeader({
@@ -54,6 +56,7 @@ export function ReaderHeader({
   onToggleBookmark,
   isMenuOpen,
   onOpenMenu,
+  toolsTriggerRef,
 }: ReaderHeaderProps) {
   if (!isMobile) {
     return (
@@ -66,6 +69,7 @@ export function ReaderHeader({
         onToggleBookmark={onToggleBookmark}
         isMenuOpen={isMenuOpen}
         onOpenMenu={onOpenMenu}
+        toolsTriggerRef={toolsTriggerRef}
       />
     );
   }

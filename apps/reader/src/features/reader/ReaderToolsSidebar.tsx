@@ -1,4 +1,10 @@
-import { useState, type ReactNode } from "react";
+import {
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { Button } from "@/components/ui/button";
 import type { TOCItem } from "@/lib/db";
 import { cn } from "@/lib/utils";
@@ -40,6 +46,8 @@ interface ReaderToolsSidebarProps {
   notesPanel?: ReactNode;
   highlightsPanel?: ReactNode;
   onCopyDebugDump?: () => void;
+  /** The header control that opens the sidebar. Escape returns focus to it. */
+  triggerRef: RefObject<HTMLButtonElement | null>;
 }
 
 const SIDEBAR_TOOLS: {
@@ -84,6 +92,7 @@ export function ReaderToolsSidebar({
   onCopyDebugDump,
   notesPanel,
   highlightsPanel,
+  triggerRef,
 }: ReaderToolsSidebarProps) {
   // Closing changes visibility, not the content shown during the exit.
   const [retainedPanel, setRetainedPanel] = useState(() =>
@@ -117,11 +126,56 @@ export function ReaderToolsSidebar({
     },
   );
 
+  // Escape closes the sidebar unless a nearer control handled it first. The
+  // inline note editor stops the event to cancel its edit, and Base UI popups
+  // stop it to close themselves, so neither closes the sidebar. The note
+  // composer closes the sidebar itself.
+  const returnFocusToTrigger = useRef(false);
+  useHotkey(
+    "Escape",
+    (event) => {
+      if (event.defaultPrevented || event.isComposing) return;
+      event.preventDefault();
+      returnFocusToTrigger.current = true;
+      onClose();
+    },
+    {
+      target: window,
+      enabled: isOpen,
+      ignoreInputs: false,
+      preventDefault: false,
+      requireReset: true,
+      stopPropagation: false,
+      conflictBehavior: "allow",
+      meta: {
+        name: "Close reader tools",
+        description: "Hide the reader tools sidebar",
+      },
+    },
+  );
+
+  // A close caused by Escape returns focus to the trigger, whichever handler
+  // closed the sidebar. The closed sidebar is inert, so focus inside it would
+  // otherwise fall to the body. The header leaves its own inert state in the
+  // same commit when the chrome is visible; a hidden header cannot take focus.
+  useLayoutEffect(() => {
+    if (isOpen || !returnFocusToTrigger.current) return;
+    returnFocusToTrigger.current = false;
+    triggerRef.current?.focus();
+  }, [isOpen, triggerRef]);
+
   return (
     <aside
       aria-label="Reader tools"
       aria-hidden={!isOpen}
       inert={!isOpen ? true : undefined}
+      onKeyDownCapture={(event) => {
+        returnFocusToTrigger.current =
+          event.key === "Escape" && !event.nativeEvent.isComposing;
+      }}
+      onPointerDownCapture={() => {
+        returnFocusToTrigger.current = false;
+      }}
       className="pointer-events-none fixed inset-0 z-40 hidden text-foreground md:block"
     >
       <button

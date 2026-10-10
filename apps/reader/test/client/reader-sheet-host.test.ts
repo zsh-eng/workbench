@@ -2,7 +2,7 @@ import { ReaderSheetHost } from "@/features/reader/ReaderSheetHost";
 import type { Book } from "@/lib/db";
 import type { ReaderSettings } from "@/types/reader.types";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { createElement } from "react";
+import { createElement, createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/features/reader/ReaderToolsSidebar", () => ({
@@ -63,6 +63,7 @@ function renderHost(
       chapterStartPages: [],
       currentChapterHref: "",
       onNavigateToHref: vi.fn(() => true),
+      toolsTriggerRef: createRef<HTMLButtonElement>(),
     }),
   );
 

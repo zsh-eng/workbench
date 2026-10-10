@@ -24,6 +24,7 @@ export function ReaderDesktopHeader({
   onToggleBookmark,
   isMenuOpen,
   onOpenMenu,
+  toolsTriggerRef,
 }: ReaderDesktopHeaderProps) {
   const visible = chromeVisible || Boolean(accessory);
   return (
@@ -61,6 +62,7 @@ export function ReaderDesktopHeader({
               />
             </Button>
             <Button
+              ref={toolsTriggerRef}
               variant="ghost"
               size="icon"
               onClick={onOpenMenu}
