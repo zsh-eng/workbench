@@ -419,9 +419,12 @@ export function PlanDock({ entries }: { entries: PlanEntry[] }) {
   );
 }
 
-/** Space that renders above and below the view, and the least that must stay
- * rendered past each edge before the rendered range moves. */
+/** Space that renders above and below the view. The rendered range moves
+ * when less than LEAD stays rendered past an edge, in a task after the frame,
+ * so that a fling keeps its frames. With less than MARGIN, the view could reach
+ * empty space first, so the range moves at once, in the scroll event. */
 const OVERSCAN = 1200;
+const LEAD = 800;
 const MARGIN = 400;
 /** The newest units render before the thread has a size, as in a hidden pane. */
 const UNSIZED = 24;
@@ -763,16 +766,18 @@ export function SessionThread({
       const total = all.length;
       const y = node.scrollTop - listTop();
       const height = node.clientHeight;
-      // The range covers the view with a margin on each side, and not much
-      // more: units that come at the end join it, and it must not grow.
-      const covered =
+      // The range covers the view with a margin on each side.
+      const covered = (margin: number) =>
         range.end <= total &&
         range.start < range.end &&
-        (range.start === 0 || offsets[range.start]! <= y - MARGIN) &&
-        (range.end === total || offsets[range.end]! >= y + height + MARGIN) &&
-        offsets[range.start]! >= y - 2 * OVERSCAN &&
-        offsets[range.end]! <= y + height + 2 * OVERSCAN;
-      if (covered || !total) return;
+        (range.start === 0 || offsets[range.start]! <= y - margin) &&
+        (range.end === total || offsets[range.end]! >= y + height + margin);
+      // And not much more: units that come at the end join it, and it must not
+      // grow. A unit taller than the overscan counts as one unit.
+      const lean =
+        range.start >= indexAt(offsets, y - 2 * OVERSCAN) &&
+        range.end <= indexAt(offsets, y + height + 2 * OVERSCAN) + 1;
+      if (!total || (covered(LEAD) && lean)) return;
       const next: Range = {
         start: indexAt(offsets, y - OVERSCAN),
         end: Math.min(total, indexAt(offsets, y + height + OVERSCAN) + 1),
@@ -780,7 +785,7 @@ export function SessionThread({
         tail: false,
       };
       next.tail = next.end === total;
-      if (sync) flushSync(() => setRange(next));
+      if (sync && !covered(MARGIN)) flushSync(() => setRange(next));
       else setRange(next);
     };
     // One request for each state of the earlier work: the new state comes
