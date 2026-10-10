@@ -1,6 +1,17 @@
 import { MultiFileDiff } from "@pierre/diffs/react";
 import * as stylex from "@stylexjs/stylex";
-import { memo, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  memo,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import type { ToolCallContent, ToolKind } from "../../../shared/agent-session";
 import type { SessionItem, ToolCallState } from "../../data/session-store";
 import { tokens } from "../../theme.stylex";
@@ -50,6 +61,8 @@ const commandOf = (call: ToolCallState) => {
   return typeof input?.command === "string" ? input.command : undefined;
 };
 const basename = (path: string) => path.slice(path.lastIndexOf("/") + 1);
+/** An edit's diff scrolls past this height. */
+const DIFF_MAX_HEIGHT = 360;
 
 /** Added and removed lines of a diff with one changed region. */
 export function diffStat(diff: DiffContent) {
@@ -208,7 +221,97 @@ export const ToolCall = memo(function ToolCall({
 /** Edited text often ends inside a line; a final newline keeps the diff from marking it. */
 const ending = (text: string) => (text === "" || text.endsWith("\n") ? text : `${text}\n`);
 
+/** The thread's scroller. A long session holds hundreds of edits, and a diff
+ * costs much more to render than the rest of its row, so each diff renders
+ * once it comes within two screens of the scroller's view. */
+export const ThreadScroller = createContext<RefObject<HTMLElement | null> | null>(null);
+const NEAR = 2;
+const watchers = new WeakMap<
+  Element,
+  { observer: IntersectionObserver; callbacks: Map<Element, () => void> }
+>();
+function whenNear(root: Element, element: Element, callback: () => void) {
+  let watcher = watchers.get(root);
+  if (!watcher) {
+    const callbacks = new Map<Element, () => void>();
+    const observer = new IntersectionObserver(
+      (records) => {
+        for (const record of records) {
+          if (!record.isIntersecting) continue;
+          observer.unobserve(record.target);
+          callbacks.get(record.target)?.();
+          callbacks.delete(record.target);
+        }
+      },
+      { root, rootMargin: `${NEAR * 100}% 0px` },
+    );
+    watcher = { observer, callbacks };
+    watchers.set(root, watcher);
+  }
+  const { observer, callbacks } = watcher;
+  callbacks.set(element, callback);
+  observer.observe(element);
+  return () => {
+    callbacks.delete(element);
+    observer.unobserve(element);
+  };
+}
+
+/** The height of a diff before it renders: its changed lines, three lines of
+ * context on each side, and the line above the hunk, up to the figure's limit. */
+function diffHeight(oldText: string, newText: string) {
+  const before = oldText.split("\n");
+  const after = newText.split("\n");
+  let start = 0;
+  while (start < before.length && start < after.length && before[start] === after[start]) start++;
+  let end = 0;
+  while (
+    end < before.length - start &&
+    end < after.length - start &&
+    before[before.length - 1 - end] === after[after.length - 1 - end]
+  )
+    end++;
+  const rows =
+    before.length + after.length - 2 * (start + end) + Math.min(3, start) + Math.min(3, end);
+  return Math.min(DIFF_MAX_HEIGHT, Math.max(1, rows) * 18 + 24);
+}
+
 function EditDiff({ diff }: { diff: DiffContent }) {
+  const scroller = useContext(ThreadScroller);
+  const holder = useRef<HTMLElement>(null);
+  const [near, setNear] = useState(!scroller);
+  // Rows in view render before the first paint; others when they come near.
+  useLayoutEffect(() => {
+    const root = scroller?.current;
+    const element = holder.current;
+    if (near || !root || !element) return;
+    const frame = root.getBoundingClientRect();
+    const box = element.getBoundingClientRect();
+    const margin = frame.height * NEAR;
+    if (box.bottom >= frame.top - margin && box.top <= frame.bottom + margin) setNear(true);
+  }, [near, scroller]);
+  useEffect(() => {
+    const root = scroller?.current;
+    const element = holder.current;
+    if (near || !root || !element) return;
+    return whenNear(root, element, () => setNear(true));
+  }, [near, scroller]);
+  const height = useMemo(
+    () => (near ? 0 : diffHeight(diff.oldText ?? "", diff.newText)),
+    [near, diff.oldText, diff.newText],
+  );
+  if (!near)
+    return (
+      <figure
+        ref={holder}
+        data-diff-pending
+        {...stylex.props(styles.diff, styles.pending(height))}
+      />
+    );
+  return <RenderedDiff diff={diff} />;
+}
+
+function RenderedDiff({ diff }: { diff: DiffContent }) {
   const { active } = useTheme();
   const excerpt = diff._meta?.med?.excerpt === true;
   const name = basename(diff.path);
@@ -319,9 +422,11 @@ const styles = stylex.create({
   output: { color: tokens.muted },
   error: { color: tokens.red },
   // A long new file scrolls inside its frame, so the thread stays readable.
+  // A diff that has not rendered yet keeps about its height.
+  pending: (height: number) => ({ height }),
   diff: {
     margin: 0,
-    maxHeight: 360,
+    maxHeight: DIFF_MAX_HEIGHT,
     overflowX: "hidden",
     overflowY: "auto",
     scrollbarWidth: "thin",

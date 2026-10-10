@@ -182,7 +182,8 @@ work.
 - The sidebar shows sessions recorded with saved reviews. Branch workspaces
   have no session.
 - The thread renders at most 600 top-level rows; nested subagent threads
-  render whole.
+  render whole. An edit's diff renders when its row comes within two screens
+  of the view: in a long session, diffs cost more than the rest of the thread.
 - Not shown yet for attached sessions: context usage, permission requests
   (owned sessions show both), questions that the agent asked the user, and the
   dev servers that Claude Desktop starts from

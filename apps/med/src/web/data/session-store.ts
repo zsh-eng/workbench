@@ -93,6 +93,15 @@ export function createSessionStore() {
   const listeners = new Set<() => void>();
   let batch = 0;
   let changed = false;
+  // Lists made since listeners last ran. No one holds them yet, so updates
+  // add to them in place: a page of thousands of updates copies each list
+  // once, not once per update.
+  let fresh = new WeakSet<SessionItem[]>();
+  const writable = (items: SessionItem[]) => {
+    const next = fresh.has(items) ? items : items.slice();
+    fresh.add(next);
+    return next;
+  };
 
   function setThread(key: string, items: SessionItem[]) {
     threads.set(key, items);
@@ -109,12 +118,13 @@ export function createSessionStore() {
   }
   function setItem(item: SessionItem) {
     const place = where.get(item.id)!;
-    const items = threads.get(place.thread)!.slice();
+    const items = writable(threads.get(place.thread)!);
     items[place.index] = item;
     setThread(place.thread, items);
   }
   function append(thread: string, item: SessionItem) {
-    const items = [...(threads.get(thread) ?? []), item];
+    const items = writable(threads.get(thread) ?? []);
+    items.push(item);
     where.set(item.id, { thread, index: items.length - 1 });
     setThread(thread, items);
   }
@@ -300,6 +310,7 @@ export function createSessionStore() {
       changed = true;
       return;
     }
+    fresh = new WeakSet();
     for (const listener of listeners) listener();
   }
 

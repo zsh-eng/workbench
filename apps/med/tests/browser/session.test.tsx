@@ -144,3 +144,49 @@ test("a long thread keeps a window of units in the page and moves it as you scro
   await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r699");
   expect(units()).toHaveLength(300);
 });
+
+test("a long thread renders each edit's diff once it comes near the view", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = createSessionStore();
+  store.applyAll(
+    Array.from({ length: 80 }, (_, turn) => ({
+      at: turn * 1000,
+      update: {
+        sessionUpdate: "tool_call" as const,
+        toolCallId: `edit-${turn}`,
+        title: `Edit file-${turn}.ts`,
+        kind: "edit" as const,
+        status: "completed" as const,
+        content: [
+          {
+            type: "diff" as const,
+            path: `/repo/file-${turn}.ts`,
+            oldText: `export const value = ${turn};\n`,
+            newText: `export const value = ${turn + 1};\n`,
+          },
+        ],
+      },
+    })),
+  );
+  mount = document.createElement("div");
+  mount.style.height = "600px";
+  document.body.append(mount);
+  root = createRoot(mount);
+  root.render(<SessionThread snapshot={store.getSnapshot()} />);
+  const diffs = (state: "rendered" | "pending") =>
+    document.querySelectorAll(
+      state === "pending" ? "[data-diff-pending]" : "[data-unit] figure:not([data-diff-pending])",
+    ).length;
+  const scroller = () => document.querySelector('[aria-label="Session"]')!.parentElement!;
+  await expect.poll(() => diffs("rendered")).toBeGreaterThan(0);
+  // Edits within two screens of the view render; the others hold their place.
+  expect(diffs("rendered")).toBeLessThan(40);
+  expect(diffs("pending")).toBe(80 - diffs("rendered"));
+  expect(document.querySelector('[data-unit="edit-79"] [data-diff-pending]')).toBeNull();
+
+  scroller().scrollTop = 0;
+  await expect
+    .poll(() => document.querySelector('[data-unit="edit-0"] figure:not([data-diff-pending])'))
+    .not.toBeNull();
+});
