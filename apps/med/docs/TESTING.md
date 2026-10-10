@@ -60,8 +60,8 @@ for the larger corpus, exact mismatch reports, and production UI benchmarks.
 
 `node scripts/benchmark-language-ui.mjs --native-only` builds and measures the
 production file viewer. Add `--profile` to write Chrome performance traces.
-See [file-opening measurements](validation/FILE_OPENING.md) for phase definitions,
-before/after results, and comparison of retained builds.
+See [file-opening measurements](validation/FILE_OPENING_SECOND_PASS.md) for phases,
+results, and comparison of retained builds.
 
 `bun run test:markdown-links` exercises relative-link clicks through the built
 CLI, Markdown worker, browser, and file APIs: working and historical repository

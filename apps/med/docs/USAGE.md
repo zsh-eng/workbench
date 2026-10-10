@@ -551,15 +551,9 @@ History follows the selected worktree's HEAD ancestry. Shallow clones can lack t
 
 This is a browser app backed by a local server. Native desktop packaging, shared persistent review notes, and complete Hunk feature parity are not implemented.
 
-- [Search, definitions, commit ranges, and gutter blame](validation/REVIEW_NAVIGATION.md)
-- [Hover prefetch, compact UI, and render diagnostics](validation/HOVER_AND_RENDERING.md)
-- [Navigation validation and screenshots](validation/NAVIGATION.md)
 - [Zoekt benchmark: setup cost, search latency, and reproducible harness](validation/ZOEKT.md)
 - [Twinkleplop integration and timed comparison videos](validation/HIGHLIGHTER_INTEGRATION.md)
-- [Baseline diff performance](validation/RESULTS.md)
-- [Theme and workspace validation](validation/UI_UPDATE.md)
 - [Everyday interaction latency](validation/INTERACTIONS.md)
-- [Feature status and navigation behavior](SNACKS_REVIEW.md)
 
 Hunk's retained semantic source and tests carry their original [MIT notice](../upstream/HUNK-LICENSE). [Source provenance](../upstream/HUNK.md) records the pinned revision and adaptations.
 

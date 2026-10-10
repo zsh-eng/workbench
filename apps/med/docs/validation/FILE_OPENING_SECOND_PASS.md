@@ -78,8 +78,7 @@ and worker completion while preserving the original visible-view end condition.
   selection modes. Build, typecheck, lint, and changed-file formatting pass.
 
 The [raw results](file-opening-second-pass-results.json) contain every sample,
-phase, source hash, build asset hash, and payload comparison. The previous
-[first-pass record](FILE_OPENING.md) is retained. See the
+phase, source hash, build asset hash, and payload comparison. See the
 [Java/C++ report](JAVA_CPP_HIGHLIGHTING.md) for known Shiki classification gaps.
 
 ## Reproduce

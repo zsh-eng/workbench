@@ -128,7 +128,7 @@ Build and test tools: TypeScript, Vite, Vitest, Playwright, Oxlint, and Oxfmt. S
 ### Design and source references
 
 - **[Zed](https://zed.dev/)** — a reference for selected UI designs, including theme preview, confirm, and dismiss behavior. See [theme provenance](upstream/THEMES.md).
-- **[snacks.nvim](https://github.com/folke/snacks.nvim)** — a reference for the file picker and code preview. See the [feature comparison](docs/SNACKS_REVIEW.md).
+- **[snacks.nvim](https://github.com/folke/snacks.nvim)** — a reference for the file picker and code preview.
 - **Hunk** — adapted review logic and tests. See [source provenance](upstream/HUNK.md) and the original [MIT notice](upstream/HUNK-LICENSE).
 
 ## Development

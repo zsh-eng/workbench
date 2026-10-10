@@ -1,6 +1,6 @@
 # Continuous diff review: implemented architecture
 
-Status: integrated implementation, 19 September 2026. The user approved implementation after the source audit and added commit-history navigation, live themes, and branch/worktree tabs. See [baseline performance](docs/validation/RESULTS.md) and [UI validation](docs/validation/UI_UPDATE.md) for measurements and limits.
+Status: integrated implementation, 19 September 2026. The user approved implementation after the source audit and added commit-history navigation, live themes, and branch/worktree tabs.
 
 Read-only full-file browsing now uses a right file sidebar and center file tabs beside a permanent Changes tab. Its source is independent of the selected diff: attached worktrees always provide current files, while unattached branches provide an exact commit tree. Authenticated, bounded list/read endpoints share the existing host and watcher. See [file browsing](docs/FILE_BROWSING.md) for contracts, data flow, limits, and remaining scope, and [browsing validation](docs/validation/FILE_BROWSING.md) for measured results.
 
@@ -186,8 +186,6 @@ The Bun test exposed a real watcher cost: opening watchers across the checkout e
 3. `src/web/data/`: response guards, cache policy, projection, and note synchronization.
 4. `src/web/App.tsx`, `components/`, and `theme.stylex.ts`: layout and controls.
 5. `tests/`, `scripts/`, and `docs/validation/`: behavior, package checks, and reproducible measurements.
-
-[Parallel integration record](docs/IMPLEMENTATION_PLAN.md) and [original audits](docs/audit/) explain the source decisions. Audit files describe their pinned inspection baseline; this file describes the implemented system.
 
 ## Saved agent reviews
 

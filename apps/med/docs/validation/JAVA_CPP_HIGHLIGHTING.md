@@ -143,5 +143,5 @@ The UI screenshots and full mismatch reports remain in the ignored output
 directories listed above.
 
 The next renderer optimization pass is recorded separately in
-[file-opening measurements](FILE_OPENING.md). The numbers above retain the original
+[file-opening measurements](FILE_OPENING_SECOND_PASS.md). The numbers above retain the original
 language-support baseline.
