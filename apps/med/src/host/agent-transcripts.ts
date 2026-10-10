@@ -143,6 +143,18 @@ async function readLines(path: string, offset: number, limit = Number.POSITIVE_I
   }
 }
 
+/** The tail that tells whether a turn is open. */
+const STATUS_TAIL_BYTES = 256 * 1024;
+
+/** Whether the session's last turn has ended, from its transcript's tail. */
+export async function transcriptIdle(session: Pick<AgentSession, "agent" | "id">, path: string) {
+  const { lines } = await readLines(path, 0, STATUS_TAIL_BYTES);
+  const reader =
+    session.agent === "codex" ? createCodexRolloutReader() : createClaudeTranscriptReader();
+  for (const line of lines) reader.line(line);
+  return reader.idle();
+}
+
 export interface TranscriptFeed {
   /** The first view: the updates in the transcript's tail. */
   events: SessionEvent[];

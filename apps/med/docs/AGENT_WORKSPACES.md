@@ -157,6 +157,15 @@ A list of workspaces shows the state of each lead session:
 Med keeps the last update that you saw for each session in its state
 directory. "Done" shows as an unread dot, as in Claude Desktop.
 
+Built: `GET /api/agent-status/events?reviews=…` sends each listed review's
+lead session state as server-sent events, every 1.5 seconds when it changes
+(`src/host/agent-status.ts`). The host reads a transcript's last 256 KiB again
+only when the file changes. The workspace list shows a turning mark for
+Working, **Needs you**, and the existing unread dot for Done. Unlike the plan,
+the browser keeps the last update that you saw (`med:agent-seen`), next to the
+workspace list, which the browser also keeps. A review that you open for the
+first time starts as read. You cannot pin a lead yet.
+
 An attached Claude session cannot show a permission prompt or a question,
 because the transcript does not record them while they wait. Claude Code's
 `stream-json` output has a `post_turn_summary` message with `needs_action`
@@ -426,7 +435,8 @@ them.
    Codex (`codex-acp`), and other agents through ACP, with no new dependency.
    Built. Not built: **Compact**, and resuming an owned session after the
    host restarts.
-4. **Workspace list.** States, unread dots, and lead sessions.
+4. **Workspace list.** States, unread dots, and lead sessions. Built, except
+   pinning a lead.
 5. **Long sessions.** Pages, the turn index, and the render window.
 
 ## Open questions

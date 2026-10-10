@@ -1,10 +1,11 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SessionEvent } from "../../src/shared/agent-session";
+import type { AgentStatus } from "../../src/shared/agent-status";
 import type { OwnedState } from "../../src/shared/owned-session";
 import type { SavedReview } from "../../src/shared/saved-review";
 import { startHost, type RunningHost } from "../../src/host/server";
@@ -124,7 +125,23 @@ async function fixture() {
     const act = (action: unknown) => api<OwnedState>(path, action);
     return { id, review: started.data.review, state, until, act };
   };
-  return { api, review, stateDir, thread, start };
+  /** The workspace list's stream of lead session states. */
+  const statuses = async (ids: string[]) => {
+    const response = await fetch(
+      `http://127.0.0.1:${host.port}/api/agent-status/events?reviews=${ids.join(",")}`,
+      { headers: { authorization: `Bearer ${host.token}` } },
+    );
+    const latest: { value: AgentStatus[] } = { value: [] };
+    const controller = new AbortController();
+    streams.push(controller);
+    void readServerEvents(
+      response.body!,
+      (event) => (latest.value = (JSON.parse(event.data) as { statuses: AgentStatus[] }).statuses),
+      controller.signal,
+    ).catch(() => {});
+    return latest;
+  };
+  return { api, repo, home, review, stateDir, thread, start, statuses };
 }
 
 test("Med starts Claude Code, sends review messages as prompts, and answers its questions", async () => {
@@ -259,4 +276,70 @@ test("Med runs an ACP agent and keeps its thread", async () => {
   expect(log).toContain("Outcome: selected allow");
   const again = await thread(session.id);
   await vi.waitFor(() => expect(again()).toEqual(replies()));
+});
+
+test("the workspace list follows each review's lead session: working, needs you, and idle", async () => {
+  const { api, repo, home, review, start, statuses } = await fixture();
+  // A Claude session that another app runs: Med reads its transcript.
+  const attached = "5f0c2a8e-1111-4222-8333-944455556666";
+  const project = join(home, ".claude", "projects", "-work-repo");
+  await mkdir(project, { recursive: true });
+  const transcript = join(project, `${attached}.jsonl`);
+  const line = (value: unknown) => `${JSON.stringify(value)}\n`;
+  await writeFile(
+    transcript,
+    line({
+      type: "user",
+      timestamp: new Date().toISOString(),
+      message: { role: "user", content: "Format the durations." },
+    }),
+  );
+  const other = (
+    await api<SavedReview>("/api/reviews", {
+      title: "Durations in the export",
+      targets: [{ repo, comparison: { kind: "working" } }],
+      sessions: [{ agent: "claude", id: attached, cwd: repo }],
+    })
+  ).data;
+  const session = await start("fake");
+  await session.until((state) => state.status === "idle");
+
+  const latest = await statuses([review.id, other.id, "r_missing"]);
+  const of = (id: string) => latest.value.find((status) => status.reviewId === id);
+  await vi.waitFor(() => {
+    expect(of(other.id)).toMatchObject({ sessionId: attached, agent: "claude", state: "working" });
+    expect(of(review.id)).toMatchObject({ agent: "acp", name: "Fake ACP", state: "idle" });
+  });
+  expect(latest.value).toHaveLength(2);
+
+  // A permission request needs the user; the answer lets the turn finish.
+  await session.act({ action: "prompt", text: "Edit summary.ts." });
+  await vi.waitFor(() => expect(of(review.id)?.state).toBe("waiting"), { timeout: 5000 });
+  const asked = await session.until((state) => state.permission !== undefined);
+  await session.act({ action: "permission", id: asked.permission!.id, option: "allow" });
+  await vi.waitFor(() => expect(of(review.id)?.state).toBe("idle"), { timeout: 5000 });
+
+  // The attached session ends its turn when its transcript says so.
+  const before = of(other.id)!.updatedAt;
+  await appendFile(
+    transcript,
+    line({
+      type: "assistant",
+      timestamp: new Date().toISOString(),
+      uuid: "a1",
+      message: {
+        id: "a1",
+        role: "assistant",
+        stop_reason: "end_turn",
+        content: [{ type: "text", text: "Done." }],
+      },
+    }),
+  );
+  await vi.waitFor(
+    () => {
+      expect(of(other.id)?.state).toBe("idle");
+      expect(of(other.id)!.updatedAt).toBeGreaterThanOrEqual(before);
+    },
+    { timeout: 5000 },
+  );
 });

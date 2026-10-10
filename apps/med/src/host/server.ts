@@ -61,6 +61,7 @@ import { SavedReviewStore } from "./saved-reviews";
 import { followTranscript, findTranscript } from "./agent-transcripts";
 import { AgentInbox } from "./agent-inbox";
 import { findAgents, OwnedSessions, type RunnableAgent } from "./owned-sessions";
+import { createAgentStatus } from "./agent-status";
 import { ownedActionSchema, ownedStartSchema } from "../shared/owned-session";
 import {
   agentMessageInputSchema,
@@ -210,6 +211,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     logDirectory: join(options.stateDir ?? temporaryState!, "sessions"),
   });
   const ownedStreams = new Set<ServerResponse>();
+  const reviewStatus = createAgentStatus({
+    owned(sessionId) {
+      const runner = ownedSessions.get(sessionId);
+      return runner && { state: runner.state(), updatedAt: ownedSessions.updatedAt(sessionId) };
+    },
+    waiting: (reviewId) => inbox.waiting(reviewId),
+    logPath: (sessionId) =>
+      join(options.stateDir ?? temporaryState!, "sessions", `${sessionId}.jsonl`),
+  });
+  const statusStreams = new Set<ServerResponse>();
 
   const watchers = new Map<string, Promise<() => Promise<void>>>();
   const watcherModes = new Map<string, boolean>();
@@ -228,6 +239,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   const sessionStreams = new Set<ServerResponse>();
   /** Session updates per server event; the browser reads events up to 4 MiB. */
   const SESSION_EVENT_BYTES = 1024 * 1024;
+  // The workspace list's states update this often.
+  const STATUS_MS = 1500;
   const activeRequests = new Map<AbortController, Set<string>>();
   let revision = 0;
   let closing = false;
@@ -576,6 +589,46 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             },
             abort.signal,
           ).catch(() => response.end());
+          return;
+        }
+        // The workspace list: each saved review's lead session, sent when it changes.
+        if (url.pathname === "/api/agent-status/events" && request.method === "GET") {
+          const ids = [
+            ...new Set(
+              (url.searchParams.get("reviews") ?? "")
+                .split(",")
+                .filter((id) => /^[A-Za-z0-9_-]{1,80}$/.test(id)),
+            ),
+          ].slice(0, 50);
+          if (statusStreams.size >= 8)
+            throw new HostError("too-many-streams", "Too many status streams are open.", 503);
+          response.writeHead(200, {
+            "content-type": "text/event-stream",
+            "cache-control": "no-store",
+            connection: "keep-alive",
+            "x-accel-buffering": "no",
+          });
+          statusStreams.add(response);
+          response.once("close", () => statusStreams.delete(response));
+          void (async () => {
+            let last = "";
+            while (!abort.signal.aborted) {
+              const statuses = await Promise.all(
+                ids.map(async (id) => {
+                  const bundle = await savedReviews.get(id).catch(() => undefined);
+                  return (
+                    bundle?.sessions && reviewStatus(id, bundle.sessions).catch(() => undefined)
+                  );
+                }),
+              );
+              const text = JSON.stringify({ statuses: statuses.filter(Boolean) });
+              if (text !== last && !abort.signal.aborted) {
+                last = text;
+                response.write(`event: state\ndata: ${text}\n\n`);
+              }
+              await new Promise((done) => setTimeout(done, STATUS_MS));
+            }
+          })();
           return;
         }
         if (url.pathname === "/api/agents" && request.method === "GET") {

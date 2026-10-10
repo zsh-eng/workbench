@@ -1,3 +1,5 @@
+import type { AgentStatus } from "../../shared/agent-status";
+import { finishedUnseen, readSeen, useAgentStatuses, writeSeen } from "../data/agent-status";
 import * as stylex from "@stylexjs/stylex";
 import { ContextMenu } from "@base-ui/react/context-menu";
 import {
@@ -77,6 +79,8 @@ interface WorkspaceActions {
 
 const Actions = createContext<WorkspaceActions | null>(null);
 const Snapshot = createContext<WorkspaceSnapshot | null>(null);
+/** The lead session's state of each saved review, by review ID. */
+const Statuses = createContext<ReadonlyMap<string, AgentStatus>>(new Map());
 const Current = createContext<string | null>(null);
 /** Disposers that run when a workspace closes or leaves memory. */
 const Lifetime = createContext<Set<() => void> | null>(null);
@@ -476,6 +480,31 @@ export function WorkspaceHost({
     return () => window.removeEventListener("keydown", keydown, true);
   }, [rememberFocus, show, store]);
 
+  // Agents' states for the saved reviews in the list. A turn that ends while
+  // its review is not shown marks the review unread, as new mail does.
+  const reviewIds = useMemo(
+    () =>
+      snapshot.workspaces.flatMap((workspace) =>
+        workspace.kind === "review" ? [workspace.reviewId] : [],
+      ),
+    [snapshot.workspaces],
+  );
+  const statuses = useAgentStatuses(reviewIds, fetcher);
+  useEffect(() => {
+    if (!statuses.size) return;
+    const reviews = snapshot.workspaces.flatMap((workspace) =>
+      workspace.kind === "review"
+        ? [{ reviewId: workspace.reviewId, active: workspace.id === snapshot.active }]
+        : [],
+    );
+    const { seen, finished } = finishedUnseen(statuses, reviews, readSeen());
+    writeSeen(seen);
+    for (const reviewId of finished) {
+      const workspace = store.match({ kind: "review", reviewId });
+      if (workspace) store.setUnread(workspace, true);
+    }
+  }, [statuses, snapshot.workspaces, snapshot.active, store]);
+
   // One workspace list serves every workspace, as a browser's tab strip does:
   // a copy in each sidebar showed again on each switch, so it replayed its
   // entrance and lost its hover state.
@@ -508,21 +537,23 @@ export function WorkspaceHost({
   return (
     <Actions value={actions}>
       <Snapshot value={snapshot}>
-        <ListSlot value={claimList}>{children}</ListSlot>
-        {createPortal(<WorkspaceRows onNew={owner?.onNew} />, list)}
-        {switcher && (
-          <WorkspaceSwitcher
-            snapshot={snapshot}
-            held={switcher.held}
-            controlHeld={controlHeld}
-            reverse={switcher.reverse}
-            onChoose={(id) => {
-              setSwitcher(null);
-              show(id);
-            }}
-            onCancel={() => setSwitcher(null)}
-          />
-        )}
+        <Statuses value={statuses}>
+          <ListSlot value={claimList}>{children}</ListSlot>
+          {createPortal(<WorkspaceRows onNew={owner?.onNew} />, list)}
+          {switcher && (
+            <WorkspaceSwitcher
+              snapshot={snapshot}
+              held={switcher.held}
+              controlHeld={controlHeld}
+              reverse={switcher.reverse}
+              onChoose={(id) => {
+                setSwitcher(null);
+                show(id);
+              }}
+              onCancel={() => setSwitcher(null)}
+            />
+          )}
+        </Statuses>
       </Snapshot>
     </Actions>
   );
@@ -803,6 +834,23 @@ function useEntrance<T extends HTMLElement>(
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 }
+const agentLabel = (status: AgentStatus) =>
+  status.agent === "claude"
+    ? "Claude"
+    : status.agent === "codex"
+      ? "Codex"
+      : (status.name ?? "The agent");
+
+/** A small turning arc while the review's agent works. */
+function WorkingMark({ label, hides }: { label: string; hides: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      title={label}
+      {...stylex.props(styles.working, hides && styles.detailHides)}
+    />
+  );
+}
 function UnreadDot({ hides }: { hides: boolean }) {
   const dot = useRef<HTMLSpanElement>(null);
   useEntrance(
@@ -842,6 +890,7 @@ function WorkspaceNav({ children }: { children: ReactNode }) {
 function WorkspaceRows({ onNew }: { onNew?(): void }) {
   const snapshot = use(Snapshot);
   const actions = use(Actions);
+  const statuses = use(Statuses);
   // The row whose resume command was just copied says so for a moment.
   const [copied, setCopied] = useState<string | null>(null);
   const copiedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -872,6 +921,8 @@ function WorkspaceRows({ onNew }: { onNew?(): void }) {
           const label = labelFor(workspace);
           const repository = qualifier(workspace);
           const closable = !pinned(workspace);
+          const status = workspace.kind === "review" ? statuses.get(workspace.reviewId) : undefined;
+          const agentState = status && status.state !== "idle" ? status.state : undefined;
           return (
             <WorkspaceMenu
               key={workspace.id}
@@ -909,6 +960,11 @@ function WorkspaceRows({ onNew }: { onNew?(): void }) {
                 <span {...stylex.props(styles.name, workspace.unread && styles.unreadName)}>
                   {repository && <span {...stylex.props(styles.repository)}>{repository} / </span>}
                   {label}
+                  {agentState && (
+                    <span {...stylex.props(styles.hidden)}>
+                      , {agentState === "waiting" ? "needs you" : "working"}
+                    </span>
+                  )}
                   {workspace.unread && <span {...stylex.props(styles.hidden)}>, new</span>}
                 </span>
                 {copied === workspace.id ? (
@@ -918,6 +974,20 @@ function WorkspaceRows({ onNew }: { onNew?(): void }) {
                   >
                     Copied
                   </span>
+                ) : agentState === "waiting" ? (
+                  <span
+                    aria-hidden="true"
+                    title={`${agentLabel(status!)} needs you`}
+                    {...stylex.props(
+                      styles.detail,
+                      styles.needsYou,
+                      closable && styles.detailHides,
+                    )}
+                  >
+                    Needs you
+                  </span>
+                ) : agentState === "working" ? (
+                  <WorkingMark label={`${agentLabel(status!)} is working`} hides={closable} />
                 ) : workspace.unread ? (
                   <UnreadDot hides={closable} />
                 ) : (
@@ -946,6 +1016,63 @@ function WorkspaceRows({ onNew }: { onNew?(): void }) {
         })}
       </ul>
     </WorkspaceNav>
+  );
+}
+
+/** The workspace list on fixed workspaces and agent states, for the Elements
+ * page. A click shows a row as read, as in the app. */
+export function WorkspaceListPreview({
+  workspaces,
+  statuses,
+}: {
+  workspaces: Workspace[];
+  statuses: AgentStatus[];
+}) {
+  const [snapshot, setSnapshot] = useState<WorkspaceSnapshot>(() => ({
+    workspaces,
+    active: workspaces[0]!.id,
+    recent: workspaces.map((workspace) => workspace.id),
+  }));
+  const actions = useMemo<WorkspaceActions>(() => {
+    const mark = (id: string, unread: boolean) =>
+      setSnapshot((current) => ({
+        ...current,
+        workspaces: current.workspaces.map((workspace) =>
+          workspace.id === id
+            ? ({ ...workspace, unread: unread || undefined } as Workspace)
+            : workspace,
+        ),
+      }));
+    return {
+      activate(id) {
+        mark(id, false);
+        setSnapshot((current) => ({ ...current, active: id }));
+      },
+      setUnread: mark,
+      close() {},
+      open() {},
+      match: () => undefined,
+      closeRepository() {},
+      update() {},
+      openSwitcher() {},
+      subscribe: () => () => {},
+      getSnapshot: () => snapshot,
+    };
+    // The preview's actions read the snapshot only through state updates.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const byReview = useMemo(
+    () => new Map(statuses.map((status) => [status.reviewId, status])),
+    [statuses],
+  );
+  return (
+    <Actions value={actions}>
+      <Snapshot value={snapshot}>
+        <Statuses value={byReview}>
+          <WorkspaceRows />
+        </Statuses>
+      </Snapshot>
+    </Actions>
   );
 }
 
@@ -1062,6 +1189,7 @@ function WorkspaceSwitcher({
   onChoose(id: string): void;
   onCancel(): void;
 }) {
+  const statuses = use(Statuses);
   const ordered = orderedWorkspaces(snapshot);
   const rows = snapshot.recent.flatMap((id) => ordered.find((entry) => entry.id === id) ?? []);
   const [index, setIndex] = useState(() =>
@@ -1150,9 +1278,19 @@ function WorkspaceSwitcher({
                   {repository && <span {...stylex.props(styles.repository)}>{repository} / </span>}
                   {labelFor(workspace)}
                 </span>
-                {workspace.unread && (
-                  <span aria-hidden="true" {...stylex.props(styles.dot, styles.dotArrives)} />
-                )}
+                {(() => {
+                  const status =
+                    workspace.kind === "review" ? statuses.get(workspace.reviewId) : undefined;
+                  if (status?.state === "waiting")
+                    return <span {...stylex.props(styles.detail, styles.needsYou)}>Needs you</span>;
+                  if (status?.state === "working")
+                    return <WorkingMark label={`${agentLabel(status)} is working`} hides={false} />;
+                  return (
+                    workspace.unread && (
+                      <span aria-hidden="true" {...stylex.props(styles.dot, styles.dotArrives)} />
+                    )
+                  );
+                })()}
                 {workspace.id === snapshot.active && (
                   <span {...stylex.props(styles.here)}>Current</span>
                 )}
@@ -1166,6 +1304,7 @@ function WorkspaceSwitcher({
   );
 }
 
+const turn = stylex.keyframes({ to: { transform: "rotate(360deg)" } });
 const appear = stylex.keyframes({
   from: { opacity: 0, transform: "translateY(-4px) scale(0.985)" },
   to: { opacity: 1, transform: "none" },
@@ -1282,6 +1421,23 @@ const styles = stylex.create({
     marginInline: 3,
     borderRadius: "50%",
     backgroundColor: tokens.accent,
+  },
+  needsYou: { color: tokens.accent, fontWeight: 500 },
+  working: {
+    flexShrink: 0,
+    boxSizing: "border-box",
+    width: 10,
+    height: 10,
+    marginInline: 1,
+    borderRadius: "50%",
+    borderWidth: 1.5,
+    borderStyle: "solid",
+    borderColor: tokens.lineStrong,
+    borderTopColor: tokens.muted,
+    animationName: { default: turn, [reduced]: "none" },
+    animationDuration: "900ms",
+    animationTimingFunction: "linear",
+    animationIterationCount: "infinite",
   },
   dotArrives: {
     animationName: { default: arrive, [reduced]: "none" },

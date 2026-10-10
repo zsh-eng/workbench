@@ -5,6 +5,7 @@ import { App } from "../../src/web/App";
 import { WorkspaceHost, WorkspaceViews } from "../../src/web/components/Workspaces";
 import { createBrowseApi } from "../../src/web/data/browse";
 import type { Comparison } from "../../src/shared/protocol";
+import type { AgentStatus } from "../../src/shared/agent-status";
 import { initializeTheme, themeController } from "../../src/web/themes";
 
 const head = "a".repeat(40);
@@ -46,6 +47,7 @@ beforeEach(() => {
   localStorage.removeItem(STORAGE_KEY);
   localStorage.removeItem(WINDOW_KEY);
   localStorage.removeItem("med:zen");
+  localStorage.removeItem("med:agent-seen");
 });
 afterEach(() => {
   root?.unmount();
@@ -117,6 +119,17 @@ function createHost() {
     const chunk = new TextEncoder().encode(`event: review\ndata: ${JSON.stringify(data)}\n\n`);
     for (const window of windows) window.enqueue(chunk);
   };
+  // The lead session states that the host sends for the listed reviews.
+  let agentStatuses: AgentStatus[] = [];
+  const statusStreams = new Set<ReadableStreamDefaultController<Uint8Array>>();
+  const statusFrame = () =>
+    new TextEncoder().encode(
+      `event: state\ndata: ${JSON.stringify({ statuses: agentStatuses })}\n\n`,
+    );
+  const setStatuses = (statuses: AgentStatus[]) => {
+    agentStatuses = statuses;
+    for (const stream of statusStreams) stream.enqueue(statusFrame());
+  };
   const fetcher: typeof fetch = async (input, init) => {
     const url = new URL(String(input), "http://localhost");
     const repo = url.searchParams.get("repo") || "/test/repo";
@@ -180,6 +193,19 @@ function createHost() {
         });
         return new Response(body, { headers: { "content-type": "text/event-stream" } });
       }
+      case "/api/agent-status/events": {
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            statusStreams.add(controller);
+            controller.enqueue(statusFrame());
+            init?.signal?.addEventListener("abort", () => {
+              statusStreams.delete(controller);
+              controller.error(new DOMException("Aborted", "AbortError"));
+            });
+          },
+        });
+        return new Response(body, { headers: { "content-type": "text/event-stream" } });
+      }
       case "/api/windows": {
         const body = new ReadableStream<Uint8Array>({
           start(controller) {
@@ -212,7 +238,7 @@ function createHost() {
     }
     throw new Error(`Unexpected request: ${url.pathname}`);
   };
-  return { fetcher, sessions, streams, windows, announce };
+  return { fetcher, sessions, streams, windows, announce, setStatuses };
 }
 
 function render(host: ReturnType<typeof createHost>) {
@@ -379,4 +405,42 @@ test("a workspace's menu copies its agent's resume command and marks it unread",
   await page.getByRole("menuitem", { name: "Mark as unread" }).click();
   await expect.poll(() => rowLabels()[2]).toBe("Agent review, new");
   copy.mockRestore();
+});
+
+test("rows show what each review's agent does, and a turn that ends unseen marks it unread", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  await expect.poll(() => host.windows.size).toBe(1);
+  host.announce({ id: "agent", open: false, sessions: [{ agent: "claude", id: "s1", cwd: "/w" }] });
+  host.announce({ id: "second", open: false });
+  const agentRow = page.getByRole("button", { name: /^Agent review/ });
+  const secondRow = page.getByRole("button", { name: /^Second review/ });
+  await expect.element(secondRow).toBeVisible();
+  for (const row of [agentRow, secondRow]) {
+    await row.click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Mark as read" }).click();
+  }
+
+  const status = (reviewId: string, state: AgentStatus["state"], updatedAt: number) =>
+    ({ reviewId, sessionId: `${reviewId}-s`, agent: "claude", state, updatedAt }) as const;
+  host.setStatuses([status("agent", "working", 1000), status("second", "waiting", 1000)]);
+  await expect
+    .poll(() => rowLabels().slice(2))
+    .toEqual(["Agent review, working", "Second review, needs you Needs you"]);
+  await expect.element(page.getByTitle("Claude is working")).toBeVisible();
+  await expect.element(page.getByText("Needs you", { exact: true })).toBeVisible();
+
+  // The turn ends while another workspace is on screen: the review is new again.
+  host.setStatuses([status("agent", "idle", 2000), status("second", "waiting", 1000)]);
+  await expect.poll(() => rowLabels()[2]).toBe("Agent review, new");
+  // Seen once, the same turn does not mark it again.
+  await agentRow.click();
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("agent-target");
+  await page.getByRole("button", { name: /^main/ }).click();
+  await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
+  host.setStatuses([status("agent", "idle", 2000), status("second", "idle", 1000)]);
+  // Read rows show their changed-file count again.
+  await expect.poll(() => rowLabels()[3]).toMatch(/^Second review( \d+)?$/);
+  expect(rowLabels()[2]).toMatch(/^Agent review( \d+)?$/);
 });

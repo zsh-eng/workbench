@@ -878,6 +878,7 @@ export async function findAgents(stateDir?: string, home = userHome()): Promise<
 /** The sessions that this Med host started, by session ID. */
 export class OwnedSessions {
   private runners = new Map<string, OwnedRunner>();
+  private updated = new Map<string, number>();
   constructor(
     private options: {
       agents: () => Promise<RunnableAgent[]>;
@@ -901,11 +902,19 @@ export class OwnedSessions {
       agent.kind === "claude"
         ? startClaude(agent, cwd)
         : startAcp(agent, cwd, this.options.logDirectory);
-    this.runners.set(runner.session.id, runner);
+    const id = runner.session.id;
+    this.runners.set(id, runner);
+    this.updated.set(id, Date.now());
+    runner.subscribe(() => this.updated.set(id, Date.now()));
+    runner.log?.subscribe(() => this.updated.set(id, Date.now()));
     return runner;
   }
   get(sessionId: string) {
     return this.runners.get(sessionId);
+  }
+  /** When the session's state or updates last changed. */
+  updatedAt(sessionId: string) {
+    return this.updated.get(sessionId);
   }
   /** An ACP session's updates, from its runner or from its log file. */
   async events(sessionId: string): Promise<SessionEvent[]> {

@@ -2,7 +2,10 @@ import * as stylex from "@stylexjs/stylex";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { AgentPreset, OwnedState } from "../../../shared/owned-session";
 import type { AgentInbox } from "../../data/agent-inbox";
+import type { AgentStatus } from "../../../shared/agent-status";
+import type { Workspace } from "../../data/workspaces";
 import { tokens } from "../../theme.stylex";
+import { WorkspaceListPreview } from "../Workspaces";
 import { PermissionCard, SessionComposer } from "../session/SessionComposer";
 import { SessionPanel, SessionStart } from "../session/SessionPanel";
 import { createDemoAgent, demoAgents } from "./owned-fixture";
@@ -76,6 +79,47 @@ const settings = (status: OwnedState["status"]): OwnedState => ({
   turns: 3,
 });
 
+const LIST: Workspace[] = [
+  { id: "w1", kind: "repository", home: true, branch: "main", title: "main", detail: "3" },
+  {
+    id: "w2",
+    kind: "review",
+    reviewId: "r1",
+    title: "Weeks in relative times",
+    sessions: [{ agent: "claude", id: "s1", cwd: "/work/trail-notes" }],
+  },
+  { id: "w3", kind: "review", reviewId: "r2", title: "Durations in the export" },
+  {
+    id: "w4",
+    kind: "review",
+    reviewId: "r3",
+    title: "Club summary layout",
+    unread: true,
+    sessions: [{ agent: "codex", id: "s3", cwd: "/work/trail-notes" }],
+  },
+  {
+    id: "w5",
+    kind: "review",
+    reviewId: "r4",
+    title: "Theme tokens",
+    detail: "5",
+    sessions: [{ agent: "claude", id: "s4", cwd: "/work/trail-notes" }],
+  },
+];
+const STATUSES: AgentStatus[] = [
+  { reviewId: "r1", sessionId: "s1", agent: "claude", state: "working", updatedAt: 3 },
+  {
+    reviewId: "r2",
+    sessionId: "s2",
+    agent: "acp",
+    name: "OpenCode",
+    state: "waiting",
+    updatedAt: 2,
+  },
+  { reviewId: "r3", sessionId: "s3", agent: "codex", state: "idle", updatedAt: 2 },
+  { reviewId: "r4", sessionId: "s4", agent: "claude", state: "idle", updatedAt: 1 },
+];
+
 /** One composer state, without an agent behind it. */
 function Still({ state }: { state: OwnedState }) {
   return (
@@ -139,6 +183,16 @@ export function AgentsSection() {
           <SessionStart starter={starter} repo="/work/trail-notes" />
         </div>
       </Specimen>
+      <Specimen
+        title="Workspace list"
+        note="Each saved review shows its lead session: working, Needs you, or new when a turn ended while you looked elsewhere. Read rows show their changed files."
+        span="half"
+        padded={false}
+      >
+        <div {...stylex.props(styles.sidebar)}>
+          <WorkspaceListPreview workspaces={LIST} statuses={STATUSES} />
+        </div>
+      </Specimen>
       <Specimen title="Permission requests" note="Claude Code, then an ACP agent." span="half">
         <div {...stylex.props(styles.stack)}>
           <PermissionCard
@@ -191,6 +245,7 @@ const styles = stylex.create({
     backgroundColor: tokens.canvas,
   },
   short: { height: 360 },
+  sidebar: { width: 280, paddingBlock: 8, backgroundColor: tokens.panel },
   stack: { display: "flex", flexDirection: "column", gap: 8, marginInline: -12 },
   row: {
     display: "grid",
