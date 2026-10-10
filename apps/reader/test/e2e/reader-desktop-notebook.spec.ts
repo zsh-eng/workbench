@@ -19,7 +19,7 @@ test("desktop composer keeps the send button outside single and multiline fields
     name: "Reader tools",
     exact: true,
   });
-  await tools.getByRole("button", { name: "Notes", exact: true }).click();
+  await tools.getByRole("button", { name: "Notebook", exact: true }).click();
   const panel = tools.getByRole("region", { name: "Book notebook" });
   await expect(panel).toHaveCSS("transform", "none");
   await expect(panel).toHaveCSS("opacity", "1");
@@ -60,7 +60,7 @@ test("desktop composer keeps the send button outside single and multiline fields
   await expect(send).toHaveCSS("opacity", "0");
   expect((await field.boundingBox())!.width).toBe(emptyBounds.width);
   await tools.getByRole("button", { name: "Contents", exact: true }).click();
-  await tools.getByRole("button", { name: "Notes", exact: true }).click();
+  await tools.getByRole("button", { name: "Notebook", exact: true }).click();
   expect(await panel.evaluate((node) => node.getAnimations().length)).toBe(0);
 });
 
@@ -77,7 +77,7 @@ test("desktop notes edit in place with stable rows and keep compose and edit dra
     name: "Reader tools",
     exact: true,
   });
-  await tools.getByRole("button", { name: "Notes", exact: true }).click();
+  await tools.getByRole("button", { name: "Notebook", exact: true }).click();
   const compose = tools.getByRole("textbox", {
     name: "Write a note",
     exact: true,
@@ -186,7 +186,7 @@ test("desktop notes edit in place with stable rows and keep compose and edit dra
   await first.locator("p").dblclick();
   await editor.fill("Saved when I change panels.");
   await tools.getByRole("button", { name: "Contents", exact: true }).click();
-  await tools.getByRole("button", { name: "Notes", exact: true }).click();
+  await tools.getByRole("button", { name: "Notebook", exact: true }).click();
   await expect(compose).toHaveValue("An unsent thought.");
   await expect(editor).toHaveCount(0);
   await first.locator("p").dblclick();
@@ -233,7 +233,7 @@ test("desktop deletion undo follows deletion order and leaves text undo to the e
     name: "Reader tools",
     exact: true,
   });
-  await tools.getByRole("button", { name: "Notes", exact: true }).click();
+  await tools.getByRole("button", { name: "Notebook", exact: true }).click();
   const panel = tools.getByRole("region", { name: "Book notebook" });
   const compose = tools.getByRole("textbox", {
     name: "Write a note",

@@ -29,7 +29,7 @@ for (const reducedMotion of [false, true]) {
     await expect(dialog).toHaveCount(1);
     await expect(
       dialog.getByRole("button", { name: "Highlights", exact: true }),
-    ).toBeDisabled();
+    ).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath("Reader tools.png") });
     const shell = await dialog.elementHandle();
     const height = await dialog.evaluate(
@@ -37,7 +37,7 @@ for (const reducedMotion of [false, true]) {
     );
     for (const [button, title] of [
       ["Themes & settings", "Reading settings"],
-      ["Notes", "Notebook"],
+      ["Notebook", "Notebook"],
       [/Book status/, "Reading status"],
       [/Contents/, "Contents"],
     ] as const) {
@@ -72,13 +72,13 @@ for (const reducedMotion of [false, true]) {
         .getByRole("button", { name: "Back to reader tools" })
         .click();
       await expect(
-        dialog.getByRole("button", { name: "Notes", exact: true }),
+        dialog.getByRole("button", { name: "Notebook", exact: true }),
       ).toBeVisible();
     }
     // Reverse before the page slide completes; outgoing pages must not keep focus.
     await dialog.getByRole("button", { name: "Themes & settings" }).click();
     await dialog.getByRole("button", { name: "Back to reader tools" }).click();
-    await dialog.getByRole("button", { name: "Notes", exact: true }).click();
+    await dialog.getByRole("button", { name: "Notebook", exact: true }).click();
     await expect(
       dialog.getByText("Sheet navigation note", { exact: true }),
     ).toBeVisible();
@@ -108,7 +108,7 @@ for (const reducedMotion of [false, true]) {
       .getByRole("button", { name: "Open reader tools", exact: true })
       .click();
     await expect(
-      dialog.getByRole("button", { name: "Notes", exact: true }),
+      dialog.getByRole("button", { name: "Notebook", exact: true }),
     ).toBeVisible();
   });
 }

@@ -8,7 +8,6 @@ import {
   NotebookPen,
   Search,
   Palette,
-  Highlighter,
   type LucideIcon,
 } from "lucide-react";
 import { motion } from "motion/react";
@@ -134,7 +133,7 @@ export function ReaderControlMenu({
           );
         })}
       </div>
-      <div className="mt-3 grid grid-cols-3 overflow-hidden rounded-[1.25rem] border border-border/60 bg-secondary/20">
+      <div className="mt-3 grid grid-cols-2 overflow-hidden rounded-[1.25rem] border border-border/60 bg-secondary/20">
         <SheetUtilityButton
           label="Theme"
           accessibleLabel="Themes & settings"
@@ -143,19 +142,12 @@ export function ReaderControlMenu({
           <Palette className="size-5" aria-hidden="true" />
         </SheetUtilityButton>
         <SheetUtilityButton
-          label="Notes"
+          label="Notebook"
           onClick={onOpenNotes}
           disabled={!onOpenNotes}
           className="border-l border-border/60"
         >
           <NotebookPen className="size-5" aria-hidden="true" />
-        </SheetUtilityButton>
-        <SheetUtilityButton
-          label="Highlights"
-          disabled
-          className="border-l border-border/60"
-        >
-          <Highlighter className="size-5" aria-hidden="true" />
         </SheetUtilityButton>
       </div>
     </div>

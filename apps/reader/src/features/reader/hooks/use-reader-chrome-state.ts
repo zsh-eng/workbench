@@ -3,21 +3,22 @@ import { useCallback, useMemo, useState } from "react";
 import type { ReaderSheetId } from "../types";
 
 const SIDEBAR_TAB_KEY = "epub-reader-sidebar-tab";
-type SidebarTab = "contents" | "search" | "settings" | "notes" | "highlights";
+type SidebarTab = "contents" | "search" | "settings" | "notes";
 
 function isSidebarTab(value: string | null): value is SidebarTab {
   return (
     value === "contents" ||
     value === "search" ||
     value === "settings" ||
-    value === "notes" ||
-    value === "highlights"
+    value === "notes"
   );
 }
 
 function readSidebarTab(): SidebarTab {
   try {
     const value = getRuntimeStorage().getItem(SIDEBAR_TAB_KEY);
+    // The Highlights tab joined the notebook.
+    if (value === "highlights") return "notes";
     return isSidebarTab(value) ? value : "contents";
   } catch {
     return "contents";
@@ -82,12 +83,9 @@ export function useReaderChromeState(
   const state = useMemo<ReaderChromeState>(
     () => ({
       isBookmarked,
-      activeReaderSheet:
-        isMobile && activeReaderSheet === "highlights"
-          ? "tools"
-          : activeReaderSheet,
+      activeReaderSheet,
     }),
-    [activeReaderSheet, isBookmarked, isMobile],
+    [activeReaderSheet, isBookmarked],
   );
 
   const actions = useMemo<ReaderChromeActions>(

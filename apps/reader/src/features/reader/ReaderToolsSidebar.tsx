@@ -8,7 +8,6 @@ import {
   PanelRight,
   ClipboardCopy,
   NotebookPen,
-  Highlighter,
   List,
   Search,
   Palette,
@@ -19,12 +18,7 @@ import { ReaderSettingsList } from "./ReaderSettingsSheet";
 import type { ChapterEntry, ReaderSheetId } from "./types";
 import { MOTION_MS } from "@/lib/motion";
 
-type ReaderSidebarPanel =
-  | "contents"
-  | "search"
-  | "settings"
-  | "notes"
-  | "highlights";
+type ReaderSidebarPanel = "contents" | "search" | "settings" | "notes";
 
 interface ReaderToolsSidebarProps {
   activeSheet: ReaderSheetId | null;
@@ -38,7 +32,6 @@ interface ReaderToolsSidebarProps {
   currentChapterHref: string;
   onNavigateToHref: (href: string) => boolean;
   notesPanel?: ReactNode;
-  highlightsPanel?: ReactNode;
   onCopyDebugDump?: () => void;
 }
 
@@ -50,14 +43,12 @@ const SIDEBAR_TOOLS: {
   { id: "contents", label: "Contents", icon: List },
   { id: "search", label: "Search book", icon: Search },
   { id: "settings", label: "Reading appearance", icon: Palette },
-  { id: "highlights", label: "Highlights", icon: Highlighter },
-  { id: "notes", label: "Notes", icon: NotebookPen },
+  { id: "notes", label: "Notebook", icon: NotebookPen },
 ];
 
 function resolveActivePanel(
   activeSheet: ReaderSheetId | null,
 ): ReaderSidebarPanel {
-  if (activeSheet === "highlights") return "highlights";
   if (activeSheet === "notes") return "notes";
   if (activeSheet === "search") return "search";
   if (activeSheet === "settings") return "settings";
@@ -83,7 +74,6 @@ export function ReaderToolsSidebar({
   onNavigateToHref,
   onCopyDebugDump,
   notesPanel,
-  highlightsPanel,
 }: ReaderToolsSidebarProps) {
   // Closing changes visibility, not the content shown during the exit.
   const [retainedPanel, setRetainedPanel] = useState(() =>
@@ -220,7 +210,6 @@ export function ReaderToolsSidebar({
 
           <div className="min-h-0 flex-1 overflow-hidden">
             {activePanel === "notes" && notesPanel}
-            {activePanel === "highlights" && highlightsPanel}
             {activePanel === "contents" && (
               <ReaderContentsPanel
                 isOpen={isOpen}

@@ -19,7 +19,6 @@ import { ReaderNotesPrototype } from "./ReaderNotesPrototype";
 import { ReaderController } from "./ReaderController";
 import { ReaderHeader } from "./ReaderHeader";
 import { useSidebar } from "@/components/ui/sidebar";
-import { ReaderHighlightsPanel } from "./ReaderHighlightsPanel";
 import { ReaderSheetHost } from "./ReaderSheetHost";
 import { ReaderStateScreen } from "./ReaderStateScreen";
 import { SpreadStage } from "./SpreadStage";
@@ -740,15 +739,6 @@ export function Reader() {
                         currentChapterHref={currentChapterEntry?.href ?? ""}
                         onNavigateToHref={sessionActions.openTocHref}
                         notesPanel={notesPanel}
-                        highlightsPanel={
-                          !isMobile && (
-                            <ReaderHighlightsPanel
-                              highlights={sessionState.highlights}
-                              chapters={sessionState.chapters.entries}
-                              onSelect={sessionActions.goToHighlight}
-                            />
-                          )
-                        }
                         onCopyDebugDump={
                           debugEnabled
                             ? () => void handleCopyDebugDump()

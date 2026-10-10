@@ -208,7 +208,7 @@ test("captures thoughts over a stable book and browses both notebook orders", as
   await page
     .getByRole("button", { name: "Open reader tools", exact: true })
     .click();
-  await page.getByRole("button", { name: /Notes/ }).click();
+  await page.getByRole("button", { name: "Notebook", exact: true }).click();
   await expect(
     page.getByRole("region", { name: "Book notebook" }),
   ).toContainText("A thought from the notebook.");
@@ -260,7 +260,7 @@ test.describe("Desktop margin notes", () => {
       name: "Reader tools",
       exact: true,
     });
-    await tools.getByRole("button", { name: "Notes", exact: true }).click();
+    await tools.getByRole("button", { name: "Notebook", exact: true }).click();
     const noteInput = tools.getByRole("textbox", { name: "Write a note" });
     await expect(noteInput).toBeFocused();
     await expect(
@@ -342,7 +342,7 @@ test.describe("Desktop margin notes", () => {
       "false",
     );
     await expect(
-      closingSidebar.locator('button[aria-label="Notes"]'),
+      closingSidebar.locator('button[aria-label="Notebook"]'),
     ).toHaveAttribute("aria-pressed", "true");
     await expect(
       closingSidebar.locator('[aria-label="Book notebook"]'),
@@ -356,7 +356,7 @@ test.describe("Desktop margin notes", () => {
       .getByRole("button", { name: "Open reader tools", exact: true })
       .click();
     await expect(
-      tools.getByRole("button", { name: "Notes", exact: true }),
+      tools.getByRole("button", { name: "Notebook", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
     await expect(noteInput).toBeFocused();
     await page.reload();
@@ -366,7 +366,7 @@ test.describe("Desktop margin notes", () => {
       .getByRole("button", { name: "Open reader tools", exact: true })
       .click();
     await expect(
-      tools.getByRole("button", { name: "Notes", exact: true }),
+      tools.getByRole("button", { name: "Notebook", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
     await expect(noteInput).toBeFocused();
     await expect(noteInput).toHaveValue("Keep this desktop draft.");
@@ -519,9 +519,9 @@ test.describe("Desktop margin notes", () => {
       name: "Reader tools",
       exact: true,
     });
-    await tools.getByRole("button", { name: "Notes", exact: true }).click();
+    await tools.getByRole("button", { name: "Notebook", exact: true }).click();
     await expect(
-      tools.getByRole("button", { name: "Notes", exact: true }),
+      tools.getByRole("button", { name: "Notebook", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
     const notebook = tools.getByRole("region", { name: "Book notebook" });
     await tools
@@ -541,7 +541,7 @@ test.describe("Desktop margin notes", () => {
     ).toHaveCount(0);
     await tools.getByRole("button", { name: "Contents", exact: true }).click();
     await expect(notebook).not.toBeVisible();
-    await tools.getByRole("button", { name: "Notes", exact: true }).click();
+    await tools.getByRole("button", { name: "Notebook", exact: true }).click();
     await expect(notebook).toContainText("A thought from the margin");
     await expect(
       tools.getByRole("button", { name: "Open notebook", exact: true }),
@@ -665,7 +665,7 @@ test.describe("Highlight note capture", () => {
     await page
       .getByRole("button", { name: "Open reader tools", exact: true })
       .click();
-    await page.getByRole("button", { name: "Notes", exact: true }).click();
+    await page.getByRole("button", { name: "Notebook", exact: true }).click();
     await expect(
       page.getByRole("region", { name: "Book notebook" }).locator("blockquote"),
     ).toHaveText(quotedText!);

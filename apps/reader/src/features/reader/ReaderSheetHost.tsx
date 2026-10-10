@@ -26,7 +26,6 @@ interface ReaderSheetHostProps {
   currentChapterHref: string;
   onNavigateToHref: (href: string) => boolean;
   notesPanel?: ReactNode;
-  highlightsPanel?: ReactNode;
   onCopyDebugDump?: () => void;
 }
 
@@ -51,7 +50,6 @@ export function ReaderSheetHost({
   onNavigateToHref,
   onCopyDebugDump,
   notesPanel,
-  highlightsPanel,
 }: ReaderSheetHostProps) {
   const [settingsTab, setSettingsTab] =
     useState<ReaderSettingsPanelTab>("theme");
@@ -69,7 +67,6 @@ export function ReaderSheetHost({
         currentChapterHref={currentChapterHref}
         onNavigateToHref={onNavigateToHref}
         notesPanel={notesPanel}
-        highlightsPanel={highlightsPanel}
         onCopyDebugDump={onCopyDebugDump}
       />
     );
