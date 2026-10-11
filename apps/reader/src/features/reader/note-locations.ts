@@ -7,7 +7,14 @@ import {
   type PreparedBlock,
   type ResolvedSpread,
   type PaginationConfig,
+  type TextCursorOffset,
 } from "@/lib/pagination-v2";
+import {
+  CONTENT_ANCHOR_BLOCK_ID_ATTR,
+  CONTENT_ANCHOR_END_ATTR,
+  CONTENT_ANCHOR_START_ATTR,
+  parseTextCursorOffset,
+} from "@/lib/pagination-v2/content-anchor-dom";
 import {
   canonicalOffsetToContentAnchor,
   resolveTextAnchorToCanonicalOffset,
@@ -179,25 +186,51 @@ export function marginPlacement(margin: number): {
   };
 }
 
-/** Match the visible fragment containing the note, not a hidden neighbouring spread. */
-export function noteMarginTop(anchor: ContentAnchor | null): number {
-  if (!anchor) return 112;
-  const fragments = document.querySelectorAll<HTMLElement>(
-    `[data-reader-spread-layer="current"] [data-content-anchor-block-id="${CSS.escape(anchor.blockId)}"]`,
+/** The margin top for a note whose passage is not on the current spread. */
+export const MARGIN_NOTE_FALLBACK_TOP = 112;
+
+function compareCursors(a: TextCursorOffset, b: TextCursorOffset): number {
+  return (
+    a.itemIndex - b.itemIndex ||
+    a.segmentIndex - b.segmentIndex ||
+    a.graphemeIndex - b.graphemeIndex
   );
-  const compare = (a: number[], b: number[]) =>
-    a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
-  for (const fragment of fragments) {
-    if (anchor.type === "block") return fragment.getBoundingClientRect().top;
-    const start = fragment.dataset.contentAnchorStart?.split(":").map(Number);
-    const end = fragment.dataset.contentAnchorEnd?.split(":").map(Number);
-    const offset = [
-      anchor.offset.itemIndex,
-      anchor.offset.segmentIndex,
-      anchor.offset.graphemeIndex,
-    ];
-    if (start && end && compare(start, offset) <= 0 && compare(offset, end) < 0)
+}
+
+/**
+ * The viewport top of a note's passage, for its margin note. A page marks the
+ * block id on each slice and the text offsets on the fragments inside it. A
+ * block that crosses pages has a slice on each page. Only the current spread
+ * layer counts, not the hidden neighbouring spreads. During a page turn, that
+ * layer also holds the outgoing spread.
+ */
+export function noteMarginTop(anchor: ContentAnchor | null): number {
+  if (!anchor) return MARGIN_NOTE_FALLBACK_TOP;
+  const slices = `[data-reader-spread-layer="current"] [${CONTENT_ANCHOR_BLOCK_ID_ATTR}="${CSS.escape(anchor.blockId)}"]`;
+  if (anchor.type === "block")
+    return (
+      document.querySelector(slices)?.getBoundingClientRect().top ??
+      MARGIN_NOTE_FALLBACK_TOP
+    );
+  // Use the fragment that contains the offset. An offset between fragments,
+  // such as a space at a line end, takes the nearest fragment before it.
+  let preceding: { fragment: Element; start: TextCursorOffset } | null = null;
+  for (const fragment of document.querySelectorAll(
+    `${slices} [${CONTENT_ANCHOR_START_ATTR}]`,
+  )) {
+    const start = parseTextCursorOffset(
+      fragment.getAttribute(CONTENT_ANCHOR_START_ATTR),
+    );
+    const end = parseTextCursorOffset(
+      fragment.getAttribute(CONTENT_ANCHOR_END_ATTR),
+    );
+    if (!start || !end || compareCursors(start, anchor.offset) > 0) continue;
+    if (compareCursors(anchor.offset, end) < 0)
       return fragment.getBoundingClientRect().top;
+    if (!preceding || compareCursors(start, preceding.start) > 0)
+      preceding = { fragment, start };
   }
-  return 112;
+  return (
+    preceding?.fragment.getBoundingClientRect().top ?? MARGIN_NOTE_FALLBACK_TOP
+  );
 }

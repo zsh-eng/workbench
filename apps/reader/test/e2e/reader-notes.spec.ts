@@ -244,10 +244,11 @@ test("captures thoughts over a stable book and browses both notebook orders", as
 
 /** Selects a short passage on the current spread and asks for a note on it.
  * "line" starts inside the first long line of the spread. "page-start" starts
- * at the first character of the spread's first page. */
+ * at the first character of the spread's first page. "lower" starts in the
+ * lower half of the window. Returns the passage's viewport top. */
 async function openSelectionNote(
   page: Page,
-  start: "line" | "page-start" = "line",
+  start: "line" | "page-start" | "lower" = "line",
 ) {
   const selected = await page.evaluate((start) => {
     const spread = document.querySelector(
@@ -257,14 +258,20 @@ async function openSelectionNote(
       start === "page-start"
         ? spread.querySelector("[data-reader-page-content]")!
         : spread;
+    const usable = (node: Node) => {
+      const length = node.textContent?.trim().length ?? 0;
+      if (start === "line") return length >= 30;
+      if (start === "page-start") return length > 0;
+      // Above the lowest top that the margin column can take.
+      const top = node.parentElement!.getBoundingClientRect().top;
+      return length > 0 && top > innerHeight / 2 && top < innerHeight - 260;
+    };
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     let node = walker.nextNode();
-    const minimum = start === "page-start" ? 1 : 30;
-    while (node && (node.textContent?.trim().length ?? 0) < minimum)
-      node = walker.nextNode();
+    while (node && !usable(node)) node = walker.nextNode();
     if (!node) throw new Error("No passage to select");
     const range = document.createRange();
-    const from = start === "page-start" ? node.textContent!.search(/\S/) : 5;
+    const from = start === "line" ? 5 : node.textContent!.search(/\S/);
     range.setStart(node, from);
     // The passage can cross fragments, so count 25 characters across nodes.
     let remaining = 25;
@@ -282,11 +289,17 @@ async function openSelectionNote(
     }
     window.getSelection()!.removeAllRanges();
     window.getSelection()!.addRange(range);
-    return range.toString();
+    // A selection reports rendered line breaks; compare words only.
+    const text = range.toString().replace(/\s+/g, " ");
+    return { text, top: range.getClientRects()[0].top };
   }, start);
   await expect
-    .poll(() => page.evaluate(() => window.getSelection()?.toString()))
-    .toBe(selected);
+    .poll(() =>
+      page.evaluate(() =>
+        window.getSelection()?.toString().replace(/\s+/g, " "),
+      ),
+    )
+    .toBe(selected.text);
   await page.evaluate(() =>
     document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })),
   );
@@ -294,6 +307,7 @@ async function openSelectionNote(
     page.getByRole("button", { name: "Note on highlight" }),
   ).toHaveCount(1);
   await page.getByRole("button", { name: "Note on highlight" }).click();
+  return selected.top;
 }
 
 /** Margin UI must stay beside the text columns of the current spread. */
@@ -566,6 +580,27 @@ test.describe("Desktop margin notes", () => {
     expect(await currentPages(page)).toEqual(anchorPages);
     await nextSpread(page);
     const notebookPages = await currentPages(page);
+    // A margin note sits beside its passage, not at the top of the margin.
+    const passageTop = await openSelectionNote(page, "lower");
+    await page
+      .getByRole("textbox", { name: "Write a note" })
+      .fill("A thought lower on the page");
+    await page.getByRole("button", { name: "Save note", exact: true }).click();
+    const lowerNote = page
+      .locator("[data-margin-note]")
+      .filter({ hasText: "A thought lower on the page" });
+    await expect(lowerNote).toBeVisible();
+    // Saving adds the passage's highlight, and the chapter is laid out again.
+    await expect(
+      page.locator('[data-reader-spread-layer="current"] mark.epub-highlight'),
+    ).not.toHaveCount(0);
+    await waitForReaderReady(page);
+    await expect
+      .poll(async () =>
+        Math.abs((await lowerNote.boundingBox())!.y - passageTop),
+      )
+      .toBeLessThan(2);
+    await expectClearOfText(lowerNote);
     await page.mouse.move(600, 20);
     await page
       .getByRole("button", { name: "Open reader tools", exact: true })
