@@ -243,10 +243,12 @@ lists every option.
 
 ## Review in Med
 
-A review opens on its first target. With more than one target, the review bar
-has a target picker. **Review** shows the full title, the repository's path,
-the comparison, and when Med captured it. History and files stay available,
-and **Return to review** brings back the captured comparison. The saved diff
+A review opens on its latest iteration; the keys at the top of **Notes** show
+the others. Hover the title in the review bar for the time Med saved the review
+and its repository. When an iteration has more than one comparison, such as
+several repositories, a **Review target** picker in the bar chooses one.
+History and files stay available, and **Return to review** brings back the
+captured comparison. The saved diff
 and its context are captured; files that you open from the file tree are live.
 
 - **Comment.** Select lines in the diff. The card shows the lines, **L** for
@@ -270,14 +272,15 @@ and its context are captured; files that you open from the file tree are live.
 - **Compare against** compares the selected tip with its common ancestor on a
   local or remote-tracking branch. This browses; the saved review does not
   change. **Compare revisions…** compares two exact ends.
-- **Push** opens a dialog with the exact commit, repository, remote, and
-  branch. Choose a branch or type a new name, then select **Push to remote**.
+- **Push to remote** (the push button) opens a dialog with the exact commit,
+  repository, remote, and branch. Choose a branch or type a new name, then
+  select **Push to origin**.
   Med pushes committed history only; it does not force, delete remote
   branches, or push tags. Push hooks run, and a rejected push says what to do.
   A captured working comparison cannot be pushed.
 
-**Review +/−** in the review bar counts the lines of all original targets, from
-their captured ends, and stays fixed while you browse. The diff toolbar counts
+With more than one comparison, **Total** in the review bar counts the lines of
+all of them, from their captured ends, and stays fixed while you browse. The diff toolbar counts
 the selected comparison. Targets that overlap can count a line twice; for pull
 requests and stacked changes, use `--merge-base` so that merged work is left
 out. Binary files count no lines.
@@ -287,8 +290,8 @@ out. Binary files count no lines.
 A review with an agent session sends comments to that session, so you do not
 paste them. **Send to Claude** (or **Send to Codex**) opens the Session pane,
 with your text and the comments that you have not sent. Select the comment
-count to choose comments. A GitHub comment's **Add to the message**, or **Add
-all** in the pull request panel, adds GitHub comments. Press `⌘↵` or **Send**.
+count to choose comments. A GitHub comment's reply button, or **Add all to**
+the agent in the pull request panel, adds GitHub comments. Press `⌘↵` or **Send**.
 
 - **Claude Code** takes the message with `med review wait --key <task>`, which
   the skill runs in the background after it creates the review. The command

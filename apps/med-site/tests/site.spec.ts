@@ -140,13 +140,15 @@ for (const colorScheme of ["light", "dark"] as const) {
         .querySelector("main .column")!
         .getBoundingClientRect();
       const review = document.querySelector<HTMLImageElement>(".screen img")!;
-      const mark = document.querySelector<HTMLImageElement>(".brand .mark")!;
+      const mark = [...document.querySelectorAll(".brand .mark svg")].find(
+        (icon) => getComputedStyle(icon).display !== "none",
+      )!;
       return {
         overflow: document.documentElement.scrollWidth - innerWidth,
         left: box.left,
         right: innerWidth - box.right,
         review: review.currentSrc,
-        mark: mark.currentSrc,
+        mark: mark.querySelector("clipPath")!.id,
         // The body has the paper too, so a host page's background stays hidden.
         paper:
           getComputedStyle(document.body).backgroundColor ===
@@ -258,7 +260,46 @@ test("the docs render Med's guides and link between them", async ({
   await page.setViewportSize({ width: 375, height: 812 });
   await expect(docs.getByRole("link", { name: "Agent reviews" })).toBeVisible();
   expect(
-    await page.evaluate(() => document.documentElement.scrollWidth - innerWidth),
+    await page.evaluate(
+      () => document.documentElement.scrollWidth - innerWidth,
+    ),
   ).toBe(0);
   await context.close();
+});
+
+test("the docs' prototypes run a commit and a comment's trip to the agent", async ({
+  page,
+}) => {
+  await page.goto("/docs/usage");
+  const commit = page.getByRole("figure", { name: "Try it: Commit tab" });
+  const said = commit.getByRole("status");
+  await commit.locator(".try-stage").focus();
+  await page.keyboard.press("j");
+  await page.keyboard.press("Space");
+  await expect(said).toHaveText("Staged src/search/query.ts.");
+  await page.keyboard.press("c");
+  await page.keyboard.type("Show the active filters");
+  await page.keyboard.press("ControlOrMeta+Enter");
+  await expect(said).toHaveText("Committed 2 files as 3f2c9a1.");
+  // A branch without an upstream asks before its first push.
+  await page.keyboard.press("Shift+P");
+  await expect(commit.getByText("has no upstream")).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(said).toHaveText("Pushed 1 commit to origin/search-filters.");
+
+  await page.goto("/docs/agents");
+  const review = page.getByRole("figure", { name: "Try it: Comment and send" });
+  await review.getByRole("button", { name: "Line 7" }).click();
+  await review
+    .getByRole("button", { name: "Line 8" })
+    .click({ modifiers: ["Shift"] });
+  await page.keyboard.press("c");
+  await page.keyboard.press("ControlOrMeta+Enter");
+  await review.getByRole("button", { name: /Send to Claude/ }).click();
+  await page.keyboard.press("ControlOrMeta+Enter");
+  await expect(review.getByText("Taken")).toBeVisible();
+  await expect(review.getByText("to the chip list")).toBeVisible();
+  await expect(
+    review.getByText('<ul className="chips" aria-live="polite">'),
+  ).toBeVisible();
 });

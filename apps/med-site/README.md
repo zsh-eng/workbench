@@ -29,6 +29,7 @@ bun run paint      # paints the picture behind the product window
   script. `scripts/render.ts` describes the template syntax.
 - `src/partials/`: the head, header, and footer that every page includes.
 - `src/docs.html`, `src/docs.css`, `scripts/docs.ts`: the docs pages.
+- `src/try.js`, `src/try.css`: the prototypes in the docs.
 - `src/shots.ts`: alt text and layout sizes for the screenshots.
 - `scripts/painting/paint.ts`: the painting (see [Brand](#brand)).
 - `public/`: files served as they are. The build gives fonts, screenshots, and
@@ -54,6 +55,19 @@ A docs page has the pages at the left, the guide in a reading column, and its
 sections at the right on screens 1200 px or wider. Narrow screens show the
 pages as a row above the guide. There is no search. The pages use the site's
 `styles.css` and `main.js` (for the copy buttons on code), with `docs.css`.
+
+Some sections have a prototype to try: Notes and the Commit tab in Using Med,
+and a comment's trip to the agent in Agent reviews. They are Med's parts at
+low fidelity, drawn by `src/try.js` in Med's colours, with scripted data and a
+scripted agent. Keys work while a prototype has focus, and each key is also a
+button for touch screens. `scripts/docs.ts` places each one after the first
+paragraph of its section, on the website only; the pages without one do not
+load its script. Keep a prototype's keys and labels the same as Med's, and
+change it when the section changes.
+
+Every page asks the browser to load another page while the pointer rests on
+its link (speculation rules in `src/partials/head.html`); browsers without
+them get a prefetch hint from `src/main.js`.
 
 ## Fonts
 
@@ -117,9 +131,11 @@ Med's icon, Reflection, comes from `apps/med/scripts/render-icons.mjs`: a paper
 sun and its reflection on a painted tile of the same sea, dawn in a light
 scheme and moonrise in a dark one. The favicon carries both. After it changes,
 copy its `icon.svg` to `public/favicon.svg`, and its `icon-dawn.svg`,
-`icon-night.svg`, and `apple-touch-icon.png` to `public/`. The header picks
-`icon-dawn.svg` or `icon-night.svg` with the system's colour scheme, as the
-screenshots do; the wordmark is drawn strokes in `src/index.html`. The agent marks in the install card come from
+`icon-night.svg`, and `apple-touch-icon.png` to `public/`. The header holds
+both icons in the page (`{{inline:…}}`) and shows one with the system's colour
+scheme, as the screenshots do. As images, their painted tiles loaded after the
+page's first frame, so the icon could flash between pages. The wordmark is
+drawn strokes in `src/partials/header.html`. The agent marks in the install card come from
 Simple Icons (CC0); Codex and OpenCode have no free mark, so a glyph stands in.
 
 On screens narrower than 960 px, the product window shows the screenshot at

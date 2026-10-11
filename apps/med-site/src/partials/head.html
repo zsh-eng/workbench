@@ -18,6 +18,23 @@
   content="#121318"
 />
 <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+<!-- A link to another page loads while the pointer rests on it. Browsers
+     without speculation rules get a prefetch hint instead (src/main.js). -->
+<script type="speculationrules">
+  {
+    "prefetch": [
+      {
+        "where": {
+          "and": [
+            { "href_matches": "/*" },
+            { "not": { "href_matches": "/demo/*" } }
+          ]
+        },
+        "eagerness": "moderate"
+      }
+    ]
+  }
+</script>
 <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 <link
   rel="preload"

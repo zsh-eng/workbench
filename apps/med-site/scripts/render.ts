@@ -6,6 +6,8 @@
 //   {{key}}                          an escaped value from src/site.ts
 //   {{page.key}}                     an escaped value of the page: title, description
 //   {{asset:/path}}                  a URL for a file in public/ (hashed in a build)
+//   {{inline:/path.svg}}             an SVG in public/, in place; its IDs get the
+//                                    file's name, so two can share a page
 //   <style data-inline="file">       the file's CSS, inline
 //   <script data-inline="file">      the file's script, inline
 //   <picture data-shot="name">       light and dark sources for a screenshot
@@ -142,6 +144,13 @@ export function render({ hash }: { hash: boolean }): Rendered {
       .replace(/<picture data-shot="(\w+)">\s*<\/picture>/g, (_, name) =>
         picture(name as ShotName),
       )
+      .replace(/\{\{inline:([^}]+)\}\}/g, (_, path: string) => {
+        const name = basename(path, extname(path));
+        return readFileSync(join(publicDir, path), "utf8")
+          .trim()
+          .replace(/ id="([^"]+)"/g, ` id="${name}-$1"`)
+          .replace(/url\(#([^)]+)\)/g, `url(#${name}-$1)`);
+      })
       .replace(/\{\{asset:([^}]+)\}\}/g, (_, path: string) => asset(path))
       .replace(/\{\{([\w.]+)\}\}/g, (_, key: string) =>
         escape(lookup(key, page)),

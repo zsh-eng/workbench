@@ -199,19 +199,31 @@ h3 {
   text-decoration: none;
 }
 
-.brand picture {
+.brand .mark {
   display: flex;
+  border-radius: 5.7px;
 }
 
-.brand .mark {
+.brand .mark svg {
   width: 26px;
   height: 26px;
-  border-radius: 5.7px;
+}
+
+.brand .mark svg + svg {
+  display: none;
 }
 
 @media (prefers-color-scheme: dark) {
   .brand .mark {
     box-shadow: 0 0 0 1px var(--line);
+  }
+
+  .brand .mark svg {
+    display: none;
+  }
+
+  .brand .mark svg + svg {
+    display: block;
   }
 }
 

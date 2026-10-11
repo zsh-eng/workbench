@@ -57,6 +57,26 @@ for (const button of document.querySelectorAll("[data-copy]")) {
   });
 }
 
+// Another page loads while the pointer rests on its link: the speculation
+// rules in src/partials/head.html do it where browsers know them, and a
+// prefetch hint does it elsewhere.
+if (!HTMLScriptElement.supports?.("speculationrules")) {
+  const fetched = new Set([location.pathname]);
+  const prefetch = (event) => {
+    const link = event.target.closest?.("a[href]");
+    if (!link || link.origin !== location.origin) return;
+    const path = link.pathname;
+    if (fetched.has(path) || path.startsWith("/demo/")) return;
+    fetched.add(path);
+    const hint = document.createElement("link");
+    hint.rel = "prefetch";
+    hint.href = path;
+    document.head.append(hint);
+  };
+  addEventListener("pointerover", prefetch, { passive: true });
+  addEventListener("focusin", prefetch);
+}
+
 // Wide screens run Med itself in every window: the web app, answered from a
 // recorded review (apps/med/src/web/demo.ts), in the scene that the window
 // names. Windows load after the page, as they come near the view, one at a

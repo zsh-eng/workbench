@@ -61,14 +61,26 @@ export const pages = [
   },
 ];
 
+/** Prototypes to try (src/try.js), each after the first paragraph of a
+ * section: a page's slug, then a section's anchor and the prototype. They are
+ * on the website only; `med docs` prints the guides without them. */
+const prototypes: Record<string, Record<string, string>> = {
+  usage: { "notes-and-briefs": "notes", "commit-and-push": "commit" },
+  agents: { "review-in-med": "comment" },
+};
+
 export interface DocPage {
   /** The file in dist/, such as docs.html or docs/usage.html. */
   output: string;
   title: string;
   description: string;
   /** HTML for the template's slots (src/docs.html). The markdown slot is the
-   * guide's source with absolute links, for the Copy page button. */
-  slots: Record<"nav" | "content" | "toc" | "pager" | "markdown", string>;
+   * guide's source with absolute links, for the Copy page button. The try
+   * slots hold the prototypes' style and script, on pages that have them. */
+  slots: Record<
+    "nav" | "content" | "toc" | "pager" | "markdown" | "tryStyle" | "tryScript",
+    string
+  >;
 }
 
 type Node = {
@@ -134,9 +146,7 @@ export function renderDocs(asset: (file: string) => string): DocPage[] {
     const link = (url: string) => {
       if (/^[a-z][a-z+.-]*:/i.test(url) || url.startsWith("/")) return url;
       const [path = "", anchor = ""] = url.split("#");
-      const target = path
-        ? pages.find((other) => other.file === path)
-        : page;
+      const target = path ? pages.find((other) => other.file === path) : page;
       if (target) {
         if (anchor) links.push({ from: page.file, page: target.slug, anchor });
         return `${href(target.slug)}${anchor ? `#${anchor}` : ""}`;
@@ -172,6 +182,28 @@ export function renderDocs(asset: (file: string) => string): DocPage[] {
       node.children?.forEach((child) => visit(child, node));
     };
 
+    const place = (tree: Node) => {
+      const wanted = prototypes[page.slug] ?? {};
+      const children = tree.children ?? [];
+      for (const [section, name] of Object.entries(wanted)) {
+        const heading = children.findIndex(
+          (child) => child.tagName === "h2" && child.properties?.id === section,
+        );
+        const paragraph = children.findIndex(
+          (child, index) => index > heading && child.tagName === "p",
+        );
+        if (heading < 0 || paragraph < 0)
+          throw new Error(
+            `${page.file} has no section #${section} for a prototype.`,
+          );
+        children.splice(
+          paragraph + 1,
+          0,
+          element("figure", { className: ["try"], dataTry: name }, []),
+        );
+      }
+    };
+
     // Code gets a copy button (src/main.js); a wide table scrolls by itself.
     const wrap = (node: Node) => {
       node.children = node.children?.map((child) => {
@@ -179,16 +211,23 @@ export function renderDocs(asset: (file: string) => string): DocPage[] {
           code += 1;
           const id = `code-${code}`;
           let block = child;
-          const source = child.children?.find((part) => part.tagName === "code");
-          const language = (source?.properties?.className as string[] | undefined)
+          const source = child.children?.find(
+            (part) => part.tagName === "code",
+          );
+          const language = (
+            source?.properties?.className as string[] | undefined
+          )
             ?.find((name) => name.startsWith("language-"))
             ?.slice("language-".length);
           if (source && language && languages.includes(language)) {
-            const tree = highlighter.codeToHast(text(source).replace(/\n$/, ""), {
-              lang: language,
-              themes: { light: "med-dawn", dark: "med-night" },
-              defaultColor: false,
-            }) as Node;
+            const tree = highlighter.codeToHast(
+              text(source).replace(/\n$/, ""),
+              {
+                lang: language,
+                themes: { light: "med-dawn", dark: "med-night" },
+                defaultColor: false,
+              },
+            ) as Node;
             block = tree.children!.find((part) => part.tagName === "pre")!;
             // The page sets the code's surface; the tokens keep their colors.
             block.properties = { className: ["shiki"], dataLanguage: language };
@@ -228,11 +267,18 @@ export function renderDocs(asset: (file: string) => string): DocPage[] {
       .use(remarkGfm)
       .use(() => (tree: Node) => {
         const find = (node: Node) => {
-          if ((node.type === "link" || node.type === "image") && node.position) {
+          if (
+            (node.type === "link" || node.type === "image") &&
+            node.position
+          ) {
             const { start, end } = node.position;
             const at = source.lastIndexOf(`](${node.url}`, end.offset);
             if (at >= start.offset)
-              urls.push({ start: at + 2, end: at + 2 + node.url!.length, url: node.url! });
+              urls.push({
+                start: at + 2,
+                end: at + 2 + node.url!.length,
+                url: node.url!,
+              });
           }
           node.children?.forEach((child) => find(child));
         };
@@ -242,6 +288,7 @@ export function renderDocs(asset: (file: string) => string): DocPage[] {
       .use(() => (tree: Node) => {
         visit(tree);
         wrap(tree);
+        place(tree);
       })
       .use(rehypeStringify)
       .processSync(source)
@@ -253,49 +300,60 @@ export function renderDocs(asset: (file: string) => string): DocPage[] {
     }
     // The page holds it in a script element, which ends at "</script".
     if (/<\/script|<!--/i.test(markdown))
-      throw new Error(`${page.file} has text that would end its script element.`);
+      throw new Error(
+        `${page.file} has text that would end its script element.`,
+      );
     return { page, title, description, content, toc, markdown };
   });
 
   for (const { from, page, anchor } of links)
     if (!anchors.get(page)?.has(anchor))
-      throw new Error(`${from} links to a missing section: ${href(page)}#${anchor}`);
+      throw new Error(
+        `${from} links to a missing section: ${href(page)}#${anchor}`,
+      );
 
-  return rendered.map(({ page, title, description, content, toc, markdown }, index) => {
-    const nav = [...new Set(pages.map((other) => other.group))]
-      .map(
-        (group) =>
-          `<p>${escape(group)}</p><ul>${pages
-            .filter((other) => other.group === group)
-            .map(
-              (other) =>
-                `<li><a href="${href(other.slug)}"${other === page ? ' aria-current="page"' : ""}>${escape(other.label)}</a></li>`,
-            )
-            .join("")}</ul>`,
-      )
-      .join("");
-    const sections = toc
-      .map(
-        (entry) =>
-          `<li${entry.depth === 3 ? ' class="sub"' : ""}><a href="#${entry.id}">${escape(entry.text)}</a></li>`,
-      )
-      .join("");
-    const step = (other: (typeof pages)[number] | undefined, rel: string) =>
-      other
-        ? `<a rel="${rel}" href="${href(other.slug)}"><span>${rel === "prev" ? "Previous" : "Next"}</span>${escape(other.label)}</a>`
-        : "<span></span>";
-    const source = `${repository}/blob/main/apps/med/docs/${page.file}`;
-    return {
-      output: page.slug ? `docs/${page.slug}.html` : "docs.html",
-      title: `${title} · Med`,
-      description,
-      slots: {
-        nav,
-        content,
-        toc: sections,
-        pager: `${step(pages[index - 1], "prev")}${step(pages[index + 1], "next")}<p class="edit"><a href="${source}">Edit this page on GitHub</a></p>`,
-        markdown,
-      },
-    };
-  });
+  return rendered.map(
+    ({ page, title, description, content, toc, markdown }, index) => {
+      const nav = [...new Set(pages.map((other) => other.group))]
+        .map(
+          (group) =>
+            `<p>${escape(group)}</p><ul>${pages
+              .filter((other) => other.group === group)
+              .map(
+                (other) =>
+                  `<li><a href="${href(other.slug)}"${other === page ? ' aria-current="page"' : ""}>${escape(other.label)}</a></li>`,
+              )
+              .join("")}</ul>`,
+        )
+        .join("");
+      const sections = toc
+        .map(
+          (entry) =>
+            `<li${entry.depth === 3 ? ' class="sub"' : ""}><a href="#${entry.id}">${escape(entry.text)}</a></li>`,
+        )
+        .join("");
+      const step = (other: (typeof pages)[number] | undefined, rel: string) =>
+        other
+          ? `<a rel="${rel}" href="${href(other.slug)}"><span>${rel === "prev" ? "Previous" : "Next"}</span>${escape(other.label)}</a>`
+          : "<span></span>";
+      const source = `${repository}/blob/main/apps/med/docs/${page.file}`;
+      const tries = page.slug in prototypes;
+      const site = (file: string) =>
+        readFileSync(join(import.meta.dir, "../src", file), "utf8");
+      return {
+        output: page.slug ? `docs/${page.slug}.html` : "docs.html",
+        title: `${title} · Med`,
+        description,
+        slots: {
+          nav,
+          content,
+          toc: sections,
+          pager: `${step(pages[index - 1], "prev")}${step(pages[index + 1], "next")}<p class="edit"><a href="${source}">Edit this page on GitHub</a></p>`,
+          markdown,
+          tryStyle: tries ? `<style>\n${site("try.css")}</style>` : "",
+          tryScript: tries ? `<script>\n${site("try.js")}</script>` : "",
+        },
+      };
+    },
+  );
 }

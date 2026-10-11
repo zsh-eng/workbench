@@ -143,12 +143,14 @@ server, and gives you a link. Open the server's launch URL once in a browser;
 saved links then work in new tabs of that browser. See
 [agent reviews](AGENT_INTEGRATION.md#create-a-review).
 
-A saved review keeps its diff when the agent makes more changes. It opens its
-first target; choose others from **Review target**. When each iteration has
-one comparison, there is no picker: the iteration keys in **Notes** show each
-iteration's comparison. An agent that names its task with a key adds an
-iteration for each round of work. The review opens on the latest one and is
-marked new again; comments on earlier iterations stay.
+A saved review keeps its diff when the agent makes more changes. An agent that
+names its task with a key adds an iteration for each round of work. The review
+opens on the latest one and is marked new again; comments on earlier
+iterations stay. The iteration keys at the top of **Notes** (`1`, `2`, …) show
+each iteration's comparison, and older iterations move to a menu when the keys
+do not fit. Only a review with more than one comparison in an iteration, such
+as several repositories or a commit that you commented on while browsing, has
+a **Review target** picker in its bar.
 
 **Copy comments** copies the comments of all targets, with paths, revisions,
 line numbers, and nearby source, for any agent. **Send to Claude** or **Send to
@@ -156,7 +158,8 @@ Codex** sends them to the review's own agent; see
 [sending comments](AGENT_INTEGRATION.md#send-comments-to-the-agent). **Clear**
 clears the review's comments after you confirm. Copying does not clear them.
 
-The review's header shows its title and, when it has one, its pull request. See
+The review's bar shows its title, or its pull request's title as a link. Hover
+the title for the time Med saved the review and its repository. See
 [titles and pull requests](AGENT_INTEGRATION.md#titles-and-pull-requests).
 
 ### Agent sessions
@@ -282,9 +285,9 @@ after the review was saved.
 - On the commit that Codex reviewed, each finding shows at its last line with
   its priority, such as **P1**.
 - The Codex count beside the title opens each verdict, the findings that the
-  diff cannot show, and a `codex resume` command.
-- **Add to message** puts a finding, or all of a review's findings, in the next
-  message to the review's agent.
+  diff cannot show, and **Copy resume command**.
+- A finding's reply button, or **Add all to** the agent for a whole review,
+  puts the findings in the next message to the review's agent.
 
 ## Commit and push
 
