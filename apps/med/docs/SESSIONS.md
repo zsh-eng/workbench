@@ -65,10 +65,13 @@ the line then keeps `thinkingDurationMs`. The reader:
   file's text from Claude Code's `originalFile` or an earlier Write;
 - turns TodoWrite and TaskCreate/TaskUpdate into the plan;
 - links background shells and agents to their calls, and their
-  `<task-notification>` messages to the same calls;
+  `<task-notification>` messages to the same calls. A notification that comes
+  during a turn is a `queued_command` attachment. When the call is on an
+  earlier page, the update names the call (`<tool-use-id>`) or its task
+  (`task:<id>`), and the thread gives it to the call when the page arrives;
 - reports subagents, whose transcripts are `<session>/subagents/agent-<id>.jsonl`;
 - turns compactions, API errors, and interruptions into dividers and notices;
-- skips attachments, system reminders, and meta messages;
+- skips other attachments, system reminders, and meta messages;
 - tracks the turn: a reply with `stop_reason: "end_turn"` or a subagent's
   report ends it, and a typed prompt starts the next one.
 
