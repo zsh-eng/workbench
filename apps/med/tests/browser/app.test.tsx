@@ -629,6 +629,27 @@ describe("graphical review", () => {
     );
     expect(date.title).toBe("");
   });
+  test("zen mode moves a saved review's header actions to the command palette", async () => {
+    await mountApp({ savedReview: true, branches: true });
+    await page.getByRole("link", { name: "src/alpha.ts", exact: true }).click();
+    await expect.element(page.getByRole("button", { name: "Return to review" })).toBeVisible();
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Z", code: "KeyZ", altKey: true, bubbles: true }),
+    );
+    await expect
+      .element(page.getByRole("button", { name: "Exit zen mode", exact: true }))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: "Return to review" }))
+      .not.toBeInTheDocument();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
+    await page.getByRole("combobox", { name: "Search commands" }).fill("Return to review");
+    await page.getByRole("option", { name: /Return to review/ }).click();
+    // Zen hides the tab strip, so the panel shows which tab is open.
+    await expect
+      .element(page.getByRole("tabpanel", { name: "Changes", exact: true }))
+      .toBeVisible();
+  });
   test("saved review return and target selection restore Changes after live file browsing", async () => {
     const { controller } = await mountApp({ savedReview: true, branches: true });
     await page.getByRole("link", { name: "src/alpha.ts", exact: true }).click();
@@ -880,43 +901,118 @@ describe("graphical review", () => {
     expect(document.activeElement?.getAttribute("aria-label")).toBe("Enter zen mode");
   });
 
-  test("with the title bar hidden, the identity heads the window beside its controls", async () => {
+  test("with the title bar hidden, the review card's first row is a tab between the window controls", async () => {
     await page.viewport(1280, 800);
-    // The free area that Chrome gives an installed app beside its window controls.
+    // The free area that Chrome gives an installed app between its window controls.
     const root = document.documentElement;
-    root.style.setProperty("--med-titlebar-height", "32px");
-    root.style.setProperty("--med-titlebar-left", "78px");
+    const area = {
+      "--med-titlebar-height": "38px",
+      "--med-titlebar-left": "78px",
+      "--med-titlebar-right": "120px",
+    };
+    for (const [name, value] of Object.entries(area)) root.style.setProperty(name, value);
     root.dataset.titlebar = "overlay";
     try {
       await mountApp({ branches: true });
       const toggle = page.getByRole("button", { name: "Toggle sidebar" });
-      await expect.element(toggle).toBeVisible();
-      const row = toggle.element().closest<HTMLElement>(".med-title-row")!;
-      expect(row.getBoundingClientRect()).toMatchObject({ top: 0, height: 32 });
-      const box = toggle.element().getBoundingClientRect();
-      expect(box.left).toBeGreaterThanOrEqual(78);
-      expect(box.top + box.height / 2).toBe(16);
-      // The row moves the window; its controls take clicks.
-      expect(getComputedStyle(row).getPropertyValue("-webkit-app-region")).toBe("drag");
-      expect(getComputedStyle(toggle.element()).getPropertyValue("-webkit-app-region")).toBe(
+      const tabs = page.getByRole("tablist", { name: "Open files" });
+      await expect.element(tabs).toBeVisible();
+      const row = tabs.element().parentElement!;
+      const card = document.querySelector("main")!;
+      const rect = (element: Element) => element.getBoundingClientRect();
+      const centre = (element: Element) => rect(element).top + rect(element).height / 2;
+      // Whether a point of the window is on the card, as its outline draws it.
+      const onCard = (x: number, y: number) =>
+        card
+          .querySelector<SVGPathElement>(".med-card-tab path")!
+          .isPointInFill(new DOMPoint(x - rect(card).left, y - rect(card).top));
+      const changes = page.getByRole("tab", { name: "Changes" }).element();
+      const commands = page.getByRole("button", { name: "Open command palette" }).element();
+
+      // The row rises to the top of the window as the card's tab, and it ends
+      // before the controls on the right, where the card steps down. Chrome
+      // paints over the area of its controls, so nothing of the card is there.
+      expect(rect(row)).toMatchObject({ top: 6, bottom: 39 });
+      expect(rect(commands).right).toBeLessThanOrEqual(1280 - 120 - 6);
+      expect([onCard(640, 20), onCard(1220, 20), onCard(1220, 60)]).toEqual([true, false, true]);
+      const outline = card.querySelectorAll<SVGPathElement>(".med-card-tab path")[1];
+      const drawn = ([x, y]: number[]) => {
+        const point = new DOMPoint(x - rect(card).left, y - rect(card).top);
+        return onCard(x, y) || outline.isPointInStroke(point);
+      };
+      const controls = [
+        ...Array.from({ length: 38 }, (_, y) => [1160.5, y + 0.5]),
+        ...Array.from({ length: 120 }, (_, x) => [1160 + x + 0.5, 37.5]),
+      ];
+      expect(controls.filter(drawn)).toEqual([]);
+      // The identity heads the sidebar, level with the tab, after the controls on the left.
+      expect(rect(toggle.element()).left).toBeGreaterThanOrEqual(78);
+      expect(Math.abs(centre(toggle.element()) - centre(changes))).toBeLessThanOrEqual(1);
+      // The tab and the identity's row move the window; their controls take clicks.
+      const region = (element: Element) =>
+        getComputedStyle(element).getPropertyValue("-webkit-app-region");
+      const head = toggle.element().closest(".med-title-row")!;
+      expect([row, head, changes, toggle.element()].map(region)).toEqual([
+        "drag",
+        "drag",
         "no-drag",
-      );
-      // The identity stays in the row while the sidebar hides.
+        "no-drag",
+      ]);
+
+      // Without the sidebar, the identity leads the tab, and the card steps
+      // down under the controls on the left too. The outline changes in the
+      // frame that the card does, so it never shows the card's old size.
+      const fits: boolean[] = [];
+      const watch = new ResizeObserver(() => {
+        const box = card.querySelector<SVGPathElement>(".med-card-tab path")!.getBBox();
+        fits.push(Math.round(box.x * 2 + box.width) === Math.round(rect(card).width));
+      });
+      watch.observe(card);
       await toggle.click();
       await expect
         .poll(() => document.getElementById("review-sidebar")?.checkVisibility())
         .toBe(false);
-      expect(toggle.element().closest(".med-title-row")).toBe(row);
+      watch.disconnect();
+      expect(fits.length).toBeGreaterThan(1);
+      expect(fits.every(Boolean)).toBe(true);
+      expect(row.contains(toggle.element())).toBe(true);
+      expect(rect(toggle.element()).left).toBeGreaterThanOrEqual(78 + 6);
+      expect([onCard(40, 20), onCard(40, 60)]).toEqual([false, true]);
       await toggle.click();
 
-      // With the title bar back, the identity heads the sidebar again.
+      // The side panes start below the tab; the controls are over them, so
+      // the tab spans the card.
+      await page.getByRole("button", { name: "Toggle files sidebar" }).click();
+      const column = document.querySelector("[data-pane-layout]")!;
+      await expect.poll(() => column.checkVisibility()).toBe(true);
+      expect(rect(column).top).toBe(39);
+      await expect.poll(() => onCard(rect(card).right - 12, 20)).toBe(true);
+      await page.getByRole("button", { name: "Toggle files sidebar" }).click();
+      await expect.poll(() => column.checkVisibility()).toBe(false);
+
+      // Zen keeps the card in the title area with an empty tab. The sidebar
+      // and the way out start below the controls.
+      await page.getByRole("button", { name: "Enter zen mode", exact: true }).click();
+      const exit = page.getByRole("button", { name: "Exit zen mode", exact: true });
+      await expect.element(exit).toBeInTheDocument();
+      const empty = card.querySelector(".med-card-tab + *")!;
+      expect([empty.childElementCount, rect(empty).top, rect(empty).bottom]).toEqual([0, 6, 39]);
+      expect([onCard(640, 20), onCard(1220, 20)]).toEqual([true, false]);
+      const sidebar = document.getElementById("review-sidebar")!;
+      expect(rect(sidebar.firstElementChild!).bottom).toBe(39);
+      expect(rect(exit.element()).top).toBeGreaterThan(39);
+      await exit.click();
+      await expect.element(tabs).toBeVisible();
+
+      // With the title bar back, the card is a plain card again.
       delete root.dataset.titlebar;
-      await expect.poll(() => document.querySelector(".med-title-row")).toBeNull();
+      await expect.poll(() => card.querySelector(".med-card-tab")).toBeNull();
+      expect(rect(tabs.element().parentElement!).height).toBe(38);
+      expect(toggle.element().closest(".med-title-row")).toBeNull();
       expect(toggle.element().closest("#review-sidebar")).not.toBeNull();
     } finally {
       delete root.dataset.titlebar;
-      root.style.removeProperty("--med-titlebar-height");
-      root.style.removeProperty("--med-titlebar-left");
+      for (const name of Object.keys(area)) root.style.removeProperty(name);
     }
   });
 

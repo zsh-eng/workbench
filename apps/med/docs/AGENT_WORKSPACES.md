@@ -98,6 +98,10 @@ permission, and an unread dot for **Done**. The browser keeps the last update
 that you saw (`med:agent-seen`). An attached Claude session cannot show a
 waiting permission prompt, because the transcript does not record it.
 
+The list's **Sessions** row opens the
+[Sessions page](SESSIONS.md#sessions-page): every lead on one Board, with its
+current turn, and a Desk to read and answer one beside the others.
+
 ## Replies
 
 Med cannot write to an attached session: `claude --resume` starts a second

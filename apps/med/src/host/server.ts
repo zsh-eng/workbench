@@ -75,6 +75,7 @@ import {
 import { AgentInbox } from "./agent-inbox";
 import { findAgents, OwnedSessions, type RunnableAgent } from "./owned-sessions";
 import { createAgentStatus } from "./agent-status";
+import { createSessionSummaries } from "./session-summaries";
 import { ownedActionSchema, ownedStartSchema } from "../shared/owned-session";
 import {
   agentMessageInputSchema,
@@ -243,7 +244,20 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     logPath: (sessionId) =>
       join(options.stateDir ?? temporaryState!, "sessions", `${sessionId}.jsonl`),
   });
-  const statusStreams = new Set<ServerResponse>();
+  const sessionSummary = createSessionSummaries({
+    status: reviewStatus,
+    owned(sessionId) {
+      const runner = ownedSessions.get(sessionId);
+      return runner && { state: runner.state(), updatedAt: ownedSessions.updatedAt(sessionId) };
+    },
+    waiting: (reviewId) => inbox.waiting(reviewId),
+    acpEvents: (sessionId) => ownedSessions.events(sessionId),
+  });
+  // The workspace lists' status streams and the Sessions pages' streams.
+  const reviewStateStreams = {
+    statuses: new Set<ServerResponse>(),
+    sessions: new Set<ServerResponse>(),
+  };
 
   const watchers = new Map<string, Promise<() => Promise<void>>>();
   const watcherModes = new Map<string, boolean>();
@@ -695,7 +709,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           // A session that Med started writes its transcript with the first turn.
           if (!path)
             write("reset", { events: [], idle: true, modifiedAt: Date.now(), truncated: false });
-          while (!path && !abort.signal.aborted) {
+          while (!path && !abort.signal.aborted && !closing) {
             await new Promise((done) => setTimeout(done, 400));
             path = await findTranscript(session);
           }
@@ -772,8 +786,15 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           push();
           return;
         }
-        // The workspace list: each saved review's lead session, sent when it changes.
-        if (url.pathname === "/api/agent-status/events" && request.method === "GET") {
+        // Each saved review's lead session, sent when it changes: its state for
+        // the workspace list, or with its current turn for the Sessions page.
+        const reviewState =
+          url.pathname === "/api/agent-status/events"
+            ? "statuses"
+            : url.pathname === "/api/sessions/events"
+              ? "sessions"
+              : undefined;
+        if (reviewState && request.method === "GET") {
           const ids = [
             ...new Set(
               (url.searchParams.get("reviews") ?? "")
@@ -781,7 +802,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 .filter((id) => /^[A-Za-z0-9_-]{1,80}$/.test(id)),
             ),
           ].slice(0, 50);
-          if (statusStreams.size >= 8)
+          const open = reviewStateStreams[reviewState];
+          if (open.size >= 8)
             throw new HostError("too-many-streams", "Too many status streams are open.", 503);
           response.writeHead(200, {
             "content-type": "text/event-stream",
@@ -789,20 +811,23 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             connection: "keep-alive",
             "x-accel-buffering": "no",
           });
-          statusStreams.add(response);
-          response.once("close", () => statusStreams.delete(response));
+          open.add(response);
+          response.once("close", () => open.delete(response));
           void (async () => {
             let last = "";
-            while (!abort.signal.aborted) {
-              const statuses = await Promise.all(
+            while (!abort.signal.aborted && !closing) {
+              const values = await Promise.all(
                 ids.map(async (id) => {
                   const bundle = await savedReviews.get(id).catch(() => undefined);
+                  if (!bundle?.sessions) return undefined;
                   return (
-                    bundle?.sessions && reviewStatus(id, bundle.sessions).catch(() => undefined)
-                  );
+                    reviewState === "statuses"
+                      ? reviewStatus(id, bundle.sessions)
+                      : sessionSummary(bundle)
+                  ).catch(() => undefined);
                 }),
               );
-              const text = JSON.stringify({ statuses: statuses.filter(Boolean) });
+              const text = JSON.stringify({ [reviewState]: values.filter(Boolean) });
               if (text !== last && !abort.signal.aborted) {
                 last = text;
                 response.write(`event: state\ndata: ${text}\n\n`);
@@ -985,6 +1010,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               );
             const parts: string[] = [];
             if (input.text.trim()) parts.push(input.text.trim());
+            // The thread shows the comments as they read now.
+            const drafts = input.noteIds.length ? (await inboxState()).drafts : [];
+            const comments = input.noteIds.flatMap((id) =>
+              drafts
+                .filter((draft) => draft.id === id)
+                .map(({ id: _id, replies: _replies, ...comment }) => comment),
+            );
             if (input.noteIds.length) {
               const feedback = await savedReviews.feedback(reviewId, new Set(input.noteIds));
               if (feedback.count) parts.push(feedback.text);
@@ -1011,6 +1043,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               {
                 text: input.text.trim(),
                 noteIds: input.noteIds,
+                comments,
                 attachmentCount: input.attachments.length,
               },
               parts.join("\n\n"),
@@ -1894,6 +1927,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       }
       const appRoute =
         path === "/sources" ||
+        path === "/sessions" ||
         path === "/welcome" ||
         path === "/elements" ||
         path.startsWith("/vault/") ||
@@ -2031,7 +2065,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       ownedSessions.stopAll();
       for (const abort of activeRequests.keys()) abort.abort();
       for (const stream of [...streams.keys(), ...windows]) stream.end();
-      for (const { response } of lives.values()) response.end();
+      // A channel's handler stops when its response closes. Bun does not emit
+      // "close" for a live stream that the host ends, so end the channels here.
+      for (const { response, channels } of lives.values()) {
+        for (const channel of channels.values()) channel.destroy();
+        response.end();
+      }
       streams.clear();
       windows.clear();
       await Promise.allSettled([...watchers.values()].map(async (stop) => (await stop)()));

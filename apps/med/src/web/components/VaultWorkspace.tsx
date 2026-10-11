@@ -538,22 +538,24 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
       {children}
     </div>
   );
+  const notice = (
+    <p className="med-vault-notice" role="alert">
+      {error}
+    </p>
+  );
   // The same fragment in both states, so the review keeps its place.
   if (!locationState.visible) return <>{review}</>;
   return (
     <>
       {review}
       <div className="med-vault" data-standalone-files>
-        {error && (
-          <p className="med-vault-notice" role="alert">
-            {error}
-          </p>
-        )}
+        {error && locationState.id && notice}
         {!locationState.id ? (
           <SourcesPage
             sources={sources}
             home={home}
             loaded={sourcesLoaded}
+            notice={error && notice}
             onOpenVault={(id) => navigate(`/vault/${id}`)}
             onCommands={() => setCommandsOpen(true)}
             onRequest={async (action, body) => {

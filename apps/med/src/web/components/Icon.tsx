@@ -14,6 +14,7 @@ export type IconName =
   | "settings"
   | "close"
   | "split"
+  | "sessions"
   | "unified"
   | "wrap"
   | "sun"
@@ -302,6 +303,13 @@ const icons: Record<IconName, ReactNode> = {
   ),
   pause: <path d="M5.25 3.25v9.5M10.75 3.25v9.5" />,
   stop: <rect x="4.25" y="4.25" width="7.5" height="7.5" rx="1.5" fill="currentColor" />,
+  // A window in four panes: the Sessions workspace.
+  sessions: (
+    <>
+      <rect x="2.25" y="2.25" width="11.5" height="11.5" rx="2" />
+      <path d="M8 2.25v11.5M2.25 8h11.5" />
+    </>
+  ),
   tasks: <path d="m2.25 4.25 1.25 1.25 2-2.25M2.25 10.75 3.5 12l2-2.25M8 4.5h5.75M8 11h5.75" />,
   command: (
     <path d="M5.75 10.25v-6a1.5 1.5 0 1 0-1.5 1.5h7.5a1.5 1.5 0 1 0-1.5-1.5v7.5a1.5 1.5 0 1 0 1.5-1.5h-7.5a1.5 1.5 0 1 0 1.5 1.5z" />

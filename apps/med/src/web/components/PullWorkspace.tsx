@@ -261,7 +261,7 @@ const styles = stylex.create({
     paddingBlock: { default: 56, "@media (max-width: 640px)": 24 },
     paddingInline: { default: 24, "@media (max-width: 640px)": 14 },
     backgroundColor: tokens.canvas,
-    borderRadius: `calc(10px * ${tokens.round})`,
+    borderRadius: tokens.frame,
     boxShadow: `0 0 0 1px ${tokens.line}, 0 1px 3px #0000000f`,
   },
   card: {

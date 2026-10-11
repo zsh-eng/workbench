@@ -1,142 +1,81 @@
-# Registered sources and Obsidian vaults
+# Notes and vaults
 
-Med runs one local server for your registered repositories and vaults. The server
-keeps watching when you close the browser. A vault does not need Git. Med does
-not run community plugins or change `.obsidian` settings.
+Med opens Obsidian vaults and Markdown folders beside your repositories, with
+links, backlinks, and a live preview. A vault does not need Git. Med does not
+run community plugins or change `.obsidian` settings.
 
-## Start and register
+## Add a vault
 
 ```sh
-med add /path/to/repository
-med add /path/to/vault --wait
+med add ~/notes --wait
 med web
-med list
 ```
 
-`add` detects a vault from its `.obsidian` directory. Use `--type vault` for a
-plain Markdown folder. Register a benchmark copy only with a separate
-`--state-dir`: the default service keeps a registration after its temporary
-folder is gone, and lists it as a broken vault. Registration returns a stable ID:
-repositories use their canonical Git common directory; vaults use their canonical
-folder. Separate clones remain separate sources.
+`med add` finds a vault from its `.obsidian` folder; add `--type vault` for a
+plain Markdown folder. `--wait` returns when the first index is ready.
+`med list` shows each source with its ID. A vault's ID comes from its real
+path, so the same folder keeps the same ID. If a vault's folder is gone, Med
+keeps the registration and lists the vault as broken.
 
-`web`, `add`, `list`, `remove`, and `index` start the server when needed. `status`
-and `stop` do not. The default port is 4173; an occupied port is an error. Use the
-same `--port` and `--state-dir` on each command for a separate setup. The default
-state directory is `~/.local/state/med`, or `MED_STATE_DIR`. Keep it outside vaults.
+`web`, `add`, `list`, `remove`, and `index` start the server when it is not
+running; `status` and `stop` do not. Keep the state folder
+(`~/.local/state/med`) outside your vaults.
 
-Open a vault from the Sources page. The left sidebar has the same place and width
-as a review's: workspaces at the top, then the file tree and backlinks. The file
-tree and top file tabs use the same controls as repository browsing. Click to preview; double-click to keep a
-tab open. Edited files stay open, and dirty tabs cannot be closed without saving
-or discarding. **Cmd+K** opens the normal command palette; **Cmd+Shift+K** finds a
-file with a preview. **Cmd+B** toggles the sidebar. Use Ctrl instead of Cmd
-on Windows/Linux. Follow wiki or Markdown links, and use the collapsible backlinks
-below the file tree. **Preview** shows
-rendered Markdown with image embeds. The normal Vim editor, explicit save,
-unsaved dot, and live preview are available. Registration and indexing never
-change note contents; saving an edit does.
+## Read and write
 
-Wiki image embeds support dimensions such as `![[image.png|320]]`. Backlinks
-include source line numbers. Link indexing recognizes heading and block
-fragments, but resolution is at note level. The viewer can jump to simple ATX
-headings; full Obsidian heading/block resolution, frontmatter aliases, note
-transclusion, plugin syntax, and vault-wide text search are not included.
-Ambiguous basename matches remain unresolved.
+Open a vault from the **Sources** page or the workspace list. The sidebar has
+the workspaces, the file tree, and backlinks, as in a review. Click a file to
+preview it, and double-click to keep its tab. Edited files stay open, and a tab
+with unsaved changes does not close until you save or discard them.
+
+- `⌘K` opens the command palette, `⌘⇧K` finds a file with a preview, and `⌘B`
+  shows or hides the sidebar.
+- Follow wiki links and Markdown links. **Backlinks**, below the file tree,
+  show each linking note with its line number.
+- **Preview** renders the note with its image embeds. Edit in the Vim editor,
+  with explicit saves, the unsaved dot, and the live preview; see
+  [Markdown preview](USAGE.md#markdown-preview).
+
+Registering and indexing never change your notes; only a save does.
+
+### Obsidian syntax
+
+Wiki image embeds take a width, such as `![[image.png|320]]`. Links to a
+heading or a block resolve to their note, and Preview can jump to simple ATX
+headings. Med leaves a link unresolved when more than one note has its name.
+
+Med does not support full heading and block resolution, frontmatter aliases,
+note embeds, plugin syntax, or text search across a vault.
 
 ## Watching and indexing
 
 ```sh
-med index                 # Reconcile all registered vaults
-med index vault_SOURCE_ID --wait
 med status
+med index
+med index vault_SOURCE_ID --wait
 med remove vault_SOURCE_ID
-med stop
-med serve                 # Foreground mode for debugging or an OS service manager
 ```
 
-The server debounces filesystem changes and queues one short-lived index process
-at a time. A 60-second reconciliation pass catches missed events and supports
-systems without a working recursive watcher. `status` reports watcher and index
-state. While an update runs, the browser can read the last completed backlinks.
-The server does not keep a worker pool alive between index jobs.
+The server watches each vault and indexes changes in one short process at a
+time. Every 60 seconds it also checks the whole vault, which catches missed
+events and systems without a recursive watcher. `med status` shows the watcher
+and index state, and `med index` checks every vault, or one, at once. While an
+index runs, the browser shows the last complete backlinks.
 
-The index stores file fingerprints and link occurrences, not note bodies or
-image bytes. Code, math, HTML comments, and frontmatter are excluded. A path
-addition, rename, or removal triggers link re-resolution; ordinary edits replace
-only the changed notes' links. Hidden/dependency folders and symlinks are excluded.
-Notes over 4 MiB or invalid UTF-8 report failures and retry on the next pass.
-There is a 100,000-file catalogue limit and a 1,000-occurrence backlink display
-limit. The virtualized tree shows the file hierarchy, including attachments.
-The file picker shows the best 50 matches; narrow its query for larger vaults. Source paths and local indexes stay outside project files.
+The index keeps file fingerprints and links, not note text or image bytes. It
+leaves out code, math, HTML comments, and frontmatter, as well as hidden
+folders, dependency folders, and symlinks. Adding, renaming, or removing a file
+resolves links again; an edit updates only that note's links. A note over 4 MiB
+or with invalid UTF-8 fails, and Med tries it again on the next check. The
+index and your vault's paths stay in the state folder, never in your files.
 
-Removal stops watching and removes registration. Original files and rebuildable
-cache remain. Stopping preserves registrations, saved reviews, and indexes.
-Restarting restores the registered scope. The older `sources` and `vault`
-commands are offline tools; stop the managed server before using them.
+- A vault can have up to 100,000 files. The file tree shows them all, with
+  attachments.
+- Backlinks show up to 1,000 links.
+- Find file shows the best 50 matches; type more to narrow a large vault.
 
-## Optional login service
-
-On macOS, install at a stable executable path, then explicitly opt in:
-
-```sh
-med stop
-med service install
-# Later:
-med service uninstall
-```
-
-Normal commands never install a login service. Installation uses a per-user
-LaunchAgent; it starts at login and restarts after an abnormal exit. `med stop`
-is a clean stop. To disable future login starts, uninstall the service. Keep the
-executable at its installed path. Other systems can run `med serve` under their
-own service manager. Logs are in the selected state directory's `service.log`.
-The service keeps the `PATH` of the install command, so it finds the same Git and
-Go as a server started in a terminal. Install again after a toolchain moves.
-
-## Single executable and offline docs
-
-From the Workbench checkout, install with `bun install` at the root, then:
-
-```sh
-cd apps/med
-bun run build:executable
-./dist/med docs vaults
-./dist/med web
-```
-
-The executable includes Bun, browser assets, fonts, workers, and version-matched
-CLI guides. End users do not need the checkout, Node, or Bun. Git remains an
-external requirement for repository features. Optional Ctags/Zoekt search tools
-are separate. An existing Zoekt cache can be used by the executable. On a fresh
-machine, `--setup-search` currently requires the checkout and Go because the
-Go helper sources are not embedded. Download the macOS Apple Silicon executable
-from the [Med release](https://github.com/zsh-eng/workbench/releases/tag/med-v0.1.2).
-See [installation](https://github.com/zsh-eng/workbench/blob/med-v0.1.2/apps/med/docs/INSTALL.md).
-This release is not Developer ID signed or notarized.
-
-## Private benchmarks
-
-Use `scripts/copy-vault-benchmark.py /path/to/vault` to create an independent
-copy in the system temporary directory. It copies visible regular files and
-attachments, excludes hidden/dependency folders and symlinks, and writes a
-manifest beside the copy. It never initializes a Git repository. Copying is
-not an atomic snapshot if another application edits the vault during the copy.
-
-Then run:
-
-```sh
-bun scripts/benchmark-vault.ts --copy /private/tmp/med-vault-benchmark-EXAMPLE/vault \
-  --output /private/tmp/med-vault-benchmark-EXAMPLE/results.json
-```
-
-The benchmark requires that copy manifest and rejects paths inside a Git
-repository. It uses fresh index files, measures three independent processes,
-checks an edit and deletion using its own temporary fixture, and records phase
-traces without note text or filenames. Use a new output directory for each run.
-The filesystem cache is not flushed. Results measure the index engine, not
-browser rendering or end-to-end CLI startup.
-
-Never commit a vault, its index, attachment bytes, or private source paths.
-Only synthetic integration fixtures and aggregate benchmark results belong in
-source control. See `docs/validation/VAULT_INDEX.md` for the measured results.
+`med remove` stops watching a source and removes its registration; the folder
+and its rebuildable cache stay. `med stop` keeps registrations, saved reviews,
+and indexes, and the next start watches the same sources. The older `med
+sources` and `med vault` commands work offline; stop the server before you use
+them.

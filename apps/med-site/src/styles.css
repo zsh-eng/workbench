@@ -199,19 +199,31 @@ h3 {
   text-decoration: none;
 }
 
-.brand picture {
+.brand .mark {
   display: flex;
+  border-radius: 5.7px;
 }
 
-.brand .mark {
+.brand .mark svg {
   width: 26px;
   height: 26px;
-  border-radius: 5.7px;
+}
+
+.brand .mark svg + svg {
+  display: none;
 }
 
 @media (prefers-color-scheme: dark) {
   .brand .mark {
     box-shadow: 0 0 0 1px var(--line);
+  }
+
+  .brand .mark svg {
+    display: none;
+  }
+
+  .brand .mark svg + svg {
+    display: block;
   }
 }
 
@@ -452,7 +464,7 @@ h3 {
   inset: 0 0 30%;
   z-index: -1;
   border-radius: 16px;
-  background: #b9c7ca url("{{asset:/painting/dawn-1200.webp}}") center top /
+  background: #afc1c0 url("{{asset:/painting/dawn-1200.webp}}") center top /
     cover no-repeat;
   background-image: image-set(
     url("{{asset:/painting/dawn-1200.avif}}") type("image/avif") 1x,
@@ -464,7 +476,7 @@ h3 {
 
 @media (prefers-color-scheme: dark) {
   .painting::before {
-    background-color: #20232e;
+    background-color: #2e3551;
     background-image: url("{{asset:/painting/night-1200.webp}}");
     background-image: image-set(
       url("{{asset:/painting/night-1200.avif}}") type("image/avif") 1x,
@@ -512,12 +524,60 @@ h3 {
   pointer-events: auto;
 }
 
+.screen[data-state="live"] .live[data-next] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Starts a window's scene again: in the hero's title bar, and under a
+   feature's window. Only live windows have it. */
+.restart {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: 500 0.75rem/1 var(--ui);
+  cursor: pointer;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+.restart:hover {
+  background: var(--fill);
+  color: var(--ink);
+}
+
+.restart svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.titlebar .restart {
+  margin: 0 -5px 0 auto;
+}
+
+.chapter > .restart {
+  grid-column: 2;
+  justify-self: end;
+}
+
 /* Narrow screens show screenshots. The review shows at 3.6 times the
    window's width, close enough to read, one part at a time. The parts are in
-   the 1440 by 900 screenshot: the comment at (830, 480), the session's
-   message box at (1240, 700), and the workspaces and history at (200, 210).
-   The window shows 400 by 320 pixels, so a part at (x, y) moves the image by
-   x / 1440 - 0.139 and y / 900 - 0.178. */
+   the 1309 by 818 screenshot: the comment at (720, 350), the session's
+   message box at (1098, 672), and the history at (182, 146). The window
+   shows 364 by 291 pixels, so a part at (x, y) moves the image by
+   x / 1309 - 0.139 and y / 818 - 0.178. */
 .stops {
   display: none;
 }
@@ -534,16 +594,16 @@ h3 {
     left: 0;
     width: 360%;
     max-width: none;
-    transform: translate(-43.8%, -35.6%);
+    transform: translate(-41.1%, -25%);
     transition: transform 900ms var(--ease-in-out);
   }
 
   .product .screen[data-stop="1"] img {
-    transform: translate(-72.2%, -60%);
+    transform: translate(-70%, -64.4%);
   }
 
   .product .screen[data-stop="2"] img {
-    transform: translate(0, -5.6%);
+    transform: translate(0, 0);
   }
 
   .stops:not([hidden]) {
@@ -639,7 +699,7 @@ h3 {
 @media (min-width: 960px) {
   .chapter {
     grid-template-columns: minmax(0, 4fr) minmax(0, 7fr);
-    gap: 64px;
+    gap: 10px 64px;
   }
 }
 

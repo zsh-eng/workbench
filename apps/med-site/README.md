@@ -1,9 +1,10 @@
 # Med site
 
-The marketing page for [Med](../med/README.md): one static HTML page with
-inline CSS and one small script. There is no UI framework and no third-party
-request. On wide screens each window on the page runs Med itself on a
-recorded review (see [Live demo](#live-demo)).
+The marketing page and docs for [Med](../med/README.md): static HTML pages
+with inline CSS and one small script. There is no UI framework and no
+third-party request. On wide screens each window on the page runs Med itself
+on a recorded review (see [Live demo](#live-demo)). The docs pages render Med's
+own guides (see [Docs](#docs)).
 
 ## Commands
 
@@ -26,11 +27,47 @@ bun run paint      # paints the picture behind the product window
 - `src/index.html`, `src/styles.css`, `src/main.js`: the page, the install tabs,
   the copy buttons, and the live demo. The build inlines the CSS and the
   script. `scripts/render.ts` describes the template syntax.
+- `src/partials/`: the head, header, and footer that every page includes.
+- `src/docs.html`, `src/docs.css`, `scripts/docs.ts`: the docs pages.
+- `src/try.js`, `src/try.css`: the prototypes in the docs.
 - `src/shots.ts`: alt text and layout sizes for the screenshots.
 - `scripts/painting/paint.ts`: the painting (see [Brand](#brand)).
 - `public/`: files served as they are. The build gives fonts, screenshots, and
-  the painting content hashes under `/assets/`. `public/demo/recording.json`
-  and `public/demo/vault.json` are the live demo's recorded review and vault.
+  the painting content hashes under `/assets/`. `public/demo` holds the live
+  demo's recordings: `hero.json`, `recording.json`, and `vault.json`.
+
+## Docs
+
+`/docs` and its pages render Med's user guides from `apps/med/docs` at build
+time: `INSTALL.md` at `/docs`, then `USAGE.md`, `AGENT_INTEGRATION.md`, and
+`VAULTS.md` at `/docs/usage`, `/docs/agents`, and `/docs/vaults`. These are the
+guides that `med docs` prints, so the website and the app agree; edit the
+Markdown in `apps/med/docs`, not here. `scripts/docs.ts` lists the pages and
+their sidebar labels.
+
+The build uses Med's Markdown packages (unified, remark, and rehype, at Med's
+versions); the pages ship HTML only. Headings get GitHub's anchors, so links
+between the guides keep working: a link to another guide opens its page, and a
+link to any other file goes to GitHub. The build fails when a link between the
+guides names a missing section. An image in a guide gets a hashed URL.
+
+A docs page has the pages at the left, the guide in a reading column, and its
+sections at the right on screens 1200 px or wider. Narrow screens show the
+pages as a row above the guide. There is no search. The pages use the site's
+`styles.css` and `main.js` (for the copy buttons on code), with `docs.css`.
+
+Some sections have a prototype to try: Notes and the Commit tab in Using Med,
+and a comment's trip to the agent in Agent reviews. They are Med's parts at
+low fidelity, drawn by `src/try.js` in Med's colours, with scripted data and a
+scripted agent. Keys work while a prototype has focus, and each key is also a
+button for touch screens. `scripts/docs.ts` places each one after the first
+paragraph of its section, on the website only; the pages without one do not
+load its script. Keep a prototype's keys and labels the same as Med's, and
+change it when the section changes.
+
+Every page asks the browser to load another page while the pointer rests on
+its link (speculation rules in `src/partials/head.html`); browsers without
+them get a prefetch hint from `src/main.js`.
 
 ## Fonts
 
@@ -41,15 +78,22 @@ SIL Open Font License notices. After Med's fonts change, run `bun run fonts`.
 
 `bun run screenshots` builds a small invented repository ("Trailhead"), starts a
 built Med on port 4310 with temporary state, creates the review "Search filters"
-in two iterations with briefs, and adds two comments. A fixture Claude Code
-transcript (`scripts/screenshots/session.ts`) stands in for the agent: Med
-shows it in the Session pane, sends the first comment to it through
-`med review wait`, and keeps the second comment ready to send. The run stages
-the review's files, writes a commit message, and opens a small Obsidian vault
-(`scripts/screenshots/vault.ts`) on a second Med server, on the next port.
+with a brief, and comments on the first changed file. A fixture Claude Code
+transcript (`scripts/screenshots/session.ts`) stands in for the agent, and Med
+shows it in the Session pane.
 
-While it does this, it records every API answer into `public/demo/recording.json`
-and `public/demo/vault.json`. Then it builds the live demo, serves it on the
+Then the run records the hero, live: the reviewer types a short message and
+sends it with the comment. The fixture agent's next round runs in real time:
+it thinks, edits three files one at a time, runs the tests, and hands over the
+second iteration. Med follows it there, and the run opens the changed files.
+Every API answer and stream chunk goes to `public/demo/hero.json` with its time
+from the message. After that, the run adds a second comment, opens the Commit
+tab and the commit dialog, and opens a small Obsidian vault
+(`scripts/screenshots/vault.ts`) on a second Med server, on the next port. It
+records those answers into `public/demo/recording.json` and
+`public/demo/vault.json`. It also records the vault note's Mermaid diagram as
+Med draws it in Med Dawn and Med Night, into `vault.json`. Then it builds the
+live demo, serves it on the
 port after the vault's, and captures each scene of the demo (see
 [Live demo](#live-demo)) in Med's own Med Dawn and Med Night themes. So each
 screenshot shows what the live window shows. Each feature also gets a capture
@@ -64,7 +108,7 @@ MED_CLI=/path/to/workbench/apps/med/dist/cli.js bun run screenshots
 MED_CLI=/path/to/workbench/apps/med/dist/cli.js bun run screenshots --demo
 ```
 
-Set `MED_PORT` to use another port (never 4173, the Med service, nor the two
+Set `MED_PORT` to use another port (never 6330, the Med service, nor the two
 ports before it). Set
 `SCREENSHOT_PNGS` to a directory to keep the full-size PNG captures.
 
@@ -76,19 +120,26 @@ what you act on, and the dawn's peach for selection. The only other colour is
 a painting: the Mediterranean sun rising over the sea, with its reflection on
 the water, and the moon in dark mode. The product window rises from it.
 
-Med's `scripts/painting/painter.js` paints a scene with thousands of bristle
-strokes in a browser canvas; `scenes.js` holds the dawn and night scenes and
-the icon's tiles. The random numbers are seeded, so each run paints the same
-picture. `bun run paint` (`scripts/painting/paint.ts`) writes
-`public/painting` in AVIF and WebP at 1200 and 2400 px.
+The painting is a watercolour. Med's `scripts/painting/watercolor.js` lays
+washes of pigment on textured paper in a browser canvas: wet washes run
+together, edges dry darker, overlaps deepen, and paper left bare is the light.
+`watercolor-scenes.js` paints the sea after two painters: the dawn after
+Turner's wide wet washes, and the night after Cézanne's flat strokes, with the
+moonlight lifted out. The random numbers are seeded, so each run paints the
+same picture. `bun run paint` (`scripts/painting/paint.ts`) paints at 3600 px
+and writes `public/painting` in AVIF (quality 64) and WebP at 1200 and 2400
+px.
 
 Med's icon, Reflection, comes from `apps/med/scripts/render-icons.mjs`: a paper
-sun and its reflection on a painted tile of the same sea, dawn in a light
-scheme and moonrise in a dark one. The favicon carries both. After it changes,
+sun and its reflection on a tile of the same sea, painted in bristle strokes
+(`painter.js`, `scenes.js`), dawn in a light scheme and moonrise in a dark one.
+The favicon carries both. After it changes,
 copy its `icon.svg` to `public/favicon.svg`, and its `icon-dawn.svg`,
-`icon-night.svg`, and `apple-touch-icon.png` to `public/`. The header picks
-`icon-dawn.svg` or `icon-night.svg` with the system's colour scheme, as the
-screenshots do; the wordmark is drawn strokes in `src/index.html`. The agent marks in the install card come from
+`icon-night.svg`, and `apple-touch-icon.png` to `public/`. The header holds
+both icons in the page (`{{inline:…}}`) and shows one with the system's colour
+scheme, as the screenshots do. As images, their painted tiles loaded after the
+page's first frame, so the icon could flash between pages. The wordmark is
+drawn strokes in `src/partials/header.html`. The agent marks in the install card come from
 Simple Icons (CC0); Codex and OpenCode have no free mark, so a glyph stands in.
 
 On screens narrower than 960 px, the product window shows the screenshot at
@@ -103,17 +154,36 @@ serve this zoom on phones.
 
 Each window on the page runs Med's real web app (`apps/med/src/web/demo.ts`)
 on a recording instead of a server. In the demo, reads replay the recording,
-event streams stay open, writes succeed and change nothing, and the clock
-starts at the time of the recording. The build compiles the app with
-`apps/med/vite.demo.config.ts` into `dist/demo/`.
+event streams stay open, and the clock starts at the time of the recording.
+A small in-memory backend takes the writes that a visitor can see: comments,
+pins, Clear, messages to the agent, staging, commit, and push. They change the
+demo until the page reloads. Other writes succeed and change nothing. The build
+compiles the app with `apps/med/vite.demo.config.ts` into `dist/demo/`.
 
 A window names its scene in `data-demo`: `/demo/demo?scene=review` for the
 product window, and `brief`, `comment`, `session`, `commit`, and `notes` for
 the features. The scene sets the panes, opens the tab or note, scrolls to the
-comment, and then marks the page ready. The `notes` scene replays `vault.json`;
-the others replay `recording.json`.
+comment, and then marks the page ready. The `review` scene replays `hero.json`,
+the `notes` scene replays `vault.json`, and the others replay `recording.json`.
 
-The product window shows all of Med. A feature's scene shows only its part:
+The product window shows Med in zen mode: the sidebar's history and files, the
+diff with the comment, and the agent's session, without other bars and
+buttons. It renders at 1309 by 818, so its text is 10% larger than in a 1440
+by 900 window. When most of the window is in view, the demo starts the
+hero's clock, types the message, and sends it. The agent's edits stream in, and the
+demo opens the edited search bar when the next iteration arrives. In the
+`commit` scene, the demo stages the remaining files, commits, and pushes,
+slowly enough to follow. That window renders at 760 px, because Med's Commit
+tab stacks its columns below 720 px. A live window has a button that starts
+its scene again: Replay in the hero's title bar and under the commit window,
+Reset under the others. The new scene loads behind the old one and fades in
+when it is ready.
+
+The demo build does not include Mermaid. `vite.demo.config.ts` points
+`mermaid` at `apps/med/src/web/demo-diagrams.ts`, which returns the recorded
+drawings. A diagram that a visitor edits shows its source.
+
+A feature's scene shows only its part:
 the brief, a short unified diff with the comment, the agent's session, the
 commit dialog, or the note beside its preview. The part fills the window, and
 the rest of Med runs under it, so the part works as it does in the app. When
@@ -134,7 +204,7 @@ window, the wheel scrolls the page, not the window.
 
 The first window loads about 780 KB (Brotli). The brief, comment, session, and
 commit windows use the same files from the cache. The notes window adds about
-640 KB for the editor and Mermaid. All of it loads after the page.
+140 KB for the editor. All of it loads after the page.
 
 ## Deploy
 

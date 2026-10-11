@@ -1,3 +1,4 @@
+import { SessionsRoute } from "./components/sessions/SessionsPage";
 import { Tooltip } from "@base-ui/react/tooltip";
 import { lazy, memo, Suspense, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -70,13 +71,15 @@ function Root() {
     );
   return (
     <WorkspaceHost>
-      <VaultWorkspace>
-        <LocalFiles>
-          <WorkspaceViews options={controllerOptions} createParser={createPatchParser}>
-            {(controller) => <WorkspaceApp controller={controller} />}
-          </WorkspaceViews>
-        </LocalFiles>
-      </VaultWorkspace>
+      <SessionsRoute>
+        <VaultWorkspace>
+          <LocalFiles>
+            <WorkspaceViews options={controllerOptions} createParser={createPatchParser}>
+              {(controller) => <WorkspaceApp controller={controller} />}
+            </WorkspaceViews>
+          </LocalFiles>
+        </VaultWorkspace>
+      </SessionsRoute>
     </WorkspaceHost>
   );
 }

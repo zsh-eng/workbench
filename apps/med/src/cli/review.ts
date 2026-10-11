@@ -12,6 +12,7 @@ import { apiErrorMessage } from "../shared/protocol";
 import { agentSessions } from "./agent-sessions";
 import {
   DEFAULT_PORT,
+  findPort,
   getStateDirectory,
   readConnection,
   type RunningConnection,
@@ -95,10 +96,11 @@ export async function parseReviewCommand(
   });
   const sessions = () =>
     agentSessions(values.session, { ...sessionOptions, detect: !values["no-session"] });
-  const port = values.port === undefined ? DEFAULT_PORT : Number(values.port);
+  const stateDir = getStateDirectory(values["state-dir"]);
+  const port = values.port === undefined ? await findPort(stateDir) : Number(values.port);
   if (!Number.isInteger(port) || port < 1 || port > 65535)
     throw new Error("Review connection port must be between 1 and 65535.");
-  const common = { port, stateDir: getStateDirectory(values["state-dir"]) };
+  const common = { port, stateDir };
   if (values.help) return { ...common, kind: "help" };
   if (positionals.length !== 1 || !["repos", "create", "update", "wait"].includes(positionals[0]!))
     throw new Error(reviewHelp);

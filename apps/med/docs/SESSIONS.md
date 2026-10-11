@@ -182,6 +182,26 @@ nothing.
 - `SessionPanel.tsx` is the sidebar: the stream, the status, and links. A link
   such as `src/summary.ts:5` opens the file in the review.
 
+## Sessions page
+
+`/sessions` (`components/sessions/`) shows the lead session of each saved
+review in the window's workspace list. The workspaces stay mounted and hidden
+beneath it, so a review keeps its place.
+
+- `GET /api/sessions/events?reviews=` (`src/host/session-summaries.ts`) sends a
+  summary of each lead session: its state, the current turn's prompt, its last
+  six steps, the reply that ended it, and what it waits for (a permission
+  request of a session that Med runs, or `med review wait`). The host reads the
+  last 256 KiB of the transcript, and reads it again only when the file
+  changes. It checks every 1.5 s, as the status stream does, and sends only
+  changes. The stream is a channel of `/api/live`.
+- The **Board** shows each summary as a pane. A permission answer goes to
+  `POST /api/reviews/:id/owned/:session`.
+- The **Desk** lists the sessions and shows the chosen one in the review's
+  Session pane, with its replies. Its address is `/sessions?review=<id>`, so
+  Back returns to the Board.
+- `components/elements/SessionsSection.tsx` shows the page on sample sessions.
+
 ## Replays and fixtures
 
 The Elements page's **Agent session** section replays a real Claude Code

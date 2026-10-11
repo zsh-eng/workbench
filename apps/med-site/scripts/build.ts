@@ -14,7 +14,7 @@ import { buildDemo } from "./demo.ts";
 import { publicDir, render } from "./render.ts";
 
 const dist = join(import.meta.dir, "../dist");
-const { html, assets } = render({ hash: true });
+const { pages, assets } = render({ hash: true });
 const hashed = new Set(assets.values());
 
 rmSync(dist, { recursive: true, force: true });
@@ -33,13 +33,18 @@ for (const [output, source] of assets) {
   mkdirSync(dirname(join(dist, output)), { recursive: true });
   cpSync(source, join(dist, output));
 }
-writeFileSync(join(dist, "index.html"), html);
+for (const [output, html] of pages) {
+  mkdirSync(dirname(join(dist, output)), { recursive: true });
+  writeFileSync(join(dist, output), html);
+}
 
 const kb = (bytes: number) => `${(bytes / 1024).toFixed(1)} KB`;
-const page = Buffer.from(html);
-console.log(
-  `index.html: ${kb(page.length)}, ${kb(gzipSync(page, { level: 9 }).length)} gzipped (HTML, CSS, and scripts)`,
-);
+for (const [output, html] of pages) {
+  const page = Buffer.from(html);
+  console.log(
+    `${output}: ${kb(page.length)}, ${kb(gzipSync(page, { level: 9 }).length)} gzipped (HTML, CSS, and scripts)`,
+  );
+}
 const sizes = [...hashed].reduce(
   (sum, file) => sum + readFileSync(file).length,
   0,

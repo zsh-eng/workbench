@@ -60,15 +60,10 @@ try {
     samples.push(
       await page.evaluate(async () => {
         const start = performance.now();
-        window.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: "B",
-            code: "KeyB",
-            metaKey: true,
-            shiftKey: true,
-            bubbles: true,
-          }),
-        );
+        // The files sidebar has only its button; ⌘⇧B toggles the agent session.
+        [...document.querySelectorAll('[aria-label="Toggle files sidebar"]')]
+          .find((button) => button.checkVisibility())
+          .click();
         let frames = 0;
         let rows = 0;
         while (performance.now() - start < 10000) {
@@ -87,7 +82,10 @@ try {
       }),
     );
     await page.waitForTimeout(300);
-    await page.keyboard.press("Meta+Shift+b");
+    await page
+      .getByRole("button", { name: "Toggle files sidebar", exact: true })
+      .filter({ visible: true })
+      .click();
     await page.locator('[aria-label="Workspace files"]').waitFor({ state: "hidden" });
     await page.waitForTimeout(100);
   }
@@ -106,7 +104,7 @@ try {
     warmMaxMs: warm.at(-1),
     errors,
     method:
-      "Production headless Chromium, 1440x1000. Synthetic shortcut dispatch to two animation frames with mounted rows; 8 warm opens. No CPU profiler.",
+      "Production headless Chromium, 1440x1000. A click on the files sidebar button to two animation frames with mounted rows; 8 warm opens. No CPU profiler.",
   };
   await writeFile(output, JSON.stringify(result, null, 2) + "\n");
   console.log(JSON.stringify(result, null, 2));

@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Menu } from "@base-ui/react/menu";
 import * as stylex from "@stylexjs/stylex";
 import { picked, tokens, ui } from "../theme.stylex";
 import { openWelcome } from "../data/setup";
 import { visibleElement } from "../data/palette-focus";
+import { useTitleBarOverlay } from "../data/title-bar";
+import { CardTab, tabbedCard } from "./CardTab";
 import { Icon } from "./Icon";
 import { ToolButton } from "./ToolButton";
 import { displayPath } from "./welcome/Welcome";
@@ -28,6 +30,7 @@ export function SourcesPage({
   sources,
   home,
   loaded,
+  notice,
   onOpenVault,
   onRequest,
   onCommands,
@@ -35,11 +38,13 @@ export function SourcesPage({
   sources: Source[];
   home?: string;
   loaded: boolean;
+  notice?: ReactNode;
   onOpenVault(id: string): void;
   onRequest(action: "index" | "remove", body: object): Promise<void>;
   onCommands(): void;
 }) {
   const actions = useWorkspaceActions();
+  const tab = useTitleBarOverlay();
   const back = () => {
     const active = actions?.getSnapshot().active;
     if (actions && active) actions.activate(active);
@@ -70,13 +75,59 @@ export function SourcesPage({
         repository: source.name,
       });
   };
-  const repositories = sources.filter((source) => source.kind === "repo");
-  const vaults = sources.filter((source) => source.kind === "vault");
+  return (
+    <SourcesView
+      sources={sources}
+      home={home}
+      loaded={loaded}
+      tab={tab}
+      notice={notice}
+      onBack={back}
+      onOpen={(source) =>
+        source.kind === "vault" ? onOpenVault(source.id) : openRepository(source)
+      }
+      onAdd={openWelcome}
+      onRequest={onRequest}
+      onCommands={onCommands}
+    />
+  );
+}
+
+/**
+ * The Sources page without the app's wiring. It takes the review's frame: one
+ * card on the window's panel, headed by a row that is the card's tab when the
+ * title bar is hidden.
+ */
+export function SourcesView({
+  sources,
+  home,
+  loaded,
+  tab = false,
+  notice,
+  onBack,
+  onOpen,
+  onAdd,
+  onRequest,
+  onCommands,
+}: {
+  sources: Source[];
+  home?: string;
+  loaded: boolean;
+  /** The installed app hides its title bar: the card rises between the window controls. */
+  tab?: boolean;
+  notice?: ReactNode;
+  onBack(): void;
+  onOpen(source: Source): void;
+  onAdd(): void;
+  onRequest(action: "index" | "remove", body: object): Promise<void>;
+  onCommands(): void;
+}) {
+  const empty = loaded && !sources.length;
   const group = (title: string, rows: Source[]) =>
     rows.length > 0 && (
       <section aria-label={title} {...stylex.props(styles.group)}>
         <h2 {...stylex.props(styles.groupTitle)}>
-          <span {...stylex.props(ui.label)}>{title}</span>{" "}
+          <span {...stylex.props(ui.label)}>{title}</span>
           <span {...stylex.props(styles.count)}>{rows.length}</span>
         </h2>
         <ul {...stylex.props(styles.rows)}>
@@ -85,56 +136,90 @@ export function SourcesPage({
               key={source.id}
               source={source}
               home={home}
-              onOpen={() =>
-                source.kind === "vault" ? onOpenVault(source.id) : openRepository(source)
-              }
+              onOpen={() => onOpen(source)}
               onRequest={onRequest}
             />
           ))}
         </ul>
       </section>
     );
-
   return (
-    <main {...stylex.props(styles.page)} aria-label="Sources">
-      <div {...stylex.props(styles.bar)}>
-        <ToolButton label="Back" shortcut="Esc" icon="arrowLeft" onClick={back} />
-        <span {...stylex.props(ui.grow)} />
-        <ToolButton label="Commands" shortcut="⌘ K" icon="search" onClick={onCommands} />
-      </div>
-      <div {...stylex.props(styles.content)}>
+    <div {...stylex.props(styles.page, tab && styles.pageTab)}>
+      <main aria-label="Sources" {...stylex.props(styles.card, tab && tabbedCard.card)}>
+        {tab && <CardTab />}
         <header {...stylex.props(styles.header)}>
-          <div>
-            <h1 {...stylex.props(styles.title)}>Sources</h1>
-            <p {...stylex.props(styles.lede)}>
-              Med watches these folders and keeps their workspaces ready.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={openWelcome}
-            {...stylex.props(ui.button, ui.pressable, styles.find)}
-          >
-            <Icon name="plus" size={13} />
-            Add sources…
-          </button>
+          <ToolButton label="Back" shortcut="Esc" icon="arrowLeft" onClick={onBack} />
+          <h1 {...stylex.props(styles.title)}>Sources</h1>
+          <span {...stylex.props(ui.grow)} />
+          {!empty && (
+            <button
+              type="button"
+              onClick={onAdd}
+              {...stylex.props(ui.button, ui.pressable, styles.add)}
+            >
+              <Icon name="plus" size={13} />
+              Add sources…
+            </button>
+          )}
+          <ToolButton label="Commands" shortcut="⌘ K" icon="search" onClick={onCommands} />
         </header>
-        {group("Repositories", repositories)}
-        {group("Vaults", vaults)}
-        {loaded && !sources.length && (
-          <div {...stylex.props(styles.empty)}>
-            <p {...stylex.props(styles.emptyTitle)}>No sources yet</p>
-            <p {...stylex.props(styles.lede)}>
-              Add the repositories and Obsidian vaults you work in.
-            </p>
+        <div {...stylex.props(styles.scroller)}>
+          <div {...stylex.props(styles.column, empty && styles.emptyColumn)}>
+            {notice}
+            {empty ? (
+              <div {...stylex.props(styles.empty)}>
+                <h2 {...stylex.props(styles.emptyTitle)}>No sources yet</h2>
+                <p {...stylex.props(styles.emptyText)}>
+                  Add the Git repositories and Obsidian vaults you work in. Med finds them for you.
+                </p>
+                <button
+                  type="button"
+                  onClick={onAdd}
+                  {...stylex.props(ui.button, ui.pressable, ui.primary, styles.emptyAdd)}
+                >
+                  Add sources…
+                </button>
+                <p {...stylex.props(styles.note)}>
+                  From a terminal: <code {...stylex.props(styles.code)}>med add ~/code/my-app</code>
+                </p>
+              </div>
+            ) : (
+              <>
+                {group(
+                  "Repositories",
+                  sources.filter((source) => source.kind === "repo"),
+                )}
+                {group(
+                  "Vaults",
+                  sources.filter((source) => source.kind === "vault"),
+                )}
+                {loaded && (
+                  <p {...stylex.props(styles.note, styles.footnote)}>
+                    Med keeps a workspace ready for each folder here. To add one from a terminal,
+                    run <code {...stylex.props(styles.code)}>med add &lt;folder&gt;</code>. Removing
+                    a source never changes its folder.
+                  </p>
+                )}
+              </>
+            )}
           </div>
-        )}
-        <p {...stylex.props(styles.hint)}>
-          From a terminal: <code {...stylex.props(styles.code)}>med add /path/to/folder</code>
-        </p>
-      </div>
-    </main>
+        </div>
+      </main>
+    </div>
   );
+}
+
+/** Where the folder is. The row shows its name, so the folder's parent is
+ * enough when the name is the folder's own, unless the parent is home. */
+function folderPlace(source: Source, home?: string) {
+  const shown = displayPath(source.path, home);
+  const separator = shown.includes(" › ") ? " › " : "/";
+  const cut = shown.lastIndexOf(separator);
+  return cut > 0 &&
+    shown.slice(0, cut) !== "~" &&
+    shown.slice(cut + separator.length) === source.name
+    ? shown.slice(0, cut)
+    : shown;
 }
 
 function status(source: Source) {
@@ -193,7 +278,8 @@ function SourceRow({
     return (
       <li {...stylex.props(styles.row, styles.confirm)} role="alert">
         <span {...stylex.props(styles.confirmText)}>
-          Remove <strong>{source.name}</strong> from Med? The folder stays as it is.
+          Remove <strong {...stylex.props(styles.strong)}>{source.name}</strong> from Med? The
+          folder stays as it is.
           {error && <span {...stylex.props(styles.failed)}> {error}</span>}
         </span>
         <button
@@ -226,16 +312,14 @@ function SourceRow({
         }}
         {...stylex.props(styles.open)}
       >
-        <span aria-hidden="true" {...stylex.props(styles.tile, vault && styles.vaultTile)}>
-          <Icon name={vault ? "vault" : "gitBranch"} size={15} />
+        <span aria-hidden="true" {...stylex.props(styles.icon)}>
+          <Icon name={vault ? "vault" : "gitBranch"} size={14} />
         </span>
-        <span {...stylex.props(styles.text)}>
-          <span data-row="name" {...stylex.props(styles.name)}>
-            {source.name}
-          </span>
-          <span data-row="path" {...stylex.props(styles.path)}>
-            {displayPath(source.path, home)}
-          </span>
+        <span data-row="name" {...stylex.props(styles.name)}>
+          {source.name}
+        </span>
+        <span data-row="path" {...stylex.props(styles.where)}>
+          {folderPlace(source, home)}
         </span>
         {error ? (
           <span {...stylex.props(styles.status, styles.failed)}>{error}</span>
@@ -294,107 +378,131 @@ function SourceRow({
 }
 
 const spin = stylex.keyframes({ to: { transform: "rotate(360deg)" } });
+const narrow = "@media (max-width: 640px)";
 
 const styles = stylex.create({
+  // The review's frame: a 6px gutter on the panel, and one card.
   page: {
     flex: "1",
     minHeight: 0,
-    overflowY: "auto",
+    display: "flex",
+    padding: 6,
     backgroundColor: tokens.panel,
     color: tokens.text,
     fontFamily: tokens.ui,
+    fontSize: 12,
+    WebkitFontSmoothing: "antialiased",
   },
-  bar: {
-    position: "sticky",
-    top: 0,
-    zIndex: 1,
+  // The view starts below the title bar; the card rises into it.
+  pageTab: { marginTop: "calc(-1 * var(--med-titlebar-height))" },
+  card: {
+    position: "relative",
+    flex: "1",
+    minWidth: 0,
     display: "flex",
-    alignItems: "center",
-    height: 44,
-    paddingInline: 8,
-    backgroundColor: tokens.panel,
+    flexDirection: "column",
+    overflow: "hidden",
+    backgroundColor: tokens.canvas,
+    borderRadius: tokens.frame,
+    boxShadow: `0 0 0 1px ${tokens.line}, 0 1px 3px #0000000f`,
   },
-  content: {
-    boxSizing: "border-box",
-    width: "100%",
-    maxWidth: 680,
-    marginInline: "auto",
-    paddingTop: { default: 40, "@media (max-width: 600px)": 16 },
-    paddingBottom: 48,
-    paddingInline: 16,
-  },
+  // As the review card's first row.
   header: {
     display: "flex",
-    alignItems: "flex-end",
-    justifyContent: "space-between",
-    gap: 16,
-    marginBottom: 28,
+    alignItems: "center",
+    gap: 4,
+    flexShrink: 0,
+    height: 38,
+    paddingInline: 6,
+    boxSizing: "border-box",
+    borderBottomWidth: 1,
+    borderBottomStyle: "solid",
+    borderBottomColor: tokens.line,
   },
-  title: { margin: 0, fontSize: 22, fontWeight: 600, letterSpacing: "-0.01em" },
-  lede: { marginBlock: 6, color: tokens.muted, fontSize: 13, lineHeight: 1.5 },
-  find: { flexShrink: 0, color: tokens.text, backgroundColor: tokens.fill },
-  group: { marginBottom: 24 },
+  title: {
+    margin: 0,
+    marginInlineStart: 2,
+    fontSize: 13,
+    fontWeight: 500,
+    letterSpacing: "-0.005em",
+    whiteSpace: "nowrap",
+  },
+  add: { color: tokens.text },
+  scroller: {
+    flex: "1",
+    minHeight: 0,
+    display: "flex",
+    flexDirection: "column",
+    overflowY: "auto",
+  },
+  column: {
+    boxSizing: "border-box",
+    width: "100%",
+    maxWidth: 880,
+    marginInline: "auto",
+    paddingTop: { default: 28, [narrow]: 16 },
+    paddingBottom: 40,
+    paddingInline: { default: 24, [narrow]: 8 },
+  },
+  emptyColumn: {
+    flex: "1",
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
+  },
+  group: { marginBottom: 28 },
+  // Level with the rows' icons.
   groupTitle: {
     display: "flex",
     alignItems: "baseline",
     gap: 8,
     marginBlock: 0,
-    marginBottom: 8,
-    paddingInline: 2,
-    color: tokens.muted,
-    fontSize: 12,
-    fontWeight: 500,
+    marginBottom: 6,
+    paddingInline: 10,
+    fontSize: "inherit",
+    fontWeight: "inherit",
   },
-  count: { color: tokens.faint, fontWeight: 400, fontVariantNumeric: "tabular-nums" },
+  count: { color: tokens.faint, fontSize: 11.5, fontVariantNumeric: "tabular-nums" },
   rows: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 1,
     margin: 0,
     padding: 0,
     listStyle: "none",
-    overflow: "hidden",
-    backgroundColor: tokens.canvas,
-    borderRadius: `calc(10px * ${tokens.round})`,
-    boxShadow: `0 0 0 1px ${tokens.line}, 0 1px 2px #0000000d`,
   },
+  // As the sidebar's workspace rows: a rounded highlight, no rules.
   row: {
     display: "flex",
     alignItems: "center",
-    gap: 4,
-    minHeight: 56,
-    paddingInlineEnd: 8,
-    borderTopWidth: { default: 1, ":first-child": 0 },
-    borderTopStyle: "solid",
-    borderTopColor: tokens.line,
+    minHeight: 34,
+    paddingInlineEnd: 4,
+    borderRadius: `calc(7px * ${tokens.round})`,
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
   },
+  // The name column has one width, so every row's location starts at one edge.
   open: {
-    display: "flex",
+    display: "grid",
+    gridTemplateColumns: {
+      default: "14px minmax(0, clamp(128px, 30%, 240px)) minmax(0, 1fr) auto",
+      [narrow]: "14px minmax(0, 1fr) auto",
+    },
     alignItems: "center",
-    gap: 12,
+    columnGap: 10,
+    rowGap: 1,
     flex: "1",
     minWidth: 0,
     alignSelf: "stretch",
-    paddingInlineStart: 12,
-    paddingInlineEnd: 4,
+    paddingBlock: { default: 0, [narrow]: 7 },
+    paddingInlineStart: 10,
+    paddingInlineEnd: 6,
     color: "inherit",
     textDecoration: "none",
     outline: "none",
-    borderRadius: `calc(10px * ${tokens.round})`,
+    borderRadius: `calc(7px * ${tokens.round})`,
     boxShadow: { default: "none", ":focus-visible": `inset 0 0 0 2px ${tokens.accentLine}` },
   },
-  tile: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-    width: 30,
-    height: 30,
-    borderRadius: `calc(8px * ${tokens.round})`,
-    color: tokens.muted,
-    backgroundColor: tokens.fill,
-    boxShadow: `inset 0 0 0 1px ${tokens.line}`,
-  },
-  vaultTile: { color: tokens.accent, backgroundColor: tokens.accentSoft, boxShadow: "none" },
-  text: { display: "flex", flexDirection: "column", gap: 2, flex: "1", minWidth: 0 },
+  icon: { display: "flex", color: tokens.faint },
   name: {
     overflow: "hidden",
     textOverflow: "ellipsis",
@@ -402,18 +510,20 @@ const styles = stylex.create({
     fontSize: 13,
     fontWeight: 500,
   },
-  path: {
+  where: {
+    gridColumnStart: { default: "auto", [narrow]: 2 },
+    gridColumnEnd: { default: "auto", [narrow]: -1 },
+    gridRowStart: { default: "auto", [narrow]: 2 },
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
-    color: tokens.faint,
-    fontSize: 12,
+    color: tokens.muted,
+    fontSize: 12.5,
   },
   status: {
     display: "inline-flex",
     alignItems: "center",
     gap: 6,
-    flexShrink: 0,
     color: tokens.faint,
     fontSize: 12,
     fontVariantNumeric: "tabular-nums",
@@ -435,10 +545,14 @@ const styles = stylex.create({
   },
   more: {
     flexShrink: 0,
+    width: 26,
+    minWidth: 26,
+    minHeight: 26,
     opacity: {
       default: 0,
       [stylex.when.ancestor(":hover")]: 1,
       [stylex.when.ancestor(":focus-within")]: 1,
+      "@media (hover: none)": 1,
     },
   },
   moreOpen: { opacity: 1 },
@@ -446,8 +560,21 @@ const styles = stylex.create({
   menu: { minWidth: 180 },
   separator: { height: 1, marginBlock: 4, marginInline: 4, backgroundColor: tokens.line },
   danger: { color: tokens.red },
-  confirm: { gap: 6, paddingInlineStart: 16, backgroundColor: tokens.fill },
-  confirmText: { flex: "1", minWidth: 0, color: tokens.muted, fontSize: 12.5, lineHeight: 1.5 },
+  confirm: {
+    flexWrap: "wrap",
+    gap: 6,
+    paddingBlock: 4,
+    paddingInlineStart: 34,
+    backgroundColor: { default: tokens.fill, ":hover": tokens.fill },
+  },
+  confirmText: {
+    flex: "1",
+    minWidth: 200,
+    color: tokens.muted,
+    fontSize: 12.5,
+    lineHeight: 1.5,
+  },
+  strong: { color: tokens.text, fontWeight: 500 },
   remove: {
     color: { default: tokens.red, ":hover:not(:disabled)": tokens.red },
     backgroundColor: {
@@ -456,12 +583,25 @@ const styles = stylex.create({
     },
   },
   empty: {
-    paddingBlock: 32,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    alignSelf: "center",
+    maxWidth: 360,
+    paddingBottom: 48,
     textAlign: "center",
-    borderRadius: `calc(10px * ${tokens.round})`,
-    boxShadow: `inset 0 0 0 1px ${tokens.line}`,
   },
-  emptyTitle: { margin: 0, fontSize: 14, fontWeight: 500 },
-  hint: { marginTop: 20, color: tokens.faint, fontSize: 12 },
+  emptyTitle: { margin: 0, fontSize: 15, fontWeight: 500, letterSpacing: "-0.01em" },
+  emptyText: {
+    marginBlock: 6,
+    marginBottom: 18,
+    color: tokens.muted,
+    fontSize: 13,
+    lineHeight: 1.5,
+    textWrap: "balance",
+  },
+  emptyAdd: { paddingInline: 14 },
+  note: { marginBlock: 0, marginTop: 16, color: tokens.faint, fontSize: 12, lineHeight: 1.6 },
+  footnote: { maxWidth: "62ch", marginTop: 4, paddingInline: 10 },
   code: { fontFamily: tokens.code, fontSize: 11.5, color: tokens.muted },
 });

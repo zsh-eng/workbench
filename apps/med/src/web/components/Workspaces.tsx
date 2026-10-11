@@ -30,6 +30,7 @@ import {
   pinned,
   resumeCommand,
   REVIEW_UPDATED,
+  showSessions,
   workspaceUrl,
   type PullWorkspace,
   type RepositoryWorkspace,
@@ -134,6 +135,11 @@ const noSubscription = () => () => {};
 /** The host's actions, for pages that cover every workspace, such as Sources. */
 export function useWorkspaceActions() {
   return use(Actions);
+}
+
+/** The host's fetch, for pages that cover every workspace. */
+export function useHostFetch() {
+  return use(HostFetch);
 }
 
 /**
@@ -1012,6 +1018,41 @@ const agentLabel = (status: AgentStatus) =>
       ? "Codex"
       : (status.name ?? "The agent");
 
+/**
+ * The Sessions page's row, at the head of the list while a review has an
+ * agent session: how many sessions need the user, or a turning arc while
+ * agents work.
+ */
+function SessionsEntry({ statuses }: { statuses: ReadonlyMap<string, AgentStatus> }) {
+  const all = [...statuses.values()];
+  const waiting = all.filter((status) => status.state === "waiting").length;
+  const working = all.filter((status) => status.state === "working").length;
+  const needs = `${waiting} ${waiting === 1 ? "needs" : "need"} you`;
+  return (
+    <div {...stylex.props(styles.entry)}>
+      <button
+        type="button"
+        aria-label={`Sessions${waiting ? `, ${needs}` : working ? `, ${working} working` : ""}`}
+        onClick={showSessions}
+        {...stylex.props(styles.row)}
+      >
+        <Icon name="sessions" size={14} />
+        <span {...stylex.props(styles.name)}>Sessions</span>
+        {waiting > 0 ? (
+          <span {...stylex.props(styles.detail, styles.needsYou)}>{needs}</span>
+        ) : (
+          working > 0 && (
+            <WorkingMark
+              label={`${working} ${working === 1 ? "session works" : "sessions work"}`}
+              hides={false}
+            />
+          )
+        )}
+      </button>
+    </div>
+  );
+}
+
 /** A small turning arc while the review's agent works. */
 function WorkingMark({ label, hides }: { label: string; hides: boolean }) {
   return (
@@ -1109,6 +1150,7 @@ function WorkspaceRows({
   const qualifier = qualifiers(rows);
   return (
     <WorkspaceNav>
+      {statuses.size > 0 && <SessionsEntry statuses={statuses} />}
       <div {...stylex.props(styles.heading)}>
         <span {...stylex.props(ui.label)}>Workspaces</span>
         {onNew && (
@@ -1627,6 +1669,8 @@ const styles = stylex.create({
   },
   // A problem wraps below the row.
   item: { position: "relative", display: "flex", flexWrap: "wrap" },
+  // The Sessions row, above the heading, as wide as the rows.
+  entry: { display: "flex", paddingInline: 6, paddingBlock: 2 },
   problem: {
     flexBasis: "100%",
     marginTop: 2,

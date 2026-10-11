@@ -164,7 +164,9 @@ private final class ShareSaveModel: ObservableObject {
   private var footerHeight: CGFloat = 80
 
   private let context: NSExtensionContext
-  private let metadataProvider = LPMetadataProvider()
+  /// Exists only once a fetch starts. Cancelling a provider that never started
+  /// calls its missing completion handler and crashes the extension.
+  private var metadataProvider: LPMetadataProvider?
   private var linkTask: Task<Void, Never>?
   private var previewTask: Task<Void, Never>?
   private var metadataTask: Task<Void, Never>?
@@ -216,7 +218,6 @@ private final class ShareSaveModel: ObservableObject {
 
   init(context: NSExtensionContext) {
     self.context = context
-    metadataProvider.timeout = 8
   }
 
   func start() { linkTask = Task { await readLink() } }
@@ -273,7 +274,10 @@ private final class ShareSaveModel: ObservableObject {
           return
         }
       #endif
-      let metadata = try await metadataProvider.startFetchingMetadata(for: url)
+      let fetcher = LPMetadataProvider()
+      fetcher.timeout = 8
+      metadataProvider = fetcher
+      let metadata = try await fetcher.startFetchingMetadata(for: url)
       guard !Task.isCancelled else { return }
       let candidate = metadata.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
       if !candidate.isEmpty && candidate != url.absoluteString { title = candidate }
@@ -565,7 +569,7 @@ private final class ShareSaveModel: ObservableObject {
     thumbnailTask?.cancel()
     taggingTask?.cancel()
     imageLoadProgress?.cancel()
-    metadataProvider.cancel()
+    metadataProvider?.cancel()
   }
 
   func close() {

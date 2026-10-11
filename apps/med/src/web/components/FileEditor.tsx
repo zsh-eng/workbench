@@ -509,15 +509,21 @@ export default function FileEditor({
     actions.set(cm, {
       scroll: (y) => {
         const line = editor.state.doc.lineAt(editor.state.selection.main.head);
+        const pos = y === "start" ? line.from : line.to;
         const margin = Math.min(
           4 * editor.defaultLineHeight,
           Math.max(0, (editor.scrollDOM.clientHeight - editor.defaultLineHeight) / 2),
         );
+        // CodeMirror scrolls the caret's text box, which sits inside the line
+        // box by half the leading (3 px in Paper Mono), so count from the box.
+        const caret = editor.coordsAtPos(pos, y === "start" ? 1 : -1);
+        const block = editor.lineBlockAt(pos);
+        const top = editor.documentTop + block.top;
+        const inset = caret
+          ? Math.max(0, y === "start" ? caret.top - top : top + block.height - caret.bottom)
+          : 0;
         editor.dispatch({
-          effects: EditorView.scrollIntoView(y === "start" ? line.from : line.to, {
-            y,
-            yMargin: margin,
-          }),
+          effects: EditorView.scrollIntoView(pos, { y, yMargin: margin + inset }),
         });
       },
       definition: () => {

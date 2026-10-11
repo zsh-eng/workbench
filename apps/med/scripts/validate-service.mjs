@@ -228,10 +228,6 @@ try {
   assert.equal(await tree.isVisible(), false);
   await page.getByRole("button", { name: "Toggle sidebar", exact: true }).click();
   await tree.waitFor();
-  await page.keyboard.press("Meta+Shift+b");
-  assert.equal(await tree.isVisible(), false);
-  await page.keyboard.press("Meta+Shift+b");
-  await tree.waitFor();
   await page.keyboard.press("Meta+Shift+k");
   await page.getByRole("combobox", { name: "Find file", exact: true }).fill("Target");
   await page.keyboard.press("Enter");

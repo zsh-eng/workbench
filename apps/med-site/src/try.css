@@ -1,0 +1,803 @@
+/* Prototypes in the docs (src/try.js): Med's parts at low fidelity, in Med's
+   palette, with the keys that a section describes. Each key is also a
+   button, for touch screens. Med Dawn's and Med Night's diff colours. */
+
+.try {
+  --added: rgb(47 122 80 / 0.1);
+  --added-text: #2f7a50;
+  --removed: rgb(184 67 76 / 0.1);
+  --removed-text: #b8434c;
+  container: try / inline-size;
+  margin: 8px 0 28px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--ink);
+  font: 400 0.8125rem/1.5 var(--ui);
+}
+
+@media (prefers-color-scheme: dark) {
+  .try {
+    --added: rgb(143 203 159 / 0.12);
+    --added-text: #8fcb9f;
+    --removed: rgb(238 150 144 / 0.12);
+    --removed-text: #ee9690;
+  }
+}
+
+.try button {
+  font: inherit;
+  color: inherit;
+}
+
+.try-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 7px 0 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bar);
+  font-size: 0.75rem;
+}
+
+.try-bar b {
+  flex: none;
+  color: var(--sea);
+  font-weight: 500;
+}
+
+.try-bar span {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.try-bar .try-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.try-bar .try-hint {
+  color: var(--muted);
+  transition: opacity 160ms var(--ease-out);
+}
+
+.try:focus-within .try-hint {
+  opacity: 0;
+}
+
+.try-hint .touch,
+.try-bar .restart {
+  flex: none;
+}
+
+@media (hover: none) {
+  .try-hint .pointer {
+    display: none;
+  }
+}
+
+@container try (max-width: 480px) {
+  .try-bar .try-hint {
+    display: none;
+  }
+}
+
+@media (hover: hover) {
+  .try-hint .touch {
+    display: none;
+  }
+}
+
+.try-stage {
+  position: relative;
+  min-height: 236px;
+}
+
+.try-stage:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--sea);
+  border-radius: 0;
+}
+
+/* The keys, as buttons. A key that runs lights up for a moment. */
+.try-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 4px;
+  padding: 7px 8px;
+  border-top: 1px solid var(--line);
+}
+
+.try-keys button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px 0 4px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+.try-keys button:hover,
+.try-keys button[data-hit] {
+  background: var(--fill);
+  color: var(--ink);
+}
+
+.try kbd {
+  display: inline-block;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--paper);
+  color: var(--ink);
+  font: 500 0.6875rem/18px var(--code);
+  text-align: center;
+  transition:
+    background-color 120ms var(--ease-out),
+    border-color 120ms var(--ease-out);
+}
+
+.try-keys button[data-hit] kbd {
+  border-color: var(--sea);
+  background: color-mix(in srgb, var(--sea) 14%, var(--paper));
+}
+
+.guide .try-status {
+  min-height: 1.5em;
+  margin: 0;
+  padding: 0 14px 9px;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+/* Shared parts: a row of buttons, a quiet button, a strong one, and code. */
+
+.try .chip,
+.try .act {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--card);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.try .chip:hover {
+  background: var(--fill);
+}
+
+.try .act {
+  border-color: transparent;
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 500;
+}
+
+.try .act:disabled,
+.try .chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.try .count {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.try .lines {
+  font: 400 0.75rem/1.65 var(--code);
+}
+
+.try .line {
+  display: grid;
+  grid-template-columns: 34px 14px minmax(0, 1fr);
+  white-space: pre;
+}
+
+.try .line > span:first-child {
+  padding-right: 8px;
+  color: var(--muted);
+  text-align: right;
+  opacity: 0.7;
+}
+
+.try .line > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.try .line[data-kind="+"] {
+  background: var(--added);
+}
+
+.try .line[data-kind="+"] > span:nth-child(2) {
+  color: var(--added-text);
+}
+
+.try .line[data-kind="-"] {
+  background: var(--removed);
+}
+
+.try .line[data-kind="-"] > span:nth-child(2) {
+  color: var(--removed-text);
+}
+
+.try .path {
+  overflow: hidden;
+  font: 400 0.75rem/1.4 var(--code);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.try .path span {
+  color: var(--muted);
+}
+
+.try .tag {
+  color: var(--muted);
+  font-size: 0.6875rem;
+}
+
+.try textarea,
+.try input {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 0.8125rem/1.45 var(--ui);
+  resize: none;
+}
+
+.try textarea {
+  padding: 8px 10px;
+}
+
+.try input {
+  height: 30px;
+  padding: 0 10px;
+}
+
+.try textarea:focus-visible,
+.try input:focus-visible {
+  outline: 2px solid var(--sea);
+  outline-offset: -1px;
+}
+
+/* The Commit tab: the files at the left, the focused file's diff at the
+   right. Narrow screens stack them. */
+
+.tc {
+  display: grid;
+  grid-template-columns: minmax(0, 248px) minmax(0, 1fr);
+  min-height: 236px;
+}
+
+.tc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 8px 10px 10px;
+  border-right: 1px solid var(--line);
+}
+
+.tc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-left: 4px;
+  font-weight: 500;
+}
+
+.tc-head button {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.tc-filter {
+  position: relative;
+}
+
+.tc-filter kbd {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+}
+
+.tc-rows {
+  flex: 1;
+}
+
+.tc-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 6px 0 4px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.tc-row[aria-current="true"] {
+  background: var(--fill-strong);
+}
+
+.tc-mark {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.tc-mark[data-mark="staged"],
+.tc-mark[data-mark="partly"] {
+  color: var(--sea);
+}
+
+.tc-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tc-foot .count {
+  flex: 1;
+  font-size: 0.75rem;
+}
+
+.tc-ask {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  font-size: 0.75rem;
+}
+
+.tc-ask div,
+.tc-compose div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.tc-compose {
+  display: grid;
+  gap: 6px;
+}
+
+.tc-diff {
+  min-width: 0;
+  padding: 10px 0;
+}
+
+.tc-diff .path {
+  padding: 0 12px 6px;
+}
+
+.tc-empty {
+  padding: 18px 12px;
+  color: var(--muted);
+}
+
+@container try (max-width: 560px) {
+  .tc {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tc-list {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+}
+
+/* A comment and its trip to the agent: the diff at the left, the agent's
+   session at the right. Narrow screens stack them. */
+
+.cm-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 8px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.cm-bar strong {
+  flex: 1;
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 236px);
+}
+
+.cm-diff {
+  min-width: 0;
+  padding: 8px 0 12px;
+}
+
+.cm-diff .path {
+  padding: 0 12px 6px;
+}
+
+.try .cm-line {
+  grid-template-columns: 34px 14px minmax(0, 1fr);
+}
+
+.cm-line button {
+  padding: 0 8px 0 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  text-align: right;
+  cursor: pointer;
+}
+
+.cm-line button:hover {
+  color: var(--ink);
+}
+
+.try .cm-line[data-selected] {
+  background: var(--select);
+}
+
+.cm-line[data-new] {
+  animation: try-flash 1.6s var(--ease-out);
+}
+
+@keyframes try-flash {
+  from {
+    background: color-mix(in srgb, var(--sea) 28%, transparent);
+  }
+}
+
+.cm-card {
+  display: grid;
+  gap: 6px;
+  margin: 6px 12px 8px 48px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--paper);
+  font-family: var(--ui);
+  white-space: normal;
+}
+
+.cm-card header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.75rem;
+}
+
+.cm-card header span {
+  color: var(--muted);
+}
+
+.cm-card header button {
+  margin-left: auto;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.cm-card footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.cm-session {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-left: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.cm-session > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  font-weight: 500;
+}
+
+.cm-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.6875rem;
+  font-weight: 400;
+}
+
+.cm-state::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dawn);
+}
+
+.cm-state[data-state="working"]::before {
+  background: var(--sea);
+  animation: try-pulse 1s var(--ease-in-out) infinite alternate;
+}
+
+@keyframes try-pulse {
+  to {
+    opacity: 0.3;
+  }
+}
+
+.cm-thread {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  flex: 1;
+  max-height: 260px;
+  padding: 10px;
+  overflow-y: auto;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.cm-thread .you {
+  justify-self: end;
+  max-width: 92%;
+  padding: 7px 9px;
+  border-radius: 9px;
+  background: var(--fill-strong);
+}
+
+.cm-thread .you blockquote {
+  margin: 4px 0 0;
+  padding-left: 7px;
+  border-left: 2px solid var(--dawn);
+  color: var(--prose);
+}
+
+.cm-thread .delivery {
+  justify-self: end;
+  margin-top: -6px;
+  color: var(--muted);
+  font-size: 0.6875rem;
+}
+
+.cm-thread .cite {
+  color: var(--sea);
+  font-family: var(--code);
+  font-size: 0.6875rem;
+}
+
+.cm-compose {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.cm-compose div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.cm-attached {
+  color: var(--muted);
+  font-size: 0.6875rem;
+}
+
+@container try (max-width: 560px) {
+  .cm {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cm-session {
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .cm-bar {
+    flex-wrap: wrap;
+  }
+
+  .cm-bar strong {
+    flex-basis: 100%;
+  }
+}
+
+/* Notes: the brief, an excerpt under each paragraph that cites lines, and
+   the iteration keys. */
+
+.nt-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.nt-head [role="tab"] {
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.nt-head [role="tab"][aria-selected="true"] {
+  background: var(--fill-strong);
+  color: var(--ink);
+}
+
+.nt-keys {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.nt-keys button {
+  min-width: 24px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font: 500 0.6875rem/1 var(--code);
+  cursor: pointer;
+}
+
+.nt-keys button[aria-pressed="true"] {
+  border-color: var(--line);
+  background: var(--card);
+  color: var(--ink);
+}
+
+.nt-body {
+  position: relative;
+  max-height: 400px;
+  padding: 12px 16px 14px;
+  overflow-y: auto;
+  scroll-padding: 12px;
+}
+
+.nt-cover {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.nt-cover i {
+  position: relative;
+  width: 44px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--fill-strong);
+}
+
+.nt-cover i::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--part);
+  background: var(--sea);
+}
+
+.guide .nt-body p {
+  margin: 0 0 8px;
+  color: var(--prose);
+  font-size: 0.8125rem;
+}
+
+.nt-body .cite {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--sea);
+  font: 400 0.75rem var(--code);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--sea) 40%, transparent);
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+
+.nt-excerpt {
+  margin: 0 0 12px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  transition: border-color 160ms var(--ease-out);
+}
+
+.nt-excerpt[data-focus] {
+  border-color: var(--sea);
+  box-shadow: 0 0 0 1px var(--sea);
+}
+
+.nt-excerpt > button {
+  display: block;
+  width: 100%;
+  padding: 5px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.nt-missing {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.nt-missing .path {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink);
+}
+
+.nt-file .line[data-cited] {
+  box-shadow: inset 2px 0 var(--sea);
+}
+
+.nt-file .path {
+  padding: 0 0 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .try *,
+  .try *::before {
+    animation: none !important;
+    transition: none !important;
+  }
+}

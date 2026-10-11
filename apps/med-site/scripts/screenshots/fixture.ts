@@ -4,6 +4,9 @@
 
 export const author = { name: "Jordan Lee", email: "jordan@example.com" };
 
+/** What the reviewer writes to the agent with the first comment. */
+export const message = "One change before I commit:";
+
 type Files = Record<string, string>;
 
 export interface Commit {
@@ -307,7 +310,7 @@ export function SearchBar({ onResults }: { onResults: (count: number) => void })
 }
 `;
 
-const cssV1 = `.search {
+export const cssV1 = `.search {
   display: grid;
   gap: 6px;
 }
@@ -323,7 +326,7 @@ const cssV1 = `.search {
 }
 `;
 
-const cssV2 = `${cssV1}
+export const cssV2 = `${cssV1}
 .search-filters {
   display: flex;
   gap: 6px;
@@ -451,7 +454,8 @@ Two tests cover a combined filter and an unknown token ([search.test.ts:15-22](t
   },
 ];
 
-/** Reviewer comments on new lines. Round two answers the first one. */
+/** Reviewer comments on new lines, the first in the first file of the
+ * changes. Round two answers the first one. */
 export const comments = [
   {
     round: 0,

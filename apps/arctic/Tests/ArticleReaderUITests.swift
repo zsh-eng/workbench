@@ -414,6 +414,8 @@ final class ArticleReaderUITests: XCTestCase {
     waitForExpectations(timeout: 15)
     app.navigationBars.buttons.element(boundBy: 0).tap()
     swipeLibrary(app, left: true)
+    XCTAssertTrue(app.buttons["folder-favourites"].isSelected)
+    swipeLibrary(app, left: true)
     XCTAssertTrue(app.buttons["folder-downloaded"].isSelected)
     XCTAssertTrue(card.waitForExistence(timeout: 10))
     capture(app, "41-downloaded-folder")
@@ -445,7 +447,8 @@ final class ArticleReaderUITests: XCTestCase {
     XCTAssertFalse(app.buttons["browser-forward"].isEnabled)
     XCTAssertFalse(app.alerts["Could not open article"].exists)
     app.buttons["reader-appearance"].tap()
-    XCTAssertTrue(app.buttons["reader-font"].waitForExistence(timeout: 5))
+    XCTAssertTrue(
+      app.descendants(matching: .any)["reader-font"].firstMatch.waitForExistence(timeout: 5))
     capture(app, "42-offline-reader-appearance")
     app.buttons["Done"].tap()
     // Toggling a saved link must preserve its already downloaded Reader copy.
@@ -912,9 +915,12 @@ final class ArticleReaderUITests: XCTestCase {
     app.buttons["reader-add-note"].tap()
     let input = app.textFields["note-message-input"]
     XCTAssertTrue(input.waitForExistence(timeout: 5))
-    XCTAssertGreaterThanOrEqual(
-      app.descendants(matching: .any).matching(identifier: "note-input-bar").firstMatch.frame
-        .height, 54)
+    // The bar's accessibility frame is only the text line. A tap in its padding
+    // proves the 54 pt bar is there: it must not reach the article and close it.
+    app.coordinate(withNormalizedOffset: .zero)
+      .withOffset(CGVector(dx: input.frame.midX, dy: input.frame.minY - 12)).tap()
+    XCTAssertFalse(app.buttons["reader-add-note"].waitForExistence(timeout: 1))
+    XCTAssertTrue(input.exists)
     capture(app, "reader-composer-height")
     input.press(forDuration: 1.1)
     let paste = app.menuItems["Paste"]
@@ -1237,7 +1243,8 @@ final class ArticleReaderUITests: XCTestCase {
     XCTAssertTrue(app.webViews.staticTexts[unicode].waitForExistence(timeout: 5))
     XCTAssertFalse(app.alerts["Could not open article"].exists)
     app.navigationBars.buttons.element(boundBy: 0).tap()
-    for _ in 0..<3 { app.swipeUp() }
+    // Cards are taller since the redesign; scroll until the last one is laid out.
+    for _ in 0..<8 where !app.buttons["article-cached-11"].exists { app.swipeUp() }
     expectation(for: NSPredicate(format: "label CONTAINS 'cached-11'"), evaluatedWith: ready)
     waitForExpectations(timeout: 15)
     XCTAssertFalse(requested.label.split(separator: ",").contains("cached-0"))
