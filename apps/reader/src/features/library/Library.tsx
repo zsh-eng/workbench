@@ -1,12 +1,9 @@
-import { AccountMenu } from "@/components/AccountMenu";
-import { PlaceNav } from "@/components/AppNavigation";
 import { useAppShellReady } from "@/components/AppShell";
 import {
   APP_HEADER_BUTTON,
-  APP_HEADER_TOP,
   APP_PAGE_FRAME,
-  APP_TITLE_TYPE,
 } from "@/components/app-header-styles";
+import { PlaceHeader, usePlaceSearch } from "@/components/PlaceHeader";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -35,14 +32,13 @@ import { warmPaginationWorker } from "@/lib/pagination-v2/worker/pagination-work
 import { beginReaderTrace } from "@/lib/reader-performance-trace";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Search, SlidersHorizontal, X } from "lucide-react";
+import { Plus, SlidersHorizontal } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
-  useRef,
   useState,
   type DragEvent,
 } from "react";
@@ -70,10 +66,6 @@ const FADE = {
   exit: { opacity: 0, transition: MOTION.exit },
 };
 
-/** Keys typed here belong to a field or an open menu, not to the search. */
-const KEYBOARD_OWNERS =
-  "input, textarea, select, [contenteditable='true'], [role='menu'], [role='dialog'], [role='listbox']";
-
 /**
  * The Library. The books you are reading come first, on a shelf with their
  * progress; every other book is in the covers or the list below. Each book
@@ -91,13 +83,9 @@ export function Library() {
 
   const [filter, setFilter] = useState<LibraryFilter>("all");
   const [view, setViewState] = useState(readViewPreferences);
-  const [search, setSearch] = useState<string | null>(null);
-  const [searchFocusKey, setSearchFocusKey] = useState(0);
+  const placeSearch = usePlaceSearch();
   const [isDragging, setIsDragging] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const searching = search !== null;
-  const terms = search?.trim() ?? "";
+  const { terms } = placeSearch;
 
   const setView = (next: Partial<LibraryViewPreferences>) =>
     setViewState((current) => {
@@ -208,51 +196,6 @@ export function Library() {
     },
     [deleteBook, toast],
   );
-
-  const openSearch = useCallback((typed = "") => {
-    setSearch((current) => (current ?? "") + typed);
-    setSearchFocusKey((key) => key + 1);
-  }, []);
-
-  useEffect(() => {
-    const input = inputRef.current;
-    if (!input || searchFocusKey === 0) return;
-    input.focus({ preventScroll: true });
-    input.setSelectionRange(input.value.length, input.value.length);
-  }, [searchFocusKey]);
-
-  // Results start at the top of the page, wherever the search began.
-  const searchedTerms = useRef(terms);
-  useEffect(() => {
-    if (searchedTerms.current === terms) return;
-    searchedTerms.current = terms;
-    window.scrollTo({ top: 0 });
-  }, [terms]);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
-      if ((event.target as Element | null)?.closest?.(KEYBOARD_OWNERS)) return;
-      const modifier = event.metaKey || event.ctrlKey;
-      if (modifier && !event.altKey && event.key.toLowerCase() === "f") {
-        event.preventDefault();
-        openSearch();
-        return;
-      }
-      if (modifier || event.altKey) return;
-      if (event.key === "/") {
-        event.preventDefault();
-        openSearch();
-      } else if (event.key === "Escape") {
-        setSearch(null);
-      } else if (event.key.length === 1 && /[\p{L}\p{N}]/u.test(event.key)) {
-        event.preventDefault();
-        openSearch(event.key);
-      }
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [openSearch]);
 
   const first = reading[0] ?? shown[0];
   const openFirstMatch = () => {
@@ -376,104 +319,20 @@ export function Library() {
       onDrop={handleDrop}
     >
       <h1 className="sr-only">Library</h1>
-      {/* While you search, the title row stays in view. */}
-      <header
-        className={cn(
-          APP_PAGE_FRAME,
-          APP_HEADER_TOP,
-          "pb-3",
-          searching &&
-            "sticky top-[-0.5rem] z-30 bg-background md:top-[-2.25rem]",
-        )}
-      >
-        <div className="flex h-10 items-center justify-between gap-3">
-          <div className="relative h-10 min-w-0 flex-1">
-            <AnimatePresence initial={false}>
-              {searching ? (
-                <motion.div
-                  key="search"
-                  role="search"
-                  className="absolute inset-0 flex items-center gap-2.5"
-                  {...FADE}
-                >
-                  <Search
-                    className="size-4 shrink-0 text-muted-foreground md:size-[18px]"
-                    strokeWidth={1.7}
-                    aria-hidden="true"
-                  />
-                  <input
-                    ref={inputRef}
-                    type="search"
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Escape") {
-                        event.preventDefault();
-                        setSearch(search ? "" : null);
-                      } else if (event.key === "Enter") {
-                        event.preventDefault();
-                        openFirstMatch();
-                      }
-                    }}
-                    aria-label="Search library"
-                    placeholder="Title or author"
-                    enterKeyHint="search"
-                    autoComplete="off"
-                    spellCheck={false}
-                    className={cn(
-                      APP_TITLE_TYPE,
-                      "min-w-0 flex-1 appearance-none bg-transparent text-foreground outline-none placeholder:text-muted-foreground/50 [&::-webkit-search-cancel-button]:hidden",
-                    )}
-                  />
-                  {terms && (
-                    <span
-                      aria-live="polite"
-                      className="shrink-0 font-numeric text-[12px] text-muted-foreground tabular-nums"
-                    >
-                      {found.length} of {data?.books.length ?? 0}
-                    </span>
-                  )}
-                  <button
-                    type="button"
-                    aria-label="Close search"
-                    title="Close search (Esc)"
-                    onClick={() => setSearch(null)}
-                    className={APP_HEADER_BUTTON}
-                  >
-                    <X className="size-4" strokeWidth={1.6} />
-                  </button>
-                </motion.div>
-              ) : (
-                <motion.div
-                  key="places"
-                  className="absolute inset-0 flex items-center"
-                  {...FADE}
-                >
-                  <PlaceNav current="library" />
-                </motion.div>
-              )}
-            </AnimatePresence>
+      <PlaceHeader
+        current="library"
+        search={placeSearch}
+        label="Search library"
+        placeholder="Title or author"
+        count={`${found.length} of ${data?.books.length ?? 0}`}
+        onSubmit={openFirstMatch}
+        actions={
+          <div className="flex items-center gap-0.5 max-md:hidden">
+            {addBooks(false)}
+            {viewMenu}
           </div>
-          <div className="flex shrink-0 items-center gap-0.5">
-            {!searching && (
-              <button
-                type="button"
-                aria-label="Search"
-                title="Search (/)"
-                onClick={() => openSearch()}
-                className={APP_HEADER_BUTTON}
-              >
-                <Search className="size-4" strokeWidth={1.7} />
-              </button>
-            )}
-            <div className="flex items-center gap-0.5 max-md:hidden">
-              {addBooks(false)}
-              {viewMenu}
-            </div>
-            <AccountMenu />
-          </div>
-        </div>
-      </header>
+        }
+      />
 
       <div className={cn(APP_PAGE_FRAME, "pb-24")}>
         {libraryEmpty && (
@@ -505,8 +364,8 @@ export function Library() {
               variant="ghost"
               className="mt-3"
               onClick={() => {
-                setSearch("");
-                openSearch();
+                placeSearch.setSearch("");
+                placeSearch.openSearch();
               }}
             >
               Clear search

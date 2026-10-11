@@ -45,7 +45,7 @@ export function ElementsPage() {
               to="/debug/elements/library"
               className="underline underline-offset-4"
             >
-              Library ideas
+              Design ideas
             </Link>
             . {LIVE_APP_NOTE}
           </>

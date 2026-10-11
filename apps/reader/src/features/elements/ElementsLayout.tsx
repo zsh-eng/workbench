@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { StageContext, type StageSettings } from "./DeviceFrame";
+import { IDEA_TOPICS, type IdeaTopic } from "./idea-topics";
 
 const STAGE_KEY = "reader-elements-stage";
 
@@ -65,7 +66,7 @@ const THEME_LABELS: Record<ReaderTheme, string> = {
 };
 
 /**
- * The frame for the Elements and Library ideas pages: a bar with the frame
+ * The frame for the Elements and ideas pages: a bar with the frame
  * theme and zoom, section navigation, and the content. Built for desktop.
  * The theme here previews frames only; the app keeps its saved theme.
  */
@@ -74,7 +75,7 @@ export function ElementsLayout({
   sections,
   children,
 }: {
-  page: "elements" | "library";
+  page: "elements" | IdeaTopic;
   sections: readonly { id: string; label: string }[];
   children: ReactNode;
 }) {
@@ -88,8 +89,10 @@ export function ElementsLayout({
     }
   }, [stage]);
   useEffect(() => {
-    document.title =
-      page === "elements" ? "Elements · Reader" : "Library ideas · Reader";
+    const topic = IDEA_TOPICS.find((item) => item.id === page);
+    document.title = topic
+      ? `${topic.label} ideas · Reader`
+      : "Elements · Reader";
   }, [page]);
   // The navigation follows the section at the top of the page.
   useEffect(() => {
@@ -119,16 +122,14 @@ export function ElementsLayout({
             <ArrowLeft className="size-4" aria-hidden="true" />
           </Link>
           <nav aria-label="Design pages" className="flex items-center gap-1">
-            {(
-              [
-                { id: "elements", label: "Elements", to: "/debug/elements" },
-                {
-                  id: "library",
-                  label: "Library ideas",
-                  to: "/debug/elements/library",
-                },
-              ] as const
-            ).map((link) => (
+            {[
+              { id: "elements", label: "Elements", to: "/debug/elements" },
+              ...IDEA_TOPICS.map(({ id, label }) => ({
+                id,
+                label: `${label} ideas`,
+                to: `/debug/elements/${id}`,
+              })),
+            ].map((link) => (
               <Link
                 key={link.id}
                 to={link.to}

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useParams } from "react-router-dom";
 import {
   DEVICES,
   DeviceFrame,
@@ -6,39 +7,70 @@ import {
   type DeviceId,
 } from "./DeviceFrame";
 import { Choice, ElementsLayout, ElementsSection } from "./ElementsLayout";
+import { isIdeaTopic, type IdeaTopic } from "./idea-topics";
 
-interface LibraryIdea {
+interface Idea {
   id: string;
   title: string;
   description: string;
   src: string;
 }
 
-/** The Library as it ships, then each idea. Add an idea with a route that
- * renders it full-window, and it joins the comparison. */
-const CURRENT: LibraryIdea = {
-  id: "current",
-  title: "Current Library",
-  description: "What ships today: Continue reading, then all books.",
-  src: "/",
-};
+interface TopicIdeas {
+  /** What ships today. */
+  current: Idea;
+  ideas: Idea[];
+}
 
-const IDEAS: LibraryIdea[] = [
-  {
-    id: "system-header",
-    title: "The System, no sidebar",
-    description:
-      "The page titles are the navigation. Books you are reading show once, on the shelf. Search, /, or typing narrows the page in place.",
-    src: "/debug/experiments/system?nav=header",
+/**
+ * Each part of the app as it ships, then its ideas. Add an idea with a
+ * route that renders it full-window, and it joins the comparison.
+ */
+const TOPICS: Record<IdeaTopic, TopicIdeas> = {
+  library: {
+    current: {
+      id: "current",
+      title: "Current Library",
+      description:
+        "What ships today: the Reading shelf, then every other book.",
+      src: "/",
+    },
+    ideas: [
+      {
+        id: "system-header",
+        title: "The System, no sidebar",
+        description:
+          "The prototype the Library came from. The page titles are the navigation; search, /, or typing narrows the page in place.",
+        src: "/debug/experiments/system?nav=header",
+      },
+      {
+        id: "system",
+        title: "The System, sidebar",
+        description:
+          "The same page with a sidebar that stays in the library and floats while reading.",
+        src: "/debug/experiments/system?nav=sidebar",
+      },
+    ],
   },
-  {
-    id: "system",
-    title: "The System, sidebar",
-    description:
-      "The same page with a sidebar that stays in the library and floats while reading. It holds only the two places.",
-    src: "/debug/experiments/system?nav=sidebar",
+  highlights: {
+    current: {
+      id: "highlights-current",
+      title: "Current Highlights",
+      description:
+        "What ships today: a mosaic of highlight cards per book, with a book index. Notes are not shown.",
+      src: "/highlights",
+    },
+    ideas: [
+      {
+        id: "highlights-notebook",
+        title: "Notebook, in the Library's frame",
+        description:
+          "Highlights and notes together, as in the Reader's Notebook. Each book sits beside its passages in reading order; Recent lists them by date. Search like the Library.",
+        src: "/debug/ideas/highlights",
+      },
+    ],
   },
-];
+};
 
 const SECTIONS = [
   { id: "compare", label: "Compare" },
@@ -58,10 +90,17 @@ function readNotes(): Record<string, string> {
 type View = "desktop" | "phone" | "both";
 
 /**
- * Library ideas next to the current Library, at the same size and theme. The
- * frames run the real app, so with dev:local-data both sides show your books.
+ * Ideas next to what ships, at the same size and theme. The frames run the
+ * real app, so with dev:local-data both sides show your books.
  */
-export function LibraryIdeasPage() {
+export function DesignIdeasPage() {
+  const { topic: topicParam } = useParams();
+  const topic: IdeaTopic = isIdeaTopic(topicParam) ? topicParam : "library";
+  return <TopicPage key={topic} topic={topic} />;
+}
+
+function TopicPage({ topic }: { topic: IdeaTopic }) {
+  const { current: CURRENT, ideas: IDEAS } = TOPICS[topic];
   const [ideaId, setIdeaId] = useState(IDEAS[0].id);
   const [view, setView] = useState<View>("desktop");
   const [notes, setNotes] = useState(readNotes);
@@ -69,11 +108,11 @@ export function LibraryIdeasPage() {
   const rows: DeviceId[] = view === "both" ? ["desktop", "phone"] : [view];
 
   return (
-    <ElementsLayout page="library" sections={SECTIONS}>
+    <ElementsLayout page={topic} sections={SECTIONS}>
       <ElementsSection
         id="compare"
         title="Compare"
-        description="The current Library on the left, an idea on the right. Both are live; scroll, open books and change sorting in either."
+        description="What ships on the left, an idea on the right. Both are live: scroll, search and open books in either."
         actions={
           <div className="flex flex-wrap items-center gap-3">
             {IDEAS.length > 1 && (
@@ -157,8 +196,8 @@ function ComparisonRow({
   right,
 }: {
   device: DeviceId;
-  left: LibraryIdea;
-  right: LibraryIdea;
+  left: Idea;
+  right: Idea;
 }) {
   const { row, scale } = useRowScale([device, device]);
   return (

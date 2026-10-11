@@ -56,9 +56,14 @@ const ElementsPage = lazy(() =>
   })),
 );
 
-const LibraryIdeasPage = lazy(() =>
-  import("@/features/elements/LibraryIdeasPage").then((module) => ({
-    default: module.LibraryIdeasPage,
+const DesignIdeasPage = lazy(() =>
+  import("@/features/elements/DesignIdeasPage").then((module) => ({
+    default: module.DesignIdeasPage,
+  })),
+);
+const HighlightsIdea = lazy(() =>
+  import("@/features/highlights/HighlightsIdea").then((module) => ({
+    default: module.HighlightsIdea,
   })),
 );
 
@@ -133,6 +138,16 @@ function App() {
                       <Route
                         path="/reading-sessions"
                         element={<ReadingSessions />}
+                      />
+                      <Route
+                        path="/debug/ideas/highlights"
+                        element={
+                          <DebugGate>
+                            <Suspense fallback={null}>
+                              <HighlightsIdea />
+                            </Suspense>
+                          </DebugGate>
+                        }
                       />
                       <Route
                         path="/reader-traces"
@@ -238,11 +253,11 @@ function App() {
                       }
                     />
                     <Route
-                      path="/debug/elements/library"
+                      path="/debug/elements/:topic"
                       element={
                         <DebugGate>
                           <Suspense fallback={null}>
-                            <LibraryIdeasPage />
+                            <DesignIdeasPage />
                           </Suspense>
                         </DebugGate>
                       }
