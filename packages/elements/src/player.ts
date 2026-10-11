@@ -312,9 +312,18 @@ export function driveAnimations(
   collect: () => Iterable<Scrubbable>,
   offset = 0,
 ): () => void {
+  // `getAnimations()` drops an animation once it ends without a fill, such
+  // as a fade-in, so a later scrub back would miss it. Keep each animation
+  // seen until its element leaves the document.
+  const held = new Set<Scrubbable>();
   const apply = () => {
     const seconds = Math.max(0, player.getState().time - offset);
-    for (const animation of collect()) {
+    for (const animation of collect()) held.add(animation);
+    for (const animation of held) {
+      if (detached(animation)) {
+        held.delete(animation);
+        continue;
+      }
       animation.pause();
       if ("time" in animation && typeof animation.time === "number")
         animation.time = seconds;
@@ -322,7 +331,18 @@ export function driveAnimations(
     }
   };
   apply();
-  return player.subscribe(apply);
+  const unsubscribe = player.subscribe(apply);
+  return () => {
+    unsubscribe();
+    held.clear();
+  };
+}
+
+/** True for a Web Animation whose element is no longer in the document. */
+function detached(animation: Scrubbable) {
+  const effect = (animation as { effect?: { target?: unknown } | null }).effect;
+  const target = effect?.target as { isConnected?: boolean } | null | undefined;
+  return target?.isConnected === false;
 }
 
 /** Keyboard rules for a focused stage or scrubber. Returns true if handled. */
