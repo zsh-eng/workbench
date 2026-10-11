@@ -2,7 +2,9 @@ import type { NoteAnchor, NoteTarget } from "@/types/note";
 import type { Highlight } from "@/types/highlight";
 import {
   prepareBlocks,
+  type Block,
   type ContentAnchor,
+  type PreparedBlock,
   type ResolvedSpread,
   type PaginationConfig,
 } from "@/lib/pagination-v2";
@@ -36,18 +38,20 @@ export function createNoteLocationResolver(
   access: ReaderSessionChapterAccess,
   config: PaginationConfig,
 ) {
-  const prepared = new Map<number, ReturnType<typeof prepareBlocks>>();
+  // A new highlight parses its chapter again into new runs. Key the prepared
+  // runs by block list, so an anchor uses the same runs as the pages.
+  const prepared = new WeakMap<Block[], PreparedBlock[]>();
   function source(index: number) {
     const chapterBlocks = access.getBlocks(index);
     const chapterCanonicalText = access.getCanonicalText(index);
     if (!chapterBlocks || !chapterCanonicalText) return null;
-    let preparedChapter = prepared.get(index);
+    let preparedChapter = prepared.get(chapterBlocks);
     if (!preparedChapter) {
       preparedChapter = prepareBlocks(chapterBlocks, config.fontConfig, {
         publisherBookStylingEnabled:
           config.publisherBookStylingEnabled ?? false,
       });
-      prepared.set(index, preparedChapter);
+      prepared.set(chapterBlocks, preparedChapter);
     }
     return { chapterBlocks, chapterCanonicalText, preparedChapter };
   }
