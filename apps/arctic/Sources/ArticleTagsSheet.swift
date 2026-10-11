@@ -56,14 +56,22 @@ enum ArticleFolder: Hashable {
   }
 }
 
-struct ArticleTagsSheet: View {
+/// The library store owns tags; Elements uses a fixture with the same shape.
+@MainActor protocol ArticleTagSource: AnyObject, Observable {
+  var allTags: [String] { get }
+  func setTags(_ tags: [String], for id: UUID)
+}
+
+extension ArticleStore: ArticleTagSource {}
+
+struct ArticleTagsSheet<Store: ArticleTagSource>: View {
   @Environment(\.dismiss) private var dismiss
   let article: SavedArticle
-  let store: ArticleStore
+  let store: Store
   @State private var selected: Set<String>
   @State private var name = ""
 
-  init(article: SavedArticle, store: ArticleStore) {
+  init(article: SavedArticle, store: Store) {
     self.article = article
     self.store = store
     _selected = State(initialValue: Set(article.tagNames))

@@ -5,6 +5,8 @@ import SwiftUI
 struct ReadingStatsView: View {
   var articleURL: URL?
   var articleTitle: String?
+  /// Elements passes sample visits; the app reads this device's records.
+  var sampleSessions: [ArticleReadingSession]?
   @Environment(\.dismiss) private var dismiss
   @Environment(\.articleReduceMotion) private var reduceMotion
   @State private var stats: ReadingStats?
@@ -71,6 +73,12 @@ struct ReadingStatsView: View {
     .foregroundStyle(ReaderTheme.foreground).tint(ArcticBrand.accent)
     .presentationDetents([.large]).presentationDragIndicator(.visible)
     .task {
+      if let sampleSessions {
+        let summary = ReadingStats(sessions: sampleSessions, articleURL: articleURL)
+        stats = summary
+        selectedDay = summary.days.last?.date
+        return
+      }
       while !ReadingSessions.shared.isLoaded {
         do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
       }

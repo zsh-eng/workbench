@@ -18,6 +18,7 @@ enable `group.com.zsheng.ArticleReader` in App Groups for both targets. Both use
 `ArticleReader.entitlements`. The simulator build can use ad-hoc signing.
 
 - **Sort and filter → Article replay** opens a taller, automatically looping native share/tag/save scene for An Alien Mind. It uses bundled artwork and a measured Jev result, makes no network calls, and does not save to the library. Close it with the top-right cross; Reduce Motion shows its completed state.
+- **Sort and filter → Elements** opens the component catalogue: foundations, then cards, the news bubble, banners, sheets, and empty states. It renders the production views with bundled sample data and never reads or changes the library. The news bubble is a timeline: play, pause, scrub frame by frame, or choose 0.25×. For checks, launch with `-ArcticElements <section>` (`foundations`, `cards`, `news`, `banners`, `sheets`, `empty`), and optionally `-ArcticElementsState <state>`, `-ArcticElementsTime <seconds>` (opens paused at that moment), or `-ArcticElementsAutoplay NO`.
 - First launch offers three optional setup pages: Share, paste permission, and Jev automatic tagging. Replay them from **Sort and filter → Getting started**.
 - Copy an HTTP(S) link and enter Arctic. Choose **Save** or **Open** in the clipboard banner above Search. Already-saved links offer only Open.
 - **Continue reading** appears in that same space for the most recent saved,

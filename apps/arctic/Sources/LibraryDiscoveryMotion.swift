@@ -31,9 +31,14 @@ import UIKit
   @ObservationIgnored private var signalled = false
   @ObservationIgnored private var generation = 0
   @ObservationIgnored private let feedback = UIImpactFeedbackGenerator(style: .medium)
-  private let trigger: CGFloat = 56
+  /// The pull distance that opens news on release. Elements reads it too.
+  nonisolated static let trigger: CGFloat = 56
   // Settles in about half a second with a few points of give, not a bounce.
-  private let spring = Animation.spring(response: 0.44, dampingFraction: 0.86)
+  // Elements scrubs a timeline through the same two values.
+  nonisolated static let springResponse = 0.44
+  nonisolated static let springDamping = 0.86
+  private let spring = Animation.spring(
+    response: DiscoveryMotion.springResponse, dampingFraction: DiscoveryMotion.springDamping)
 
   /// The distance drawn on screen: a closed pull adds the rubber-band distance.
   var visibleOpenness: CGFloat { isExpanded ? openness : openness + pullDistance }
@@ -159,12 +164,12 @@ import UIKit
         feedback.impactOccurred(intensity: 1)
         signalled = true
         close()
-      } else if !startedExpanded, startedAtTop, -offset >= trigger, !signalled {
+      } else if !startedExpanded, startedAtTop, -offset >= Self.trigger, !signalled {
         feedback.impactOccurred(intensity: 1)
         signalled = true
       }
     case .ended:
-      if !startedExpanded, startedAtTop, -offset >= trigger {
+      if !startedExpanded, startedAtTop, -offset >= Self.trigger {
         let pulled = -offset
         // Hold the list where the finger left it; the spring continues from there.
         scroll.setContentOffset(
@@ -251,8 +256,19 @@ struct DiscoveryPullChrome<Content: View>: View {
 struct DiscoveryHeader: View {
   let motion: DiscoveryMotion
   let available: Bool
+  /// The header at one moment of a scrubbed timeline.
+  struct Pose {
+    /// How far the stack has folded away, 0 closed to 1 open.
+    var folded: CGFloat
+    /// The circles' own opacity: 0 while the drawn bubble carries them.
+    var stackOpacity: CGFloat
+  }
+  /// The library leaves this nil and follows the motion. Elements sets it.
+  var pose: Pose? = nil
 
   var body: some View {
+    let folded = pose?.folded ?? (motion.isExpanded ? 1 : 0)
+    let stackOpacity = pose?.stackOpacity ?? (motion.showsGhost ? 0 : 1)
     Button(action: motion.toggle) {
       HStack(spacing: 0) {
         ZStack(alignment: .leading) {
@@ -267,14 +283,14 @@ struct DiscoveryHeader: View {
           }
         }
         .frame(width: 46, height: 26, alignment: .leading)
-        .opacity(motion.showsGhost ? 0 : 1)
+        .opacity(stackOpacity)
         .onGeometryChange(for: CGRect.self) {
           $0.frame(in: .global)
         } action: {
           motion.setCompactFrame($0)
         }
-        .frame(width: available && !motion.isExpanded ? 54 : 0, alignment: .leading)
-        .clipped().opacity(available && !motion.isExpanded ? 1 : 0)
+        .frame(width: available ? 54 * (1 - folded) : 0, alignment: .leading)
+        .clipped().opacity(available ? 1 - folded : 0)
         ArcticMark().frame(width: 22, height: 22)
         Text("Arctic").font(.system(.headline, design: .rounded, weight: .semibold))
           .padding(.leading, 6).lineLimit(1).minimumScaleFactor(0.8)
@@ -439,7 +455,8 @@ struct DiscoveryGhost: View {
 
 /// Animatable, so a spring on `openness` redraws every frame along the same
 /// path a pull takes, instead of moving each view straight to its end state.
-private struct DiscoveryGhostFrame: View, Animatable {
+/// Elements draws it directly at a scrubbed distance.
+struct DiscoveryGhostFrame: View, Animatable {
   var openness: CGFloat
   let panel: CGRect
   let compact: CGRect
