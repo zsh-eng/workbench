@@ -1,12 +1,13 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { mkdtemp, mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runReviewCommand } from "../../src/cli/review";
+import { parseReviewCommand, runReviewCommand } from "../../src/cli/review";
 import { startHost, type RunningHost } from "../../src/host/server";
 import {
+  DEFAULT_PORT,
   getPersistentToken,
   publishConnection,
   readConnection,
@@ -582,6 +583,28 @@ describe("local connection state", () => {
     await cleanup();
     expect((await readConnection(directory, 4173)).pid).toBe(process.pid);
     expect((await readConnection(directory, 4174)).origin).toBe("http://127.0.0.1:4174");
+  });
+
+  it("without --port, finds the one host that runs on another port", async () => {
+    const directory = await state();
+    const token = await getPersistentToken(directory);
+    const host = (port: number, pid = process.pid) => ({
+      version: 1 as const,
+      origin: `http://127.0.0.1:${port}`,
+      token,
+      pid,
+    });
+    const port = async () => (await parseReviewCommand(["repos", "--state-dir", directory])).port;
+    expect(await port()).toBe(DEFAULT_PORT);
+    // A service that kept the old default, beside a stale record for the new one.
+    await publishConnection(directory, host(4173));
+    await publishConnection(directory, host(DEFAULT_PORT, spawnSync("true").pid));
+    expect(await port()).toBe(4173);
+    await publishConnection(directory, host(DEFAULT_PORT));
+    expect(await port()).toBe(DEFAULT_PORT);
+    expect(
+      (await parseReviewCommand(["repos", "--state-dir", directory, "--port", "4173"])).port,
+    ).toBe(4173);
   });
 
   it("rejects a descriptor that could send the credential to another origin", async () => {

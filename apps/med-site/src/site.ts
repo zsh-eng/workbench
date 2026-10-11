@@ -3,7 +3,9 @@
 const installCommand =
   "curl -fsSL https://raw.githubusercontent.com/zsh-eng/workbench/main/apps/med/install.sh | sh";
 
-const repository = "https://github.com/zsh-eng/workbench";
+export const repository = "https://github.com/zsh-eng/workbench";
+/** Where the site is served; the docs' copied pages link to it. */
+export const origin = "https://med.zsheng.app";
 
 export const site = {
   title: "Med: review what your agent changed",
@@ -14,7 +16,7 @@ export const site = {
   heading: "Review what your agent changed.",
   tagline: "A local review app for coding agents.",
   subtitle:
-    "Read what the agent did and why, comment on lines, and send your comments back to it. Then commit, push, and follow the pull request from the same window.",
+    "Comment on the diff, send your comments back to the agent, then commit and push.",
   closing: "Your agent did the work.",
   closingMore: "Read it in Med.",
 
@@ -24,9 +26,10 @@ export const site = {
 
   links: {
     github: `${repository}/tree/main/apps/med`,
-    docs: `${repository}/blob/main/apps/med/docs/USAGE.md`,
-    installDocs: `${repository}/blob/main/apps/med/docs/INSTALL.md`,
-    agentDocs: `${repository}/blob/main/apps/med/docs/AGENT_INTEGRATION.md`,
+    // The docs pages render Med's guides (scripts/docs.ts).
+    docs: "/docs",
+    installDocs: "/docs#manual-install",
+    agentDocs: "/docs/agents",
     license: `${repository}/blob/main/apps/med/LICENSE`,
     painting: `${repository}/tree/main/apps/med/scripts/painting`,
   },

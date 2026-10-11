@@ -64,7 +64,7 @@ export function Settings() {
             >
               <strong>Debug tools →</strong>
               <p className="mt-1 text-xs text-muted-foreground">
-                Performance, diagnostics, Elements, Library ideas, design
+                Performance, diagnostics, Elements, design ideas,
                 experiments, and Sync Lab.
               </p>
             </Link>

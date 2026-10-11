@@ -1,6 +1,7 @@
 // A painterly renderer: a smooth ground, then thousands of tapered bristle
 // strokes in passes from large to small. Each stroke takes its colour, angle,
-// and size from a scene (scenes.js). Runs in a browser page; paint.ts drives it.
+// and size from a scene (scenes.js). Runs in a browser page; render-icons.mjs
+// drives it.
 // Random numbers come from a seeded generator, so a scene paints the same
 // picture each time.
 window.paint = function paint({ width, height, seed = 7, scene }) {

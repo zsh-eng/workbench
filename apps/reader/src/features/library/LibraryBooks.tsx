@@ -38,7 +38,7 @@ const COVER_SHADOW =
   "shadow-[0_1px_2px_rgb(0_0_0/0.1),0_10px_22px_-14px_rgb(0_0_0/0.4)]";
 
 /** Loads a cover once its book nears the screen. */
-function useCoverRequest(
+export function useCoverRequest(
   element: HTMLElement | null,
   book: Book,
   coverUrl: string | undefined,
@@ -60,7 +60,7 @@ function useCoverRequest(
 }
 
 /** The cover image, its blurred placeholder, or the title set in type. */
-function BookCover({
+export function BookCover({
   book,
   coverUrl,
   compact = false,
@@ -118,7 +118,13 @@ function BookCover({
 }
 
 /** A thin line of reading progress. */
-function Hairline({ value, className }: { value: number; className?: string }) {
+export function Hairline({
+  value,
+  className,
+}: {
+  value: number;
+  className?: string;
+}) {
   return (
     <span
       className={cn(

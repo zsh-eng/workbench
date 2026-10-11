@@ -1,4 +1,8 @@
 import { useDocumentTitle } from "./data/document-title";
+import { useTitleBarOverlay } from "./data/title-bar";
+import { TitleRow } from "./components/TitleRow";
+import { CardTab, tabbedCard } from "./components/CardTab";
+import { showSessions } from "./data/workspaces";
 import { DiffImages } from "./components/MediaView";
 import { mediaType } from "../shared/media";
 import { ActionTooltip, ToolButton } from "./components/ToolButton";
@@ -77,7 +81,7 @@ import {
 import type { CodexFinding, CodexReviewRun } from "../shared/codex-review";
 import { SavedReviewHeader } from "./components/SavedReviewHeader";
 import { ShortcutGuide } from "./components/ShortcutGuide";
-import { ZenExit, ZenHint } from "./components/ZenExit";
+import { ZenContext, ZenExit, ZenHint } from "./components/ZenExit";
 import { platform } from "./data/keys";
 import type { GuideContextId } from "./data/shortcut-guide";
 import { ComparisonActions } from "./components/ComparisonActions";
@@ -168,6 +172,11 @@ const commandRank = (id: string) => {
   const rank = commonCommands.indexOf(id);
   return rank < 0 ? commonCommands.length : rank;
 };
+
+/** Marks a row that moves the window (TitleRow.css), beside its StyleX classes. */
+function titleClass(title: boolean, { className, style }: ReturnType<typeof stylex.props>) {
+  return { className: title ? `med-title-row ${className ?? ""}` : className, style };
+}
 
 /** Abbreviate object IDs; keep symbolic endpoints such as "worktree" whole. */
 function shortRevision(revision: string) {
@@ -2236,6 +2245,11 @@ export function App({
     ["search-word", "Search file for word at cursor", "*"],
     ["search-word-back", "Search file backward for word at cursor", "#"],
   ];
+  const returnToReview = () => {
+    pendingSavedChanges.current = state.savedTargetId;
+    fileWorkspace.select("changes");
+    void controller.returnToSavedReview();
+  };
   const commands: ReviewCommand[] = [
     {
       id: "render-diagnostics",
@@ -2310,6 +2324,11 @@ export function App({
             label: "Switch workspace…",
             shortcut: "⌃ ⇥",
             run: workspace.openSwitcher,
+          },
+          {
+            id: "sessions",
+            label: "Show agent sessions",
+            run: showSessions,
           },
           {
             id: "close-workspace",
@@ -2608,6 +2627,33 @@ export function App({
       shortcut: "⌥ Z",
       run: toggleZen,
     },
+    // The saved review's own actions, for zen mode, which hides its header.
+    ...(state.savedReview && replyAgent
+      ? [
+          {
+            id: "send-comments",
+            label: `Send comments to ${replyAgent}`,
+            run: () => showPane("session"),
+          },
+        ]
+      : []),
+    ...(state.savedReview?.commentCount
+      ? [
+          {
+            id: "copy-comments",
+            label: "Copy comments",
+            run: () =>
+              void controller.copyFeedback().then(
+                ({ count }) => showToast(`Copied ${count} ${count === 1 ? "comment" : "comments"}`),
+                (error: unknown) =>
+                  showToast(error instanceof Error ? error.message : "The request failed."),
+              ),
+          },
+        ]
+      : []),
+    ...(state.savedReview && (!state.savedView || isFileTab(fileState.active))
+      ? [{ id: "return-to-review", label: "Return to review", run: returnToReview }]
+      : []),
     {
       id: "picker-preview",
       label: filePreviewShown ? "Hide file preview in Find file" : "Show file preview in Find file",
@@ -2961,6 +3007,11 @@ export function App({
     [skipped, renderMetadataRows, files.length],
   );
 
+  const titleRow = useTitleBarOverlay();
+  // Without a branch strip to head the window, the review card's first row
+  // rises beside the window controls as the card's tab. Zen has no strip; its
+  // tab is empty.
+  const cardTab = titleRow && (zen || !!workspace || branches.visible.length < 2);
   const sidebarToggle = (
     <ToolButton
       label={leftVisible ? "Hide sidebar" : "Show sidebar"}
@@ -3018,7 +3069,7 @@ export function App({
       )}
     </span>
   );
-  const leading = !leftVisible && (
+  const leading = !leftVisible && (!titleRow || cardTab) && (
     <>
       {identity}
       <span {...stylex.props(styles.headerDivider)} />
@@ -3052,6 +3103,12 @@ export function App({
         {viewControls}
       </header>
     );
+  // The tab is the card's first row, so the notice follows it.
+  const linkError = fileLinkError && (
+    <div role="alert" {...stylex.props(styles.notice, styles.error)}>
+      {fileLinkError}
+    </div>
+  );
   const sidePanes: PaneSpec[] = [
     ...(state.savedReview
       ? [
@@ -3166,6 +3223,7 @@ export function App({
   if (!state.session && !state.repositories.length && state.status === "idle" && !state.error)
     return (
       <div {...stylex.props(styles.app)}>
+        {titleRow && <TitleRow />}
         {branchPicker}
         <div {...stylex.props(styles.emptyRepositories)}>
           <span {...stylex.props(styles.emptyMark)}>
@@ -3185,7 +3243,7 @@ export function App({
       </div>
     );
 
-  return (
+  const app = (
     <AgentReplyContext.Provider value={agentReply}>
       <div
         {...stylex.props(styles.app)}
@@ -3199,10 +3257,19 @@ export function App({
         data-file-count={state.files.length}
         data-active-file={activeFile?.path ?? ""}
       >
+        {/* With the title bar hidden and branch tabs open, the identity and
+            the tabs head the window beside its controls. Otherwise the review
+            card's tab heads it (CardTab). */}
+        {titleRow && !cardTab && (
+          <TitleRow>
+            {identity}
+            {!workspace && <BranchStrip model={branches} inline />}
+          </TitleRow>
+        )}
         {zen ? (
           <ZenHint loading={state.status === "loading"} session={!!state.savedReview} />
         ) : (
-          !workspace && <BranchStrip model={branches} />
+          !workspace && !titleRow && <BranchStrip model={branches} />
         )}
         {branchPicker}
         <SaveReviewDialog
@@ -3301,7 +3368,7 @@ export function App({
         <div
           {...stylex.props(
             styles.workspace,
-            (zen || workspace || branches.visible.length < 2) && styles.workspaceTop,
+            (titleRow || zen || workspace || branches.visible.length < 2) && styles.workspaceTop,
             zen && styles.zenWorkspace,
           )}
           id={`${idPrefix}review-workspace`}
@@ -3317,9 +3384,19 @@ export function App({
               style={{ width: sidebarWidth }}
               hidden={!leftVisible}
             >
-              {/* The tab row holds the identity while the sidebar is hidden. */}
-              <div {...stylex.props(styles.sidebarHeader)}>{leftVisible && identity}</div>
-              {workspace && (
+              {/* The tab row holds the identity while the sidebar is hidden. In
+                  zen, the row only keeps the sidebar below the window controls. */}
+              {(cardTab || (!zen && !titleRow)) && (
+                <div
+                  {...titleClass(
+                    cardTab,
+                    stylex.props(styles.sidebarHeader, cardTab && styles.sidebarTitle),
+                  )}
+                >
+                  {leftVisible && !zen && identity}
+                </div>
+              )}
+              {workspace && !zen && (
                 <WorkspaceList
                   onNew={gitAvailable ? () => openBranchPicker(true) : undefined}
                   repositories={state.repositories}
@@ -3398,12 +3475,19 @@ export function App({
             </div>
           )}
           <main
-            {...stylex.props(styles.main, !leftVisible && styles.mainFlush)}
+            {...stylex.props(
+              styles.main,
+              !leftVisible && styles.mainFlush,
+              cardTab && tabbedCard.card,
+            )}
             aria-label="Continuous review"
           >
+            {cardTab && <CardTab />}
+            {/* Zen's tab is empty, and joins the card without a rule. */}
+            {cardTab && zen && <div aria-hidden="true" {...stylex.props(styles.zenTab)} />}
             {/* The review's own row heads the card, level with the sidebar's
             identity, so the sidebar keeps its place between workspaces. */}
-            {state.savedReview && (
+            {state.savedReview && !zen && (
               <SavedReviewHeader
                 controller={controller}
                 state={state}
@@ -3424,11 +3508,7 @@ export function App({
                 }
                 browsing={isFileTab(fileState.active)}
                 browsingSourceLabel={activeFile?.sourceLabel ?? sourceLabel}
-                onReturn={() => {
-                  pendingSavedChanges.current = state.savedTargetId;
-                  fileWorkspace.select("changes");
-                  void controller.returnToSavedReview();
-                }}
+                onReturn={returnToReview}
                 onTarget={(id) => {
                   pendingSavedChanges.current = id;
                   pendingIteration.current = null;
@@ -3437,12 +3517,9 @@ export function App({
                 }}
               />
             )}
-            {fileLinkError && (
-              <div role="alert" {...stylex.props(styles.notice, styles.error)}>
-                {fileLinkError}
-              </div>
-            )}
+            {!cardTab && linkError}
             {zen ? <ZenExit onExit={toggleZen} /> : mainHeader}
+            {cardTab && linkError}
             <div
               id={`${idPrefix}file-view-panel`}
               role="tabpanel"
@@ -3952,7 +4029,7 @@ export function App({
               </div>
             )}
           </main>
-          <PaneColumn state={panes} panes={sidePanes} />
+          <PaneColumn state={panes} panes={sidePanes} belowTitle={cardTab} />
         </div>
         <footer
           {...stylex.props(styles.statusbar, stylex.defaultMarker(), zen && styles.hiddenSurface)}
@@ -4041,6 +4118,7 @@ export function App({
       </div>
     </AgentReplyContext.Provider>
   );
+  return <ZenContext.Provider value={zen}>{app}</ZenContext.Provider>;
 }
 
 const rise = stylex.keyframes({
@@ -4089,6 +4167,12 @@ const styles = stylex.create({
     paddingInlineStart: 2,
     paddingInlineEnd: 8,
   },
+  zenTab: { flexShrink: 0 },
+  // Level with the card's tab, after the window controls.
+  sidebarTitle: {
+    height: "calc(max(var(--med-titlebar-height), 38px) - 5px)",
+    paddingInlineStart: "calc(var(--med-titlebar-left) - 2px)",
+  },
   mainHeader: {
     display: "flex",
     alignItems: "center",
@@ -4117,7 +4201,7 @@ const styles = stylex.create({
     gap: 4,
     flex: "1",
     margin: 6,
-    borderRadius: `calc(10px * ${tokens.round})`,
+    borderRadius: tokens.frame,
     backgroundColor: tokens.canvas,
     boxShadow: `0 0 0 1px ${tokens.line}`,
     color: tokens.muted,
@@ -4177,7 +4261,7 @@ const styles = stylex.create({
     flexDirection: "column",
     overflow: "hidden",
     backgroundColor: tokens.canvas,
-    borderRadius: `calc(10px * ${tokens.round})`,
+    borderRadius: tokens.frame,
     boxShadow: `0 0 0 1px ${tokens.line}, 0 1px 3px #0000000f`,
   },
   mainFlush: {},

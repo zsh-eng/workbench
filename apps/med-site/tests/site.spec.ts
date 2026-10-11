@@ -91,6 +91,22 @@ test("every window runs Med on a wide screen, and the page still scrolls", async
     med.getByText("export function parseQuery").first(),
   ).toBeVisible();
 
+  // In view, the hero sends the comment and the agent edits; Replay starts it
+  // again from its first moment.
+  const edited = () =>
+    page
+      .frameLocator(".product .live:last-of-type")
+      .getByText("Edited src/search/filters.ts");
+  await show();
+  await expect(edited().first()).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: "Replay", exact: true }).click();
+  // The new scene loads behind the old one until it is ready.
+  await expect(page.locator(".product .live[data-next]")).toHaveCount(0, {
+    timeout: 20_000,
+  });
+  await expect(page.locator(".product .live")).toHaveCount(1);
+  await expect(edited()).toHaveCount(0);
+
   // Each feature's window opens on its own scene as it comes near.
   const scenes = {
     brief: "Cites 3 of 6 changed files",
@@ -124,13 +140,15 @@ for (const colorScheme of ["light", "dark"] as const) {
         .querySelector("main .column")!
         .getBoundingClientRect();
       const review = document.querySelector<HTMLImageElement>(".screen img")!;
-      const mark = document.querySelector<HTMLImageElement>(".brand .mark")!;
+      const mark = [...document.querySelectorAll(".brand .mark svg")].find(
+        (icon) => getComputedStyle(icon).display !== "none",
+      )!;
       return {
         overflow: document.documentElement.scrollWidth - innerWidth,
         left: box.left,
         right: innerWidth - box.right,
         review: review.currentSrc,
-        mark: mark.currentSrc,
+        mark: mark.querySelector("clipPath")!.id,
         // The body has the paper too, so a host page's background stays hidden.
         paper:
           getComputedStyle(document.body).backgroundColor ===
@@ -206,4 +224,82 @@ test("a phone shows the part of the review that the visitor picks", async ({
     parts.getByRole("button", { name: "Agent session" }),
   ).toHaveAttribute("aria-pressed", "true");
   await context.close();
+});
+
+test("the docs render Med's guides and link between them", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 800 },
+  });
+  const page = await context.newPage();
+  await page.goto("/");
+  await page.getByRole("banner").getByRole("link", { name: "Docs" }).click();
+  await expect(page).toHaveURL(/\/docs$/);
+  const docs = page.getByRole("navigation", { name: "Docs", exact: true });
+  await expect(docs.getByRole("link", { name: "Install" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Install Med" }),
+  ).toBeVisible();
+
+  // A link to another guide's section opens that page at the section.
+  await docs.getByRole("link", { name: "Using Med" }).click();
+  await page
+    .getByRole("main")
+    .getByRole("link", { name: "titles and pull requests" })
+    .click();
+  await expect(page).toHaveURL(/\/docs\/agents#titles-and-pull-requests$/);
+  await expect(
+    page.getByRole("heading", { level: 3, name: "Titles and pull requests" }),
+  ).toBeInViewport();
+
+  // A phone shows the pages as a row, without sideways scrolling.
+  await page.setViewportSize({ width: 375, height: 812 });
+  await expect(docs.getByRole("link", { name: "Agent reviews" })).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth - innerWidth,
+    ),
+  ).toBe(0);
+  await context.close();
+});
+
+test("the docs' prototypes run a commit and a comment's trip to the agent", async ({
+  page,
+}) => {
+  await page.goto("/docs/usage");
+  const commit = page.getByRole("figure", { name: "Try it: Commit tab" });
+  const said = commit.getByRole("status");
+  await commit.locator(".try-stage").focus();
+  await page.keyboard.press("j");
+  await page.keyboard.press("Space");
+  await expect(said).toHaveText("Staged src/search/query.ts.");
+  await page.keyboard.press("c");
+  await page.keyboard.type("Show the active filters");
+  await page.keyboard.press("ControlOrMeta+Enter");
+  await expect(said).toHaveText("Committed 2 files as 3f2c9a1.");
+  // A branch without an upstream asks before its first push.
+  await page.keyboard.press("Shift+P");
+  await expect(commit.getByText("has no upstream")).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(said).toHaveText("Pushed 1 commit to origin/search-filters.");
+
+  await page.goto("/docs/agents");
+  const review = page.getByRole("figure", { name: "Try it: Comment and send" });
+  await review.getByRole("button", { name: "Line 7" }).click();
+  await review
+    .getByRole("button", { name: "Line 8" })
+    .click({ modifiers: ["Shift"] });
+  await page.keyboard.press("c");
+  await page.keyboard.press("ControlOrMeta+Enter");
+  await review.getByRole("button", { name: /Send to Claude/ }).click();
+  await page.keyboard.press("ControlOrMeta+Enter");
+  await expect(review.getByText("Taken")).toBeVisible();
+  await expect(review.getByText("to the chip list")).toBeVisible();
+  await expect(
+    review.getByText('<ul className="chips" aria-live="polite">'),
+  ).toBeVisible();
 });

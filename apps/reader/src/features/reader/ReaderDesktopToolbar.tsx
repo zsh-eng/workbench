@@ -5,11 +5,14 @@ import { cn } from "@/lib/utils";
  * Prompts take priority over the title in compact desktop layouts. */
 export function ReaderDesktopToolbar({
   bookTitle,
+  subtitle,
   navigation,
   accessory,
   actions,
 }: {
   bookTitle: string;
+  /** The chapter, set after the title in normal case. Without it the title is set in small capitals. */
+  subtitle?: string;
   navigation: ReactNode;
   accessory?: ReactNode;
   actions: ReactNode;
@@ -29,13 +32,19 @@ export function ReaderDesktopToolbar({
           data-reader-header-title=""
           title={bookTitle}
           className={cn(
-            "min-w-0 truncate px-4 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground",
+            "min-w-0 truncate px-4 text-muted-foreground",
+            subtitle === undefined
+              ? "text-[11px] font-medium uppercase tracking-[0.18em]"
+              : "text-[13px]",
             accessory
               ? "text-left @min-[1024px]/desktop-chrome:text-center"
               : "text-center",
           )}
         >
           {bookTitle}
+          {subtitle && (
+            <span className="text-muted-foreground/60"> · {subtitle}</span>
+          )}
         </p>
         <div className="flex items-center justify-end gap-1">
           {accessory}

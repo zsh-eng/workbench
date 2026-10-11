@@ -124,14 +124,18 @@ export function withSentMessages(items: SessionItem[], messages: AgentMessage[])
       kind: "user",
       id: `med-${message.id}`,
       at: Date.parse(message.createdAt),
-      content: [
-        {
-          type: "text",
-          text:
-            message.text ||
-            `${message.noteIds.length} ${message.noteIds.length === 1 ? "comment" : "comments"}`,
-        },
-      ],
+      // The thread shows the comments themselves, when the message keeps them.
+      content:
+        message.text || !message.comments?.length
+          ? [
+              {
+                type: "text",
+                text:
+                  message.text ||
+                  `${message.noteIds.length} ${message.noteIds.length === 1 ? "comment" : "comments"}`,
+              },
+            ]
+          : [],
       sent: message,
     }));
   const merged = [...items];

@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { agentStatusesSchema, type AgentStatus } from "../../shared/agent-status";
+import { sessionSummariesSchema, type SessionSummary } from "../../shared/session-summary";
 import { readBrowserToken } from "./auth";
 import { createApi } from "./api";
 import { readServerEvents } from "./sse";
 
-const NONE: ReadonlyMap<string, AgentStatus> = new Map();
+const NONE: ReadonlyMap<string, unknown> = new Map();
 
 const pause = (ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve) => {
@@ -12,16 +13,21 @@ const pause = (ms: number, signal: AbortSignal) =>
     signal.addEventListener("abort", () => (clearTimeout(timer), resolve()), { once: true });
   });
 
-/** The lead session's state of each saved review, by review ID, while listed. */
-export function useAgentStatuses(
+/**
+ * A host stream that sends one value for each listed review, such as its lead
+ * session's state, by review ID while listed. It reconnects with a backoff.
+ */
+function useReviewStream<T extends { reviewId: string }>(
+  path: string,
   reviewIds: readonly string[],
+  read: (data: unknown) => T[] | undefined,
   fetcher: typeof fetch,
-): ReadonlyMap<string, AgentStatus> {
+): { values: ReadonlyMap<string, T>; loaded: boolean } {
   const key = [...new Set(reviewIds)].sort().join(",");
-  const [statuses, setStatuses] = useState<{
-    key: string;
-    value: ReadonlyMap<string, AgentStatus>;
-  }>({ key: "", value: NONE });
+  const [values, setValues] = useState<{ key: string; value: ReadonlyMap<string, T> }>({
+    key: "",
+    value: new Map(),
+  });
   useEffect(() => {
     if (!key) return;
     const controller = new AbortController();
@@ -31,22 +37,16 @@ export function useAgentStatuses(
       let delay = 1000;
       while (!signal.aborted) {
         try {
-          const response = await api.stream(
-            `/api/agent-status/events?reviews=${encodeURIComponent(key)}`,
-            signal,
-          );
+          const response = await api.stream(`${path}?reviews=${encodeURIComponent(key)}`, signal);
           if (!response.ok || !response.body) throw new Error("The status stream closed.");
           delay = 1000;
           await readServerEvents(
             response.body,
             (event) => {
               if (event.event !== "state") return;
-              const parsed = agentStatusesSchema.safeParse(JSON.parse(event.data));
-              if (parsed.success)
-                setStatuses({
-                  key,
-                  value: new Map(parsed.data.statuses.map((status) => [status.reviewId, status])),
-                });
+              const list = read(JSON.parse(event.data));
+              if (list)
+                setValues({ key, value: new Map(list.map((value) => [value.reviewId, value])) });
             },
             signal,
             1024 * 1024,
@@ -59,8 +59,34 @@ export function useAgentStatuses(
       }
     })();
     return () => controller.abort();
-  }, [key, fetcher]);
-  return statuses.key === key ? statuses.value : NONE;
+  }, [path, key, read, fetcher]);
+  // With no reviews, there is nothing to wait for.
+  return values.key === key
+    ? { values: values.value, loaded: true }
+    : { values: NONE as ReadonlyMap<string, T>, loaded: !key };
+}
+
+const readStatuses = (data: unknown) => agentStatusesSchema.safeParse(data).data?.statuses;
+const readSummaries = (data: unknown) => sessionSummariesSchema.safeParse(data).data?.sessions;
+
+/** The lead session's state of each saved review, by review ID, while listed. */
+export function useAgentStatuses(
+  reviewIds: readonly string[],
+  fetcher: typeof fetch,
+): ReadonlyMap<string, AgentStatus> {
+  return useReviewStream("/api/agent-status/events", reviewIds, readStatuses, fetcher).values;
+}
+
+/** Each saved review's lead session with its current turn, for the Sessions page,
+ * and whether the host has sent them. */
+export function useSessionSummaries(reviewIds: readonly string[], fetcher: typeof fetch) {
+  const { values, loaded } = useReviewStream<SessionSummary>(
+    "/api/sessions/events",
+    reviewIds,
+    readSummaries,
+    fetcher,
+  );
+  return { summaries: values, loaded };
 }
 
 const SEEN_KEY = "med:agent-seen";

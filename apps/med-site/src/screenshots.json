@@ -1,8 +1,8 @@
 {
   "med": "med 0.1.7",
   "review": {
-    "width": 1440,
-    "height": 900,
+    "width": 1309,
+    "height": 818,
     "widths": [
       720,
       1120,
@@ -35,11 +35,11 @@
     ]
   },
   "commit": {
-    "width": 720,
-    "height": 260,
+    "width": 760,
+    "height": 460,
     "widths": [
-      720,
-      1440
+      760,
+      1520
     ]
   },
   "notes": {
@@ -76,7 +76,7 @@
   },
   "commit-phone": {
     "width": 390,
-    "height": 240,
+    "height": 330,
     "widths": [
       780,
       1170

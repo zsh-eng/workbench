@@ -1,10 +1,17 @@
 import * as stylex from "@stylexjs/stylex";
-import { useState } from "react";
+import { createContext, useState } from "react";
 import { tokens } from "../theme.stylex";
 import { Icon } from "./Icon";
 import { ShortcutKeys } from "./ShortcutKeys";
 
 const HINT_LIMIT = 3;
+
+/**
+ * True in zen mode. Zen keeps what the review needs: the sidebar's history and
+ * files, the diff, and the agent's thread and composer. The review's own
+ * actions move to the command palette; leave zen for the other controls.
+ */
+export const ZenContext = createContext(false);
 
 /**
  * Zen mode has no bars. The way out waits in the review's top-right corner and
@@ -95,7 +102,8 @@ const styles = stylex.create({
   // Only the button takes the pointer; the corner itself lets clicks through.
   corner: {
     position: "absolute",
-    top: 6,
+    // Below the card's tab when the card heads the window (CardTab).
+    top: "calc(var(--med-card-body, 0px) + 6px)",
     right: 8,
     zIndex: 40,
     pointerEvents: "none",

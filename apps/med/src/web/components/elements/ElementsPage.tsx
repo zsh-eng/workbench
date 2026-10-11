@@ -16,6 +16,8 @@ import { FoundationsSection } from "./FoundationsSection";
 import { Inspector } from "./Inspector";
 import { ReviewSection } from "./ReviewSection";
 import { SessionSection } from "./SessionSection";
+import { SessionsSection } from "./SessionsSection";
+import { SourcesSection } from "./SourcesSection";
 import { StageContext } from "./Specimen";
 import "./ElementsPage.css";
 
@@ -26,7 +28,9 @@ const sections = [
   { id: "code", label: "Code colors" },
   { id: "notes", label: "Notes" },
   { id: "panes", label: "Side panes" },
+  { id: "sources", label: "Sources" },
   { id: "session", label: "Agent session" },
+  { id: "sessions", label: "Sessions" },
   { id: "agents", label: "Agents" },
   { id: "pull-requests", label: "Pull requests" },
   { id: "commit", label: "Commit flow" },
@@ -148,7 +152,9 @@ export default function ElementsPage() {
             <CodeSection />
             <NotesSection />
             <PanesSection />
+            <SourcesSection />
             <SessionSection />
+            <SessionsSection />
             <AgentsSection />
             <PullSection />
             <CommitSection />

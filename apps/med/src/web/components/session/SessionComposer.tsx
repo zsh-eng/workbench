@@ -177,17 +177,9 @@ export function SessionComposer({
   const menuId = useId();
   const chosen = drafts.filter((draft) => !left.has(draft.id));
   const empty = !text.trim() && !chosen.length && !attachments.length && !images.length;
-  // Images go only to an agent that Med runs and that takes them.
-  const takesImages = !!owned?.state.images;
   const addImages = async (files: File[]) => {
     const found = files.filter((file) => file.type.startsWith("image/"));
     if (!found.length) return false;
-    if (!takesImages) {
-      setError(
-        owned ? `${name} does not take images.` : "Images go only to an agent that Med runs.",
-      );
-      return true;
-    }
     const usable = found.filter(
       (file) =>
         (PROMPT_IMAGE_TYPES as readonly string[]).includes(file.type) &&
@@ -513,31 +505,27 @@ export function SessionComposer({
           {owned?.state.context && (
             <ContextMeter used={owned.state.context.used} total={owned.state.context.total} />
           )}
-          {takesImages && (
-            <>
-              <input
-                ref={imageInput}
-                type="file"
-                accept={PROMPT_IMAGE_TYPES.join(",")}
-                multiple
-                hidden
-                onChange={(event) => {
-                  void addImages([...(event.target.files ?? [])]);
-                  event.target.value = "";
-                }}
-              />
-              <button
-                type="button"
-                aria-label="Add images"
-                title="Add images, or paste them"
-                disabled={stopped}
-                onClick={() => imageInput.current?.click()}
-                {...stylex.props(ui.button, ui.iconButton, styles.attach)}
-              >
-                <Icon name="image" size={15} />
-              </button>
-            </>
-          )}
+          <input
+            ref={imageInput}
+            type="file"
+            accept={PROMPT_IMAGE_TYPES.join(",")}
+            multiple
+            hidden
+            onChange={(event) => {
+              void addImages([...(event.target.files ?? [])]);
+              event.target.value = "";
+            }}
+          />
+          <button
+            type="button"
+            aria-label="Add images"
+            title="Add images, or paste them"
+            disabled={stopped}
+            onClick={() => imageInput.current?.click()}
+            {...stylex.props(ui.button, ui.iconButton, styles.attach)}
+          >
+            <Icon name="image" size={15} />
+          </button>
           {working ? (
             <button
               type="button"

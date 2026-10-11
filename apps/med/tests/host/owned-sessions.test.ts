@@ -148,7 +148,7 @@ async function fixture() {
 }
 
 test("Med starts Claude Code, sends review messages as prompts, and answers its questions", async () => {
-  const { api, review, thread, start } = await fixture();
+  const { api, review, stateDir, thread, start } = await fixture();
   const agents = await api<{ agents: unknown[] }>("/api/agents");
   expect(agents.data.agents).toEqual([
     { id: "claude", name: "Claude Code", kind: "claude", available: true },
@@ -233,14 +233,22 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
 
   await session.act({ action: "stop" });
   expect((await session.act({ action: "prompt", text: "Again." })).status).toBe(409);
-  // A session that Med does not run reads text only.
+  // A session that Med does not run reads text: the message names a saved copy.
   const stopped = await api(`/api/reviews/${review.id}/agent/messages`, {
     sessionId: session.id,
-    text: "",
+    text: "Compare with this.",
     noteIds: [],
     images: [{ mimeType: "image/png", data: PNG }],
   });
-  expect(stopped.status).toBe(400);
+  expect(stopped.status).toBe(200);
+  const waited = await api<{ message: string }>(`/api/reviews/${review.id}/agent/wait`, {
+    session: session.id,
+    timeout: 1000,
+  });
+  const path = /^- (\/.+\.png)$/m.exec(waited.data.message)?.[1];
+  expect(waited.data.message).toContain("Compare with this.");
+  expect(path?.startsWith(join(stateDir, "images"))).toBe(true);
+  expect((await readFile(path!)).toString("base64")).toBe(PNG);
 });
 
 test("Med runs an ACP agent and keeps its thread", async () => {
