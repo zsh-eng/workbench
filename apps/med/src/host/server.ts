@@ -709,7 +709,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           // A session that Med started writes its transcript with the first turn.
           if (!path)
             write("reset", { events: [], idle: true, modifiedAt: Date.now(), truncated: false });
-          while (!path && !abort.signal.aborted) {
+          while (!path && !abort.signal.aborted && !closing) {
             await new Promise((done) => setTimeout(done, 400));
             path = await findTranscript(session);
           }
@@ -815,7 +815,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           response.once("close", () => open.delete(response));
           void (async () => {
             let last = "";
-            while (!abort.signal.aborted) {
+            while (!abort.signal.aborted && !closing) {
               const values = await Promise.all(
                 ids.map(async (id) => {
                   const bundle = await savedReviews.get(id).catch(() => undefined);
@@ -2065,7 +2065,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       ownedSessions.stopAll();
       for (const abort of activeRequests.keys()) abort.abort();
       for (const stream of [...streams.keys(), ...windows]) stream.end();
-      for (const { response } of lives.values()) response.end();
+      // A channel's handler stops when its response closes. Bun does not emit
+      // "close" for a live stream that the host ends, so end the channels here.
+      for (const { response, channels } of lives.values()) {
+        for (const channel of channels.values()) channel.destroy();
+        response.end();
+      }
       streams.clear();
       windows.clear();
       await Promise.allSettled([...watchers.values()].map(async (stop) => (await stop)()));
