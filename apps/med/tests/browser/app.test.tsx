@@ -2086,16 +2086,13 @@ describe("review brief", () => {
     await page.getByRole("button", { name: "Iteration 1" }).click();
     await expect.element(page.getByRole("heading", { name: "First round" })).toBeVisible();
     await expect.poll(() => controller.getSnapshot().savedTargetId).toBe("target-0");
+    // The keys choose the comparison, so the header has no second picker.
     await expect
       .element(page.getByRole("combobox", { name: "Review target" }))
-      .toHaveValue("target-0");
-    // Choosing a comparison shows it, and the brief follows its iteration.
-    await page.getByRole("combobox", { name: "Review target" }).selectOptions("target-1");
-    await expect
-      .element(page.getByRole("tab", { name: "Changes" }))
-      .toHaveAttribute("aria-selected", "true");
-    await page.getByRole("tab", { name: "Notes" }).click();
+      .not.toBeInTheDocument();
+    await page.getByRole("button", { name: "Iteration 2" }).click();
     await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
+    await expect.poll(() => controller.getSnapshot().savedTargetId).toBe("target-1");
   });
 
   test("many iterations keep the latest keys and list earlier ones in a menu", async () => {

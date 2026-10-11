@@ -1803,14 +1803,15 @@ export function App({
         event.preventDefault();
         event.stopPropagation();
         openFind();
-      } else if (event.key === "]") {
+      } else if (event.key === "]" || event.key === "[") {
+        // Focus in the session thread gives these keys to its messages.
+        const inThread = event
+          .composedPath()
+          .some((node) => node instanceof HTMLElement && node.hasAttribute("data-message-keys"));
+        if (inThread) return;
         event.preventDefault();
         event.stopPropagation();
-        navigateHunk(1);
-      } else if (event.key === "[") {
-        event.preventDefault();
-        event.stopPropagation();
-        navigateHunk(-1);
+        navigateHunk(event.key === "]" ? 1 : -1);
       } else if (event.key === "n" && find) {
         event.preventDefault();
         event.stopPropagation();
@@ -3337,6 +3338,7 @@ export function App({
               <SavedReviewHeader
                 controller={controller}
                 state={state}
+                notesPickIteration={hasNotes}
                 pullRequest={pullRequest}
                 threadPlacement={pullRequestThreads.placement}
                 codexReviews={codexReviews}

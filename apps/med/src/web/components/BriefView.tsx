@@ -1696,7 +1696,7 @@ const styles = stylex.create({
     paddingInlineEnd: "clamp(24px, 4cqw, 48px)",
     paddingBottom: 64,
     // The prose's font size, so this em-based column matches its width.
-    fontSize: 16,
+    fontSize: "calc(15px * var(--med-prose-scale, 1))",
   },
   uncited: {
     paddingTop: 18,

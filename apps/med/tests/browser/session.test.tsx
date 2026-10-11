@@ -217,6 +217,56 @@ test("a reply taller than the overscan does not move the range on each scroll", 
   expect(moves).toBeLessThan(12);
 });
 
+test("a task in the Background dock scrolls a long thread to its call", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  store.applyAll([
+    {
+      at: 0,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "server",
+        title: "Start the dev server",
+        kind: "execute",
+        status: "in_progress",
+        _meta: { med: { background: { id: "b1", kind: "shell" } } },
+      },
+    },
+    ...turnEvents(1, 300),
+  ]);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r300");
+  expect(document.querySelector('[data-unit="server"]')).toBeNull();
+  await userEvent.click(
+    page.getByRole("region", { name: "Background tasks" }).getByRole("button", {
+      name: "Start the dev server",
+    }),
+  );
+  await expect.poll(() => document.querySelector('[data-unit="server"]')).not.toBeNull();
+  await expect.poll(() => Math.round(topOf("server"))).toBe(16);
+});
+
+test("[ and ] step through the prompts and replies of a focused thread", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(300);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r299");
+  const current = () => document.querySelector<HTMLElement>("[data-current]")?.dataset.unit;
+  threadScroller().focus();
+  // From the end, the latest reply first, then up through the messages.
+  await userEvent.keyboard("[[");
+  expect(current()).toBe("r299");
+  await userEvent.keyboard("[[[[[[");
+  expect(document.querySelector("[data-current]")!.textContent).toContain("Prompt 298");
+  await userEvent.keyboard("]");
+  await expect.poll(current).toBe("r298");
+  // Far from the end, the message goes near the top of the view.
+  for (let step = 0; step < 20; step++) await userEvent.keyboard("[[");
+  await expect.poll(() => Math.round(topOf(current()!))).toBe(16);
+});
+
 test("a thread that arrives in batches still renders only the units near the view", async () => {
   await page.viewport(1280, 900);
   initializeTheme();

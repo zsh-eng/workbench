@@ -181,6 +181,8 @@ host, then returns a local review link. Open the launch URL once to authorize
 the browser; saved links then use the same session.
 
 A saved review opens its first target; choose others from **Review target**.
+An agent's review with one comparison in each iteration has no such picker: the
+iteration keys in **Notes** show each iteration's comparison.
 The saved diff stays fixed when agents make more changes. **Copy comments**
 copies the comments of all targets, with paths, revisions, line numbers, and
 nearby source. **Clear** clears that review after confirmation. Copying does
@@ -195,7 +197,9 @@ toolbar, and **Show agent session** in the palette. They open the Session pane:
 prompts, replies, thoughts, tool calls with output and diffs, the plan, and
 background shells and agents. It follows the session live. A long session opens
 on its latest work; scroll up for earlier work, or jump to a prompt from
-**Turns** (the clock). See [agent sessions](SESSIONS.md).
+**Turns** (the clock). With focus in the thread, `[` and `]` step through the
+prompts and replies; a task in **Background** goes to its call. See
+[agent sessions](SESSIONS.md).
 
 A saved review can also start an agent. A Session pane without a session lists
 the agents that Med found, and its **+** menu starts another. Med starts Claude
@@ -340,6 +344,7 @@ branches.
 | Add note to selected lines        | `c`           | `c`                       |
 | Paste a brief                     | `⌘V`          | `Ctrl+V`                  |
 | Next / previous brief excerpt     | `]` / `[`     | `]` / `[`                 |
+| Next / previous session message   | `]` / `[`     | `]` / `[`                 |
 | Resume search                     | `⌥R`          | `Alt+R`                   |
 | Keep preview tab                  | `⌥P`          | `Alt+P`                   |
 | Open a found file and keep it     | `⌘↵`          | `Ctrl+Enter`              |
