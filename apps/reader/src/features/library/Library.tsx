@@ -60,11 +60,38 @@ import {
 } from "./library-view";
 import { useEpubImport } from "./use-epub-import";
 
+// A new filter shows its books at once: the old list goes without a fade, so
+// the switch does not wait for it.
 const FADE = {
   initial: { opacity: 0 },
   animate: { opacity: 1, transition: MOTION.enter },
-  exit: { opacity: 0, transition: MOTION.exit },
+  exit: { opacity: 0, transition: { duration: 0 } },
 };
+
+/**
+ * True while a row scrolls sideways and has more to its right. The row's
+ * edge fades only then, so a row that fits shows each label in full.
+ */
+function useMoreToTheRight() {
+  const [row, setRow] = useState<HTMLElement | null>(null);
+  const [more, setMore] = useState(false);
+  useLayoutEffect(() => {
+    if (!row) return;
+    const update = () =>
+      setMore(row.scrollLeft + row.clientWidth < row.scrollWidth - 1);
+    update();
+    // Labels can widen when fonts load, so watch them as well as the row.
+    const observer = new ResizeObserver(update);
+    observer.observe(row);
+    for (const child of row.children) observer.observe(child);
+    row.addEventListener("scroll", update, { passive: true });
+    return () => {
+      observer.disconnect();
+      row.removeEventListener("scroll", update);
+    };
+  }, [row]);
+  return { ref: setRow, more };
+}
 
 /**
  * The Library. The books you are reading come first, on a shelf with their
@@ -82,6 +109,7 @@ export function Library() {
   const { data } = useBooksWithStatuses();
 
   const [filter, setFilter] = useState<LibraryFilter>("all");
+  const filterRow = useMoreToTheRight();
   const [view, setViewState] = useState(readViewPreferences);
   const placeSearch = usePlaceSearch();
   const [isDragging, setIsDragging] = useState(false);
@@ -407,9 +435,11 @@ export function Library() {
               )}
             >
               <div
+                ref={filterRow.ref}
                 role="group"
                 aria-label="Show"
-                className="flex min-w-0 items-center gap-3 overflow-x-auto [scrollbar-width:none] max-md:[mask-image:linear-gradient(to_right,black_calc(100%-20px),transparent)] md:gap-4"
+                data-more={filterRow.more || undefined}
+                className="flex min-w-0 items-center gap-3 overflow-x-auto [scrollbar-width:none] max-md:data-[more]:[mask-image:linear-gradient(to_right,black_calc(100%-20px),transparent)] md:gap-4"
               >
                 {LIBRARY_FILTERS.map((option) => {
                   const active = option.value === filter;
