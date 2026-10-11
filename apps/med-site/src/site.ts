@@ -3,7 +3,7 @@
 const installCommand =
   "curl -fsSL https://raw.githubusercontent.com/zsh-eng/workbench/main/apps/med/install.sh | sh";
 
-const repository = "https://github.com/zsh-eng/workbench";
+export const repository = "https://github.com/zsh-eng/workbench";
 
 export const site = {
   title: "Med: review what your agent changed",
@@ -24,9 +24,10 @@ export const site = {
 
   links: {
     github: `${repository}/tree/main/apps/med`,
-    docs: `${repository}/blob/main/apps/med/docs/USAGE.md`,
-    installDocs: `${repository}/blob/main/apps/med/docs/INSTALL.md`,
-    agentDocs: `${repository}/blob/main/apps/med/docs/AGENT_INTEGRATION.md`,
+    // The docs pages render Med's guides (scripts/docs.ts).
+    docs: "/docs",
+    installDocs: "/docs#manual-install",
+    agentDocs: "/docs/agents",
     license: `${repository}/blob/main/apps/med/LICENSE`,
     painting: `${repository}/tree/main/apps/med/scripts/painting`,
   },

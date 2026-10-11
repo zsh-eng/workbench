@@ -223,3 +223,43 @@ test("a phone shows the part of the review that the visitor picks", async ({
   ).toHaveAttribute("aria-pressed", "true");
   await context.close();
 });
+
+test("the docs render Med's guides and link between them", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 800 },
+  });
+  const page = await context.newPage();
+  await page.goto("/");
+  await page.getByRole("banner").getByRole("link", { name: "Docs" }).click();
+  await expect(page).toHaveURL(/\/docs$/);
+  const docs = page.getByRole("navigation", { name: "Docs", exact: true });
+  await expect(docs.getByRole("link", { name: "Install" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Install med on macOS" }),
+  ).toBeVisible();
+
+  // A link to another guide's section opens that page at the section.
+  await docs.getByRole("link", { name: "Using Med" }).click();
+  await page
+    .getByRole("main")
+    .getByRole("link", { name: "agent integration" })
+    .first()
+    .click();
+  await expect(page).toHaveURL(/\/docs\/agents#create-a-review$/);
+  await expect(
+    page.getByRole("heading", { level: 2, name: "Create a review" }),
+  ).toBeInViewport();
+
+  // A phone shows the pages as a row, without sideways scrolling.
+  await page.setViewportSize({ width: 375, height: 812 });
+  await expect(docs.getByRole("link", { name: "Agents" })).toBeVisible();
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth - innerWidth),
+  ).toBe(0);
+  await context.close();
+});

@@ -1,9 +1,10 @@
 # Med site
 
-The marketing page for [Med](../med/README.md): one static HTML page with
-inline CSS and one small script. There is no UI framework and no third-party
-request. On wide screens each window on the page runs Med itself on a
-recorded review (see [Live demo](#live-demo)).
+The marketing page and docs for [Med](../med/README.md): static HTML pages
+with inline CSS and one small script. There is no UI framework and no
+third-party request. On wide screens each window on the page runs Med itself
+on a recorded review (see [Live demo](#live-demo)). The docs pages render Med's
+own guides (see [Docs](#docs)).
 
 ## Commands
 
@@ -26,11 +27,33 @@ bun run paint      # paints the picture behind the product window
 - `src/index.html`, `src/styles.css`, `src/main.js`: the page, the install tabs,
   the copy buttons, and the live demo. The build inlines the CSS and the
   script. `scripts/render.ts` describes the template syntax.
+- `src/partials/`: the head, header, and footer that every page includes.
+- `src/docs.html`, `src/docs.css`, `scripts/docs.ts`: the docs pages.
 - `src/shots.ts`: alt text and layout sizes for the screenshots.
 - `scripts/painting/paint.ts`: the painting (see [Brand](#brand)).
 - `public/`: files served as they are. The build gives fonts, screenshots, and
   the painting content hashes under `/assets/`. `public/demo` holds the live
   demo's recordings: `hero.json`, `recording.json`, and `vault.json`.
+
+## Docs
+
+`/docs` and its pages render Med's user guides from `apps/med/docs` at build
+time: `INSTALL.md` at `/docs`, then `USAGE.md`, `AGENT_INTEGRATION.md`, and
+`VAULTS.md` at `/docs/usage`, `/docs/agents`, and `/docs/vaults`. These are the
+guides that `med docs` prints, so the website and the app agree; edit the
+Markdown in `apps/med/docs`, not here. `scripts/docs.ts` lists the pages and
+their sidebar labels.
+
+The build uses Med's Markdown packages (unified, remark, and rehype, at Med's
+versions); the pages ship HTML only. Headings get GitHub's anchors, so links
+between the guides keep working: a link to another guide opens its page, and a
+link to any other file goes to GitHub. The build fails when a link between the
+guides names a missing section. An image in a guide gets a hashed URL.
+
+A docs page has the pages at the left, the guide in a reading column, and its
+sections at the right on screens 1200 px or wider. Narrow screens show the
+pages as a row above the guide. There is no search. The pages use the site's
+`styles.css` and `main.js` (for the copy buttons on code), with `docs.css`.
 
 ## Fonts
 

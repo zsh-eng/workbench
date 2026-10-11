@@ -13,7 +13,7 @@ const root = values.dist ? join(import.meta.dir, "../dist") : publicDir;
 const demo = join(import.meta.dir, "../.demo");
 const port = Number(values.port ?? 4320);
 
-// Like Cloudflare, /demo/demo also finds demo/demo.html.
+// Like Cloudflare, /demo/demo also finds demo/demo.html, and /docs docs.html.
 function find(pathname: string, base: string): string | undefined {
   const path = join(base, normalize(decodeURIComponent(pathname)));
   if (!path.startsWith(base)) return undefined;
@@ -39,11 +39,19 @@ const server = Bun.serve({
       find(pathname, demo)
     )
       return file(pathname, demo);
-    if (pathname !== "/") return file(pathname);
-    if (values.dist) return file("/index.html");
-    return new Response(render({ hash: false }).html, {
-      headers: { "Content-Type": "text/html; charset=utf-8" },
-    });
+    if (values.dist)
+      return file(pathname === "/" ? "/index.html" : pathname);
+    // Pages render from src/; files that a guide shows have hashed URLs.
+    const { pages, assets } = render({ hash: false });
+    const page = pages.get(
+      pathname === "/" ? "index.html" : `${pathname.slice(1)}.html`,
+    );
+    if (page)
+      return new Response(page, {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    const source = assets.get(pathname.slice(1));
+    return source ? new Response(Bun.file(source)) : file(pathname);
   },
 });
 

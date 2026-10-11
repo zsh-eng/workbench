@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!-- include src/partials/head.html -->
+    <style data-inline="src/docs.css"></style>
+    <noscript>
+      <style>
+        .copy {
+          display: none;
+        }
+      </style>
+    </noscript>
+  </head>
+  <body>
+    <!-- include src/partials/header.html -->
+
+    <!-- A docs page (scripts/docs.ts): the pages, the guide, and its
+         sections. Narrow screens show the pages as a row above the guide. -->
+    <div class="docs wide">
+      <nav class="docs-nav" aria-label="Docs">
+        <!-- slot nav -->
+      </nav>
+      <main class="guide">
+        <!-- slot content -->
+        <nav class="pager" aria-label="More docs">
+          <!-- slot pager -->
+        </nav>
+      </main>
+      <nav class="toc" aria-labelledby="toc-title">
+        <p id="toc-title">On this page</p>
+        <ol>
+          <!-- slot toc -->
+        </ol>
+      </nav>
+    </div>
+
+    <!-- include src/partials/footer.html -->
+
+    <script data-inline="src/main.js"></script>
+  </body>
+</html>
