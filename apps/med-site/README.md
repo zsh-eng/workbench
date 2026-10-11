@@ -138,7 +138,7 @@ commit windows use the same files from the cache. The notes window adds about
 
 ## Deploy
 
-`dist/` is a complete static site. Any static host can serve it; for
-Cloudflare static assets, `dist/_headers` sets a one-year cache for the hashed
-files. This app has no deployment configuration, project name, or domain yet.
-Add them when the domain is chosen.
+`dist/` is a complete static site. `bun run deploy` builds it and deploys it to
+https://med.zsheng.app as the `med-site` Worker. The Worker has static assets
+only (`wrangler.jsonc`), and `dist/_headers` sets a one-year cache for the
+hashed files.
