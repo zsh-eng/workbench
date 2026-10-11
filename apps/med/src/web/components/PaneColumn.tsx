@@ -409,7 +409,7 @@ const styles = stylex.create({
     display: "flex",
     flexDirection: "column",
     overflow: "hidden",
-    borderRadius: `calc(10px * ${tokens.round})`,
+    borderRadius: tokens.frame,
     backgroundColor: tokens.canvas,
     boxShadow: `0 0 0 1px ${tokens.line}, 0 1px 3px #0000000f`,
   },

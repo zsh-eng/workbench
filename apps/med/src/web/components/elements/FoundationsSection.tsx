@@ -284,7 +284,7 @@ export function FoundationsSection({ onPickTheme }: { onPickTheme(id: string): v
       </Specimen>
       <Specimen
         title="Shape"
-        note="Radius grows with the size of the surface; each theme scales it."
+        note="Radius grows with the size of the surface; each theme scales it. Cards at the window's edges keep one radius, concentric with the macOS window."
         span="half"
       >
         <div {...stylex.props(styles.shapes)}>
@@ -301,6 +301,13 @@ export function FoundationsSection({ onPickTheme }: { onPickTheme(id: string): v
               <span {...stylex.props(styles.swatchRole)}>{role}</span>
             </div>
           ))}
+          <div {...stylex.props(styles.shape)}>
+            <span {...stylex.props(styles.frameWindow)}>
+              <span {...stylex.props(styles.frameCard)} />
+            </span>
+            <span {...stylex.props(styles.swatchName)}>16 − 6 = 10</span>
+            <span {...stylex.props(styles.swatchRole)}>Window, gutter, frame card</span>
+          </div>
         </div>
       </Specimen>
       <Specimen title="Icons" note="16-unit grid, 1.5 stroke, current color.">
@@ -526,6 +533,23 @@ const styles = stylex.create({
     height: 44,
     backgroundColor: tokens.fill,
     boxShadow: `inset 0 0 0 1px ${tokens.lineStrong}`,
+  },
+  // A macOS window's corner (16 pt) around a frame card one gutter inside it.
+  frameWindow: {
+    display: "flex",
+    boxSizing: "border-box",
+    width: 88,
+    height: 44,
+    padding: 6,
+    borderRadius: 16,
+    backgroundColor: tokens.panel,
+    boxShadow: `inset 0 0 0 1px ${tokens.lineStrong}`,
+  },
+  frameCard: {
+    flex: "1",
+    borderRadius: tokens.frame,
+    backgroundColor: tokens.canvas,
+    boxShadow: `0 0 0 1px ${tokens.line}`,
   },
   icons: {
     display: "grid",
