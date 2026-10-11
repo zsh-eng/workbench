@@ -30,7 +30,7 @@ fail() {
 while [ $# -gt 0 ]; do
   case "$1" in
     --version)
-      [ $# -ge 2 ] || fail "--version needs a value, such as --version 0.1.7."
+      [ $# -ge 2 ] || fail "--version needs a value, such as --version 0.2.0."
       version="$2"
       shift 2
       ;;
