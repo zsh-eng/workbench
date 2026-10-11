@@ -64,9 +64,12 @@ the shortcuts that a browser keeps for its tabs. The app uses the background
 server, so run `med service install` to start the server at login. Each port is
 a separate app.
 
-The title bar's hide button gives Med the whole window: the branch and its
-sidebar toggle move up beside the window controls, and the empty top row moves
-the window. Show the title bar again from the same place. Chrome reads this
+The title bar's hide button gives Med the whole window. The branch and its
+sidebar toggle move up beside the window controls, and the review card's first
+row rises between the controls as the card's tab. Side panes start below the
+tab. Empty parts of the top row move the window. With branch tabs open, the
+branch tabs head the window instead. Show the title bar again from the same
+place. Chrome reads this
 from Med's manifest at a later launch; reinstall the app to get it at once.
 
 Use `med add /path/to/vault` for Obsidian, or `--type vault` for a Markdown

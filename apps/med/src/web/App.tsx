@@ -1,6 +1,7 @@
 import { useDocumentTitle } from "./data/document-title";
 import { useTitleBarOverlay } from "./data/title-bar";
 import { TitleRow } from "./components/TitleRow";
+import { CardTab } from "./components/CardTab";
 import { DiffImages } from "./components/MediaView";
 import { mediaType } from "../shared/media";
 import { ActionTooltip, ToolButton } from "./components/ToolButton";
@@ -170,6 +171,11 @@ const commandRank = (id: string) => {
   const rank = commonCommands.indexOf(id);
   return rank < 0 ? commonCommands.length : rank;
 };
+
+/** Marks a row that moves the window (TitleRow.css), beside its StyleX classes. */
+function titleClass(title: boolean, { className, style }: ReturnType<typeof stylex.props>) {
+  return { className: title ? `med-title-row ${className ?? ""}` : className, style };
+}
 
 /** Abbreviate object IDs; keep symbolic endpoints such as "worktree" whole. */
 function shortRevision(revision: string) {
@@ -2964,6 +2970,9 @@ export function App({
   );
 
   const titleRow = useTitleBarOverlay();
+  // Without a branch strip to head the window, the review card's first row
+  // rises beside the window controls as the card's tab.
+  const cardTab = titleRow && !zen && (!!workspace || branches.visible.length < 2);
   const sidebarToggle = (
     <ToolButton
       label={leftVisible ? "Hide sidebar" : "Show sidebar"}
@@ -3021,7 +3030,7 @@ export function App({
       )}
     </span>
   );
-  const leading = !leftVisible && !titleRow && (
+  const leading = !leftVisible && (!titleRow || cardTab) && (
     <>
       {identity}
       <span {...stylex.props(styles.headerDivider)} />
@@ -3055,6 +3064,12 @@ export function App({
         {viewControls}
       </header>
     );
+  // The tab is the card's first row, so the notice follows it.
+  const linkError = fileLinkError && (
+    <div role="alert" {...stylex.props(styles.notice, styles.error)}>
+      {fileLinkError}
+    </div>
+  );
   const sidePanes: PaneSpec[] = [
     ...(state.savedReview
       ? [
@@ -3203,9 +3218,10 @@ export function App({
         data-file-count={state.files.length}
         data-active-file={activeFile?.path ?? ""}
       >
-        {/* With the title bar hidden, the identity and branch tabs head the
-            window beside its controls; zen leaves the row empty. */}
-        {titleRow && (
+        {/* With the title bar hidden and branch tabs open, the identity and
+            the tabs head the window beside its controls; zen leaves the row
+            empty. Otherwise the review card's tab heads it (CardTab). */}
+        {titleRow && !cardTab && (
           <TitleRow>
             {!zen && identity}
             {!zen && !workspace && <BranchStrip model={branches} inline />}
@@ -3330,8 +3346,15 @@ export function App({
               hidden={!leftVisible}
             >
               {/* The tab row holds the identity while the sidebar is hidden. */}
-              {!titleRow && (
-                <div {...stylex.props(styles.sidebarHeader)}>{leftVisible && identity}</div>
+              {(!titleRow || cardTab) && (
+                <div
+                  {...titleClass(
+                    cardTab,
+                    stylex.props(styles.sidebarHeader, cardTab && styles.sidebarTitle),
+                  )}
+                >
+                  {leftVisible && identity}
+                </div>
               )}
               {workspace && (
                 <WorkspaceList
@@ -3412,9 +3435,14 @@ export function App({
             </div>
           )}
           <main
-            {...stylex.props(styles.main, !leftVisible && styles.mainFlush)}
+            {...stylex.props(
+              styles.main,
+              !leftVisible && styles.mainFlush,
+              cardTab && styles.tabbed,
+            )}
             aria-label="Continuous review"
           >
+            {cardTab && <CardTab />}
             {/* The review's own row heads the card, level with the sidebar's
             identity, so the sidebar keeps its place between workspaces. */}
             {state.savedReview && (
@@ -3451,12 +3479,9 @@ export function App({
                 }}
               />
             )}
-            {fileLinkError && (
-              <div role="alert" {...stylex.props(styles.notice, styles.error)}>
-                {fileLinkError}
-              </div>
-            )}
+            {!cardTab && linkError}
             {zen ? <ZenExit onExit={toggleZen} /> : mainHeader}
+            {cardTab && linkError}
             <div
               id={`${idPrefix}file-view-panel`}
               role="tabpanel"
@@ -3966,7 +3991,7 @@ export function App({
               </div>
             )}
           </main>
-          <PaneColumn state={panes} panes={sidePanes} />
+          <PaneColumn state={panes} panes={sidePanes} belowTitle={cardTab} />
         </div>
         <footer
           {...stylex.props(styles.statusbar, stylex.defaultMarker(), zen && styles.hiddenSurface)}
@@ -4103,6 +4128,11 @@ const styles = stylex.create({
     paddingInlineStart: 2,
     paddingInlineEnd: 8,
   },
+  // Level with the card's tab, after the window controls.
+  sidebarTitle: {
+    height: "calc(max(var(--med-titlebar-height), 38px) - 6px)",
+    paddingInlineStart: "calc(var(--med-titlebar-left) - 2px)",
+  },
   mainHeader: {
     display: "flex",
     alignItems: "center",
@@ -4195,6 +4225,16 @@ const styles = stylex.create({
     boxShadow: `0 0 0 1px ${tokens.line}, 0 1px 3px #0000000f`,
   },
   mainFlush: {},
+  // CardTab draws the card. Its 1px outline is inside the box, where the
+  // box-shadow outline was outside it.
+  tabbed: {
+    margin: -1,
+    padding: 1,
+    borderRadius: `calc(10px * ${tokens.round} + 1px)`,
+    backgroundColor: "transparent",
+    boxShadow: "none",
+    isolation: "isolate",
+  },
   reviewSurface: {
     position: "relative",
     display: "flex",

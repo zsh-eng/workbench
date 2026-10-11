@@ -249,7 +249,16 @@ export function PaneHeader({
  * one width. Stacked, it shows the two latest panes one above the other; a
  * maximized pane leaves the other as its header. With tabs, it shows one pane.
  */
-export function PaneColumn({ state, panes }: { state: PaneColumnState; panes: PaneSpec[] }) {
+export function PaneColumn({
+  state,
+  panes,
+  belowTitle = false,
+}: {
+  state: PaneColumnState;
+  panes: PaneSpec[];
+  /** The review card heads the window: the column starts below its tab, under the window controls. */
+  belowTitle?: boolean;
+}) {
   const { open, layout, maximized, width, attach } = state;
   const visible = layout === "stack" ? open : open.filter((id) => id === state.active);
   const shown = open.length > 0;
@@ -266,7 +275,12 @@ export function PaneColumn({ state, panes }: { state: PaneColumnState; panes: Pa
         aria-valuemax={maxWidth()}
         tabIndex={0}
         hidden={!shown}
-        {...stylex.props(styles.divider, stylex.defaultMarker(), !shown && styles.hidden)}
+        {...stylex.props(
+          styles.divider,
+          stylex.defaultMarker(),
+          belowTitle && styles.belowTitle,
+          !shown && styles.hidden,
+        )}
         onKeyDown={(event) => {
           if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
             event.preventDefault();
@@ -288,7 +302,12 @@ export function PaneColumn({ state, panes }: { state: PaneColumnState; panes: Pa
         ref={attach}
         data-pane-layout={layout}
         hidden={!shown}
-        {...stylex.props(styles.column, styles.width(width), !shown && styles.hidden)}
+        {...stylex.props(
+          styles.column,
+          styles.width(width),
+          belowTitle && styles.belowTitle,
+          !shown && styles.hidden,
+        )}
       >
         {layout === "tabs" && open.length > 1 && (
           <div role="tablist" aria-label="Side panes" {...stylex.props(styles.tabs)}>
@@ -349,6 +368,8 @@ export function PaneColumn({ state, panes }: { state: PaneColumnState; panes: Pa
 
 const styles = stylex.create({
   hidden: { display: "none" },
+  // The card's tab ends here (CardTab.css), less the frame's top inset.
+  belowTitle: { marginTop: "calc(max(var(--med-titlebar-height), 38px) - 6px)" },
   divider: {
     position: "relative",
     display: "flex",
