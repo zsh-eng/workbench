@@ -105,8 +105,15 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     }
   }
   if (message.type !== "user") return;
-  const text = message.message.content;
-  record({ type: "user", uuid: randomUUID(), message: { role: "user", content: text } });
+  const content = message.message.content;
+  // A prompt with images is a list of blocks, as the Claude API takes it.
+  const blocks = typeof content === "string" ? [{ type: "text", text: content }] : content;
+  const text = blocks
+    .filter((block) => block.type === "text")
+    .map((block) => block.text)
+    .join("");
+  const images = blocks.filter((block) => block.type === "image");
+  record({ type: "user", uuid: randomUUID(), message: { role: "user", content } });
   send({ type: "system", subtype: "status", status: "requesting" });
   if (text.includes("Edit")) {
     const request_id = `ask-${randomUUID().slice(0, 8)}`;
@@ -135,5 +142,9 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     waiting = true;
     return;
   }
+  if (images.length)
+    return reply(
+      `Saw ${images.map((image) => `${image.source.type} ${image.source.media_type}`).join(", ")}: ${text}`,
+    );
   reply(`Model ${model}, effort ${effort}, mode ${mode}: ${text.split("\n")[0]}`);
 });

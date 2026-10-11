@@ -343,6 +343,18 @@ async function mountApp(
         });
         return Response.json(savedBundle());
       }
+      if (url.pathname === "/api/reviews/saved/delete-notes" && init?.method === "POST") {
+        const { iteration } = JSON.parse(String(init.body)) as { iteration?: number };
+        const started = startedNotes.findIndex((entry) => entry.number === iteration);
+        if (started >= 0) {
+          const [removed] = startedNotes.splice(started, 1);
+          savedTargets.splice(
+            savedTargets.findIndex((target) => target.id === removed!.targetIds[0]),
+            1,
+          );
+        }
+        return Response.json(savedBundle());
+      }
       if (url.pathname === "/api/reviews/saved/pins" && init?.method === "POST") {
         const mutation = JSON.parse(String(init.body)) as PinMutation;
         if ("add" in mutation)
@@ -1114,6 +1126,26 @@ describe("graphical review", () => {
     await expect.poll(() => heights()[1]?.[1]).toBe(41);
     await files.getByRole("button", { name: "Restore files" }).click();
     await expect.poll(() => (heights()[1]?.[1] ?? 0) > 100).toBe(true);
+
+    // ⌘⌃⇧← and ⌘⌃⇧→ move the column's edge; ⌘⌃= makes it as wide as the
+    // review, and again gives back the width from before.
+    const divider = page.getByRole("separator", { name: "Resize side panes" });
+    const width = () => Number(divider.element().getAttribute("aria-valuenow"));
+    const start = width();
+    await userEvent.keyboard("{Meta>}{Control>}{Shift>}{ArrowLeft}{/Shift}{/Control}{/Meta}");
+    await expect.poll(width).toBe(start + 40);
+    await userEvent.keyboard("{Meta>}{Control>}{Shift>}{ArrowRight}{/Shift}{/Control}{/Meta}");
+    await expect.poll(width).toBe(start);
+    await userEvent.keyboard("{Meta>}{Control>}={/Control}{/Meta}");
+    const column = document.querySelector<HTMLElement>("[data-pane-layout]")!;
+    const main = document.querySelector("main")!;
+    await expect
+      .poll(() =>
+        Math.abs(column.getBoundingClientRect().width - main.getBoundingClientRect().width),
+      )
+      .toBeLessThan(2);
+    await userEvent.keyboard("{Meta>}{Control>}={/Control}{/Meta}");
+    await expect.poll(width).toBe(start);
 
     // Closing the preview is remembered, as the toggle in the file view was.
     await preview.getByRole("button", { name: "Close preview" }).click();
@@ -2117,15 +2149,20 @@ describe("review brief", () => {
     await expect.poll(() => controller.getSnapshot().savedTargetId).toBe("target-1");
   });
 
-  test("Start new notes makes an empty iteration of the current comparison", async () => {
+  test("Start new notes makes an empty iteration of the current comparison, and Delete removes it", async () => {
     await page.viewport(1280, 800);
     const { controller } = await mountApp({
       savedReview: true,
       iterationBriefs: ["# First round\n", "# Second round\n"],
     });
     await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
+    // In the open menu, a letter chooses its item.
     await page.getByRole("button", { name: "Notes options" }).click();
-    await page.getByRole("menuitem", { name: "Start new notes" }).click();
+    await expect
+      .element(page.getByRole("menuitem", { name: "Start new notes" }))
+      .toHaveAttribute("aria-keyshortcuts", "n");
+    await userEvent.keyboard("n");
+    await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
     // The new notes are empty: the brief before them stays with its iteration.
     await expect.element(page.getByText("No notes yet.", { exact: false })).toBeVisible();
     await expect
@@ -2135,8 +2172,26 @@ describe("review brief", () => {
     await expect
       .element(page.getByRole("heading", { name: "Second round" }))
       .not.toBeInTheDocument();
-    await page.getByRole("button", { name: "Iteration 2" }).click();
+
+    // Deleting them asks first; their iteration goes, and the agent's latest notes show.
+    await page.getByRole("button", { name: "Notes options" }).click();
+    await expect.element(page.getByRole("menuitem", { name: "Delete these notes…" })).toBeVisible();
+    await userEvent.keyboard("d");
+    const confirm = page.getByRole("alertdialog", { name: "Delete notes" });
+    // The Notes tab stays in front while the earlier comparison loads.
+    const tabs = new Set<string>();
+    const observer = new MutationObserver(() =>
+      tabs.add(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent ?? ""),
+    );
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true });
+    await confirm.getByRole("button", { name: "Delete", exact: true }).click();
     await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
+    await expect.poll(() => controller.getSnapshot().savedTargetId).toBe("target-1");
+    await expect.poll(() => controller.getSnapshot().status).toBe("ready");
+    observer.disconnect();
+    expect([...tabs]).toEqual(["Notes"]);
+    await expect.element(page.getByRole("button", { name: "Iteration 3" })).not.toBeInTheDocument();
+    await expect.element(confirm).not.toBeInTheDocument();
   });
 
   test("many iterations keep the latest keys and list earlier ones in a menu", async () => {
@@ -2658,7 +2713,9 @@ describe("agent session", () => {
 
     await expect
       .poll(() => agentMessages)
-      .toEqual([{ sessionId: "s1", text: "Use minutes.", noteIds: ["n1"], attachments: [] }]);
+      .toEqual([
+        { sessionId: "s1", text: "Use minutes.", noteIds: ["n1"], attachments: [], images: [] },
+      ]);
     await expect.element(panel.getByText("Use minutes.")).toBeVisible();
     await expect
       .element(panel.getByText("Sent from Med · 1 comment · Claude took it"))
@@ -2729,6 +2786,29 @@ describe("agent session", () => {
     await expect.element(input).toHaveValue("/review ");
     await userEvent.keyboard("the durations{Meta>}{Enter}{/Meta}");
     await expect.poll(() => agentMessages).toMatchObject([{ text: "/review the durations" }]);
+
+    // A pasted image goes with the next message to an agent that takes images.
+    setOwned({ images: true });
+    await expect.element(composer.getByRole("button", { name: "Add images" })).toBeVisible();
+    const png =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    const clipboard = new DataTransfer();
+    clipboard.items.add(
+      new File([Uint8Array.from(atob(png), (char) => char.charCodeAt(0))], "shot.png", {
+        type: "image/png",
+      }),
+    );
+    input
+      .element()
+      .dispatchEvent(new ClipboardEvent("paste", { clipboardData: clipboard, bubbles: true }));
+    const images = composer.getByRole("list", { name: "Images to send" });
+    await expect.element(images.getByRole("img", { name: "Attachment 1" })).toBeVisible();
+    await userEvent.click(input);
+    await userEvent.keyboard("Why?{Meta>}{Enter}{/Meta}");
+    await expect
+      .poll(() => agentMessages.at(-1))
+      .toMatchObject({ text: "Why?", images: [{ mimeType: "image/png", data: png }] });
+    await expect.element(images).not.toBeInTheDocument();
 
     // A tool call waits for an answer; while the agent works, Send becomes Stop.
     setOwned({

@@ -7,6 +7,8 @@ import {
   type RichInlineItem,
 } from "@chenglou/pretext/rich-inline";
 import type { SessionItem } from "../../data/session-store";
+import { thumbsHeight } from "./ImageThumbs";
+import { promptBlocks } from "./prompt-blocks";
 import type { ToolItem, Unit } from "./thread-model";
 
 // The height of a thread unit before it renders. Pretext measures text with
@@ -50,6 +52,10 @@ export interface ThreadMetrics {
     code: InlineStyle;
     /** How much taller a line with inline code is. */
     codeLine: number;
+    /** A web link's pill and icon: their width beside the text, and how much
+     * taller a line with one is. */
+    web: number;
+    webLine: number;
     heading: TextStyle;
     minor: TextStyle;
     paragraph: number;
@@ -79,8 +85,11 @@ export interface ThreadMetrics {
   };
   user: {
     text: TextStyle;
-    /** The widest line of a prompt. */
+    /** The widest line of a prompt, and of a quote in it. */
     width: number;
+    quoteWidth: number;
+    /** The space between a prompt's text and its quotes. */
+    gap: number;
     /** The bubble's padding and the row's margins. */
     chrome: number;
   };
@@ -152,6 +161,9 @@ export function readMetrics(probe: HTMLElement): ThreadMetrics {
           px(code.borderRightWidth),
       },
       codeLine: Math.max(0, height("pcode") - body.lineHeight),
+      web:
+        part("web").getBoundingClientRect().width - part("webText").getBoundingClientRect().width,
+      webLine: Math.max(0, height("pweb") - body.lineHeight),
       heading: textStyle(part("h")),
       minor: textStyle(part("h4")),
       paragraph: px(style("p").marginBottom),
@@ -192,6 +204,13 @@ export function readMetrics(probe: HTMLElement): ThreadMetrics {
     user: {
       text: textStyle(part("userText")),
       width: part("userText").getBoundingClientRect().width,
+      quoteWidth:
+        part("userQuote").getBoundingClientRect().width -
+        px(style("userQuote").paddingLeft) -
+        px(style("userQuote").borderLeftWidth),
+      gap:
+        part("userQuote").getBoundingClientRect().top -
+        part("userText").getBoundingClientRect().bottom,
       chrome:
         px(bubble.paddingTop) +
         px(bubble.paddingBottom) +
@@ -244,10 +263,11 @@ function lineCount(owner: object, text: string, style: TextStyle, width: number,
   return Math.max(1, layout(entry, Math.max(1, width), style.lineHeight).lineCount);
 }
 
-type Run = { text: string; kind: "text" | "code" | "bold" | "italic" };
-// Code spans, strong and emphasis, links and images, autolinks, and HTML tags.
+type Run = { text: string; kind: "text" | "code" | "bold" | "italic" | "web" };
+// Code spans, strong and emphasis, links and images, autolinks, HTML tags,
+// and bare web addresses.
 const INLINE =
-  /(`+)(.+?)\1|\*\*(.+?)\*\*|__(.+?)__|\*(\S(?:.*?\S)?)\*|(?<!\w)_(\S(?:.*?\S)?)_(?!\w)|!?\[([^\]]*)\]\([^)]*\)|<(https?:[^>\s]+)>|<\/?[a-z][^>]*>/gi;
+  /(`+)(.+?)\1|\*\*(.+?)\*\*|__(.+?)__|\*(\S(?:.*?\S)?)\*|(?<!\w)_(\S(?:.*?\S)?)_(?!\w)|(!?)\[([^\]]*)\]\(([^)\s]*)[^)]*\)|<(https?:[^>\s]+)>|<\/?[a-z][^>]*>|\b(https?:\/\/[^\s<>]*[^\s<>.,:;"')\]])/gi;
 
 /** The runs of Markdown inline text, as the renderer styles them. */
 function runs(source: string): Run[] {
@@ -262,15 +282,17 @@ function runs(source: string): Run[] {
     if (match[1]) push(match[2]!.trim() || match[2]!, "code");
     else if (match[3] ?? match[4]) push((match[3] ?? match[4])!.replace(/`/g, ""), "bold");
     else if (match[5] ?? match[6]) push((match[5] ?? match[6])!.replace(/`/g, ""), "italic");
-    else if (match[7] !== undefined) push(match[7], "text");
-    else if (match[8]) push(match[8], "text");
+    // A web link is a pill with its site's icon; an image keeps its alt text.
+    else if (match[8] !== undefined)
+      push(match[8], !match[7] && /^https?:/i.test(match[9]!) ? "web" : "text");
+    else if (match[10] ?? match[11]) push((match[10] ?? match[11])!, "web");
   }
   push(source.slice(last), "text");
   return result;
 }
 
-/** Lines of Markdown inline text in a block of this width, and how many of
- * them hold inline code, which can stand taller. */
+/** Lines of Markdown inline text in a block of this width, and the height
+ * that inline code and web links add to the lines that hold them. */
 function inlineLines(
   owner: object,
   source: string,
@@ -282,7 +304,7 @@ function inlineLines(
   if (parts.every((part) => part.kind === "text"))
     return {
       count: lineCount(owner, parts.map((part) => part.text).join(""), style, width),
-      withCode: 0,
+      tall: 0,
     };
   const r = m.reply;
   // Bold and italic keep the block's size; only their weight or style changes.
@@ -296,30 +318,38 @@ function inlineLines(
           letterSpacing: r.code.letterSpacing,
           extraWidth: r.code.extra,
         }
-      : {
-          text: part.text,
-          font:
-            part.kind === "bold"
-              ? resize(r.bold)
-              : part.kind === "italic"
-                ? resize(r.italic)
-                : style.font,
-          ...(style.letterSpacing ? { letterSpacing: style.letterSpacing } : {}),
-        },
+      : part.kind === "web"
+        ? {
+            text: part.text,
+            font: style.font,
+            ...(style.letterSpacing ? { letterSpacing: style.letterSpacing } : {}),
+            extraWidth: r.web,
+          }
+        : {
+            text: part.text,
+            font:
+              part.kind === "bold"
+                ? resize(r.bold)
+                : part.kind === "italic"
+                  ? resize(r.italic)
+                  : style.font,
+            ...(style.letterSpacing ? { letterSpacing: style.letterSpacing } : {}),
+          },
   );
   const entry = cached(owner, `rich\0${style.font}\0${r.code.font}\0${source}`, () =>
     prepareRichInline(items),
   );
   const limit = Math.max(1, width);
-  if (r.codeLine < 0.01)
-    return { count: Math.max(1, measureRichInlineStats(entry, limit).lineCount), withCode: 0 };
+  if (r.codeLine < 0.01 && r.webLine < 0.01)
+    return { count: Math.max(1, measureRichInlineStats(entry, limit).lineCount), tall: 0 };
   let count = 0;
-  let withCode = 0;
+  let tall = 0;
   walkRichInlineLineRanges(entry, limit, (line) => {
     count++;
-    if (line.fragments.some((fragment) => parts[fragment.itemIndex]?.kind === "code")) withCode++;
+    const kinds = new Set(line.fragments.map((fragment) => parts[fragment.itemIndex]?.kind));
+    tall += Math.max(kinds.has("code") ? r.codeLine : 0, kinds.has("web") ? r.webLine : 0);
   });
-  return { count: Math.max(1, count), withCode };
+  return { count: Math.max(1, count), tall };
 }
 
 let measureCanvas: CanvasRenderingContext2D | null = null;
@@ -489,7 +519,7 @@ function replyHeight(owner: object, text: string, m: ThreadMetrics) {
   const r = m.reply;
   const prose = (source: string, width: number, style = r.body) => {
     const lines = inlineLines(owner, source, m, style, width);
-    return lines.count * style.lineHeight + lines.withCode * r.codeLine;
+    return lines.count * style.lineHeight + lines.tall;
   };
   let height = 0;
   // The margin above the next block; adjacent margins collapse.
@@ -611,13 +641,24 @@ function toolHeight(item: ToolItem, m: ThreadMetrics, open = false) {
   return m.row + 8 + parts.reduce((sum, part) => sum + part, 0) + 8 * (parts.length - 1);
 }
 
+/** A prompt's images, as thumbnails above its text, and its text's parts. */
+function promptParts(item: Extract<SessionItem, { kind: "user" }>, m: ThreadMetrics) {
+  const images = item.content.filter((block) => block.type === "image").length;
+  const parts = item.content.flatMap((block) =>
+    block.type === "text" ? promptBlocks(block.text) : [],
+  );
+  return { thumbs: thumbsHeight(images, m.user.width), images, parts };
+}
+
 function userHeight(item: Extract<SessionItem, { kind: "user" }>, m: ThreadMetrics) {
-  let height = m.user.chrome;
-  for (const block of item.content)
-    if (block.type === "text")
-      height +=
-        lineCount(item, block.text, m.user.text, m.user.width, true) * m.user.text.lineHeight;
-    else if (block.type === "image") height += 160;
+  const { thumbs, images, parts } = promptParts(item, m);
+  let height = m.user.chrome + thumbs;
+  parts.forEach((part, index) => {
+    const width = part.quote ? m.user.quoteWidth : m.user.width;
+    height +=
+      (index || images ? m.user.gap : 0) +
+      lineCount(item, part.text, m.user.text, width, true) * m.user.text.lineHeight;
+  });
   if (item.queued || item.sent) height += 19;
   return height;
 }
@@ -663,22 +704,23 @@ export function roughUnit(
   };
   const r = m.reply;
   switch (item.kind) {
-    case "user":
+    case "user": {
+      const { thumbs, images, parts } = promptParts(item, m);
       return (
         m.user.chrome +
-        item.content.reduce(
-          (sum, block) =>
-            sum +
-            (block.type === "text"
-              ? lines(block.text, m.user.text, m.user.width) * m.user.text.lineHeight
-              : block.type === "image"
-                ? 160
-                : 0),
+        thumbs +
+        parts.reduce(
+          (height, part, index) =>
+            height +
+            (index || images ? m.user.gap : 0) +
+            lines(part.text, m.user.text, part.quote ? m.user.quoteWidth : m.user.width) *
+              m.user.text.lineHeight,
           0,
         ) +
         (item.queued || item.sent ? 19 : 0) +
         m.gap
       );
+    }
     case "agent": {
       const text = item.text.trim();
       const blocks = text.split(/\n\s*\n/).length;

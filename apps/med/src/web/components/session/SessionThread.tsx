@@ -23,6 +23,8 @@ import { Icon } from "../Icon";
 import { motion, rowStyles } from "./session-styles";
 import { BackgroundDock } from "./BackgroundDock";
 import { SessionMarkdown } from "./SessionMarkdown";
+import { ImageThumbs } from "./ImageThumbs";
+import { promptBlocks } from "./prompt-blocks";
 import { formatSeconds, RowOpen, ToolCall, useRowOpen } from "./ToolCall";
 import {
   finalReplies,
@@ -133,29 +135,45 @@ const Item = memo(function Item({
   onOpenLink?(href: string): void;
 }) {
   switch (item.kind) {
-    case "user":
+    case "user": {
+      const images = item.content.filter((block) => block.type === "image");
       return (
         <div {...stylex.props(styles.userRow)}>
           {item.queued && <span {...stylex.props(styles.queued)}>Queued</span>}
           <div {...stylex.props(styles.user)}>
-            {item.content.map((block, index) =>
-              block.type === "text" ? (
-                <p key={index} {...stylex.props(styles.userText)}>
-                  {block.text}
-                </p>
-              ) : block.type === "image" ? (
-                <img
-                  key={index}
-                  alt=""
-                  src={`data:${block.mimeType};base64,${block.data}`}
-                  {...stylex.props(styles.image)}
-                />
-              ) : null,
-            )}
+            {images.length > 0 && <ImageThumbs images={images} />}
+            {item.content
+              .filter((block) => block.type === "text")
+              .flatMap((block) => promptBlocks(block.text))
+              .map((part, at) =>
+                part.quote ? (
+                  <blockquote
+                    key={at}
+                    {...stylex.props(
+                      styles.userText,
+                      styles.userQuote,
+                      (at > 0 || images.length > 0) && styles.userNext,
+                    )}
+                  >
+                    {part.text}
+                  </blockquote>
+                ) : (
+                  <p
+                    key={at}
+                    {...stylex.props(
+                      styles.userText,
+                      (at > 0 || images.length > 0) && styles.userNext,
+                    )}
+                  >
+                    {part.text}
+                  </p>
+                ),
+              )}
           </div>
           {item.sent && <Delivery message={item.sent} />}
         </div>
       );
+    }
     case "agent":
       return (
         <>
@@ -1004,8 +1022,14 @@ export function SessionThread({
       event.stopPropagation();
       step(event.key === "]" ? 1 : -1);
     };
+    // The mark is for the keys: a click in the thread takes it away.
+    const pointerdown = () => setCurrent(undefined);
     node.addEventListener("keydown", keydown);
-    return () => node.removeEventListener("keydown", keydown);
+    node.addEventListener("pointerdown", pointerdown);
+    return () => {
+      node.removeEventListener("keydown", keydown);
+      node.removeEventListener("pointerdown", pointerdown);
+    };
   }, [step]);
   const toggleWork = (key: string) => {
     list.current?.hold(key);
@@ -1236,6 +1260,16 @@ function ThreadProbe({ probe }: { probe: RefObject<HTMLDivElement | null> }) {
           </p>
         </div>
         <div className="med-md-block">
+          <p data-probe="pweb">
+            <span data-probe="web" className="med-web-link">
+              <span className="med-web-link-lead">
+                <img className="med-web-link-icon" alt="" />
+                <span data-probe="webText">probe</span>
+              </span>
+            </span>
+          </p>
+        </div>
+        <div className="med-md-block">
           <p data-probe="pcode">
             <code>Probe</code>
           </p>
@@ -1303,6 +1337,12 @@ function ThreadProbe({ probe }: { probe: RefObject<HTMLDivElement | null> }) {
           <p data-probe="userText" {...stylex.props(styles.userText)}>
             {PROBE_LINE}
           </p>
+          <blockquote
+            data-probe="userQuote"
+            {...stylex.props(styles.userText, styles.userQuote, styles.userNext)}
+          >
+            {PROBE_LINE}
+          </blockquote>
         </div>
       </div>
       <button type="button" tabIndex={-1} data-probe="row" {...stylex.props(rowStyles.row)}>
@@ -1423,7 +1463,16 @@ const styles = stylex.create({
     whiteSpace: "pre-wrap",
     overflowWrap: "anywhere",
   },
-  image: { display: "block", maxWidth: "100%", borderRadius: `calc(6px * ${tokens.round})` },
+  // Quoted lines, as Claude shows a reply to its own words.
+  userQuote: {
+    marginInline: 0,
+    paddingInlineStart: 10,
+    borderInlineStartWidth: 2,
+    borderInlineStartStyle: "solid",
+    borderInlineStartColor: tokens.lineStrong,
+    color: tokens.muted,
+  },
+  userNext: { marginTop: 8 },
   queued: { color: tokens.faint, fontSize: 11 },
   delivery: {
     display: "flex",

@@ -267,6 +267,128 @@ test("[ and ] step through the prompts and replies of a focused thread", async (
   // Far from the end, the message goes near the top of the view.
   for (let step = 0; step < 20; step++) await userEvent.keyboard("[[");
   await expect.poll(() => Math.round(topOf(current()!))).toBe(16);
+  // The mark is for the keys: a click in the thread takes it away.
+  await userEvent.click(document.querySelector(`[data-unit="${current()}"]`)!);
+  expect(current()).toBeUndefined();
+});
+
+test("a prompt shows its quotes as Claude does, without reply markers", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  store.applyAll([
+    {
+      at: 0,
+      update: {
+        sessionUpdate: "user_message_chunk" as const,
+        content: {
+          type: "text" as const,
+          text: "<!-- reply 1 -->\n> Pins keep adding to the notes.\n\nThis makes sense.\n\n<!-- reply 2 -->\n> Show the prompt.\n> Add one switch.\n\nYes.",
+        },
+      },
+    },
+  ]);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  const bubble = () => document.querySelector('[data-message="user"]');
+  await expect.poll(() => bubble()?.querySelectorAll("blockquote").length).toBe(2);
+  expect([...bubble()!.querySelectorAll("blockquote")].map((quote) => quote.textContent)).toEqual([
+    "Pins keep adding to the notes.",
+    "Show the prompt.\nAdd one switch.",
+  ]);
+  expect([...bubble()!.querySelectorAll("p")].map((text) => text.textContent)).toEqual([
+    "This makes sense.",
+    "Yes.",
+  ]);
+  expect(bubble()!.textContent).not.toMatch(/<!--|>/);
+});
+
+test("a prompt's images are square thumbnails, and a click shows one at full size", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  // Two wide images, as screenshots are.
+  const image = (color: string) => ({
+    type: "image" as const,
+    mimeType: "image/svg+xml",
+    data: btoa(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="320"><rect width="640" height="320" fill="${color}"/></svg>`,
+    ),
+  });
+  store.applyAll(
+    [
+      image("#3b82f6"),
+      image("#f97316"),
+      { type: "text" as const, text: "Why do these differ?" },
+    ].map((content) => ({
+      at: 0,
+      update: { sessionUpdate: "user_message_chunk" as const, content },
+    })),
+  );
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  const first = page.getByRole("button", { name: "Show image 1" });
+  await expect.element(first).toBeVisible();
+  const box = first.element().getBoundingClientRect();
+  expect([box.width, box.height]).toEqual([64, 64]);
+  expect(
+    page.getByText("Why do these differ?").element().getBoundingClientRect().top,
+  ).toBeGreaterThan(box.bottom);
+
+  await first.click();
+  const viewer = page.getByRole("dialog", { name: "Image 1 of 2" });
+  await expect.element(viewer).toBeVisible();
+  expect(viewer.element().querySelector("img")!.getBoundingClientRect().width).toBeGreaterThan(400);
+  await userEvent.keyboard("{ArrowRight}");
+  await expect.element(page.getByRole("dialog", { name: "Image 2 of 2" })).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+});
+
+test("a reply's links act as links, and a web link shows its site's icon", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  store.applyAll([
+    {
+      at: 0,
+      update: {
+        sessionUpdate: "agent_message_chunk" as const,
+        content: {
+          type: "text" as const,
+          text: "See [summary.ts:14](src/summary.ts:14), the [Docs](https://react.dev/reference/react/useMemo), the [Review](https://github.acme.dev/trail/pull/7), and the [Wiki](https://wiki.trail.dev/b).",
+        },
+      },
+    },
+  ]);
+  const opened: string[] = [];
+  root!.render(
+    <SessionThread snapshot={store.getSnapshot()} onOpenLink={(href) => opened.push(href)} />,
+  );
+  const docs = page.getByRole("link", { name: "Docs" });
+  await expect.element(docs).toHaveAttribute("href", "https://react.dev/reference/react/useMemo");
+  // The icon is the site's favicon, which Med holds; it asks no server for it.
+  const image = (link: Element) => link.querySelector<HTMLImageElement>("img")!;
+  expect(docs.element().getAttribute("data-site")).toBe("react");
+  await expect.poll(() => image(docs.element()).naturalWidth).toBeGreaterThan(0);
+  expect(new URL(image(docs.element()).src).origin).toBe(location.origin);
+  // A company's own server matches by a word in its name; any other site shows a globe.
+  expect(page.getByRole("link", { name: "Review" }).element().getAttribute("data-site")).toBe(
+    "github",
+  );
+  expect(page.getByRole("link", { name: "Wiki" }).element().getAttribute("data-site")).toBe("web");
+  // The icon is shorter than its pill.
+  const pill = docs.element().getBoundingClientRect();
+  const icon = image(docs.element()).getBoundingClientRect();
+  expect(icon.top).toBeGreaterThan(pill.top);
+  expect(icon.bottom).toBeLessThan(pill.bottom);
+
+  // A file link has no href, but it has the link cursor and underlines on hover.
+  const file = page.getByText("summary.ts:14");
+  expect(getComputedStyle(file.element()).cursor).toBe("pointer");
+  expect(getComputedStyle(file.element()).textDecorationLine).toBe("none");
+  await userEvent.hover(file);
+  await expect.poll(() => getComputedStyle(file.element()).textDecorationLine).toBe("underline");
+  await userEvent.click(file);
+  expect(opened).toEqual(["src/summary.ts:14"]);
 });
 
 test("a thread that arrives in batches still renders only the units near the view", async () => {

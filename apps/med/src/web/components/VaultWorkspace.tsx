@@ -90,7 +90,7 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
   const surface = useRef<HTMLDivElement>(null);
   const source = sources.find((s) => s.id === locationState.id);
   useDocumentTitle(
-    `${locationState.file.split("/").at(-1) || source?.name || "Sources"} — med`,
+    locationState.file.split("/").at(-1) || source?.name || "Sources",
     2,
     locationState.visible,
   );

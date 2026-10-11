@@ -2,11 +2,11 @@ import Foundation
 import Observation
 import SwiftSoup
 
-#if DEBUG && canImport(UIKit)
+#if canImport(UIKit)
   import UIKit
 #endif
 
-struct SavedArticle: Identifiable, Codable, Sendable {
+struct SavedArticle: Identifiable, Codable, Equatable, Sendable {
   var id = UUID()
   let url: URL
   var title: String
@@ -37,7 +37,7 @@ struct SavedArticle: Identifiable, Codable, Sendable {
 }
 
 /// Codable state lives in the same atomic record as the saved link and its tags.
-struct ArticleTaggingState: Codable, Sendable {
+struct ArticleTaggingState: Codable, Equatable, Sendable {
   var generation = UUID()
   var pendingIdentity: String?
   var completedIdentity: String?
@@ -97,8 +97,10 @@ struct TaggingNotice: Identifiable {
   let tags: [String]
 }
 
-/// Metadata is committed atomically. Each downloaded Reader view has a separate
-/// file, so listing links never loads article bodies or embedded header images.
+/// Each edit commits to the active profile's SQLite journal. Each downloaded
+/// Reader view has a separate file, so listing links never loads article bodies
+/// or embedded header images. The old JSON file is the first copy's source and
+/// then stays untouched as a backup.
 @MainActor @Observable final class ArticleStore {
   private(set) var articles: [SavedArticle] = []
   private(set) var libraryRevision = 0
@@ -169,6 +171,16 @@ struct TaggingNotice: Identifiable {
   private let downloads: URL
   /// Reader files of removed links, kept only while their Undo is offered.
   private let removedDownloads: URL
+  /// Each profile's journal lives here: the local library and one per account.
+  let libraryRoot: URL
+  /// Persists the library. Nil only when no profile could open. The JSON file
+  /// then stays the store, unless a journal had already replaced it.
+  @ObservationIgnored private(set) var journal: LibraryJournal?
+  @ObservationIgnored private var legacyWritesAllowed = true
+  /// The profile on screen.
+  private(set) var profile: ArticleSyncScope = .local
+  /// Called after edits commit, so sync can upload them soon.
+  @ObservationIgnored var journalCommitted: (() -> Void)?
 
   init(directory: URL? = nil) {
     let directory =
@@ -179,15 +191,20 @@ struct TaggingNotice: Identifiable {
     downloads = directory.appending(path: TestMode.enabled ? "TestDownloads" : "Downloads")
     removedDownloads = directory.appending(
       path: TestMode.enabled ? "TestRemovedDownloads" : "RemovedDownloads")
+    libraryRoot = directory.appending(
+      path: TestMode.enabled ? "TestLibrary" : "Library", directoryHint: .isDirectory)
     // An Undo receipt does not survive relaunch, so neither do the files it held.
     if FileManager.default.fileExists(atPath: removedDownloads.path) {
       try? FileManager.default.removeItem(at: removedDownloads)
     }
+    var legacyReadable = true
     do {
       try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
       if TestMode.enabled && ProcessInfo.processInfo.arguments.contains("-reset-store") {
         try? FileManager.default.removeItem(at: fileURL)
         try? FileManager.default.removeItem(at: downloads)
+        try? FileManager.default.removeItem(at: libraryRoot)
+        LibraryAccount.saved = nil
         #if DEBUG
           try TestMode.resetSharedFixtures()
         #endif
@@ -294,7 +311,11 @@ struct TaggingNotice: Identifiable {
             to: documents.appending(path: "Reading List.html"), options: .atomic)
         }
       #endif
-    } catch { errorMessage = "Could not read saved links: \(error.localizedDescription)" }
+    } catch {
+      errorMessage = "Could not read saved links: \(error.localizedDescription)"
+      legacyReadable = false
+    }
+    openLibrary(legacy: legacyReadable ? articles : nil)
     #if DEBUG
       if TestMode.enabled && ProcessInfo.processInfo.arguments.contains("-test-import-replay"),
         articles.isEmpty
@@ -324,7 +345,7 @@ struct TaggingNotice: Identifiable {
     else {
       throw ArticleError.message("Enter a complete website link, such as example.com/article.")
     }
-    if let index = articles.firstIndex(where: { $0.url == url }) {
+    if let index = articleIndex(for: url, in: articles) {
       var updated = articles
       updated[index].isSaved = true
       updated[index].isArchived = false
@@ -377,7 +398,7 @@ struct TaggingNotice: Identifiable {
       try add(url.absoluteString)
       return
     }
-    guard let index = articles.firstIndex(where: { $0.url == url }) else { return }
+    guard let index = articleIndex(for: url, in: articles) else { return }
     var updated = articles
     updated[index].isSaved = false
     updated[index].isFavourite = false
@@ -499,7 +520,7 @@ struct TaggingNotice: Identifiable {
   func visit(_ url: URL, title: String = "") {
     guard ["http", "https"].contains(url.scheme ?? "") else { return }
     var updated = articles
-    if let index = updated.firstIndex(where: { $0.url == url }) {
+    if let index = articleIndex(for: url, in: updated) {
       updated[index].lastVisitedAt = Date()
       updated[index].isRead = true
       if !title.isEmpty { updated[index].title = title }
@@ -512,7 +533,8 @@ struct TaggingNotice: Identifiable {
     }
     do {
       try commit(updated)
-      if let article = updated.first(where: { $0.url == url }), article.imageURL == nil {
+      if let index = articleIndex(for: url, in: updated), updated[index].imageURL == nil {
+        let article = updated[index]
         Task { await refreshPreview(article, reload: false) }
       }
     } catch { errorMessage = error.localizedDescription }
@@ -566,7 +588,7 @@ struct TaggingNotice: Identifiable {
         if TestMode.enabled && transfer.url.host != "fixture.example" { continue }
         var updated = articles
         let index: Int
-        if let existing = updated.firstIndex(where: { $0.url == transfer.url }) {
+        if let existing = articleIndex(for: transfer.url, in: updated) {
           index = existing
         } else {
           updated.insert(
@@ -695,7 +717,7 @@ struct TaggingNotice: Identifiable {
       }
       return try ReadingListImport.parse(html)
     }.value
-    let merged = ReadingListImport.merge(entries, into: articles)
+    let merged = ReadingListImport.merge(sameArticleURLs(entries), into: articles)
     guard !merged.added.isEmpty else { return "All \(entries.count) links are already saved." }
     try commit(merged.articles)
     currentImportIDs = Set(merged.added.map(\.id))
@@ -1169,7 +1191,13 @@ struct TaggingNotice: Identifiable {
   /// User actions remain durable before returning. Regenerable metadata and
   /// import tags share one short trailing write; any user action flushes them too.
   private func commit(_ updated: [SavedArticle], deferred: Bool = false) throws {
-    if !deferred {
+    if let journal {
+      journal.enqueue(ArticlePatch.changes(from: articles, to: updated))
+    } else if !legacyWritesAllowed {
+      throw ArticleError.message(
+        "Your library could not be opened, so this change was not saved. Restart Arctic and try again."
+      )
+    } else if !deferred {
       try JSONEncoder().encode(updated).write(to: fileURL, options: .atomic)
       persistenceTask?.cancel()
       persistenceTask = nil
@@ -1198,6 +1226,146 @@ struct TaggingNotice: Identifiable {
     previewCommitTask = nil
     flushPreviews()
     persistPendingChanges()
+    guard let journal, journal.hasPending else { return }
+    #if canImport(UIKit)
+      // Writes take milliseconds. Ask for enough time to finish them when hidden.
+      let task = UIApplication.shared.beginBackgroundTask(withName: "Save library")
+      Task {
+        await journal.flush()
+        UIApplication.shared.endBackgroundTask(task)
+      }
+    #else
+      journal.commitBeforeExit()
+    #endif
+  }
+
+  private var localJournalFile: URL {
+    libraryRoot.appending(path: ArticleSyncCodec.hash("local"), directoryHint: .isDirectory)
+      .appending(path: "journal.sqlite")
+  }
+
+  /// Opens the signed-in account's profile, or the local one. The first launch
+  /// copies the old library into the local profile and checks the copy before
+  /// it commits. An unreadable old library is never copied or overwritten.
+  private func openLibrary(legacy: [SavedArticle]?) {
+    if let account = LibraryAccount.saved {
+      do {
+        let opened = try ArticleSyncRepository.load(
+          root: libraryRoot, scope: .account(account.scope))
+        install(opened.repository, articles: opened.articles)
+        return
+      } catch {
+        // The account's files stay on disk. Sync offers to sign in again.
+        LibraryAccount.saved = nil
+        errorMessage = "Could not open your synced library. Sign in again from Sync."
+      }
+    }
+    let migrated = FileManager.default.fileExists(atPath: localJournalFile.path)
+    guard legacy != nil || migrated else {
+      legacyWritesAllowed = false
+      return
+    }
+    do {
+      let opened = try ArticleSyncRepository.load(
+        root: libraryRoot, scope: .local, legacyLocalArticles: legacy)
+      install(opened.repository, articles: opened.articles)
+    } catch {
+      // Before the first copy commits, the old file is still the library.
+      legacyWritesAllowed = !migrated
+      errorMessage = "Could not open your library: \(error.localizedDescription)"
+    }
+  }
+
+  private func install(_ repository: ArticleSyncRepository, articles loaded: [SavedArticle]) {
+    let journal = LibraryJournal(repository: repository)
+    journal.committed = { [weak self] in self?.journalCommitted?() }
+    journal.failed = { [weak self] error in
+      self?.errorMessage =
+        "Could not save library changes. Arctic keeps trying. \(error.localizedDescription)"
+    }
+    self.journal = journal
+    profile = repository.scope
+    articles = loaded
+    libraryRevision += 1
+  }
+
+  /// Shows another profile's library once this one's edits have committed. The
+  /// other profile's files stay on this device.
+  func show(_ repository: ArticleSyncRepository) async throws {
+    await journal?.flush()
+    let loaded = try await repository.snapshot()
+    if let receipt = undoReceipt { dismissUndo(receipt.id) }
+    taggingNotice = nil
+    importSummary = nil
+    install(repository, articles: loaded)
+    resumePreviews()
+  }
+
+  /// Shows what another device changed, by identity; nil removes. Edits still on
+  /// their way to the journal apply on top, as they will in the journal.
+  func applyRemoteChanges(
+    _ changes: [String: SavedArticle?], from repository: ArticleSyncRepository
+  ) {
+    guard let journal, journal.repository === repository, !changes.isEmpty else { return }
+    var positions: [String: Int] = [:]
+    for (index, article) in articles.enumerated() {
+      guard let id = try? ArticleSyncCodec.identity(article.url), positions[id] == nil else {
+        continue
+      }
+      positions[id] = index
+    }
+    var updated = articles
+    var removed = Set<Int>()
+    var inserted: [SavedArticle] = []
+    for (id, remote) in changes {
+      var value = remote
+      for patch in journal.pending where (try? ArticleSyncCodec.identity(patch.url)) == id {
+        value = patch.applied(to: value)
+      }
+      if let index = positions[id] {
+        if let value { updated[index] = value } else { removed.insert(index) }
+      } else if let value {
+        inserted.append(value)
+      }
+    }
+    let removedIDs = removed.map { updated[$0].id }
+    updated = inserted + updated.enumerated().filter { !removed.contains($0.offset) }.map(\.element)
+    articles = updated
+    libraryRevision += 1
+    if let notice = taggingNotice, removedIDs.contains(notice.articleID) { taggingNotice = nil }
+    for id in removedIDs { try? FileManager.default.removeItem(at: downloadFile(id)) }
+    if !inserted.isEmpty { enqueuePreviews(inserted.map(\.url)) }
+  }
+
+  /// A link that differs only by its anchor, host case or default port is the
+  /// same article, as in the sync records.
+  private func articleIndex(for url: URL, in list: [SavedArticle]) -> Int? {
+    if let exact = list.firstIndex(where: { $0.url == url }) { return exact }
+    guard let key = try? ArticleSyncCodec.canonicalURL(url) else { return nil }
+    return list.firstIndex { (try? ArticleSyncCodec.canonicalURL($0.url)) == key }
+  }
+
+  /// Gives imported links the URL of a saved article they match, so the import
+  /// merge sees one article. The first of several matching entries wins.
+  private func sameArticleURLs(_ entries: [SavedArticle]) -> [SavedArticle] {
+    var known: [URL: URL] = [:]
+    for article in articles {
+      guard let key = try? ArticleSyncCodec.canonicalURL(article.url), known[key] == nil else {
+        continue
+      }
+      known[key] = article.url
+    }
+    return entries.map { entry in
+      guard let key = try? ArticleSyncCodec.canonicalURL(entry.url) else { return entry }
+      guard let url = known[key] else {
+        known[key] = entry.url
+        return entry
+      }
+      guard url != entry.url else { return entry }
+      var copy = SavedArticle(url: url, title: entry.title)
+      copy.savedAt = entry.savedAt
+      return copy
+    }
   }
 
   // The trailing disk write must not force an early metadata publication.

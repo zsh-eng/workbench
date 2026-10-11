@@ -201,7 +201,13 @@ on its latest work; scroll up for earlier work, or jump to a prompt from
 its thoughts, commentary, and tool calls fold into one **Worked for** row, as in
 Codex. Click the row to open that turn, or press **Show work** in the pane's
 header to open every turn. With focus in the thread, `[` and `]` step through
-the prompts and replies; a task in **Background** goes to its call. See
+the prompts and replies; a task in **Background** goes to its call. A prompt
+that quotes the agent shows its quotes as Claude does. A prompt's images are
+square thumbnails; click one to see it at full size, and use `←` and `→` for
+the others. Links in a reply open
+files in Med; a web link is a pill with its site's icon. Med knows the icons
+of common developer sites, also servers that a company runs itself, and fetches
+none. See
 [agent sessions](SESSIONS.md).
 
 A saved review can also start an agent. A Session pane without a session lists
@@ -209,8 +215,11 @@ the agents that Med found, and its **+** menu starts another. Med starts Claude
 Code, OpenCode, Codex (`codex-acp`), or Gemini CLI in the review's repository,
 with your own sign-in; it does not install them. The prompt box then has model,
 effort, and mode pickers, a context meter, `/` commands, and **Stop** (or
-`Esc`). A tool call that needs an answer shows **Allow** and **Deny**. Med stops
-its agents when the host stops.
+`Esc`). Paste or drop images into the prompt box, or use its image button: they
+go with your message to Claude Code and to ACP agents that take images, up to
+ten of 5 MB each. An agent that Med does not run reads text only. A tool call
+that needs an answer shows **Allow** and **Deny**. Med stops its agents when
+the host stops.
 
 Saved reviews persist in `~/.local/state/med`; normal branch notes end with the
 host. See [agent integration](AGENT_INTEGRATION.md) for commands, limits, and
@@ -247,6 +256,12 @@ cite.
 - **Start new notes.** The **⋯** menu's **Start new notes** captures the
   current comparisons again as a new, empty iteration. Later pins and a pasted
   brief go there; the earlier notes stay with their iteration.
+- **Delete notes.** **Delete these notes…** in the **⋯** menu asks first, then
+  deletes the shown brief and pins and the comments on them. Notes that you
+  started also take their iteration with them, unless its comparisons have
+  comments.
+- **Menu letters.** In an open menu, a letter chooses the item that underlines
+  it: in the **⋯** menu, `n` starts new notes and `d` deletes them.
 
 Links can be `path`, `path:12`, `path:12-20`, `path#L12-L20`, absolute paths,
 editor links, or GitHub blob URLs. A unique suffix such as `App.tsx:42` works.
@@ -346,6 +361,8 @@ branches.
 | Show workspace 1–9                | `⌘1`–`⌘9`     | `Ctrl+1`–`Ctrl+9`         |
 | Switch to a recent workspace      | `⌃Tab`        | `Ctrl+Tab`                |
 | Toggle history sidebar / session  | `⌘B` / `⌘⇧B`  | `Ctrl+B` / `Ctrl+Shift+B` |
+| Widen / narrow the side panes     | `⌘⌃⇧←` / `→`  | `Ctrl+Alt+Shift+←` / `→`  |
+| Side panes as wide as the review  | `⌘⌃=`         | `Ctrl+Alt+=`              |
 | Zen mode                          | `⌥Z`          | `Alt+Z`                   |
 | Add note to selected lines        | `c`           | `c`                       |
 | Paste a brief                     | `⌘V`          | `Ctrl+V`                  |
@@ -381,7 +398,9 @@ search, Vim, and dialogs.
 ### Side panes
 
 One column on the right holds **Session** (`⌘⇧B`), **Files** (the folder
-button), and **Preview** (`⌘⇧V`) at one width. Drag its left edge to resize it. It shows the two latest
+button), and **Preview** (`⌘⇧V`) at one width. Drag its left edge to resize it,
+or press `⌘⌃⇧←` and `⌘⌃⇧→`, as Ghostty resizes a split. `⌘⌃=` makes the
+column as wide as the review; press it again for the width before. It shows the two latest
 panes, one above the other; a third closes the oldest. **Maximize** gives one
 pane the column, and **Restore** shares it again. **Show side panes as tabs**
 shows one pane at a time, and **Stack side panes** goes back. Both layouts are

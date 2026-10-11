@@ -72,6 +72,9 @@
 		AF4000000000000000000003 /* Resources/reader-position.js in Resources */ = {isa = PBXBuildFile; fileRef = AF4000000000000000000004; };
 		2ABD32A0E4340061755CBF59 /* Sources/ArchiveUndoToast.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAC6B298BA182045B26158EE; };
 		CAEFC4237214578E761120AC /* Sources/ReadingSessions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0E762F6912614FD2051D94B; };
+		FF381ABD242AD8E4122B0B23 /* Sources/LibrarySyncView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4664E438EA92F8E7B7DB614B; };
+		0FBA419B76C9F39A879C1E65 /* Sources/LibrarySync.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDC8FFE56DCAA70ED9C5978E; };
+		C572F6A338C603882B7A652F /* Sources/LibraryJournal.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0C51DA66226B27E3196AA5; };
 		CDA0690096CC52691C006B65 /* Sources/ReadingStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57AC71F61560E1D127D230EA; };
 		85684CB8B7B9E0B2B5D01A62 /* Sources/ReadingStatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 422C6D319857B789D17E7ECA; };
 /* End PBXBuildFile section */
@@ -167,6 +170,9 @@
 		AF4000000000000000000004 /* Resources/reader-position.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = Resources/reader-position.js; sourceTree = "<group>"; };
 		BAC6B298BA182045B26158EE /* Sources/ArchiveUndoToast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/ArchiveUndoToast.swift; sourceTree = "<group>"; };
 		A0E762F6912614FD2051D94B /* Sources/ReadingSessions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/ReadingSessions.swift; sourceTree = "<group>"; };
+		4664E438EA92F8E7B7DB614B /* Sources/LibrarySyncView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/LibrarySyncView.swift; sourceTree = "<group>"; };
+		CDC8FFE56DCAA70ED9C5978E /* Sources/LibrarySync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/LibrarySync.swift; sourceTree = "<group>"; };
+		CD0C51DA66226B27E3196AA5 /* Sources/LibraryJournal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/LibraryJournal.swift; sourceTree = "<group>"; };
 		57AC71F61560E1D127D230EA /* Sources/ReadingStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/ReadingStats.swift"; sourceTree = "<group>"; };
 		422C6D319857B789D17E7ECA /* Sources/ReadingStatsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/ReadingStatsView.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -245,6 +251,9 @@
 				57AC71F61560E1D127D230EA /* Sources/ReadingStats.swift */,
 				422C6D319857B789D17E7ECA /* Sources/ReadingStatsView.swift */,
 				A0E762F6912614FD2051D94B /* Sources/ReadingSessions.swift */,
+				4664E438EA92F8E7B7DB614B /* Sources/LibrarySyncView.swift */,
+				CDC8FFE56DCAA70ED9C5978E /* Sources/LibrarySync.swift */,
+				CD0C51DA66226B27E3196AA5 /* Sources/LibraryJournal.swift */,
 				3AC7E3F6AF5D3349C2B82840 /* Sources/AnnotationStore.swift */,
 				E2C4040636A8440F5AB50B3E /* Sources/ReaderAnnotations.swift */,
 				864C6F1CB9FB13DA8613C8A4 /* Resources/annotations.js */,
@@ -476,6 +485,9 @@
 				CDA0690096CC52691C006B65 /* Sources/ReadingStats.swift in Sources */,
 				85684CB8B7B9E0B2B5D01A62 /* Sources/ReadingStatsView.swift in Sources */,
 				CAEFC4237214578E761120AC /* Sources/ReadingSessions.swift in Sources */,
+				FF381ABD242AD8E4122B0B23 /* Sources/LibrarySyncView.swift in Sources */,
+				0FBA419B76C9F39A879C1E65 /* Sources/LibrarySync.swift in Sources */,
+				C572F6A338C603882B7A652F /* Sources/LibraryJournal.swift in Sources */,
 				5BF86EF416D56DD5760525E5 /* Sources/AnnotationStore.swift in Sources */,
 				E8E6F3EAD101B0744972C82F /* Sources/ReaderAnnotations.swift in Sources */,
 				3753BC55C93758D0B1748C68 /* Sources/ArticleStore.swift in Sources */,

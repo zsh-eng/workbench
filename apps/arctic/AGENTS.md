@@ -12,9 +12,10 @@ Read `README.md` and `PERFORMANCE.md` before changing the native app. Read
 - Test the actual interaction. Simulator results do not establish physical
   device frame rate, signing, or share-extension behavior.
 - Preserve local data. Keep HTML and images separate from metadata. Never
-  synchronize Jev keys. Keep the live ArticleStore sync/storage migration
-  dormant until the user approves that concrete migration.
+  synchronize Jev keys. The SQLite library copy and account sync of library
+  state, titles and tags are approved and live (10 October 2026). Annotation,
+  reading-time and file sync need the user's approval of a concrete migration.
 - Shared auth and v3 sync are owned by `../sync-server`; reusable native auth
   support lives in `../../packages/arctic-sync-server`. Legacy Reader-hosted
-  Arctic routes remain during transition. Keep live storage migration dormant;
-  use the separate Debug sync trial for device auth validation first.
+  Arctic routes remain during transition. Never change or remove `links.json`:
+  it is the backup of the first copy.

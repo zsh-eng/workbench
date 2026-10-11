@@ -1,6 +1,6 @@
 # Workbench Backup CLI
 
-A read-only sync client for Reader and Spaced. Uses Bun's native SQLite, HTTP,
+A read-only sync client for Reader, Spaced and Arctic. Uses Bun's native SQLite, HTTP,
 crypto and xxHash. Its only runtime package is the existing workspace
 `@zsh-eng/local-sync` (including its protocol validator). No ORM or new UI.
 
@@ -63,6 +63,11 @@ bun run wb table list --namespace reader
 bun run wb export --output /private/new-export-directory
 ```
 
+Arctic backs up records only: its Reader copies and images stay on each device,
+and the server has no Arctic file API. Its keys are `article/<id>`, `library/<id>`
+and `tags/<id>`, so its tables are `article`, `library` and `tags`. Arctic is
+synced once the server lists it; after that, coverage requires it.
+
 Each table selection has its own cursor. The API only filters namespaces, so
 table sync still scans that namespace's records, retaining selected tables.
 A later full sync cannot skip excluded tables. Older overlapping selections
@@ -110,7 +115,8 @@ updates the mirror; use `snapshot create` to retain dated recovery points.
 Open `mirror.sqlite` in a SQLite viewer with a read-only connection to browse
 the current mirror while sync runs. Refresh the viewer after a sync. For a fixed
 recovery point, open a snapshot's `records.sqlite` read-only instead. Basic views
-include `live_records`, `table_counts`, `reader_books`, and `spaced_operations`.
+include `live_records`, `table_counts`, `reader_books`, `spaced_operations` and
+`arctic_articles` (URL, title, library state, saved date and tag names).
 Spaced operations are not a reconstructed card/deck model. Values and record
 versions remain unmodified. There is no outbox or outbound change processing.
 
@@ -127,8 +133,9 @@ snapshot. Records and files are not captured atomically across namespaces.
 Files deleted before the first capture, uncatalogued objects, external resources,
 and unsynced device data cannot be recovered through this API.
 
-Coverage `complete` means both namespaces have a completed full pull and catalog
-scan, with known active/referenced xxh64 objects present. This is **not** a claim
+Coverage `complete` means Reader and Spaced have a completed full pull and catalog
+scan, every other synced namespace (Arctic) has a completed full pull, and known
+active/referenced xxh64 objects are present. This is **not** a claim
 that external URLs or all domain references were resolved. The reference scan is
 conservative; unsupported keys and missing xxh64 IDs are reported. Cached bytes
 are checked on initial download and during snapshot verification.

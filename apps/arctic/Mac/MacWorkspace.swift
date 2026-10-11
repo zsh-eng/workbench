@@ -48,6 +48,7 @@ enum MacLibraryFolder: Hashable {
 /// One workspace window owns reading activity; background tabs cannot credit time.
 @MainActor @Observable final class MacWorkspace {
   let store: ArticleStore
+  let sync: LibrarySync
   let annotations = AnnotationStore.shared
   let readers = MacReaderPool()
   var tabs: [MacArticleTab] = []
@@ -62,7 +63,7 @@ enum MacLibraryFolder: Hashable {
   var showShortcuts = false
   var showOpen = false
   var showSettings = false
-  var showSyncTrial = false
+  var showSync = false
   var showDiagnostics = false
   var error: String?
   var sidebarVisible = true
@@ -83,6 +84,7 @@ enum MacLibraryFolder: Hashable {
 
   init(store: ArticleStore) {
     self.store = store
+    sync = LibrarySync(store: store)
     refreshStats()
     if !TestMode.enabled, let bytes = UserDefaults.standard.data(forKey: tabsKey),
       let restored = try? JSONDecoder().decode([MacArticleTab].self, from: bytes)
@@ -225,7 +227,7 @@ enum MacLibraryFolder: Hashable {
   }
 
   func updateActivity() {
-    guard windowActive, !showShortcuts, !showOpen, !showSettings, !showSyncTrial, !showStats, !showNotes,
+    guard windowActive, !showShortcuts, !showOpen, !showSettings, !showSync, !showStats, !showNotes,
       let reader = selectedReader, reader.ready, !reader.websiteVisible, !reader.showFind,
       store.article(for: reader.url)?.saved == true
     else {

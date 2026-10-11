@@ -1,6 +1,7 @@
 # Arctic sync design
 
-Updated 4 October 2026 · Native auth/v3 backend deployed; live library sync remains dormant.
+Updated 11 October 2026 · Library sync is live: Google account, library state, titles
+and tags. Annotations, reading time and files stay on each device.
 Reader and Spaced now use the shared service. The dated 3 October schema audit
 below describes the legacy Arctic adapter, not the new shared server.
 
@@ -38,9 +39,9 @@ flowchart LR
 
 | Area | Source in this checkout | Required before release |
 | --- | --- | --- |
-| Native transport | `Sync/`: HTTPS, Keychain, Google handoff, shared cookie and scoped v3 transport | Device Google handoff and cross-device trial; production account lifecycle UI |
-| Local sync store | Actor with one SQLite journal per profile: records, outbox, private values, clock, cursor, tombstones and persisted v3 identity. The Debug trial keeps its small JSON journal | iPhone measurements and approved live library activation |
-| Article bridge | Dormant `ArticleSyncRepository.swift`: metadata, library, tags | Final schemas, granular mutations, migration and UI integration |
+| Native transport | `Sync/`: HTTPS, Keychain, Google handoff, shared cookie and scoped v3 transport | Google sign-in and a cross-device check on real devices |
+| Local sync store | Actor with one SQLite journal per profile: records, outbox, private values, clock, cursor, tombstones and persisted v3 identity. It is the live library store | iPhone measurements |
+| Article bridge | `ArticleSyncRepository.swift` and `LibraryJournal.swift`: metadata, library and tags, with field-wise edit patches. **Sync** sheet on iPhone and Mac | Annotation, reading-time and position families |
 | Other user data | Separate annotation/session files; Reader positions in UserDefaults | One account-scoped repository with transactional outbox capture |
 | Server | Shared Worker includes deployed `arctic` and native auth; real Better Auth/D1 tests pass | Device auth verification |
 | Optional files | Authenticated, SHA-256 verified R2 API | Deferred from core sync; preservation needs durable jobs, portable manifests and bounded restore |
@@ -49,15 +50,14 @@ The shared service's [migration evidence](../sync-server/MIGRATION.md) records
 the 4 October Reader/Spaced cutover. This review checked source and that report,
 not live account data. It does not establish native Arctic sign-in or sync.
 
-The dormant repository uses the SQLite journal. In a 10,000-article Release
-benchmark, one edit takes **7.4 ms with a full outbox** and 5.6 ms with an empty
-outbox. The previous JSON journal took 320 ms for the same edit. These are Mac
+The library uses the SQLite journal. In a 10,000-article Release benchmark, one
+edit takes **7.0 ms with a full outbox** and 2.5 ms with an empty outbox. The previous JSON journal took 320 ms for the same edit. These are Mac
 measurements, not iPhone timings. See [the benchmark](Sync/PERFORMANCE.md).
 
 ## Native sign-in and shared-service integration — 4 October
 
 Mobile has a callback URL. It does not need to run a web server. Arctic's iOS
-`Info.plist` registers `articles`, and its dormant `NativeGoogleSignIn` uses
+`Info.plist` registers `articles`, and its `NativeGoogleSignIn` uses
 `ASWebAuthenticationSession` to receive `articles://auth/callback`. Google
 returns to the shared HTTPS server first; that server then returns to the app.
 
@@ -116,37 +116,29 @@ separate native session instead of copying and sharing the browser session.
 - **Session renewal:** shared middleware forwards refreshed session cookies.
   Real Better Auth/D1 tests cover renewal and revocation. Native tests check
   that cancellation or retirement cannot persist a late credential refresh.
-- **Trial UI:** Debug builds expose a separate sample-article profile on iPhone
-  and Mac. It is not the app's account UI and does not import ArticleStore.
-- **Still required:** a real Google/device trial, final record families,
-  account lifecycle, granular UI updates, and reviewed migration. The large
-  library uses the SQLite journal, not the trial's whole-file JSON journal.
+- **Account UI (11 October):** **Sync** replaces the Debug sync trial on iPhone
+  and Mac. It signs in, offers to add this device's articles, shows status, and
+  signs out. The [README](README.md#sync) describes the flow.
+- **Still required:** a real Google sign-in on two devices, and the annotation,
+  reading-time and position record families.
 
-### Native trial checklist
+### Device checklist
 
-1. Build **Debug**. On iPhone, open the library's **Sort and filter → Sync trial**.
-   On Mac, use **Arctic settings → Sync trial**. Release hides this developer UI.
-2. Use an HTTPS host with the shared auth routes and `0003_native_auth.sql`
-   applied. The default `https://api.zsheng.app` is now deployed and ready for
-   this trial. Local tests validate the flow with real D1
-   and Better Auth, but substitute a local login for Google's external UI.
-3. Continue with Google using a test account. Change the sample title, choose
-   **Save sample locally**, then **Sync now**. On the other device, sign in to
-   that same account and sync. Confirm that its sample title matches.
-4. Quit/relaunch and choose **Restore session**. Repeat offline, edit the sample,
-   then reconnect and sync. Revoke the session and confirm that the local sample
-   remains while network operations require sign-in. Sign out explicitly when
-   done; closing the sheet only cancels its requests.
-5. Record the Google callback, Keychain restore, offline edit, both device
-   results and revocation. Do not call this production native sync until these
-   checks and the storage migration are complete.
+1. Install a build on iPhone and Mac. The first launch copies `links.json` into
+   the local profile; confirm that the library count and order are unchanged.
+2. On iPhone, open **Sort and filter → Sync** and continue with Google. Add this
+   iPhone's articles. On Mac, open **Arctic settings → Sync…**, sign in to the same
+   account, and add or skip the Mac's articles.
+3. With one device offline, archive an article there and favourite the same
+   article on the other. After both sync, each device shows both changes.
+4. Edit offline, relaunch, then reconnect. The status reads **Up to date** and the
+   other device shows the edit. Revoke the session on the server; the sheet asks
+   to sign in again and the local library stays.
+5. Sign out. The device shows its own library again; the account profile stays
+   on disk for the next sign-in.
 
-Trial files live under Application Support/ArcticSyncTrial, separate from the
-library. Their filenames bind server and account; their stored identity also
-binds namespace/epoch. An epoch change cannot silently open a fresh journal.
-Only the explicit sample metadata at `https://example.com/arctic-sync-trial`
-is created. Existing articles, notes, HTML, images and Jev keys are not imported.
-Use a test account: trial records are real records on the selected server.
+The Debug trial and its `ArcticSyncTrial` files are retired. The new UI never
+reads them.
 
 ### Validation — 4 October
 
@@ -258,6 +250,13 @@ duplicate canonical URLs deliberately and report any ambiguous collisions.
 The existing protocol selects a winner using a hybrid logical clock and device
 ID. It is record-level last-write-wins, not collaborative text editing. Split
 records by independent intent instead of syncing one large article object.
+
+Since 11 October, a device merges before it uploads. Each pending change keeps
+the value it started from. When another device's record arrives for the same key,
+a field that this device changed keeps its value and every other field takes the
+other device's; the merged value gets a newer version. Tags merge as one value,
+and an unsave wins over archive and favourite. The server still stores whole
+records with last-write-wins. [Resolver](Sources/ArticleSyncRepository.swift).
 
 | Data | Proposed unit and behavior |
 | --- | --- |
@@ -495,8 +494,10 @@ encrypted. End-to-end encryption would need a separate key recovery design.
    cross-device edits and offline reopen, then expand adoption after performance
    and recovery checks pass.
 
-The active migration remains gated by the prior approval restriction and
-[Arctic's agent instructions](AGENTS.md). This proposal does not activate it.
+On 10 October 2026 the user approved two steps: copying the library into the
+local SQLite profile, and Google account sync of library state, titles and tags.
+Both are active. Annotation, reading-time and file sync, deployments and remote
+migrations each need separate approval; see [Arctic's agent instructions](AGENTS.md).
 
 Acceptance checks must cover:
 
@@ -553,9 +554,10 @@ Sources: [articles](Sources/ArticleStore.swift), [annotations](Sources/Annotatio
 [sessions](Sources/ReadingSessions.swift), [positions](Sources/ReaderPosition.swift),
 [iOS images](Sources/LibrarySearch.swift), [Mac images](Mac/MacLibrary.swift).
 
-### Implemented but dormant article adapter
+### Article adapter
 
-`ArticleSyncRepository` is not called by the live `ArticleStore`. Its schema-v1
+On 3 October, `ArticleSyncRepository` was not called by the live `ArticleStore`;
+since 11 October it is the live library store. Its schema-v1
 codec accepts exactly three record families, each keyed by SHA-256 of the
 canonical URL. Canonicalization lowercases scheme/host, removes default ports
 and fragment, supplies `/` for an empty path, and **retains query strings**.
@@ -568,13 +570,14 @@ and fragment, supplies `/` for an empty path, and **retains query strings**.
 
 The adapter keeps download dates, failed-preview state, file URLs and share
 receipts in private local values. Pending network/tagging work and credentials
-are not sync records. Important gaps: **`favouritedAt` is omitted** from the
-current library record, and annotation, session, position and content/image
-manifest families are not accepted by the codec. They must be added deliberately;
+are not sync records. The library record includes `favouritedAt` since
+11 October. Annotation, session, position and content/image manifest families
+are not accepted by the codec. They must be added deliberately;
 the earlier suggested families in the server README are not implemented schemas.
 Splitting three records prevents preview refresh from overwriting tags, but all
-library flags still share one last-write-wins record. Independent concurrent
-archive/favourite/read edits can therefore overwrite each other.
+library flags still share one last-write-wins record. Since 11 October a device
+merges a conflicting record field by field before it uploads, so concurrent
+archive, favourite and read edits keep each other.
 
 Sources: [codec and repository](Sources/ArticleSyncRepository.swift),
 [journal](Sync/Sources/ArcticSync/SyncStore.swift),
@@ -683,8 +686,8 @@ assumed ISO-8601 wire format; version any conversion explicitly.
    transfer compact covers and HTML by content hash with versioned manifests;
    never embed full images in 64 KiB records or resend them with tag edits.
 5. Use transactional SQLite records + outbox + cursor locally before live
-   integration. The dormant repository does: a 10,000-article Release edit
-   writes only its changed rows in 7.4 ms. The previous JSON journal encoded its
+   integration. The library does: a 10,000-article Release edit writes only its
+   changed rows in 7.0 ms. The previous JSON journal encoded its
    whole snapshot per change and took 320 ms. [Evidence](Sync/PERFORMANCE.md).
 
 A first sync should make the library usable from metadata immediately, followed

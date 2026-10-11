@@ -14,8 +14,8 @@ A monorepo for personal apps and shared local-first software.
 | [packages/text-highlighter](packages/text-highlighter/README.md)     | DOM text selection and highlight restoration.                                |
 | [packages/arctic-sync-server](packages/arctic-sync-server/README.md) | Private Arctic auth and sync routes, hosted by the Reader Worker.            |
 
-Arctic works locally. Its native sync storage integration remains dormant;
-this repository move does not enable it.
+Arctic keeps its library in local SQLite. After sign-in, it syncs library state,
+titles and tags through the shared service; notes and files stay on each device.
 
 ## Start
 

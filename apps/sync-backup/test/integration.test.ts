@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Store } from "../src/store";
 import { pull, syncFiles, readFetch } from "../src/sync";
-import { snapshot, verifySnapshot } from "../src/snapshot";
+import { completeness, snapshot, verifySnapshot } from "../src/snapshot";
 import { createSyncPullStream, type SyncRecord } from "@zsh-eng/local-sync";
 const record = (seq: number, table = "books", deleted = false): SyncRecord => ({
   key: JSON.stringify([table, String(seq)]),
@@ -134,6 +134,92 @@ test("HTTP streaming to SQLite: independent selections, rollback/resume, epochs,
       }),
     ).rejects.toThrow("Read-only");
     expect(store.db.query("SELECT * FROM records").all()).toHaveLength(4);
+  } finally {
+    store.close();
+    server.stop(true);
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Arctic records back up with their families, without files", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "wb-arctic-"));
+  const id = "a".repeat(64),
+    url = "https://example.com/one";
+  const values: [string, object][] = [
+    ["article/" + id, { url, title: "One" }],
+    [
+      "library/" + id,
+      { url, saved: true, archived: false, read: true, savedAt: 0 },
+    ],
+    ["tags/" + id, { url, names: ["Craft"] }],
+  ];
+  const records: SyncRecord[] = values.map(([key, value], i) => ({
+    key,
+    value: JSON.stringify(value),
+    schemaVersion: 1,
+    hlc: { wallTimeMs: i + 1, counter: 0 },
+    deviceId: "phone",
+    serverSeq: i + 1,
+    isDeleted: false,
+  }));
+  const server = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch(req) {
+      const u = new URL(req.url),
+        scope = {
+          origin: u.origin,
+          userId: "user",
+          namespace: "arctic",
+          epoch: "one",
+        },
+        headers = { "X-Sync-Scope": JSON.stringify(scope) };
+      if (u.pathname.endsWith("/state")) return Response.json(scope);
+      if (!u.pathname.endsWith("/pull-stream"))
+        return new Response("", { status: 404 });
+      async function* pages() {
+        yield { records, cursor: 3, head: 3, hasMore: false };
+      }
+      return new Response(createSyncPullStream(pages()), {
+        headers: { ...headers, "Content-Type": "application/x-ndjson" },
+      });
+    },
+  });
+  const origin = server.url.origin,
+    store = new Store(directory);
+  try {
+    expect((await pull(store, origin, "fixture", "arctic")).saved).toBe(3);
+    expect(
+      store.db
+        .query(
+          "SELECT table_name, count(*) AS n FROM records GROUP BY table_name ORDER BY table_name",
+        )
+        .all(),
+    ).toEqual([
+      { table_name: "article", n: 1 },
+      { table_name: "library", n: 1 },
+      { table_name: "tags", n: 1 },
+    ]);
+    expect(
+      store.db
+        .query("SELECT url,title,saved,read,saved_at,tags FROM arctic_articles")
+        .get(),
+    ).toEqual({
+      url,
+      title: "One",
+      saved: 1,
+      read: 1,
+      saved_at: "2001-01-01 00:00:00",
+      tags: '["Craft"]',
+    });
+    const coverage = completeness(store);
+    expect(coverage.unsupportedKeys).toBe(0);
+    expect(coverage.recordNamespaces).toEqual(["arctic"]);
+    // Bound namespaces stay required, and Arctic has no file API.
+    expect(coverage.complete).toBe(false);
+    await expect(
+      readFetch(origin, "fixture")(origin + "/api/apps/arctic/files"),
+    ).rejects.toThrow("Read-only");
   } finally {
     store.close();
     server.stop(true);

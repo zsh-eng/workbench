@@ -17,26 +17,53 @@ browser interaction checks with `bun run test:arctic-browser`.
 
 ## Seed and privacy boundary
 
-The seed command reads `~/Downloads/Takeout/Chrome/Reading List.html` and the
-native Mac library at
+The seed command converts an Arctic library into a web snapshot. It uses the
+first source that has saved articles:
+
+1. `ARCTIC_RECORDS`: a sync mirror or a native `journal.sqlite`.
+2. The Workbench Backup mirror,
+   `~/Library/Application Support/Workbench Backup/mirror.sqlite` (override the
+   folder with `ARCTIC_BACKUP_DIR`). It holds the account's synced records.
+3. The native library under `ARCTIC_NATIVE_DATA`:
+   `Library/<sha256("local")>/journal.sqlite`, then the older `links.json`.
+4. A Chrome reading-list HTML file, only when no Arctic library exists. The
+   default is `~/Downloads/Takeout/Chrome/Reading List.html`; pass another path
+   after the command.
+
+`ARCTIC_NATIVE_DATA` defaults to the Mac app container,
 `~/Library/Containers/com.zsheng.ArcticMac/Data/Library/Application Support/ArticleReader`.
-Pass a different Chrome HTML path after the command. Set `ARCTIC_NATIVE_DATA`
-for another native cache directory. Neither source is modified.
+It also supplies full article bodies from `Downloads/<id>.html`. Synced records
+do not include these files, so copy them from the device that downloaded them.
+For the iPhone app:
+
+```sh
+xcrun devicectl device copy from --device <udid> --domain-type appDataContainer \
+  --domain-identifier com.zsheng.ArticleReader \
+  --source "Library/Application Support/ArticleReader" --destination <folder>
+ARCTIC_NATIVE_DATA=<folder> bun run seed:arctic-browser
+```
+
+The seed reads every source and modifies none. Only the extracted
+`#reader-content` of a cached copy is kept; native styles and scripts are not.
 
 The output lives in gitignored `public/seed/`. It includes personal URLs,
 titles, and downloaded article HTML. Vite copies this directory to `dist`:
 keep this local build private. There is no deployed service or active sync.
 
-Chrome dates and URLs are preserved. The native cache supplies descriptions,
-bylines, and full text where available. Missing authors are shown as a source,
-never an invented byline. Initial topic tags use simple local keyword rules;
-users can change them. Cached articles come first in the default reading order.
-The Newest first option uses the original Chrome saved date.
+Arctic tags, archive, favourite state and saved dates are preserved. The cached
+copy supplies bylines and full text where available, and a title when the record
+has only the host. Missing authors are shown as a source, never an invented
+byline. Chrome-only links get starter topic tags from local keyword rules; users
+can change them. Cached articles come first in the default reading order. The
+Newest first option uses the original saved date.
 
-The initial snapshot has 460 links and 31 full article bodies on the development
-machine. Counts depend on the input files. Opening or saving a link without a
-body starts a background download. Library startup does not fetch the whole
-reading list. Article images still require the network.
+The iPhone snapshot of 2026-10-11 has 636 articles and 243 full bodies. Counts
+depend on the input files. Opening or saving a link without a body starts a
+background download. Library startup does not fetch the whole reading list.
+Article images still require the network.
+
+The browser imports the seed into an empty IndexedDB profile only. To load a new
+seed, clear the site data for `127.0.0.1:5186`, then reload.
 
 ## Data and routing
 

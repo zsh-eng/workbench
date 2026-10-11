@@ -50,7 +50,7 @@ export function renderBrief(
       key,
       text,
       theme,
-      run: () => void send(text, theme, keep ? cache : undefined).then(resolve, reject),
+      run: () => void send(text, theme, cache, keep).then(resolve, reject),
     };
     if (urgent) queue.unshift(task);
     else queue.push(task);
@@ -69,14 +69,15 @@ function next() {
   task.run();
 }
 
-async function send(text: string, themeName: string, cache?: RenderCache) {
+async function send(text: string, themeName: string, cache: RenderCache, keep: boolean) {
   try {
     const theme = await resolveTheme(themeName);
     worker ??= createWorker();
     const id = ++sequence;
     const data = await new Promise<MarkdownResult & { error?: string }>((resolve) => {
       replies.set(id, resolve);
-      worker!.postMessage({ id, text, theme, briefLinks: true });
+      // Replies show web links as pills with their site's icon.
+      worker!.postMessage({ id, text, theme, briefLinks: true, webLinks: cache === "session" });
     });
     if (data.error) throw new Error(data.error);
     const result = {
@@ -84,7 +85,7 @@ async function send(text: string, themeName: string, cache?: RenderCache) {
       headings: data.headings,
       milliseconds: data.milliseconds,
     };
-    if (cache) {
+    if (keep) {
       const key = keyOf(themeName, text);
       const kept = results[cache];
       kept.delete(key);

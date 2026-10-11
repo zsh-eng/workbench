@@ -14,7 +14,7 @@ current design decisions and validation approach.
 - [Adapting design references](../../DESIGN_REFERENCES.md) — turn a useful reference into testable behavior.
 
 These guides describe transferable patterns. They distinguish the web Reader's
-active sync from Arctic's dormant native sync integration.
+sync from Arctic's native sync, which covers library state, titles and tags only.
 
 Roadmap (v0.1):
 

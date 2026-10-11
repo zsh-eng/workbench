@@ -139,6 +139,8 @@ function revealInFileManager(path: string) {
 const MAX_BODY = 128 * 1024;
 // A brief holds up to 100,000 characters; UTF-8 can need four bytes for one.
 const MAX_BRIEF_BODY = 512 * 1024;
+// A message to an agent can hold ten images of 5 MB, in base64.
+const MAX_AGENT_MESSAGE_BODY = 72 * 1024 * 1024;
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -968,7 +970,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           if (action === "messages" && request.method === "POST") {
-            const input = agentMessageInputSchema.parse(await readBody(request, MAX_BRIEF_BODY));
+            const input = agentMessageInputSchema.parse(
+              await readBody(request, MAX_AGENT_MESSAGE_BODY),
+            );
             const session = bundle.sessions?.find((entry) => entry.id === input.sessionId);
             if (!session)
               throw new HostError(
@@ -984,14 +988,24 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             }
             for (const attachment of input.attachments)
               parts.push(`## ${attachment.label}\n\n${attachment.text}`);
-            if (!parts.length)
+            // Only a session that Med runs takes images: the others read text.
+            const runner = ownedSessions.get(session.id);
+            const running = runner && runner.state().status !== "exited" ? runner : undefined;
+            if (input.images.length && !running?.state().images)
+              throw new HostError(
+                "images-unsupported",
+                running
+                  ? `${running.state().name} does not take images.`
+                  : "Images go only to an agent that Med runs.",
+                400,
+              );
+            if (!parts.length && !input.images.length)
               throw new HostError(
                 "empty-message",
                 "Write a message or choose comments to send.",
                 400,
               );
             // A session that Med runs takes the message as its next prompt.
-            const runner = ownedSessions.get(session.id);
             const message = await inbox.send(
               reviewId,
               session,
@@ -1001,9 +1015,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 attachmentCount: input.attachments.length,
               },
               parts.join("\n\n"),
-              runner && runner.state().status !== "exited"
-                ? (body) => runner.prompt(body)
-                : undefined,
+              running ? (body) => running.prompt(body, input.images) : undefined,
             );
             send({ message, state: await inboxState() });
             return;
@@ -1287,7 +1299,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           const savedRoute =
-            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes)|\/(feedback|clear|brief|brief-comments|pins|iterations|details|pull-request|codex-reviews))?$/.exec(
+            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes)|\/(feedback|clear|brief|brief-comments|pins|iterations|delete-notes|details|pull-request|codex-reviews))?$/.exec(
               url.pathname,
             );
           if (savedRoute) {
@@ -1389,6 +1401,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               const input = briefCommentMutationSchema.parse(await readBody(request));
               assertRequestAccess();
               send(await savedReviews.commentBrief(id!, input, assertRequestAccess));
+              inbox.touch(id!);
+              return;
+            }
+            if (request.method === "POST" && action === "delete-notes") {
+              const input = z
+                .object({
+                  iteration: z.number().int().positive().optional(),
+                  briefFrom: z.number().int().positive().optional(),
+                })
+                .parse(await readBody(request));
+              assertRequestAccess();
+              send(await savedReviews.deleteNotes(id!, input, assertRequestAccess));
               inbox.touch(id!);
               return;
             }

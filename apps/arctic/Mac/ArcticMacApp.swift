@@ -199,14 +199,17 @@ struct MacWorkspaceView: View {
 
   private var blocksReading: Bool {
     workspace.showNotes || workspace.showOpen || workspace.showShortcuts || workspace.showStats
-      || workspace.showSettings || workspace.showSyncTrial
+      || workspace.showSettings || workspace.showSync
   }
 
   private var observedLayout: some View {
     layout
       .onChange(of: scenePhase) { _, phase in
         workspace.windowActive = phase == .active
-        if phase == .active { workspace.store.resumeTagging() }
+        if phase == .active {
+          workspace.store.resumeTagging()
+          workspace.sync.syncNow()
+        }
       }
       .onChange(of: blocksReading) { workspace.updateActivity() }
       .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification))
@@ -329,7 +332,7 @@ struct MacWorkspaceView: View {
       let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
       if event.keyCode == 48, modifiers.contains(.control),
         !modifiers.contains(.command), !modifiers.contains(.option),
-        !workspace.showOpen, !workspace.showSettings, !workspace.showSyncTrial, !workspace.showShortcuts
+        !workspace.showOpen, !workspace.showSettings, !workspace.showSync, !workspace.showShortcuts
       {
         workspace.cycle(modifiers.contains(.shift) ? -1 : 1)
         return nil
@@ -342,7 +345,7 @@ struct MacWorkspaceView: View {
         return nil
       }
       guard event.characters == "?", !event.modifierFlags.contains(.command),
-        !workspace.showOpen, !workspace.showSettings, !workspace.showSyncTrial,
+        !workspace.showOpen, !workspace.showSettings, !workspace.showSync,
         !(NSApp.keyWindow?.firstResponder is NSTextView)
       else { return event }
       // Website text fields own their typing. Reader uses an isolated JS handler.

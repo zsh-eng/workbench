@@ -44,6 +44,13 @@ public struct SyncChange: Codable, Equatable, Sendable {
   public var isDeleted: Bool
   public var schemaVersion: Int
   public var hlc: SyncClock
+  public init(key: String, value: String, isDeleted: Bool, schemaVersion: Int, hlc: SyncClock) {
+    self.key = key
+    self.value = value
+    self.isDeleted = isDeleted
+    self.schemaVersion = schemaVersion
+    self.hlc = hlc
+  }
 }
 public struct SyncRecord: Codable, Equatable, Sendable {
   public var key: String
