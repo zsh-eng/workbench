@@ -3,6 +3,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { parsePullUrl, type PullJob, type PullStep } from "../../shared/pull-workspace";
 import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
+import { TitleRow } from "./TitleRow";
+import { useTitleBarOverlay } from "../data/title-bar";
 import { formatSeconds } from "./session/ToolCall";
 import { motion } from "./session/session-styles";
 
@@ -215,11 +217,13 @@ export function PullWorkspaceView({
   list: ReactNode;
   onRetry(): void;
 }) {
+  const titleRow = useTitleBarOverlay();
   return (
     <div {...stylex.props(styles.frame)}>
+      {titleRow && <TitleRow />}
       <div {...stylex.props(styles.workspace)}>
         <aside {...stylex.props(styles.sidebar)}>
-          <div {...stylex.props(styles.sidebarHeader)} />
+          {!titleRow && <div {...stylex.props(styles.sidebarHeader)} />}
           {list}
         </aside>
         <main aria-label="Pull request" {...stylex.props(styles.main)}>

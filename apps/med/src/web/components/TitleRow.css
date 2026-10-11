@@ -1,0 +1,41 @@
+/* The installed app's title bar, when the reader hides it (title-bar.ts):
+   the page draws there, and the window controls stay over it. */
+:root {
+  --med-titlebar-height: 0px;
+  --med-titlebar-left: 0px;
+  --med-titlebar-right: 0px;
+}
+:root[data-titlebar="overlay"] {
+  --med-titlebar-height: env(titlebar-area-height, 0px);
+  --med-titlebar-left: env(titlebar-area-x, 0px);
+  --med-titlebar-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
+}
+:root[data-titlebar="overlay"] body {
+  background: var(--med-panel);
+}
+/* A view in the page's flow starts below the window controls. */
+:root[data-titlebar="overlay"] #root {
+  padding-top: var(--med-titlebar-height);
+}
+/* The band moves the window where a view leaves the top empty. It sits
+   behind every view; a title row's controls take clicks. */
+.med-titlebar-band {
+  display: none;
+}
+:root[data-titlebar="overlay"] .med-titlebar-band {
+  display: block;
+  position: fixed;
+  inset-inline: 0;
+  top: 0;
+  height: var(--med-titlebar-height);
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+.med-title-row {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+.med-title-row :is(button, a, input, select, textarea, [role="tab"], [tabindex]) {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}

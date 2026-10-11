@@ -880,6 +880,46 @@ describe("graphical review", () => {
     expect(document.activeElement?.getAttribute("aria-label")).toBe("Enter zen mode");
   });
 
+  test("with the title bar hidden, the identity heads the window beside its controls", async () => {
+    await page.viewport(1280, 800);
+    // The free area that Chrome gives an installed app beside its window controls.
+    const root = document.documentElement;
+    root.style.setProperty("--med-titlebar-height", "32px");
+    root.style.setProperty("--med-titlebar-left", "78px");
+    root.dataset.titlebar = "overlay";
+    try {
+      await mountApp({ branches: true });
+      const toggle = page.getByRole("button", { name: "Toggle sidebar" });
+      await expect.element(toggle).toBeVisible();
+      const row = toggle.element().closest<HTMLElement>(".med-title-row")!;
+      expect(row.getBoundingClientRect()).toMatchObject({ top: 0, height: 32 });
+      const box = toggle.element().getBoundingClientRect();
+      expect(box.left).toBeGreaterThanOrEqual(78);
+      expect(box.top + box.height / 2).toBe(16);
+      // The row moves the window; its controls take clicks.
+      expect(getComputedStyle(row).getPropertyValue("-webkit-app-region")).toBe("drag");
+      expect(getComputedStyle(toggle.element()).getPropertyValue("-webkit-app-region")).toBe(
+        "no-drag",
+      );
+      // The identity stays in the row while the sidebar hides.
+      await toggle.click();
+      await expect
+        .poll(() => document.getElementById("review-sidebar")?.checkVisibility())
+        .toBe(false);
+      expect(toggle.element().closest(".med-title-row")).toBe(row);
+      await toggle.click();
+
+      // With the title bar back, the identity heads the sidebar again.
+      delete root.dataset.titlebar;
+      await expect.poll(() => document.querySelector(".med-title-row")).toBeNull();
+      expect(toggle.element().closest("#review-sidebar")).not.toBeNull();
+    } finally {
+      delete root.dataset.titlebar;
+      root.style.removeProperty("--med-titlebar-height");
+      root.style.removeProperty("--med-titlebar-left");
+    }
+  });
+
   test("a single branch needs no tab strip; Command Shift G opens another beside it", async () => {
     await mountApp({ branches: true });
     const strip = page.getByRole("tablist", { name: "Branches and worktrees" });

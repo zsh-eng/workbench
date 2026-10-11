@@ -64,6 +64,11 @@ the shortcuts that a browser keeps for its tabs. The app uses the background
 server, so run `med service install` to start the server at login. Each port is
 a separate app.
 
+The title bar's hide button gives Med the whole window: the branch and its
+sidebar toggle move up beside the window controls, and the empty top row moves
+the window. Show the title bar again from the same place. Chrome reads this
+from Med's manifest at a later launch; reinstall the app to get it at once.
+
 Use `med add /path/to/vault` for Obsidian, or `--type vault` for a Markdown
 folder; see [vaults, watchers and service commands](VAULTS.md). `med docs usage`
 prints this guide offline. The legacy `node dist/cli.js ...` and `med-diff ...`

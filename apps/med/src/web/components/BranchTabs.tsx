@@ -147,14 +147,21 @@ export function useBranchTabs({
 }
 
 /** Open branches as tabs. Renders nothing until a second branch is open. */
-export function BranchStrip({ model }: { model: BranchTabsModel }) {
+export function BranchStrip({
+  model,
+  inline = false,
+}: {
+  model: BranchTabsModel;
+  /** In the title row, beside the window controls. */
+  inline?: boolean;
+}) {
   const { visible, active } = model;
   if (visible.length < 2) return null;
   return (
     <Tabs.Root
       value={active}
       onValueChange={(key) => model.entries.find((entry) => entry.key === key)?.run()}
-      {...stylex.props(styles.strip)}
+      {...stylex.props(styles.strip, inline && styles.inline)}
     >
       <Tabs.List aria-label="Branches and worktrees" {...stylex.props(styles.list)}>
         {visible.map((entry) => {
@@ -296,6 +303,15 @@ const styles = stylex.create({
     minHeight: 36,
     paddingInline: 8,
     backgroundColor: tokens.panel,
+  },
+  inline: {
+    flex: "1",
+    minWidth: 0,
+    height: "100%",
+    minHeight: 0,
+    paddingInlineStart: 8,
+    paddingInlineEnd: 0,
+    backgroundColor: "transparent",
   },
   list: {
     display: "flex",

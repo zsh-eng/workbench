@@ -1,4 +1,6 @@
 import { useDocumentTitle } from "./data/document-title";
+import { useTitleBarOverlay } from "./data/title-bar";
+import { TitleRow } from "./components/TitleRow";
 import { DiffImages } from "./components/MediaView";
 import { mediaType } from "../shared/media";
 import { ActionTooltip, ToolButton } from "./components/ToolButton";
@@ -2961,6 +2963,7 @@ export function App({
     [skipped, renderMetadataRows, files.length],
   );
 
+  const titleRow = useTitleBarOverlay();
   const sidebarToggle = (
     <ToolButton
       label={leftVisible ? "Hide sidebar" : "Show sidebar"}
@@ -3018,7 +3021,7 @@ export function App({
       )}
     </span>
   );
-  const leading = !leftVisible && (
+  const leading = !leftVisible && !titleRow && (
     <>
       {identity}
       <span {...stylex.props(styles.headerDivider)} />
@@ -3166,6 +3169,7 @@ export function App({
   if (!state.session && !state.repositories.length && state.status === "idle" && !state.error)
     return (
       <div {...stylex.props(styles.app)}>
+        {titleRow && <TitleRow />}
         {branchPicker}
         <div {...stylex.props(styles.emptyRepositories)}>
           <span {...stylex.props(styles.emptyMark)}>
@@ -3199,10 +3203,18 @@ export function App({
         data-file-count={state.files.length}
         data-active-file={activeFile?.path ?? ""}
       >
+        {/* With the title bar hidden, the identity and branch tabs head the
+            window beside its controls; zen leaves the row empty. */}
+        {titleRow && (
+          <TitleRow>
+            {!zen && identity}
+            {!zen && !workspace && <BranchStrip model={branches} inline />}
+          </TitleRow>
+        )}
         {zen ? (
           <ZenHint loading={state.status === "loading"} session={!!state.savedReview} />
         ) : (
-          !workspace && <BranchStrip model={branches} />
+          !workspace && !titleRow && <BranchStrip model={branches} />
         )}
         {branchPicker}
         <SaveReviewDialog
@@ -3301,7 +3313,7 @@ export function App({
         <div
           {...stylex.props(
             styles.workspace,
-            (zen || workspace || branches.visible.length < 2) && styles.workspaceTop,
+            (titleRow || zen || workspace || branches.visible.length < 2) && styles.workspaceTop,
             zen && styles.zenWorkspace,
           )}
           id={`${idPrefix}review-workspace`}
@@ -3318,7 +3330,9 @@ export function App({
               hidden={!leftVisible}
             >
               {/* The tab row holds the identity while the sidebar is hidden. */}
-              <div {...stylex.props(styles.sidebarHeader)}>{leftVisible && identity}</div>
+              {!titleRow && (
+                <div {...stylex.props(styles.sidebarHeader)}>{leftVisible && identity}</div>
+              )}
               {workspace && (
                 <WorkspaceList
                   onNew={gitAvailable ? () => openBranchPicker(true) : undefined}
