@@ -74,10 +74,8 @@ struct MacNavigationSidebar: View {
       HStack {
         Menu {
           Button("Import Reading List…") { workspace.importList() }
-          #if DEBUG
-          Button("Sync trial…") { workspace.showSyncTrial = true }
-            .accessibilityIdentifier("sync-trial-open")
-          #endif
+          Button("Sync…") { workspace.showSync = true }
+            .accessibilityIdentifier("library-sync")
           Button("Automatic tags…") { workspace.showSettings = true }
           Button("Keyboard shortcuts…") { workspace.showShortcuts = true }
         } label: {
@@ -89,9 +87,7 @@ struct MacNavigationSidebar: View {
           .accessibilityLabel("Keyboard shortcuts").help("Keyboard shortcuts · ?")
       }.padding(.horizontal, 10).padding(.vertical, 16)
     }
-    #if DEBUG
-    .sheet(isPresented: $workspace.showSyncTrial) { SyncTrialView() }
-    #endif
+    .sheet(isPresented: $workspace.showSync) { LibrarySyncView(sync: workspace.sync) }
     .font(.system(size: 13))
     .padding(.horizontal, 10)
     .background(Color(nsColor: .textBackgroundColor))

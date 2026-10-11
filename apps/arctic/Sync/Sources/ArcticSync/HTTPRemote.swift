@@ -7,6 +7,12 @@ public struct ArcticSession: Codable, Sendable {
   public let server: URL
   // The signed cookie stays in Keychain. It must not enter a domain record or log.
   let cookie: String
+  public init(accountID: String, email: String, server: URL, cookie: String) {
+    self.accountID = accountID
+    self.email = email
+    self.server = server
+    self.cookie = cookie
+  }
 }
 private final class NoRedirects: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
   func urlSession(

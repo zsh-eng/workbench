@@ -77,8 +77,8 @@ and presentation; changes to the device clock cannot add negative duration.
 The controller resets its boundary if the monotonic input regresses in a test
 or unusual runtime condition.
 
-These files are local only. They do **not** activate Arctic's dormant sync or
-library storage migration. The web reader persists session summaries through
+These files are local only. Arctic's library sync does **not** include them.
+The web reader persists session summaries through
 its existing domain store and generic sync engine. Do not equate the two
 platforms' current sync status.
 

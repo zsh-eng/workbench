@@ -4,8 +4,8 @@ Status: Reader and Spaced production cutover completed on 4 October 2026.
 See the [service guide](../apps/sync-server/README.md) for commands and limits,
 and the [migration evidence](../apps/sync-server/MIGRATION.md) for the frozen
 backups and full remote verification. Arctic native auth and its record namespace
-were deployed separately on 4 October; the isolated Debug trial is ready for device
-verification. Its live library migration remains dormant. See the
+were deployed separately on 4 October. Since 11 October, Arctic syncs library
+state, titles and tags; a check with two real devices remains open. See the
 [Arctic deployment receipt](../apps/arctic/SYNC_DESIGN.md#production-deployment--4-october-2316-sgt).
 Production Google sign-in completion, Safari, and installed-PWA checks remain open.
 
