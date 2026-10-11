@@ -14,11 +14,6 @@
 
 /* Derive edge-adjacent corners on each panel so its own padding is used.
    Include the panel's 1px border; inward-facing corners keep their usual radius. */
-[data-slot="sidebar-inner"] {
-  --sidebar-panel-content-inset: 0.75rem;
-}
-
-[data-slot="sidebar-inner"],
 [data-slot="reader-tools-surface"] {
   --sidebar-panel-field-radius: calc(
     var(--sidebar-panel-radius) - var(--sidebar-panel-content-inset) - 1px
