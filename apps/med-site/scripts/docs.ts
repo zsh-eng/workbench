@@ -50,7 +50,7 @@ export const pages = [
   {
     slug: "agents",
     file: "AGENT_INTEGRATION.md",
-    label: "Agents",
+    label: "Agent reviews",
     group: "Guides",
   },
   {

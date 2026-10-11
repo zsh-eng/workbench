@@ -240,24 +240,23 @@ test("the docs render Med's guides and link between them", async ({
     "page",
   );
   await expect(
-    page.getByRole("heading", { level: 1, name: "Install med on macOS" }),
+    page.getByRole("heading", { level: 1, name: "Install Med" }),
   ).toBeVisible();
 
   // A link to another guide's section opens that page at the section.
   await docs.getByRole("link", { name: "Using Med" }).click();
   await page
     .getByRole("main")
-    .getByRole("link", { name: "agent integration" })
-    .first()
+    .getByRole("link", { name: "titles and pull requests" })
     .click();
-  await expect(page).toHaveURL(/\/docs\/agents#create-a-review$/);
+  await expect(page).toHaveURL(/\/docs\/agents#titles-and-pull-requests$/);
   await expect(
-    page.getByRole("heading", { level: 2, name: "Create a review" }),
+    page.getByRole("heading", { level: 3, name: "Titles and pull requests" }),
   ).toBeInViewport();
 
   // A phone shows the pages as a row, without sideways scrolling.
   await page.setViewportSize({ width: 375, height: 812 });
-  await expect(docs.getByRole("link", { name: "Agents" })).toBeVisible();
+  await expect(docs.getByRole("link", { name: "Agent reviews" })).toBeVisible();
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth - innerWidth),
   ).toBe(0);

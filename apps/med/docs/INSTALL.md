@@ -1,34 +1,76 @@
-# Install med on macOS
+# Install Med
 
-Med v0.1.7 supports Apple Silicon (M1 or newer), macOS 13 or newer.
-Intel Macs are not included in this release.
+Med v0.1.7 runs on Apple Silicon Macs (M1 or newer) with macOS 13 or newer.
+This release does not support Intel Macs.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/zsh-eng/workbench/main/apps/med/install.sh | sh
 ```
 
-The script finds the newest Med release on GitHub, downloads its archive and
-`SHA256SUMS`, and stops if the checksum does not match. It installs `med` to
-`~/.local/bin`, keeps the license notices in `~/.local/share/med`, and adds
-`~/.local/bin` to PATH in your shell's startup file. Files that curl downloads
-have no quarantine flag, so macOS does not hold the first launch for approval.
-Options go after `sh -s --`: `--version <x.y.z>`, `--dir <path>`,
-`--no-modify-path`, and `--force`. Run the same command to update.
+The script downloads the newest release from GitHub and stops if the archive
+does not match `SHA256SUMS`. It installs `med` in `~/.local/bin`, keeps the
+license notices in `~/.local/share/med`, and adds `~/.local/bin` to PATH in
+your shell's startup file. The executable includes its runtime, the browser
+app, and these guides, so you do not need Node, Bun, or a checkout.
 
-Then teach your coding agents to hand off reviews in Med:
+Options go after `sh -s --`: `--version x.y.z` installs that release, `--dir`
+installs in another folder, `--no-modify-path` leaves your startup file as it
+is, and `--force` installs a version again.
+
+## Start
+
+```sh
+med add ~/code/my-app
+med add ~/notes
+med web
+```
+
+`med add` registers a Git repository or an Obsidian vault. `med web` starts
+one background server and opens Med in your browser. With nothing registered,
+Med opens a welcome page that finds your repositories and vaults for you and
+can open Med at login.
+
+The server keeps running when you close the browser. `med status` shows it,
+and `med stop` stops it. Med keeps your sources and saved reviews in
+`~/.local/state/med` and serves `http://127.0.0.1:4173`.
+
+## Connect your agents
 
 ```sh
 med skills install
 ```
 
-This writes the Med skill for Claude Code (`~/.claude/skills/med`) and Codex
-(`~/.agents/skills/med`). `med skills uninstall` removes it.
+This writes a Med skill for Claude Code (`~/.claude/skills/med`) and Codex
+(`~/.agents/skills/med`). With it, an agent hands off its changes as a review
+in Med. `med skills uninstall` removes it.
+
+## Requirements
+
+- **Git** for repository features. Vaults and other files do not need it.
+- **Universal Ctags** (optional) for symbol search:
+  `brew install universal-ctags`.
+- **Zoekt** (optional) for indexed search. Without it, content search uses
+  Git. Setup needs Go and a Workbench checkout; see `med docs usage`. Med uses
+  a Zoekt cache that is already installed.
+
+## Update
+
+Run the install command again. Then restart the server and refresh the agent
+skill:
+
+```sh
+med stop
+med web
+med skills install
+```
+
+Your sources and saved reviews stay in the state folder.
 
 ## Manual install
 
 Download `med-v0.1.7-macos-arm64.tar.gz` and `SHA256SUMS` from the
 [GitHub release](https://github.com/zsh-eng/workbench/releases/tag/med-v0.1.7).
-In the download directory:
+In the download folder:
 
 ```sh
 shasum -a 256 -c SHA256SUMS
@@ -38,57 +80,36 @@ install -m 755 med-v0.1.7-macos-arm64/med ~/.local/bin/med
 ~/.local/bin/med --version
 ```
 
-Add `~/.local/bin` to your shell's PATH to use `med` directly. The executable
-includes Bun, the browser UI, fonts, workers, and offline documentation. No
-checkout, Node, or separate Bun install is needed.
+Add `~/.local/bin` to your shell's PATH to run `med` by name.
+
+This build is not Developer ID signed or notarized. Files that curl downloads
+have no quarantine flag, so the install script needs no approval. After a
+browser download, macOS can block the first launch; if you trust the download,
+allow it in **System Settings → Privacy & Security**.
+
+## Privacy
 
 Med has no server of its own and sends no telemetry. When an agent's reply
-links a web page, Med asks that site for its icon, once per site while it runs,
-and only over HTTPS to public addresses. Bun uploads crash reports to bun.report on
-macOS by default; Med turns that off with `BUN_ENABLE_CRASH_REPORTING=0` for
+links a web page, Med asks that site for its icon: once per site while Med
+runs, and only over HTTPS to public addresses. Bun uploads crash reports to
+bun.report on macOS by default; Med sets `BUN_ENABLE_CRASH_REPORTING=0` for
 itself, the processes it starts, and its login item.
 
-This build is not Developer ID signed or notarized. After a browser download,
-macOS may block its first launch; approve it in **System Settings → Privacy &
-Security** if you trust the download. Keep the archive's `licenses` folder with redistributed copies.
-
-## Start
-
-```sh
-med add /path/to/repository
-med add /path/to/obsidian-vault
-med web
-```
-
-`med web` starts one local background server and opens your browser. With
-nothing registered, it opens Med's welcome, which finds your repositories and
-Obsidian vaults and can open Med at login. Use
-`med status` to inspect it and `med stop` to stop it. Closing the browser does
-not stop the server. Registration and saved reviews persist in
-`~/.local/state/med`; the default address is `http://127.0.0.1:4173`.
-
-Git is required for repository features (`git --version` checks your install).
-Vaults and local files do not need Git. Universal Ctags is optional for symbols:
-`brew install universal-ctags`. Indexed search with Zoekt is optional; without it,
-content search uses Git. Initial Zoekt setup needs the Workbench checkout and Go;
-see `med docs usage`. A previously installed Zoekt cache works with this binary.
-
-## Offline help and updates
+## Offline help
 
 ```sh
 med --help
 med docs usage
-med docs vaults
 med docs agents
+med docs vaults
 ```
 
-For an update, run the install command again, or install the new executable at
-the same path. Then run `med stop` and `med web`, and `med skills install` to
-refresh the agent skill. Your sources and saved reviews stay in the state directory.
-To start at login, opt in with `med service install` after installing at a stable
-path. Remove that setting with `med service uninstall`.
+## Source and licenses
 
-Build source: [Workbench / Med](https://github.com/zsh-eng/workbench/tree/med-v0.1.7/apps/med).
-`BUILD.json` records the exact source commit and Bun runtime version. Build steps
-are in `docs/RELEASING.md` in the checkout. Bun and its runtime dependencies'
-notices and source references are in `licenses/upstream/BUN-LICENSE.md`.
+Med is built from
+[Workbench / Med](https://github.com/zsh-eng/workbench/tree/med-v0.1.7/apps/med).
+`BUILD.json` records the source commit and the Bun version, and
+`docs/RELEASING.md` in the checkout has the build steps. Notices and source
+references for Bun and its dependencies are in
+`licenses/upstream/BUN-LICENSE.md`. Keep the archive's `licenses` folder with
+copies that you share.

@@ -68,6 +68,16 @@ Pass several repository paths to open them in one app:
 node apps/med/dist/cli.js /path/to/frontend /path/to/backend
 ```
 
+The same foreground mode opens a patch, two files, or a file workspace without
+a repository. Do not run it on the port of a managed `med web` server.
+
+```sh
+node apps/med/dist/cli.js --patch change.patch
+git diff | node apps/med/dist/cli.js --patch -
+node apps/med/dist/cli.js --files old.ts new.ts
+node apps/med/dist/cli.js --editor
+```
+
 Use the branch switcher at the top of the sidebar (`⌘⇧G` / `Ctrl+Shift+G`) to select a branch or worktree, or to add and remove repositories for the current session. Branch tabs appear once two branches are open. Run `med pr checkout <number>` in a repository to check out a pull request with `gh` and review it. Removing a repository from med does not delete its files or branches.
 
 ### Agent review links
@@ -107,7 +117,7 @@ On Linux, use `Ctrl` in place of `⌘`.
 
 Vim navigation is enabled by default; the command palette can toggle it. In a focused Vim file view, `?` searches backward; use `⌘K` to open commands.
 
-See the [usage guide](docs/USAGE.md) for all shortcuts, search setup, patch and file inputs, and limits.
+See the [usage guide](docs/USAGE.md) for all shortcuts, search setup, and limits.
 
 ## Libraries and tools
 
