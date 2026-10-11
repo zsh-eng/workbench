@@ -2,6 +2,7 @@ import {
   currentPages,
   expect,
   nextSpread,
+  openAccountMenu,
   openLocalBook,
   test,
 } from "./helpers/fixtures";
@@ -25,10 +26,8 @@ test("should display committed remote book changes", async ({
     schemaVersion: 1,
     hlc: { wallTimeMs: Date.now() + 1000, counter: 0 },
   });
-  await page
-    .getByRole("button", { name: "Toggle sidebar", exact: true })
-    .click();
-  await page.getByRole("button", { name: /^Sync now:/ }).click();
+  const menu = await openAccountMenu(page);
+  await menu.getByRole("menuitem", { name: /^Sync now:/ }).click();
   await expect(
     page.getByRole("heading", {
       name: "Updated on another device",
@@ -50,13 +49,6 @@ test("should preserve a warm Reader when sync acknowledges local writes", async 
   await openLocalBook(page, localBook.id);
   await nextSpread(page);
   const pagesBefore = await currentPages(page);
-  // Reveal the desktop controls before opening navigation.
-  await page.mouse.move(200, 10);
-  await page
-    .getByRole("button", { name: "Toggle sidebar", exact: true })
-    .click();
-  const sync = page.getByRole("button", { name: /^Sync now:/ });
-  await expect(sync).toBeVisible();
   const reads = await page.evaluateHandle(async () => {
     const modulePath = "/src/lib/sync-v2/db.ts";
     const { syncV2Db: db } = await import(modulePath);
@@ -70,9 +62,12 @@ test("should preserve a warm Reader when sync acknowledges local writes", async 
     return counts;
   });
   const pushedBefore = remote.pushed.length;
-  await sync.click();
+  // The Reader has no sync control; sync runs as it would in the background.
+  await page.evaluate(async () => {
+    const modulePath = "/src/lib/sync-service.ts";
+    await (await import(modulePath)).syncService.syncAll();
+  });
   await expect.poll(() => remote.pushed.length).toBeGreaterThan(pushedBefore);
-  await expect(sync).toBeVisible();
   const remaining = await page.evaluate(async () => {
     const modulePath = "/src/lib/sync-v2/db.ts";
     return (await import(modulePath)).syncV2Db._sync_outbox.count();

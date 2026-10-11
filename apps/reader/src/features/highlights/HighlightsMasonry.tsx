@@ -9,7 +9,8 @@ import {
 } from "@/components/ui/context-menu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MobileBackToLibrary } from "@/components/ui/mobile-back-to-library";
+import { AppHeader } from "@/components/AppNavigation";
+import { APP_PAGE_FRAME } from "@/components/app-header-styles";
 import { useSpringPressAnimation } from "@/components/ui/spring-press";
 import { useFileUrl } from "@/hooks/use-file-url";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -704,7 +705,11 @@ function BookIndexItem({
         )}
       >
         {coverUrl ? (
-          <img src={coverUrl} alt="" className="image-outline h-full w-full object-cover" />
+          <img
+            src={coverUrl}
+            alt=""
+            className="image-outline h-full w-full object-cover"
+          />
         ) : (
           <span className="flex h-full w-full items-center justify-center border bg-secondary">
             <BookOpenText
@@ -1576,7 +1581,11 @@ function ColorFilters({
             )}
             style={getHighlightAccentStyle(name)}
           >
-            {isSelected && <span className="grid size-4 place-items-center rounded-full bg-background text-foreground"><Check className="size-3" aria-hidden="true" /></span>}
+            {isSelected && (
+              <span className="grid size-4 place-items-center rounded-full bg-background text-foreground">
+                <Check className="size-3" aria-hidden="true" />
+              </span>
+            )}
           </button>
         );
       })}
@@ -1613,39 +1622,39 @@ function HighlightsSearch({
       transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
     >
       <div className="relative">
-      <Search
-        className="pointer-events-none absolute top-1/2 left-3.5 z-10 size-4 -translate-y-1/2 text-muted-foreground"
-        aria-hidden="true"
-      />
-      <Input
-        type="search"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        id="highlight-search"
-        placeholder="Search all highlights…"
-        aria-label="Search all highlights"
-        className={cn(
-          "h-14 appearance-none bg-background/75 pl-10 text-base shadow-md backdrop-blur-xl [@media(prefers-reduced-transparency:reduce)]:bg-background [@media(prefers-reduced-transparency:reduce)]:backdrop-blur-none dark:bg-background/80 md:text-base [&::-webkit-search-cancel-button]:hidden",
-          value ? "pr-48" : "pr-40",
-        )}
-      />
-      <div className="absolute top-1/2 right-3 flex -translate-y-1/2 items-center gap-1 md:right-4 md:gap-2.5">
-        {value && (
-          <button
-            type="button"
-            onClick={clearSearch}
-            aria-label="Clear highlight search"
-            title="Clear search"
-            className="grid size-8 place-items-center rounded-full text-muted-foreground outline-none transition-[color,transform,scale] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.94] md:size-7"
-          >
-            <X className="size-4 md:size-3.5" aria-hidden="true" />
-          </button>
-        )}
-        <ColorFilters
-          selectedColors={selectedColors}
-          onToggle={onToggleColor}
+        <Search
+          className="pointer-events-none absolute top-1/2 left-3.5 z-10 size-4 -translate-y-1/2 text-muted-foreground"
+          aria-hidden="true"
         />
-      </div>
+        <Input
+          type="search"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          id="highlight-search"
+          placeholder="Search all highlights…"
+          aria-label="Search all highlights"
+          className={cn(
+            "h-14 appearance-none bg-background/75 pl-10 text-base shadow-md backdrop-blur-xl [@media(prefers-reduced-transparency:reduce)]:bg-background [@media(prefers-reduced-transparency:reduce)]:backdrop-blur-none dark:bg-background/80 md:text-base [&::-webkit-search-cancel-button]:hidden",
+            value ? "pr-48" : "pr-40",
+          )}
+        />
+        <div className="absolute top-1/2 right-3 flex -translate-y-1/2 items-center gap-1 md:right-4 md:gap-2.5">
+          {value && (
+            <button
+              type="button"
+              onClick={clearSearch}
+              aria-label="Clear highlight search"
+              title="Clear search"
+              className="grid size-8 place-items-center rounded-full text-muted-foreground outline-none transition-[color,transform,scale] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.94] md:size-7"
+            >
+              <X className="size-4 md:size-3.5" aria-hidden="true" />
+            </button>
+          )}
+          <ColorFilters
+            selectedColors={selectedColors}
+            onToggle={onToggleColor}
+          />
+        </div>
       </div>
     </motion.div>
   );
@@ -1661,7 +1670,10 @@ export function HighlightsMasonry() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchInput, setSearchInput] = useState("");
   useEffect(() => {
-    const timer = window.setTimeout(() => setSearchQuery(searchInput), SEARCH_DEBOUNCE_MS);
+    const timer = window.setTimeout(
+      () => setSearchQuery(searchInput),
+      SEARCH_DEBOUNCE_MS,
+    );
     return () => window.clearTimeout(timer);
   }, [searchInput]);
   const [selectedHighlight, setSelectedHighlight] = useState<Highlight | null>(
@@ -1946,21 +1958,19 @@ export function HighlightsMasonry() {
           hasNoMatches && "h-svh overflow-hidden",
         )}
       >
-        <section className="px-4 pt-10 pb-5 text-center md:pt-14 md:pb-7">
-          <div className="grid grid-cols-[2rem_minmax(0,1fr)_2rem] items-center gap-3 md:block">
-            <MobileBackToLibrary />
-            <h1 className="font-serif text-2xl font-medium leading-none tracking-tight md:text-6xl">
-              Highlights
-            </h1>
-            <div className="size-8 md:hidden" aria-hidden="true" />
-          </div>
-          {!isLoading && groups.length > 0 && (
-            <p className="mt-3 text-sm text-muted-foreground">
-              {totalHighlightCount} {totalHighlightCount === 1 ? "highlight" : "highlights"} across {groups.length}{" "}
-              {groups.length === 1 ? "book" : "books"}
-            </p>
+        <h1 className="sr-only">Highlights</h1>
+        <AppHeader current="highlights" />
+        <p
+          className={cn(
+            APP_PAGE_FRAME,
+            "mt-3 pb-5 text-[13px] text-muted-foreground md:pb-7",
+            (isLoading || groups.length === 0) && "invisible",
           )}
-        </section>
+        >
+          {totalHighlightCount}{" "}
+          {totalHighlightCount === 1 ? "highlight" : "highlights"} across{" "}
+          {groups.length} {groups.length === 1 ? "book" : "books"}
+        </p>
 
         <div
           ref={searchAnchorRef}
@@ -1980,7 +1990,10 @@ export function HighlightsMasonry() {
         </div>
         <div className="mx-auto min-h-0 w-full max-w-[1600px] flex-1 px-4 pt-4 pb-4 md:px-6 md:pb-6 xl:px-8">
           {isLoading ? (
-            <div role="status" className="flex min-h-80 items-center justify-center text-sm text-muted-foreground">
+            <div
+              role="status"
+              className="flex min-h-80 items-center justify-center text-sm text-muted-foreground"
+            >
               Loading highlights…
             </div>
           ) : groups.length === 0 ? (
@@ -1997,7 +2010,9 @@ export function HighlightsMasonry() {
               <p className="mt-2 text-pretty text-sm text-muted-foreground">
                 Select text in a book to save your first highlight here.
               </p>
-              <Button className="mt-4" render={<Link to="/" />}>Open library</Button>
+              <Button className="mt-4" render={<Link to="/" />}>
+                Open library
+              </Button>
             </div>
           ) : (
             <div
@@ -2012,7 +2027,11 @@ export function HighlightsMasonry() {
               <div
                 ref={mosaicsElementRef}
                 className={cn("relative min-w-0", hasNoMatches && "h-full")}
-                style={hasNoMatches ? undefined : { height: mosaicVirtualizer.getTotalSize() }}
+                style={
+                  hasNoMatches
+                    ? undefined
+                    : { height: mosaicVirtualizer.getTotalSize() }
+                }
               >
                 {visibleGroups.length > 0 ? (
                   virtualMosaicSections.map((virtualSection) => {
@@ -2075,7 +2094,10 @@ export function HighlightsMasonry() {
                     );
                   })
                 ) : (
-                  <div role="status" className="flex min-h-80 w-full flex-col items-center justify-center rounded-2xl border border-dashed text-center">
+                  <div
+                    role="status"
+                    className="flex min-h-80 w-full flex-col items-center justify-center rounded-2xl border border-dashed text-center"
+                  >
                     <Search
                       className="mb-4 size-7 text-muted-foreground"
                       aria-hidden="true"
@@ -2086,12 +2108,18 @@ export function HighlightsMasonry() {
                     <p className="mt-1 text-sm text-muted-foreground">
                       Change the search text or color filters.
                     </p>
-                    <Button className="mt-4" variant="outline" onClick={() => {
-                      setSearchInput("");
-                      setSearchQuery("");
-                      setSelectedColors([...ALL_HIGHLIGHT_COLORS]);
-                      document.getElementById("highlight-search")?.focus();
-                    }}>Clear filters</Button>
+                    <Button
+                      className="mt-4"
+                      variant="outline"
+                      onClick={() => {
+                        setSearchInput("");
+                        setSearchQuery("");
+                        setSelectedColors([...ALL_HIGHLIGHT_COLORS]);
+                        document.getElementById("highlight-search")?.focus();
+                      }}
+                    >
+                      Clear filters
+                    </Button>
                   </div>
                 )}
               </div>

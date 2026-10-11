@@ -60,7 +60,6 @@
     "dexie": "^4.4.2",
     "dexie-react-hooks": "^4.4.0",
     "drizzle-orm": "^0.45.2",
-    "embla-carousel-react": "^8.6.0",
     "fflate": "^0.8.2",
     "hono": "^4.12.15",
     "input-otp": "^1.4.2",

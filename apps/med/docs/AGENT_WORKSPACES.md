@@ -22,15 +22,16 @@ Med **attaches** to a session that another app started, or **owns** a session
 that Med started. Both feed the same store and events; the thread does not
 know which way an update came.
 
-| Feature            | Attach                                          | Own                                                              |
-| ------------------ | ----------------------------------------------- | ---------------------------------------------------------------- |
-| Who starts it      | Claude Desktop, a terminal, or Codex            | The Med host                                                     |
-| Source of updates  | Transcript lines, read every 400 ms             | Claude: the transcript and `stream-json`. ACP: the agent's stdio |
-| Replies            | Whole blocks                                    | Token by token                                                   |
-| Send a message     | Claude: `med review wait`. Codex: `codex queue` | Claude: a `user` line on stdin. ACP: `session/prompt`            |
-| Permission prompts | Not visible                                     | A card above the prompt box                                      |
-| Stop, model, mode  | Not possible; model and effort show as text     | Controls in the prompt box                                       |
-| History on reload  | The transcript                                  | Claude: the transcript. ACP: Med's log of the updates            |
+| Feature            | Attach                                          | Own                                                               |
+| ------------------ | ----------------------------------------------- | ----------------------------------------------------------------- |
+| Who starts it      | Claude Desktop, a terminal, or Codex            | The Med host                                                      |
+| Source of updates  | Transcript lines, read every 400 ms             | Claude: the transcript and `stream-json`. ACP: the agent's stdio  |
+| Replies            | Whole blocks                                    | Token by token                                                    |
+| Send a message     | Claude: `med review wait`. Codex: `codex queue` | Claude: a `user` line on stdin. ACP: `session/prompt`             |
+| Images in a prompt | Saved copies, named by path in the message      | Claude: image blocks. ACP: when `promptCapabilities.image` is set |
+| Permission prompts | Not visible                                     | A card above the prompt box                                       |
+| Stop, model, mode  | Not possible; model and effort show as text     | Controls in the prompt box                                        |
+| History on reload  | The transcript                                  | Claude: the transcript. ACP: Med's log of the updates             |
 
 **One writer per session.** Only the process that runs an agent can safely add
 turns. Med sends prompts only to sessions that it owns, or through a path that

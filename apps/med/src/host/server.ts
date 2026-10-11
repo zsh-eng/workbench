@@ -1,5 +1,5 @@
-import { createFavicons } from "./favicon";
 import { serveMedia, mediaHeaders } from "./media";
+import { imagesText, pruneImages, saveImages } from "./prompt-images";
 import { mediaType } from "../shared/media";
 import { fileChangesRequestSchema } from "../shared/file-changes";
 import { fileChanges } from "./repository/file-changes";
@@ -140,6 +140,8 @@ function revealInFileManager(path: string) {
 const MAX_BODY = 128 * 1024;
 // A brief holds up to 100,000 characters; UTF-8 can need four bytes for one.
 const MAX_BRIEF_BODY = 512 * 1024;
+// A message to an agent can hold ten images of 5 MB, in base64.
+const MAX_AGENT_MESSAGE_BODY = 72 * 1024 * 1024;
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -223,6 +225,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     ...(options.queueCodex ? { queueCodex: options.queueCodex } : {}),
   });
   const inboxStreams = new Set<ServerResponse>();
+  const imageDirectory = join(options.stateDir ?? temporaryState!, "images");
+  void pruneImages(imageDirectory);
   // Sessions that Med starts. ACP sessions keep their updates in the state directory.
   const ownedSessions = new OwnedSessions({
     agents: options.agents ?? (() => findAgents(options.stateDir)),
@@ -305,7 +309,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       if (watcher) await retireWatcher(watcher);
     }
   };
-  const favicons = createFavicons();
   const registry = new RepositoryRegistry(options.search, async (id, paths) => {
     for (const [abort, owners] of activeRequests) if (owners.has(id)) abort.abort();
     await forgetCheckouts(paths);
@@ -970,7 +973,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           if (action === "messages" && request.method === "POST") {
-            const input = agentMessageInputSchema.parse(await readBody(request, MAX_BRIEF_BODY));
+            const input = agentMessageInputSchema.parse(
+              await readBody(request, MAX_AGENT_MESSAGE_BODY),
+            );
             const session = bundle.sessions?.find((entry) => entry.id === input.sessionId);
             if (!session)
               throw new HostError(
@@ -993,14 +998,20 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             }
             for (const attachment of input.attachments)
               parts.push(`## ${attachment.label}\n\n${attachment.text}`);
-            if (!parts.length)
+            // An agent that Med runs and that takes images gets them in the
+            // prompt. Any other agent gets the paths of saved copies.
+            const runner = ownedSessions.get(session.id);
+            const running = runner && runner.state().status !== "exited" ? runner : undefined;
+            const native = running?.state().images ? input.images : [];
+            if (input.images.length && !native.length)
+              parts.push(imagesText(await saveImages(imageDirectory, input.images)));
+            if (!parts.length && !native.length)
               throw new HostError(
                 "empty-message",
                 "Write a message or choose comments to send.",
                 400,
               );
             // A session that Med runs takes the message as its next prompt.
-            const runner = ownedSessions.get(session.id);
             const message = await inbox.send(
               reviewId,
               session,
@@ -1011,9 +1022,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 attachmentCount: input.attachments.length,
               },
               parts.join("\n\n"),
-              runner && runner.state().status !== "exited"
-                ? (body) => runner.prompt(body)
-                : undefined,
+              running ? (body) => running.prompt(body, native) : undefined,
             );
             send({ message, state: await inboxState() });
             return;
@@ -1445,20 +1454,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               "This saved review action is not supported.",
               405,
             );
-          }
-          if (url.pathname === "/api/favicon" && request.method === "GET") {
-            const icon = await favicons.get(url.searchParams.get("origin") ?? "");
-            if (!icon) throw new HostError("favicon-unavailable", "This site has no icon.", 404);
-            assertRequestAccess();
-            response.writeHead(200, {
-              ...mediaHeaders,
-              // An icon does not change while the host runs.
-              "Cache-Control": "private, max-age=86400",
-              "Content-Type": icon.type,
-              "Content-Length": icon.bytes.length,
-            });
-            response.end(icon.bytes);
-            return;
           }
           if (url.pathname === "/api/build" && request.method === "GET") {
             send({

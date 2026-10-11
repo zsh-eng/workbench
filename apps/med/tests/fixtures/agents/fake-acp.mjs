@@ -38,7 +38,11 @@ const options = () => [
 async function handle(method, params) {
   switch (method) {
     case "initialize":
-      return { protocolVersion: 1, agentCapabilities: {}, authMethods: [] };
+      return {
+        protocolVersion: 1,
+        agentCapabilities: { promptCapabilities: { image: true } },
+        authMethods: [],
+      };
     case "session/new":
       setTimeout(() =>
         update({
@@ -64,7 +68,12 @@ async function handle(method, params) {
       mode = params.modeId;
       return {};
     case "session/prompt": {
-      const text = params.prompt.map((block) => block.text).join("");
+      const text = params.prompt.map((block) => block.text ?? "").join("");
+      const images = params.prompt.filter((block) => block.type === "image");
+      if (images.length) {
+        say(`Saw ${images.map((image) => image.mimeType).join(", ")}: ${text}`);
+        return { stopReason: "end_turn" };
+      }
       // OpenCode sends the prompt back as a user update.
       update({
         sessionUpdate: "user_message_chunk",

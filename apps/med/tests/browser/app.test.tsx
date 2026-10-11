@@ -901,6 +901,105 @@ describe("graphical review", () => {
     expect(document.activeElement?.getAttribute("aria-label")).toBe("Enter zen mode");
   });
 
+  test("with the title bar hidden, the review card's first row is a tab between the window controls", async () => {
+    await page.viewport(1280, 800);
+    // The free area that Chrome gives an installed app between its window controls.
+    const root = document.documentElement;
+    const area = {
+      "--med-titlebar-height": "38px",
+      "--med-titlebar-left": "78px",
+      "--med-titlebar-right": "120px",
+    };
+    for (const [name, value] of Object.entries(area)) root.style.setProperty(name, value);
+    root.dataset.titlebar = "overlay";
+    try {
+      await mountApp({ branches: true });
+      const toggle = page.getByRole("button", { name: "Toggle sidebar" });
+      const tabs = page.getByRole("tablist", { name: "Open files" });
+      await expect.element(tabs).toBeVisible();
+      const row = tabs.element().parentElement!;
+      const card = document.querySelector("main")!;
+      const rect = (element: Element) => element.getBoundingClientRect();
+      const centre = (element: Element) => rect(element).top + rect(element).height / 2;
+      // Whether a point of the window is on the card, as its outline draws it.
+      const onCard = (x: number, y: number) =>
+        card
+          .querySelector<SVGPathElement>(".med-card-tab path")!
+          .isPointInFill(new DOMPoint(x - rect(card).left, y - rect(card).top));
+      const changes = page.getByRole("tab", { name: "Changes" }).element();
+      const commands = page.getByRole("button", { name: "Open command palette" }).element();
+
+      // The row rises to the top of the window as the card's tab, and it ends
+      // before the controls on the right, where the card steps down. Chrome
+      // paints over the area of its controls, so nothing of the card is there.
+      expect(rect(row)).toMatchObject({ top: 6, bottom: 39 });
+      expect(rect(commands).right).toBeLessThanOrEqual(1280 - 120 - 6);
+      expect([onCard(640, 20), onCard(1220, 20), onCard(1220, 60)]).toEqual([true, false, true]);
+      const outline = card.querySelectorAll<SVGPathElement>(".med-card-tab path")[1];
+      const drawn = ([x, y]: number[]) => {
+        const point = new DOMPoint(x - rect(card).left, y - rect(card).top);
+        return onCard(x, y) || outline.isPointInStroke(point);
+      };
+      const controls = [
+        ...Array.from({ length: 38 }, (_, y) => [1160.5, y + 0.5]),
+        ...Array.from({ length: 120 }, (_, x) => [1160 + x + 0.5, 37.5]),
+      ];
+      expect(controls.filter(drawn)).toEqual([]);
+      // The identity heads the sidebar, level with the tab, after the controls on the left.
+      expect(rect(toggle.element()).left).toBeGreaterThanOrEqual(78);
+      expect(Math.abs(centre(toggle.element()) - centre(changes))).toBeLessThanOrEqual(1);
+      // The tab and the identity's row move the window; their controls take clicks.
+      const region = (element: Element) =>
+        getComputedStyle(element).getPropertyValue("-webkit-app-region");
+      const head = toggle.element().closest(".med-title-row")!;
+      expect([row, head, changes, toggle.element()].map(region)).toEqual([
+        "drag",
+        "drag",
+        "no-drag",
+        "no-drag",
+      ]);
+
+      // Without the sidebar, the identity leads the tab, and the card steps
+      // down under the controls on the left too. The outline changes in the
+      // frame that the card does, so it never shows the card's old size.
+      const fits: boolean[] = [];
+      const watch = new ResizeObserver(() => {
+        const box = card.querySelector<SVGPathElement>(".med-card-tab path")!.getBBox();
+        fits.push(Math.round(box.x * 2 + box.width) === Math.round(rect(card).width));
+      });
+      watch.observe(card);
+      await toggle.click();
+      await expect
+        .poll(() => document.getElementById("review-sidebar")?.checkVisibility())
+        .toBe(false);
+      watch.disconnect();
+      expect(fits.length).toBeGreaterThan(1);
+      expect(fits.every(Boolean)).toBe(true);
+      expect(row.contains(toggle.element())).toBe(true);
+      expect(rect(toggle.element()).left).toBeGreaterThanOrEqual(78 + 6);
+      expect([onCard(40, 20), onCard(40, 60)]).toEqual([false, true]);
+      await toggle.click();
+
+      // The side panes start below the tab; the controls are over them, so
+      // the tab spans the card.
+      await page.getByRole("button", { name: "Toggle files sidebar" }).click();
+      const column = document.querySelector("[data-pane-layout]")!;
+      await expect.poll(() => column.checkVisibility()).toBe(true);
+      expect(rect(column).top).toBe(39);
+      await expect.poll(() => onCard(rect(card).right - 12, 20)).toBe(true);
+
+      // With the title bar back, the card is a plain card again.
+      delete root.dataset.titlebar;
+      await expect.poll(() => card.querySelector(".med-card-tab")).toBeNull();
+      expect(rect(row).height).toBe(38);
+      expect(toggle.element().closest(".med-title-row")).toBeNull();
+      expect(toggle.element().closest("#review-sidebar")).not.toBeNull();
+    } finally {
+      delete root.dataset.titlebar;
+      for (const name of Object.keys(area)) root.style.removeProperty(name);
+    }
+  });
+
   test("a single branch needs no tab strip; Command Shift G opens another beside it", async () => {
     await mountApp({ branches: true });
     const strip = page.getByRole("tablist", { name: "Branches and worktrees" });
@@ -1147,6 +1246,26 @@ describe("graphical review", () => {
     await expect.poll(() => heights()[1]?.[1]).toBe(41);
     await files.getByRole("button", { name: "Restore files" }).click();
     await expect.poll(() => (heights()[1]?.[1] ?? 0) > 100).toBe(true);
+
+    // ⌘⌃⇧← and ⌘⌃⇧→ move the column's edge; ⌘⌃= makes it as wide as the
+    // review, and again gives back the width from before.
+    const divider = page.getByRole("separator", { name: "Resize side panes" });
+    const width = () => Number(divider.element().getAttribute("aria-valuenow"));
+    const start = width();
+    await userEvent.keyboard("{Meta>}{Control>}{Shift>}{ArrowLeft}{/Shift}{/Control}{/Meta}");
+    await expect.poll(width).toBe(start + 40);
+    await userEvent.keyboard("{Meta>}{Control>}{Shift>}{ArrowRight}{/Shift}{/Control}{/Meta}");
+    await expect.poll(width).toBe(start);
+    await userEvent.keyboard("{Meta>}{Control>}={/Control}{/Meta}");
+    const column = document.querySelector<HTMLElement>("[data-pane-layout]")!;
+    const main = document.querySelector("main")!;
+    await expect
+      .poll(() =>
+        Math.abs(column.getBoundingClientRect().width - main.getBoundingClientRect().width),
+      )
+      .toBeLessThan(2);
+    await userEvent.keyboard("{Meta>}{Control>}={/Control}{/Meta}");
+    await expect.poll(width).toBe(start);
 
     // Closing the preview is remembered, as the toggle in the file view was.
     await preview.getByRole("button", { name: "Close preview" }).click();
@@ -2157,8 +2276,13 @@ describe("review brief", () => {
       iterationBriefs: ["# First round\n", "# Second round\n"],
     });
     await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
+    // In the open menu, a letter chooses its item.
     await page.getByRole("button", { name: "Notes options" }).click();
-    await page.getByRole("menuitem", { name: "Start new notes" }).click();
+    await expect
+      .element(page.getByRole("menuitem", { name: "Start new notes" }))
+      .toHaveAttribute("aria-keyshortcuts", "n");
+    await userEvent.keyboard("n");
+    await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
     // The new notes are empty: the brief before them stays with its iteration.
     await expect.element(page.getByText("No notes yet.", { exact: false })).toBeVisible();
     await expect
@@ -2171,11 +2295,21 @@ describe("review brief", () => {
 
     // Deleting them asks first; their iteration goes, and the agent's latest notes show.
     await page.getByRole("button", { name: "Notes options" }).click();
-    await page.getByRole("menuitem", { name: "Delete these notes…" }).click();
+    await expect.element(page.getByRole("menuitem", { name: "Delete these notes…" })).toBeVisible();
+    await userEvent.keyboard("d");
     const confirm = page.getByRole("alertdialog", { name: "Delete notes" });
+    // The Notes tab stays in front while the earlier comparison loads.
+    const tabs = new Set<string>();
+    const observer = new MutationObserver(() =>
+      tabs.add(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent ?? ""),
+    );
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true });
     await confirm.getByRole("button", { name: "Delete", exact: true }).click();
     await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
     await expect.poll(() => controller.getSnapshot().savedTargetId).toBe("target-1");
+    await expect.poll(() => controller.getSnapshot().status).toBe("ready");
+    observer.disconnect();
+    expect([...tabs]).toEqual(["Notes"]);
     await expect.element(page.getByRole("button", { name: "Iteration 3" })).not.toBeInTheDocument();
     await expect.element(confirm).not.toBeInTheDocument();
   });
@@ -2699,7 +2833,9 @@ describe("agent session", () => {
 
     await expect
       .poll(() => agentMessages)
-      .toEqual([{ sessionId: "s1", text: "Use minutes.", noteIds: ["n1"], attachments: [] }]);
+      .toEqual([
+        { sessionId: "s1", text: "Use minutes.", noteIds: ["n1"], attachments: [], images: [] },
+      ]);
     await expect.element(panel.getByText("Use minutes.")).toBeVisible();
     await expect
       .element(panel.getByText("Sent from Med · 1 comment · Claude took it"))
@@ -2770,6 +2906,29 @@ describe("agent session", () => {
     await expect.element(input).toHaveValue("/review ");
     await userEvent.keyboard("the durations{Meta>}{Enter}{/Meta}");
     await expect.poll(() => agentMessages).toMatchObject([{ text: "/review the durations" }]);
+
+    // A pasted image goes with the next message to an agent that takes images.
+    setOwned({ images: true });
+    await expect.element(composer.getByRole("button", { name: "Add images" })).toBeVisible();
+    const png =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    const clipboard = new DataTransfer();
+    clipboard.items.add(
+      new File([Uint8Array.from(atob(png), (char) => char.charCodeAt(0))], "shot.png", {
+        type: "image/png",
+      }),
+    );
+    input
+      .element()
+      .dispatchEvent(new ClipboardEvent("paste", { clipboardData: clipboard, bubbles: true }));
+    const images = composer.getByRole("list", { name: "Images to send" });
+    await expect.element(images.getByRole("img", { name: "Attachment 1" })).toBeVisible();
+    await userEvent.click(input);
+    await userEvent.keyboard("Why?{Meta>}{Enter}{/Meta}");
+    await expect
+      .poll(() => agentMessages.at(-1))
+      .toMatchObject({ text: "Why?", images: [{ mimeType: "image/png", data: png }] });
+    await expect.element(images).not.toBeInTheDocument();
 
     // A tool call waits for an answer; while the agent works, Send becomes Stop.
     setOwned({

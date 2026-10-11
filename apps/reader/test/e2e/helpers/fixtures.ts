@@ -143,7 +143,7 @@ export const test = base.extend<
         // The first worker also loads Vite's cold application module graph.
         // Wait for the actual Library control before starting the import flow.
         await expect(
-          page.getByRole("button", { name: "Import EPUB", exact: true }),
+          page.getByRole("button", { name: "Choose EPUB files", exact: true }),
         ).toBeVisible({ timeout: 15_000 });
         await importSampleBook(page);
         // Blobs need an explicit encoding when crossing the Playwright boundary.
@@ -228,12 +228,21 @@ export const test = base.extend<
 
 export { expect };
 
+/** Opens the account menu at the end of a page header. */
+export async function openAccountMenu(page: Page) {
+  await page.getByRole("button", { name: /^Account/ }).click();
+  const menu = page.getByRole("menu");
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
 export async function importSampleBook(page: Page): Promise<void> {
   const importButton = page.getByRole("button", {
-    name: "Import EPUB",
+    name: "Choose EPUB files",
     exact: true,
   });
-  await expect(importButton).toBeVisible();
+  // A test's first page can also load Vite's cold application module graph.
+  await expect(importButton).toBeVisible({ timeout: 15_000 });
   const [fileChooser] = await Promise.all([
     page.waitForEvent("filechooser"),
     importButton.click(),

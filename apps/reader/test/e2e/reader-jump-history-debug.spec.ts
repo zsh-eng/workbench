@@ -97,7 +97,7 @@ test("steps through previews, commit and history eviction", async ({
   await expect(page.getByTestId("history-location")).toHaveText("A");
 });
 
-test("gates the playground and links to it from debug settings", async ({
+test("gates the playground and links to it from debug tools", async ({
   page,
 }) => {
   await page.addInitScript(() =>
@@ -108,9 +108,7 @@ test("gates the playground and links to it from debug settings", async ({
     page.getByRole("heading", { name: "Debug mode is off" }),
   ).toBeVisible({ timeout: 30_000 });
   await page.getByRole("link", { name: "Open settings" }).click();
-  await expect(
-    page.getByRole("link", { name: /Jump history playground/ }),
-  ).toHaveCount(0);
+  await expect(page.getByRole("link", { name: /Debug tools/ })).toHaveCount(0);
   const toggle = page.getByRole("switch", { name: "Debug mode" });
   // The shell fades in after entering from a route outside it.
   await expect
@@ -128,7 +126,8 @@ test("gates the playground and links to it from debug settings", async ({
     )
     .toBe(true);
   await toggle.check();
-  await page.getByRole("link", { name: /Jump history playground/ }).click();
+  await page.getByRole("link", { name: /Debug tools/ }).click();
+  await page.getByRole("link", { name: /^Jump history/ }).click();
   await expect(
     page.getByRole("heading", { name: "Jump history playground" }),
   ).toBeVisible({ timeout: 30_000 });

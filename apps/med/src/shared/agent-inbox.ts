@@ -6,6 +6,19 @@ import { z } from "zod";
  * Med queues them for a Codex session with `codex queue`.
  */
 export const MAX_AGENT_MESSAGE_TEXT = 100_000;
+/** An image's size, as the Claude API takes it: 5 MB. */
+export const MAX_PROMPT_IMAGE_BYTES = 5 * 1024 * 1024;
+export const PROMPT_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
+
+/** An image in a prompt, in base64, for a session that Med runs. */
+export const promptImageSchema = z.object({
+  mimeType: z.enum(PROMPT_IMAGE_TYPES),
+  data: z
+    .string()
+    .max(Math.ceil(MAX_PROMPT_IMAGE_BYTES / 3) * 4)
+    .regex(/^[A-Za-z0-9+/]*={0,2}$/),
+});
+export type PromptImage = z.infer<typeof promptImageSchema>;
 
 export const agentMessageInputSchema = z.object({
   sessionId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
@@ -17,6 +30,8 @@ export const agentMessageInputSchema = z.object({
     .array(z.object({ label: z.string().max(200), text: z.string().max(MAX_AGENT_MESSAGE_TEXT) }))
     .max(100)
     .default([]),
+  /** Images, for a session that Med runs. */
+  images: z.array(promptImageSchema).max(10).default([]),
 });
 export type AgentMessageInput = z.input<typeof agentMessageInputSchema>;
 

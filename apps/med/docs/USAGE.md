@@ -43,6 +43,14 @@ the shortcuts that a browser keeps for its tabs. The app needs the background
 server, so use `med service install` to start the server at login. Each port is
 a separate app.
 
+The title bar's hide button gives Med the whole window. The branch and the
+sidebar toggle move up beside the window controls, and the review card's first
+row rises between them as the card's tab; side panes start below it. With
+branch tabs open, the branch tabs head the window instead. Empty parts of the
+top row move the window. Show the title bar again from the same place. Chrome
+reads this from Med's manifest at a later launch; reinstall the app to get it
+at once.
+
 ## Sources
 
 The first time `med web` runs with nothing registered, Med shows a setup page:
@@ -165,15 +173,24 @@ background shells and agents. It follows the session live.
   open every turn.
 - With focus in the thread, `[` and `]` step through prompts and replies. A
   task in **Background** goes to its call.
-- Links in a reply open files in Med. A web link shows as a pill with the
-  site's icon.
+- A prompt's images are square thumbnails. Click one to see it at full size,
+  and use `←` and `→` for the others.
+- Links in a reply open files in Med. A web link shows as a pill with its
+  site's icon. Med holds the icons of common developer sites, and of servers
+  that a company runs itself, such as GitHub or Sourcegraph; other sites show a
+  globe. Med fetches no icons.
 
 A Session pane without a session lists the agents that Med found, and its **+**
 menu starts one. Med starts Claude Code, OpenCode, Codex (`codex-acp`), or
 Gemini CLI in the review's repository, with your own sign-in; it does not
 install them. The message box has model, effort, and mode pickers, a context
 meter, `/` commands, and **Stop** (or `Esc`). A tool call that needs an answer
-shows **Allow** and **Deny**. Med stops its agents when the server stops. See
+shows **Allow** and **Deny**.
+
+Paste or drop images into the message box, or use its image button. Claude
+Code and ACP agents that take images get them with the message, up to ten of 5
+MB each. Other agents get the paths of saved copies, which Claude Code and
+Codex open themselves; Med keeps the copies for 30 days. Med stops its agents when the server stops. See
 [agent sessions](SESSIONS.md).
 
 Saved reviews persist in the state folder. Notes on a branch last until the
@@ -207,7 +224,9 @@ lines that it cites. The **Notes** tab comes before **Changes**.
   notes**, which captures the current comparisons as a new, empty iteration.
   **Delete these notes…** deletes the shown brief, its pins, and their
   comments, after it asks. Notes that you started also take their iteration,
-  unless its comparisons have comments.
+  unless its comparisons have comments. In an open menu, a letter chooses the
+  item that it underlines: in the **⋯** menu, `n` starts new notes and `d`
+  deletes them.
 
 A link can be `path`, `path:12`, `path:12-20`, `path#L12-L20`, an absolute
 path, an editor link, or a GitHub blob URL. A unique suffix such as
@@ -496,7 +515,9 @@ markers until you refresh.
 ### Side panes
 
 One column at the right holds **Session** (`⌘⇧B`), **Files** (the folder
-button), and **Preview** (`⌘⇧V`). Drag its left edge to resize it. It shows the
+button), and **Preview** (`⌘⇧V`). Drag its left edge to resize it, or press
+`⌘⌃⇧←` and `⌘⌃⇧→`, as Ghostty resizes a split. `⌘⌃=` makes the column as wide
+as the review; press it again for the width before. It shows the
 two latest panes, one above the other; a third closes the oldest. **Maximize**
 gives one pane the column, and **Restore** shares it again. **Show side panes
 as tabs** shows one pane at a time, and **Stack side panes** goes back. Both
@@ -520,7 +541,7 @@ search, Vim, and dialogs.
 
 Press `?` for the shortcuts of where you are: Review, File, Editor, or Pickers.
 Type to search every context by action or key, such as `close`, `zz`, or `⌘K`;
-Enter runs a row that has a command. On Linux, use Ctrl for ⌘ and Alt for ⌥.
+Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, and Ctrl+Alt for ⌘⌃.
 
 | Action                           | Shortcut      |
 | -------------------------------- | ------------- |
@@ -534,6 +555,8 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘ and Alt for ⌥.
 | Show workspace 1–9               | `⌘1`–`⌘9`     |
 | Switch to a recent workspace     | `⌃Tab`        |
 | Toggle the sidebar / session     | `⌘B` / `⌘⇧B`  |
+| Widen / narrow the side panes    | `⌘⌃⇧←` / `→`  |
+| Side panes as wide as the review | `⌘⌃=`         |
 | Zen mode                         | `⌥Z`          |
 | Comment on selected lines        | `c`           |
 | Paste a brief                    | `⌘V`          |

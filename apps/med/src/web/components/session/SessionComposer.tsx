@@ -1,6 +1,12 @@
 import * as stylex from "@stylexjs/stylex";
-import { useId, useState, type KeyboardEvent } from "react";
-import type { AgentMessage, DraftComment } from "../../../shared/agent-inbox";
+import { useId, useRef, useState, type KeyboardEvent } from "react";
+import {
+  MAX_PROMPT_IMAGE_BYTES,
+  PROMPT_IMAGE_TYPES,
+  type AgentMessage,
+  type DraftComment,
+  type PromptImage,
+} from "../../../shared/agent-inbox";
 import type {
   OwnedAction,
   OwnedCommand,
@@ -25,6 +31,22 @@ export interface OwnedControls {
 }
 
 const SETTING_ORDER: OwnedSetting["category"][] = ["model", "effort", "mode", "other"];
+/** Images in one message at most. */
+const MAX_IMAGES = 10;
+
+/** An image file as base64, for a prompt. */
+function readImage(file: File) {
+  return new Promise<PromptImage>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () =>
+      resolve({
+        mimeType: file.type as PromptImage["mimeType"],
+        data: String(reader.result).replace(/^data:[^,]*,/, ""),
+      });
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
 /** Commands shown at most in the `/` menu. */
 const MAX_COMMANDS = 8;
 
@@ -140,9 +162,12 @@ export function SessionComposer({
     text: string;
     noteIds: string[];
     attachments: { label: string; text: string }[];
+    images: PromptImage[];
   }): Promise<unknown>;
 }) {
   const [text, setText] = useState("");
+  const [images, setImages] = useState<(PromptImage & { id: string })[]>([]);
+  const imageInput = useRef<HTMLInputElement>(null);
   const [left, setLeft] = useState<ReadonlySet<string>>(new Set());
   const [open, setOpen] = useState(false);
   const [sending, setSending] = useState(false);
@@ -151,7 +176,31 @@ export function SessionComposer({
   const [highlight, setHighlight] = useState(0);
   const menuId = useId();
   const chosen = drafts.filter((draft) => !left.has(draft.id));
-  const empty = !text.trim() && !chosen.length && !attachments.length;
+  const empty = !text.trim() && !chosen.length && !attachments.length && !images.length;
+  const addImages = async (files: File[]) => {
+    const found = files.filter((file) => file.type.startsWith("image/"));
+    if (!found.length) return false;
+    const usable = found.filter(
+      (file) =>
+        (PROMPT_IMAGE_TYPES as readonly string[]).includes(file.type) &&
+        file.size <= MAX_PROMPT_IMAGE_BYTES,
+    );
+    setError(
+      usable.length < found.length
+        ? "Images can be PNG, JPEG, GIF, or WebP, up to 5 MB each."
+        : images.length + usable.length > MAX_IMAGES
+          ? `A message holds up to ${MAX_IMAGES} images.`
+          : null,
+    );
+    const read = await Promise.all(usable.map(readImage));
+    setImages((current) =>
+      [...current, ...read.map((image) => ({ ...image, id: crypto.randomUUID() }))].slice(
+        0,
+        MAX_IMAGES,
+      ),
+    );
+    return true;
+  };
   const status = owned?.state.status;
   const working = status === "working";
   const stopped = status === "exited";
@@ -181,8 +230,10 @@ export function SessionComposer({
         text: text.trim(),
         noteIds: chosen.map((draft) => draft.id),
         attachments: attachments.map(({ label, text }) => ({ label, text })),
+        images: images.map(({ mimeType, data }) => ({ mimeType, data })),
       });
       setText("");
+      setImages([]);
       setLeft(new Set());
       setOpen(false);
       for (const attachment of attachments) onRemoveAttachment(attachment.id);
@@ -249,6 +300,27 @@ export function SessionComposer({
         }}
         {...stylex.props(styles.box)}
       >
+        {images.length > 0 && (
+          <div aria-label="Images to send" role="list" {...stylex.props(styles.images)}>
+            {images.map((image, index) => (
+              <span key={image.id} role="listitem" {...stylex.props(styles.image)}>
+                <img
+                  alt={`Attachment ${index + 1}`}
+                  src={`data:${image.mimeType};base64,${image.data}`}
+                  {...stylex.props(styles.imagePreview)}
+                />
+                <button
+                  type="button"
+                  aria-label={`Remove attachment ${index + 1}`}
+                  onClick={() => setImages((current) => current.filter((entry) => entry !== image))}
+                  {...stylex.props(styles.imageRemove)}
+                >
+                  <Icon name="close" size={10} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         {(drafts.length > 0 || attachments.length > 0) && (
           <div {...stylex.props(styles.chips)}>
             {drafts.length > 0 && (
@@ -361,6 +433,23 @@ export function SessionComposer({
             if (!event.target.value.startsWith("/")) setMenuClosed(false);
           }}
           onKeyDown={onKeyDown}
+          onDragOver={(event) => {
+            if (event.dataTransfer.types.includes("Files")) event.preventDefault();
+          }}
+          onDrop={(event) => {
+            const files = [...event.dataTransfer.files];
+            if (files.some((file) => file.type.startsWith("image/"))) {
+              event.preventDefault();
+              void addImages(files);
+            }
+          }}
+          onPaste={(event) => {
+            const files = [...event.clipboardData.files];
+            if (files.some((file) => file.type.startsWith("image/"))) {
+              event.preventDefault();
+              void addImages(files);
+            }
+          }}
           {...stylex.props(styles.input)}
         />
         {owned && ownedStatus && (
@@ -416,6 +505,27 @@ export function SessionComposer({
           {owned?.state.context && (
             <ContextMeter used={owned.state.context.used} total={owned.state.context.total} />
           )}
+          <input
+            ref={imageInput}
+            type="file"
+            accept={PROMPT_IMAGE_TYPES.join(",")}
+            multiple
+            hidden
+            onChange={(event) => {
+              void addImages([...(event.target.files ?? [])]);
+              event.target.value = "";
+            }}
+          />
+          <button
+            type="button"
+            aria-label="Add images"
+            title="Add images, or paste them"
+            disabled={stopped}
+            onClick={() => imageInput.current?.click()}
+            {...stylex.props(ui.button, ui.iconButton, styles.attach)}
+          >
+            <Icon name="image" size={15} />
+          </button>
           {working ? (
             <button
               type="button"
@@ -462,6 +572,33 @@ const styles = stylex.create({
     },
   },
   chips: { display: "flex", flexWrap: "wrap", gap: 4 },
+  images: { display: "flex", flexWrap: "wrap", gap: 6, paddingTop: 2 },
+  image: { position: "relative", display: "block", width: 48, height: 48 },
+  imagePreview: {
+    display: "block",
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+    borderRadius: `calc(7px * ${tokens.round})`,
+    boxShadow: `0 0 0 1px ${tokens.line}`,
+  },
+  imageRemove: {
+    position: "absolute",
+    top: -5,
+    right: -5,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 16,
+    height: 16,
+    padding: 0,
+    borderWidth: 0,
+    borderRadius: 999,
+    backgroundColor: tokens.text,
+    color: tokens.canvas,
+    cursor: "pointer",
+  },
+  attach: { color: tokens.muted },
   chip: {
     display: "inline-flex",
     alignItems: "center",

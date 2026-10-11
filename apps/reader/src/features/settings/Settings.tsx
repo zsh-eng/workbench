@@ -1,8 +1,7 @@
 import { Card } from "@/components/ui/card";
-import { MobileBackToLibrary } from "@/components/ui/mobile-back-to-library";
+import { BackToLibrary } from "@/components/ui/back-to-library";
 import { Switch } from "@/components/ui/switch";
 import { setDebugEnabled, useDebugEnabled } from "@/lib/debug-preference";
-import { getLabRuntime } from "@/features/sync-lab/runtime";
 import { Bug } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -14,7 +13,7 @@ export function Settings() {
       <div className="max-w-2xl mx-auto px-4 pt-16 pb-6 md:px-6 md:py-10">
         <header className="mb-8">
           <div className="grid grid-cols-[2rem_1fr_2rem] items-center gap-3 md:block">
-            <MobileBackToLibrary />
+            <BackToLibrary />
             <h1 className="text-center text-2xl font-bold tracking-tight text-foreground md:text-left">
               Settings
             </h1>
@@ -60,71 +59,15 @@ export function Settings() {
           </Card>
           {debugEnabled && (
             <Link
-              to="/debug/elements"
+              to="/debug"
               className="mt-4 block rounded-2xl border border-border p-5 text-sm hover:bg-muted"
             >
-              <strong>Elements →</strong>
+              <strong>Debug tools →</strong>
               <p className="mt-1 text-xs text-muted-foreground">
-                See Reader parts and the Library on desktop and phone side by
-                side, try their states, and compare Library ideas.
+                Performance, diagnostics, Elements, design ideas,
+                experiments, and Sync Lab.
               </p>
             </Link>
-          )}
-          {debugEnabled && (
-            <Link
-              to="/debug/jump-history"
-              className="mt-4 block rounded-2xl border border-border p-5 text-sm hover:bg-muted"
-            >
-              <strong>Jump history playground →</strong>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Run jumps, step through examples, and inspect the history array.
-              </p>
-            </Link>
-          )}
-          {debugEnabled && (
-            <Link
-              to="/debug/chrome-accessories"
-              className="mt-4 block rounded-2xl border border-border p-5 text-sm hover:bg-muted"
-            >
-              <strong>Chrome accessories playground →</strong>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Try desktop reading and sync prompts, appearance, and dismissal.
-              </p>
-            </Link>
-          )}
-          {debugEnabled && (
-            <Link
-              to="/debug/notes-lab"
-              className="mt-4 block rounded-2xl border border-border p-5 text-sm hover:bg-muted"
-            >
-              <strong>Notes Lab →</strong>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Compare prototypes for capturing, writing, and revisiting notes.
-              </p>
-            </Link>
-          )}
-          {debugEnabled && (
-            <Link
-              to="/debug/experiments"
-              className="mt-4 block rounded-2xl border border-border p-5 text-sm hover:bg-muted"
-            >
-              <strong>Design experiments →</strong>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Browse interactive studies for the Reader, Library, Highlights,
-                and Sessions.
-              </p>
-            </Link>
-          )}
-          {debugEnabled && !getLabRuntime() && (
-            <a
-              href="/debug/sync"
-              className="mt-4 block rounded-2xl border border-border p-5 text-sm hover:bg-muted"
-            >
-              <strong>Sync Lab →</strong>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Spawn isolated clients, inspect sync, and test offline changes.
-              </p>
-            </a>
           )}
         </section>
       </div>

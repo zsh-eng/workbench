@@ -89,11 +89,10 @@ allow it in **System Settings → Privacy & Security**.
 
 ## Privacy
 
-Med has no server of its own and sends no telemetry. When an agent's reply
-links a web page, Med asks that site for its icon: once per site while Med
-runs, and only over HTTPS to public addresses. Bun uploads crash reports to
-bun.report on macOS by default; Med sets `BUN_ENABLE_CRASH_REPORTING=0` for
-itself, the processes it starts, and its login item.
+Med sends nothing to any server: no telemetry, and no requests for the icons
+of linked sites. Bun uploads crash reports to bun.report on macOS by default;
+Med sets `BUN_ENABLE_CRASH_REPORTING=0` for itself, the processes it starts,
+and its login item.
 
 ## Offline help
 

@@ -51,7 +51,7 @@ test("desktop chrome fades in place and hides all navigation controls together",
   const header = page.locator('[data-reader-header="desktop"]');
   const footer = page.locator("[data-reader-footer]");
   const leftButton = page.getByRole("button", {
-    name: "Toggle sidebar",
+    name: "Library",
     exact: true,
   });
   const accessory = page.locator("[data-reader-header-accessory]");
@@ -113,26 +113,9 @@ test("desktop chrome fades in place and hides all navigation controls together",
   await expect(header).toHaveCSS("opacity", "1");
   await expect(footer).toHaveCSS("opacity", "1");
   await expect(toolsButton).toBeVisible();
+  // There is no app sidebar: the left control goes back to the Library.
   await leftButton.click();
-  const sidebar = page.locator('[data-slot="sidebar"]');
-  await expect(sidebar).toHaveAttribute("data-state", "expanded");
-  await expect(
-    sidebar.getByRole("button", { name: "Toggle sidebar", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
-  await expect(header).toHaveCSS("opacity", "0");
-  await sidebar
-    .getByRole("button", { name: "Toggle sidebar", exact: true })
-    .click();
-  await expect(sidebar).toHaveAttribute("data-state", "collapsed");
-  await page.mouse.move(640, 400);
-  await expect(header).toHaveCSS("opacity", "0");
-  const modifier = await page.evaluate(() =>
-    /Mac/i.test(navigator.platform) ? "Meta" : "Control",
-  );
-  await page.keyboard.press(`${modifier}+Backslash`);
-  await expect(sidebar).toHaveAttribute("data-state", "expanded");
-  await page.keyboard.press(`${modifier}+Backslash`);
-  await expect(sidebar).toHaveAttribute("data-state", "collapsed");
+  await expect(page).toHaveURL("/");
 });
 
 test("Escape closes the tools sidebar after menus and the note editor handle it", async ({
@@ -229,9 +212,6 @@ test.describe("mobile chrome", () => {
     await expect(page.getByRole("button", { name: /bookmark/i })).toHaveCount(
       0,
     );
-    await expect(
-      page.getByRole("button", { name: "Toggle sidebar", exact: true }),
-    ).toHaveCount(0);
     // Back and Tools sit at matching insets, so the title stays centred.
     const backBounds = (await back.boundingBox())!;
     const toolsBounds = (await page

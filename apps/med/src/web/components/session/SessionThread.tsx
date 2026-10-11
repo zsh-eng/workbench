@@ -24,6 +24,7 @@ import { ZenContext } from "../ZenExit";
 import { motion, rowStyles } from "./session-styles";
 import { BackgroundDock } from "./BackgroundDock";
 import { SessionMarkdown } from "./SessionMarkdown";
+import { ImageThumbs } from "./ImageThumbs";
 import { promptBlocks } from "./prompt-blocks";
 import { formatSeconds, RowOpen, ToolCall, useRowOpen } from "./ToolCall";
 import {
@@ -135,43 +136,40 @@ const Item = memo(function Item({
   onOpenLink?(href: string): void;
 }) {
   switch (item.kind) {
-    case "user":
+    case "user": {
+      const images = item.content.filter((block) => block.type === "image");
       return (
         <div {...stylex.props(styles.userRow)}>
           {item.queued && <span {...stylex.props(styles.queued)}>Queued</span>}
           <div {...stylex.props(styles.user)}>
-            {item.content.map((block, index) =>
-              block.type === "text" ? (
-                promptBlocks(block.text).map((part, at) =>
-                  part.quote ? (
-                    <blockquote
-                      key={`${index}-${at}`}
-                      {...stylex.props(
-                        styles.userText,
-                        styles.userQuote,
-                        at > 0 && styles.userNext,
-                      )}
-                    >
-                      {part.text}
-                    </blockquote>
-                  ) : (
-                    <p
-                      key={`${index}-${at}`}
-                      {...stylex.props(styles.userText, at > 0 && styles.userNext)}
-                    >
-                      {part.text}
-                    </p>
-                  ),
-                )
-              ) : block.type === "image" ? (
-                <img
-                  key={index}
-                  alt=""
-                  src={`data:${block.mimeType};base64,${block.data}`}
-                  {...stylex.props(styles.image)}
-                />
-              ) : null,
-            )}
+            {images.length > 0 && <ImageThumbs images={images} />}
+            {item.content
+              .filter((block) => block.type === "text")
+              .flatMap((block) => promptBlocks(block.text))
+              .map((part, at) =>
+                part.quote ? (
+                  <blockquote
+                    key={at}
+                    {...stylex.props(
+                      styles.userText,
+                      styles.userQuote,
+                      (at > 0 || images.length > 0) && styles.userNext,
+                    )}
+                  >
+                    {part.text}
+                  </blockquote>
+                ) : (
+                  <p
+                    key={at}
+                    {...stylex.props(
+                      styles.userText,
+                      (at > 0 || images.length > 0) && styles.userNext,
+                    )}
+                  >
+                    {part.text}
+                  </p>
+                ),
+              )}
             {item.sent?.comments?.map((comment, index) => (
               <Comment key={index} comment={comment} />
             ))}
@@ -179,6 +177,7 @@ const Item = memo(function Item({
           {item.sent && <Delivery message={item.sent} />}
         </div>
       );
+    }
     case "agent":
       return (
         <>
@@ -1283,8 +1282,10 @@ function ThreadProbe({ probe }: { probe: RefObject<HTMLDivElement | null> }) {
         <div className="med-md-block">
           <p data-probe="pweb">
             <span data-probe="web" className="med-web-link">
-              <img className="med-web-link-icon" alt="" />
-              <span data-probe="webText">probe</span>
+              <span className="med-web-link-lead">
+                <img className="med-web-link-icon" alt="" />
+                <span data-probe="webText">probe</span>
+              </span>
             </span>
           </p>
         </div>
@@ -1492,7 +1493,6 @@ const styles = stylex.create({
     color: tokens.muted,
   },
   userNext: { marginTop: 8 },
-  image: { display: "block", maxWidth: "100%", borderRadius: `calc(6px * ${tokens.round})` },
   comment: {
     display: "flex",
     flexDirection: "column",

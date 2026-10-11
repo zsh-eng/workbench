@@ -28,7 +28,7 @@ for (const mobile of [false, true]) {
           await page
             .getByRole("heading", { name: /Alice/ })
             .click({ button: "right" });
-          await page.getByRole("menuitem", { name: "Remove book" }).click();
+          await page.getByRole("menuitem", { name: "Remove book…" }).click();
         } else
           await page
             .getByRole("button", { name: "Remove book", exact: true })

@@ -10,12 +10,17 @@ import {
 test.describe("Library", () => {
   test("should display empty library initially", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByText("Your library is empty")).toBeVisible();
+    // A test's first page can also load Vite's cold application module graph.
+    await expect(page.getByText("Your library is empty")).toBeVisible({
+      timeout: 15_000,
+    });
     await expect(
-      page.getByText("Drag and drop an EPUB file here", { exact: false }),
+      page.getByText("Drop EPUB files anywhere on this page", {
+        exact: false,
+      }),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "Import EPUB" }),
+      page.getByRole("button", { name: "Choose EPUB files" }),
     ).toBeVisible();
   });
 
@@ -87,17 +92,44 @@ test.describe("Library", () => {
     expect(artifacts.materializationRecipeVersion).toBe(1);
   });
 
-  test("should search books by title", async ({ page, localBook }) => {
+  test("search narrows the page from the title, and typing starts it", async ({
+    page,
+    localBook,
+  }) => {
     expect(localBook.id).toBeTruthy();
     const bookHeading = page.getByRole("heading", { name: SAMPLE_BOOK_TITLE });
     const searchInput = page.getByRole("searchbox", { name: "Search library" });
+    await page.getByRole("button", { name: "Search", exact: true }).click();
     await searchInput.fill("Alice");
     await expect(bookHeading).toBeVisible();
+    await expect(page.getByText("1 of 1", { exact: true })).toBeVisible();
     await searchInput.fill("Nonexistent Book");
-    await expect(page.getByText("Nothing on these shelves")).toBeVisible();
+    await expect(
+      page.getByText("No books match “Nonexistent Book”."),
+    ).toBeVisible();
     await expect(bookHeading).not.toBeVisible();
-    await searchInput.fill("");
+    // Escape clears the search, then closes it.
+    await searchInput.press("Escape");
+    await expect(searchInput).toHaveValue("");
     await expect(bookHeading).toBeVisible();
+    await searchInput.press("Escape");
+    await expect(searchInput).toHaveCount(0);
+    await expect(
+      page.getByRole("navigation", { name: "Places" }),
+    ).toBeVisible();
+    await page.keyboard.press("Slash");
+    await expect(searchInput).toBeFocused();
+    await expect(searchInput).toHaveValue("");
+    await searchInput.press("Escape");
+    await expect(searchInput).toHaveCount(0);
+
+    // A letter typed on the page starts a search with it.
+    await page.keyboard.type("won");
+    await expect(searchInput).toBeFocused();
+    await expect(searchInput).toHaveValue("won");
+    await expect(bookHeading).toBeVisible();
+    await searchInput.press("Enter");
+    await expect(page).toHaveURL(`/reader/${localBook.id}`);
   });
 
   test("should open a book from library", async ({ page, localBook }) => {
@@ -113,16 +145,23 @@ test("updates reading status and library placement while offline", async ({
 }) => {
   await context.setOffline(true);
   const book = page.getByRole("heading", { name: SAMPLE_BOOK_TITLE });
+  const shelf = page.getByRole("region", { name: "Reading" });
   await book.click({ button: "right" });
-  await page.getByRole("menuitem", { name: "Reading", exact: true }).click();
+  await page
+    .getByRole("menuitemradio", { name: "Reading", exact: true })
+    .click();
+  // A book you are reading shows once, on the shelf.
   await expect(
-    page.getByRole("heading", { name: "Continue reading", exact: true }),
+    shelf.getByRole("heading", { name: SAMPLE_BOOK_TITLE }),
   ).toBeVisible();
+  await expect(book).toHaveCount(1);
   await book.click({ button: "right" });
-  await page.getByRole("menuitem", { name: "Finished", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "Continue reading", exact: true }),
-  ).not.toBeVisible();
+  await page
+    .getByRole("menuitemradio", { name: "Finished", exact: true })
+    .click();
+  await expect(shelf).not.toBeVisible();
+  await page.getByRole("button", { name: "Finished", exact: true }).click();
+  await expect(book).toBeVisible();
   await expect
     .poll(() =>
       page.evaluate(async (id) => {
@@ -205,7 +244,9 @@ test("reports mixed multi-file import outcomes without opening a book", async ({
   await page.goto("/");
   const [chooser] = await Promise.all([
     page.waitForEvent("filechooser"),
-    page.getByRole("button", { name: "Import EPUB", exact: true }).click(),
+    page
+      .getByRole("button", { name: "Choose EPUB files", exact: true })
+      .click(),
   ]);
   await chooser.setFiles([
     { name: "sample.epub", mimeType: "application/epub+zip", buffer: original },
@@ -268,13 +309,15 @@ for (const phone of [false, true])
       await original.scrollIntoViewIfNeeded();
       const before = await page.evaluate(() => Math.round(window.scrollY));
       expect(before).toBeGreaterThan(400);
-      await original.click();
+      // A phone has no pointer to rest over a book and prefetch it.
+      if (phone) await original.tap();
+      else await original.click();
       await expect(page).toHaveURL(`/reader/${localBook.id}`);
       await waitForReaderReady(page);
       if (phone) {
         // The capsule shows once the chrome has settled in view.
         await showNotesCapsule(page);
-        await page.getByRole("button", { name: "Back to library" }).click();
+        await page.getByRole("button", { name: "Back to library" }).tap();
       } else await page.goBack();
       await expect(page).toHaveURL("/");
       await expect(original).toBeVisible();

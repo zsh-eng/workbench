@@ -183,6 +183,16 @@ export const guideContexts: GuideContext[] = [
           { label: "Previous / next commit", keys: ["Up", "Down"], note: "In History" },
           { label: "Extend the commit range", keys: ["Shift+Up", "Shift+Down"] },
           { label: "Resize the sidebar", keys: ["Left", "Right"], note: "On the sidebar edge" },
+          {
+            label: "Widen / narrow the side panes",
+            keys: ["Mod+Ctrl+Shift+Left", "Mod+Ctrl+Shift+Right"],
+            note: "As in Ghostty",
+          },
+          {
+            label: "Side panes as wide as the review",
+            keys: ["Mod+Ctrl+="],
+            note: "Again: the width from before",
+          },
           { label: "Close a branch tab", keys: ["Backspace"], note: "On a focused branch tab" },
         ],
       },

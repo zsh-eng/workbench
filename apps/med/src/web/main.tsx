@@ -11,9 +11,11 @@ import { PierreThemeSync } from "./pierre-theme";
 import { UpdateNotice } from "./components/UpdateNotice";
 import { WorkspaceHost, WorkspaceViews } from "./components/Workspaces";
 import { authorizeBrowser } from "./data/auth";
+import { watchTitleBar } from "./data/title-bar";
 import { rememberWelcome, routeFirstRun, WELCOME_PATH } from "./data/setup";
 import { createPatchParser } from "./workers/client";
 import "./reset.css";
+import "./components/TitleRow.css";
 
 if (import.meta.env.DEV) {
   void import("virtual:stylex:runtime");
@@ -23,6 +25,7 @@ if (import.meta.env.DEV) {
   document.head.append(css);
 }
 
+watchTitleBar();
 await authorizeBrowser().catch(() => {});
 await routeFirstRun();
 initializeTheme();
@@ -83,6 +86,7 @@ if (!root) throw new Error("Application root is missing");
 createRoot(root).render(
   <WorkerPoolContextProvider poolOptions={poolOptions} highlighterOptions={highlighterOptions}>
     <Tooltip.Provider delay={400} closeDelay={80} timeout={500}>
+      <div className="med-titlebar-band" aria-hidden="true" />
       <PierreThemeSync />
       <UpdateNotice />
       <Root />

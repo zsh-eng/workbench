@@ -1,113 +1,179 @@
 import { useAppShellReady } from "@/components/AppShell";
-import { BookCard } from "./BookCard";
+import {
+  APP_HEADER_BUTTON,
+  APP_PAGE_FRAME,
+} from "@/components/app-header-styles";
+import { PlaceHeader, usePlaceSearch } from "@/components/PlaceHeader";
 import { Button } from "@/components/ui/button";
-import { SidebarTrigger } from "@/components/ui/sidebar";
-import { SmoothCaretInput } from "@/components/ui/smooth-caret-input";
-import { useBooksWithStatuses } from "@/hooks/use-books-with-statuses";
-import { useEpubImport } from "./use-epub-import";
-import { useLibraryCoverUrls } from "@/hooks/use-library-cover-urls";
-import { useLocalBookPreparationRepair } from "@/hooks/use-local-book-preparation-repair";
-import { useReaderSettings } from "@/hooks/use-reader-settings";
-import { useSearchStickyState } from "@/hooks/use-search-sticky-state";
-import { useSync } from "@/hooks/use-sync";
-import { useToast } from "@/hooks/use-toast";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   prefetchReaderBook,
   prefetchReaderBooks,
 } from "@/features/reader/data/reader-cache/prefetch";
+import { useBooksWithStatuses } from "@/hooks/use-books-with-statuses";
+import { useLibraryCoverUrls } from "@/hooks/use-library-cover-urls";
+import { useLocalBookPreparationRepair } from "@/hooks/use-local-book-preparation-repair";
+import { useReaderSettings } from "@/hooks/use-reader-settings";
+import { useSync } from "@/hooks/use-sync";
+import { useToast } from "@/hooks/use-toast";
 import type { Book } from "@/lib/db";
-import { compareBooksByDateAddedDesc } from "@/lib/library-sort";
+import { compareBooksByLastReadDesc } from "@/lib/library-sort";
+import { MOTION } from "@/lib/motion";
 import { warmPaginationWorker } from "@/lib/pagination-v2/worker/pagination-worker-service";
-import { useHotkey } from "@tanstack/react-hotkeys";
+import { beginReaderTrace } from "@/lib/reader-performance-trace";
+import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
-import { Library as LibraryIcon, Search, Upload, X } from "lucide-react";
-import { motion, useReducedMotion } from "motion/react";
+import { Plus, SlidersHorizontal } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import {
   useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
-  useRef,
   useState,
+  type DragEvent,
 } from "react";
+import { useNavigate } from "react-router-dom";
+import { BookRow, BookTile, ShelfBook } from "./LibraryBooks";
+import {
+  LIBRARY_FILTERS,
+  LIBRARY_SORTS,
+  matchesFilter,
+  matchesSearch,
+  readingProgress,
+  readViewPreferences,
+  sortBooks,
+  writeViewPreferences,
+  type LibraryFilter,
+  type LibraryLayout,
+  type LibrarySort,
+  type LibraryViewPreferences,
+} from "./library-view";
+import { useEpubImport } from "./use-epub-import";
 
+const FADE = {
+  initial: { opacity: 0 },
+  animate: { opacity: 1, transition: MOTION.enter },
+  exit: { opacity: 0, transition: MOTION.exit },
+};
+
+/**
+ * The Library. The books you are reading come first, on a shelf with their
+ * progress; every other book is in the covers or the list below. Each book
+ * shows once. Search turns the page title into the query and narrows the
+ * page in place: press the button, /, Cmd-F, or start typing.
+ */
 export function Library() {
-  const [isDragging, setIsDragging] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const reducedMotion = useReducedMotion() ?? false;
-  const { anchorRef: searchAnchorRef, isCompact: isSearchCompact } =
-    useSearchStickyState();
-  const { toast } = useToast();
-  const { importFiles, isProcessing, openFilePicker } = useEpubImport();
-  const { settings } = useReaderSettings();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { settings } = useReaderSettings();
+  const { importFiles, isProcessing, openFilePicker } = useEpubImport();
+  const { deleteBook } = useSync();
+  const { data } = useBooksWithStatuses();
 
-  const { data: booksData } = useBooksWithStatuses();
-  const { deleteBook: syncDeleteBook } = useSync();
+  const [filter, setFilter] = useState<LibraryFilter>("all");
+  const [view, setViewState] = useState(readViewPreferences);
+  const placeSearch = usePlaceSearch();
+  const [isDragging, setIsDragging] = useState(false);
+  const { terms } = placeSearch;
+
+  const setView = (next: Partial<LibraryViewPreferences>) =>
+    setViewState((current) => {
+      const updated = { ...current, ...next };
+      writeViewPreferences(updated);
+      return updated;
+    });
+
+  const { found, reading, shown } = useMemo(() => {
+    if (!data) return { found: [], reading: [], shown: [] };
+    const found = terms
+      ? data.books.filter((book) => matchesSearch(book, terms))
+      : data.books;
+    const reading = found
+      .filter((book) => data.statuses.get(book.id) === "reading")
+      .sort(compareBooksByLastReadDesc(data.lastReadByBook));
+    const shown = sortBooks(
+      found.filter((book) =>
+        matchesFilter(data.statuses.get(book.id) ?? null, filter),
+      ),
+      view.sort,
+      data.lastReadByBook,
+    );
+    return { found, reading, shown };
+  }, [data, filter, terms, view.sort]);
+
+  const displayedBooks = useMemo(
+    () => [...reading, ...shown],
+    [reading, shown],
+  );
+  const { coverUrls, initialCoversReady, requestCover } = useLibraryCoverUrls(
+    displayedBooks,
+    { loadRemainingInBackground: true },
+  );
+  useLocalBookPreparationRepair(displayedBooks, initialCoversReady);
+
+  // The first paint is atomic: books, the first covers and fonts together.
+  // The latch does not hide the page again for search, sync or status changes.
+  const booksLoaded = data !== undefined;
+  const [fontsReady, setFontsReady] = useState(
+    () => !("fonts" in document) || document.fonts.status === "loaded",
+  );
+  const [displayReady, setDisplayReady] = useState(false);
+  useEffect(() => {
+    if (fontsReady) return;
+    let cancelled = false;
+    void document.fonts.ready.then(() => {
+      if (!cancelled) setFontsReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fontsReady]);
+  useLayoutEffect(() => {
+    if (booksLoaded && initialCoversReady && fontsReady) setDisplayReady(true);
+  }, [booksLoaded, fontsReady, initialCoversReady]);
+  useAppShellReady(displayReady);
+
+  // Warm the app-lifetime pagination worker after the reveal has painted.
+  // Reader routes then reuse its loaded built-in fonts.
+  useEffect(() => {
+    if (!displayReady) return;
+    let secondFrame: number | null = null;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => warmPaginationWorker());
+    });
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      if (secondFrame !== null) cancelAnimationFrame(secondFrame);
+    };
+  }, [displayReady]);
 
   useEffect(() => {
-    const books = booksData?.categorized.continueReading ?? [];
+    const books = data?.categorized.continueReading ?? [];
     if (books.length === 0) return;
-
     void prefetchReaderBooks(queryClient, books, {
       includeArtifacts: false,
       publisherBookStylingEnabled: settings.publisherBookStylingEnabled,
       matchPublisherBodyTextSize: settings.matchPublisherBodyTextSize,
     });
   }, [
-    booksData?.categorized.continueReading,
+    data?.categorized.continueReading,
     queryClient,
     settings.matchPublisherBodyTextSize,
     settings.publisherBookStylingEnabled,
   ]);
 
-  // Handle drag and drop
-  const handleDragEnter = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    // Only set dragging to false if leaving the drop zone completely
-    if (e.currentTarget === e.target) {
-      setIsDragging(false);
-    }
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
-
-  const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-
-    const files = e.dataTransfer.files;
-    await importFiles(files);
-  };
-
-  // Handle book deletion (uses sync service when authenticated)
-  const handleDeleteBook = async (bookId: string) => {
-    try {
-      await syncDeleteBook(bookId);
-      toast({
-        message: "Removed book from library.",
-      });
-      // Committed database writes refresh the Library query.
-    } catch (error) {
-      console.error("Error deleting book:", error);
-      throw error;
-    }
-  };
-
-  const handlePrefetchBook = useCallback(
+  const handlePrefetch = useCallback(
     (book: Book) => {
       void prefetchReaderBook(queryClient, book, {
         includeArtifacts: true,
@@ -123,289 +189,311 @@ export function Library() {
     ],
   );
 
-  const { continueReadingBooks, allBooks } = useMemo(() => {
-    if (!booksData) {
-      return {
-        continueReadingBooks: [] as Book[],
-        allBooks: [] as Book[],
-      };
-    }
-
-    const normalizedSearch = searchQuery.toLowerCase();
-    const filterBySearch = (book: Book) =>
-      book.title.toLowerCase().includes(normalizedSearch) ||
-      book.author.toLowerCase().includes(normalizedSearch);
-    const continueReading =
-      booksData.categorized.continueReading.filter(filterBySearch);
-    const library = booksData.categorized.library.filter(filterBySearch);
-    const finished = booksData.categorized.finished.filter(filterBySearch);
-
-    return {
-      continueReadingBooks: continueReading,
-      // The source lists are sorted independently. Sort the combined section
-      // again so it remains globally ordered by date added.
-      allBooks: [...library, ...finished].sort(compareBooksByDateAddedDesc),
-    };
-  }, [booksData, searchQuery]);
-  const displayedBooks = useMemo(
-    () => [...continueReadingBooks, ...allBooks],
-    [allBooks, continueReadingBooks],
-  );
-  const { coverUrls, initialCoversReady, requestCover } = useLibraryCoverUrls(
-    displayedBooks,
-    { loadRemainingInBackground: true },
-  );
-  useLocalBookPreparationRepair(displayedBooks, initialCoversReady);
-  const hasAnyBooks = continueReadingBooks.length > 0 || allBooks.length > 0;
-  const booksLoaded = booksData !== undefined;
-  const [fontsReady, setFontsReady] = useState(
-    () =>
-      typeof document === "undefined" ||
-      !("fonts" in document) ||
-      document.fonts.status === "loaded",
-  );
-  const [libraryDisplayReady, setLibraryDisplayReady] = useState(false);
-
-  useEffect(() => {
-    if (fontsReady || !("fonts" in document)) return;
-
-    let cancelled = false;
-    void document.fonts.ready.then(() => {
-      if (!cancelled) setFontsReady(true);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [fontsReady]);
-
-  // This latch makes the first library paint atomic. It does not hide the page
-  // again for later interactions such as search, sync, or status changes.
-  useLayoutEffect(() => {
-    if (booksLoaded && initialCoversReady && fontsReady) {
-      setLibraryDisplayReady(true);
-    }
-  }, [booksLoaded, fontsReady, initialCoversReady]);
-
-  useAppShellReady(libraryDisplayReady);
-
-  // Warm the app-lifetime pagination worker only after the atomic Library
-  // reveal has painted. Reader routes then reuse its loaded built-in fonts.
-  useEffect(() => {
-    if (!libraryDisplayReady) return;
-
-    let secondFrameId: number | null = null;
-    const firstFrameId = window.requestAnimationFrame(() => {
-      secondFrameId = window.requestAnimationFrame(() => {
-        warmPaginationWorker();
-      });
-    });
-
-    return () => {
-      window.cancelAnimationFrame(firstFrameId);
-      if (secondFrameId !== null) {
-        window.cancelAnimationFrame(secondFrameId);
-      }
-    };
-  }, [libraryDisplayReady]);
-
-  useHotkey("/", () => searchInputRef.current?.focus(), {
-    ignoreInputs: true,
-    requireReset: true,
-    stopPropagation: false,
-    meta: {
-      name: "Focus library search",
-      description: "Move focus to the Library search field",
+  const handleRemove = useCallback(
+    async (bookId: string) => {
+      await deleteBook(bookId);
+      toast({ message: "Removed book from library." });
     },
+    [deleteBook, toast],
+  );
+
+  const first = reading[0] ?? shown[0];
+  const openFirstMatch = () => {
+    if (!terms || !first) return;
+    beginReaderTrace({
+      bookId: first.id,
+      bookTitle: first.title,
+      source: "library-search",
+    });
+    navigate(`/reader/${first.id}`);
+  };
+
+  const libraryEmpty = data !== undefined && data.books.length === 0;
+  const nothingFound = terms !== "" && found.length === 0;
+  const showShelf = reading.length > 0;
+  const showRest =
+    !libraryEmpty &&
+    !nothingFound &&
+    (!terms || shown.length > 0 || filter !== "all");
+
+  const handleDragEnter = (event: DragEvent) => {
+    event.preventDefault();
+    setIsDragging(true);
+  };
+  const handleDragLeave = (event: DragEvent) => {
+    event.preventDefault();
+    if (event.currentTarget === event.target) setIsDragging(false);
+  };
+  const handleDrop = async (event: DragEvent) => {
+    event.preventDefault();
+    setIsDragging(false);
+    await importFiles(event.dataTransfer.files);
+  };
+
+  const addBooks = (compact: boolean) =>
+    compact ? (
+      <button
+        type="button"
+        aria-label="Add books"
+        title="Add books"
+        disabled={isProcessing}
+        onClick={openFilePicker}
+        className={APP_HEADER_BUTTON}
+      >
+        <Plus className="size-[18px]" strokeWidth={1.7} />
+      </button>
+    ) : (
+      <button
+        type="button"
+        title="Add EPUB files, or drop them anywhere on this page"
+        disabled={isProcessing}
+        onClick={openFilePicker}
+        className="flex h-9 items-center gap-1.5 rounded-full px-3 text-[13px] text-muted-foreground outline-none transition-colors duration-150 hover:bg-foreground/[0.05] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40"
+      >
+        <Plus className="size-3.5" strokeWidth={1.8} />
+        Add books
+      </button>
+    );
+
+  const viewMenu = (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        aria-label="Sort and layout"
+        title="Sort and layout"
+        className={APP_HEADER_BUTTON}
+      >
+        <SlidersHorizontal className="size-4" strokeWidth={1.6} />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-48">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="pt-2 pb-1 text-xs font-normal text-muted-foreground">
+            Sort by
+          </DropdownMenuLabel>
+          <DropdownMenuRadioGroup
+            value={view.sort}
+            onValueChange={(value) => setView({ sort: value as LibrarySort })}
+          >
+            {LIBRARY_SORTS.map((option) => (
+              <DropdownMenuRadioItem key={option.value} value={option.value}>
+                {option.label}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="pt-2 pb-1 text-xs font-normal text-muted-foreground">
+            Show as
+          </DropdownMenuLabel>
+          <DropdownMenuRadioGroup
+            value={view.layout}
+            onValueChange={(value) =>
+              setView({ layout: value as LibraryLayout })
+            }
+          >
+            <DropdownMenuRadioItem value="covers">Covers</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="list">List</DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
+  const bookProps = (book: Book) => ({
+    book,
+    status: data?.statuses.get(book.id) ?? null,
+    coverUrl: coverUrls.get(book.id),
+    onCoverRequest: requestCover,
+    onPrefetch: handlePrefetch,
+    onRemove: handleRemove,
   });
 
   return (
     <div
-      className={`min-h-full bg-background ${libraryDisplayReady ? "" : "invisible"}`}
-      aria-busy={!libraryDisplayReady}
-      aria-hidden={!libraryDisplayReady}
+      className={cn("min-h-full bg-background", !displayReady && "invisible")}
+      aria-busy={!displayReady}
+      aria-hidden={!displayReady}
       onDragEnter={handleDragEnter}
-      onDragOver={handleDragOver}
+      onDragOver={(event) => event.preventDefault()}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Drag Overlay */}
-      {isDragging && (
-        <div className="fixed inset-0 z-50 bg-primary/10 backdrop-blur-sm border-4 border-primary border-dashed m-4 rounded-xl flex items-center justify-center pointer-events-none">
-          <div className="text-center bg-background/80 p-8 rounded-2xl shadow-xl backdrop-blur-md">
-            <Upload className="h-16 w-16 text-primary mx-auto mb-4" />
-            <h3 className="text-balance text-2xl font-bold text-primary mb-2">
-              Drop EPUB to add
-            </h3>
-            <p className="text-muted-foreground">
-              Release to add to your library
-            </p>
+      <h1 className="sr-only">Library</h1>
+      <PlaceHeader
+        current="library"
+        search={placeSearch}
+        label="Search library"
+        placeholder="Title or author"
+        count={`${found.length} of ${data?.books.length ?? 0}`}
+        onSubmit={openFirstMatch}
+        actions={
+          <div className="flex items-center gap-0.5 max-md:hidden">
+            {addBooks(false)}
+            {viewMenu}
           </div>
-        </div>
-      )}
+        }
+      />
 
-      {/* Main Content */}
-      <div className="px-4 pt-16 pb-6 md:px-8 md:pt-20 md:pb-10">
-        <div
-          ref={searchAnchorRef}
-          className="h-px shrink-0"
-          aria-hidden="true"
-        />
-        <div className="sticky top-0 z-30 isolate mb-10 pt-3 md:mb-16">
-          <motion.div
-            className="mx-auto flex w-full max-w-3xl origin-top items-center gap-3"
-            initial={false}
-            animate={{
-              transform:
-                isSearchCompact && !reducedMotion
-                  ? "translate3d(0, 0, 0) scale(0.94)"
-                  : "translate3d(0, 0, 0) scale(1)",
-            }}
-            transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
-          >
-            <div className="relative min-w-0 flex-1">
-              <Search
-                className="pointer-events-none absolute top-1/2 left-3.5 z-30 size-4 -translate-y-1/2 text-muted-foreground"
-                aria-hidden="true"
-              />
-              <SmoothCaretInput
-                ref={searchInputRef}
-                id="library-search"
-                type="search"
-                aria-label="Search library"
-                placeholder="Search my library…"
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.currentTarget.value)}
-                className="h-14 w-full appearance-none rounded-full border border-input bg-background/75 pr-12 pl-10 text-base text-foreground shadow-md backdrop-blur-xl transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 [@media(prefers-reduced-transparency:reduce)]:bg-background [@media(prefers-reduced-transparency:reduce)]:backdrop-blur-none dark:bg-background/80 [&::-webkit-search-cancel-button]:hidden"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery("")}
-                  aria-label="Clear library search"
-                  title="Clear search"
-                  className="absolute top-1/2 right-3 z-30 grid size-8 -translate-y-1/2 place-items-center rounded-full text-muted-foreground outline-none transition-[color,transform,scale] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.94]"
-                >
-                  <X className="size-4" aria-hidden="true" />
-                </button>
-              )}
+      <div className={cn(APP_PAGE_FRAME, "pb-24")}>
+        {libraryEmpty && (
+          <div className="py-24 text-center md:py-32">
+            <p className="font-serif text-[26px] leading-tight md:text-[34px]">
+              Your library is empty
+            </p>
+            <p className="mx-auto mt-3 max-w-sm text-[14px] text-muted-foreground">
+              Drop EPUB files anywhere on this page, or add them from your
+              files.
+            </p>
+            <Button
+              className="mt-6"
+              onClick={openFilePicker}
+              disabled={isProcessing}
+            >
+              <Plus className="size-4" />
+              Choose EPUB files
+            </Button>
+          </div>
+        )}
+
+        {nothingFound && (
+          <div className="py-20 text-center">
+            <p className="text-[14px] text-muted-foreground">
+              No books match “{terms}”.
+            </p>
+            <Button
+              variant="ghost"
+              className="mt-3"
+              onClick={() => {
+                placeSearch.setSearch("");
+                placeSearch.openSearch();
+              }}
+            >
+              Clear search
+            </Button>
+          </div>
+        )}
+
+        {showShelf && (
+          <section aria-label="Reading" className="mt-5 md:mt-8">
+            <h2 className="text-[12px] text-muted-foreground">
+              Reading
+              <span className="ml-1.5 font-numeric text-muted-foreground/60 tabular-nums">
+                {reading.length}
+              </span>
+            </h2>
+            <div className="-mx-4 mt-4 flex gap-6 overflow-x-auto px-4 pb-2 [scrollbar-width:none] md:mx-0 md:gap-12 md:px-0">
+              {reading.map((book) => (
+                <ShelfBook
+                  key={book.id}
+                  {...bookProps(book)}
+                  progress={readingProgress(
+                    book,
+                    "reading",
+                    data?.latestCheckpoints.get(book.id),
+                  )}
+                />
+              ))}
             </div>
-            <SidebarTrigger
-              aria-label="Open navigation"
-              title="Open navigation"
-              className="size-14 rounded-full border border-border/60 bg-background/75 text-muted-foreground shadow-md backdrop-blur-xl hover:bg-background/95 hover:text-foreground [@media(prefers-reduced-transparency:reduce)]:bg-background [@media(prefers-reduced-transparency:reduce)]:backdrop-blur-none md:hidden"
-            />
-          </motion.div>
-        </div>
+          </section>
+        )}
 
-        {/* Books Content */}
-        {hasAnyBooks ? (
-          libraryDisplayReady ? (
-            <div className="space-y-8">
-              {/* Continue reading Section */}
-              {continueReadingBooks.length > 0 && (
-                <section>
-                  <h2 className="text-balance text-xs font-medium uppercase tracking-wider text-muted-foreground mb-6 px-1">
-                    Continue reading
-                  </h2>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-6 md:gap-8">
-                    {continueReadingBooks.map((book) => (
-                      <BookCard
-                        key={book.id}
-                        book={book}
-                        status={booksData?.statuses.get(book.id) ?? null}
-                        coverUrl={coverUrls.get(book.id)}
-                        onDelete={handleDeleteBook}
-                        onCoverRequest={requestCover}
-                        onPrefetch={handlePrefetchBook}
-                      />
-                    ))}
-                  </div>
-                </section>
+        {showRest && (
+          <>
+            <h2 className="sr-only">Books</h2>
+            <div
+              className={cn(
+                "flex items-center justify-between gap-3",
+                showShelf ? "mt-9 md:mt-14" : "mt-5 md:mt-8",
               )}
-
-              {/* Section Divider - only show if both sections have content */}
-              {continueReadingBooks.length > 0 && allBooks.length > 0 && (
-                <div className="section-divider">
-                  <span className="section-divider-flair">§</span>
-                </div>
-              )}
-
-              {/* All books Section */}
-              {allBooks.length > 0 && (
-                <section>
-                  <h2 className="text-balance text-xs font-medium uppercase tracking-wider text-muted-foreground mb-6 px-1">
-                    All books
-                  </h2>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-6 md:gap-8">
-                    {allBooks.map((book) => (
-                      <BookCard
-                        key={book.id}
-                        book={book}
-                        status={booksData?.statuses.get(book.id) ?? null}
-                        coverUrl={coverUrls.get(book.id)}
-                        onDelete={handleDeleteBook}
-                        onCoverRequest={requestCover}
-                        onPrefetch={handlePrefetchBook}
-                      />
-                    ))}
-                  </div>
-                </section>
-              )}
-            </div>
-          ) : null
-        ) : booksLoaded ? (
-          <div className="flex flex-col items-center justify-center py-16 sm:py-20 md:py-24 lg:py-32 xl:py-40 2xl:py-48 text-center">
-            {/* Static book-stack illustration */}
-            <div className="relative mb-6 sm:mb-8 md:mb-10 lg:mb-12 xl:mb-14 2xl:mb-16">
-              {/* Background glow */}
-              <div className="absolute inset-0 bg-primary/5 blur-3xl rounded-full scale-150" />
-
-              {/* Floating book stack */}
-              <div className="relative">
-                {/* Back book */}
-                <div className="absolute -left-2 sm:-left-3 md:-left-4 lg:-left-5 xl:-left-6 2xl:-left-8 -top-1.5 sm:-top-2 md:-top-3 lg:-top-4 xl:-top-5 2xl:-top-6 w-12 h-18 sm:w-16 sm:h-24 md:w-20 md:h-30 lg:w-24 lg:h-36 xl:w-28 xl:h-42 2xl:w-36 2xl:h-54 rounded-r-md rounded-l-sm bg-gradient-to-br from-muted to-muted-foreground/20 shadow-lg transform -rotate-12">
-                  <div className="absolute left-0 top-0 bottom-0 w-0.5 sm:w-1 md:w-1.5 bg-gradient-to-r from-black/10 to-transparent" />
-                </div>
-
-                {/* Middle book */}
-                <div className="absolute left-1.5 sm:left-2 md:left-3 lg:left-4 xl:left-5 2xl:left-6 top-0.5 sm:top-1 md:top-1.5 lg:top-2 xl:top-3 2xl:top-4 w-12 h-18 sm:w-16 sm:h-24 md:w-20 md:h-30 lg:w-24 lg:h-36 xl:w-28 xl:h-42 2xl:w-36 2xl:h-54 rounded-r-md rounded-l-sm bg-gradient-to-br from-secondary to-secondary-foreground/10 shadow-lg transform rotate-6">
-                  <div className="absolute left-0 top-0 bottom-0 w-0.5 sm:w-1 md:w-1.5 bg-gradient-to-r from-black/10 to-transparent" />
-                </div>
-
-                {/* Front book with icon */}
-                <div className="relative w-16 h-22 sm:w-20 sm:h-28 md:w-24 md:h-36 lg:w-32 lg:h-44 xl:w-36 xl:h-52 2xl:w-48 2xl:h-68 rounded-r-md rounded-l-sm bg-gradient-to-br from-primary/10 to-primary/5 shadow-xl ring-1 ring-primary/10 flex items-center justify-center">
-                  <div className="absolute left-0 top-0 bottom-0 w-0.5 sm:w-1 md:w-1.5 bg-gradient-to-r from-black/15 to-transparent rounded-l-sm" />
-                  <LibraryIcon className="h-6 w-6 sm:h-8 sm:w-8 md:h-10 md:w-10 lg:h-12 lg:w-12 xl:h-14 xl:w-14 2xl:h-18 2xl:w-18 text-muted-foreground/40" />
-                </div>
+            >
+              <div
+                role="group"
+                aria-label="Show"
+                className="flex min-w-0 items-center gap-3 overflow-x-auto [scrollbar-width:none] max-md:[mask-image:linear-gradient(to_right,black_calc(100%-20px),transparent)] md:gap-4"
+              >
+                {LIBRARY_FILTERS.map((option) => {
+                  const active = option.value === filter;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => setFilter(option.value)}
+                      className={cn(
+                        "shrink-0 rounded-sm py-2 text-[13px] whitespace-nowrap outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring",
+                        active
+                          ? "font-medium text-foreground"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <span className="shrink-0 font-numeric text-[12px] text-muted-foreground tabular-nums max-md:hidden">
+                {shown.length} {shown.length === 1 ? "book" : "books"}
+              </span>
+              <div className="flex shrink-0 items-center md:hidden">
+                {addBooks(true)}
+                {viewMenu}
               </div>
             </div>
 
-            <h3 className="text-balance font-serif italic text-xl sm:text-2xl md:text-3xl lg:text-4xl xl:text-5xl 2xl:text-6xl text-foreground mb-2 md:mb-3 lg:mb-4">
-              {searchQuery
-                ? "Nothing on these shelves"
-                : "Your library is empty"}
-            </h3>
-            <p className="text-sm sm:text-base md:text-lg lg:text-xl xl:text-2xl 2xl:text-3xl text-muted-foreground max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg xl:max-w-xl 2xl:max-w-2xl mx-auto mb-6 sm:mb-8 md:mb-10 lg:mb-12">
-              {searchQuery
-                ? `No results for “${searchQuery}”`
-                : "Drag and drop an EPUB file here, or click the button below to add your first book."}
-            </p>
-            {searchQuery ? (
-              <Button variant="outline" onClick={() => { setSearchQuery(""); searchInputRef.current?.focus(); }}>Clear search</Button>
-            ) : (
-              <Button
-                onClick={openFilePicker}
-                disabled={isProcessing}
-                className="gap-2 text-sm sm:text-base md:text-lg lg:text-xl xl:text-2xl h-9 sm:h-10 md:h-12 lg:h-14 xl:h-16 px-4 sm:px-5 md:px-6 lg:px-8 xl:px-10"
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={`${filter}-${view.sort}-${view.layout}`}
+                className="mt-6"
+                {...FADE}
               >
-                <Upload className="h-4 w-4 sm:h-5 sm:w-5 md:h-6 md:w-6 lg:h-7 lg:w-7 xl:h-8 xl:w-8" />
-                Import EPUB
-              </Button>
-            )}
-          </div>
-        ) : null}
+                {shown.length === 0 ? (
+                  <p className="py-20 text-center text-[14px] text-muted-foreground">
+                    {terms
+                      ? "No books here match."
+                      : "No books here. Change a book’s status from its menu to file it here."}
+                  </p>
+                ) : view.layout === "covers" ? (
+                  <ul className="grid grid-cols-2 gap-x-5 gap-y-10 sm:grid-cols-3 md:grid-cols-[repeat(auto-fill,minmax(128px,1fr))] md:gap-x-8">
+                    {shown.map((book) => (
+                      <BookTile key={book.id} {...bookProps(book)} />
+                    ))}
+                  </ul>
+                ) : (
+                  <ul>
+                    {shown.map((book) => (
+                      <BookRow
+                        key={book.id}
+                        {...bookProps(book)}
+                        lastRead={data?.lastReadByBook.get(book.id)}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </motion.div>
+            </AnimatePresence>
+          </>
+        )}
       </div>
+
+      <AnimatePresence>
+        {isDragging && (
+          <motion.div
+            key="drop"
+            className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-background/85 backdrop-blur-sm"
+            {...FADE}
+          >
+            <div className="absolute inset-4 rounded-2xl border border-dashed border-foreground/20" />
+            <div className="text-center">
+              <p className="font-serif text-[30px] leading-tight">
+                Drop to add to your library
+              </p>
+              <p className="mt-2 text-[14px] text-muted-foreground">
+                EPUB files only
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

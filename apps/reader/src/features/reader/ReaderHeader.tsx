@@ -3,6 +3,7 @@ import { ChevronLeft, MoreHorizontal, PanelRight } from "lucide-react";
 import type { ReactNode, Ref } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import type { ReaderChromeSurfaceProps } from "./chrome";
+import type { ReaderSheetId } from "./types";
 import { MOTION } from "@/lib/motion";
 import { ReaderDesktopHeader } from "./ReaderDesktopHeader";
 
@@ -22,6 +23,23 @@ export interface ReaderHeaderProps {
   onOpenMenu: () => void;
   /** The desktop tools trigger, where closing the tools sidebar returns focus. */
   toolsTriggerRef?: Ref<HTMLButtonElement>;
+  /**
+   * An idea, behind Debug mode: "split" gives Appearance (Aa) and Contents
+   * their own controls and shows the chapter beside the title.
+   */
+  variant?: "current" | "split";
+  chapterTitle?: string;
+  activeSheet?: ReaderSheetId | null;
+  onToggleSheet?: (sheet: ReaderSheetId) => void;
+}
+
+/** "Aa": the reading appearance, set in the book's serif. */
+export function AppearanceGlyph() {
+  return (
+    <span aria-hidden="true" className="font-serif text-[15px] leading-none">
+      Aa
+    </span>
+  );
 }
 
 export function ReaderHeader({
@@ -34,6 +52,10 @@ export function ReaderHeader({
   isMenuOpen,
   onOpenMenu,
   toolsTriggerRef,
+  variant = "current",
+  chapterTitle,
+  activeSheet = null,
+  onToggleSheet,
 }: ReaderHeaderProps) {
   if (!isMobile) {
     return (
@@ -42,12 +64,18 @@ export function ReaderHeader({
         accessory={accessory}
         chromeSurfaceProps={chromeSurfaceProps}
         bookTitle={bookTitle}
+        onBackToLibrary={onBackToLibrary}
         isMenuOpen={isMenuOpen}
         onOpenMenu={onOpenMenu}
         toolsTriggerRef={toolsTriggerRef}
+        variant={variant}
+        chapterTitle={chapterTitle}
+        activeSheet={activeSheet}
+        onToggleSheet={onToggleSheet}
       />
     );
   }
+  const split = variant === "split";
 
   return (
     <>
@@ -86,13 +114,24 @@ export function ReaderHeader({
 
           {/* Zone 2 — Center: Book title, under the prompt while one shows */}
           <p
-            className={`max-w-[min(64vw,36rem)] truncate px-4 text-center text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground transition-opacity duration-150 ${accessory ? "opacity-0" : ""}`}
+            className={`max-w-[min(64vw,36rem)] truncate px-4 text-center text-muted-foreground transition-opacity duration-150 ${split ? "text-[13px]" : "text-[11px] font-medium uppercase tracking-[0.18em]"} ${accessory ? "opacity-0" : ""}`}
           >
             {bookTitle}
           </p>
 
           {/* Zone 3 — Right: mobile launcher or desktop sidebar trigger. */}
-          <div className="flex items-center justify-end">
+          <div className="flex items-center justify-end gap-2.5">
+            {split && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => onToggleSheet?.("settings")}
+                aria-label="Reading appearance"
+                className={CHROME_BUTTON_CLASS_NAME}
+              >
+                <AppearanceGlyph />
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="icon-sm"

@@ -1,4 +1,9 @@
-import { test, expect, openLocalBook } from "./helpers/fixtures";
+import {
+  test,
+  expect,
+  openAccountMenu,
+  openLocalBook,
+} from "./helpers/fixtures";
 
 for (const mobile of [false, true]) {
   test.describe(
@@ -32,19 +37,15 @@ for (const mobile of [false, true]) {
         });
 
         await page.goto("/");
-        await page
-          .getByRole("button", {
-            name: mobile ? "Open navigation" : "Toggle sidebar",
-            exact: true,
-          })
-          .click();
+        let menu = await openAccountMenu(page);
         await expect(
-          page.getByRole("link", { name: /Performance$/ }),
+          menu.getByRole("menuitem", { name: "Debug tools" }),
         ).toHaveCount(0);
-        await page.getByRole("link", { name: /Settings$/ }).click();
+        await menu.getByRole("menuitem", { name: "Settings" }).click();
         await expect(toggle).not.toBeChecked();
 
         for (const path of [
+          "/debug",
           "/reader-traces",
           `/debug/reader/${localBook.id}`,
           "/diagnostics/reader",
@@ -75,13 +76,9 @@ for (const mobile of [false, true]) {
         await page.reload();
         await expect(toggle).toBeChecked();
         await page.goto("/");
-        await page
-          .getByRole("button", {
-            name: mobile ? "Open navigation" : "Toggle sidebar",
-            exact: true,
-          })
-          .click();
-        await page.getByRole("link", { name: /Performance$/ }).click();
+        menu = await openAccountMenu(page);
+        await menu.getByRole("menuitem", { name: "Debug tools" }).click();
+        await page.getByRole("link", { name: /^Performance/ }).click();
         await expect(
           page.getByRole("switch", { name: "Record reader traces" }),
         ).toBeVisible();

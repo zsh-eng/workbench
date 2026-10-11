@@ -1,4 +1,4 @@
-import { MobileBackToLibrary } from "@/components/ui/mobile-back-to-library";
+import { BackToLibrary } from "@/components/ui/back-to-library";
 import { cn } from "@/lib/utils";
 import {
   AnimatePresence,
@@ -25,28 +25,42 @@ import { EASE_OUT, Kbd, SOFT_SPRING } from "./primitives";
 import "./studio.css";
 
 const SystemPrototype = lazy(() =>
-  import("./system/SystemPrototype").then((module) => ({ default: module.SystemPrototype })),
+  import("./system/SystemPrototype").then((module) => ({
+    default: module.SystemPrototype,
+  })),
 );
 const Threads = lazy(() =>
   import("./edge/Threads").then((module) => ({ default: module.Threads })),
 );
 const FolioReader = lazy(() =>
-  import("./reader/FolioReader").then((module) => ({ default: module.FolioReader })),
+  import("./reader/FolioReader").then((module) => ({
+    default: module.FolioReader,
+  })),
 );
 const LumenReader = lazy(() =>
-  import("./reader/LumenReader").then((module) => ({ default: module.LumenReader })),
+  import("./reader/LumenReader").then((module) => ({
+    default: module.LumenReader,
+  })),
 );
 const Commonplace = lazy(() =>
-  import("./highlights/Commonplace").then((module) => ({ default: module.Commonplace })),
+  import("./highlights/Commonplace").then((module) => ({
+    default: module.Commonplace,
+  })),
 );
 const HighlightDeck = lazy(() =>
-  import("./highlights/HighlightDeck").then((module) => ({ default: module.HighlightDeck })),
+  import("./highlights/HighlightDeck").then((module) => ({
+    default: module.HighlightDeck,
+  })),
 );
 const Concordance = lazy(() =>
-  import("./highlights/Concordance").then((module) => ({ default: module.Concordance })),
+  import("./highlights/Concordance").then((module) => ({
+    default: module.Concordance,
+  })),
 );
 const ReadingClock = lazy(() =>
-  import("./sessions/ReadingClock").then((module) => ({ default: module.ReadingClock })),
+  import("./sessions/ReadingClock").then((module) => ({
+    default: module.ReadingClock,
+  })),
 );
 
 type ChapterId = "system" | "edge" | "page" | "commonplace" | "habit";
@@ -113,12 +127,20 @@ const PLATES: PlateDefinition[] = [
     thesis:
       "A desk holds the sidebar and the panels; each screen is a sheet on the desk. Opening a panel narrows the sheet, so the page moves aside instead of disappearing under it. The book speaks in serif and the app in sans. One panel with three labelled tabs, one search field and one row style replaces five icon tabs.",
     tries: [
-      <>Continue Walden from the library, then press <Kbd>T</Kbd>, <Kbd>N</Kbd> or <Kbd>A</Kbd></>,
+      <>
+        Continue Walden from the library, then press <Kbd>T</Kbd>, <Kbd>N</Kbd>{" "}
+        or <Kbd>A</Kbd>
+      </>,
       <>Select words on the page to highlight them or add a note</>,
       <>
-        <Kbd>⌘</Kbd> <Kbd>K</Kbd> to search books and passages; <Kbd>[</Kbd> for the sidebar
+        <Kbd>⌘</Kbd> <Kbd>K</Kbd> to search books and passages; <Kbd>[</Kbd> for
+        the sidebar
       </>,
-      <a key="full-screen" href="/debug/experiments/system" className="underline decoration-foreground/30 underline-offset-4 hover:text-foreground">
+      <a
+        key="full-screen"
+        href="/debug/experiments/system"
+        className="underline decoration-foreground/30 underline-offset-4 hover:text-foreground"
+      >
         Open full screen
       </a>,
     ],
@@ -136,7 +158,9 @@ const PLATES: PlateDefinition[] = [
     tries: [
       <>Scroll quickly, then stop</>,
       <>Point at a note, or at a marked passage</>,
-      <>Select a few words, then press <Kbd>1</Kbd>–<Kbd>4</Kbd></>,
+      <>
+        Select a few words, then press <Kbd>1</Kbd>–<Kbd>4</Kbd>
+      </>,
     ],
     stageClassName: "h-[min(86svh,820px)] min-h-[620px]",
     render: () => <Threads />,
@@ -168,7 +192,9 @@ const PLATES: PlateDefinition[] = [
     thesis:
       "Light follows the line you are reading. Paragraphs you have read get dim, and paragraphs ahead wait in half-light. Turn on the pacer to scroll at your reading speed while you hold still.",
     tries: [
-      <>Scroll, or press <Kbd>Space</Kbd> to advance a line</>,
+      <>
+        Scroll, or press <Kbd>Space</Kbd> to advance a line
+      </>,
       <>Switch between paragraph and line focus</>,
       <>Start the pacer and adjust the speed</>,
     ],
@@ -246,7 +272,9 @@ function plateNumber(number: number): string {
 }
 
 function plateRange(chapter: ChapterId): string {
-  const indexes = PLATES.flatMap((plate) => (plate.chapter === chapter ? [plate.number] : []));
+  const indexes = PLATES.flatMap((plate) =>
+    plate.chapter === chapter ? [plate.number] : [],
+  );
   if (indexes.length === 0) return "";
   const first = plateNumber(indexes[0]);
   const last = plateNumber(indexes[indexes.length - 1]);
@@ -273,45 +301,47 @@ function SourceSwitch({
 
   return (
     <LayoutGroup id={groupId}>
-    <div className="flex flex-col items-start gap-1.5 md:items-end">
-      <div
-        role="radiogroup"
-        aria-label="Data shown in the prototypes"
-        className="relative isolate flex rounded-full border bg-background p-0.5 text-xs font-medium"
-      >
-        {options.map((option) => {
-          const active = option.value === source;
-          return (
-            <button
-              key={option.value}
-              type="button"
-              role="radio"
-              aria-checked={active}
-              disabled={option.disabled}
-              onClick={() => onChange(option.value)}
-              className={cn(
-                "relative cursor-pointer rounded-full px-3.5 py-1.5 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40",
-                active ? "text-background" : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {active && (
-                <motion.span
-                  layoutId="xp-source-pill"
-                  transition={SOFT_SPRING}
-                  className="absolute inset-0 -z-10 rounded-full bg-foreground"
-                />
-              )}
-              {option.label}
-            </button>
-          );
-        })}
+      <div className="flex flex-col items-start gap-1.5 md:items-end">
+        <div
+          role="radiogroup"
+          aria-label="Data shown in the prototypes"
+          className="relative isolate flex rounded-full border bg-background p-0.5 text-xs font-medium"
+        >
+          {options.map((option) => {
+            const active = option.value === source;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                disabled={option.disabled}
+                onClick={() => onChange(option.value)}
+                className={cn(
+                  "relative cursor-pointer rounded-full px-3.5 py-1.5 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40",
+                  active
+                    ? "text-background"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {active && (
+                  <motion.span
+                    layoutId="xp-source-pill"
+                    transition={SOFT_SPRING}
+                    className="absolute inset-0 -z-10 rounded-full bg-foreground"
+                  />
+                )}
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          {canUseLibrary
+            ? `${counts.books.toLocaleString()} books · ${counts.highlights.toLocaleString()} highlights · ${counts.sessions.toLocaleString()} sessions on this device`
+            : "Public-domain books. Your library appears once you read and highlight."}
+        </p>
       </div>
-      <p className="text-[11px] text-muted-foreground">
-        {canUseLibrary
-          ? `${counts.books.toLocaleString()} books · ${counts.highlights.toLocaleString()} highlights · ${counts.sessions.toLocaleString()} sessions on this device`
-          : "Public-domain books. Your library appears once you read and highlight."}
-      </p>
-    </div>
     </LayoutGroup>
   );
 }
@@ -351,7 +381,7 @@ function Masthead({
     <header className="relative px-4 pt-6 pb-14 md:px-10 md:pt-12 md:pb-20">
       <div className="mb-10 flex items-center justify-between gap-4 md:mb-16">
         <div className="flex items-center gap-3">
-          <MobileBackToLibrary />
+          <BackToLibrary className="md:mb-0" />
           <p className="xp-smcp text-xs text-muted-foreground">
             Reader · Experiments · {PLATES.length} plates
           </p>
@@ -366,9 +396,15 @@ function Masthead({
             key={line.id}
             type="button"
             onClick={() => onChapter(line.id)}
-            initial={reducedMotion ? false : { opacity: 0, y: 28, filter: "blur(8px)" }}
+            initial={
+              reducedMotion ? false : { opacity: 0, y: 28, filter: "blur(8px)" }
+            }
             animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-            transition={{ duration: 0.9, delay: 0.08 + index * 0.09, ease: EASE_OUT }}
+            transition={{
+              duration: 0.9,
+              delay: 0.08 + index * 0.09,
+              ease: EASE_OUT,
+            }}
             className="group flex w-full cursor-pointer items-baseline gap-4 text-left text-[clamp(2.6rem,8.6vw,7.75rem)] leading-[0.94] font-normal tracking-[-0.035em] outline-none focus-visible:underline"
           >
             <span className="transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:translate-x-[0.12em]">
@@ -390,8 +426,7 @@ function Masthead({
         <p className="xp-serif text-xl leading-snug text-balance text-foreground/85 md:text-2xl">
           Working prototypes for the places a reader spends time. The newest
           comes first: the library, the sidebar and the reader’s panels as one
-          calm system. Earlier, bolder rounds follow. Each plate is
-          interactive.
+          calm system. Earlier, bolder rounds follow. Each plate is interactive.
         </p>
         <div className="md:hidden">{sourceSwitch}</div>
       </motion.div>
@@ -423,17 +458,24 @@ function PlateRail({ activeId }: { activeId: string | null }) {
                 return (
                   <Fragment key={plate.id}>
                     {chapterStart && (
-                      <li aria-hidden="true" className="mx-1 h-3 w-px bg-border" />
+                      <li
+                        aria-hidden="true"
+                        className="mx-1 h-3 w-px bg-border"
+                      />
                     )}
                     <li>
                       <button
                         type="button"
-                        onClick={() => scrollToId(`plate-${plate.id}`, reducedMotion)}
+                        onClick={() =>
+                          scrollToId(`plate-${plate.id}`, reducedMotion)
+                        }
                         aria-label={`${plateNumber(plate.number)} ${plate.name}`}
                         aria-current={active ? "true" : undefined}
                         className={cn(
                           "relative flex h-7 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-[11px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                          active ? "text-background" : "text-muted-foreground hover:text-foreground",
+                          active
+                            ? "text-background"
+                            : "text-muted-foreground hover:text-foreground",
                         )}
                       >
                         {active && (
@@ -443,7 +485,9 @@ function PlateRail({ activeId }: { activeId: string | null }) {
                             className="absolute inset-0 -z-10 rounded-full bg-foreground"
                           />
                         )}
-                        <span className="xp-lnum">{plateNumber(plate.number)}</span>
+                        <span className="xp-lnum">
+                          {plateNumber(plate.number)}
+                        </span>
                         <AnimatePresence initial={false}>
                           {active && (
                             <motion.span
@@ -547,7 +591,9 @@ const Plate = memo(function Plate({
             {plateNumber(plate.number)}
           </span>
           <div>
-            <p className="xp-smcp text-xs text-muted-foreground">Plate {plateNumber(plate.number)}</p>
+            <p className="xp-smcp text-xs text-muted-foreground">
+              Plate {plateNumber(plate.number)}
+            </p>
             <h3
               id={`plate-${plate.id}-title`}
               className="xp-serif text-4xl leading-none tracking-[-0.02em] md:text-5xl"
@@ -560,7 +606,9 @@ const Plate = memo(function Plate({
           </div>
         </div>
         <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto]">
-          <p className="max-w-xl text-sm leading-6 text-foreground/80">{plate.thesis}</p>
+          <p className="max-w-xl text-sm leading-6 text-foreground/80">
+            {plate.thesis}
+          </p>
           <ul className="space-y-1.5 text-xs text-muted-foreground sm:max-w-56">
             {plate.tries.map((item, tryIndex) => (
               <li key={tryIndex} className="flex items-baseline gap-2">
@@ -597,7 +645,10 @@ const Plate = memo(function Plate({
 
 function PlatePlaceholder() {
   return (
-    <div role="status" className="grid size-full min-h-[inherit] place-items-center text-xs text-muted-foreground">
+    <div
+      role="status"
+      className="grid size-full min-h-[inherit] place-items-center text-xs text-muted-foreground"
+    >
       Preparing plate…
     </div>
   );
@@ -655,7 +706,8 @@ export function Experiments() {
       <footer className="border-t px-4 py-12 text-center md:px-10">
         <p className="xp-serif text-2xl italic text-muted-foreground">Finis.</p>
         <p className="mt-2 text-xs text-muted-foreground">
-          These prototypes do not save changes. Sample texts are in the public domain.
+          These prototypes do not save changes. Sample texts are in the public
+          domain.
         </p>
       </footer>
     </div>

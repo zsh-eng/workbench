@@ -14,7 +14,7 @@ import {
   closeSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
-import { Store, objectPath } from "./store";
+import { Store, objectPath, FILE_NAMESPACES } from "./store";
 const durable = (path: string) => {
   const fd = openSync(path, "r");
   try {
@@ -70,6 +70,12 @@ export function completeness(store: Store) {
     )
     .all()
     .map((r) => r.namespace);
+  // A namespace stays required once its scope is bound, so a failed run shows.
+  const required = new Set(["reader", "spaced"]);
+  for (const r of store.db
+    .query<{ namespace: string }, []>("SELECT namespace FROM scopes")
+    .all())
+    required.add(r.namespace);
   const fileCoverage = store.db
     .query<{ namespace: string }, []>("SELECT namespace FROM file_scans")
     .all()
@@ -83,9 +89,8 @@ export function completeness(store: Store) {
     referenceScan:
       "xxh64 IDs only; external URLs and unsynced device data are not captured",
     complete:
-      ["reader", "spaced"].every(
-        (n) => coverage.includes(n) && fileCoverage.includes(n),
-      ) &&
+      [...required].every((n) => coverage.includes(n)) &&
+      FILE_NAMESPACES.every((n) => fileCoverage.includes(n)) &&
       !missing.length &&
       !unsupportedKeys,
   };

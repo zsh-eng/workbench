@@ -10,6 +10,7 @@ import type { AdapterTheme } from "../highlighting/adapter";
 import { createHighlighter } from "../highlighting/runtime";
 import { supportedLanguage } from "../highlighting/languages";
 import type { MarkdownBlock, MarkdownHeading } from "./model";
+import { siteIcon } from "./site-icons";
 const parser = unified().use(remarkParse).use(remarkGfm).use(remarkMath).use(remarkRehype);
 const stringify = unified().use(rehypeStringify);
 const highlighter = await createHighlighter();
@@ -23,13 +24,6 @@ const firstSourceLine = (node: RootContent): number | undefined => {
       const line = firstSourceLine(child);
       if (line !== undefined) return line;
     }
-  }
-};
-const originOf = (href: string) => {
-  try {
-    return new URL(href).origin;
-  } catch {
-    return undefined;
   }
 };
 type Task = {
@@ -100,16 +94,43 @@ async function drain() {
           if (/^(https?:|mailto:)/i.test(href)) {
             node.properties.target = "_blank";
             node.properties.rel = ["noopener", "noreferrer"];
-            // The page sets the icon's source; the host fetches it.
-            const origin = task.webLinks && /^https?:/i.test(href) ? originOf(href) : undefined;
-            if (origin) {
+            // The icon is one that Med holds; it fetches none.
+            const icon = task.webLinks ? siteIcon(href) : undefined;
+            if (icon) {
               node.properties.className = ["med-web-link"];
-              node.children.unshift({
-                type: "element",
-                tagName: "img",
-                properties: { className: ["med-web-link-icon"], alt: "", dataFavicon: origin },
-                children: [],
-              });
+              node.properties.dataSite = icon.id;
+              // The icon and the first word stay on one line.
+              const [first, ...rest] = node.children;
+              const word = first?.type === "text" ? /^\S*\s?/.exec(first.value)![0] : "";
+              node.children = [
+                {
+                  type: "element",
+                  tagName: "span",
+                  properties: { className: ["med-web-link-lead"] },
+                  children: [
+                    {
+                      type: "element",
+                      tagName: "img",
+                      properties: {
+                        className: ["med-web-link-icon"],
+                        src: icon.src,
+                        alt: "",
+                        dataSiteIcon: icon.dark ? "dark" : "",
+                      },
+                      children: [],
+                    },
+                    ...(first?.type === "text"
+                      ? [{ type: "text" as const, value: word }]
+                      : first
+                        ? [first]
+                        : []),
+                  ],
+                },
+                ...(first?.type === "text" && first.value.length > word.length
+                  ? [{ type: "text" as const, value: first.value.slice(word.length) }]
+                  : []),
+                ...rest,
+              ];
             }
           } else if (task.vault && href.startsWith("med-vault:wiki:")) {
             node.properties.dataVaultLink = decodeURIComponent(
@@ -134,7 +155,7 @@ async function drain() {
             if (!task.briefLinks) node.properties.title = `Relative link: ${href}`;
           }
         }
-        if (node.tagName === "img" && !node.properties.dataFavicon) {
+        if (node.tagName === "img" && node.properties.dataSiteIcon === undefined) {
           node.properties.dataImageSource = node.properties.src;
           delete node.properties.src;
           node.properties.loading = "lazy";

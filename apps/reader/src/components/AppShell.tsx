@@ -1,9 +1,3 @@
-import { AppSidebar } from "@/components/AppSidebar";
-import {
-  SidebarFloatingTrigger,
-  SidebarInset,
-  SidebarProvider,
-} from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
@@ -41,8 +35,8 @@ export function useAppShellReady(ready: boolean): void {
 }
 
 /**
- * Persistent product shell. The sidebar always floats above the active screen,
- * so opening navigation never changes page or pagination width.
+ * Persistent product shell: one screen at a time, crossfading between routes.
+ * There is no sidebar; each screen carries its own navigation.
  */
 export function AppShell() {
   const location = useLocation();
@@ -50,7 +44,6 @@ export function AppShell() {
   const prefersReducedMotion = useReducedMotion();
   const isReaderRoute = location.pathname.startsWith("/reader/");
   const routeTransitionKey = getRouteTransitionKey(location.pathname);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [libraryReady, setLibraryReady] = useState(location.pathname !== "/");
   const [readyLocationKey, setReadyLocationKey] = useState(() =>
     location.pathname === "/" ? "" : location.key,
@@ -148,10 +141,11 @@ export function AppShell() {
 
   return (
     <AppShellReadinessContext.Provider value={handleRouteReady}>
-      <SidebarProvider
-        open={sidebarOpen}
-        onOpenChange={setSidebarOpen}
-        className={cn("bg-background", !hasRevealed && "invisible")}
+      <div
+        className={cn(
+          "flex min-h-svh w-full bg-background",
+          !hasRevealed && "invisible",
+        )}
         aria-hidden={!hasRevealed}
       >
         <a
@@ -161,12 +155,11 @@ export function AppShell() {
         >
           Skip to content
         </a>
-        <AppSidebar />
-        {!isReaderRoute && <SidebarFloatingTrigger className="max-md:hidden" />}
-        <SidebarInset
+        <main
           id="main-content"
           tabIndex={-1}
           className={cn(
+            "relative flex min-w-0 flex-1 flex-col bg-background outline-none",
             isReaderRoute
               ? "h-dvh min-h-0 overflow-hidden overscroll-none"
               : "min-h-svh overflow-x-clip",
@@ -201,8 +194,8 @@ export function AppShell() {
               </motion.div>
             </AnimatePresence>
           </div>
-        </SidebarInset>
-      </SidebarProvider>
+        </main>
+      </div>
     </AppShellReadinessContext.Provider>
   );
 }

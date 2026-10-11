@@ -4,7 +4,7 @@ import { existsSync, realpathSync } from "node:fs";
 import { writerLock } from "./lock";
 import { schedule } from "./schedule";
 import { join, resolve } from "node:path";
-import { Store } from "./store";
+import { Store, NAMESPACES, FILE_NAMESPACES } from "./store";
 import {
   defaultDirectory,
   getCredential,
@@ -31,6 +31,7 @@ Usage: wb <command> [options]
   table list --namespace NAME   List local domain tables and counts
   tree                          Show namespaces, tables, counts and coverage
   sync                          Pull all namespaces and all catalogued files
+                                (Arctic has records only)
   status                        Show cursors, coverage, last success and files
   schedule install              Install hourly macOS sync (also runs at login)
   schedule status               Show the launchd job and log paths
@@ -146,8 +147,8 @@ async function main() {
     throw Error("Unexpected positional argument");
   if (v.table?.length && command === "sync" && v.namespace?.length !== 1)
     throw Error("--table requires exactly one --namespace");
-  if (v.namespace?.some((n) => !["reader", "spaced"].includes(n)))
-    throw Error("Supported namespaces: reader, spaced");
+  if (v.namespace?.some((n) => !NAMESPACES.includes(n)))
+    throw Error(`Supported namespaces: ${NAMESPACES.join(", ")}`);
   if (command === "schedule") {
     print(schedule(sub, origin, directory), json);
     return;
@@ -211,9 +212,10 @@ async function main() {
           `Syncing ${ns}${v.table?.length ? " tables " + v.table.join(", ") : ""}…`,
         );
         const records = await pull(store, origin, token, ns, v.table ?? []);
-        const files = v["records-only"]
-          ? null
-          : await syncFiles(store, origin, token, ns);
+        const files =
+          v["records-only"] || !FILE_NAMESPACES.includes(ns)
+            ? null
+            : await syncFiles(store, origin, token, ns);
         results.push({ records, files });
       }
       const result = {
@@ -260,7 +262,7 @@ async function main() {
       return;
     }
     if (command === "namespace") {
-      const rows = ["reader", "spaced"].map((namespace) => ({
+      const rows = NAMESPACES.map((namespace) => ({
         namespace,
         records: summary.tables
           .filter((t: any) => t.namespace === namespace)
@@ -291,7 +293,7 @@ async function main() {
         print(summary, json);
         return;
       }
-      for (const ns of v.namespace ?? ["reader", "spaced"]) {
+      for (const ns of v.namespace ?? NAMESPACES) {
         const cursor = summary.cursors.find(
           (c: any) => c.namespace === ns && c.selection === "*",
         );

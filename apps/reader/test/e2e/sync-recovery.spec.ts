@@ -1,14 +1,12 @@
-import { expect, test } from "./helpers/fixtures";
+import { expect, openAccountMenu, test } from "./helpers/fixtures";
 
 test.use({ signedIn: true });
 test("shows offline feedback when connectivity changes during manual sync", async ({
   page,
 }) => {
   await page.goto("/");
-  await page
-    .getByRole("button", { name: "Toggle sidebar", exact: true })
-    .click();
-  const sync = page.getByRole("button", { name: /^Sync now:/ });
+  const menu = await openAccountMenu(page);
+  const sync = menu.getByRole("menuitem", { name: /^Sync now:/ });
   await expect(sync).toBeVisible();
   // Change connectivity at the service boundary, after the enabled UI action.
   await page.evaluate(async () => {

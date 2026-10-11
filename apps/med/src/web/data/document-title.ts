@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 // the title, and closing it restores the review's latest title.
 const titles = new Map<symbol, { title: string; priority: number }>();
 function updateTitle() {
-  document.title = [...titles.values()].sort((a, b) => b.priority - a.priority)[0]?.title ?? "med";
+  document.title = [...titles.values()].sort((a, b) => b.priority - a.priority)[0]?.title ?? "Med";
 }
 export function useDocumentTitle(title: string, priority = 0, visible = true) {
   const key = useRef(Symbol("title"));

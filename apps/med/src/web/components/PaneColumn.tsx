@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { tokens } from "../theme.stylex";
 import { Icon, type IconName } from "./Icon";
 import { ToolButton } from "./ToolButton";
@@ -11,7 +11,6 @@ export type PaneLayout = "stack" | "tabs";
 const WIDTH_KEY = "med:pane-width";
 const LAYOUT_KEY = "med:pane-layout";
 const MIN_WIDTH = 280;
-const MAX_WIDTH = 720;
 const DEFAULT_WIDTH = 400;
 /** The stack shows this many panes; opening another closes the oldest. */
 const STACKED = 2;
@@ -30,7 +29,9 @@ function write(key: string, value: string) {
     /* The choice lasts for this window. */
   }
 }
-const clamp = (width: number) => Math.round(Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, width)));
+/** The column takes at most half the window, as its style does. */
+const maxWidth = () => Math.max(MIN_WIDTH, Math.floor(window.innerWidth / 2));
+const clamp = (width: number) => Math.round(Math.max(MIN_WIDTH, Math.min(maxWidth(), width)));
 
 /**
  * The right column's panes: which are open, in the order they opened, which
@@ -101,6 +102,35 @@ export function usePaneColumn({
     [persist],
   );
   const setWidth = useCallback((next: number) => setWidthState(clamp(next)), []);
+  const resize = useCallback((by: number) => setWidthState((current) => clamp(current + by)), []);
+  // Half and half: the column as wide as the review beside it. Again, the
+  // width from before.
+  const column = useRef<HTMLDivElement | null>(null);
+  const attach = useCallback((element: HTMLDivElement | null) => {
+    column.current = element;
+  }, []);
+  const before = useRef<number | null>(null);
+  const equalize = useCallback(() => {
+    const element = column.current;
+    const divider = element?.previousElementSibling;
+    const main = divider?.previousElementSibling;
+    if (!element || !divider || !main) return;
+    const half = clamp(
+      (element.getBoundingClientRect().right -
+        main.getBoundingClientRect().left -
+        divider.getBoundingClientRect().width) /
+        2,
+    );
+    setWidthState((current) => {
+      if (Math.abs(current - half) <= 2 && before.current !== null) {
+        const back = before.current;
+        before.current = null;
+        return clamp(back);
+      }
+      before.current = current;
+      return half;
+    });
+  }, []);
   useEffect(() => {
     if (!persist) return;
     const timer = setTimeout(() => write(WIDTH_KEY, String(width)), 200);
@@ -123,6 +153,9 @@ export function usePaneColumn({
       maximize: setMaximized,
       setLayout,
       setWidth,
+      resize,
+      equalize,
+      attach,
     }),
     [
       open,
@@ -137,6 +170,9 @@ export function usePaneColumn({
       toggle,
       setLayout,
       setWidth,
+      resize,
+      equalize,
+      attach,
     ],
   );
 }
@@ -213,8 +249,17 @@ export function PaneHeader({
  * one width. Stacked, it shows the two latest panes one above the other; a
  * maximized pane leaves the other as its header. With tabs, it shows one pane.
  */
-export function PaneColumn({ state, panes }: { state: PaneColumnState; panes: PaneSpec[] }) {
-  const { open, layout, maximized, width } = state;
+export function PaneColumn({
+  state,
+  panes,
+  belowTitle = false,
+}: {
+  state: PaneColumnState;
+  panes: PaneSpec[];
+  /** The review card heads the window: the column starts below its tab, under the window controls. */
+  belowTitle?: boolean;
+}) {
+  const { open, layout, maximized, width, attach } = state;
   const visible = layout === "stack" ? open : open.filter((id) => id === state.active);
   const shown = open.length > 0;
   const stacked = layout === "stack" && open.length > 1;
@@ -227,10 +272,15 @@ export function PaneColumn({ state, panes }: { state: PaneColumnState; panes: Pa
         aria-orientation="vertical"
         aria-valuenow={width}
         aria-valuemin={MIN_WIDTH}
-        aria-valuemax={MAX_WIDTH}
+        aria-valuemax={maxWidth()}
         tabIndex={0}
         hidden={!shown}
-        {...stylex.props(styles.divider, stylex.defaultMarker(), !shown && styles.hidden)}
+        {...stylex.props(
+          styles.divider,
+          stylex.defaultMarker(),
+          belowTitle && styles.belowTitle,
+          !shown && styles.hidden,
+        )}
         onKeyDown={(event) => {
           if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
             event.preventDefault();
@@ -249,9 +299,15 @@ export function PaneColumn({ state, panes }: { state: PaneColumnState; panes: Pa
         <span {...stylex.props(styles.dividerLine)} />
       </div>
       <div
+        ref={attach}
         data-pane-layout={layout}
         hidden={!shown}
-        {...stylex.props(styles.column, styles.width(width), !shown && styles.hidden)}
+        {...stylex.props(
+          styles.column,
+          styles.width(width),
+          belowTitle && styles.belowTitle,
+          !shown && styles.hidden,
+        )}
       >
         {layout === "tabs" && open.length > 1 && (
           <div role="tablist" aria-label="Side panes" {...stylex.props(styles.tabs)}>
@@ -312,6 +368,9 @@ export function PaneColumn({ state, panes }: { state: PaneColumnState; panes: Pa
 
 const styles = stylex.create({
   hidden: { display: "none" },
+  // The column's outline continues the tab's rule (CardTab.css), below the
+  // window controls; less the frame's top inset.
+  belowTitle: { marginTop: "calc(max(var(--med-titlebar-height), 38px) - 5px)" },
   divider: {
     position: "relative",
     display: "flex",

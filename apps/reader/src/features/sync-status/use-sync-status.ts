@@ -70,6 +70,12 @@ export function useSyncStatus() {
     detail,
     online,
     authRequired,
+    /** Offline, signed out, or failing: worth a word in the navigation. */
+    attention:
+      !online ||
+      authRequired ||
+      Boolean(record.error) ||
+      Boolean(counts?.failedUploads),
     isSyncing: record.isSyncing,
     busyVisible: busyVisible && online && !authRequired,
   };

@@ -11,6 +11,9 @@ import type { SavedReview } from "../../src/shared/saved-review";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { readServerEvents } from "../../src/web/data/sse";
 
+/** A one-pixel PNG, in base64. */
+const PNG =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 const directories: string[] = [];
 const hosts: RunningHost[] = [];
 const streams: AbortController[] = [];
@@ -145,7 +148,7 @@ async function fixture() {
 }
 
 test("Med starts Claude Code, sends review messages as prompts, and answers its questions", async () => {
-  const { api, review, thread, start } = await fixture();
+  const { api, review, stateDir, thread, start } = await fixture();
   const agents = await api<{ agents: unknown[] }>("/api/agents");
   expect(agents.data.agents).toEqual([
     { id: "claude", name: "Claude Code", kind: "claude", available: true },
@@ -217,8 +220,35 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
   await session.act({ action: "interrupt" });
   await session.until((state) => state.status === "idle");
 
+  // Images go with the message, as image blocks before its text.
+  await api(`/api/reviews/${review.id}/agent/messages`, {
+    sessionId: session.id,
+    text: "Why does this differ?",
+    noteIds: [],
+    images: [{ mimeType: "image/png", data: PNG }],
+  });
+  await vi.waitFor(() =>
+    expect(replies().at(-1)).toBe("Saw base64 image/png: Why does this differ?"),
+  );
+
   await session.act({ action: "stop" });
   expect((await session.act({ action: "prompt", text: "Again." })).status).toBe(409);
+  // A session that Med does not run reads text: the message names a saved copy.
+  const stopped = await api(`/api/reviews/${review.id}/agent/messages`, {
+    sessionId: session.id,
+    text: "Compare with this.",
+    noteIds: [],
+    images: [{ mimeType: "image/png", data: PNG }],
+  });
+  expect(stopped.status).toBe(200);
+  const waited = await api<{ message: string }>(`/api/reviews/${review.id}/agent/wait`, {
+    session: session.id,
+    timeout: 1000,
+  });
+  const path = /^- (\/.+\.png)$/m.exec(waited.data.message)?.[1];
+  expect(waited.data.message).toContain("Compare with this.");
+  expect(path?.startsWith(join(stateDir, "images"))).toBe(true);
+  expect((await readFile(path!)).toString("base64")).toBe(PNG);
 });
 
 test("Med runs an ACP agent and keeps its thread", async () => {
@@ -294,6 +324,22 @@ test("Med runs an ACP agent and keeps its thread", async () => {
       "Silent please.",
     ].map((text) => ({ type: "text", text })),
   );
+
+  // An agent that takes images gets them before the text, and the thread keeps them.
+  expect(ready.images).toBe(true);
+  await api(`/api/reviews/${review.id}/agent/messages`, {
+    sessionId: session.id,
+    text: "Look.",
+    noteIds: [],
+    images: [{ mimeType: "image/png", data: PNG }],
+  });
+  await vi.waitFor(() => expect(replies().at(-1)).toBe("Saw image/png: Look."));
+  expect(
+    (await log()).filter((update) => update.sessionUpdate === "user_message_chunk").slice(-2),
+  ).toMatchObject([
+    { content: { type: "image", mimeType: "image/png", data: PNG } },
+    { content: { type: "text", text: "Look." } },
+  ]);
 
   // Med keeps the updates, so the thread stays after the agent stops.
   await session.act({ action: "stop" });
