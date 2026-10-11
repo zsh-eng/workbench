@@ -94,7 +94,7 @@ MED_CLI=/path/to/workbench/apps/med/dist/cli.js bun run screenshots
 MED_CLI=/path/to/workbench/apps/med/dist/cli.js bun run screenshots --demo
 ```
 
-Set `MED_PORT` to use another port (never 4173, the Med service, nor the two
+Set `MED_PORT` to use another port (never 6330, the Med service, nor the two
 ports before it). Set
 `SCREENSHOT_PNGS` to a directory to keep the full-size PNG captures.
 

@@ -4,7 +4,8 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { z } from "zod";
 
-export const DEFAULT_PORT = 4173;
+/** "med" on a phone keypad. Vite's preview server takes 4173, Med's old default. */
+export const DEFAULT_PORT = 6330;
 const connectionSchema = z.object({
   version: z.literal(1),
   origin: z.string(),

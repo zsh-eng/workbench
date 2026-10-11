@@ -43,8 +43,8 @@ type Scheme = "light" | "dark";
 const site = join(import.meta.dir, "../..");
 const cli = process.env.MED_CLI ?? join(site, "../med/dist/cli.js");
 const port = Number(process.env.MED_PORT ?? 4310);
-if ([port, port + 1, port + 2].includes(4173))
-  throw new Error("Port 4173 is the Med service. Use another.");
+if ([port, port + 1, port + 2].includes(6330))
+  throw new Error("Port 6330 is the Med service. Use another.");
 const origin = `http://127.0.0.1:${port}`;
 const output = join(site, "public/screenshots");
 const demoOnly = process.argv.includes("--demo");
