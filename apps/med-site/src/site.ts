@@ -4,6 +4,8 @@ const installCommand =
   "curl -fsSL https://raw.githubusercontent.com/zsh-eng/workbench/main/apps/med/install.sh | sh";
 
 export const repository = "https://github.com/zsh-eng/workbench";
+/** Where the site is served; the docs' copied pages link to it. */
+export const origin = "https://med.zsheng.app";
 
 export const site = {
   title: "Med: review what your agent changed",

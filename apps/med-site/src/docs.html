@@ -21,7 +21,17 @@
         <!-- slot nav -->
       </nav>
       <main class="guide">
+        <button
+          type="button"
+          class="copy copy-page"
+          data-copy="page-markdown"
+          data-done="Copied the page as Markdown."
+        >
+          <span class="copy-label">Copy page</span
+          ><span class="sr-only"> as Markdown</span>
+        </button>
         <!-- slot content -->
+        <script type="text/markdown" id="page-markdown"><!-- slot markdown --></script>
         <nav class="pager" aria-label="More docs">
           <!-- slot pager -->
         </nav>

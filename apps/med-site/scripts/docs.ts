@@ -2,6 +2,8 @@
 // time. They are the Markdown files that `med docs` prints, so the website and
 // the app say the same thing; the page ships HTML only.
 //
+// Code is highlighted with Med's own Med Dawn and Med Night token colors
+// (apps/med/src/web/themes.ts); the page picks one with the colour scheme.
 // Each heading gets GitHub's anchor, so links between the guides keep working.
 // A link to another guide goes to its page; a link to any other file in the
 // repository goes to GitHub. The build fails when a link between the guides
@@ -12,10 +14,34 @@ import rehypeStringify from "rehype-stringify";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
+import { createHighlighter, type ThemeRegistration } from "shiki";
 import { unified } from "unified";
-import { repository } from "../src/site.ts";
+import { findTheme, type SyntaxTheme } from "../../med/src/web/themes.ts";
+import { origin, repository } from "../src/site.ts";
 
 const guides = join(import.meta.dir, "../../med/docs");
+
+/** A Med syntax theme as a TextMate theme for Shiki. */
+function textmate(id: string): ThemeRegistration {
+  const theme = findTheme(id);
+  const syntax = theme.syntax as SyntaxTheme;
+  return {
+    name: id,
+    type: theme.appearance,
+    fg: syntax.foreground,
+    bg: "transparent",
+    settings: syntax.rules.map((rule) => ({
+      scope: rule.scope,
+      settings: { foreground: rule.color, fontStyle: rule.style },
+    })),
+  };
+}
+
+const languages = ["sh", "json", "markdown"];
+const highlighter = await createHighlighter({
+  themes: [textmate("med-dawn"), textmate("med-night")],
+  langs: languages,
+});
 
 /** The pages in the sidebar's order. The first one is /docs. */
 export const pages = [
@@ -40,12 +66,15 @@ export interface DocPage {
   output: string;
   title: string;
   description: string;
-  /** HTML for the template's slots (src/docs.html). */
-  slots: Record<"nav" | "content" | "toc" | "pager", string>;
+  /** HTML for the template's slots (src/docs.html). The markdown slot is the
+   * guide's source with absolute links, for the Copy page button. */
+  slots: Record<"nav" | "content" | "toc" | "pager" | "markdown", string>;
 }
 
 type Node = {
   type: string;
+  url?: string;
+  position?: { start: { offset: number }; end: { offset: number } };
   tagName?: string;
   value?: string;
   properties?: Record<string, unknown>;
@@ -97,6 +126,10 @@ export function renderDocs(asset: (file: string) => string): DocPage[] {
     let title = page.label;
     let description = "";
     let code = 0;
+    const source = readFileSync(join(guides, page.file), "utf8");
+    // Where each link's URL is in the source, so the copied page can have
+    // absolute links. Links inside code are text and stay as they are.
+    const urls: { start: number; end: number; url: string }[] = [];
 
     const link = (url: string) => {
       if (/^[a-z][a-z+.-]*:/i.test(url) || url.startsWith("/")) return url;
@@ -145,7 +178,22 @@ export function renderDocs(asset: (file: string) => string): DocPage[] {
         if (child.tagName === "pre") {
           code += 1;
           const id = `code-${code}`;
-          const inner = child.children?.find((part) => part.tagName === "code");
+          let block = child;
+          const source = child.children?.find((part) => part.tagName === "code");
+          const language = (source?.properties?.className as string[] | undefined)
+            ?.find((name) => name.startsWith("language-"))
+            ?.slice("language-".length);
+          if (source && language && languages.includes(language)) {
+            const tree = highlighter.codeToHast(text(source).replace(/\n$/, ""), {
+              lang: language,
+              themes: { light: "med-dawn", dark: "med-night" },
+              defaultColor: false,
+            }) as Node;
+            block = tree.children!.find((part) => part.tagName === "pre")!;
+            // The page sets the code's surface; the tokens keep their colors.
+            block.properties = { className: ["shiki"], dataLanguage: language };
+          }
+          const inner = block.children?.find((part) => part.tagName === "code");
           if (inner) inner.properties = { ...inner.properties, id };
           return element("div", { className: ["code"] }, [
             element(
@@ -165,7 +213,7 @@ export function renderDocs(asset: (file: string) => string): DocPage[] {
                 ]),
               ],
             ),
-            child,
+            block,
           ]);
         }
         if (child.tagName === "table")
@@ -178,22 +226,42 @@ export function renderDocs(asset: (file: string) => string): DocPage[] {
     const content = unified()
       .use(remarkParse)
       .use(remarkGfm)
+      .use(() => (tree: Node) => {
+        const find = (node: Node) => {
+          if ((node.type === "link" || node.type === "image") && node.position) {
+            const { start, end } = node.position;
+            const at = source.lastIndexOf(`](${node.url}`, end.offset);
+            if (at >= start.offset)
+              urls.push({ start: at + 2, end: at + 2 + node.url!.length, url: node.url! });
+          }
+          node.children?.forEach((child) => find(child));
+        };
+        find(tree);
+      })
       .use(remarkRehype)
       .use(() => (tree: Node) => {
         visit(tree);
         wrap(tree);
       })
       .use(rehypeStringify)
-      .processSync(readFileSync(join(guides, page.file), "utf8"))
+      .processSync(source)
       .toString();
-    return { page, title, description, content, toc };
+    let markdown = source;
+    for (const { start, end, url } of urls.reverse()) {
+      const target = link(url);
+      markdown = `${markdown.slice(0, start)}${target.startsWith("/") ? `${origin}${target}` : target}${markdown.slice(end)}`;
+    }
+    // The page holds it in a script element, which ends at "</script".
+    if (/<\/script|<!--/i.test(markdown))
+      throw new Error(`${page.file} has text that would end its script element.`);
+    return { page, title, description, content, toc, markdown };
   });
 
   for (const { from, page, anchor } of links)
     if (!anchors.get(page)?.has(anchor))
       throw new Error(`${from} links to a missing section: ${href(page)}#${anchor}`);
 
-  return rendered.map(({ page, title, description, content, toc }, index) => {
+  return rendered.map(({ page, title, description, content, toc, markdown }, index) => {
     const nav = [...new Set(pages.map((other) => other.group))]
       .map(
         (group) =>
@@ -226,6 +294,7 @@ export function renderDocs(asset: (file: string) => string): DocPage[] {
         content,
         toc: sections,
         pager: `${step(pages[index - 1], "prev")}${step(pages[index + 1], "next")}<p class="edit"><a href="${source}">Edit this page on GitHub</a></p>`,
+        markdown,
       },
     };
   });
