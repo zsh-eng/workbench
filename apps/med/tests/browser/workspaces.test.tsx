@@ -6,6 +6,9 @@ import { WorkspaceHost, WorkspaceViews } from "../../src/web/components/Workspac
 import { createBrowseApi } from "../../src/web/data/browse";
 import type { Comparison } from "../../src/shared/protocol";
 import type { AgentStatus } from "../../src/shared/agent-status";
+import type { SessionSummary } from "../../src/shared/session-summary";
+import { SessionsRoute } from "../../src/web/components/sessions/SessionsPage";
+import { showSessions } from "../../src/web/data/workspaces";
 import { initializeTheme, themeController } from "../../src/web/themes";
 
 const head = "a".repeat(40);
@@ -131,6 +134,18 @@ function createHost() {
     agentStatuses = statuses;
     for (const stream of statusStreams) stream.enqueue(statusFrame());
   };
+  // The Sessions page's summaries, and the answers sent to sessions that Med runs.
+  let sessionSummaries: SessionSummary[] = [];
+  const summaryStreams = new Set<ReadableStreamDefaultController<Uint8Array>>();
+  const summaryFrame = () =>
+    new TextEncoder().encode(
+      `event: state\ndata: ${JSON.stringify({ sessions: sessionSummaries })}\n\n`,
+    );
+  const setSummaries = (summaries: SessionSummary[]) => {
+    sessionSummaries = summaries;
+    for (const stream of summaryStreams) stream.enqueue(summaryFrame());
+  };
+  const answers: { path: string; body: unknown }[] = [];
   // The pull request jobs that the host runs; the test moves the latest one.
   const pulls: { id: string; url: string }[] = [];
   let pullJob: Record<string, unknown> = {};
@@ -187,6 +202,22 @@ function createHost() {
       });
       return new Response(body, { headers: { "content-type": "text/event-stream" } });
     }
+    // A session's thread, inbox, and controls: none here, except an answer.
+    const sessionRoute = /^\/api\/reviews\/\w+\/(sessions|owned|agent)\b/.exec(url.pathname);
+    if (sessionRoute?.[1] === "owned" && init?.method === "POST") {
+      answers.push({ path: url.pathname, body: JSON.parse(String(init.body)) });
+      return Response.json({
+        sessionId: "agent-s",
+        preset: "opencode",
+        name: "OpenCode",
+        status: "working",
+        settings: [],
+        commands: [],
+        turns: 1,
+      });
+    }
+    if (sessionRoute)
+      return Response.json({ error: { code: "not-found", message: "None" } }, { status: 404 });
     const saved = /^\/api\/reviews\/(\w+)(?:\/targets\/[\w-]+\/(review|notes))?$/.exec(
       url.pathname,
     );
@@ -260,6 +291,19 @@ function createHost() {
         });
         return new Response(body, { headers: { "content-type": "text/event-stream" } });
       }
+      case "/api/sessions/events": {
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            summaryStreams.add(controller);
+            controller.enqueue(summaryFrame());
+            init?.signal?.addEventListener("abort", () => {
+              summaryStreams.delete(controller);
+              controller.error(new DOMException("Aborted", "AbortError"));
+            });
+          },
+        });
+        return new Response(body, { headers: { "content-type": "text/event-stream" } });
+      }
       case "/api/windows": {
         const body = new ReadableStream<Uint8Array>({
           start(controller) {
@@ -292,7 +336,19 @@ function createHost() {
     }
     throw new Error(`Unexpected request: ${url.pathname}`);
   };
-  return { fetcher, sessions, streams, windows, announce, setStatuses, pulls, setPull, removals };
+  return {
+    fetcher,
+    sessions,
+    streams,
+    windows,
+    announce,
+    setStatuses,
+    setSummaries,
+    answers,
+    pulls,
+    setPull,
+    removals,
+  };
 }
 
 function render(host: ReturnType<typeof createHost>) {
@@ -304,9 +360,11 @@ function render(host: ReturnType<typeof createHost>) {
   const browse = createBrowseApi(host.fetcher, "fixture");
   root.render(
     <WorkspaceHost fetch={host.fetcher}>
-      <WorkspaceViews options={{ fetch: host.fetcher }}>
-        {(controller) => <App controller={controller} browseApi={browse} />}
-      </WorkspaceViews>
+      <SessionsRoute>
+        <WorkspaceViews options={{ fetch: host.fetcher }}>
+          {(controller) => <App controller={controller} browseApi={browse} />}
+        </WorkspaceViews>
+      </SessionsRoute>
     </WorkspaceHost>,
   );
 }
@@ -530,6 +588,104 @@ test("rows show what each review's agent does, and a turn that ends unseen marks
   // Read rows show their changed-file count again.
   await expect.poll(() => rowLabels()[3]).toMatch(/^Second review( \d+)?$/);
   expect(rowLabels()[2]).toMatch(/^Agent review( \d+)?$/);
+});
+
+test("Sessions shows each review's session on a board, answers it there, and opens it", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  await expect.poll(() => host.windows.size).toBe(1);
+  host.announce({ id: "agent", open: false, sessions: [{ agent: "claude", id: "s1", cwd: "/w" }] });
+  await expect.element(page.getByRole("button", { name: /^Agent review/ })).toBeVisible();
+  const status: AgentStatus = {
+    reviewId: "agent",
+    sessionId: "agent-s",
+    agent: "acp",
+    name: "OpenCode",
+    state: "waiting",
+    updatedAt: Date.now(),
+  };
+  host.setStatuses([status]);
+  host.setSummaries([
+    {
+      ...status,
+      title: "Agent review",
+      repository: "repo",
+      branch: "main",
+      sessions: [{ agent: "acp", name: "OpenCode", id: "agent-s", cwd: "/test/repo" }],
+      prompt: "Rename the export command.",
+      steps: [
+        {
+          id: "e1",
+          kind: "edit",
+          title: "Edit src/alpha.ts",
+          status: "done",
+          added: 3,
+          removed: 1,
+        },
+      ],
+      ask: {
+        kind: "permission",
+        permission: {
+          id: "p1",
+          title: "Run the export tests?",
+          detail: "bun test",
+          options: [
+            { id: "once", name: "Allow once", kind: "allow_once" },
+            { id: "deny", name: "Deny", kind: "reject_once" },
+          ],
+        },
+      },
+    },
+  ]);
+
+  // The workspace list counts the sessions that need you, and opens the page.
+  await page.getByRole("button", { name: "Sessions, 1 needs you" }).click();
+  await expect.poll(() => location.pathname).toBe("/sessions");
+  const board = page.getByRole("main", { name: "Sessions" });
+  const pane = board.getByRole("article", { name: "Agent review" });
+  await expect.element(pane.getByText("Needs you", { exact: true })).toBeVisible();
+  await expect.element(pane.getByText("Edit src/alpha.ts")).toBeVisible();
+  await expect.element(pane.getByText("repo / main")).toBeVisible();
+  // The review stays mounted beneath the page, hidden.
+  expect(shown()).toBeUndefined();
+
+  // A question takes its answer in the pane.
+  await pane.getByRole("button", { name: "Allow once" }).click();
+  await expect
+    .poll(() => host.answers)
+    .toEqual([
+      {
+        path: "/api/reviews/agent/owned/agent-s",
+        body: { action: "permission", id: "p1", option: "once" },
+      },
+    ]);
+
+  // A pane opens the Desk; Escape returns to the Board with that pane in focus.
+  await pane.getByRole("button", { name: "Agent review" }).click();
+  await expect.poll(() => location.search).toBe("?review=agent");
+  await expect
+    .element(board.getByRole("option", { name: /^Agent review/ }))
+    .toHaveAttribute("aria-selected", "true");
+  await expect.element(board.getByRole("button", { name: /^Open review/ })).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.poll(() => location.search).toBe("");
+  await expect.poll(() => document.activeElement?.getAttribute("data-pane")).toBe("agent");
+
+  // From the Desk, ⌘↵ opens the session's review in its workspace.
+  await pane.getByRole("button", { name: "Agent review" }).click();
+  await expect.element(board.getByRole("listbox", { name: "Sessions" })).toBeVisible();
+  await board.getByRole("option", { name: /^Agent review/ }).click();
+  await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
+  await expect.poll(() => location.pathname).toBe("/review/agent");
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("agent-target");
+
+  // Escape on the Board leaves the page for the workspace that was on screen.
+  showSessions();
+  await expect.element(board).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.poll(() => location.pathname).toBe("/review/agent");
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("agent-target");
 });
 
 test("a pasted pull request link opens a workspace at once, which becomes its review", async () => {

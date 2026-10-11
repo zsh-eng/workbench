@@ -209,9 +209,18 @@ function matches(input: WorkspaceInput, entry: Workspace) {
 
 const reviewPath = (pathname: string) => /^\/review\/([^/]+)\/?$/.exec(pathname)?.[1];
 const vaultPath = (pathname: string) => /^\/vault\/([^/]+)/.exec(pathname)?.[1];
+/** The Sessions page: every agent session of the window's reviews. */
+export const SESSIONS_PATH = "/sessions";
+/** Shows the Sessions page over the workspaces. */
+export function showSessions() {
+  if (location.pathname !== SESSIONS_PATH) history.pushState(null, "", SESSIONS_PATH);
+  window.dispatchEvent(new Event("med:location"));
+}
+
 /** Addresses that cover the workspaces without choosing one. */
 export const overlayAddress = (pathname: string) =>
   pathname === "/sources" ||
+  pathname === SESSIONS_PATH ||
   pathname === "/welcome" ||
   pathname === "/files" ||
   pathname === "/file";

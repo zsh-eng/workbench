@@ -41,6 +41,27 @@ export interface OwnedSession {
   act(action: OwnedAction): Promise<void>;
 }
 
+const ownedPath = (reviewId: string, sessionId: string) =>
+  `/api/reviews/${encodeURIComponent(reviewId)}/owned/${encodeURIComponent(sessionId)}`;
+
+/** Sends an action to a session that Med runs, such as the answer to its question. */
+export function sendOwnedAction(
+  reviewId: string,
+  sessionId: string,
+  action: OwnedAction,
+  fetcher: typeof fetch = browserFetch,
+) {
+  return createApi(fetcher, readBrowserToken()).json(
+    ownedPath(reviewId, sessionId),
+    ownedStateSchema,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(action),
+    },
+  );
+}
+
 /**
  * A session that Med runs: its status, settings, commands, and the question
  * that waits for the user. A session that Med only reads has no state.
@@ -51,7 +72,7 @@ export function useOwnedSession(
   fetcher: typeof fetch = browserFetch,
 ): OwnedSession {
   const [state, setState] = useState<{ id: string; value: OwnedState } | null>(null);
-  const path = `/api/reviews/${encodeURIComponent(reviewId)}/owned/${encodeURIComponent(sessionId)}`;
+  const path = ownedPath(reviewId, sessionId);
   useEffect(() => {
     const controller = new AbortController();
     const { signal } = controller;
@@ -86,14 +107,12 @@ export function useOwnedSession(
   }, [path, sessionId, fetcher]);
   const act = useCallback(
     async (action: OwnedAction) => {
-      const next = await createApi(fetcher, readBrowserToken()).json(path, ownedStateSchema, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(action),
+      setState({
+        id: sessionId,
+        value: await sendOwnedAction(reviewId, sessionId, action, fetcher),
       });
-      setState({ id: sessionId, value: next });
     },
-    [path, sessionId, fetcher],
+    [reviewId, sessionId, fetcher],
   );
   return { state: state?.id === sessionId ? state.value : null, act };
 }

@@ -100,6 +100,8 @@ symbols use the workspace's repository and branch.
   while the agent works, **Needs you** while it waits for a permission answer
   or for your review, and the accent dot when a turn ended while you were
   elsewhere.
+- **Sessions**, at the head of the list, or **Show agent sessions** in the
+  palette, opens the [Sessions page](#sessions-page).
 - Right-click a row to open it, copy a command that resumes the agent's
   session, mark it read or unread, or close it. On a branch row, **Copy lazygit
   command** copies a command that opens lazygit in that checkout, for Git work
@@ -198,6 +200,20 @@ Codex open themselves; Med keeps the copies for 30 days. Med stops its agents wh
 
 Saved reviews persist in the state folder. Notes on a branch last until the
 server stops.
+
+### Sessions page
+
+The Sessions page shows the agent session of each saved review in the
+workspace list. It opens on the **Board**: one pane for each session, with the
+sessions that need you first. A pane shows the session's last prompt, its
+latest steps, and the reply that ended its turn.
+
+- Answer a permission request with the buttons in its pane.
+- Click a pane to open the **Desk**: the sessions in a list, and the chosen one
+  in its Session pane, where you can reply. `↑` `↓` or `j` `k` move in the list.
+- `⌘↵` opens the session's review.
+- `Esc` goes back from the Desk to the Board, and from the Board to the
+  workspace.
 
 ## Notes and briefs
 

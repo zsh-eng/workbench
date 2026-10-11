@@ -31,6 +31,9 @@ export interface DeskSession {
   state: DeskState;
   /** Minutes since the last update. */
   ago: number;
+  /** The last update and the turn's start, in milliseconds, once the page runs them. */
+  updatedAt?: number;
+  turnStartedAt?: number;
   /** Seconds that the current turn has run, for a working session. */
   elapsed?: number;
   /** What the session waits for: an answer, or the user's review. */

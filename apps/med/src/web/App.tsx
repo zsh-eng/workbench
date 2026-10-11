@@ -2,6 +2,7 @@ import { useDocumentTitle } from "./data/document-title";
 import { useTitleBarOverlay } from "./data/title-bar";
 import { TitleRow } from "./components/TitleRow";
 import { CardTab, tabbedCard } from "./components/CardTab";
+import { showSessions } from "./data/workspaces";
 import { DiffImages } from "./components/MediaView";
 import { mediaType } from "../shared/media";
 import { ActionTooltip, ToolButton } from "./components/ToolButton";
@@ -2323,6 +2324,11 @@ export function App({
             label: "Switch workspace…",
             shortcut: "⌃ ⇥",
             run: workspace.openSwitcher,
+          },
+          {
+            id: "sessions",
+            label: "Show agent sessions",
+            run: showSessions,
           },
           {
             id: "close-workspace",
