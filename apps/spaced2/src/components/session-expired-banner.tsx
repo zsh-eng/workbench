@@ -13,7 +13,7 @@ type SessionExpiredBackdropProps = {
   onAction: () => void;
 };
 
-function SessionExpiredBackdrop({
+export function SessionExpiredBackdrop({
   onClose,
   onAction,
 }: SessionExpiredBackdropProps) {

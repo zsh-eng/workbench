@@ -1,11 +1,21 @@
 import { useLocation } from "react-router";
 import { useSyncExternalStore, type ReactNode } from "react";
 import SyncEngine from "@/lib/sync/engine";
-export function SyncBoundary({ children }: { children: ReactNode }) {
-  const status = useSyncExternalStore(
-    SyncEngine.subscribe,
-    SyncEngine.getSnapshot,
-  );
+
+/** The sync state that the boundary reads. The Elements page gives a sample. */
+export type SyncStatusSource = Pick<
+  typeof SyncEngine,
+  "subscribe" | "getSnapshot"
+>;
+
+export function SyncBoundary({
+  children,
+  source = SyncEngine,
+}: {
+  children: ReactNode;
+  source?: SyncStatusSource;
+}) {
+  const status = useSyncExternalStore(source.subscribe, source.getSnapshot);
   const { pathname } = useLocation();
   if (status.restoring && !["/profile", "/login-success"].includes(pathname))
     return (

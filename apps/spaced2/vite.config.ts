@@ -10,7 +10,11 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      workbox: { navigateFallbackDenylist: [/^\/api(?:\/|$)/] },
+      workbox: {
+        navigateFallbackDenylist: [/^\/api(?:\/|$)/],
+        // The Elements page is a development tool; installs do not fetch it.
+        globIgnores: ["**/node_modules/**/*", "**/ElementsRoutes-*.js"],
+      },
       manifest: {
         name: "Spaced",
         short_name: "Spaced",

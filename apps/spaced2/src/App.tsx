@@ -21,10 +21,14 @@ import StatsRoute from "@/routes/StatsRoute";
 import SuspendedCardsRoute from "@/routes/SuspendedCardsRoute";
 import { useMediaQuery } from "@uidotdev/usehooks";
 import { CircleAlert, CircleCheck } from "lucide-react";
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Route, Routes } from "react-router";
 import "./index.css";
 
-SyncEngine.start();
+const ElementsRoutes = lazy(() => import("@/elements/ElementsRoutes"));
+
+// The Elements page and its frames show sample data, so they do not sync.
+if (!location.pathname.startsWith("/debug/elements")) SyncEngine.start();
 export default function App() {
   const isMobile = useMediaQuery("(max-width: 640px)");
 
@@ -54,41 +58,56 @@ export default function App() {
             },
           }}
         />
-        <CommandBar />
-        <div
-          className={cn(
-            "grid grid-cols-12 gap-x-6 items-start",
-            "px-2 md:px-0 pb-12 pt-20 md:pt-8",
-            "min-h-screen grid-rows-[min-content_1fr] bg-background font-sans antialiased",
-            "bg-muted dark:bg-background",
-          )}
-        >
-          <SpacedIcon />
-          <NavBar />
-          <SessionExpiredBanner />
-          <SyncBoundary>
-            <Routes>
-              <Route path="/" element={<ReviewRoute />} />
-              <Route path="/decks" element={<DecksRoute />} />
-              <Route path="/decks/_all" element={<AllCardsRoute />} />
-              <Route
-                path="/decks/_suspended"
-                element={<SuspendedCardsRoute />}
-              />
-              <Route path="/decks/:deckId" element={<DeckRoute />} />
-              <Route path="/saved" element={<SavedRoute />} />
-              {/* <Route path='/debug' element={<DebugRoute />} /> */}
-              <Route path="/create" element={<CreateFlashcardRoute />} />
-              <Route path="/profile" element={<ProfileRoute />} />
-              <Route path="/stats" element={<StatsRoute />} />
-              <Route path="/login-success" element={<LoginSuccessRoute />} />
-              <Route path="/import" element={<ImportRoute />} />
-
-              <Route path="/images" element={<ImagesRoute />} />
-            </Routes>
-          </SyncBoundary>
-        </div>
+        <Routes>
+          <Route
+            path="/debug/elements/*"
+            element={
+              <Suspense fallback={null}>
+                <ElementsRoutes />
+              </Suspense>
+            }
+          />
+          <Route path="*" element={<AppShell />} />
+        </Routes>
       </ThemeProvider>
     </BrowserRouter>
+  );
+}
+
+function AppShell() {
+  return (
+    <>
+      <CommandBar />
+      <div
+        className={cn(
+          "grid grid-cols-12 gap-x-6 items-start",
+          "px-2 md:px-0 pb-12 pt-20 md:pt-8",
+          "min-h-screen grid-rows-[min-content_1fr] bg-background font-sans antialiased",
+          "bg-muted dark:bg-background",
+        )}
+      >
+        <SpacedIcon />
+        <NavBar />
+        <SessionExpiredBanner />
+        <SyncBoundary>
+          <Routes>
+            <Route path="/" element={<ReviewRoute />} />
+            <Route path="/decks" element={<DecksRoute />} />
+            <Route path="/decks/_all" element={<AllCardsRoute />} />
+            <Route path="/decks/_suspended" element={<SuspendedCardsRoute />} />
+            <Route path="/decks/:deckId" element={<DeckRoute />} />
+            <Route path="/saved" element={<SavedRoute />} />
+            {/* <Route path='/debug' element={<DebugRoute />} /> */}
+            <Route path="/create" element={<CreateFlashcardRoute />} />
+            <Route path="/profile" element={<ProfileRoute />} />
+            <Route path="/stats" element={<StatsRoute />} />
+            <Route path="/login-success" element={<LoginSuccessRoute />} />
+            <Route path="/import" element={<ImportRoute />} />
+
+            <Route path="/images" element={<ImagesRoute />} />
+          </Routes>
+        </SyncBoundary>
+      </div>
+    </>
   );
 }
