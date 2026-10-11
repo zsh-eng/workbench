@@ -530,6 +530,15 @@ try {
     code,
     perform: () => page.keyboard.press(combo),
   });
+  // The files sidebar has only its button; ⌘⇧B toggles the agent session.
+  const filesButton = () => ({
+    event: "click",
+    perform: () =>
+      page
+        .getByRole("button", { name: "Toggle files sidebar", exact: true })
+        .filter({ visible: true })
+        .click(),
+  });
   // Playwright's hit check does not see a row that its tree has scrolled out of
   // view, so the row is scrolled into view before the measurement starts.
   const clickTree = (label, path, ready, prepare) => {
@@ -617,8 +626,8 @@ try {
       ["left-sidebar-show", { ...key("Meta+b", "KeyB"), ready: "leftShown" }],
     ],
     [
-      ["files-sidebar-show", { ...key("Meta+Shift+b", "KeyB"), ready: "filesShown" }],
-      ["files-sidebar-hide", { ...key("Meta+Shift+b", "KeyB"), ready: "filesHidden" }],
+      ["files-sidebar-show", { ...filesButton(), ready: "filesShown" }],
+      ["files-sidebar-hide", { ...filesButton(), ready: "filesHidden" }],
     ],
     [
       ["zen-on", { ...key("Alt+z", "KeyZ"), ready: "zenOn", before: blur }],
@@ -700,7 +709,7 @@ try {
       ["ctrl-tab-back", { ...key("Meta+1", "Digit1"), ready: "workspace", readyArg: "bench" }],
     ],
     [
-      ["files-sidebar-open-for-tree", { ...key("Meta+Shift+b", "KeyB"), ready: "filesShown" }],
+      ["files-sidebar-open-for-tree", { ...filesButton(), ready: "filesShown" }],
       [
         "tree-row-click",
         clickTree(
@@ -761,7 +770,7 @@ try {
           ready: "changesShown",
         },
       ],
-      ["files-sidebar-close-for-tree", { ...key("Meta+Shift+b", "KeyB"), ready: "filesHidden" }],
+      ["files-sidebar-close-for-tree", { ...filesButton(), ready: "filesHidden" }],
     ],
     [
       [
