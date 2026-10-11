@@ -55,6 +55,9 @@ independently; cached display and local grading do not wait for network sync.
 - `src/routes`, `src/components`: UI and interactions.
 - `src/lib/db`, `src/lib/sync`: persistence, projections and sync integration.
 - `src/lib/review`, `src/lib/images`: scheduling, session state and image cache.
+- `src/elements`: the Elements page at `/debug/elements` (see
+  `../../docs/ELEMENTS.md`). It loads lazily and shows production components
+  on sample data. Pages under `/debug/elements` do not start sync.
 - `server`: auth, file routes, schema-independent sync and retirement handler.
 - `drizzle`: current backend migrations.
 - `scripts`: import compiler, migration, optimizer and benchmark tooling.

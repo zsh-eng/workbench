@@ -39,15 +39,14 @@ export function useDeviceRowScale(
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
-  const natural =
-    devices.reduce((sum, id) => sum + DEVICES[id].width, 0) +
-    ROW_GAP_PX * (devices.length - 1);
-  // Each frame has a 1px border on both sides.
-  const borders = devices.length * 2;
+  const natural = devices.reduce((sum, id) => sum + DEVICES[id].width, 0);
+  // Only the devices scale. The gaps and each frame's 1px borders keep their
+  // size, so they come off the width first.
+  const fixed = ROW_GAP_PX * (devices.length - 1) + devices.length * 2;
   const scale =
     zoom === "actual" || width === 0
       ? 1
-      : Math.min(1, (width - borders) / natural);
+      : Math.min(1, Math.max(0, width - fixed) / natural);
   return { row, scale, gap: ROW_GAP_PX };
 }
 

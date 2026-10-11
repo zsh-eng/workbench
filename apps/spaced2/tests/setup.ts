@@ -1,5 +1,16 @@
+import { mock } from "bun:test";
 import { Window } from "happy-dom";
 import { indexedDB, IDBKeyRange } from "fake-indexeddb";
+import { createRequire } from "node:module";
+import * as React from "react";
+
+// vite.config.ts dedupes React. @workbench/elements finds its React peer from
+// the workspace root, which can be another version, so tests give it this
+// app's React in the same way.
+const sharedReact = createRequire(
+  require.resolve("@workbench/elements/react"),
+).resolve("react");
+if (sharedReact !== require.resolve("react")) mock.module(sharedReact, () => React);
 
 const testWindow = new Window({ url: "http://localhost:5178" });
 const browserGlobals = [

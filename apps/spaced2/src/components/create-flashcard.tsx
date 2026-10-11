@@ -31,7 +31,8 @@ type CreateUpdateFlashcardFormProps = {
 };
 
 const FOCUS_QUESTION_KEY = " ";
-const LOCALSTORAGE_KEY = "create-flashcard-draft";
+/** The Create page keeps its unsaved card here. */
+export const LOCALSTORAGE_KEY = "create-flashcard-draft";
 
 const saveDraft = (values: CardContentFormValues) => {
   try {
