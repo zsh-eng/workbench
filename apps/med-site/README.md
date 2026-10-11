@@ -120,16 +120,20 @@ what you act on, and the dawn's peach for selection. The only other colour is
 a painting: the Mediterranean sun rising over the sea, with its reflection on
 the water, and the moon in dark mode. The product window rises from it.
 
-Med's `scripts/painting/painter.js` paints a scene with thousands of bristle
-strokes in a browser canvas; `scenes.js` holds the dawn and night scenes and
-the icon's tiles. The random numbers are seeded, so each run paints the same
-picture. `bun run paint` (`scripts/painting/paint.ts`) paints at 3600 px and
-writes `public/painting` in AVIF (quality 64) and WebP at 1200 and 2400 px.
-Lower AVIF quality smooths the strokes into blocks.
+The painting is a watercolour. Med's `scripts/painting/watercolor.js` lays
+washes of pigment on textured paper in a browser canvas: wet washes run
+together, edges dry darker, overlaps deepen, and paper left bare is the light.
+`watercolor-scenes.js` paints the sea after two painters: the dawn after
+Turner's wide wet washes, and the night after Cézanne's flat strokes, with the
+moonlight lifted out. The random numbers are seeded, so each run paints the
+same picture. `bun run paint` (`scripts/painting/paint.ts`) paints at 3600 px
+and writes `public/painting` in AVIF (quality 64) and WebP at 1200 and 2400
+px.
 
 Med's icon, Reflection, comes from `apps/med/scripts/render-icons.mjs`: a paper
-sun and its reflection on a painted tile of the same sea, dawn in a light
-scheme and moonrise in a dark one. The favicon carries both. After it changes,
+sun and its reflection on a tile of the same sea, painted in bristle strokes
+(`painter.js`, `scenes.js`), dawn in a light scheme and moonrise in a dark one.
+The favicon carries both. After it changes,
 copy its `icon.svg` to `public/favicon.svg`, and its `icon-dawn.svg`,
 `icon-night.svg`, and `apple-touch-icon.png` to `public/`. The header holds
 both icons in the page (`{{inline:…}}`) and shows one with the system's colour

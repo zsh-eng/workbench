@@ -464,7 +464,7 @@ h3 {
   inset: 0 0 30%;
   z-index: -1;
   border-radius: 16px;
-  background: #b9c7ca url("{{asset:/painting/dawn-1200.webp}}") center top /
+  background: #afc1c0 url("{{asset:/painting/dawn-1200.webp}}") center top /
     cover no-repeat;
   background-image: image-set(
     url("{{asset:/painting/dawn-1200.avif}}") type("image/avif") 1x,
@@ -476,7 +476,7 @@ h3 {
 
 @media (prefers-color-scheme: dark) {
   .painting::before {
-    background-color: #20232e;
+    background-color: #2e3551;
     background-image: url("{{asset:/painting/night-1200.webp}}");
     background-image: image-set(
       url("{{asset:/painting/night-1200.avif}}") type("image/avif") 1x,
