@@ -362,7 +362,12 @@ or `⌘K`. Enter runs a highlighted row that has a command.
 ### Zen mode
 
 `⌥Z` / `Alt+Z`, the focus button at the top right, or **Enter zen mode** hides
-every bar: tabs, the Changes toolbar, and the status bar. `⌘B` and `⌘⇧B` still
+every bar: tabs, the Changes toolbar, and the status bar. It also hides the
+saved review's header, the sidebar's workspaces, the session's controls
+(turns, new session, close), and the reply and background bars. The sidebar
+keeps the history and files, and the session keeps its thread and message box.
+The palette (`⌘K`) has the hidden actions: **Send comments to** the agent,
+**Copy comments**, and **Return to review**. `⌘B` and `⌘⇧B` still
 show or hide the history sidebar and the agent session. To leave, press `⌥Z` again, or click **Leave zen** in
 the top-right corner. Escape does not leave zen mode, so it stays free for
 search, Vim, and dialogs.

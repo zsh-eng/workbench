@@ -129,7 +129,10 @@ test("a message reaches a waiting Claude session through med review wait", async
 
   const state = await inbox();
   expect(state.messages.map((message) => message.delivery)).toEqual(["delivered", "delivered"]);
-  // A sent comment is no longer a draft.
+  // The thread shows the comment as it was sent; a sent comment is no longer a draft.
+  expect(state.messages[1]!.comments).toEqual([
+    { path: "summary.ts", line: 1, text: "Round to minutes instead." },
+  ]);
   expect(state.drafts).toEqual([]);
 });
 

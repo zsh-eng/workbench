@@ -77,7 +77,7 @@ import {
 import type { CodexFinding, CodexReviewRun } from "../shared/codex-review";
 import { SavedReviewHeader } from "./components/SavedReviewHeader";
 import { ShortcutGuide } from "./components/ShortcutGuide";
-import { ZenExit, ZenHint } from "./components/ZenExit";
+import { ZenContext, ZenExit, ZenHint } from "./components/ZenExit";
 import { platform } from "./data/keys";
 import type { GuideContextId } from "./data/shortcut-guide";
 import { ComparisonActions } from "./components/ComparisonActions";
@@ -2166,6 +2166,11 @@ export function App({
     ["search-word", "Search file for word at cursor", "*"],
     ["search-word-back", "Search file backward for word at cursor", "#"],
   ];
+  const returnToReview = () => {
+    pendingSavedChanges.current = state.savedTargetId;
+    fileWorkspace.select("changes");
+    void controller.returnToSavedReview();
+  };
   const commands: ReviewCommand[] = [
     {
       id: "render-diagnostics",
@@ -2538,6 +2543,33 @@ export function App({
       shortcut: "⌥ Z",
       run: toggleZen,
     },
+    // The saved review's own actions, for zen mode, which hides its header.
+    ...(state.savedReview && replyAgent
+      ? [
+          {
+            id: "send-comments",
+            label: `Send comments to ${replyAgent}`,
+            run: () => showPane("session"),
+          },
+        ]
+      : []),
+    ...(state.savedReview?.commentCount
+      ? [
+          {
+            id: "copy-comments",
+            label: "Copy comments",
+            run: () =>
+              void controller.copyFeedback().then(
+                ({ count }) => showToast(`Copied ${count} ${count === 1 ? "comment" : "comments"}`),
+                (error: unknown) =>
+                  showToast(error instanceof Error ? error.message : "The request failed."),
+              ),
+          },
+        ]
+      : []),
+    ...(state.savedReview && (!state.savedView || isFileTab(fileState.active))
+      ? [{ id: "return-to-review", label: "Return to review", run: returnToReview }]
+      : []),
     {
       id: "picker-preview",
       label: filePreviewShown ? "Hide file preview in Find file" : "Show file preview in Find file",
@@ -3115,7 +3147,7 @@ export function App({
       </div>
     );
 
-  return (
+  const app = (
     <AgentReplyContext.Provider value={agentReply}>
       <div
         {...stylex.props(styles.app)}
@@ -3248,8 +3280,8 @@ export function App({
               hidden={!leftVisible}
             >
               {/* The tab row holds the identity while the sidebar is hidden. */}
-              <div {...stylex.props(styles.sidebarHeader)}>{leftVisible && identity}</div>
-              {workspace && (
+              {!zen && <div {...stylex.props(styles.sidebarHeader)}>{leftVisible && identity}</div>}
+              {workspace && !zen && (
                 <WorkspaceList
                   onNew={gitAvailable ? () => openBranchPicker(true) : undefined}
                   repositories={state.repositories}
@@ -3333,7 +3365,7 @@ export function App({
           >
             {/* The review's own row heads the card, level with the sidebar's
             identity, so the sidebar keeps its place between workspaces. */}
-            {state.savedReview && (
+            {state.savedReview && !zen && (
               <SavedReviewHeader
                 controller={controller}
                 state={state}
@@ -3353,11 +3385,7 @@ export function App({
                 }
                 browsing={isFileTab(fileState.active)}
                 browsingSourceLabel={activeFile?.sourceLabel ?? sourceLabel}
-                onReturn={() => {
-                  pendingSavedChanges.current = state.savedTargetId;
-                  fileWorkspace.select("changes");
-                  void controller.returnToSavedReview();
-                }}
+                onReturn={returnToReview}
                 onTarget={(id) => {
                   pendingSavedChanges.current = id;
                   pendingIteration.current = null;
@@ -3955,6 +3983,7 @@ export function App({
       </div>
     </AgentReplyContext.Provider>
   );
+  return <ZenContext.Provider value={zen}>{app}</ZenContext.Provider>;
 }
 
 const rise = stylex.keyframes({

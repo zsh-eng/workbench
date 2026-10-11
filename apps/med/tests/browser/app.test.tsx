@@ -595,6 +595,27 @@ describe("graphical review", () => {
     );
     expect(date.title).toBe("");
   });
+  test("zen mode moves a saved review's header actions to the command palette", async () => {
+    await mountApp({ savedReview: true, branches: true });
+    await page.getByRole("link", { name: "src/alpha.ts", exact: true }).click();
+    await expect.element(page.getByRole("button", { name: "Return to review" })).toBeVisible();
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Z", code: "KeyZ", altKey: true, bubbles: true }),
+    );
+    await expect
+      .element(page.getByRole("button", { name: "Exit zen mode", exact: true }))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: "Return to review" }))
+      .not.toBeInTheDocument();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
+    await page.getByRole("combobox", { name: "Search commands" }).fill("Return to review");
+    await page.getByRole("option", { name: /Return to review/ }).click();
+    // Zen hides the tab strip, so the panel shows which tab is open.
+    await expect
+      .element(page.getByRole("tabpanel", { name: "Changes", exact: true }))
+      .toBeVisible();
+  });
   test("saved review return and target selection restore Changes after live file browsing", async () => {
     const { controller } = await mountApp({ savedReview: true, branches: true });
     await page.getByRole("link", { name: "src/alpha.ts", exact: true }).click();

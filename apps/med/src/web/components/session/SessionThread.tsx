@@ -13,13 +13,14 @@ import {
   type RefObject,
 } from "react";
 import { flushSync } from "react-dom";
-import type { AgentMessage } from "../../../shared/agent-inbox";
+import type { AgentMessage, SentComment } from "../../../shared/agent-inbox";
 import type { PlanEntry } from "../../../shared/agent-session";
 import type { SessionItem, SessionSnapshot } from "../../data/session-store";
 import { renderBrief } from "../../markdown/brief-render";
 import { tokens } from "../../theme.stylex";
 import { useTheme } from "../../themes";
 import { Icon } from "../Icon";
+import { ZenContext } from "../ZenExit";
 import { motion, rowStyles } from "./session-styles";
 import { BackgroundDock } from "./BackgroundDock";
 import { SessionMarkdown } from "./SessionMarkdown";
@@ -138,6 +139,9 @@ const Item = memo(function Item({
                 />
               ) : null,
             )}
+            {item.sent?.comments?.map((comment, index) => (
+              <Comment key={index} comment={comment} />
+            ))}
           </div>
           {item.sent && <Delivery message={item.sent} />}
         </div>
@@ -177,10 +181,11 @@ const Item = memo(function Item({
  */
 function ReplyBar({ item, final }: { item: AgentItem; final: boolean }) {
   const actions = useContext(ReplyActionsContext);
+  const zen = useContext(ZenContext);
   const [copied, setCopied] = useState(false);
   const [pinning, setPinning] = useState(false);
   const pinId = actions?.pinned(item.id);
-  if (!final && pinId === undefined) return null;
+  if (zen || (!final && pinId === undefined)) return null;
   const copy = () =>
     navigator.clipboard.writeText(item.text).then(
       () => {
@@ -228,6 +233,21 @@ function ReplyBar({ item, final }: { item: AgentItem; final: boolean }) {
             Pin to review
           </button>
         ))}
+    </div>
+  );
+}
+
+/** A comment sent from Med, under the place it is about. */
+function Comment({ comment }: { comment: SentComment }) {
+  const lines = comment.line
+    ? `:${comment.line}${comment.endLine && comment.endLine !== comment.line ? `–${comment.endLine}` : ""}`
+    : "";
+  return (
+    <div {...stylex.props(styles.comment)}>
+      <span title={`${comment.path}${lines}`} {...stylex.props(styles.commentPlace)}>
+        {comment.quote ? `“${comment.quote}”` : `${comment.path.split("/").at(-1)}${lines}`}
+      </span>
+      <p {...stylex.props(styles.userText)}>{comment.text}</p>
     </div>
   );
 }
@@ -1245,6 +1265,20 @@ const styles = stylex.create({
     overflowWrap: "anywhere",
   },
   image: { display: "block", maxWidth: "100%", borderRadius: `calc(6px * ${tokens.round})` },
+  comment: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+    marginBlockStart: { default: 0, ":not(:first-child)": 8 },
+  },
+  commentPlace: {
+    overflow: "hidden",
+    color: tokens.muted,
+    fontFamily: tokens.code,
+    fontSize: 11.5,
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
   queued: { color: tokens.faint, fontSize: 11 },
   delivery: {
     display: "flex",

@@ -2,6 +2,7 @@ import * as stylex from "@stylexjs/stylex";
 import { Menu } from "@base-ui/react/menu";
 import {
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -28,6 +29,7 @@ import { ActionTooltip } from "../ToolButton";
 import { ActionMenu, ChoiceSelect } from "../Controls";
 import { Icon } from "../Icon";
 import { ToolButton } from "../ToolButton";
+import { ZenContext } from "../ZenExit";
 import { SessionComposer, type ComposerAttachment } from "./SessionComposer";
 import { ReplyActionsContext, SessionThread, type ReplyActions } from "./SessionThread";
 
@@ -404,6 +406,7 @@ export function SessionPanel({
       : { ...snapshot, items, running };
   }, [snapshot, messages, session.id, streaming, running]);
   const needsYou = !!ownedState?.permission;
+  const zen = useContext(ZenContext);
   const status = ownedState
     ? needsYou
       ? "Needs you"
@@ -443,7 +446,8 @@ export function SessionPanel({
           />
           {status}
         </span>
-        {sessions.length > 1 && (
+        {/* Zen keeps the agent and its status; the palette has the rest. */}
+        {!zen && sessions.length > 1 && (
           <ChoiceSelect
             label="Session"
             value={session.id}
@@ -454,21 +458,22 @@ export function SessionPanel({
             onChange={setChosen}
           />
         )}
-        {pageable && (
+        {!zen && pageable && (
           <TurnMenu
             load={() => loadSessionTurns(reviewId, session.id, fetcher)}
             onChoose={(turn) => void showTurn(turn).catch(() => {})}
           />
         )}
-        {starter && <NewSessionMenu starter={starter} />}
-        {controls ?? (
-          <ToolButton
-            icon="close"
-            label="Hide session"
-            aria-label="Hide session"
-            onClick={onClose}
-          />
-        )}
+        {!zen && starter && <NewSessionMenu starter={starter} />}
+        {!zen &&
+          (controls ?? (
+            <ToolButton
+              icon="close"
+              label="Hide session"
+              aria-label="Hide session"
+              onClick={onClose}
+            />
+          ))}
       </header>
       {state.status === "missing" && !ownedState ? (
         <p {...stylex.props(styles.empty)}>{state.message}</p>

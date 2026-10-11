@@ -20,6 +20,18 @@ export const agentMessageInputSchema = z.object({
 });
 export type AgentMessageInput = z.input<typeof agentMessageInputSchema>;
 
+/** A comment as it read when the user sent it. */
+export const sentCommentSchema = z.object({
+  /** A file, or "Notes" for a comment on a passage of the Notes. */
+  path: z.string(),
+  line: z.number().optional(),
+  endLine: z.number().optional(),
+  /** The passage of the Notes. */
+  quote: z.string().optional(),
+  text: z.string(),
+});
+export type SentComment = z.infer<typeof sentCommentSchema>;
+
 export const agentMessageSchema = z.object({
   id: z.string(),
   sessionId: z.string(),
@@ -27,6 +39,8 @@ export const agentMessageSchema = z.object({
   /** What the user wrote. */
   text: z.string(),
   noteIds: z.array(z.string()),
+  /** The comments, so the thread can show what was sent. */
+  comments: z.array(sentCommentSchema).optional(),
   attachmentCount: z.number().int().nonnegative(),
   createdAt: z.string(),
   /**
