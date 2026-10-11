@@ -25,11 +25,18 @@ const CURRENT: LibraryIdea = {
 
 const IDEAS: LibraryIdea[] = [
   {
-    id: "system",
-    title: "The System",
+    id: "system-header",
+    title: "The System, no sidebar",
     description:
-      "Library, app sidebar and reader panel designed as one product. Books in progress come first as covers with a line of progress; the rest is a quiet grid.",
-    src: "/debug/experiments/system",
+      "The page titles are the navigation. Books you are reading show once, on the shelf. Search, /, or typing narrows the page in place.",
+    src: "/debug/experiments/system?nav=header",
+  },
+  {
+    id: "system",
+    title: "The System, sidebar",
+    description:
+      "The same page with a sidebar that stays in the library and floats while reading. It holds only the two places.",
+    src: "/debug/experiments/system?nav=sidebar",
   },
 ];
 

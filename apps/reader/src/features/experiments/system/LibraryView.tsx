@@ -1,17 +1,20 @@
 /**
  * The library. The books you are reading come first, as covers with a line
- * of progress; everything else is a quiet grid. Controls show when you need
- * them: book actions on hover, sorting and layout in one menu.
+ * of progress; everything else is a quiet grid. Each book shows once.
+ * Controls show when you need them: book actions on hover, sorting and
+ * layout in one menu. Search turns the title into the query and narrows the
+ * page in place.
  */
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "motion/react";
 import {
   MoreHorizontal,
-  PanelLeft,
   Plus,
+  Search,
   SlidersHorizontal,
+  X,
 } from "lucide-react";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { StudioStatus } from "../data/sample-library";
 import { chapterOfPage } from "../data/walden-book";
 import { TypographicCover } from "../primitives";
@@ -28,9 +31,17 @@ import {
   TextButton,
   TextTabs,
 } from "./ui";
-import { minutesForPages, type ShelfBook } from "./state";
+import {
+  PageTitle,
+  ShortcutsButton,
+  ThemeButton,
+  type SystemNav,
+  type SystemView,
+} from "./Navigation";
+import { matchesQuery, minutesForPages, type ShelfBook } from "./state";
 
-type Filter = "all" | StudioStatus;
+/** The books you are reading are on the shelf, so the tabs leave them out. */
+type Filter = "all" | Exclude<StudioStatus, "reading">;
 type Sort = "recent" | "title" | "author" | "added";
 type Layout = "grid" | "list";
 
@@ -97,21 +108,37 @@ function menuSide(trigger: HTMLElement): "top" | "bottom" {
 export function LibraryView({
   books,
   pages,
+  nav,
   narrow,
-  sidebarHidden,
+  isDark,
   scrollMemory,
+  query,
+  searchFocusKey,
+  onNavigate,
   onShowSidebar,
+  onToggleTheme,
+  onSearch,
+  onQuery,
   onOpen,
   onSetStatus,
   onRemove,
 }: {
   books: ShelfBook[];
   pages: Record<string, number>;
+  nav: SystemNav;
   narrow: boolean;
-  sidebarHidden: boolean;
+  isDark: boolean;
   /** Keeps the scroll position when you come back from a book. */
   scrollMemory: { current: number };
+  /** The search in the title, or null when it is closed. */
+  query: string | null;
+  /** Changes when the search should take the keyboard. */
+  searchFocusKey: number;
+  onNavigate: (view: SystemView) => void;
   onShowSidebar: () => void;
+  onToggleTheme: () => void;
+  onSearch: () => void;
+  onQuery: (query: string | null) => void;
   onOpen: (bookId: string) => void;
   onSetStatus: (bookId: string, status: StudioStatus) => void;
   onRemove: (bookId: string) => void;
@@ -122,19 +149,57 @@ export function LibraryView({
   const [viewOpen, setViewOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useLayoutEffect(() => {
     const scroller = scrollerRef.current;
     if (scroller) scroller.scrollTop = scrollMemory.current;
   }, [scrollMemory]);
 
-  const reading = books
+  const searching = query !== null;
+  const terms = query?.trim() ?? "";
+
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input || searchFocusKey === 0) return;
+    input.focus({ preventScroll: true });
+    input.setSelectionRange(input.value.length, input.value.length);
+  }, [searchFocusKey]);
+
+  // Results start at the top, wherever the search began.
+  const searchedTerms = useRef(terms);
+  useEffect(() => {
+    if (searchedTerms.current === terms) return;
+    searchedTerms.current = terms;
+    scrollerRef.current?.scrollTo({ top: 0 });
+  }, [terms]);
+
+  const found = terms
+    ? books.filter((book) => matchesQuery(book, terms))
+    : books;
+  // Each book shows once: the books you are reading on the shelf, the rest below.
+  const reading = found
     .filter((book) => book.status === "reading")
     .sort((a, b) => (b.lastReadAt ?? 0) - (a.lastReadAt ?? 0));
   const shown = sortBooks(
-    books.filter((book) => filter === "all" || book.status === filter),
+    found.filter(
+      (book) =>
+        book.status !== "reading" &&
+        (filter === "all" || book.status === filter),
+    ),
     sort,
   );
+  const first = reading[0] ?? shown[0];
+  const nothingFound = terms !== "" && found.length === 0;
+  const showShelf = reading.length > 0;
+  const showRest =
+    !nothingFound && (!terms || shown.length > 0 || filter !== "all");
+
+  const titleMotion = {
+    initial: { opacity: 0 },
+    animate: { opacity: 1, transition: MOTION.enter },
+    exit: { opacity: 0, transition: MOTION.exit },
+  };
 
   return (
     <div
@@ -151,30 +216,103 @@ export function LibraryView({
           narrow ? "px-5 pt-5 pb-16" : "px-12 pt-12 pb-24",
         )}
       >
-        <header className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            {sidebarHidden && (
-              <IconButton
-                label="Show sidebar ([)"
-                onClick={onShowSidebar}
-                className="-ml-2"
-              >
-                <PanelLeft className="size-4" strokeWidth={1.6} />
+        {/* While you search, the title row stays in view. */}
+        <header
+          className={cn(
+            "-my-3 flex items-center justify-between gap-3 py-3",
+            searching && "sticky top-0 z-20 bg-background",
+          )}
+        >
+          <div className="relative h-9 min-w-0 flex-1">
+            <AnimatePresence initial={false}>
+              {searching ? (
+                <motion.div
+                  key="search"
+                  role="search"
+                  className="absolute inset-0 flex items-center gap-2.5"
+                  {...titleMotion}
+                >
+                  <Search
+                    className="size-[18px] shrink-0 text-muted-foreground"
+                    strokeWidth={1.7}
+                  />
+                  <input
+                    ref={inputRef}
+                    value={query}
+                    onChange={(event) => onQuery(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onQuery(query ? "" : null);
+                      } else if (event.key === "Enter" && terms && first) {
+                        event.preventDefault();
+                        onOpen(first.id);
+                      }
+                    }}
+                    aria-label="Search the library"
+                    placeholder="Title or author"
+                    enterKeyHint="search"
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="xp-serif min-w-0 flex-1 bg-transparent text-[30px] leading-none tracking-[-0.01em] outline-none placeholder:text-foreground/25"
+                  />
+                  {terms && (
+                    <span
+                      aria-live="polite"
+                      className="shrink-0 font-numeric text-[12px] text-muted-foreground tabular-nums"
+                    >
+                      {found.length} of {books.length}
+                    </span>
+                  )}
+                  <IconButton
+                    label="Close search (Esc)"
+                    onClick={() => onQuery(null)}
+                  >
+                    <X className="size-4" strokeWidth={1.6} />
+                  </IconButton>
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="title"
+                  className="absolute inset-0 flex items-center"
+                  {...titleMotion}
+                >
+                  <PageTitle
+                    nav={nav}
+                    current="library"
+                    narrow={narrow}
+                    onNavigate={onNavigate}
+                    onShowSidebar={onShowSidebar}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            {!searching && (
+              <IconButton label="Search (/)" onClick={onSearch}>
+                <Search className="size-[15px]" strokeWidth={1.7} />
               </IconButton>
             )}
-            <h1 className="xp-serif text-[30px] leading-none tracking-[-0.01em]">
-              Library
-            </h1>
-          </div>
-          <div className="flex items-center gap-1">
             <div className="relative">
-              <TextButton
-                onClick={() => setAddOpen((open) => !open)}
-                aria-expanded={addOpen}
-              >
-                <Plus className="size-3.5" strokeWidth={1.8} />
-                Add books
-              </TextButton>
+              {narrow ? (
+                <IconButton
+                  label="Add books"
+                  active={addOpen}
+                  onClick={() => setAddOpen((open) => !open)}
+                >
+                  <Plus className="size-4" strokeWidth={1.7} />
+                </IconButton>
+              ) : (
+                <TextButton
+                  onClick={() => setAddOpen((open) => !open)}
+                  aria-expanded={addOpen}
+                >
+                  <Plus className="size-3.5" strokeWidth={1.8} />
+                  Add books
+                </TextButton>
+              )}
               <Popover
                 open={addOpen}
                 onClose={() => setAddOpen(false)}
@@ -232,19 +370,47 @@ export function LibraryView({
                 </MenuItem>
               </Popover>
             </div>
+            {nav === "header" && !narrow && (
+              <>
+                <ShortcutsButton sidebar={false} side="bottom" />
+                <ThemeButton isDark={isDark} onToggle={onToggleTheme} />
+              </>
+            )}
           </div>
         </header>
 
-        {reading.length > 0 && (
+        {nothingFound && (
+          <div className="py-20 text-center">
+            <p className="text-[13px] text-muted-foreground">
+              No books match “{terms}”.
+            </p>
+            <TextButton
+              className="mx-auto mt-3"
+              onClick={() => {
+                onQuery("");
+                onSearch();
+              }}
+            >
+              Clear search
+            </TextButton>
+          </div>
+        )}
+
+        {showShelf && (
           <section aria-label="Reading" className={narrow ? "mt-7" : "mt-11"}>
-            <h2 className="text-[12px] text-muted-foreground">Reading</h2>
+            <h2 className="text-[12px] text-muted-foreground">
+              Reading{" "}
+              <span className="ml-1 font-numeric text-foreground/30 tabular-nums">
+                {reading.length}
+              </span>
+            </h2>
             <div
               className={cn(
                 "xp-scroll-quiet mt-4 flex overflow-x-auto",
                 narrow ? "-mx-5 gap-6 px-5" : "gap-12",
               )}
             >
-              {reading.slice(0, 4).map((book) => (
+              {reading.map((book) => (
                 <ReadingItem
                   key={book.id}
                   book={book}
@@ -256,80 +422,90 @@ export function LibraryView({
           </section>
         )}
 
-        <div
-          className={cn(
-            "flex items-center justify-between gap-4",
-            narrow ? "mt-9" : "mt-14",
-          )}
-        >
-          <TextTabs
-            label="Show"
-            value={filter}
-            onChange={setFilter}
-            className="xp-scroll-quiet overflow-x-auto"
-            options={[
-              { value: "all", label: "All" },
-              { value: "reading", label: "Reading" },
-              { value: "want-to-read", label: "Want to read" },
-              { value: "finished", label: "Finished" },
-              { value: "dnf", label: "Set aside" },
-            ]}
-          />
-          <span className="shrink-0 font-numeric text-[12px] text-muted-foreground tabular-nums max-sm:hidden">
-            {shown.length} {shown.length === 1 ? "book" : "books"}
-          </span>
-        </div>
+        {showRest && (
+          <>
+            <div
+              className={cn(
+                "flex items-center justify-between gap-4",
+                !showShelf
+                  ? narrow
+                    ? "mt-7"
+                    : "mt-11"
+                  : narrow
+                    ? "mt-9"
+                    : "mt-14",
+              )}
+            >
+              <TextTabs
+                label="Show"
+                value={filter}
+                onChange={setFilter}
+                className="xp-scroll-quiet overflow-x-auto"
+                options={[
+                  { value: "all", label: "All" },
+                  { value: "want-to-read", label: "Want to read" },
+                  { value: "finished", label: "Finished" },
+                  { value: "dnf", label: "Set aside" },
+                ]}
+              />
+              <span className="shrink-0 font-numeric text-[12px] text-muted-foreground tabular-nums max-sm:hidden">
+                {shown.length} {shown.length === 1 ? "book" : "books"}
+              </span>
+            </div>
 
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            key={`${filter}-${sort}-${layout}`}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1, transition: MOTION.enter }}
-            exit={{ opacity: 0, transition: MOTION.exit }}
-            className="mt-6"
-          >
-            {shown.length === 0 ? (
-              <p className="py-20 text-center text-[13px] text-muted-foreground">
-                No books here. Change a book’s status from its menu to file it
-                here.
-              </p>
-            ) : layout === "grid" ? (
-              <ul
-                className={cn(
-                  "grid gap-y-10",
-                  narrow
-                    ? "grid-cols-2 gap-x-5"
-                    : "gap-x-8 [grid-template-columns:repeat(auto-fill,minmax(128px,1fr))]",
-                )}
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={`${filter}-${sort}-${layout}`}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1, transition: MOTION.enter }}
+                exit={{ opacity: 0, transition: MOTION.exit }}
+                className="mt-6"
               >
-                {shown.map((book) => (
-                  <BookTile
-                    key={book.id}
-                    book={book}
-                    page={pages[book.id]}
-                    onOpen={() => onOpen(book.id)}
-                    onSetStatus={(status) => onSetStatus(book.id, status)}
-                    onRemove={() => onRemove(book.id)}
-                  />
-                ))}
-              </ul>
-            ) : (
-              <ul>
-                {shown.map((book) => (
-                  <BookRow
-                    key={book.id}
-                    book={book}
-                    page={pages[book.id]}
-                    narrow={narrow}
-                    onOpen={() => onOpen(book.id)}
-                    onSetStatus={(status) => onSetStatus(book.id, status)}
-                    onRemove={() => onRemove(book.id)}
-                  />
-                ))}
-              </ul>
-            )}
-          </motion.div>
-        </AnimatePresence>
+                {shown.length === 0 ? (
+                  <p className="py-20 text-center text-[13px] text-muted-foreground">
+                    {terms
+                      ? "No books here match."
+                      : "No books here. Change a book’s status from its menu to file it here."}
+                  </p>
+                ) : layout === "grid" ? (
+                  <ul
+                    className={cn(
+                      "grid gap-y-10",
+                      narrow
+                        ? "grid-cols-2 gap-x-5"
+                        : "gap-x-8 [grid-template-columns:repeat(auto-fill,minmax(128px,1fr))]",
+                    )}
+                  >
+                    {shown.map((book) => (
+                      <BookTile
+                        key={book.id}
+                        book={book}
+                        page={pages[book.id]}
+                        onOpen={() => onOpen(book.id)}
+                        onSetStatus={(status) => onSetStatus(book.id, status)}
+                        onRemove={() => onRemove(book.id)}
+                      />
+                    ))}
+                  </ul>
+                ) : (
+                  <ul>
+                    {shown.map((book) => (
+                      <BookRow
+                        key={book.id}
+                        book={book}
+                        page={pages[book.id]}
+                        narrow={narrow}
+                        onOpen={() => onOpen(book.id)}
+                        onSetStatus={(status) => onSetStatus(book.id, status)}
+                        onRemove={() => onRemove(book.id)}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </motion.div>
+            </AnimatePresence>
+          </>
+        )}
       </div>
     </div>
   );

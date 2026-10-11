@@ -3,8 +3,8 @@
  * product.
  *
  * Layout rules:
- * - In the library the sidebar is part of the screen. Showing or hiding it
- *   is instant, with no animated layout.
+ * - In the library the sidebar is part of the screen and stays. With header
+ *   navigation there is no sidebar; the page titles move between places.
  * - While reading, the page never moves. The sidebar and the panel float
  *   over it, and only their own opacity and position animate.
  * - Screens crossfade. Coming back from a book returns you to the same
@@ -16,6 +16,7 @@ import { AnimatePresence, motion } from "motion/react";
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -47,14 +48,17 @@ import {
   spreadOf,
   type SelectionDraft,
 } from "./ReaderSheet";
-import { Sidebar, type SystemView } from "./Sidebar";
+import type { SystemNav, SystemView } from "./Navigation";
+import { Sidebar } from "./Sidebar";
 import {
+  applyShelfEdits,
   entryPage,
   highlightsFor,
   initialEntries,
   shelfFromLibrary,
   type Entry,
   type ShelfBook,
+  type ShelfEdit,
 } from "./state";
 import { FLOATING_SURFACE, MOTION } from "./ui";
 
@@ -74,19 +78,28 @@ function isTyping(target: EventTarget | null): boolean {
   );
 }
 
-export function SystemPrototype({ library }: { library: StudioLibrary }) {
+export function SystemPrototype({
+  library,
+  nav = "sidebar",
+}: {
+  library: StudioLibrary;
+  nav?: SystemNav;
+}) {
   const { settings } = useReaderSettings();
   const [rootRef, size] = useElementSize<HTMLDivElement>();
   const focusRef = useRef<HTMLDivElement>(null);
   const libraryScroll = useRef(0);
   // Whether the docked sidebar should fade with a screen change, or change instantly.
   const sidebarFades = useRef(false);
-  const [shelf, setShelf] = useState<ShelfBook[]>(() =>
-    shelfFromLibrary(library),
+  const [edits, setEdits] = useState<Record<string, ShelfEdit>>({});
+  const shelf = useMemo(
+    () => applyShelfEdits(shelfFromLibrary(library), edits),
+    [edits, library],
   );
   const [view, setView] = useState<SystemView>({ kind: "library" });
-  const [dockedSidebar, setDockedSidebar] = useState(true);
   const [floatingSidebar, setFloatingSidebar] = useState(false);
+  const [libraryQuery, setLibraryQuery] = useState<string | null>(null);
+  const [searchFocusKey, setSearchFocusKey] = useState(0);
   const [panel, setPanel] = useState<{ open: boolean; tab: PanelTab }>({
     open: false,
     tab: "contents",
@@ -138,8 +151,9 @@ export function SystemPrototype({ library }: { library: StudioLibrary }) {
   const layout = model ? (layouts[model.id] ?? initialLayout(model)) : null;
   const page = model ? (pages[model.id] ?? model.readingPage) : 0;
   const panelOpen = inReader && panel.open && model !== null;
-  const sidebarDocked = !inReader && wide && dockedSidebar;
-  const sidebarFloating = (inReader || !wide) && floatingSidebar;
+  const hasSidebar = nav === "sidebar";
+  const sidebarDocked = hasSidebar && !inReader && wide;
+  const sidebarFloating = hasSidebar && (inReader || !wide) && floatingSidebar;
   const isDark = DARK_THEMES.includes(theme);
   const screenLeft = sidebarDocked ? SIDEBAR_WIDTH : 0;
 
@@ -173,14 +187,31 @@ export function SystemPrototype({ library }: { library: StudioLibrary }) {
     [model],
   );
 
-  const touchBook = (bookId: string, patch: Partial<ShelfBook> = {}) => {
-    setShelf((current) =>
-      current.map((book) =>
-        book.id === bookId
-          ? { ...book, lastReadAt: Date.now(), ...patch }
-          : book,
-      ),
-    );
+  const editBook = (bookId: string, edit: ShelfEdit) => {
+    setEdits((current) => {
+      const previous = current[bookId];
+      if (edit === "removed" || previous === "removed")
+        return { ...current, [bookId]: edit };
+      return { ...current, [bookId]: { ...previous, ...edit } };
+    });
+  };
+
+  const touchBook = (
+    bookId: string,
+    patch: Partial<Pick<ShelfBook, "status">> = {},
+  ) => {
+    editBook(bookId, { lastReadAt: Date.now(), ...patch });
+  };
+
+  const openLibrarySearch = (append = "") => {
+    setLibraryQuery((current) => (current ?? "") + append);
+    setSearchFocusKey((key) => key + 1);
+  };
+
+  const changeLibraryQuery = (next: string | null) => {
+    setLibraryQuery(next);
+    // Shortcuts need the keyboard back once the search closes.
+    if (next === null) focusRef.current?.focus({ preventScroll: true });
   };
 
   const openBookById = (bookId: string) => {
@@ -207,6 +238,8 @@ export function SystemPrototype({ library }: { library: StudioLibrary }) {
     setView(next);
     setFloatingSidebar(false);
     setPanel((current) => ({ ...current, open: false }));
+    // The control that navigated can leave with the screen; keep the shortcuts.
+    focusRef.current?.focus({ preventScroll: true });
   };
 
   const goTo = (target: number, entryId?: string) => {
@@ -239,12 +272,9 @@ export function SystemPrototype({ library }: { library: StudioLibrary }) {
     setSearching(Boolean(options?.search));
   };
 
+  // The docked sidebar stays; only the floating one opens and closes.
   const toggleSidebar = () => {
-    if (!inReader && wide) {
-      sidebarFades.current = false;
-      setDockedSidebar((shown) => !shown);
-      return;
-    }
+    if (!hasSidebar || (!inReader && wide)) return;
     setFloatingSidebar((shown) => !shown);
   };
 
@@ -360,14 +390,32 @@ export function SystemPrototype({ library }: { library: StudioLibrary }) {
       setPaletteOpen((open) => !open);
       return;
     }
-    if (
-      paletteOpen ||
-      isTyping(event.target) ||
-      event.metaKey ||
-      event.ctrlKey ||
-      event.altKey
-    )
-      return;
+    if (paletteOpen || isTyping(event.target)) return;
+    if (view.kind === "library") {
+      // Find, a slash, or any letter searches the library in place.
+      const find =
+        (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f";
+      if (
+        find ||
+        (!event.metaKey && !event.ctrlKey && !event.altKey && event.key === "/")
+      ) {
+        event.preventDefault();
+        openLibrarySearch();
+        return;
+      }
+      if (
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        event.key.length === 1 &&
+        /[\p{L}\p{N}]/u.test(event.key)
+      ) {
+        event.preventDefault();
+        openLibrarySearch(event.key);
+        return;
+      }
+    }
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
     if (event.key === "[") {
       event.preventDefault();
       toggleSidebar();
@@ -376,6 +424,8 @@ export function SystemPrototype({ library }: { library: StudioLibrary }) {
     if (event.key === "Escape") {
       if (floatingSidebar) setFloatingSidebar(false);
       else if (panel.open) openPanel(null);
+      else if (view.kind === "library" && libraryQuery !== null)
+        changeLibraryQuery(null);
       return;
     }
     if (!inReader || !model || !layout) return;
@@ -410,13 +460,9 @@ export function SystemPrototype({ library }: { library: StudioLibrary }) {
 
   const sidebar = (
     <Sidebar
-      books={shelf}
-      pages={pages}
       view={view}
       isDark={isDark}
       onNavigate={navigate}
-      onOpenBook={openBookById}
-      onSearch={() => setPaletteOpen(true)}
       onToggleTheme={toggleTheme}
     />
   );
@@ -522,23 +568,22 @@ export function SystemPrototype({ library }: { library: StudioLibrary }) {
                   <LibraryView
                     books={shelf}
                     pages={pages}
+                    nav={nav}
                     narrow={!wide}
-                    sidebarHidden={!sidebarDocked}
+                    isDark={isDark}
                     scrollMemory={libraryScroll}
+                    query={libraryQuery}
+                    searchFocusKey={searchFocusKey}
+                    onNavigate={navigate}
                     onShowSidebar={toggleSidebar}
+                    onToggleTheme={toggleTheme}
+                    onSearch={() => openLibrarySearch()}
+                    onQuery={changeLibraryQuery}
                     onOpen={openBookById}
                     onSetStatus={(bookId: string, status: StudioStatus) =>
-                      setShelf((current) =>
-                        current.map((book) =>
-                          book.id === bookId ? { ...book, status } : book,
-                        ),
-                      )
+                      editBook(bookId, { status })
                     }
-                    onRemove={(bookId) =>
-                      setShelf((current) =>
-                        current.filter((book) => book.id !== bookId),
-                      )
-                    }
+                    onRemove={(bookId) => editBook(bookId, "removed")}
                   />
                 )}
                 {view.kind === "highlights" && (
@@ -546,9 +591,12 @@ export function SystemPrototype({ library }: { library: StudioLibrary }) {
                     books={shelf}
                     entries={entries}
                     layouts={layouts}
+                    nav={nav}
                     narrow={!wide}
-                    sidebarHidden={!sidebarDocked}
+                    isDark={isDark}
+                    onNavigate={navigate}
                     onShowSidebar={toggleSidebar}
+                    onToggleTheme={toggleTheme}
                     onOpenEntry={openEntry}
                     onSaveNote={saveNote}
                     onDelete={deleteEntry}

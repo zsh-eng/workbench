@@ -59,6 +59,42 @@ export function shelfFromLibrary(library: StudioLibrary): ShelfBook[] {
   });
 }
 
+/** A change made in the prototype, kept apart from the live library. */
+export type ShelfEdit =
+  | Partial<Pick<ShelfBook, "status" | "lastReadAt">>
+  | "removed";
+
+/**
+ * The live library with the prototype's changes on top. Books, covers and
+ * statuses arrive after the first render, so the shelf is never a copy.
+ */
+export function applyShelfEdits(
+  books: ShelfBook[],
+  edits: Record<string, ShelfEdit>,
+): ShelfBook[] {
+  return books.flatMap((book) => {
+    const edit = edits[book.id];
+    if (edit === "removed") return [];
+    return [edit ? { ...book, ...edit } : book];
+  });
+}
+
+/** Whether every word of a query is in the title or the author. */
+export function matchesQuery(
+  book: Pick<ShelfBook, "title" | "author">,
+  query: string,
+): boolean {
+  const fold = (text: string) =>
+    text
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .toLocaleLowerCase();
+  const haystack = fold(`${book.title} ${book.author}`);
+  return fold(query)
+    .split(/\s+/)
+    .every((word) => haystack.includes(word));
+}
+
 const STANDALONE_NOTES: Omit<Entry, "id" | "kind" | "color" | "text">[] = [
   {
     bookId: "walden",
