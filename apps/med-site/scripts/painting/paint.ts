@@ -9,8 +9,9 @@ import sharp from "sharp";
 
 const here = join(import.meta.dir, "../../../med/scripts/painting");
 const out = join(import.meta.dir, "../../public/painting");
-// The product panel's shape (src/styles.css, .painting).
-const painting = { width: 2400, height: 1816, widths: [1200, 2400] };
+// The product panel's shape (src/styles.css, .painting). It is painted at 1.5
+// times the largest width and scaled down, so the bristles keep clean edges.
+const painting = { width: 3600, height: 2724, widths: [1200, 2400] };
 
 mkdirSync(out, { recursive: true });
 const browser = await chromium.launch();
@@ -35,11 +36,12 @@ try {
       const image = sharp(png).resize(width);
       await image
         .clone()
-        .avif({ quality: 50, effort: 6 })
+        // Below about 60, AVIF smooths the strokes into blocks.
+        .avif({ quality: 64, effort: 6 })
         .toFile(join(out, `${name}-${width}.avif`));
       await image
         .clone()
-        .webp({ quality: 72 })
+        .webp({ quality: 80 })
         .toFile(join(out, `${name}-${width}.webp`));
     }
     console.log(`${name}: painted in ${Date.now() - started} ms`);

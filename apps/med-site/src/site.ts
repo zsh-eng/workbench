@@ -14,7 +14,7 @@ export const site = {
   heading: "Review what your agent changed.",
   tagline: "A local review app for coding agents.",
   subtitle:
-    "Read what the agent did and why, comment on lines, and send your comments back to it. Then commit, push, and follow the pull request from the same window.",
+    "Comment on the diff, send your comments back to the agent, then commit and push.",
   closing: "Your agent did the work.",
   closingMore: "Read it in Med.",
 

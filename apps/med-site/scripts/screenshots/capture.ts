@@ -2,7 +2,9 @@
 // serves the Trailhead fixture; a fixture transcript (session.ts) stands in
 // for the agent: Med shows it in the Session pane, and `med review wait` takes
 // the comments that Med sends. The recordings of Med's API answers go to
-// public/demo. Each screenshot is a scene of the live demo itself
+// public/demo: hero.json is a timeline, from the reviewer's message to the
+// agent's next review; recording.json and vault.json are the state after it.
+// Each screenshot is a scene of the live demo itself
 // (apps/med/src/web/demo.ts), so a window's picture matches the Med that
 // replaces it. The script writes AVIF and WebP files and src/screenshots.json.
 //
@@ -26,8 +28,8 @@ import { homedir, tmpdir } from "node:os";
 import { join, normalize } from "node:path";
 import { chromium, type Browser, type Locator, type Page } from "playwright";
 import sharp from "sharp";
-import { comments, rounds } from "./fixture.ts";
-import { applyRound, createRepository } from "./repo.ts";
+import { comments, message, rounds } from "./fixture.ts";
+import { applyRound, createRepository, write } from "./repo.ts";
 import { sessionId, Transcript } from "./session.ts";
 import { buildDemo } from "../demo.ts";
 import { createVault, noteNames, vaultNote } from "./vault.ts";
@@ -67,20 +69,23 @@ const phone = (scene: string, height: number): Spec => ({
   widths: [780, 1170],
 });
 const shots: Record<string, Spec> = {
+  // Med 10% larger than at 1440 by 900: the window shows less, and larger.
   review: {
-    viewport: { width: 1440, height: 900 },
+    viewport: { width: 1309, height: 818 },
+    scale: 2.2,
     // No 2240: the full-size capture is smaller as AVIF than a resample to it.
     widths: [720, 1120, 1680, 2880],
   },
   brief: feature(720, 420),
   comment: feature(720, 400),
   session: feature(720, 520),
-  commit: feature(720, 260),
+  // Wider than the window, so the Commit tab keeps its files beside the diff.
+  commit: feature(760, 460),
   notes: feature(720, 440),
   "brief-phone": phone("brief", 460),
   "comment-phone": phone("comment", 440),
   "session-phone": phone("session", 556),
-  "commit-phone": phone("commit", 240),
+  "commit-phone": phone("commit", 330),
   "notes-phone": phone("notes", 480),
 };
 type Shot = string;
@@ -276,15 +281,24 @@ async function settle(page: Page) {
   await checkPrivacy(page);
 }
 
-/** Keeps a copy of each API answer in window.medRecording. */
+/** Keeps a copy of each API answer in window.medRecording, with the time it
+ * came, and each event of a stream with its own time. */
 function recorder() {
-  type Entry = Record<string, unknown> & { text: string };
+  type Entry = Record<string, unknown> & {
+    text: string;
+    t: number;
+    chunks?: { t: number; text: string }[];
+  };
   const entries: Entry[] = [];
   Object.assign(window, { medRecording: entries });
   const realFetch = window.fetch.bind(window);
   window.fetch = async (input, init) => {
     const request = new Request(input, init);
     const url = new URL(request.url);
+    // Med opens each event stream by itself without the shared live stream,
+    // as it does in the demo, so each stream records under its own path.
+    if (url.pathname === "/api/live")
+      return new Response(null, { status: 404 });
     const response = await realFetch(input, init);
     if (!url.pathname.startsWith("/api/")) return response;
     const type = response.headers.get("content-type") ?? "";
@@ -295,18 +309,24 @@ function recorder() {
       status: response.status,
       type,
       text: "",
+      t: performance.now(),
     };
     entries.push(entry);
     if (type.startsWith("text/event-stream") && response.body) {
       // Keep reading the copy for as long as the page is open.
       const [app, copy] = response.body.tee();
+      const chunks: { t: number; text: string }[] = [];
+      entry.chunks = chunks;
       void (async () => {
         const reader = copy.getReader();
         const decoder = new TextDecoder();
         for (;;) {
           const { value, done } = await reader.read();
           if (done) break;
-          entry.text += decoder.decode(value, { stream: true });
+          chunks.push({
+            t: performance.now(),
+            text: decoder.decode(value, { stream: true }),
+          });
         }
       })();
       return new Response(app, {
@@ -325,6 +345,26 @@ function recorder() {
   };
 }
 
+/** Opens each changed file from its header and closes it, as a visitor
+ * would. The tree scrolls the stream to the file first. */
+async function openFiles(page: Page) {
+  const status = Bun.spawnSync(["git", "-C", repo, "status", "--porcelain"]);
+  const files = status.stdout
+    .toString()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => line.slice(3));
+  for (const file of files) {
+    const name = file.split("/").at(-1)!;
+    await page.getByRole("treeitem", { name, exact: true }).click();
+    await page.waitForTimeout(600);
+    await page.getByRole("link", { name: file, exact: true }).first().click();
+    await page.waitForTimeout(800);
+    await page.getByRole("button", { name: "Close file" }).click();
+    await page.waitForTimeout(300);
+  }
+}
+
 /** Records the review for the live demo: every API answer while a visitor
  * would look around, and the app's own layout settings. */
 async function record(browser: Browser, token: string, path: string) {
@@ -340,7 +380,11 @@ async function record(browser: Browser, token: string, path: string) {
   await page.goto(`${origin}${path}`);
   await page.getByRole("tab", { name: "Notes" }).waitFor();
   await page.waitForTimeout(1000);
-  await showSession(page);
+  const pane = await showSession(page);
+  // The session's turns, for its Turns menu.
+  await pane.getByRole("button", { name: "Turns" }).click();
+  await page.waitForTimeout(600);
+  await page.keyboard.press("Escape");
   await page.getByRole("tab", { name: "Changes" }).click();
   // Load every file in the stream, then come back to the comment.
   await page.mouse.move(800, 500);
@@ -361,30 +405,15 @@ async function record(browser: Browser, token: string, path: string) {
   await checkPrivacy(page);
   // A visitor's first clicks: each changed file, each commit, and the
   // Commit tab.
-  const status = Bun.spawnSync(["git", "-C", repo, "status", "--porcelain"]);
-  const files = status.stdout
-    .toString()
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => line.slice(3));
-  for (const file of files) {
-    // The tree scrolls the stream to the file; its header opens the file.
-    const name = file.split("/").at(-1)!;
-    await page.getByRole("treeitem", { name, exact: true }).click();
-    await page.waitForTimeout(600);
-    await page.getByRole("link", { name: file, exact: true }).first().click();
-    await page.waitForTimeout(800);
-    await page.getByRole("button", { name: "Close file" }).click();
-    await page.waitForTimeout(300);
-  }
+  await openFiles(page);
   const commits = page.locator("button[role=option]").filter({ visible: true });
   for (let index = 0; index < (await commits.count()); index += 1) {
     await commits.nth(index).click();
     await page.waitForTimeout(800);
   }
   await page.getByText("Working changes", { exact: true }).first().click();
-  // The commit: every file staged and the message written. Med keeps the
-  // message as a draft, which the demo's commit scene opens.
+  // The commit: Med keeps the message as a draft, which the demo's commit
+  // scene types out. The scene stages the files itself, so none stay staged.
   await page.getByRole("tab", { name: "Commit" }).click();
   await page.getByRole("button", { name: "Stage all", exact: true }).click();
   await page.getByRole("button", { name: "Unstage all" }).waitFor();
@@ -394,10 +423,59 @@ async function record(browser: Browser, token: string, path: string) {
     .fill(commitMessage);
   await page.waitForTimeout(400);
   await page.getByRole("button", { name: "Cancel" }).click();
-  await page.waitForTimeout(400);
+  await page.getByRole("button", { name: "Unstage all" }).click();
+  await page.getByRole("button", { name: "Stage all", exact: true }).waitFor();
+  await page.waitForTimeout(600);
   await page.getByRole("tab", { name: "Changes" }).click();
   await page.waitForTimeout(800);
   await save(page, "recording.json", path);
+  await context.close();
+}
+
+/** Records the hero's timeline: the review with the reviewer's comment on
+ * the first file and the agent waiting, then the reviewer's message, and the
+ * agent's answer as it happens (`answer`). Times count from the message. */
+async function recordHero(
+  browser: Browser,
+  token: string,
+  path: string,
+  answer: () => Promise<void>,
+) {
+  const context = await browser.newContext({
+    viewport: shots.review!.viewport,
+    reducedMotion: "reduce",
+  });
+  await context.addInitScript(recorder);
+  const page = await context.newPage();
+  await page.goto(`${origin}/#token=${token}`);
+  await page.waitForURL((url) => !url.hash.includes("token"));
+  await page.getByText("History", { exact: true }).waitFor();
+  await page.goto(`${origin}${path}`);
+  await page.getByRole("tab", { name: "Notes" }).waitFor();
+  await page.waitForTimeout(1000);
+  const pane = await showSession(page);
+  await page.getByRole("tab", { name: "Changes" }).click();
+  // Load every file in the stream, then come back to the first.
+  await page.mouse.move(600, 450);
+  for (const delta of [700, -700]) {
+    for (let step = 0; step < 30; step += 1) {
+      await page.mouse.wheel(0, delta);
+      await page.waitForTimeout(100);
+    }
+  }
+  await page.waitForTimeout(1500);
+  await checkPrivacy(page);
+  await pane.getByPlaceholder(/^Message/).fill(message);
+  await page.evaluate(() =>
+    Object.assign(window, { medRecordingZero: performance.now() }),
+  );
+  await pane.getByRole("button", { name: "Send" }).click();
+  await answer();
+  // Med follows the agent to its new review, then the agent waits again.
+  await page.waitForTimeout(4000);
+  await openFiles(page);
+  await checkPrivacy(page);
+  await save(page, "hero.json", path);
   await context.close();
 }
 
@@ -438,73 +516,52 @@ type Entry = {
   status: number;
   type: string;
   text: string;
+  t: number;
+  chunks?: { t: number; text: string }[];
 };
 
-/** Med sends its event streams as channels of one live stream (/api/live),
- * with keys that depend on the order the app opened them. The demo has no live
- * stream, so the app opens each stream directly: this keeps each channel as
- * the stream of its own path, the last channel for a path winning. */
-function direct(entries: Entry[]): Entry[] {
-  const paths = new Map<string, string>();
-  for (const entry of entries) {
-    if (entry.method !== "POST" || !entry.url.startsWith("/api/live/"))
-      continue;
-    const { open = [] } = JSON.parse(entry.body ?? "{}") as {
-      open?: { key: string; path: string }[];
-    };
-    for (const channel of open) paths.set(channel.key, channel.path);
-  }
-  // A stream that sent nothing still stays open.
-  const streams = new Map([...paths.values()].map((path) => [path, ""]));
-  const owners = new Map<string, string>();
-  for (const entry of entries) {
-    if (entry.url !== "/api/live") continue;
-    for (const block of entry.text.split("\n\n")) {
-      const lines = block.split("\n");
-      const event = lines.find((line) => line.startsWith("event: "))?.slice(7);
-      const split = event?.indexOf(":") ?? -1;
-      if (!event || split < 0) continue;
-      const key = event.slice(0, split);
-      const name = event.slice(split + 1);
-      const path = paths.get(key);
-      if (!path || name === "end") continue;
-      // A new channel for a path replaces what the last one sent.
-      if (owners.get(path) !== key) streams.set(path, "");
-      owners.set(path, key);
-      const data = lines.filter((line) => line.startsWith("data: "));
-      streams.set(
-        path,
-        `${streams.get(path)}event: ${name}\n${data.join("\n")}\n\n`,
-      );
-    }
-  }
-  return [
-    ...entries.filter((entry) => !entry.url.startsWith("/api/live")),
-    ...[...streams].map(([url, text]) => ({
-      method: "GET",
-      url,
-      status: 200,
-      type: "text/event-stream",
-      text,
-    })),
-  ];
-}
-
 /** Writes a page's recording to public/demo: its API answers, and the app's
- * local settings without the theme, which follows the visitor. */
+ * local settings without the theme, which follows the visitor. A page that
+ * set window.medRecordingZero keeps a timeline: each answer and event with
+ * its time from then. Other pages keep the answers whole, and the demo gives
+ * the last answer to each request. */
 async function save(page: Page, name: string, path: string) {
   const recorded = await page.evaluate(() => ({
     storage: Object.fromEntries(
       Object.entries(localStorage).filter(([key]) => !key.includes("theme")),
     ),
     entries: (window as unknown as { medRecording: Entry[] }).medRecording,
+    zero: (window as unknown as { medRecordingZero?: number }).medRecordingZero,
+    // The wall-clock time at the page's start, for the timeline's start.
+    origin: Date.now() - performance.now(),
   }));
-  const { storage } = recorded;
-  const entries = direct(recorded.entries);
+  const { storage, zero } = recorded;
+  const ms = (time: number) => Math.round(time - zero!);
+  const entries = recorded.entries.map(({ t, chunks, ...entry }) =>
+    zero === undefined
+      ? {
+          ...entry,
+          ...(chunks ? { text: chunks.map((chunk) => chunk.text).join("") } : {}),
+        }
+      : {
+          ...entry,
+          at: ms(t),
+          ...(chunks
+            ? {
+                chunks: chunks.map((chunk) => ({
+                  at: ms(chunk.t),
+                  text: chunk.text,
+                })),
+              }
+            : {}),
+        },
+  );
   // The fixture lives in a temporary folder; the demo shows it at /work.
   let json = JSON.stringify({
     path,
-    recordedAt: Date.now(),
+    // A timeline's clock starts with it.
+    recordedAt:
+      zero === undefined ? Date.now() : Math.round(recorded.origin + zero),
     storage,
     entries,
   });
@@ -556,7 +613,7 @@ async function scene(browser: Browser, shot: Shot, scheme: Scheme) {
   });
   const page = await context.newPage();
   await page.goto(
-    `http://127.0.0.1:${port + 2}/demo.html?scene=${spec.scene ?? shot}`,
+    `http://127.0.0.1:${port + 2}/demo.html?scene=${spec.scene ?? shot}&still`,
   );
   await page.waitForFunction(
     () => document.documentElement.dataset.demo === "ready",
@@ -612,23 +669,31 @@ try {
   vaultUrl = med(["web", "--no-open", ...vaultServer]).trim();
 
   // Round one: the agent hands over the review and waits; the reviewer
-  // comments and sends the comment from the Session pane.
+  // comments on the first file.
   let review = createReview(0);
   transcript.first(review.link);
   waiter = wait();
   let page = await open(browser, token, review.path);
   const first = comments[0]!;
   await addComment(page, first.file, first.line, first.text);
-  const pane = await showSession(page);
-  await pane.getByRole("button", { name: "Send" }).click();
-  await waiter.exited;
   await page.context().close();
 
-  // Round two answers the comment; the reviewer comments again.
-  applyRound(repo, 1);
-  review = createReview(1);
-  transcript.second(review.link);
-  waiter = wait();
+  // The hero: the reviewer sends the comment, and round two answers it while
+  // Med records, one file at a time, and hands over the next review.
+  await recordHero(browser, token, review.path, async () => {
+    await waiter!.exited;
+    await transcript.second({
+      pause: (ms) => Bun.sleep(ms),
+      write: (files) => write(repo, files),
+      handoff: () => {
+        review = createReview(1);
+        return review.link;
+      },
+    });
+    waiter = wait();
+  });
+
+  // The reviewer comments on round two, for the other windows.
   const { path } = review;
   page = await open(browser, token, path);
   const second = comments[1]!;

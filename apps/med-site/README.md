@@ -29,8 +29,8 @@ bun run paint      # paints the picture behind the product window
 - `src/shots.ts`: alt text and layout sizes for the screenshots.
 - `scripts/painting/paint.ts`: the painting (see [Brand](#brand)).
 - `public/`: files served as they are. The build gives fonts, screenshots, and
-  the painting content hashes under `/assets/`. `public/demo/recording.json`
-  and `public/demo/vault.json` are the live demo's recorded review and vault.
+  the painting content hashes under `/assets/`. `public/demo` holds the live
+  demo's recordings: `hero.json`, `recording.json`, and `vault.json`.
 
 ## Fonts
 
@@ -41,15 +41,20 @@ SIL Open Font License notices. After Med's fonts change, run `bun run fonts`.
 
 `bun run screenshots` builds a small invented repository ("Trailhead"), starts a
 built Med on port 4310 with temporary state, creates the review "Search filters"
-in two iterations with briefs, and adds two comments. A fixture Claude Code
-transcript (`scripts/screenshots/session.ts`) stands in for the agent: Med
-shows it in the Session pane, sends the first comment to it through
-`med review wait`, and keeps the second comment ready to send. The run stages
-the review's files, writes a commit message, and opens a small Obsidian vault
-(`scripts/screenshots/vault.ts`) on a second Med server, on the next port.
+with a brief, and comments on the first changed file. A fixture Claude Code
+transcript (`scripts/screenshots/session.ts`) stands in for the agent, and Med
+shows it in the Session pane.
 
-While it does this, it records every API answer into `public/demo/recording.json`
-and `public/demo/vault.json`. Then it builds the live demo, serves it on the
+Then the run records the hero, live: the reviewer types a short message and
+sends it with the comment. The fixture agent's next round runs in real time:
+it thinks, edits three files one at a time, runs the tests, and hands over the
+second iteration. Med follows it there, and the run opens the changed files.
+Every API answer and stream chunk goes to `public/demo/hero.json` with its time
+from the message. After that, the run adds a second comment, opens the Commit
+tab and the commit dialog, and opens a small Obsidian vault
+(`scripts/screenshots/vault.ts`) on a second Med server, on the next port. It
+records those answers into `public/demo/recording.json` and
+`public/demo/vault.json`. Then it builds the live demo, serves it on the
 port after the vault's, and captures each scene of the demo (see
 [Live demo](#live-demo)) in Med's own Med Dawn and Med Night themes. So each
 screenshot shows what the live window shows. Each feature also gets a capture
@@ -79,8 +84,9 @@ the water, and the moon in dark mode. The product window rises from it.
 Med's `scripts/painting/painter.js` paints a scene with thousands of bristle
 strokes in a browser canvas; `scenes.js` holds the dawn and night scenes and
 the icon's tiles. The random numbers are seeded, so each run paints the same
-picture. `bun run paint` (`scripts/painting/paint.ts`) writes
-`public/painting` in AVIF and WebP at 1200 and 2400 px.
+picture. `bun run paint` (`scripts/painting/paint.ts`) paints at 3600 px and
+writes `public/painting` in AVIF (quality 64) and WebP at 1200 and 2400 px.
+Lower AVIF quality smooths the strokes into blocks.
 
 Med's icon, Reflection, comes from `apps/med/scripts/render-icons.mjs`: a paper
 sun and its reflection on a painted tile of the same sea, dawn in a light
@@ -103,17 +109,29 @@ serve this zoom on phones.
 
 Each window on the page runs Med's real web app (`apps/med/src/web/demo.ts`)
 on a recording instead of a server. In the demo, reads replay the recording,
-event streams stay open, writes succeed and change nothing, and the clock
-starts at the time of the recording. The build compiles the app with
-`apps/med/vite.demo.config.ts` into `dist/demo/`.
+event streams stay open, and the clock starts at the time of the recording.
+A small in-memory backend takes the writes that a visitor can see: comments,
+pins, Clear, messages to the agent, staging, commit, and push. They change the
+demo until the page reloads. Other writes succeed and change nothing. The build
+compiles the app with `apps/med/vite.demo.config.ts` into `dist/demo/`.
 
 A window names its scene in `data-demo`: `/demo/demo?scene=review` for the
 product window, and `brief`, `comment`, `session`, `commit`, and `notes` for
 the features. The scene sets the panes, opens the tab or note, scrolls to the
-comment, and then marks the page ready. The `notes` scene replays `vault.json`;
-the others replay `recording.json`.
+comment, and then marks the page ready. The `review` scene replays `hero.json`,
+the `notes` scene replays `vault.json`, and the others replay `recording.json`.
 
-The product window shows all of Med. A feature's scene shows only its part:
+The product window shows Med in zen mode: the sidebar's history and files, the
+diff with the comment, and the agent's session, without other bars and
+buttons. It renders at 1309 by 818, so its text is 10% larger than in a 1440
+by 900 window. When the window comes into view, the demo starts the hero's
+clock, types the message, and sends it. The agent's edits stream in, and the
+demo opens the edited search bar when the next iteration arrives. In the
+`commit` scene, the demo stages the remaining files, commits, and pushes. That
+window renders at 760 px, because Med's Commit tab stacks its columns below
+720 px.
+
+A feature's scene shows only its part:
 the brief, a short unified diff with the comment, the agent's session, the
 commit dialog, or the note beside its preview. The part fills the window, and
 the rest of Med runs under it, so the part works as it does in the app. When

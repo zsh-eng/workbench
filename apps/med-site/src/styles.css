@@ -514,10 +514,10 @@ h3 {
 
 /* Narrow screens show screenshots. The review shows at 3.6 times the
    window's width, close enough to read, one part at a time. The parts are in
-   the 1440 by 900 screenshot: the comment at (830, 480), the session's
-   message box at (1240, 700), and the workspaces and history at (200, 210).
-   The window shows 400 by 320 pixels, so a part at (x, y) moves the image by
-   x / 1440 - 0.139 and y / 900 - 0.178. */
+   the 1309 by 818 screenshot: the comment at (720, 350), the session's
+   message box at (1098, 672), and the history at (182, 146). The window
+   shows 364 by 291 pixels, so a part at (x, y) moves the image by
+   x / 1309 - 0.139 and y / 818 - 0.178. */
 .stops {
   display: none;
 }
@@ -534,16 +534,16 @@ h3 {
     left: 0;
     width: 360%;
     max-width: none;
-    transform: translate(-43.8%, -35.6%);
+    transform: translate(-41.1%, -25%);
     transition: transform 900ms var(--ease-in-out);
   }
 
   .product .screen[data-stop="1"] img {
-    transform: translate(-72.2%, -60%);
+    transform: translate(-70%, -64.4%);
   }
 
   .product .screen[data-stop="2"] img {
-    transform: translate(0, -5.6%);
+    transform: translate(0, 0);
   }
 
   .stops:not([hidden]) {

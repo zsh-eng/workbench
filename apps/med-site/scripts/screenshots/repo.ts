@@ -24,14 +24,15 @@ function git(repo: string, args: string[], date?: string): void {
   }
 }
 
-function write(repo: string, files: Record<string, string>): void {
+export function write(repo: string, files: Record<string, string>): void {
   for (const [path, content] of Object.entries(files)) {
     mkdirSync(dirname(join(repo, path)), { recursive: true });
     writeFileSync(join(repo, path), content);
   }
 }
 
-/** Creates the repository with its commit history and no working changes. */
+/** Creates the repository with its commit history and no working changes,
+ * pushed to a remote beside it, so the branch has an upstream. */
 export function createRepository(repo: string): void {
   mkdirSync(repo, { recursive: true });
   git(repo, ["init", "--quiet", "--initial-branch=main"]);
@@ -40,6 +41,9 @@ export function createRepository(repo: string): void {
     git(repo, ["add", "--all"]);
     git(repo, ["commit", "--quiet", "--message", commit.message], commit.date);
   }
+  git(repo, ["init", "--quiet", "--bare", "--initial-branch=main", `${repo}.git`]);
+  git(repo, ["remote", "add", "origin", `${repo}.git`]);
+  git(repo, ["push", "--quiet", "--set-upstream", "origin", "main"]);
 }
 
 /** Writes one agent round as working changes. */
