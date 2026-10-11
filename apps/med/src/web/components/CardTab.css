@@ -1,6 +1,6 @@
 /* The review card when it heads the window (CardTab.tsx). The outline draws
-   the card, and its first row is the tab: as tall as the window controls'
-   row, between the controls on either side, and it moves the window. */
+   the card, and its first row is the tab: between the controls on either
+   side, with its rule just below them, and it moves the window. */
 .med-titlebar-area {
   position: fixed;
   top: 0;
@@ -11,7 +11,7 @@
   pointer-events: none;
 }
 .med-card-tab + * {
-  height: calc(max(var(--med-titlebar-height), 38px) - 6px);
+  height: calc(max(var(--med-titlebar-height), 38px) - 5px);
   min-height: 0;
   margin-inline: var(--med-tab-before, 0px) var(--med-tab-after, 0px);
   padding-inline: calc(var(--med-tab-inset-start, 0px) + 6px)

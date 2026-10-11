@@ -4130,7 +4130,7 @@ const styles = stylex.create({
   },
   // Level with the card's tab, after the window controls.
   sidebarTitle: {
-    height: "calc(max(var(--med-titlebar-height), 38px) - 6px)",
+    height: "calc(max(var(--med-titlebar-height), 38px) - 5px)",
     paddingInlineStart: "calc(var(--med-titlebar-left) - 2px)",
   },
   mainHeader: {

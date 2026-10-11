@@ -909,10 +909,21 @@ describe("graphical review", () => {
       const commands = page.getByRole("button", { name: "Open command palette" }).element();
 
       // The row rises to the top of the window as the card's tab, and it ends
-      // before the controls on the right, where the card steps down.
-      expect(rect(row)).toMatchObject({ top: 6, bottom: 38 });
+      // before the controls on the right, where the card steps down. Chrome
+      // paints over the area of its controls, so nothing of the card is there.
+      expect(rect(row)).toMatchObject({ top: 6, bottom: 39 });
       expect(rect(commands).right).toBeLessThanOrEqual(1280 - 120 - 6);
       expect([onCard(640, 20), onCard(1220, 20), onCard(1220, 60)]).toEqual([true, false, true]);
+      const outline = card.querySelectorAll<SVGPathElement>(".med-card-tab path")[1];
+      const drawn = ([x, y]: number[]) => {
+        const point = new DOMPoint(x - rect(card).left, y - rect(card).top);
+        return onCard(x, y) || outline.isPointInStroke(point);
+      };
+      const controls = [
+        ...Array.from({ length: 38 }, (_, y) => [1160.5, y + 0.5]),
+        ...Array.from({ length: 120 }, (_, x) => [1160 + x + 0.5, 37.5]),
+      ];
+      expect(controls.filter(drawn)).toEqual([]);
       // The identity heads the sidebar, level with the tab, after the controls on the left.
       expect(rect(toggle.element()).left).toBeGreaterThanOrEqual(78);
       expect(Math.abs(centre(toggle.element()) - centre(changes))).toBeLessThanOrEqual(1);
@@ -928,11 +939,21 @@ describe("graphical review", () => {
       ]);
 
       // Without the sidebar, the identity leads the tab, and the card steps
-      // down under the controls on the left too.
+      // down under the controls on the left too. The outline changes in the
+      // frame that the card does, so it never shows the card's old size.
+      const fits: boolean[] = [];
+      const watch = new ResizeObserver(() => {
+        const box = card.querySelector<SVGPathElement>(".med-card-tab path")!.getBBox();
+        fits.push(Math.round(box.x * 2 + box.width) === Math.round(rect(card).width));
+      });
+      watch.observe(card);
       await toggle.click();
       await expect
         .poll(() => document.getElementById("review-sidebar")?.checkVisibility())
         .toBe(false);
+      watch.disconnect();
+      expect(fits.length).toBeGreaterThan(1);
+      expect(fits.every(Boolean)).toBe(true);
       expect(row.contains(toggle.element())).toBe(true);
       expect(rect(toggle.element()).left).toBeGreaterThanOrEqual(78 + 6);
       expect([onCard(40, 20), onCard(40, 60)]).toEqual([false, true]);
@@ -943,7 +964,7 @@ describe("graphical review", () => {
       await page.getByRole("button", { name: "Toggle files sidebar" }).click();
       const column = document.querySelector("[data-pane-layout]")!;
       await expect.poll(() => column.checkVisibility()).toBe(true);
-      expect(rect(column).top).toBe(38);
+      expect(rect(column).top).toBe(39);
       await expect.poll(() => onCard(rect(card).right - 12, 20)).toBe(true);
 
       // With the title bar back, the card is a plain card again.

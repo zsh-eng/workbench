@@ -368,8 +368,9 @@ export function PaneColumn({
 
 const styles = stylex.create({
   hidden: { display: "none" },
-  // The card's tab ends here (CardTab.css), less the frame's top inset.
-  belowTitle: { marginTop: "calc(max(var(--med-titlebar-height), 38px) - 6px)" },
+  // The column's outline continues the tab's rule (CardTab.css), below the
+  // window controls; less the frame's top inset.
+  belowTitle: { marginTop: "calc(max(var(--med-titlebar-height), 38px) - 5px)" },
   divider: {
     position: "relative",
     display: "flex",
