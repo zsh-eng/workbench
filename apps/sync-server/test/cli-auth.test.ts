@@ -141,6 +141,28 @@ it("authorizes device once, isolates identity, rejects all writes, expires and r
   expect((await call("/api/apps/reader/sessions", { headers })).status).toBe(
     403,
   );
+  // Arctic records are readable; it has no files, and the CLI never pushes.
+  const arctic = (await (
+    await call("/api/apps/arctic/sync/v3/state", { headers })
+  ).json()) as any;
+  const arcticScoped = {
+    ...headers,
+    "X-Device-ID": "cli-test",
+    "X-Sync-Scope": JSON.stringify(arctic),
+  };
+  expect(
+    (
+      await call(
+        "/api/apps/arctic/sync/v3/pull?cursor=0&excludeOwnDevice=false",
+        { headers: arcticScoped },
+      )
+    ).status,
+  ).toBe(200);
+  expect(
+    (await post("/api/apps/arctic/sync/v3/push", { changes: [] }, arcticScoped))
+      .status,
+  ).toBe(403);
+  expect((await call("/api/apps/arctic/files", { headers })).status).toBe(403);
   const stranger = await user();
   const other = await (
     await call("/api/apps/reader/sync/v3/state", {

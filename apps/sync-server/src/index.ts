@@ -86,7 +86,7 @@ app.get("/api/me", requireUser, (c) =>
     expiresAt: c.get("session").expiresAt,
   }),
 );
-app.get("/api/namespaces", requireUser, c => c.json({ namespaces: ["reader", "spaced"] }));
+app.get("/api/namespaces", requireUser, c => c.json({ namespaces: ["reader", "spaced", "arctic"] }));
 app.use("/api/apps/:namespace/*", requireUser, async (c, next) => {
   const namespace = c.req.param("namespace");
   if (
