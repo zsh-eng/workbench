@@ -288,9 +288,7 @@ try {
         const bounds = el.getBoundingClientRect();
         return row ? (edge === "top" ? row.top - bounds.top : bounds.bottom - row.bottom) : -1;
       }, edge);
-      // CodeMirror estimates lines it has not drawn from Paper Mono's text
-      // height (19.25 px, not the 20 px line box), so a margin can land 3 px short.
-      return gap >= 76 && gap <= 84;
+      return gap >= 78 && gap <= 82;
     });
   }
   await page.keyboard.press("Escape");
