@@ -390,6 +390,7 @@ function Board({ live, onOpen }: { live: Live; onOpen(id: string): void }) {
               <Icon name={agentIcon(session)} size={14} />
               <button
                 type="button"
+                data-pane={session.id}
                 onClick={() => onOpen(session.id)}
                 {...stylex.props(styles.paneTitle, session.unread && styles.rowTitleStrong)}
               >
@@ -416,7 +417,8 @@ function Board({ live, onOpen }: { live: Live; onOpen(id: string): void }) {
                       </span>
                     )}
                     <span {...stylex.props(styles.logTitle)}>{step.title}</span>
-                    {step.added !== undefined || step.removed !== undefined ? (
+                    {/* A step that runs has no result yet. */}
+                    {now ? null : step.added !== undefined || step.removed !== undefined ? (
                       <span {...stylex.props(styles.stat)}>
                         {!!step.added && <span {...stylex.props(styles.added)}>+{step.added}</span>}
                         {!!step.removed && (
@@ -435,7 +437,7 @@ function Board({ live, onOpen }: { live: Live; onOpen(id: string): void }) {
               })}
             </ol>
             {session.state === "idle" && session.reply && (
-              <p {...stylex.props(styles.paneReply)}>{session.reply}</p>
+              <p {...stylex.props(styles.paneReply, styles.indent)}>{session.reply}</p>
             )}
             <footer {...stylex.props(styles.paneFoot)}>
               {ask?.kind === "permission" ? (
@@ -478,7 +480,7 @@ function Board({ live, onOpen }: { live: Live; onOpen(id: string): void }) {
                 </>
               ) : (
                 session.changes && (
-                  <span {...stylex.props(styles.faint)}>
+                  <span {...stylex.props(styles.faint, styles.indent)}>
                     {session.changes.files} files{" "}
                     <span {...stylex.props(styles.added)}>+{session.changes.added}</span>{" "}
                     <span {...stylex.props(styles.removed)}>−{session.changes.removed}</span>
@@ -497,16 +499,42 @@ function Board({ live, onOpen }: { live: Live; onOpen(id: string): void }) {
   );
 }
 
-/** The Sessions workspace: a card in the review's frame, as Desk or Board. */
+/**
+ * The Sessions workspace: a card in the review's frame. It opens on the
+ * Board; a session opens on the Desk, and Escape returns to the Board with
+ * that session's pane in focus.
+ */
 function Workspace() {
   const live = useLiveSessions();
-  const [layout, setLayout] = useState<"desk" | "board">("desk");
+  const card = useRef<HTMLDivElement>(null);
+  const [layout, setLayout] = useState<"desk" | "board">("board");
   const [selected, setSelected] = useState(live.sessions[0]!.id);
+  const [returned, setReturned] = useState(false);
+  useEffect(() => {
+    if (layout !== "board" || !returned) return;
+    card.current?.querySelector<HTMLElement>(`[data-pane="${selected}"]`)?.focus();
+    // Only a return from the Desk moves focus.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout]);
+  useEffect(() => {
+    if (layout !== "desk") return;
+    const node = card.current!;
+    const key = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      // A draft in the reply box stays: Escape there belongs to the box.
+      if ((event.target as HTMLElement).closest("textarea, input, [contenteditable]")) return;
+      event.preventDefault();
+      setReturned(true);
+      setLayout("board");
+    };
+    node.addEventListener("keydown", key);
+    return () => node.removeEventListener("keydown", key);
+  }, [layout]);
   const waiting = live.sessions.filter((entry) => entry.state === "waiting").length;
   const working = live.sessions.filter((entry) => entry.state === "working").length;
   return (
     <div {...stylex.props(styles.frame)}>
-      <div {...stylex.props(styles.card)}>
+      <div ref={card} {...stylex.props(styles.card)}>
         <header {...stylex.props(styles.cardHeader)}>
           <h3 {...stylex.props(styles.cardTitle)}>Sessions</h3>
           {waiting > 0 && (
@@ -522,10 +550,13 @@ function Workspace() {
           <SegmentedControl<"desk" | "board">
             label="Layout"
             value={layout}
-            onChange={setLayout}
+            onChange={(value) => {
+              setReturned(false);
+              setLayout(value);
+            }}
             options={[
+              { value: "board", label: "Board", icon: "sessions", shortcut: "Esc" },
               { value: "desk", label: "Desk", icon: "panelLeft" },
-              { value: "board", label: "Board", icon: "sessions" },
             ]}
           />
           <button
@@ -667,7 +698,7 @@ export function SessionsSection() {
       </Specimen>
       <Specimen
         title="Sessions workspace"
-        note="Desk lists the sessions beside the chosen one's thread; ↑ ↓ or J K move. Board shows every session as a pane, and a question takes an answer in place. Click a pane to open it on the desk."
+        note="It opens on the Board: every session as a pane, and a question takes an answer in place. Click a pane to open it on the Desk, beside the other sessions; ↑ ↓ or J K move, and Esc returns to the Board."
         surface="panel"
         padded={false}
         zoomable={false}
@@ -960,6 +991,8 @@ const styles = stylex.create({
     fontSize: 11,
     fontVariantNumeric: "tabular-nums",
   },
+  // Level with the step titles and the location.
+  indent: { paddingInlineStart: 22 },
   paneReply: {
     marginBlock: 0,
     marginTop: 12,
