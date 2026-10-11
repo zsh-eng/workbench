@@ -10,7 +10,8 @@ and local development files. Shared packages must not import app code.
   for Reader and Spaced at `https://api.zsheng.app`. Run `bun run dev:shared` for
   isolated local development. Its [guide](../apps/sync-server/README.md) defines
   storage isolation and limits. Arctic native auth and its record namespace are
-  deployed; the Debug trial is isolated and live library migration remains dormant.
+  deployed. Arctic syncs library state, titles and tags; its annotations, reading
+  time and files stay on each device.
 
 - **Spaced** owns flashcards, FSRS, review UI, local operation storage and its
   deployed Hono Worker. Read its [architecture](../apps/spaced2/ARCHITECTURE.md).

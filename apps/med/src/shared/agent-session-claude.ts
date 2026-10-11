@@ -1,13 +1,14 @@
-import type {
-  ContentBlock,
-  MedMeta,
-  PlanEntry,
-  SessionEvent,
-  SessionUpdate,
-  ToolCallContent,
-  ToolCallLocation,
-  ToolCallStatus,
-  ToolKind,
+import {
+  taskCallId,
+  type ContentBlock,
+  type MedMeta,
+  type PlanEntry,
+  type SessionEvent,
+  type SessionUpdate,
+  type ToolCallContent,
+  type ToolCallLocation,
+  type ToolCallStatus,
+  type ToolKind,
 } from "./agent-session";
 
 /* Claude Code's transcript: ~/.claude/projects/<project>/<session>.jsonl.
@@ -214,7 +215,8 @@ export function createClaudeTranscriptReader(options: ClaudeReaderOptions = {}) 
     });
     // A stopped background task sends no notification; the stop ends its call.
     if (name === "TaskStop" || name === "KillShell") {
-      const stopped = background.get(text(input.task_id) ?? text(input.shell_id) ?? "");
+      const task = text(input.task_id) ?? text(input.shell_id);
+      const stopped = task ? (background.get(task) ?? taskCallId(task)) : undefined;
       if (stopped)
         updates.push({
           sessionUpdate: "tool_call_update",
@@ -350,7 +352,12 @@ export function createClaudeTranscriptReader(options: ClaudeReaderOptions = {}) 
     const field = (name: string) =>
       new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(body)?.[1]?.trim();
     const task = field("task-id");
-    const id = task ? background.get(task) : undefined;
+    // The notification names its call too: the call can be on an earlier
+    // page, which a reader of this page has not seen.
+    const id =
+      (task ? background.get(task) : undefined) ??
+      field("tool-use-id") ??
+      (task ? taskCallId(task) : undefined);
     if (!id) return [];
     const state = field("status");
     const summary = field("summary");
@@ -538,6 +545,9 @@ export function createClaudeTranscriptReader(options: ClaudeReaderOptions = {}) 
     if (type === "attachment") {
       const attachment = record(entry.attachment);
       if (attachment?.type === "queued_command" && text(attachment.prompt)) {
+        // A notification that comes during a turn waits in the queue.
+        if (text(attachment.prompt)!.includes("<task-notification>"))
+          return notification(text(attachment.prompt)!);
         const prompt = text(attachment.prompt)!.replace(HIDDEN, "").trim();
         if (!prompt || attachment.humanTurn === false) return [];
         queued.add(prompt);
@@ -550,7 +560,8 @@ export function createClaudeTranscriptReader(options: ClaudeReaderOptions = {}) 
         ];
       }
       if (attachment?.type === "task_status") {
-        const id = background.get(text(attachment.taskId) ?? "");
+        const task = text(attachment.taskId);
+        const id = task ? (background.get(task) ?? taskCallId(task)) : undefined;
         const state = text(attachment.status);
         if (!id || !state || state === "running") return [];
         return [

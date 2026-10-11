@@ -13,6 +13,10 @@ export default defineConfig(({ command, mode }) => ({
     : undefined,
   optimizeDeps: {
     exclude: ["@jsquash/webp"],
+    // The PWA plugin imports this from a virtual module, which the startup
+    // scan does not follow. Found later, it rebuilds the dependency cache and
+    // fails the module requests already in flight on a cold start.
+    include: ["workbox-window"],
   },
   plugins: [
     react({

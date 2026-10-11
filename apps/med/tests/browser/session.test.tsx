@@ -3,6 +3,7 @@ import { page, userEvent } from "vitest/browser";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { SessionSection } from "../../src/web/components/elements/SessionSection";
+import { FaviconSource, GLOBE } from "../../src/web/components/session/favicons";
 import { SessionThread } from "../../src/web/components/session/SessionThread";
 import { createSessionStore } from "../../src/web/data/session-store";
 import "../../src/web/pierre-theme";
@@ -56,6 +57,8 @@ test("the replay plays a recorded session into the thread and stops when paused"
 
 test("a tool call opens to show its command and output", async () => {
   const replay = await setup();
+  // The finished turn's work is folded.
+  await userEvent.click(replay.getByRole("button", { name: /Worked for/ }));
   const row = replay.getByRole("button", { name: /Run the test suite/ });
   await expect.element(row).toHaveAttribute("aria-expanded", "false");
   await userEvent.click(row);
@@ -217,6 +220,132 @@ test("a reply taller than the overscan does not move the range on each scroll", 
   expect(moves).toBeLessThan(12);
 });
 
+test("a task in the Background dock scrolls a long thread to its call", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  store.applyAll([
+    {
+      at: 0,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "server",
+        title: "Start the dev server",
+        kind: "execute",
+        status: "in_progress",
+        _meta: { med: { background: { id: "b1", kind: "shell" } } },
+      },
+    },
+    ...turnEvents(1, 300),
+  ]);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r300");
+  expect(document.querySelector('[data-unit="server"]')).toBeNull();
+  await userEvent.click(
+    page.getByRole("region", { name: "Background tasks" }).getByRole("button", {
+      name: "Start the dev server",
+    }),
+  );
+  await expect.poll(() => document.querySelector('[data-unit="server"]')).not.toBeNull();
+  await expect.poll(() => Math.round(topOf("server"))).toBe(16);
+});
+
+test("[ and ] step through the prompts and replies of a focused thread", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(300);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r299");
+  const current = () => document.querySelector<HTMLElement>("[data-current]")?.dataset.unit;
+  threadScroller().focus();
+  // From the end, the latest reply first, then up through the messages.
+  await userEvent.keyboard("[[");
+  expect(current()).toBe("r299");
+  await userEvent.keyboard("[[[[[[");
+  expect(document.querySelector("[data-current]")!.textContent).toContain("Prompt 298");
+  await userEvent.keyboard("]");
+  await expect.poll(current).toBe("r298");
+  // Far from the end, the message goes near the top of the view.
+  for (let step = 0; step < 20; step++) await userEvent.keyboard("[[");
+  await expect.poll(() => Math.round(topOf(current()!))).toBe(16);
+  // The mark is for the keys: a click in the thread takes it away.
+  await userEvent.click(document.querySelector(`[data-unit="${current()}"]`)!);
+  expect(current()).toBeUndefined();
+});
+
+test("a prompt shows its quotes as Claude does, without reply markers", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  store.applyAll([
+    {
+      at: 0,
+      update: {
+        sessionUpdate: "user_message_chunk" as const,
+        content: {
+          type: "text" as const,
+          text: "<!-- reply 1 -->\n> Pins keep adding to the notes.\n\nThis makes sense.\n\n<!-- reply 2 -->\n> Show the prompt.\n> Add one switch.\n\nYes.",
+        },
+      },
+    },
+  ]);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  const bubble = () => document.querySelector('[data-message="user"]');
+  await expect.poll(() => bubble()?.querySelectorAll("blockquote").length).toBe(2);
+  expect([...bubble()!.querySelectorAll("blockquote")].map((quote) => quote.textContent)).toEqual([
+    "Pins keep adding to the notes.",
+    "Show the prompt.\nAdd one switch.",
+  ]);
+  expect([...bubble()!.querySelectorAll("p")].map((text) => text.textContent)).toEqual([
+    "This makes sense.",
+    "Yes.",
+  ]);
+  expect(bubble()!.textContent).not.toMatch(/<!--|>/);
+});
+
+test("a reply's links act as links, and a web link shows its site's icon", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  store.applyAll([
+    {
+      at: 0,
+      update: {
+        sessionUpdate: "agent_message_chunk" as const,
+        content: {
+          type: "text" as const,
+          text: "See [summary.ts:14](src/summary.ts:14), the [Docs](https://docs.trail.dev/a), and the [Wiki](https://wiki.trail.dev/b).",
+        },
+      },
+    },
+  ]);
+  const icon = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1"/></svg>')}`;
+  const opened: string[] = [];
+  root!.render(
+    <FaviconSource.Provider
+      value={(origin) => (origin === "https://docs.trail.dev" ? icon : "/no-such-icon.ico")}
+    >
+      <SessionThread snapshot={store.getSnapshot()} onOpenLink={(href) => opened.push(href)} />
+    </FaviconSource.Provider>,
+  );
+  const docs = page.getByRole("link", { name: "Docs" });
+  await expect.element(docs).toHaveAttribute("href", "https://docs.trail.dev/a");
+  await expect.poll(() => docs.element().querySelector("img")?.src).toBe(icon);
+  // A site without an icon shows a globe.
+  await expect
+    .poll(() => page.getByRole("link", { name: "Wiki" }).element().querySelector("img")?.src)
+    .toBe(GLOBE);
+
+  // A file link has no href, but it has the link cursor and underlines on hover.
+  const file = page.getByText("summary.ts:14");
+  expect(getComputedStyle(file.element()).cursor).toBe("pointer");
+  expect(getComputedStyle(file.element()).textDecorationLine).toBe("none");
+  await userEvent.hover(file);
+  await expect.poll(() => getComputedStyle(file.element()).textDecorationLine).toBe("underline");
+  await userEvent.click(file);
+  expect(opened).toEqual(["src/summary.ts:14"]);
+});
+
 test("a thread that arrives in batches still renders only the units near the view", async () => {
   await page.viewport(1280, 900);
   initializeTheme();
@@ -236,6 +365,106 @@ test("a thread that arrives in batches still renders only the units near the vie
   }
   await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r599");
   expect(units().length).toBeLessThan(120);
+});
+
+test("a finished turn's work folds into one row that opens in place, and Show work opens every turn", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  store.applyAll(
+    [0, 1].flatMap((turn) => {
+      const at = turn * 10_000;
+      const text = (id: string, value: string, offset: number) => ({
+        at: at + offset,
+        update: {
+          sessionUpdate: "agent_message_chunk" as const,
+          messageId: id,
+          content: { type: "text" as const, text: value },
+        },
+      });
+      return [
+        {
+          at,
+          update: {
+            sessionUpdate: "user_message_chunk" as const,
+            content: { type: "text" as const, text: `Prompt ${turn}` },
+          },
+        },
+        text(`c${turn}`, `I will run the tests ${turn}.`, 1000),
+        {
+          at: at + 2000,
+          update: {
+            sessionUpdate: "tool_call" as const,
+            toolCallId: `run-${turn}`,
+            title: `Run the tests ${turn}`,
+            kind: "execute" as const,
+            status: "completed" as const,
+            rawInput: { command: "bun test" },
+          },
+        },
+        text(`f${turn}`, `The tests ${turn} pass.`, 4000),
+      ];
+    }),
+  );
+  const render = (showWork?: boolean) =>
+    root!.render(<SessionThread snapshot={store.getSnapshot()} showWork={showWork} />);
+  render();
+  const rows = page.getByRole("button", { name: /^Worked for 4\.0s · 1 tool call$/ });
+  await expect.poll(() => rows.elements().length).toBe(2);
+  await expect.element(page.getByText("The tests 1 pass.")).toBeVisible();
+  // The prompt and the final reply show; the commentary and the call fold.
+  expect(page.getByText("I will run the tests 0.").query()).toBeNull();
+  expect(page.getByRole("button", { name: /Run the tests/ }).query()).toBeNull();
+
+  const first = rows.nth(0);
+  const top = first.element().getBoundingClientRect().top;
+  await userEvent.click(first);
+  await expect.element(first).toHaveAttribute("aria-expanded", "true");
+  await expect.element(page.getByRole("button", { name: /Run the tests 0/ })).toBeVisible();
+  await expect.element(page.getByText("I will run the tests 0.")).toBeVisible();
+  expect(Math.abs(first.element().getBoundingClientRect().top - top)).toBeLessThan(2);
+  expect(page.getByRole("button", { name: /Run the tests 1/ }).query()).toBeNull();
+
+  render(true);
+  await expect.element(page.getByRole("button", { name: /Run the tests 1/ })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: /Run the tests 0/ })).toBeVisible();
+  // A turn closes against the switch too.
+  await userEvent.click(rows.nth(1));
+  await expect.element(rows.nth(1)).toHaveAttribute("aria-expanded", "false");
+  expect(page.getByRole("button", { name: /Run the tests 1/ }).query()).toBeNull();
+
+  // The turn that runs keeps its work in view, with a prompt queued behind it.
+  store.applyAll([
+    {
+      at: 30_000,
+      update: {
+        sessionUpdate: "user_message_chunk" as const,
+        content: { type: "text" as const, text: "Prompt 2" },
+      },
+    },
+    {
+      at: 31_000,
+      update: {
+        sessionUpdate: "tool_call" as const,
+        toolCallId: "run-2",
+        title: "Run the tests 2",
+        kind: "execute" as const,
+        status: "in_progress" as const,
+      },
+    },
+    {
+      at: 32_000,
+      update: {
+        sessionUpdate: "user_message_chunk" as const,
+        content: { type: "text" as const, text: "Then the docs." },
+        _meta: { med: { queued: true } },
+      },
+    },
+  ]);
+  root!.render(<SessionThread snapshot={{ ...store.getSnapshot(), running: true }} />);
+  await expect.element(page.getByText("Then the docs.")).toBeVisible();
+  await expect.element(page.getByRole("button", { name: /Run the tests 2/ })).toBeVisible();
+  expect(rows.elements()).toHaveLength(2);
 });
 
 test("the units in view keep their place as earlier work loads above them", async () => {
@@ -323,7 +552,7 @@ test("a row keeps its state when it leaves the view and comes back", async () =>
       },
     },
   ]);
-  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} showWork />);
   const call = page.getByRole("button", { name: /Run the tests/ });
   await userEvent.click(call);
   await expect.element(page.getByText("12 pass")).toBeVisible();
@@ -389,7 +618,7 @@ test("an edit shows its file and line counts, and its diff when the reader opens
   mount.style.height = "600px";
   document.body.append(mount);
   root = createRoot(mount);
-  root.render(<SessionThread snapshot={store.getSnapshot()} />);
+  root.render(<SessionThread snapshot={store.getSnapshot()} showWork />);
   const row = () => document.querySelector<HTMLButtonElement>('[data-unit="edit-79"] button')!;
   await expect.poll(() => row()?.textContent).toContain("file-79.ts");
   expect(row().textContent).toContain("+2");

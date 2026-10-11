@@ -1,12 +1,13 @@
-import type {
-  ContentBlock,
-  PlanEntry,
-  SessionEvent,
-  SessionUpdate,
-  ToolCallContent,
-  ToolCallLocation,
-  ToolCallStatus,
-  ToolKind,
+import {
+  taskCallId,
+  type ContentBlock,
+  type PlanEntry,
+  type SessionEvent,
+  type SessionUpdate,
+  type ToolCallContent,
+  type ToolCallLocation,
+  type ToolCallStatus,
+  type ToolKind,
 } from "../../shared/agent-session";
 import type { AgentMessage } from "../../shared/agent-inbox";
 
@@ -98,6 +99,8 @@ export function createSessionStore() {
   // Updates of calls that have not arrived, such as results at the start of a
   // tail whose calls are on an earlier page.
   let orphans = new Map<string, SessionEvent[]>();
+  // The call that started each background task, by `taskCallId`.
+  let tasks = new Map<string, string>();
   const listeners = new Set<() => void>();
   let batch = 0;
   let changed = false;
@@ -195,6 +198,14 @@ export function createSessionStore() {
         return chunk(thread, "thought", at, update);
       case "tool_call":
       case "tool_call_update": {
+        // An update for a task goes to the call that started it, now or when
+        // the call arrives.
+        if (update.toolCallId.startsWith(taskCallId(""))) {
+          const call = tasks.get(update.toolCallId);
+          if (call) apply({ ...event, update: { ...update, toolCallId: call } });
+          else orphans.set(update.toolCallId, [...(orphans.get(update.toolCallId) ?? []), event]);
+          return;
+        }
         const existing = itemOf(update.toolCallId);
         // An update without its call and without a title waits for the call.
         if (!existing && update.sessionUpdate === "tool_call_update" && !update.title) {
@@ -230,8 +241,18 @@ export function createSessionStore() {
           ...(meta?.background ? { background: meta.background } : {}),
         };
         const ended = call.status === "completed" || call.status === "failed";
+        // Updates that waited for this call, or for the task it started.
+        const adopt = (key: string) => {
+          const waiting = orphans.get(key);
+          orphans.delete(key);
+          for (const orphan of waiting ?? []) apply(orphan);
+        };
+        const task = meta?.background ? taskCallId(meta.background.id) : undefined;
+        const started = task !== undefined && !tasks.has(task);
+        if (started) tasks.set(task, update.toolCallId);
         if (existing?.kind === "tool") {
           setItem({ ...existing, call, endedAt: ended ? (existing.endedAt ?? at) : undefined });
+          if (started) adopt(task);
           return;
         }
         threads.set(update.toolCallId, []);
@@ -244,11 +265,8 @@ export function createSessionStore() {
           items: [],
           ...(ended ? { endedAt: at } : {}),
         });
-        const waiting = orphans.get(update.toolCallId);
-        if (waiting) {
-          orphans.delete(update.toolCallId);
-          for (const orphan of waiting) apply(orphan);
-        }
+        adopt(update.toolCallId);
+        if (started) adopt(task);
         return;
       }
       case "plan": {
@@ -347,6 +365,7 @@ export function createSessionStore() {
       named = new Map();
       events = [];
       orphans = new Map();
+      tasks = new Map();
       emit();
     },
     /** Puts an earlier page before the updates so far. The thread builds again
@@ -361,6 +380,7 @@ export function createSessionStore() {
       named = new Map();
       events = [];
       orphans = new Map();
+      tasks = new Map();
       applyAll([...page, ...later]);
     },
   };

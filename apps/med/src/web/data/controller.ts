@@ -6,6 +6,7 @@ import {
   savedFeedbackSchema,
   type BriefCommentMutation,
   type PinMutation,
+  type SavedIteration,
   type SavedReview,
   type SavedFeedback,
   type SavedReviewTarget,
@@ -121,6 +122,12 @@ export interface ReviewController {
   setSavedBrief(text: string | null): Promise<void>;
   /** Pin an agent reply to the saved review's Notes, or remove a pin. */
   pinToReview(mutation: PinMutation): Promise<void>;
+  /** New, empty Notes: the current comparisons, captured again as a new
+   * iteration, which later pins go to. */
+  startNotes(): Promise<SavedIteration | undefined>;
+  /** Delete the Notes that show for an iteration, and the comments on them;
+   * see the host's deleteNotes. */
+  deleteNotes(notes: { iteration?: number; briefFrom?: number }): Promise<void>;
   /** Comment on a passage of the Notes, or edit or remove such a comment. */
   commentBrief(mutation: BriefCommentMutation): Promise<void>;
   /** Starts an installed agent in the review's repository and returns its session ID. */
@@ -1708,6 +1715,41 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
             ? next
             : { ...snapshot.savedReview, pins: next.pins, iterations: next.iterations },
       });
+    },
+    async startNotes() {
+      const saved = snapshot.savedReview;
+      if (!saved) throw new Error("Open a saved review to start new notes.");
+      const next = await api.json(
+        `/api/reviews/${encodeURIComponent(saved.id)}/iterations`,
+        savedReviewSchema,
+        { method: "POST" },
+      );
+      if (disposed || snapshot.savedReview?.id !== saved.id) return undefined;
+      update({ savedReview: next });
+      return next.iterations?.at(-1);
+    },
+    async deleteNotes(notes) {
+      const saved = snapshot.savedReview;
+      if (!saved) throw new Error("Open a saved review to delete its notes.");
+      const next = await api.json(
+        `/api/reviews/${encodeURIComponent(saved.id)}/delete-notes`,
+        savedReviewSchema,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(notes),
+        },
+      );
+      if (disposed || snapshot.savedReview?.id !== saved.id) return;
+      update({ savedReview: next });
+      // Notes that went with their comparison: the latest one shows.
+      if (
+        snapshot.savedTargetId &&
+        !next.targets.some((target) => target.id === snapshot.savedTargetId)
+      ) {
+        const latest = next.iterations?.at(-1)?.targetIds[0] ?? next.targets[0]?.id;
+        if (latest) await selectSavedTarget(latest);
+      }
     },
     async commentBrief(mutation) {
       const saved = snapshot.savedReview;

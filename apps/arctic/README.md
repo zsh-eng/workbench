@@ -7,10 +7,9 @@ from the repository root after following its seed instructions.
 The native Mac workspace has its own [Mac guide](Mac/README.md) and
 `ArcticMac.xcodeproj`. The iPhone app and share extension use the project below.
 
-The [sync design](SYNC_DESIGN.md) covers the proposed iPhone/Mac architecture,
-account isolation, conflict rules, file transfer and staged local migration.
-A debug-only shared-auth/v3 trial is implemented; live library sync and the
-storage migration remain inactive.
+The [sync design](SYNC_DESIGN.md) covers the iPhone/Mac architecture, account
+isolation, conflict rules and file transfer. The library lives in a local SQLite
+profile; [Sync](#sync) keeps it the same on every device signed in to one account.
 
 Open `ArticleReader.xcodeproj`, select the **ArticleReader** scheme and an iPhone
 simulator, then Run. Requires Xcode 26+ and iOS 17+. For a physical iPhone, select
@@ -161,13 +160,13 @@ enable `group.com.zsheng.ArticleReader` in App Groups for both targets. Both use
   (about 1.3 MB total); constrained layouts prioritize text.
 - Long-press a card to refresh its preview or remove the link.
 
-This app stores link metadata in an atomic JSON file under Application Support,
-with separate HTML files for downloaded Reader views. Download status is committed
-only after the HTML write succeeds. Preview images are reused from local storage.
-Highlights and notes use separate atomic record files. Archive is library status
-only. Website cookies use WebKit's persistent store. There is no active account
-or cloud sync UI. The staged sync package and Worker routes are described below;
-they do not replace the current local storage path.
+This app stores library metadata in one SQLite file for each profile, under
+Application Support/ArticleReader/Library, with separate HTML files for downloaded
+Reader views. Download status is committed only after the HTML write succeeds.
+Preview images are reused from local storage. Highlights and notes use separate
+atomic record files. Archive is library status only. Website cookies use WebKit's
+persistent store. The first launch of this version copies the old `links.json`
+into the local profile; see [Sync](#sync).
 
 ## Highlights and notes
 
@@ -238,24 +237,40 @@ has its own folder and includes archived articles. Within a tag, the star button
 shows matching favourites, including archived ones. Archiving preserves this
 flag; unsaving clears it. Favourite state is independent of the tag catalogue.
 
-## Sync implementation status
+## Sync
 
-`Sync/` contains the staged native protocol, account-scoped journal, authenticated
-scoped v3 transport and Google sign-in helper. Debug builds expose **Sync trial**
-from the iPhone library menu and Mac Arctic settings. It uses a separate sample
-profile; see the [trial checklist](SYNC_DESIGN.md#native-trial-checklist).
-`../sync-server` owns shared auth/v3 routes; `../../packages/arctic-sync-server/`
-contains reusable native auth and legacy Reader-hosted route support. The main app still uses its existing local JSON
-library. Account UI, the live storage migration, annotation sync and durable HTML
-upload intent are not integrated. No production Worker release or remote Arctic
-migration has been applied as part of this work.
+Open **Sort and filter → Sync** on iPhone, or **Arctic settings → Sync…** on Mac.
+**Continue with Google** opens the system sign-in sheet. When this device has
+articles that the account lacks, Arctic asks whether to add them, for example
+**Add 12 articles from this iPhone?** **Not now** shows only the account's articles. The sheet then shows **Up to date ·
+just now**. Sign-out asks first, keeps the account's articles in the account, and
+shows this device's own library again.
 
-See [release boundaries](../../packages/arctic-sync-server/README.md) and the
-[measured SQLite journal](Sync/PERFORMANCE.md) before continuing integration.
-The dormant repository keeps one SQLite file in each profile; a one-article edit
-writes only its changed rows. It is not the live library store. The live
-migration requires the explicit approval recorded in `OVERNIGHT.md`. Jev keys stay in the
-device Keychain and are never sync data.
+Saved, archived, favourite and read state, titles and tags sync. Reader copies,
+images, highlights, notes and reading time stay on each device. The session
+credential stays in the device Keychain. Jev keys, cookies and passwords are
+never sync data.
+
+Each library is a profile with one SQLite file: the local profile, and one for
+each account scope (server, user, namespace and epoch). An edit shows at once;
+`LibraryJournal` commits edits in order, off the main actor. Arctic syncs when it
+opens, when it becomes active, and three seconds after an edit. Offline edits wait
+in the outbox. Sign-out keeps both profiles on the device.
+
+Edits merge by field. Each pending edit keeps the value it started from. When
+another device changed the same article meanwhile, a field that only one device
+changed keeps that change: archive on iPhone and favourite on Mac both stay. When
+both devices changed the same field, the device that syncs second keeps its value.
+Tags merge as one value, and an unsave wins over archive and favourite.
+
+The first launch copies `links.json` into the local profile in one transaction
+and reads the copy back before it commits. The old file stays unchanged as a
+backup. An unreadable file is never copied or overwritten; Arctic keeps using it.
+
+`../sync-server` owns the shared auth/v3 routes at `https://api.zsheng.app`.
+Annotation, reading-time and position sync, and HTML or image upload, are not
+implemented. See the [release boundaries](../../packages/arctic-sync-server/README.md)
+and the [measured SQLite journal](Sync/PERFORMANCE.md).
 
 ## Open from another app
 
@@ -384,8 +399,10 @@ and [Google's Reading List HTML schema](https://developers.google.com/data-porta
 Prefer production integration paths and observable results. Keep one owner for
 normal behavior: native UI tests own saved/history/favourite filters, paste
 choices, and manual tag edits; Web tests own extraction, text anchors, and paint.
-`Sync/Tests` owns durable transport/journal behavior. The isolated domain-sync
-harness tests the dormant repository, not live ArticleStore sync.
+`Sync/Tests` owns durable transport/journal behavior. `Tests/check-article-sync.py`
+owns the article repository: the first-launch copy, edit patches and account
+import. The native UI test owns sign-in, adding articles, relaunch and sign-out
+with an in-memory account.
 
 Keep small lower-level checks only where normal UI flows cannot expose the
 failure: malformed font requests, codec alpha/orientation/MIME handling,
@@ -576,4 +593,4 @@ in `THIRD_PARTY_NOTICES.txt`; bundled font licenses are in `Resources/Fonts`.
 6. `Sources/ArticleStore.swift` — local persistence, HTML import and preview metadata.
 7. `Sources/AnnotationStore.swift`, `ReaderAnnotations.swift`, `Resources/annotations.js` — passage persistence, notes and text anchors.
 8. `Tests/ArticleReaderUITests.swift`, `AnnotationUITests.swift`, `ReaderPerformanceUITests.swift` — complete user sequences and controlled resource checks.
-9. `../../packages/arctic-sync-server/README.md`, `Sync/PERFORMANCE.md` — dormant sync release boundary and measured storage costs.
+9. `Sources/LibrarySync.swift`, `LibrarySyncView.swift`, `LibraryJournal.swift`, `ArticleSyncRepository.swift`, `Sync/PERFORMANCE.md` — account sync, ordered library writes and measured storage costs.

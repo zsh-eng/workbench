@@ -3,40 +3,53 @@ import XCTest
 final class ArticleReaderUITests: XCTestCase {
   override func setUp() { continueAfterFailure = false }
 
-  @MainActor func testSyncTrialIsSeparateAndRejectsInsecureServer() throws {
+  /// The test account lives in memory and already holds one article from a Mac.
+  @MainActor func testSyncAddsThisLibraryAndSignOutShowsItAgain() throws {
     let app = XCUIApplication()
     app.launchArguments = [
-      "-ui-testing", "-reset-store", "-reset-appearance", "-seed-preload-fixtures",
+      "-ui-testing", "-reset-store", "-reset-appearance", "-seed-preload-fixtures", "-test-sync",
     ]
     app.launch()
     let menu = app.buttons["Sort and filter"]
-    XCTAssertTrue(menu.waitForExistence(timeout: 10))
-    let article = app.descendants(matching: .any).matching(identifier: "article-cached-0")
+    let local = app.descendants(matching: .any).matching(identifier: "article-cached-0")
       .firstMatch
-    XCTAssertTrue(article.waitForExistence(timeout: 10), app.debugDescription)
+    let fromMac = app.descendants(matching: .any).matching(identifier: "article-from-your-mac")
+      .firstMatch
+    XCTAssertTrue(local.waitForExistence(timeout: 10), app.debugDescription)
     menu.tap()
-    app.buttons["sync-trial-open"].tap()
-    let input = app.textFields["sync-trial-server"]
-    XCTAssertTrue(input.waitForExistence(timeout: 5))
-    input.tap()
-    input.press(forDuration: 1)
-    if app.menuItems["Select All"].exists {
-      app.menuItems["Select All"].tap()
-    } else {
-      input.typeText(
-        String(
-          repeating: XCUIKeyboardKey.delete.rawValue, count: (input.value as? String ?? "").count))
-    }
-    input.typeText("http://localhost")
-    app.buttons["sync-trial-sign-in"].tap()
-    let error = app.staticTexts["sync-trial-status"]
+    app.buttons["library-sync"].tap()
+    app.buttons["sync-sign-in"].tap()
+    let add = app.buttons["sync-add-articles"]
+    XCTAssertTrue(add.waitForExistence(timeout: 10), app.debugDescription)
+    XCTAssertEqual(add.label, "Add 12 articles")
+    add.tap()
+    let status = app.descendants(matching: .any).matching(identifier: "sync-status").firstMatch
     expectation(
-      for: NSPredicate(format: "label CONTAINS %@", "Could not complete"), evaluatedWith: error)
-    waitForExpectations(timeout: 5)
-    XCTAssertFalse(app.buttons["sync-trial-save"].exists)
-    app.buttons["Done"].tap()
-    XCTAssertTrue(menu.waitForExistence(timeout: 5))
-    XCTAssertTrue(article.waitForExistence(timeout: 5), app.debugDescription)
+      for: NSPredicate(format: "label BEGINSWITH %@", "Up to date"), evaluatedWith: status)
+    waitForExpectations(timeout: 10)
+    app.buttons["sync-done"].tap()
+    XCTAssertTrue(fromMac.waitForExistence(timeout: 10), app.debugDescription)
+    XCTAssertTrue(local.exists)
+
+    // The account's library opens at launch.
+    app.terminate()
+    app.launchArguments.removeAll { $0 == "-reset-store" || $0 == "-reset-appearance" }
+    app.launch()
+    XCTAssertTrue(fromMac.waitForExistence(timeout: 10), app.debugDescription)
+    XCTAssertTrue(local.exists)
+
+    menu.tap()
+    app.buttons["library-sync"].tap()
+    app.buttons["sync-sign-out"].tap()
+    let confirm = app.buttons.matching(
+      NSPredicate(format: "identifier == %@ OR label == %@", "sync-confirm-sign-out", "Sign out")
+    ).element(boundBy: 0)
+    XCTAssertTrue(confirm.waitForExistence(timeout: 5), app.debugDescription)
+    confirm.tap()
+    XCTAssertTrue(app.buttons["sync-sign-in"].waitForExistence(timeout: 10), app.debugDescription)
+    app.buttons["sync-done"].tap()
+    XCTAssertTrue(local.waitForExistence(timeout: 5))
+    XCTAssertFalse(fromMac.exists)
   }
 
   @MainActor func testStationaryBarAndReaderBackSwipe() throws {

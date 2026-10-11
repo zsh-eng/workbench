@@ -65,10 +65,13 @@ the line then keeps `thinkingDurationMs`. The reader:
   file's text from Claude Code's `originalFile` or an earlier Write;
 - turns TodoWrite and TaskCreate/TaskUpdate into the plan;
 - links background shells and agents to their calls, and their
-  `<task-notification>` messages to the same calls;
+  `<task-notification>` messages to the same calls. A notification that comes
+  during a turn is a `queued_command` attachment. When the call is on an
+  earlier page, the update names the call (`<tool-use-id>`) or its task
+  (`task:<id>`), and the thread gives it to the call when the page arrives;
 - reports subagents, whose transcripts are `<session>/subagents/agent-<id>.jsonl`;
 - turns compactions, API errors, and interruptions into dividers and notices;
-- skips attachments, system reminders, and meta messages;
+- skips other attachments, system reminders, and meta messages;
 - tracks the turn: a reply with `stop_reason: "end_turn"` or a subagent's
   report ends it, and a typed prompt starts the next one.
 
@@ -127,11 +130,20 @@ nothing.
 - `components/session/SessionThread.tsx` renders the thread. Reads and
   searches in a row form one "Explored" group. An edit is a row with its file
   and its added and removed lines; its Pierre diff renders when the reader
-  opens the row, as in Claude Desktop. The thread opens at its end. The view
-  follows new items while the reader is at the bottom; only the reader's move
-  up (wheel, touch, keys, or the pointer) stops it. A thread that gets shorter
-  also moves the view up, and that move does not stop it. The Background and
-  Tasks docks sit under the thread.
+  opens the row, as in Claude Desktop. A finished turn's work (the units
+  between its prompt and its final reply, except errors) folds into one
+  "Worked for" unit (`fold` in `thread-model.ts`). The unit opens its turn in
+  place; **Show work** in the Session pane opens every turn. The turn that
+  runs does not fold. A prompt shows each run of quoted lines as a quote,
+  as Claude does, and hides HTML comments such as reply markers
+  (`prompt-blocks.ts`). A reply's web links are pills with their site's icon,
+  as in Codex. The page loads images only from Med, so `/api/favicon` fetches
+  each icon in the host (`favicon.ts`): HTTPS only, public addresses only,
+  each redirect checked, and kept while the host runs. The thread opens at
+  its end. The view follows new items while the reader is at the bottom; only
+  the reader's move up (wheel, touch, keys, or the pointer) stops it. A thread
+  that gets shorter also moves the view up, and that move does not stop it.
+  The Background and Tasks docks sit under the thread.
 - The thread is a virtual list. Only the units within 1,200 px of the view
   render; spacers hold the height of the others. When less than 800 px stays
   rendered past an edge, the range moves in a task after the frame, so the

@@ -7,7 +7,9 @@ import Testing
 private func root() -> URL {
   FileManager.default.temporaryDirectory.appending(path: "arctic-domain-\(UUID())")
 }
-private let server = URL(string: "https://sync.example")!
+private func account(_ user: String, epoch: String = "first") -> ArticleSyncScope {
+  .account(SyncScope(origin: "https://sync.example", userId: user, epoch: epoch))
+}
 private func article(_ slug: String = "one") -> SavedArticle {
   var article = SavedArticle(url: URL(string: "https://example.com/\(slug)")!, title: "Original")
   article.savedAt = Date(timeIntervalSince1970: 1_700_000_000)
@@ -59,12 +61,11 @@ private func article(_ slug: String = "one") -> SavedArticle {
   defer { try? FileManager.default.removeItem(at: directory) }
   let local = try await ArticleSyncRepository.open(
     root: directory, scope: .local, legacyLocalArticles: [article()])
-  let alice = try await ArticleSyncRepository.open(
-    root: directory, scope: .account(server: server, id: "alice"))
-  let bob = try await ArticleSyncRepository.open(
-    root: directory, scope: .account(server: server, id: "bob"))
+  let alice = try await ArticleSyncRepository.open(root: directory, scope: account("alice"))
+  let bob = try await ArticleSyncRepository.open(root: directory, scope: account("bob"))
   let elsewhere = try await ArticleSyncRepository.open(
-    root: directory, scope: .account(server: URL(string: "https://other.example")!, id: "alice"))
+    root: directory,
+    scope: .account(SyncScope(origin: "https://other.example", userId: "alice", epoch: "first")))
   #expect(try await alice.snapshot().isEmpty)
   #expect(try await bob.snapshot().isEmpty)
   #expect(try await elsewhere.snapshot().isEmpty)
@@ -75,19 +76,20 @@ private func article(_ slug: String = "one") -> SavedArticle {
   #expect(try await local.snapshot().count == 1)
   await #expect(throws: ArticleSyncError.localMigrationIntoAccount) {
     try await ArticleSyncRepository.open(
-      root: directory, scope: .account(server: server, id: "eve"), legacyLocalArticles: [article()])
+      root: directory, scope: account("eve"), legacyLocalArticles: [article()])
   }
-  let normalized = try await ArticleSyncRepository.open(
-    root: directory, scope: .account(server: URL(string: "https://SYNC.EXAMPLE:443/")!, id: "alice")
-  )
-  #expect(try await normalized.snapshot().count == 1)
+  let reopened = try await ArticleSyncRepository.open(root: directory, scope: account("alice"))
+  #expect(try await reopened.snapshot().count == 1)
+  // A stream reset on the server is a new, empty profile.
+  let reset = try await ArticleSyncRepository.open(
+    root: directory, scope: account("alice", epoch: "second"))
+  #expect(try await reset.snapshot().isEmpty)
 }
 
 @Test func explicitImportKeepsExistingValuesAndTombstones() async throws {
   let directory = root()
   defer { try? FileManager.default.removeItem(at: directory) }
-  let repository = try await ArticleSyncRepository.open(
-    root: directory, scope: .account(server: server, id: "alice"))
+  let repository = try await ArticleSyncRepository.open(root: directory, scope: account("alice"))
   _ = try await repository.importLocalArticles([article(), article("two")])
   _ = try await repository.transaction {
     $0.removeAll { $0.url.lastPathComponent == "one" }
@@ -161,22 +163,22 @@ private actor DomainRemote: SyncRemote {
     try? FileManager.default.removeItem(at: aRoot)
     try? FileManager.default.removeItem(at: bRoot)
   }
-  let scope = ArticleSyncScope.account(server: server, id: "alice")
-  let a = try await ArticleSyncRepository.open(root: aRoot, scope: scope)
-  let b = try await ArticleSyncRepository.open(root: bRoot, scope: scope)
+  let a = try await ArticleSyncRepository.open(root: aRoot, scope: account("alice"))
+  let b = try await ArticleSyncRepository.open(root: bRoot, scope: account("alice"))
   let remote = DomainRemote()
   _ = try await a.importLocalArticles([article()])
-  _ = try await a.sync(using: remote)
-  _ = try await b.sync(using: remote)
+  try await a.sync(using: remote)
+  try await b.sync(using: remote)
   _ = try await a.transaction { $0[0].isArchived = true }
   _ = try await b.transaction {
     $0[0].title = "Metadata refreshed"
     $0[0].tags = ["Intentional tag"]
     $0[0].tagging?.manual = ["Intentional tag"]
   }
-  _ = try await a.sync(using: remote)
-  _ = try await b.sync(using: remote)
-  let result = try await a.sync(using: remote)
+  try await a.sync(using: remote)
+  try await b.sync(using: remote)
+  try await a.sync(using: remote)
+  let result = try await a.snapshot()
   #expect(result[0].isArchived == true)
   #expect(result[0].title == "Metadata refreshed")
   #expect(result[0].tagNames == ["Intentional tag"])
@@ -185,7 +187,7 @@ private actor DomainRemote: SyncRemote {
   #expect(await b.pendingCount == 0)
 }
 
-@Test func localReceiptsAndCachedFieldsShareDomainCommitButNeverUpload() async throws {
+@Test func localReceiptsAndCachesShareTheDomainCommitButNeverUpload() async throws {
   let directory = root()
   defer { try? FileManager.default.removeItem(at: directory) }
   var original = article()
@@ -204,13 +206,20 @@ private actor DomainRemote: SyncRemote {
   let restored = try await ArticleSyncRepository.open(root: directory, scope: .local)
   #expect(try await restored.snapshot()[0].imageURL == original.imageURL)
   #expect(try await restored.snapshot()[0].downloadedAt == original.downloadedAt)
-  let account = try await ArticleSyncRepository.open(
-    root: directory, scope: .account(server: server, id: "alice"))
-  let copied = try await account.importLocalArticles(snapshot)
-  #expect(copied[0].downloadedAt == nil)
+  let profile = try await ArticleSyncRepository.open(root: directory, scope: account("alice"))
+  let copied = try await profile.importLocalArticles(snapshot)
+  // The offline copy and cached image stay on this device with the same article.
+  #expect(copied[0].id == original.id)
+  #expect(copied[0].downloadedAt == original.downloadedAt)
+  #expect(copied[0].imageURL == original.imageURL)
   #expect(copied[0].sharedTransferID == nil)
-  #expect(copied[0].imageURL == nil)
   #expect(copied[0].tagging?.sharedFeedbackTransferID == nil)
+  let remote = DomainRemote()
+  try await profile.sync(using: remote)
+  let uploaded = await remote.records.values.map(\.value).joined()
+  #expect(!uploaded.contains("/private/fixture"))
+  #expect(!uploaded.contains("downloadedAt"))
+  #expect(!uploaded.contains(original.sharedTransferID!.uuidString))
   await #expect(throws: ArticleSyncError.localProfileCannotSync) {
     try await local.sync(using: DomainRemote())
   }
@@ -302,4 +311,146 @@ private actor DomainRemote: SyncRemote {
   let changed = try ArticleSyncCodec.articleMutation(journal, identity: id, article: projected)
   #expect(changed.mutations.count == 1)
   #expect(changed.mutations[0].key == "library/" + id)
+}
+
+@Test func firstLaunchCopyKeepsEveryFieldAndMergesAnchorDuplicates() throws {
+  let directory = root()
+  defer { try? FileManager.default.removeItem(at: directory) }
+  var full = article("full")
+  full.subtitle = "Subtitle"
+  full.taggingText = "Context"
+  full.imageURL = URL(filePath: "/private/cached.jpg")
+  full.faviconURL = URL(string: "https://example.com/icon.png")
+  full.previewFetchedAt = Date(timeIntervalSince1970: 1_700_000_100)
+  full.isArchived = true
+  full.isRead = true
+  full.isFavourite = true
+  full.favouritedAt = Date(timeIntervalSince1970: 1_700_000_200)
+  full.lastVisitedAt = Date(timeIntervalSince1970: 1_700_000_300)
+  full.downloadedAt = Date(timeIntervalSince1970: 1_700_000_400)
+  full.importBatchID = UUID()
+  var tagging = ArticleTaggingState()
+  tagging.pendingIdentity = "pending"
+  tagging.automatic = ["Design"]
+  full.tagging = tagging
+  var visit = SavedArticle(url: URL(string: "https://example.com/visit")!, title: "Visited")
+  visit.isSaved = false
+  visit.lastVisitedAt = Date(timeIntervalSince1970: 1_700_000_500)
+  let anchored = SavedArticle(url: URL(string: "https://example.com/full#part")!, title: "Again")
+  _ = try ArticleSyncRepository.load(
+    root: directory, scope: .local, legacyLocalArticles: [full, visit, anchored])
+  let restored = try ArticleSyncRepository.load(root: directory, scope: .local).articles
+  #expect(restored.count == 2)
+  let copy = try #require(restored.first { $0.id == full.id })
+  #expect(copy.url == full.url)
+  #expect(copy.favouritedAt == full.favouritedAt)
+  #expect(copy.previewFetchedAt == full.previewFetchedAt)
+  #expect(copy.tagging?.pendingIdentity == "pending")
+  #expect(copy.downloadedAt == full.downloadedAt)
+  #expect(copy.imageURL == full.imageURL)
+  #expect(copy.isArchived == true && copy.isRead == true && copy.favourite)
+  #expect(try ArticleSyncCodec.values(copy) == ArticleSyncCodec.values(full))
+  #expect(restored.first { $0.id == visit.id }?.saved == false)
+}
+
+@Test func anEditKeepsWhatAnotherDeviceChangedMeanwhile() async throws {
+  let aRoot = root()
+  let bRoot = root()
+  defer {
+    try? FileManager.default.removeItem(at: aRoot)
+    try? FileManager.default.removeItem(at: bRoot)
+  }
+  let a = try await ArticleSyncRepository.open(root: aRoot, scope: account("alice"))
+  let b = try await ArticleSyncRepository.open(root: bRoot, scope: account("alice"))
+  let remote = DomainRemote()
+  _ = try await a.importLocalArticles([article()])
+  try await a.sync(using: remote)
+  _ = try await a.takeRemoteChanges()
+  try await b.sync(using: remote)
+  let shown = try await a.snapshot()[0]
+  _ = try await b.editArticle(at: shown.url) { value in
+    value?.title = "Renamed elsewhere"
+    value?.isRead = true
+  }
+  try await b.sync(using: remote)
+  try await a.sync(using: remote)
+  let id = try ArticleSyncCodec.identity(shown.url)
+  #expect(try await a.takeRemoteChanges()[id]??.title == "Renamed elsewhere")
+  // The screen still shows the old title when the user archives.
+  var archived = shown
+  archived.isArchived = true
+  try await a.apply([ArticlePatch(before: shown, after: archived)])
+  let result = try await a.snapshot()[0]
+  #expect(result.isArchived == true)
+  #expect(result.title == "Renamed elsewhere")
+  #expect(result.isRead == true)
+  _ = try await b.editArticle(at: shown.url) { $0 = nil }
+  try await b.sync(using: remote)
+  try await a.sync(using: remote)
+  let removal = try await a.takeRemoteChanges()
+  #expect(removal.count == 1)
+  #expect(removal[id] == .some(nil))
+}
+
+@Test func editsOnTwoDevicesBeforeEitherSyncsKeepBoth() async throws {
+  let aRoot = root()
+  let bRoot = root()
+  defer {
+    try? FileManager.default.removeItem(at: aRoot)
+    try? FileManager.default.removeItem(at: bRoot)
+  }
+  let remote = DomainRemote()
+  let a = try await ArticleSyncRepository.open(root: aRoot, scope: account("alice"))
+  var b = try await ArticleSyncRepository.open(root: bRoot, scope: account("alice"))
+  let one = article().url
+  let two = article("two").url
+  _ = try await a.importLocalArticles([article(), article("two")])
+  try await a.sync(using: remote)
+  try await b.sync(using: remote)
+  // B edits first, so A's edits are newer.
+  _ = try await b.editArticle(at: one) {
+    $0?.isFavourite = true
+    $0?.favouritedAt = Date(timeIntervalSince1970: 1_700_000_100)
+  }
+  _ = try await b.editArticle(at: two) { $0?.isFavourite = true }
+  _ = try await a.editArticle(at: one) { $0?.isArchived = true }
+  _ = try await a.editArticle(at: two) {
+    $0?.isSaved = false
+    $0?.isFavourite = false
+    $0?.savedAt = nil
+  }
+  // B quits before it syncs.
+  b = try await ArticleSyncRepository.open(root: bRoot, scope: account("alice"))
+  try await a.sync(using: remote)
+  try await b.sync(using: remote)
+  try await a.sync(using: remote)
+  for device in [a, b] {
+    let articles = try await device.snapshot()
+    let first = try #require(articles.first { $0.url == one })
+    #expect(first.isArchived == true)
+    #expect(first.favourite)
+    #expect(first.favouritedAt == Date(timeIntervalSince1970: 1_700_000_100))
+    // An unsave on one device wins over a favourite on the other.
+    let second = try #require(articles.first { $0.url == two })
+    #expect(!second.saved)
+    #expect(!second.favourite)
+    #expect(await device.pendingCount == 0)
+  }
+}
+
+@Test func aHistoryVisitNeverUnsavesAnArticle() async throws {
+  let directory = root()
+  defer { try? FileManager.default.removeItem(at: directory) }
+  let saved = article()
+  let repository = try await ArticleSyncRepository.open(
+    root: directory, scope: .local, legacyLocalArticles: [saved])
+  var visit = SavedArticle(url: URL(string: "https://example.com/one#comments")!, title: "Original")
+  visit.isSaved = false
+  visit.isRead = true
+  try await repository.apply([ArticlePatch(before: nil, after: visit)])
+  let result = try await repository.snapshot()
+  #expect(result.count == 1)
+  #expect(result[0].saved)
+  #expect(result[0].savedAt == saved.savedAt)
+  #expect(result[0].isRead == true)
 }

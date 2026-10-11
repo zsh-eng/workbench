@@ -37,7 +37,7 @@ import {
 import type { MarkdownResult } from "../markdown/model";
 import { renderBrief, renderedBrief } from "../markdown/brief-render";
 import { useTheme } from "../themes";
-import { tokens } from "../theme.stylex";
+import { tokens, ui } from "../theme.stylex";
 import { ActionMenu } from "./Controls";
 import { DiagramBlock } from "./DiagramBlock";
 import { markdownImageUrl } from "../markdown/images";
@@ -86,6 +86,10 @@ export interface BriefViewProps {
   onPaste(): void;
   onCopy(text: string): void;
   onRemove(): void;
+  /** Starts new, empty notes, which later pins go to. */
+  onStartNotes?(): void;
+  /** Deletes the shown notes and the comments on them, after the reader confirms. */
+  onDeleteNotes?(): Promise<void>;
   onUnpin?(id: string): void;
   /** Notes texts to render in the background, such as other iterations. */
   prerender?: readonly string[];
@@ -193,6 +197,8 @@ export default function BriefView({
   onPaste,
   onCopy,
   onRemove,
+  onStartNotes,
+  onDeleteNotes,
   onUnpin,
   iterations,
   iteration,
@@ -244,6 +250,8 @@ export default function BriefView({
   const files = shown?.files ?? nextFiles;
   const root = shown?.root ?? nextRoot;
   const [error, setError] = useState("");
+  // Deleting the notes asks first.
+  const [deleting, setDeleting] = useState<"ask" | "busy" | null>(null);
   const pane = useRef<HTMLDivElement>(null);
   const article = useRef<HTMLElement>(null);
   const [slots, setSlots] = useState<Map<string, HTMLElement>>(() => new Map());
@@ -281,6 +289,7 @@ export default function BriefView({
     setLinked(null);
     setPassage(null);
     setPassageDraft(null);
+    setDeleting(null);
   }
   const lastText = useRef(shownText);
   useLayoutEffect(() => {
@@ -621,7 +630,7 @@ export default function BriefView({
                 onIteration={onIteration}
               />
             )}
-            {annotated && files.length > 0 && (
+            {annotated && files.length > 0 && !!shown?.sections.length && (
               <span {...stylex.props(styles.coverage)} title="Changed files that the notes link to">
                 <span {...stylex.props(styles.meter)} aria-hidden="true">
                   <span {...stylex.props(styles.meterFill(citedCount / files.length))} />
@@ -644,7 +653,15 @@ export default function BriefView({
                   },
                   { label: "Copy all notes", onClick: () => onCopy(text) },
                 ],
-                ...(brief ? [[{ label: "Remove the brief", onClick: onRemove }]] : []),
+                ...(onStartNotes ? [[{ label: "Start new notes", onClick: onStartNotes }]] : []),
+                ...[
+                  [
+                    ...(brief ? [{ label: "Remove the brief", onClick: onRemove }] : []),
+                    ...(onDeleteNotes
+                      ? [{ label: "Delete these notes…", onClick: () => setDeleting("ask") }]
+                      : []),
+                  ],
+                ].filter((section) => section.length),
               ]}
             >
               <Icon name="more" size={15} />
@@ -654,6 +671,37 @@ export default function BriefView({
             <div role="alert" className="med-md-notice">
               {error}
             </div>
+          )}
+          {deleting && (
+            <div role="alertdialog" aria-label="Delete notes" {...stylex.props(styles.confirm)}>
+              <span {...stylex.props(styles.confirmText)}>
+                Delete these notes and the comments on them?
+              </span>
+              <button
+                type="button"
+                disabled={deleting === "busy"}
+                onClick={() => {
+                  setDeleting("busy");
+                  void onDeleteNotes?.().finally(() => setDeleting(null));
+                }}
+                {...stylex.props(ui.button)}
+              >
+                Delete
+              </button>
+              <button
+                type="button"
+                disabled={deleting === "busy"}
+                onClick={() => setDeleting(null)}
+                {...stylex.props(ui.button)}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+          {shown?.sections.length === 0 && (
+            <p {...stylex.props(styles.empty)}>
+              No notes yet. Pin a reply from the session, or paste a brief with ⌘V.
+            </p>
           )}
           {groups.map(({ section, blocks }, number) => (
             <section
@@ -716,7 +764,7 @@ export default function BriefView({
             </section>
           ))}
         </article>
-        {annotated && files.length > 0 && (
+        {annotated && files.length > 0 && !!shown?.sections.length && (
           // Outside the prose, so Markdown heading and list styles do not apply.
           <footer aria-label="Changed files the notes do not cite" {...stylex.props(styles.column)}>
             <div {...stylex.props(styles.uncited)}>
@@ -1391,6 +1439,23 @@ function IterationKeys({
 }
 
 const styles = stylex.create({
+  empty: { color: tokens.muted, fontFamily: tokens.ui, fontSize: 13 },
+  confirm: {
+    display: "flex",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 24,
+    paddingBlock: 8,
+    paddingInline: 12,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: tokens.line,
+    borderRadius: `calc(8px * ${tokens.round})`,
+    fontFamily: tokens.ui,
+    fontSize: 12.5,
+  },
+  confirmText: { flex: "1", minWidth: 200, color: tokens.text },
   root: {
     position: "relative",
     containerType: "inline-size",
@@ -1696,7 +1761,7 @@ const styles = stylex.create({
     paddingInlineEnd: "clamp(24px, 4cqw, 48px)",
     paddingBottom: 64,
     // The prose's font size, so this em-based column matches its width.
-    fontSize: 16,
+    fontSize: "calc(15px * var(--med-prose-scale, 1))",
   },
   uncited: {
     paddingTop: 18,

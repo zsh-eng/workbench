@@ -8,7 +8,9 @@ import { createSessionReplay } from "../../data/session-replay";
 import { createSessionStore, type SessionStore } from "../../data/session-store";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon } from "../Icon";
+import { ToolButton } from "../ToolButton";
 import { SessionComposer, type ComposerAttachment } from "../session/SessionComposer";
+import { FaviconSource, GLOBE } from "../session/favicons";
 import { SessionThread } from "../session/SessionThread";
 import { sessionGallery } from "./session-gallery";
 import transcript from "./session-fixture.jsonl?raw";
@@ -26,14 +28,18 @@ function Panel({
   title,
   store,
   now,
+  work = false,
   children,
 }: {
   title: string;
   store: SessionStore;
   now?: number;
+  /** Whether finished turns show their work at first. */
+  work?: boolean;
   children?: ReactNode;
 }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const [showWork, setShowWork] = useState(work);
   return (
     <div {...stylex.props(styles.panel)}>
       <header {...stylex.props(styles.panelHeader)}>
@@ -43,9 +49,16 @@ function Panel({
           aria-label={snapshot.running ? "Working" : "Idle"}
           {...stylex.props(styles.dot, snapshot.running && styles.dotLive)}
         />
+        <ToolButton
+          icon="expandAll"
+          label="Show work"
+          active={showWork}
+          aria-pressed={showWork}
+          onClick={() => setShowWork(!showWork)}
+        />
       </header>
       <div {...stylex.props(styles.thread)}>
-        <SessionThread snapshot={snapshot} now={now} />
+        <SessionThread snapshot={snapshot} now={now} showWork={showWork} />
       </div>
       {children}
     </div>
@@ -306,13 +319,71 @@ function ReplyDemo() {
   );
 }
 
+/** A letter on a tile, in place of a site's icon, so the page needs no network. */
+const tile = (letter: string, color: string) =>
+  `data:image/svg+xml,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="${color}"/><text x="16" y="22" font-family="system-ui, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#fff">${letter}</text></svg>`,
+  )}`;
+const ICONS: Record<string, string> = {
+  "https://react.dev": tile("R", "#087ea4"),
+  "https://developer.mozilla.org": tile("M", "#1b1b1b"),
+  "https://github.com": tile("G", "#6e40c9"),
+};
+
+function Links() {
+  const [store] = useState(() => {
+    const store = createSessionStore();
+    const text = (
+      kind: "user_message_chunk" | "agent_message_chunk",
+      at: number,
+      value: string,
+    ) => ({
+      at,
+      update: { sessionUpdate: kind, content: { type: "text" as const, text: value } },
+    });
+    store.applyAll([
+      text(
+        "user_message_chunk",
+        0,
+        [
+          "<!-- reply 1 -->",
+          "> The summary prints best times as readable durations.",
+          "",
+          "Round to whole minutes over 90 seconds.",
+          "",
+          "<!-- reply 2 -->",
+          "> Tests are in duration.test.ts for the helper.",
+          "> The summary test checks the exact lines.",
+          "",
+          "Add one for 90 seconds exactly.",
+        ].join("\n"),
+      ),
+      text(
+        "agent_message_chunk",
+        4000,
+        [
+          "Durations over 90 seconds now round to whole minutes in [summary.ts:14](src/summary.ts:14), and [duration.test.ts:22](tests/duration.test.ts:22) checks 90 seconds exactly.",
+          "",
+          "Web links show their site's icon: the [useMemo reference](https://react.dev/reference/react/useMemo), [MDN on `:focus-visible`](https://developer.mozilla.org/en-US/docs/Web/CSS/:focus-visible), and https://github.com/acme/trail-notes/pull/42. A site without an icon, such as [the team wiki](https://wiki.trail-notes.dev/durations), shows a globe.",
+        ].join("\n"),
+      ),
+    ]);
+    return store;
+  });
+  return (
+    <FaviconSource.Provider value={(origin) => ICONS[origin] ?? GLOBE}>
+      <Panel title="Round long durations" store={store} />
+    </FaviconSource.Provider>
+  );
+}
+
 function Gallery() {
   const [store] = useState(() => {
     const store = createSessionStore();
     store.applyAll(sessionGallery());
     return store;
   });
-  return <Panel title="Cache the branch list" store={store} />;
+  return <Panel title="Cache the branch list" store={store} work />;
 }
 
 /**
@@ -356,12 +427,24 @@ export function SessionSection() {
           <Gallery />
         </div>
       </Specimen>
+      <Specimen
+        title="Quotes and links"
+        note="A prompt that quotes the agent shows its quotes as Claude does; reply markers do not show. Links in a reply underline on hover. A web link is a pill with its site's icon, which the host fetches; this page uses letter tiles."
+        padded={false}
+        zoomable={false}
+        span="half"
+      >
+        <div {...stylex.props(styles.links)}>
+          <Links />
+        </div>
+      </Specimen>
     </Section>
   );
 }
 
 const styles = stylex.create({
   replay: { display: "flex", flexDirection: "column", height: 760 },
+  links: { display: "flex", flexDirection: "column", height: 480 },
   controls: {
     display: "flex",
     alignItems: "center",

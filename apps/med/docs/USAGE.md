@@ -181,6 +181,8 @@ host, then returns a local review link. Open the launch URL once to authorize
 the browser; saved links then use the same session.
 
 A saved review opens its first target; choose others from **Review target**.
+An agent's review with one comparison in each iteration has no such picker: the
+iteration keys in **Notes** show each iteration's comparison.
 The saved diff stays fixed when agents make more changes. **Copy comments**
 copies the comments of all targets, with paths, revisions, line numbers, and
 nearby source. **Clear** clears that review after confirmation. Copying does
@@ -195,7 +197,14 @@ toolbar, and **Show agent session** in the palette. They open the Session pane:
 prompts, replies, thoughts, tool calls with output and diffs, the plan, and
 background shells and agents. It follows the session live. A long session opens
 on its latest work; scroll up for earlier work, or jump to a prompt from
-**Turns** (the clock). See [agent sessions](SESSIONS.md).
+**Turns** (the clock). A finished turn shows its prompt and its final reply;
+its thoughts, commentary, and tool calls fold into one **Worked for** row, as in
+Codex. Click the row to open that turn, or press **Show work** in the pane's
+header to open every turn. With focus in the thread, `[` and `]` step through
+the prompts and replies; a task in **Background** goes to its call. A prompt
+that quotes the agent shows its quotes as Claude does. Links in a reply open
+files in Med; a web link is a pill with its site's icon. See
+[agent sessions](SESSIONS.md).
 
 A saved review can also start an agent. A Session pane without a session lists
 the agents that Med found, and its **+** menu starts another. Med starts Claude
@@ -237,6 +246,13 @@ cite.
   notes never cite; read those yourself.
 - **Replace or remove.** Paste again to replace the brief; **Undo** restores
   it. The **⋯** menu copies all notes or removes the brief.
+- **Start new notes.** The **⋯** menu's **Start new notes** captures the
+  current comparisons again as a new, empty iteration. Later pins and a pasted
+  brief go there; the earlier notes stay with their iteration.
+- **Delete notes.** **Delete these notes…** in the **⋯** menu asks first, then
+  deletes the shown brief and pins and the comments on them. Notes that you
+  started also take their iteration with them, unless its comparisons have
+  comments.
 
 Links can be `path`, `path:12`, `path:12-20`, `path#L12-L20`, absolute paths,
 editor links, or GitHub blob URLs. A unique suffix such as `App.tsx:42` works.
@@ -340,6 +356,7 @@ branches.
 | Add note to selected lines        | `c`           | `c`                       |
 | Paste a brief                     | `⌘V`          | `Ctrl+V`                  |
 | Next / previous brief excerpt     | `]` / `[`     | `]` / `[`                 |
+| Next / previous session message   | `]` / `[`     | `]` / `[`                 |
 | Resume search                     | `⌥R`          | `Alt+R`                   |
 | Keep preview tab                  | `⌥P`          | `Alt+P`                   |
 | Open a found file and keep it     | `⌘↵`          | `Ctrl+Enter`              |
@@ -364,10 +381,11 @@ or `⌘K`. Enter runs a highlighted row that has a command.
 `⌥Z` / `Alt+Z`, the focus button at the top right, or **Enter zen mode** hides
 every bar: tabs, the Changes toolbar, and the status bar. It also hides the
 saved review's header, the sidebar's workspaces, the session's controls
-(turns, new session, close), and the reply and background bars. The sidebar
-keeps the history and files, and the session keeps its thread and message box.
-The palette (`⌘K`) has the hidden actions: **Send comments to** the agent,
-**Copy comments**, and **Return to review**. `⌘B` and `⌘⇧B` still
+(show work, turns, new session, close), and the reply and background bars. The
+sidebar keeps the history and files, and the session keeps its thread and
+message box; a folded turn still opens. The palette (`⌘K`) has the saved
+review's actions: **Send comments to** the agent, **Copy comments**, and
+**Return to review**. `⌘B` and `⌘⇧B` still
 show or hide the history sidebar and the agent session. To leave, press `⌥Z` again, or click **Leave zen** in
 the top-right corner. Escape does not leave zen mode, so it stays free for
 search, Vim, and dialogs.

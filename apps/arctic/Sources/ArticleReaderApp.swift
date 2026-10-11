@@ -5,7 +5,8 @@ import UniformTypeIdentifiers
 
 @main
 struct ArticleReaderApp: App {
-  @State private var store = ArticleStore()
+  @State private var store: ArticleStore
+  @State private var sync: LibrarySync
   init() {
     #if DEBUG
       if TestMode.enabled && ProcessInfo.processInfo.arguments.contains("-reset-store") {
@@ -38,14 +39,17 @@ struct ArticleReaderApp: App {
         UserDefaults.standard.removeObject(forKey: "test-clipboard-change")
       }
     #endif
+    let store = ArticleStore()
+    _store = State(initialValue: store)
+    _sync = State(initialValue: LibrarySync(store: store))
   }
   var body: some Scene {
     WindowGroup {
       Group {
         if TestMode.enabled && ProcessInfo.processInfo.arguments.contains("-dark-ui") {
-          ArticleRootView(store: store).preferredColorScheme(.dark)
+          ArticleRootView(store: store, sync: sync).preferredColorScheme(.dark)
         } else {
-          ArticleRootView(store: store)
+          ArticleRootView(store: store, sync: sync)
         }
       }
       .font(ReaderTheme.sans(16))
@@ -66,14 +70,16 @@ struct ArticleReaderApp: App {
 /// Do not read the clipboard or preload pages behind first-run onboarding.
 private struct ArticleRootView: View {
   let store: ArticleStore
+  let sync: LibrarySync
   @State private var completed: Bool
 
   private static var completionKey: String {
     TestMode.enabled ? "test-onboarding-completed" : "onboarding-completed"
   }
 
-  init(store: ArticleStore) {
+  init(store: ArticleStore, sync: LibrarySync) {
     self.store = store
+    self.sync = sync
     if TestMode.enabled && ProcessInfo.processInfo.arguments.contains("-reset-onboarding") {
       UserDefaults.standard.removeObject(forKey: Self.completionKey)
     }
@@ -93,7 +99,7 @@ private struct ArticleRootView: View {
         store.resumeTagging()
       }
     } else {
-      LibraryView(store: store)
+      LibraryView(store: store, sync: sync)
     }
   }
 }
@@ -107,6 +113,7 @@ struct LibraryView: View {
     @State private var testSharing = false
   #endif
   @Bindable var store: ArticleStore
+  let sync: LibrarySync
   /// Pages above the library. The first opens from the library; each later
   /// page is a link followed from the one below it, which stays loaded.
   @State private var pages: [ArticleBrowser] = []
@@ -122,7 +129,7 @@ struct LibraryView: View {
   }
   @State private var choosingImport = false
   @State private var showingTaggingSettings = false
-  @State private var showingSyncTrial = false
+  @State private var showingSync = false
   @State private var showingAnnotations = false
   @State private var showingReadingStats = false
   @State private var showingWeeklyFavourites = false
@@ -166,7 +173,7 @@ struct LibraryView: View {
   private var discoveryAvailable: Bool {
     selected == nil && !searching && !selecting && folder == .saved
       && !showingAnnotations && !showingWeeklyFavourites && !showingReadingStats
-      && !showingOnboarding && !showingArticleReplay && !showingTaggingSettings
+      && !showingOnboarding && !showingArticleReplay && !showingTaggingSettings && !showingSync
       && !choosingImport && editingTags == nil
   }
 
@@ -236,7 +243,7 @@ struct LibraryView: View {
         isLibraryScrolling: isLibraryScrolling, clipboardURL: clipboard.url,
         resumeURL: clipboard.url == nil && !selecting ? continuation.article?.url : nil,
         enabled: selected == nil && !showingOnboarding && !showingArticleReplay
-          && !showingTaggingSettings
+          && !showingTaggingSettings && !showingSync
           && !showingAnnotations && !showingReadingStats && !showingWeeklyFavourites && !choosingImport && editingTags == nil
       )
     }
@@ -329,6 +336,7 @@ struct LibraryView: View {
       }
       store.importSharedLinks()
       store.resumeTagging()
+      sync.syncNow()
       if selected == nil { continuation.refresh(from: store) }
       await clipboard.check()
     }
@@ -406,9 +414,7 @@ struct LibraryView: View {
       WeeklyFavouritesSheet(store: store) { weeklyArticleToOpen = $0 }
     }
     .sheet(isPresented: $showingReadingStats) { ReadingStatsView() }
-    #if DEBUG
-    .sheet(isPresented: $showingSyncTrial) { SyncTrialView() }
-    #endif
+    .sheet(isPresented: $showingSync) { LibrarySyncView(sync: sync) }
     .sheet(isPresented: $showingTaggingSettings) {
       TaggingSettingsView { store.resumeTagging() }
     }
@@ -531,10 +537,8 @@ struct LibraryView: View {
           Button("Favourites this week", systemImage: "star") { showingWeeklyFavourites = true }
           Button("Reading stats", systemImage: "chart.bar.xaxis") { showingReadingStats = true }
             .accessibilityIdentifier("library-reading-stats")
-          #if DEBUG
-          Button("Sync trial", systemImage: "arrow.triangle.2.circlepath") { showingSyncTrial = true }
-            .accessibilityIdentifier("sync-trial-open")
-          #endif
+          Button("Sync", systemImage: "arrow.triangle.2.circlepath") { showingSync = true }
+            .accessibilityIdentifier("library-sync")
           Button("Automatic tags", systemImage: "sparkles") { showingTaggingSettings = true }
             .accessibilityIdentifier("automatic-tag-settings")
           Button("Tag existing articles", systemImage: "tag") { store.retagSavedArticles() }

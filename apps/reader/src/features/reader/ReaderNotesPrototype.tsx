@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import {
   createNoteLocationResolver,
   highlightNoteTarget,
+  MARGIN_NOTE_FALLBACK_TOP,
   marginPlacement,
   noteMarginTop,
 } from "./note-locations";
@@ -291,6 +292,17 @@ export function ReaderNotesPrototype({
       ),
     );
   }, [resolved, locateAnchors]);
+  // Margin notes sit beside their passages. Measure after the new spread is
+  // in the page and before it is painted; during render the page still shows
+  // the previous spread.
+  const [marginTops, setMarginTops] = useState<Record<string, number>>({});
+  useLayoutEffect(() => {
+    setMarginTops(
+      Object.fromEntries(
+        resolved.map(({ note, anchor }) => [note.id, noteMarginTop(anchor)]),
+      ),
+    );
+  }, [resolved]);
   const handledTarget = useRef<NoteTarget | null>(null);
   useEffect(() => {
     if (
@@ -340,9 +352,16 @@ export function ReaderNotesPrototype({
               }
             : undefined,
         highlight: undefined as Highlight | undefined,
-        top: noteMarginTop(anchor),
+        top: marginTops[note.id] ?? MARGIN_NOTE_FALLBACK_TOP,
       })),
-    [resolved, pagination.anchorPages, pagination.status, chapters, highlights],
+    [
+      resolved,
+      pagination.anchorPages,
+      pagination.status,
+      chapters,
+      highlights,
+      marginTops,
+    ],
   );
   // The notebook gathers notes and the highlights that have no note.
   const notebookEntries = useMemo(() => {

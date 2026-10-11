@@ -1,12 +1,20 @@
 /**
  * The library. The books you are reading come first, as covers with a line
- * of progress; everything else is a quiet grid. Controls show when you need
- * them: book actions on hover, sorting and layout in one menu.
+ * of progress; everything else is a quiet grid. Each book shows once.
+ * Controls show when you need them: book actions on hover, sorting and
+ * layout in one menu. Search turns the title into the query and narrows the
+ * page in place.
  */
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "motion/react";
-import { MoreHorizontal, PanelLeft, Plus, SlidersHorizontal } from "lucide-react";
-import { useLayoutEffect, useRef, useState } from "react";
+import {
+  MoreHorizontal,
+  Plus,
+  Search,
+  SlidersHorizontal,
+  X,
+} from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { StudioStatus } from "../data/sample-library";
 import { chapterOfPage } from "../data/walden-book";
 import { TypographicCover } from "../primitives";
@@ -23,9 +31,17 @@ import {
   TextButton,
   TextTabs,
 } from "./ui";
-import { minutesForPages, type ShelfBook } from "./state";
+import {
+  PageTitle,
+  ShortcutsButton,
+  ThemeButton,
+  type SystemNav,
+  type SystemView,
+} from "./Navigation";
+import { matchesQuery, minutesForPages, type ShelfBook } from "./state";
 
-type Filter = "all" | StudioStatus;
+/** The books you are reading are on the shelf, so the tabs leave them out. */
+type Filter = "all" | Exclude<StudioStatus, "reading">;
 type Sort = "recent" | "title" | "author" | "added";
 type Layout = "grid" | "list";
 
@@ -46,7 +62,9 @@ const SORT_LABEL: Record<Sort, string> = {
 const DAY = 86_400_000;
 
 function daysSince(time: number | null): number | null {
-  return time === null ? null : Math.max(0, Math.floor((Date.now() - time) / DAY));
+  return time === null
+    ? null
+    : Math.max(0, Math.floor((Date.now() - time) / DAY));
 }
 
 function surname(author: string): string {
@@ -55,42 +73,72 @@ function surname(author: string): string {
 
 function sortBooks(books: ShelfBook[], sort: Sort): ShelfBook[] {
   const sorted = [...books];
-  if (sort === "title") return sorted.sort((a, b) => a.title.localeCompare(b.title));
-  if (sort === "author") return sorted.sort((a, b) => surname(a.author).localeCompare(surname(b.author)));
+  if (sort === "title")
+    return sorted.sort((a, b) => a.title.localeCompare(b.title));
+  if (sort === "author")
+    return sorted.sort((a, b) =>
+      surname(a.author).localeCompare(surname(b.author)),
+    );
   if (sort === "added") return sorted.sort((a, b) => b.addedAt - a.addedAt);
-  return sorted.sort((a, b) => (b.lastReadAt ?? 0) - (a.lastReadAt ?? 0) || b.addedAt - a.addedAt);
+  return sorted.sort(
+    (a, b) =>
+      (b.lastReadAt ?? 0) - (a.lastReadAt ?? 0) || b.addedAt - a.addedAt,
+  );
 }
 
-export function bookProgress(book: ShelfBook, page: number | undefined): number {
+export function bookProgress(
+  book: ShelfBook,
+  page: number | undefined,
+): number {
   if (book.status === "finished") return 1;
-  return book.model && page !== undefined ? page / book.model.pages : book.progress;
+  return book.model && page !== undefined
+    ? page / book.model.pages
+    : book.progress;
 }
 
 /** Opens upward when there is no room below in the scrolling library. */
 function menuSide(trigger: HTMLElement): "top" | "bottom" {
   const scroller = trigger.closest<HTMLElement>("[data-scroller]");
   const limit = scroller?.getBoundingClientRect().bottom ?? window.innerHeight;
-  return limit - trigger.getBoundingClientRect().bottom < 260 ? "top" : "bottom";
+  return limit - trigger.getBoundingClientRect().bottom < 260
+    ? "top"
+    : "bottom";
 }
 
 export function LibraryView({
   books,
   pages,
+  nav,
   narrow,
-  sidebarHidden,
+  isDark,
   scrollMemory,
+  query,
+  searchFocusKey,
+  onNavigate,
   onShowSidebar,
+  onToggleTheme,
+  onSearch,
+  onQuery,
   onOpen,
   onSetStatus,
   onRemove,
 }: {
   books: ShelfBook[];
   pages: Record<string, number>;
+  nav: SystemNav;
   narrow: boolean;
-  sidebarHidden: boolean;
+  isDark: boolean;
   /** Keeps the scroll position when you come back from a book. */
   scrollMemory: { current: number };
+  /** The search in the title, or null when it is closed. */
+  query: string | null;
+  /** Changes when the search should take the keyboard. */
+  searchFocusKey: number;
+  onNavigate: (view: SystemView) => void;
   onShowSidebar: () => void;
+  onToggleTheme: () => void;
+  onSearch: () => void;
+  onQuery: (query: string | null) => void;
   onOpen: (bookId: string) => void;
   onSetStatus: (bookId: string, status: StudioStatus) => void;
   onRemove: (bookId: string) => void;
@@ -101,19 +149,57 @@ export function LibraryView({
   const [viewOpen, setViewOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useLayoutEffect(() => {
     const scroller = scrollerRef.current;
     if (scroller) scroller.scrollTop = scrollMemory.current;
   }, [scrollMemory]);
 
-  const reading = books
+  const searching = query !== null;
+  const terms = query?.trim() ?? "";
+
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input || searchFocusKey === 0) return;
+    input.focus({ preventScroll: true });
+    input.setSelectionRange(input.value.length, input.value.length);
+  }, [searchFocusKey]);
+
+  // Results start at the top, wherever the search began.
+  const searchedTerms = useRef(terms);
+  useEffect(() => {
+    if (searchedTerms.current === terms) return;
+    searchedTerms.current = terms;
+    scrollerRef.current?.scrollTo({ top: 0 });
+  }, [terms]);
+
+  const found = terms
+    ? books.filter((book) => matchesQuery(book, terms))
+    : books;
+  // Each book shows once: the books you are reading on the shelf, the rest below.
+  const reading = found
     .filter((book) => book.status === "reading")
     .sort((a, b) => (b.lastReadAt ?? 0) - (a.lastReadAt ?? 0));
   const shown = sortBooks(
-    books.filter((book) => filter === "all" || book.status === filter),
+    found.filter(
+      (book) =>
+        book.status !== "reading" &&
+        (filter === "all" || book.status === filter),
+    ),
     sort,
   );
+  const first = reading[0] ?? shown[0];
+  const nothingFound = terms !== "" && found.length === 0;
+  const showShelf = reading.length > 0;
+  const showRest =
+    !nothingFound && (!terms || shown.length > 0 || filter !== "all");
+
+  const titleMotion = {
+    initial: { opacity: 0 },
+    animate: { opacity: 1, transition: MOTION.enter },
+    exit: { opacity: 0, transition: MOTION.exit },
+  };
 
   return (
     <div
@@ -124,26 +210,121 @@ export function LibraryView({
       }}
       className="xp-scroll-quiet size-full overflow-y-auto overscroll-contain"
     >
-      <div className={cn("mx-auto max-w-[1160px]", narrow ? "px-5 pt-5 pb-16" : "px-12 pt-12 pb-24")}>
-        <header className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            {sidebarHidden && (
-              <IconButton label="Show sidebar ([)" onClick={onShowSidebar} className="-ml-2">
-                <PanelLeft className="size-4" strokeWidth={1.6} />
+      <div
+        className={cn(
+          "mx-auto max-w-[1160px]",
+          narrow ? "px-5 pt-5 pb-16" : "px-12 pt-12 pb-24",
+        )}
+      >
+        {/* While you search, the title row stays in view. */}
+        <header
+          className={cn(
+            "-my-3 flex items-center justify-between gap-3 py-3",
+            searching && "sticky top-0 z-20 bg-background",
+          )}
+        >
+          <div className="relative h-9 min-w-0 flex-1">
+            <AnimatePresence initial={false}>
+              {searching ? (
+                <motion.div
+                  key="search"
+                  role="search"
+                  className="absolute inset-0 flex items-center gap-2.5"
+                  {...titleMotion}
+                >
+                  <Search
+                    className="size-[18px] shrink-0 text-muted-foreground"
+                    strokeWidth={1.7}
+                  />
+                  <input
+                    ref={inputRef}
+                    value={query}
+                    onChange={(event) => onQuery(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onQuery(query ? "" : null);
+                      } else if (event.key === "Enter" && terms && first) {
+                        event.preventDefault();
+                        onOpen(first.id);
+                      }
+                    }}
+                    aria-label="Search the library"
+                    placeholder="Title or author"
+                    enterKeyHint="search"
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="xp-serif min-w-0 flex-1 bg-transparent text-[30px] leading-none tracking-[-0.01em] outline-none placeholder:text-foreground/25"
+                  />
+                  {terms && (
+                    <span
+                      aria-live="polite"
+                      className="shrink-0 font-numeric text-[12px] text-muted-foreground tabular-nums"
+                    >
+                      {found.length} of {books.length}
+                    </span>
+                  )}
+                  <IconButton
+                    label="Close search (Esc)"
+                    onClick={() => onQuery(null)}
+                  >
+                    <X className="size-4" strokeWidth={1.6} />
+                  </IconButton>
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="title"
+                  className="absolute inset-0 flex items-center"
+                  {...titleMotion}
+                >
+                  <PageTitle
+                    nav={nav}
+                    current="library"
+                    narrow={narrow}
+                    onNavigate={onNavigate}
+                    onShowSidebar={onShowSidebar}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            {!searching && (
+              <IconButton label="Search (/)" onClick={onSearch}>
+                <Search className="size-[15px]" strokeWidth={1.7} />
               </IconButton>
             )}
-            <h1 className="xp-serif text-[30px] leading-none tracking-[-0.01em]">Library</h1>
-          </div>
-          <div className="flex items-center gap-1">
             <div className="relative">
-              <TextButton onClick={() => setAddOpen((open) => !open)} aria-expanded={addOpen}>
-                <Plus className="size-3.5" strokeWidth={1.8} />
-                Add books
-              </TextButton>
-              <Popover open={addOpen} onClose={() => setAddOpen(false)} className="w-64 p-3">
+              {narrow ? (
+                <IconButton
+                  label="Add books"
+                  active={addOpen}
+                  onClick={() => setAddOpen((open) => !open)}
+                >
+                  <Plus className="size-4" strokeWidth={1.7} />
+                </IconButton>
+              ) : (
+                <TextButton
+                  onClick={() => setAddOpen((open) => !open)}
+                  aria-expanded={addOpen}
+                >
+                  <Plus className="size-3.5" strokeWidth={1.8} />
+                  Add books
+                </TextButton>
+              )}
+              <Popover
+                open={addOpen}
+                onClose={() => setAddOpen(false)}
+                className="w-64 p-3"
+              >
                 <p className="text-[13px] leading-relaxed text-muted-foreground">
                   Drop EPUB files anywhere in this window, or{" "}
-                  <button type="button" onClick={() => setAddOpen(false)} className="cursor-pointer text-foreground underline decoration-foreground/25 underline-offset-4">
+                  <button
+                    type="button"
+                    onClick={() => setAddOpen(false)}
+                    className="cursor-pointer text-foreground underline decoration-foreground/25 underline-offset-4"
+                  >
                     choose files
                   </button>
                   .
@@ -151,115 +332,203 @@ export function LibraryView({
               </Popover>
             </div>
             <div className="relative">
-              <IconButton label="Sort and layout" active={viewOpen} onClick={() => setViewOpen((open) => !open)}>
+              <IconButton
+                label="Sort and layout"
+                active={viewOpen}
+                onClick={() => setViewOpen((open) => !open)}
+              >
                 <SlidersHorizontal className="size-[15px]" strokeWidth={1.6} />
               </IconButton>
-              <Popover open={viewOpen} onClose={() => setViewOpen(false)} className="w-48">
+              <Popover
+                open={viewOpen}
+                onClose={() => setViewOpen(false)}
+                className="w-48"
+              >
                 <MenuLabel>Sort by</MenuLabel>
                 {(Object.keys(SORT_LABEL) as Sort[]).map((option) => (
-                  <MenuItem key={option} checked={sort === option} onSelect={() => setSort(option)}>
+                  <MenuItem
+                    key={option}
+                    checked={sort === option}
+                    onSelect={() => setSort(option)}
+                  >
                     {SORT_LABEL[option]}
                   </MenuItem>
                 ))}
                 <MenuSeparator />
                 <MenuLabel>Show as</MenuLabel>
-                <MenuItem checked={layout === "grid"} onSelect={() => setLayout("grid")}>
+                <MenuItem
+                  checked={layout === "grid"}
+                  onSelect={() => setLayout("grid")}
+                >
                   Covers
                 </MenuItem>
-                <MenuItem checked={layout === "list"} onSelect={() => setLayout("list")}>
+                <MenuItem
+                  checked={layout === "list"}
+                  onSelect={() => setLayout("list")}
+                >
                   List
                 </MenuItem>
               </Popover>
             </div>
+            {nav === "header" && !narrow && (
+              <>
+                <ShortcutsButton sidebar={false} side="bottom" />
+                <ThemeButton isDark={isDark} onToggle={onToggleTheme} />
+              </>
+            )}
           </div>
         </header>
 
-        {reading.length > 0 && (
+        {nothingFound && (
+          <div className="py-20 text-center">
+            <p className="text-[13px] text-muted-foreground">
+              No books match “{terms}”.
+            </p>
+            <TextButton
+              className="mx-auto mt-3"
+              onClick={() => {
+                onQuery("");
+                onSearch();
+              }}
+            >
+              Clear search
+            </TextButton>
+          </div>
+        )}
+
+        {showShelf && (
           <section aria-label="Reading" className={narrow ? "mt-7" : "mt-11"}>
-            <h2 className="text-[12px] text-muted-foreground">Reading</h2>
-            <div className={cn("xp-scroll-quiet mt-4 flex overflow-x-auto", narrow ? "-mx-5 gap-6 px-5" : "gap-12")}>
-              {reading.slice(0, 4).map((book) => (
-                <ReadingItem key={book.id} book={book} page={pages[book.id]} onOpen={() => onOpen(book.id)} />
+            <h2 className="text-[12px] text-muted-foreground">
+              Reading{" "}
+              <span className="ml-1 font-numeric text-foreground/30 tabular-nums">
+                {reading.length}
+              </span>
+            </h2>
+            <div
+              className={cn(
+                "xp-scroll-quiet mt-4 flex overflow-x-auto",
+                narrow ? "-mx-5 gap-6 px-5" : "gap-12",
+              )}
+            >
+              {reading.map((book) => (
+                <ReadingItem
+                  key={book.id}
+                  book={book}
+                  page={pages[book.id]}
+                  onOpen={() => onOpen(book.id)}
+                />
               ))}
             </div>
           </section>
         )}
 
-        <div className={cn("flex items-center justify-between gap-4", narrow ? "mt-9" : "mt-14")}>
-          <TextTabs
-            label="Show"
-            value={filter}
-            onChange={setFilter}
-            className="xp-scroll-quiet overflow-x-auto"
-            options={[
-              { value: "all", label: "All" },
-              { value: "reading", label: "Reading" },
-              { value: "want-to-read", label: "Want to read" },
-              { value: "finished", label: "Finished" },
-              { value: "dnf", label: "Set aside" },
-            ]}
-          />
-          <span className="shrink-0 font-numeric text-[12px] text-muted-foreground tabular-nums max-sm:hidden">
-            {shown.length} {shown.length === 1 ? "book" : "books"}
-          </span>
-        </div>
+        {showRest && (
+          <>
+            <div
+              className={cn(
+                "flex items-center justify-between gap-4",
+                !showShelf
+                  ? narrow
+                    ? "mt-7"
+                    : "mt-11"
+                  : narrow
+                    ? "mt-9"
+                    : "mt-14",
+              )}
+            >
+              <TextTabs
+                label="Show"
+                value={filter}
+                onChange={setFilter}
+                className="xp-scroll-quiet overflow-x-auto"
+                options={[
+                  { value: "all", label: "All" },
+                  { value: "want-to-read", label: "Want to read" },
+                  { value: "finished", label: "Finished" },
+                  { value: "dnf", label: "Set aside" },
+                ]}
+              />
+              <span className="shrink-0 font-numeric text-[12px] text-muted-foreground tabular-nums max-sm:hidden">
+                {shown.length} {shown.length === 1 ? "book" : "books"}
+              </span>
+            </div>
 
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            key={`${filter}-${sort}-${layout}`}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1, transition: MOTION.enter }}
-            exit={{ opacity: 0, transition: MOTION.exit }}
-            className="mt-6"
-          >
-            {shown.length === 0 ? (
-              <p className="py-20 text-center text-[13px] text-muted-foreground">
-                No books here. Change a book’s status from its menu to file it here.
-              </p>
-            ) : layout === "grid" ? (
-              <ul
-                className={cn(
-                  "grid gap-y-10",
-                  narrow ? "grid-cols-2 gap-x-5" : "gap-x-8 [grid-template-columns:repeat(auto-fill,minmax(128px,1fr))]",
-                )}
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={`${filter}-${sort}-${layout}`}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1, transition: MOTION.enter }}
+                exit={{ opacity: 0, transition: MOTION.exit }}
+                className="mt-6"
               >
-                {shown.map((book) => (
-                  <BookTile
-                    key={book.id}
-                    book={book}
-                    page={pages[book.id]}
-                    onOpen={() => onOpen(book.id)}
-                    onSetStatus={(status) => onSetStatus(book.id, status)}
-                    onRemove={() => onRemove(book.id)}
-                  />
-                ))}
-              </ul>
-            ) : (
-              <ul>
-                {shown.map((book) => (
-                  <BookRow
-                    key={book.id}
-                    book={book}
-                    page={pages[book.id]}
-                    narrow={narrow}
-                    onOpen={() => onOpen(book.id)}
-                    onSetStatus={(status) => onSetStatus(book.id, status)}
-                    onRemove={() => onRemove(book.id)}
-                  />
-                ))}
-              </ul>
-            )}
-          </motion.div>
-        </AnimatePresence>
+                {shown.length === 0 ? (
+                  <p className="py-20 text-center text-[13px] text-muted-foreground">
+                    {terms
+                      ? "No books here match."
+                      : "No books here. Change a book’s status from its menu to file it here."}
+                  </p>
+                ) : layout === "grid" ? (
+                  <ul
+                    className={cn(
+                      "grid gap-y-10",
+                      narrow
+                        ? "grid-cols-2 gap-x-5"
+                        : "gap-x-8 [grid-template-columns:repeat(auto-fill,minmax(128px,1fr))]",
+                    )}
+                  >
+                    {shown.map((book) => (
+                      <BookTile
+                        key={book.id}
+                        book={book}
+                        page={pages[book.id]}
+                        onOpen={() => onOpen(book.id)}
+                        onSetStatus={(status) => onSetStatus(book.id, status)}
+                        onRemove={() => onRemove(book.id)}
+                      />
+                    ))}
+                  </ul>
+                ) : (
+                  <ul>
+                    {shown.map((book) => (
+                      <BookRow
+                        key={book.id}
+                        book={book}
+                        page={pages[book.id]}
+                        narrow={narrow}
+                        onOpen={() => onOpen(book.id)}
+                        onSetStatus={(status) => onSetStatus(book.id, status)}
+                        onRemove={() => onRemove(book.id)}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </motion.div>
+            </AnimatePresence>
+          </>
+        )}
       </div>
     </div>
   );
 }
 
-function ReadingItem({ book, page, onOpen }: { book: ShelfBook; page: number | undefined; onOpen: () => void }) {
+function ReadingItem({
+  book,
+  page,
+  onOpen,
+}: {
+  book: ShelfBook;
+  page: number | undefined;
+  onOpen: () => void;
+}) {
   const progress = bookProgress(book, page);
-  const chapter = book.model && page !== undefined ? book.model.chapters[chapterOfPage(page, book.model)] : null;
-  const minutesLeft = book.model && page !== undefined ? minutesForPages(book.model.pages - page) : null;
+  const chapter =
+    book.model && page !== undefined
+      ? book.model.chapters[chapterOfPage(page, book.model)]
+      : null;
+  const minutesLeft =
+    book.model && page !== undefined
+      ? minutesForPages(book.model.pages - page)
+      : null;
 
   return (
     <button
@@ -272,13 +541,16 @@ function ReadingItem({ book, page, onOpen }: { book: ShelfBook; page: number | u
         className="h-[126px] w-[84px] shrink-0 rounded-[3px] shadow-[0_1px_2px_rgb(0_0_0/0.1),0_10px_22px_-14px_rgb(0_0_0/0.4)] transition-transform duration-200 ease-[cubic-bezier(0.2,0,0,1)] group-hover:-translate-y-0.5"
       />
       <span className="min-w-0 flex-1 pb-1">
-        <span className="xp-serif line-clamp-2 block text-[18px] leading-[1.15]">{book.title}</span>
+        <span className="xp-serif line-clamp-2 block text-[18px] leading-[1.15]">
+          {book.title}
+        </span>
         <span className="mt-1 block truncate text-[12.5px] text-muted-foreground">
           {chapter ? chapter.title : book.author}
         </span>
         <Hairline value={progress} className="mt-3 w-full max-w-[160px]" />
         <span className="mt-1.5 block font-numeric text-[11.5px] text-muted-foreground tabular-nums">
-          {Math.round(progress * 100)}%{minutesLeft !== null && ` · ${formatMinutesLeft(minutesLeft)} left`}
+          {Math.round(progress * 100)}%
+          {minutesLeft !== null && ` · ${formatMinutesLeft(minutesLeft)} left`}
         </span>
       </span>
     </button>
@@ -381,12 +653,20 @@ function BookTile({
   onSetStatus: (status: StudioStatus) => void;
   onRemove: () => void;
 }) {
-  const [menu, setMenu] = useState<{ open: boolean; side: "top" | "bottom" }>({ open: false, side: "bottom" });
+  const [menu, setMenu] = useState<{ open: boolean; side: "top" | "bottom" }>({
+    open: false,
+    side: "bottom",
+  });
   const reading = book.status === "reading";
 
   return (
     <li className="group relative min-w-0">
-      <button type="button" onClick={onOpen} className="block w-full cursor-pointer text-left outline-none" aria-label={`Open ${book.title}`}>
+      <button
+        type="button"
+        onClick={onOpen}
+        className="block w-full cursor-pointer text-left outline-none"
+        aria-label={`Open ${book.title}`}
+      >
         <span
           className={cn(
             "block aspect-[2/3] overflow-hidden rounded-[3px] shadow-[0_1px_2px_rgb(0_0_0/0.08),0_8px_18px_-12px_rgb(0_0_0/0.3)] transition-transform duration-200 ease-[cubic-bezier(0.2,0,0,1)] group-hover:-translate-y-0.5 group-focus-visible:-translate-y-0.5 group-focus-visible:ring-2 group-focus-visible:ring-ring",
@@ -395,16 +675,29 @@ function BookTile({
         >
           <TypographicCover book={book} className="size-full" />
         </span>
-        {reading && <Hairline value={bookProgress(book, page)} className="mt-2.5" />}
-        <span className={cn("line-clamp-2 block text-[13px] leading-snug", reading ? "mt-2" : "mt-3")}>{book.title}</span>
-        <span className="mt-0.5 block truncate text-[12px] text-muted-foreground">{book.author}</span>
+        {reading && (
+          <Hairline value={bookProgress(book, page)} className="mt-2.5" />
+        )}
+        <span
+          className={cn(
+            "line-clamp-2 block text-[13px] leading-snug",
+            reading ? "mt-2" : "mt-3",
+          )}
+        >
+          {book.title}
+        </span>
+        <span className="mt-0.5 block truncate text-[12px] text-muted-foreground">
+          {book.author}
+        </span>
       </button>
       <div className="absolute top-1.5 right-1.5">
         <MenuTrigger
           title={book.title}
           open={menu.open}
           className="bg-background/90 text-foreground shadow-[0_1px_3px_rgb(0_0_0/0.16)] backdrop-blur"
-          onToggle={(side) => setMenu((current) => ({ open: !current.open, side }))}
+          onToggle={(side) =>
+            setMenu((current) => ({ open: !current.open, side }))
+          }
         />
         <BookMenu
           book={book}
@@ -435,14 +728,25 @@ function BookRow({
   onSetStatus: (status: StudioStatus) => void;
   onRemove: () => void;
 }) {
-  const [menu, setMenu] = useState<{ open: boolean; side: "top" | "bottom" }>({ open: false, side: "bottom" });
+  const [menu, setMenu] = useState<{ open: boolean; side: "top" | "bottom" }>({
+    open: false,
+    side: "bottom",
+  });
   const progress = bookProgress(book, page);
   const lastRead = daysSince(book.lastReadAt);
 
   return (
     <li className="group relative flex h-14 items-center gap-4 border-b border-foreground/[0.05]">
-      <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left outline-none focus-visible:underline">
-        <TypographicCover book={book} compact className="h-9 w-6 shrink-0 rounded-[2px] shadow-[0_1px_2px_rgb(0_0_0/0.14)]" />
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left outline-none focus-visible:underline"
+      >
+        <TypographicCover
+          book={book}
+          compact
+          className="h-9 w-6 shrink-0 rounded-[2px] shadow-[0_1px_2px_rgb(0_0_0/0.14)]"
+        />
         <span className="min-w-0 truncate text-[13.5px]">
           {book.title}
           <span className="text-muted-foreground"> · {book.author}</span>
@@ -450,12 +754,16 @@ function BookRow({
       </button>
       {!narrow && (
         <>
-          <span className="w-24 text-[12.5px] text-muted-foreground">{STATUS_LABEL[book.status]}</span>
+          <span className="w-24 text-[12.5px] text-muted-foreground">
+            {STATUS_LABEL[book.status]}
+          </span>
           <span className="flex w-28 items-center gap-2">
             {book.status === "reading" && (
               <>
                 <Hairline value={progress} className="w-14" />
-                <span className="font-numeric text-[11.5px] text-muted-foreground tabular-nums">{Math.round(progress * 100)}%</span>
+                <span className="font-numeric text-[11.5px] text-muted-foreground tabular-nums">
+                  {Math.round(progress * 100)}%
+                </span>
               </>
             )}
           </span>
@@ -468,8 +776,13 @@ function BookRow({
         <MenuTrigger
           title={book.title}
           open={menu.open}
-          className={cn("text-muted-foreground hover:text-foreground", narrow && "opacity-100")}
-          onToggle={(side) => setMenu((current) => ({ open: !current.open, side }))}
+          className={cn(
+            "text-muted-foreground hover:text-foreground",
+            narrow && "opacity-100",
+          )}
+          onToggle={(side) =>
+            setMenu((current) => ({ open: !current.open, side }))
+          }
         />
         <BookMenu
           book={book}

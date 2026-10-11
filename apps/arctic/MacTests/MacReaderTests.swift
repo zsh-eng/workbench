@@ -70,10 +70,10 @@ import XCTest
     XCTAssertTrue(
       NSApp.sendAction(try XCTUnwrap(archive.action), to: archive.target, from: archive))
     XCTAssertEqual(store.article(for: url)?.isArchived, true)
-    XCTAssertNotNil(store.archiveUndo)
+    XCTAssertNotNil(store.undoReceipt)
     let updated = workspace.articleMenu(for: url)
     XCTAssertTrue(updated.items.contains { $0.title == "Move to Saved" })
-    store.undoArchive(try XCTUnwrap(store.archiveUndo).id)
+    store.undo(try XCTUnwrap(store.undoReceipt).id)
     XCTAssertEqual(store.article(for: url)?.isArchived, false)
     let favourite = try XCTUnwrap(
       workspace.articleMenu(for: url).items.first { $0.title == "Favourite" })
@@ -217,9 +217,12 @@ import XCTest
     first.importBatchID = UUID()
     var second = SavedArticle(url: URL(string: "http://127.0.0.1:8766/two")!, title: "Second")
     second.previewFailed = true
-    let path = directory.appending(path: TestMode.enabled ? "test-links.json" : "links.json")
+    // An old library file is copied once, on the first launch of its folder.
+    let fresh = directory.appending(path: "relaunch", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: fresh, withIntermediateDirectories: true)
+    let path = fresh.appending(path: TestMode.enabled ? "test-links.json" : "links.json")
     try JSONEncoder().encode([first, second]).write(to: path, options: .atomic)
-    let restored = ArticleStore(directory: directory)
+    let restored = ArticleStore(directory: fresh)
     restored.resumePreviews()
     let deadline = ContinuousClock.now.advanced(by: .seconds(8))
     while restored.articles.contains(where: { $0.previewFetchedAt == nil }),
@@ -233,7 +236,7 @@ import XCTest
       })
     XCTAssertEqual(restored.article(for: base)?.savedAt, first.savedAt)
     restored.flushPendingWrites()
-    let reopened = ArticleStore(directory: directory)
+    let reopened = ArticleStore(directory: fresh)
     XCTAssertTrue(reopened.articles.allSatisfy { $0.previewFetchedAt != nil && !$0.needsPreview })
   }
 

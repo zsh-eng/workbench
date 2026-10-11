@@ -347,6 +347,74 @@ exit 1
     await expect(create("Bad", "has space")).rejects.toThrow("Invalid key");
   });
 
+  it("starts new notes: the current comparison, captured again, as an empty iteration for later pins", async () => {
+    const f = await fixture();
+    const repo = f.repos[0]!;
+    const path = join(f.root, "brief.md");
+    await writeFile(path, "First round");
+    const first = await f.saved(
+      await f.run(
+        "create",
+        "--title",
+        "Round one",
+        "--key",
+        "feat/notes",
+        "--repo",
+        repo,
+        "--working",
+        "--no-pr",
+        "--brief",
+        path,
+      ),
+    );
+    const post = async (action: string, body: unknown) => {
+      const response = await fetch(
+        `http://127.0.0.1:${f.host.port}/api/reviews/${first.id}/${action}`,
+        {
+          method: "POST",
+          headers: { authorization: `Bearer ${f.host.token}`, "content-type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+    await writeFile(join(repo, "file.txt"), "after the notes\n");
+    const started = await post("iterations", {});
+    expect(started.iterations).toMatchObject([
+      { number: 1, brief: { text: "First round" } },
+      { number: 2, fresh: true },
+    ]);
+    expect(started.iterations[1].brief).toBeUndefined();
+    const current = started.iterations[1].targetIds[0];
+    expect(current).not.toBe(first.iterations[0].targetIds[0]);
+    expect((await f.api(`/api/reviews/${first.id}/targets/${current}/review`)).patch).toContain(
+      "+after the notes",
+    );
+    const pinned = await post("pins", { add: { text: "A reply to keep." } });
+    expect(pinned.iterations[1].pins.map((pin: { text: string }) => pin.text)).toEqual([
+      "A reply to keep.",
+    ]);
+    expect(pinned.iterations[0].pins).toBeUndefined();
+
+    // Deleting the started notes takes their iteration and its comparison.
+    const commented = await post("brief-comments", {
+      add: { section: "brief", iteration: 1, quote: "First round", text: "Keep this round." },
+    });
+    expect(commented.commentCount).toBe(1);
+    const deleted = await post("delete-notes", { iteration: 2 });
+    expect(deleted.iterations.map((entry: { number: number }) => entry.number)).toEqual([1]);
+    expect(deleted.targets.map((target: { id: string }) => target.id)).not.toContain(current);
+    expect(deleted.brief).toMatchObject({ text: "First round" });
+    // Agent notes lose their brief and its comments; the comparison stays.
+    const cleared = await post("delete-notes", { iteration: 1 });
+    expect(cleared.iterations).toMatchObject([{ number: 1 }]);
+    expect(cleared.iterations[0].brief).toBeUndefined();
+    expect(cleared.brief).toBeUndefined();
+    expect(cleared.commentCount).toBe(0);
+    expect(cleared.targets).toHaveLength(1);
+  });
+
   it("records the agent sessions that made a review, with the directories they started in", async () => {
     const f = await fixture();
     const home = join(f.root, "home");

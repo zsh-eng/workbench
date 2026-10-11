@@ -1,3 +1,4 @@
+import { createFavicons } from "./favicon";
 import { serveMedia, mediaHeaders } from "./media";
 import { mediaType } from "../shared/media";
 import { fileChangesRequestSchema } from "../shared/file-changes";
@@ -86,6 +87,8 @@ import {
   briefCommentMutationSchema,
   reviewKeySchema,
   savedReviewCreateSchema,
+  type CapturedReviewTarget,
+  type SavedReviewCreate,
 } from "../shared/saved-review";
 import { getPersistentToken, publishConnection } from "./runtime/connection";
 
@@ -302,6 +305,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       if (watcher) await retireWatcher(watcher);
     }
   };
+  const favicons = createFavicons();
   const registry = new RepositoryRegistry(options.search, async (id, paths) => {
     for (const [abort, owners] of activeRequests) if (owners.has(id)) abort.abort();
     await forgetCheckouts(paths);
@@ -1105,6 +1109,66 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             send({ windows: windows.size });
             return;
           }
+          // A comparison of a saved review, with its sources and images.
+          const captureTarget = async (
+            target: SavedReviewCreate["targets"][number],
+          ): Promise<CapturedReviewTarget> => {
+            const repo = await requireRepo(target.repo);
+            const owner = await registry.require(repo, abort.signal);
+            const info = await resolveRepository(repo, abort.signal);
+            const review = await reviews.load(
+              { repo, comparison: target.comparison },
+              abort.signal,
+            );
+            if (review.files.length > 500)
+              throw new HostError(
+                "saved-review-too-large",
+                "Narrow this review to at most 500 changed files per target.",
+                413,
+              );
+            const sources = [];
+            const images = await captureImages(review);
+            let sourceBytes =
+              Buffer.byteLength(review.patch) +
+              images.reduce((sum, image) => sum + Buffer.byteLength(image.data, "base64"), 0);
+            for (const file of review.files) {
+              if (mediaType(file.path)?.kind === "image") continue;
+              if (file.binary || file.tooLarge) continue;
+              try {
+                const source = await reviews.sources(review.id, file.path, abort.signal);
+                sourceBytes += Buffer.byteLength(source.old) + Buffer.byteLength(source.new);
+                if (sourceBytes > 24 * 1024 * 1024)
+                  throw new HostError(
+                    "saved-review-too-large",
+                    "Narrow this review; captured source exceeds 24 MiB per target.",
+                    413,
+                  );
+                sources.push(source);
+              } catch (error) {
+                if (
+                  error instanceof HostError &&
+                  ["unsupported-source", "source-unavailable", "binary-source"].includes(error.code)
+                )
+                  continue;
+                throw error;
+              }
+            }
+            abort.signal.throwIfAborted();
+            if (!owner.valid())
+              throw new HostError(
+                "repository-not-allowed",
+                "The repository was removed during capture.",
+                403,
+              );
+            return {
+              repositoryId: owner.repository.id,
+              repo,
+              branch: info.branch === "Detached HEAD" ? null : info.branch,
+              review,
+              sources,
+              images,
+            };
+          };
           if (url.pathname === "/api/reviews" && request.method === "POST") {
             if (repository.git === false && !options.service)
               throw new HostError(
@@ -1113,71 +1177,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 422,
               );
             const input = savedReviewCreateSchema.parse(await readBody(request, MAX_BRIEF_BODY));
-            send(
-              await savedReviews.create(
-                input,
-                async (target) => {
-                  const repo = await requireRepo(target.repo);
-                  const owner = await registry.require(repo, abort.signal);
-                  const info = await resolveRepository(repo, abort.signal);
-                  const review = await reviews.load(
-                    { repo, comparison: target.comparison },
-                    abort.signal,
-                  );
-                  if (review.files.length > 500)
-                    throw new HostError(
-                      "saved-review-too-large",
-                      "Narrow this review to at most 500 changed files per target.",
-                      413,
-                    );
-                  const sources = [];
-                  const images = await captureImages(review);
-                  let sourceBytes =
-                    Buffer.byteLength(review.patch) +
-                    images.reduce((sum, image) => sum + Buffer.byteLength(image.data, "base64"), 0);
-                  for (const file of review.files) {
-                    if (mediaType(file.path)?.kind === "image") continue;
-                    if (file.binary || file.tooLarge) continue;
-                    try {
-                      const source = await reviews.sources(review.id, file.path, abort.signal);
-                      sourceBytes += Buffer.byteLength(source.old) + Buffer.byteLength(source.new);
-                      if (sourceBytes > 24 * 1024 * 1024)
-                        throw new HostError(
-                          "saved-review-too-large",
-                          "Narrow this review; captured source exceeds 24 MiB per target.",
-                          413,
-                        );
-                      sources.push(source);
-                    } catch (error) {
-                      if (
-                        error instanceof HostError &&
-                        ["unsupported-source", "source-unavailable", "binary-source"].includes(
-                          error.code,
-                        )
-                      )
-                        continue;
-                      throw error;
-                    }
-                  }
-                  abort.signal.throwIfAborted();
-                  if (!owner.valid())
-                    throw new HostError(
-                      "repository-not-allowed",
-                      "The repository was removed during capture.",
-                      403,
-                    );
-                  return {
-                    repositoryId: owner.repository.id,
-                    repo,
-                    branch: info.branch === "Detached HEAD" ? null : info.branch,
-                    review,
-                    sources,
-                    images,
-                  };
-                },
-                assertRequestAccess,
-              ),
-            );
+            send(await savedReviews.create(input, captureTarget, assertRequestAccess));
             return;
           }
           const browsingNotes = /^\/api\/reviews\/([^/]+)\/browsing\/([a-f0-9]{64})\/notes$/.exec(
@@ -1297,7 +1297,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           const savedRoute =
-            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes)|\/(feedback|clear|brief|brief-comments|pins|details|pull-request|codex-reviews))?$/.exec(
+            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes)|\/(feedback|clear|brief|brief-comments|pins|iterations|delete-notes|details|pull-request|codex-reviews))?$/.exec(
               url.pathname,
             );
           if (savedRoute) {
@@ -1402,6 +1402,23 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               inbox.touch(id!);
               return;
             }
+            if (request.method === "POST" && action === "delete-notes") {
+              const input = z
+                .object({
+                  iteration: z.number().int().positive().optional(),
+                  briefFrom: z.number().int().positive().optional(),
+                })
+                .parse(await readBody(request));
+              assertRequestAccess();
+              send(await savedReviews.deleteNotes(id!, input, assertRequestAccess));
+              inbox.touch(id!);
+              return;
+            }
+            if (request.method === "POST" && action === "iterations") {
+              assertRequestAccess();
+              send(await savedReviews.startNotes(id!, captureTarget, assertRequestAccess));
+              return;
+            }
             if (request.method === "POST" && action === "pins") {
               const input = pinMutationSchema.parse(await readBody(request, MAX_BRIEF_BODY));
               assertRequestAccess();
@@ -1428,6 +1445,20 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               "This saved review action is not supported.",
               405,
             );
+          }
+          if (url.pathname === "/api/favicon" && request.method === "GET") {
+            const icon = await favicons.get(url.searchParams.get("origin") ?? "");
+            if (!icon) throw new HostError("favicon-unavailable", "This site has no icon.", 404);
+            assertRequestAccess();
+            response.writeHead(200, {
+              ...mediaHeaders,
+              // An icon does not change while the host runs.
+              "Cache-Control": "private, max-age=86400",
+              "Content-Type": icon.type,
+              "Content-Length": icon.bytes.length,
+            });
+            response.end(icon.bytes);
+            return;
           }
           if (url.pathname === "/api/build" && request.method === "GET") {
             send({

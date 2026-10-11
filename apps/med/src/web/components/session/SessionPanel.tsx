@@ -307,6 +307,22 @@ export function SessionPanel({
   const [loadingEarlier, setLoadingEarlier] = useState(false);
   const [earlierFailed, setEarlierFailed] = useState(false);
   const [reveal, setReveal] = useState<{ id: string; nonce: number } | undefined>();
+  // Finished turns fold their work into one row; the switch shows it in each.
+  const [showWork, setShowWork] = useState(() => {
+    try {
+      return localStorage.getItem("med:work") === "shown";
+    } catch {
+      return false;
+    }
+  });
+  const toggleWork = () => {
+    setShowWork(!showWork);
+    try {
+      localStorage.setItem("med:work", showWork ? "folded" : "shown");
+    } catch {
+      /* Storage can be unavailable. */
+    }
+  };
   const start =
     loaded && loaded.generation === state.generation ? loaded.start : (state.start ?? 0);
   const pageable = session.agent !== "acp" && state.status === "live";
@@ -446,7 +462,7 @@ export function SessionPanel({
           />
           {status}
         </span>
-        {/* Zen keeps the agent and its status; the palette has the rest. */}
+        {/* Zen keeps the agent and its status; a folded turn still opens. */}
         {!zen && sessions.length > 1 && (
           <ChoiceSelect
             label="Session"
@@ -456,6 +472,15 @@ export function SessionPanel({
               label: `${agentName(entry)} ${index === 0 ? "· latest" : `· ${entry.id.slice(0, 8)}`}`,
             }))}
             onChange={setChosen}
+          />
+        )}
+        {!zen && (
+          <ToolButton
+            icon="expandAll"
+            label="Show work"
+            active={showWork}
+            aria-pressed={showWork}
+            onClick={toggleWork}
           />
         )}
         {!zen && pageable && (
@@ -484,6 +509,7 @@ export function SessionPanel({
               snapshot={shown}
               earlier={earlier}
               reveal={reveal}
+              showWork={showWork}
               now={running ? now : undefined}
               before={
                 state.truncated && !pageable ? (

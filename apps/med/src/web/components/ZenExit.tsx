@@ -8,8 +8,8 @@ const HINT_LIMIT = 3;
 
 /**
  * True in zen mode. Zen keeps what the review needs: the sidebar's history and
- * files, the diff, and the agent's thread and composer. Other controls wait
- * in the command palette.
+ * files, the diff, and the agent's thread and composer. The review's own
+ * actions move to the command palette; leave zen for the other controls.
  */
 export const ZenContext = createContext(false);
 
