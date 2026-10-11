@@ -5,13 +5,18 @@ import SQLite3
 /// Only the owning actor uses it. One transaction writes only the changed rows,
 /// outbox entries and private values, with the clock and receive cursor.
 /// Record fields are columns, so opening a profile decodes each value once.
-/// An outbox entry holds only the version to upload; its payload is the record.
-/// HTML, images and credentials never live here.
+/// An outbox entry holds the version to upload and the value its edit started
+/// from; its payload is the record. HTML, images and credentials never live here.
 final class SQLiteJournal {
   struct Failure: Error, Equatable { let code: Int32 }
   private enum Value {
     case text(String)
     case integer(Int64)
+    case null
+  }
+  private struct Outgoing: Equatable {
+    let version: SyncClock
+    let base: String?
   }
   private var db: OpaquePointer?
   private let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
@@ -29,8 +34,8 @@ final class SQLiteJournal {
     }
     do {
       sqlite3_busy_timeout(db, busyTimeout)
-      let version = try query("PRAGMA user_version") { $0.integer(0) }.first
-      guard version == 0 || version == 1 else { throw SyncFailure.invalidRecord }
+      let version = try query("PRAGMA user_version") { $0.integer(0) }.first ?? 0
+      guard (0...2).contains(version) else { throw SyncFailure.invalidRecord }
       // Committed user data must survive power loss; do not relax synchronous.
       try exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;")
       try exec(
@@ -41,11 +46,14 @@ final class SQLiteJournal {
           schema INTEGER NOT NULL, wall INTEGER NOT NULL, counter INTEGER NOT NULL,
           device TEXT NOT NULL, seq INTEGER NOT NULL) WITHOUT ROWID;
         CREATE TABLE IF NOT EXISTS outbox (
-          key TEXT PRIMARY KEY, wall INTEGER NOT NULL, counter INTEGER NOT NULL) WITHOUT ROWID;
+          key TEXT PRIMARY KEY, wall INTEGER NOT NULL, counter INTEGER NOT NULL, base TEXT)
+          WITHOUT ROWID;
         CREATE TABLE IF NOT EXISTS local_values (key TEXT PRIMARY KEY, value TEXT NOT NULL)
           WITHOUT ROWID;
-        PRAGMA user_version=1;
         """)
+      // Version 1 outboxes have no starting values. Their edits merge as new values.
+      if version == 1 { try exec("ALTER TABLE outbox ADD COLUMN base TEXT") }
+      try exec("PRAGMA user_version=2")
     } catch {
       sqlite3_close_v2(db)
       db = nil
@@ -73,13 +81,17 @@ final class SQLiteJournal {
     state.rows.reserveCapacity(records.count)
     for record in records { state.rows[record.key] = record }
     // Every pending change is this device's current version of its row.
-    let outbox = try query("SELECT key,wall,counter FROM outbox") { row in
-      (row.text(0), SyncClock(wallTimeMs: row.integer(1), counter: row.integer(2)))
+    let outbox = try query("SELECT key,wall,counter,base FROM outbox") { row in
+      (
+        row.text(0), SyncClock(wallTimeMs: row.integer(1), counter: row.integer(2)),
+        row.optionalText(3)
+      )
     }
-    for (key, version) in outbox {
+    for (key, version, base) in outbox {
       guard let record = state.rows[key], record.hlc == version, record.deviceId == state.deviceID
       else { throw SyncFailure.invalidRecord }
       state.pending[key] = record.change
+      state.bases[key] = base
     }
     state.localValues = Dictionary(
       uniqueKeysWithValues: try query("SELECT key,value FROM local_values") {
@@ -94,24 +106,31 @@ final class SQLiteJournal {
     try exec("BEGIN IMMEDIATE")
     do {
       let changed = previous == nil ? Array(next.rows.keys) : keys
-      try write("records", changed, previous?.rows ?? [:], next.rows) {
+      try write("records", changed, { previous?.rows[$0] }, { next.rows[$0] }) {
         [
           .text($0.value), .integer($0.isDeleted ? 1 : 0), .integer(Int64($0.schemaVersion)),
           .integer($0.hlc.wallTimeMs), .integer($0.hlc.counter), .text($0.deviceId),
           .integer($0.serverSeq),
         ]
       }
-      try write("outbox", changed, previous?.pending ?? [:], next.pending) {
-        [.integer($0.hlc.wallTimeMs), .integer($0.hlc.counter)]
+      func outgoing(_ state: SyncStore.State?, _ key: String) -> Outgoing? {
+        guard let change = state?.pending[key] else { return nil }
+        return Outgoing(version: change.hlc, base: state?.bases[key])
+      }
+      try write("outbox", changed, { outgoing(previous, $0) }, { outgoing(next, $0) }) {
+        [.integer($0.version.wallTimeMs), .integer($0.version.counter), $0.base.map(Value.text) ?? .null]
       }
       let old = previous?.localValues ?? [:]
       let new = next.localValues ?? [:]
       if old != new {
-        try write("local_values", Set(old.keys).union(new.keys), old, new) { [.text($0)] }
+        try write("local_values", Set(old.keys).union(new.keys), { old[$0] }, { new[$0] }) {
+          [.text($0)]
+        }
       }
       var header = next
       header.rows = [:]
       header.pending = [:]
+      header.bases = [:]
       header.localValues = nil
       let statement = try prepare("INSERT OR REPLACE INTO state(id,value) VALUES(1,?)")
       defer { sqlite3_finalize(statement) }
@@ -125,15 +144,15 @@ final class SQLiteJournal {
 
   /// Each table is a key and its value columns, in declaration order.
   private func write<T: Equatable>(
-    _ table: String, _ keys: some Sequence<String>, _ old: [String: T], _ new: [String: T],
+    _ table: String, _ keys: some Sequence<String>, _ old: (String) -> T?, _ new: (String) -> T?,
     columns: (T) -> [Value]
   ) throws {
     var upsert: OpaquePointer?
     defer { sqlite3_finalize(upsert) }
     let delete = try prepare("DELETE FROM \(table) WHERE key=?")
     defer { sqlite3_finalize(delete) }
-    for key in keys where old[key] != new[key] {
-      guard let value = new[key] else {
+    for key in keys where old(key) != new(key) {
+      guard let value = new(key) else {
         try run(delete, [.text(key)])
         continue
       }
@@ -168,6 +187,7 @@ final class SQLiteJournal {
       let code: Int32
       switch value {
       case .integer(let number): code = sqlite3_bind_int64(statement, position, number)
+      case .null: code = sqlite3_bind_null(statement, position)
       case .text(let text):
         code = text.withCString {
           sqlite3_bind_text(statement, position, $0, Int32(text.utf8.count), transient)
@@ -187,6 +207,9 @@ final class SQLiteJournal {
       return String(decoding: UnsafeBufferPointer(start: bytes, count: count), as: UTF8.self)
     }
     func integer(_ index: Int32) -> Int64 { sqlite3_column_int64(statement, index) }
+    func optionalText(_ index: Int32) -> String? {
+      sqlite3_column_type(statement, index) == SQLITE_NULL ? nil : text(index)
+    }
   }
 
   private func query<T>(_ sql: String, _ read: (Row) throws -> T) throws -> [T] {

@@ -392,6 +392,52 @@ private actor DomainRemote: SyncRemote {
   #expect(removal[id] == .some(nil))
 }
 
+@Test func editsOnTwoDevicesBeforeEitherSyncsKeepBoth() async throws {
+  let aRoot = root()
+  let bRoot = root()
+  defer {
+    try? FileManager.default.removeItem(at: aRoot)
+    try? FileManager.default.removeItem(at: bRoot)
+  }
+  let remote = DomainRemote()
+  let a = try await ArticleSyncRepository.open(root: aRoot, scope: account("alice"))
+  var b = try await ArticleSyncRepository.open(root: bRoot, scope: account("alice"))
+  let one = article().url
+  let two = article("two").url
+  _ = try await a.importLocalArticles([article(), article("two")])
+  try await a.sync(using: remote)
+  try await b.sync(using: remote)
+  // B edits first, so A's edits are newer.
+  _ = try await b.editArticle(at: one) {
+    $0?.isFavourite = true
+    $0?.favouritedAt = Date(timeIntervalSince1970: 1_700_000_100)
+  }
+  _ = try await b.editArticle(at: two) { $0?.isFavourite = true }
+  _ = try await a.editArticle(at: one) { $0?.isArchived = true }
+  _ = try await a.editArticle(at: two) {
+    $0?.isSaved = false
+    $0?.isFavourite = false
+    $0?.savedAt = nil
+  }
+  // B quits before it syncs.
+  b = try await ArticleSyncRepository.open(root: bRoot, scope: account("alice"))
+  try await a.sync(using: remote)
+  try await b.sync(using: remote)
+  try await a.sync(using: remote)
+  for device in [a, b] {
+    let articles = try await device.snapshot()
+    let first = try #require(articles.first { $0.url == one })
+    #expect(first.isArchived == true)
+    #expect(first.favourite)
+    #expect(first.favouritedAt == Date(timeIntervalSince1970: 1_700_000_100))
+    // An unsave on one device wins over a favourite on the other.
+    let second = try #require(articles.first { $0.url == two })
+    #expect(!second.saved)
+    #expect(!second.favourite)
+    #expect(await device.pendingCount == 0)
+  }
+}
+
 @Test func aHistoryVisitNeverUnsavesAnArticle() async throws {
   let directory = root()
   defer { try? FileManager.default.removeItem(at: directory) }

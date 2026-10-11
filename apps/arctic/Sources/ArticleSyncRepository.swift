@@ -66,7 +66,7 @@ enum ArticleSyncCodec {
     }
   }
 
-  struct Metadata: Codable {
+  struct Metadata: Codable, Equatable {
     let url: URL
     let title: String
     let subtitle: String
@@ -74,7 +74,7 @@ enum ArticleSyncCodec {
     let imageURL: URL?
     let faviconURL: URL?
   }
-  struct Library: Codable {
+  struct Library: Codable, Equatable {
     let url: URL
     let saved: Bool
     let archived: Bool
@@ -85,7 +85,7 @@ enum ArticleSyncCodec {
     let importBatchID: UUID?
     let favouritedAt: Date?
   }
-  struct Tags: Codable {
+  struct Tags: Codable, Equatable {
     let url: URL
     let names: [String]
     let generation: UUID
@@ -167,6 +167,64 @@ enum ArticleSyncCodec {
           manual: state?.manual.sorted() ?? article.tagNames.sorted(),
           rejected: state?.rejected.sorted() ?? [], completedIdentity: state?.completedIdentity)),
     ]
+  }
+
+  /// Merges a change that this device has not uploaded with another device's
+  /// value for the same record. A field that this device changed keeps its value;
+  /// every other field takes the other device's. Tags merge as one value, because
+  /// their names follow from the other lists. An unsaved article is neither
+  /// archived nor favourite. Nil leaves the newer record to win.
+  static func resolve(key: String, base: String?, local: String, remote: String) -> String? {
+    func decode<T: Decodable>(_ value: String?) -> T? {
+      value.flatMap { try? JSONDecoder().decode(T.self, from: Data($0.utf8)) }
+    }
+    switch key.split(separator: "/").first {
+    case "article":
+      guard let local: Metadata = decode(local), let remote: Metadata = decode(remote) else {
+        return nil
+      }
+      let base: Metadata =
+        decode(base)
+        ?? Metadata(
+          url: local.url, title: "", subtitle: "", taggingText: nil, imageURL: nil, faviconURL: nil)
+      func pick<T: Equatable>(_ field: KeyPath<Metadata, T>) -> T {
+        local[keyPath: field] != base[keyPath: field] ? local[keyPath: field] : remote[keyPath: field]
+      }
+      return try? encode(
+        Metadata(
+          url: remote.url, title: pick(\.title), subtitle: pick(\.subtitle),
+          taggingText: pick(\.taggingText), imageURL: pick(\.imageURL),
+          faviconURL: pick(\.faviconURL)))
+    case "library":
+      guard let local: Library = decode(local), let remote: Library = decode(remote) else {
+        return nil
+      }
+      let base: Library =
+        decode(base)
+        ?? Library(
+          url: local.url, saved: false, archived: false, favourite: nil, read: false, savedAt: nil,
+          lastVisitedAt: nil, importBatchID: nil, favouritedAt: nil)
+      func pick<T: Equatable>(_ field: KeyPath<Library, T>) -> T {
+        local[keyPath: field] != base[keyPath: field] ? local[keyPath: field] : remote[keyPath: field]
+      }
+      let saved = pick(\.saved)
+      let favourite = pick(\.favourite)
+      return try? encode(
+        Library(
+          url: remote.url, saved: saved, archived: saved && pick(\.archived),
+          favourite: saved || favourite != true ? favourite : false, read: pick(\.read),
+          savedAt: saved ? pick(\.savedAt) : nil, lastVisitedAt: pick(\.lastVisitedAt),
+          importBatchID: pick(\.importBatchID), favouritedAt: pick(\.favouritedAt)))
+    case "tags":
+      guard let local: Tags = decode(local), let remote: Tags = decode(remote),
+        let base: Tags = decode(base)
+      else { return nil }
+      if local == base { return try? encode(remote) }
+      if remote == base { return try? encode(local) }
+      return nil
+    default:
+      return nil
+    }
   }
 
   static func validate(_ change: SyncChange) throws {
@@ -509,6 +567,11 @@ struct ArticlePatch: Sendable {
       result.isSaved = current?.isSaved
       result.savedAt = current?.savedAt
     }
+    // An unsaved article is neither archived nor favourite, whichever device set them.
+    if !result.saved {
+      if result.isArchived == true { result.isArchived = false }
+      if result.isFavourite == true { result.isFavourite = false }
+    }
     return result
   }
 }
@@ -545,6 +608,7 @@ actor ArticleSyncRepository {
     let (store, snapshot) = try SyncStore.open(
       database: directory.appending(path: "journal.sqlite"), accountID: identity,
       validateValue: { try ArticleSyncCodec.validate($0) },
+      resolve: { ArticleSyncCodec.resolve(key: $0, base: $1, local: $2, remote: $3) },
       initial: { journal in
         let source = legacyLocalArticles ?? []
         let copy = try ArticleSyncCodec.transaction(replacing: journal, with: source)

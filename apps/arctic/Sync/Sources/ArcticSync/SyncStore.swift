@@ -38,6 +38,12 @@ public struct JournalMutation: Sendable {
 /// transaction of the changed rows, or as one atomic replacement of the small
 /// trial's JSON file. Keep one store instance per profile and separate accounts.
 public actor SyncStore {
+  /// Merges another device's value with a change this device has not uploaded,
+  /// against the value that change started from (nil for a new key). Nil keeps
+  /// the newer record.
+  public typealias Resolve =
+    @Sendable (_ key: String, _ base: String?, _ local: String, _ remote: String) -> String?
+
   struct State: Codable {
     var accountID: String
     var deviceID: String
@@ -45,6 +51,8 @@ public actor SyncStore {
     var cursor: Int64 = 0
     var rows: [String: SyncRecord] = [:]
     var pending: [String: SyncChange] = [:]
+    /// The committed value that each pending change started from.
+    var bases: [String: String] = [:]
     var localValues: [String: String]?
   }
   private let file: URL
@@ -55,16 +63,18 @@ public actor SyncStore {
   /// Keys whose value a pull or upload winner replaced, kept until the owner takes them.
   private var merged = Set<String>()
   private let validateValue: @Sendable (SyncChange) throws -> Void
+  private let resolve: Resolve?
 
   private init(
     file: URL, database: SQLiteJournal?, state: State, persisted: Bool,
-    validateValue: @escaping @Sendable (SyncChange) throws -> Void
+    validateValue: @escaping @Sendable (SyncChange) throws -> Void, resolve: Resolve? = nil
   ) {
     self.file = file
     self.database = database
     self.state = state
     hasPersisted = persisted
     self.validateValue = validateValue
+    self.resolve = resolve
   }
 
   public init(
@@ -120,6 +130,7 @@ public actor SyncStore {
     database file: URL, accountID: String, deviceID: String = UUID().uuidString,
     busyTimeout: Int32 = 5_000,
     validateValue: @escaping @Sendable (SyncChange) throws -> Void = { _ in },
+    resolve: Resolve? = nil,
     initial: ((JournalSnapshot) throws -> JournalMutation)? = nil
   ) throws -> (store: SyncStore, snapshot: JournalSnapshot) {
     let (database, loaded) = try load(
@@ -128,7 +139,7 @@ public actor SyncStore {
     let state = loaded ?? State(accountID: accountID, deviceID: deviceID)
     let store = SyncStore(
       file: file, database: database, state: state, persisted: loaded != nil,
-      validateValue: validateValue)
+      validateValue: validateValue, resolve: resolve)
     return (store, JournalSnapshot(rows: state.rows, localValues: state.localValues ?? [:]))
   }
 
@@ -194,7 +205,6 @@ public actor SyncStore {
     validateValue: (SyncChange) throws -> Void
   ) throws -> State {
     var next = state
-    let millis = Int64(now.timeIntervalSince1970 * 1000)
     for mutation in mutations {
       let old = next.rows[mutation.key]
       if old?.value == mutation.value && old?.isDeleted == mutation.isDeleted
@@ -202,19 +212,26 @@ public actor SyncStore {
       {
         continue
       }
-      next.clock =
-        millis > next.clock.wallTimeMs
-        ? SyncClock(wallTimeMs: millis)
-        : SyncClock(wallTimeMs: next.clock.wallTimeMs, counter: next.clock.counter + 1)
+      next.clock = tick(next.clock, now: now)
       let change = SyncChange(
         key: mutation.key, value: mutation.value, isDeleted: mutation.isDeleted,
         schemaVersion: mutation.schemaVersion, hlc: next.clock)
       try validate(change)
       try validateValue(change)
+      if next.pending[change.key] == nil {
+        next.bases[change.key] = old?.isDeleted == false ? old?.value : nil
+      }
       next.rows[change.key] = SyncRecord(change: change, deviceId: next.deviceID, serverSeq: 0)
       next.pending[change.key] = change
     }
     return next
+  }
+
+  private static func tick(_ clock: SyncClock, now: Date) -> SyncClock {
+    let millis = Int64(now.timeIntervalSince1970 * 1000)
+    return millis > clock.wallTimeMs
+      ? SyncClock(wallTimeMs: millis)
+      : SyncClock(wallTimeMs: clock.wallTimeMs, counter: clock.counter + 1)
   }
 
   /// Domain read-modify-write runs without actor suspension. Concurrent local
@@ -264,6 +281,16 @@ public actor SyncStore {
       if !page.hasMore { break }
       head = page.head
     }
+    // A merged conflict leaves a newer version to upload. Send it in this pass.
+    for _ in 0..<3 {
+      guard try await upload(to: remote) else { break }
+    }
+  }
+
+  /// Sends a fixed outbox snapshot. True when a rejected change is still pending:
+  /// a conflict merged it, or this device edited it again meanwhile.
+  private func upload(to remote: any SyncRemote) async throws -> Bool {
+    var again = false
     let pending = state.pending.values.sorted { $0.key < $1.key }
     for batch in try batches(pending) {
       try Task.checkCancellation()
@@ -289,12 +316,22 @@ public actor SyncStore {
       var replaced: [String] = []
       for result in response.results {
         let key = result.winner.key
-        if next.pending[key] == submitted[key] { next.pending.removeValue(forKey: key) }
+        if result.accepted {
+          if next.pending[key] == submitted[key] {
+            next.pending.removeValue(forKey: key)
+            next.bases.removeValue(forKey: key)
+          } else if next.pending[key] != nil {
+            // A later edit now starts from the value the server accepted.
+            next.bases[key] = result.winner.isDeleted ? nil : result.winner.value
+          }
+        }
         if merge(result.winner, into: &next) { replaced.append(key) }
+        if !result.accepted && next.pending[key] != nil { again = true }
       }
       try persist(next, keys: response.results.map(\.winner.key))
       merged.formUnion(replaced)
     }
+    return again
   }
 
   /// Keys whose committed value changed in a pull or an upload since the last
@@ -307,6 +344,7 @@ public actor SyncStore {
   /// True when the record replaced a different value.
   private func merge(_ record: SyncRecord, into next: inout State) -> Bool {
     next.clock = max(next.clock, record.hlc)
+    if let changed = resolved(record, into: &next) { return changed }
     let local = next.rows[record.key]
     if let local {
       if local.hlc > record.hlc || (local.hlc == record.hlc && local.deviceId > record.deviceId) {
@@ -318,9 +356,44 @@ public actor SyncStore {
       pending.hlc < record.hlc || (pending.hlc == record.hlc && next.deviceID <= record.deviceId)
     {
       next.pending.removeValue(forKey: record.key)
+      next.bases.removeValue(forKey: record.key)
     }
     return local?.value != record.value || local?.isDeleted != record.isDeleted
       || local?.schemaVersion != record.schemaVersion
+  }
+
+  /// Another device's value for a key that this device changed and has not
+  /// uploaded. Whichever is newer, the owner's resolver merges both against the
+  /// value this device's change started from. A merged value that the server
+  /// would reject gets a newer version, so it uploads. Nil: no merge applies.
+  private func resolved(_ record: SyncRecord, into next: inout State) -> Bool? {
+    guard let resolve, let pending = next.pending[record.key], record.deviceId != next.deviceID,
+      !pending.isDeleted, !record.isDeleted, pending.schemaVersion == record.schemaVersion,
+      let value = resolve(record.key, next.bases[record.key], pending.value, record.value)
+    else { return nil }
+    let shown = next.rows[record.key]
+    if value == record.value {
+      next.rows[record.key] = record
+      next.pending.removeValue(forKey: record.key)
+      next.bases.removeValue(forKey: record.key)
+      return shown?.value != value || shown?.isDeleted == true
+    }
+    let ahead =
+      pending.hlc > record.hlc || (pending.hlc == record.hlc && next.deviceID > record.deviceId)
+    if value == pending.value && ahead {
+      next.bases[record.key] = record.value
+      return false
+    }
+    let clock = Self.tick(next.clock, now: Date())
+    let change = SyncChange(
+      key: record.key, value: value, isDeleted: false, schemaVersion: pending.schemaVersion,
+      hlc: clock)
+    guard (try? validate(change)) != nil, (try? validateValue(change)) != nil else { return nil }
+    next.clock = clock
+    next.rows[record.key] = SyncRecord(change: change, deviceId: next.deviceID, serverSeq: 0)
+    next.pending[record.key] = change
+    next.bases[record.key] = record.value
+    return shown?.value != value || shown?.isDeleted == true
   }
   /// `keys` names every row and outbox entry that `next` can change, so a
   /// one-article edit costs the same in a large library as in a small one.
@@ -329,7 +402,10 @@ public actor SyncStore {
     // The first empty commit still creates the durable migration marker.
     if hasPersisted, next.clock == state.clock, next.cursor == state.cursor,
       next.localValues == state.localValues,
-      keys.allSatisfy({ next.rows[$0] == state.rows[$0] && next.pending[$0] == state.pending[$0] })
+      keys.allSatisfy({
+        next.rows[$0] == state.rows[$0] && next.pending[$0] == state.pending[$0]
+          && next.bases[$0] == state.bases[$0]
+      })
     {
       return
     }
@@ -362,5 +438,20 @@ public actor SyncStore {
     }
     if !batch.isEmpty { result.append(batch) }
     return result
+  }
+}
+
+extension SyncStore.State {
+  /// Journals written before `bases` existed decode without starting values.
+  init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    accountID = try container.decode(String.self, forKey: .accountID)
+    deviceID = try container.decode(String.self, forKey: .deviceID)
+    clock = try container.decode(SyncClock.self, forKey: .clock)
+    cursor = try container.decode(Int64.self, forKey: .cursor)
+    rows = try container.decode([String: SyncRecord].self, forKey: .rows)
+    pending = try container.decode([String: SyncChange].self, forKey: .pending)
+    bases = try container.decodeIfPresent([String: String].self, forKey: .bases) ?? [:]
+    localValues = try container.decodeIfPresent([String: String].self, forKey: .localValues)
   }
 }
