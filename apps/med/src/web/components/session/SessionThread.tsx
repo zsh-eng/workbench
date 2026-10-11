@@ -24,7 +24,16 @@ import { motion, rowStyles } from "./session-styles";
 import { BackgroundDock } from "./BackgroundDock";
 import { SessionMarkdown } from "./SessionMarkdown";
 import { formatSeconds, RowOpen, ToolCall, useRowOpen } from "./ToolCall";
-import { finalReplies, lastTurn, units, type ToolItem, type Unit } from "./thread-model";
+import {
+  finalReplies,
+  fold,
+  itemsOf,
+  lastTurn,
+  units,
+  type ToolItem,
+  type Unit,
+  type WorkUnit,
+} from "./thread-model";
 import {
   estimateUnit,
   readMetrics,
@@ -84,14 +93,19 @@ function UnitBody({
   final,
   renderThread,
   onOpenLink,
+  onWork,
 }: {
   unit: Unit;
   last: boolean;
   final: boolean;
   renderThread(items: SessionItem[]): ReactNode;
   onOpenLink?(href: string): void;
+  /** Opens or folds a turn's work. */
+  onWork?(key: string): void;
 }) {
-  return "explore" in unit ? (
+  return "work" in unit ? (
+    <Work unit={unit} onToggle={onWork} />
+  ) : "explore" in unit ? (
     <Explore groupKey={unit.key} items={unit.explore} renderThread={renderThread} />
   ) : (
     <Item
@@ -341,6 +355,28 @@ function Explore({
   );
 }
 
+/** A finished turn's work in one row; it opens to show the work below it. */
+function Work({ unit, onToggle }: { unit: WorkUnit; onToggle?(key: string): void }) {
+  return (
+    <button
+      type="button"
+      aria-expanded={unit.open}
+      onClick={() => onToggle?.(unit.key)}
+      {...stylex.props(rowStyles.row, styles.groupHead, styles.work)}
+    >
+      <span>
+        Worked for {formatSeconds(unit.durationMs)}
+        {unit.toolCalls > 0 &&
+          ` · ${unit.toolCalls} tool ${unit.toolCalls === 1 ? "call" : "calls"}`}
+      </span>
+      <span {...stylex.props(styles.chevron, unit.open && styles.chevronOpen)}>
+        <Icon name="chevron" size={12} />
+      </span>
+      <span {...stylex.props(styles.rule)} />
+    </button>
+  );
+}
+
 function Compaction({ id, summary, failed }: { id: string; summary?: string; failed?: boolean }) {
   const [open, setOpen] = useRowOpen(id, false);
   return (
@@ -459,7 +495,16 @@ const holds = (item: SessionItem, id: string): boolean =>
 const GO_GAP = 16;
 
 /** The item that a measured height belongs to: a group grows with its last call. */
-const sourceOf = (unit: Unit): object => ("item" in unit ? unit.item : unit.explore.at(-1)!);
+// A work row's own source, apart from that of its last unit, which can render too.
+const workSources = new WeakMap<object, object>();
+const sourceOf = (unit: Unit): object => {
+  if ("item" in unit) return unit.item;
+  if ("explore" in unit) return unit.explore.at(-1)!;
+  const last = sourceOf(unit.work.at(-1)!);
+  let source = workSources.get(last);
+  if (!source) workSources.set(last, (source = {}));
+  return source;
+};
 
 interface Range {
   start: number;
@@ -486,6 +531,7 @@ export function SessionThread({
   before,
   earlier,
   reveal,
+  showWork = false,
   onOpenLink,
 }: {
   snapshot: SessionSnapshot;
@@ -497,6 +543,8 @@ export function SessionThread({
   reveal?: { id: string; nonce: number };
   /** The clock for the elapsed time of a running session. */
   now?: number;
+  /** Finished turns show their work; otherwise it folds into one row. */
+  showWork?: boolean;
   onOpenLink?(href: string): void;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
@@ -508,8 +556,19 @@ export function SessionThread({
   const { active: theme } = useTheme();
   const [rows] = useState(() => new Map<string, boolean>());
 
-  const all = useMemo(() => units(snapshot.items), [snapshot.items]);
-  const finals = useMemo(() => finalReplies(all, snapshot.running), [all, snapshot.running]);
+  const plain = useMemo(() => units(snapshot.items), [snapshot.items]);
+  const finals = useMemo(() => finalReplies(plain, snapshot.running), [plain, snapshot.running]);
+  // Turns that the reader opened or folded, against the switch.
+  const [flipped, setFlipped] = useState<ReadonlySet<string>>(() => new Set());
+  const [switched, setSwitched] = useState(showWork);
+  if (switched !== showWork) {
+    setSwitched(showWork);
+    setFlipped(new Set());
+  }
+  const all = useMemo(
+    () => fold(plain, finals, snapshot.running, (key) => showWork !== flipped.has(key)),
+    [plain, finals, snapshot.running, showWork, flipped],
+  );
 
   // Heights: a unit's own from when it last rendered, else an estimate.
   const [metrics, setMetrics] = useState<ThreadMetrics | null>(null);
@@ -552,6 +611,12 @@ export function SessionThread({
       const unit = all[at]!;
       index.set(unit.key, at);
       offsets[at + 1] = offsets[at]! + (metrics ? heightOf(unit, metrics, at) : 0);
+    }
+    // Units in folded work are at their row, as for a view anchored in them.
+    for (let at = 0; at < all.length; at++) {
+      const unit = all[at]!;
+      if ("work" in unit && !unit.open)
+        for (const inner of unit.work) if (!index.has(inner.key)) index.set(inner.key, at);
     }
     return { all, offsets, index, rough, version };
   }, [all, finals, metrics, rows, version, heights]);
@@ -625,6 +690,7 @@ export function SessionThread({
     place(sync: boolean): void;
     loadEarlier(): void;
     go(key: string): void;
+    hold(key: string): void;
   } | null>(null);
   // Units on screen report later changes, as when their Markdown arrives.
   const observer = useRef<ResizeObserver | null>(null);
@@ -830,7 +896,17 @@ export function SessionThread({
       }
       place(true);
     };
-    list.current = { record, restore, place, loadEarlier, go };
+    // A unit that changes below it, such as a turn's work that opens, keeps
+    // its place in the view.
+    const hold = (key: string) => {
+      const { offsets, index } = latest.current.model;
+      const at = index.get(key);
+      if (at === undefined) return;
+      stuck.current = false;
+      anchor.current = { key, delta: node.scrollTop - listTop() - offsets[at]! };
+      recorded = node.scrollTop;
+    };
+    list.current = { record, restore, place, loadEarlier, go, hold };
     const follow = () => {
       check();
       if (stuck.current) node.scrollTop = node.scrollHeight;
@@ -931,22 +1007,30 @@ export function SessionThread({
     node.addEventListener("keydown", keydown);
     return () => node.removeEventListener("keydown", keydown);
   }, [step]);
-  // A task in the Background dock: the unit that holds its call.
+  const toggleWork = (key: string) => {
+    list.current?.hold(key);
+    setFlipped((keys) => {
+      const next = new Set(keys);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  };
+  // A task in the Background dock: the unit that holds its call, in work
+  // that opens first if it is folded.
   const showCall = (id: string) => {
-    const unit = latest.current.model.all.find((entry) =>
-      "item" in entry ? holds(entry.item, id) : entry.explore.some((item) => holds(item, id)),
-    );
-    if (unit) list.current?.go(unit.key);
+    const has = (unit: Unit) => itemsOf(unit).some((item) => holds(item, id));
+    const unit = latest.current.model.all.find(has);
+    if (unit && "work" in unit) {
+      const inner = unit.work.find(has)!;
+      flushSync(() => setFlipped((keys) => new Set(keys).add(unit.key)));
+      list.current?.go(inner.key);
+    } else if (unit) list.current?.go(unit.key);
   };
 
   // A turn from the index: its unit goes to the top of the view.
   const [handled, setHandled] = useState<{ nonce: number; key: string } | undefined>(undefined);
   if (reveal && reveal.nonce !== handled?.nonce && metrics) {
-    const key = all.find((unit) =>
-      "item" in unit
-        ? unit.item.id === reveal.id
-        : unit.explore.some((item) => item.id === reveal.id),
-    )?.key;
+    const key = all.find((unit) => itemsOf(unit).some((item) => item.id === reveal.id))?.key;
     if (key !== undefined) setHandled({ nonce: reveal.nonce, key });
   }
   const revealed = useRef<number | undefined>(undefined);
@@ -1010,6 +1094,9 @@ export function SessionThread({
     () => lastTurn(snapshot.items, snapshot.startedAt),
     [snapshot.items, snapshot.startedAt],
   );
+  const folded =
+    all.findLastIndex((unit) => "work" in unit) >
+    all.findLastIndex((unit) => "item" in unit && unit.item.kind === "user");
   const elapsed =
     turn.startedAt !== undefined ? (now ?? snapshot.updatedAt ?? 0) - turn.startedAt : 0;
   const offsets = model.offsets;
@@ -1077,6 +1164,7 @@ export function SessionThread({
                       final={"item" in unit && finals.has(unit.item.id)}
                       renderThread={renderThread}
                       onOpenLink={onOpenLink}
+                      onWork={toggleWork}
                     />
                   </div>
                 );
@@ -1092,7 +1180,9 @@ export function SessionThread({
                 <span {...stylex.props(styles.elapsed)}>{formatSeconds(Math.max(0, elapsed))}</span>
               </div>
             ) : (
-              snapshot.items.length > 0 && (
+              snapshot.items.length > 0 &&
+              // The last turn's own row says so when its work folds.
+              !folded && (
                 <div {...stylex.props(styles.done)}>
                   <span {...stylex.props(styles.rule)} />
                   Worked for {formatSeconds(elapsed)}
@@ -1364,6 +1454,12 @@ const styles = stylex.create({
     whiteSpace: "pre-wrap",
   },
   groupHead: { cursor: "pointer" },
+  work: {
+    gap: 6,
+    color: { default: tokens.faint, ":hover": tokens.muted },
+    fontSize: 11.5,
+    fontVariantNumeric: "tabular-nums",
+  },
   groupFailed: { color: tokens.red, fontSize: 11.5 },
   group: { display: "flex", flexDirection: "column", paddingInlineStart: 12 },
   chevron: {

@@ -629,7 +629,7 @@ export function estimateUnit(
   m: ThreadMetrics,
   options: { open?: boolean; final?: boolean } = {},
 ) {
-  if ("explore" in unit) return m.row + m.gap;
+  if (!("item" in unit)) return m.row + m.gap;
   const { item } = unit;
   switch (item.kind) {
     case "user":
@@ -652,7 +652,7 @@ export function roughUnit(
   m: ThreadMetrics,
   options: { open?: boolean; final?: boolean } = {},
 ) {
-  if ("explore" in unit) return m.row + m.gap;
+  if (!("item" in unit)) return m.row + m.gap;
   const { item } = unit;
   const lines = (text: string, style: TextStyle, width: number) => {
     const size = Number.parseFloat(/([\d.]+)px/.exec(style.font)?.[1] ?? "13");

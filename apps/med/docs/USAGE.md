@@ -197,8 +197,11 @@ toolbar, and **Show agent session** in the palette. They open the Session pane:
 prompts, replies, thoughts, tool calls with output and diffs, the plan, and
 background shells and agents. It follows the session live. A long session opens
 on its latest work; scroll up for earlier work, or jump to a prompt from
-**Turns** (the clock). With focus in the thread, `[` and `]` step through the
-prompts and replies; a task in **Background** goes to its call. See
+**Turns** (the clock). A finished turn shows its prompt and its final reply;
+its thoughts, commentary, and tool calls fold into one **Worked for** row, as in
+Codex. Click the row to open that turn, or press **Show work** in the pane's
+header to open every turn. With focus in the thread, `[` and `]` step through
+the prompts and replies; a task in **Background** goes to its call. See
 [agent sessions](SESSIONS.md).
 
 A saved review can also start an agent. A Session pane without a session lists

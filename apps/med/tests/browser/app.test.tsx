@@ -66,6 +66,7 @@ const storedPreferences = [
   "med-markdown-preview",
   "med:pane-layout",
   "med:pane-width",
+  "med:work",
 ];
 beforeEach(() => {
   for (const key of storedPreferences) localStorage.removeItem(key);
@@ -2459,7 +2460,14 @@ describe("agent session", () => {
     await page.getByRole("button", { name: "Toggle agent session" }).click();
     const panel = page.getByRole("complementary", { name: "Agent session" });
     await expect.element(panel.getByText("Rename the export.")).toBeVisible();
+    // The finished turn's work folds into one row; Show work opens it, and stays on.
+    await expect
+      .element(panel.getByRole("button", { name: "Worked for 2.0s · 1 tool call" }))
+      .toBeVisible();
+    expect(panel.getByRole("button", { name: /Run the tests/ }).query()).toBeNull();
+    await panel.getByRole("button", { name: "Show work" }).click();
     await expect.element(panel.getByRole("button", { name: /Run the tests/ })).toBeVisible();
+    expect(localStorage.getItem("med:work")).toBe("shown");
     await expect.element(panel.getByText("Idle")).toBeVisible();
 
     await panel.getByText("alpha.ts:1").click();
@@ -2553,7 +2561,9 @@ describe("agent session", () => {
     // A short thread reaches its top at once, so the earlier page loads.
     await expect.element(panel.getByText("First prompt")).toBeVisible();
     expect(pageReads).toEqual(["4096"]);
-    // The result that came first now completes its call: one row, with its title.
+    // The result that came first now completes its call: one row, with its
+    // title, in the first turn's folded work.
+    await panel.getByRole("button", { name: /^Worked for/ }).click();
     const build = panel.getByRole("button", { name: /Build the app/ });
     await expect.element(build).toBeVisible();
     expect(document.querySelectorAll('[aria-label="Session"] [data-unit="early"]')).toHaveLength(1);
