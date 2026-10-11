@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // A static site: Cloudflare serves dist/ with no Worker code.
+  "name": "med-site",
+  "compatibility_date": "2026-09-19",
+  "assets": {
+    "directory": "./dist",
+  },
+  "routes": [
+    {
+      "pattern": "med.zsheng.app",
+      "zone_name": "zsheng.app",
+      "custom_domain": true,
+    },
+  ],
+  "workers_dev": false,
+}

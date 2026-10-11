@@ -165,6 +165,9 @@ export const savedIterationSchema = z.object({
   targetIds: z.array(z.string()),
   brief: savedBriefSchema.optional(),
   pins: z.array(savedPinSchema).optional(),
+  /** The reader started these notes: they begin empty, without the brief of
+   * an iteration before them. */
+  fresh: z.boolean().optional(),
 });
 export type SavedIteration = z.infer<typeof savedIterationSchema>;
 /** Later details for a review, such as the pull request opened after it. */

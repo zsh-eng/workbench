@@ -24,7 +24,16 @@ import { motion, rowStyles } from "./session-styles";
 import { BackgroundDock } from "./BackgroundDock";
 import { SessionMarkdown } from "./SessionMarkdown";
 import { formatSeconds, RowOpen, ToolCall, useRowOpen } from "./ToolCall";
-import { finalReplies, lastTurn, units, type ToolItem, type Unit } from "./thread-model";
+import {
+  finalReplies,
+  fold,
+  itemsOf,
+  lastTurn,
+  units,
+  type ToolItem,
+  type Unit,
+  type WorkUnit,
+} from "./thread-model";
 import {
   estimateUnit,
   readMetrics,
@@ -84,14 +93,19 @@ function UnitBody({
   final,
   renderThread,
   onOpenLink,
+  onWork,
 }: {
   unit: Unit;
   last: boolean;
   final: boolean;
   renderThread(items: SessionItem[]): ReactNode;
   onOpenLink?(href: string): void;
+  /** Opens or folds a turn's work. */
+  onWork?(key: string): void;
 }) {
-  return "explore" in unit ? (
+  return "work" in unit ? (
+    <Work unit={unit} onToggle={onWork} />
+  ) : "explore" in unit ? (
     <Explore groupKey={unit.key} items={unit.explore} renderThread={renderThread} />
   ) : (
     <Item
@@ -341,6 +355,28 @@ function Explore({
   );
 }
 
+/** A finished turn's work in one row; it opens to show the work below it. */
+function Work({ unit, onToggle }: { unit: WorkUnit; onToggle?(key: string): void }) {
+  return (
+    <button
+      type="button"
+      aria-expanded={unit.open}
+      onClick={() => onToggle?.(unit.key)}
+      {...stylex.props(rowStyles.row, styles.groupHead, styles.work)}
+    >
+      <span>
+        Worked for {formatSeconds(unit.durationMs)}
+        {unit.toolCalls > 0 &&
+          ` · ${unit.toolCalls} tool ${unit.toolCalls === 1 ? "call" : "calls"}`}
+      </span>
+      <span {...stylex.props(styles.chevron, unit.open && styles.chevronOpen)}>
+        <Icon name="chevron" size={12} />
+      </span>
+      <span {...stylex.props(styles.rule)} />
+    </button>
+  );
+}
+
 function Compaction({ id, summary, failed }: { id: string; summary?: string; failed?: boolean }) {
   const [open, setOpen] = useRowOpen(id, false);
   return (
@@ -419,9 +455,12 @@ export function PlanDock({ entries }: { entries: PlanEntry[] }) {
   );
 }
 
-/** Space that renders above and below the view, and the least that must stay
- * rendered past each edge before the rendered range moves. */
+/** Space that renders above and below the view. The rendered range moves
+ * when less than LEAD stays rendered past an edge, in a task after the frame,
+ * so that a fling keeps its frames. With less than MARGIN, the view could reach
+ * empty space first, so the range moves at once, in the scroll event. */
 const OVERSCAN = 1200;
+const LEAD = 800;
 const MARGIN = 400;
 /** The newest units render before the thread has a size, as in a hidden pane. */
 const UNSIZED = 24;
@@ -444,8 +483,28 @@ function indexAt(offsets: Float64Array, y: number) {
   return Math.max(0, low);
 }
 
+/** Prompts and replies, which [ and ] step through. */
+const isMessage = (
+  unit: Unit,
+): unit is { key: string; item: Extract<SessionItem, { kind: "user" | "agent" }> } =>
+  "item" in unit && (unit.item.kind === "user" || unit.item.kind === "agent");
+/** The item, or a call in a subagent's thread under it. */
+const holds = (item: SessionItem, id: string): boolean =>
+  item.id === id || (item.kind === "tool" && item.items.some((inner) => holds(inner, id)));
+/** Space above a unit that the reader asked for. */
+const GO_GAP = 16;
+
 /** The item that a measured height belongs to: a group grows with its last call. */
-const sourceOf = (unit: Unit): object => ("item" in unit ? unit.item : unit.explore.at(-1)!);
+// A work row's own source, apart from that of its last unit, which can render too.
+const workSources = new WeakMap<object, object>();
+const sourceOf = (unit: Unit): object => {
+  if ("item" in unit) return unit.item;
+  if ("explore" in unit) return unit.explore.at(-1)!;
+  const last = sourceOf(unit.work.at(-1)!);
+  let source = workSources.get(last);
+  if (!source) workSources.set(last, (source = {}));
+  return source;
+};
 
 interface Range {
   start: number;
@@ -472,6 +531,7 @@ export function SessionThread({
   before,
   earlier,
   reveal,
+  showWork = false,
   onOpenLink,
 }: {
   snapshot: SessionSnapshot;
@@ -483,6 +543,8 @@ export function SessionThread({
   reveal?: { id: string; nonce: number };
   /** The clock for the elapsed time of a running session. */
   now?: number;
+  /** Finished turns show their work; otherwise it folds into one row. */
+  showWork?: boolean;
   onOpenLink?(href: string): void;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
@@ -494,8 +556,19 @@ export function SessionThread({
   const { active: theme } = useTheme();
   const [rows] = useState(() => new Map<string, boolean>());
 
-  const all = useMemo(() => units(snapshot.items), [snapshot.items]);
-  const finals = useMemo(() => finalReplies(all, snapshot.running), [all, snapshot.running]);
+  const plain = useMemo(() => units(snapshot.items), [snapshot.items]);
+  const finals = useMemo(() => finalReplies(plain, snapshot.running), [plain, snapshot.running]);
+  // Turns that the reader opened or folded, against the switch.
+  const [flipped, setFlipped] = useState<ReadonlySet<string>>(() => new Set());
+  const [switched, setSwitched] = useState(showWork);
+  if (switched !== showWork) {
+    setSwitched(showWork);
+    setFlipped(new Set());
+  }
+  const all = useMemo(
+    () => fold(plain, finals, snapshot.running, (key) => showWork !== flipped.has(key)),
+    [plain, finals, snapshot.running, showWork, flipped],
+  );
 
   // Heights: a unit's own from when it last rendered, else an estimate.
   const [metrics, setMetrics] = useState<ThreadMetrics | null>(null);
@@ -538,6 +611,12 @@ export function SessionThread({
       const unit = all[at]!;
       index.set(unit.key, at);
       offsets[at + 1] = offsets[at]! + (metrics ? heightOf(unit, metrics, at) : 0);
+    }
+    // Units in folded work are at their row, as for a view anchored in them.
+    for (let at = 0; at < all.length; at++) {
+      const unit = all[at]!;
+      if ("work" in unit && !unit.open)
+        for (const inner of unit.work) if (!index.has(inner.key)) index.set(inner.key, at);
     }
     return { all, offsets, index, rough, version };
   }, [all, finals, metrics, rows, version, heights]);
@@ -610,6 +689,8 @@ export function SessionThread({
     restore(): void;
     place(sync: boolean): void;
     loadEarlier(): void;
+    go(key: string): void;
+    hold(key: string): void;
   } | null>(null);
   // Units on screen report later changes, as when their Markdown arrives.
   const observer = useRef<ResizeObserver | null>(null);
@@ -763,16 +844,18 @@ export function SessionThread({
       const total = all.length;
       const y = node.scrollTop - listTop();
       const height = node.clientHeight;
-      // The range covers the view with a margin on each side, and not much
-      // more: units that come at the end join it, and it must not grow.
-      const covered =
+      // The range covers the view with a margin on each side.
+      const covered = (margin: number) =>
         range.end <= total &&
         range.start < range.end &&
-        (range.start === 0 || offsets[range.start]! <= y - MARGIN) &&
-        (range.end === total || offsets[range.end]! >= y + height + MARGIN) &&
-        offsets[range.start]! >= y - 2 * OVERSCAN &&
-        offsets[range.end]! <= y + height + 2 * OVERSCAN;
-      if (covered || !total) return;
+        (range.start === 0 || offsets[range.start]! <= y - margin) &&
+        (range.end === total || offsets[range.end]! >= y + height + margin);
+      // And not much more: units that come at the end join it, and it must not
+      // grow. A unit taller than the overscan counts as one unit.
+      const lean =
+        range.start >= indexAt(offsets, y - 2 * OVERSCAN) &&
+        range.end <= indexAt(offsets, y + height + 2 * OVERSCAN) + 1;
+      if (!total || (covered(LEAD) && lean)) return;
       const next: Range = {
         start: indexAt(offsets, y - OVERSCAN),
         end: Math.min(total, indexAt(offsets, y + height + OVERSCAN) + 1),
@@ -780,7 +863,7 @@ export function SessionThread({
         tail: false,
       };
       next.tail = next.end === total;
-      if (sync) flushSync(() => setRange(next));
+      if (sync && !covered(MARGIN)) flushSync(() => setRange(next));
       else setRange(next);
     };
     // One request for each state of the earlier work: the new state comes
@@ -798,7 +881,32 @@ export function SessionThread({
       record();
       void more.load();
     };
-    list.current = { record, restore, place, loadEarlier };
+    // A unit that the reader asked for goes near the top of the view, rendered
+    // or not: the view keeps it there as the units around it render.
+    const go = (key: string) => {
+      stuck.current = false;
+      anchor.current = { key, delta: -GO_GAP };
+      recorded = node.scrollTop;
+      restore();
+      // Near the end the view follows again, so it goes all the way there.
+      if (atEnd()) {
+        stuck.current = true;
+        node.scrollTop = node.scrollHeight;
+        recorded = node.scrollTop;
+      }
+      place(true);
+    };
+    // A unit that changes below it, such as a turn's work that opens, keeps
+    // its place in the view.
+    const hold = (key: string) => {
+      const { offsets, index } = latest.current.model;
+      const at = index.get(key);
+      if (at === undefined) return;
+      stuck.current = false;
+      anchor.current = { key, delta: node.scrollTop - listTop() - offsets[at]! };
+      recorded = node.scrollTop;
+    };
+    list.current = { record, restore, place, loadEarlier, go, hold };
     const follow = () => {
       check();
       if (stuck.current) node.scrollTop = node.scrollHeight;
@@ -857,14 +965,72 @@ export function SessionThread({
     };
   }, []);
 
+  // [ and ] step through the prompts and replies, as through hunks in
+  // Changes. The message they reach is marked while the thread has focus.
+  const [current, setCurrent] = useState<string>();
+  const step = useCallback(
+    (direction: 1 | -1) => {
+      const node = scroller.current;
+      const { all, offsets, index } = latest.current.model;
+      if (!node || !all.length || !latest.current.metrics) return;
+      const y = node.scrollTop - (head.current?.offsetTop ?? 0);
+      const from = current === undefined ? undefined : index.get(current);
+      let at: number;
+      if (from !== undefined && offsets[from + 1]! > y && offsets[from]! < y + node.clientHeight)
+        at = from + direction;
+      // At the end, the previous message is the latest.
+      else if (direction < 0 && stuck.current) at = all.length - 1;
+      else {
+        // From the view: the next message starts below its top, the previous above it.
+        at = indexAt(offsets, y);
+        if (direction > 0 ? offsets[at]! <= y + 1 : offsets[at]! >= y - 1) at += direction;
+      }
+      while (at >= 0 && at < all.length && !isMessage(all[at]!)) at += direction;
+      if (at < 0 || at >= all.length) return;
+      setCurrent(all[at]!.key);
+      list.current?.go(all[at]!.key);
+    },
+    [current],
+  );
+  useEffect(() => {
+    const node = scroller.current;
+    if (!node) return;
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key !== "[" && event.key !== "]") return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement;
+      if (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      step(event.key === "]" ? 1 : -1);
+    };
+    node.addEventListener("keydown", keydown);
+    return () => node.removeEventListener("keydown", keydown);
+  }, [step]);
+  const toggleWork = (key: string) => {
+    list.current?.hold(key);
+    setFlipped((keys) => {
+      const next = new Set(keys);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  };
+  // A task in the Background dock: the unit that holds its call, in work
+  // that opens first if it is folded.
+  const showCall = (id: string) => {
+    const has = (unit: Unit) => itemsOf(unit).some((item) => holds(item, id));
+    const unit = latest.current.model.all.find(has);
+    if (unit && "work" in unit) {
+      const inner = unit.work.find(has)!;
+      flushSync(() => setFlipped((keys) => new Set(keys).add(unit.key)));
+      list.current?.go(inner.key);
+    } else if (unit) list.current?.go(unit.key);
+  };
+
   // A turn from the index: its unit goes to the top of the view.
   const [handled, setHandled] = useState<{ nonce: number; key: string } | undefined>(undefined);
   if (reveal && reveal.nonce !== handled?.nonce && metrics) {
-    const key = all.find((unit) =>
-      "item" in unit
-        ? unit.item.id === reveal.id
-        : unit.explore.some((item) => item.id === reveal.id),
-    )?.key;
+    const key = all.find((unit) => itemsOf(unit).some((item) => item.id === reveal.id))?.key;
     if (key !== undefined) setHandled({ nonce: reveal.nonce, key });
   }
   const revealed = useRef<number | undefined>(undefined);
@@ -928,16 +1094,29 @@ export function SessionThread({
     () => lastTurn(snapshot.items, snapshot.startedAt),
     [snapshot.items, snapshot.startedAt],
   );
+  const folded =
+    all.findLastIndex((unit) => "work" in unit) >
+    all.findLastIndex((unit) => "item" in unit && unit.item.kind === "user");
   const elapsed =
     turn.startedAt !== undefined ? (now ?? snapshot.updatedAt ?? 0) - turn.startedAt : 0;
   const offsets = model.offsets;
+  const scrollerProps = stylex.props(styles.scroller);
   const above = metrics ? offsets[start]! : 0;
   const below = metrics ? offsets[count]! - offsets[end]! : 0;
 
   return (
     <div {...stylex.props(styles.frame)}>
       <div {...stylex.props(styles.viewport)}>
-        <div ref={scroller} {...stylex.props(styles.scroller)}>
+        <div
+          ref={scroller}
+          // A scrolling region takes focus, so keys can scroll it. Focus in the
+          // thread also gives [ and ] to its messages, not to hunks.
+          // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+          tabIndex={0}
+          data-message-keys=""
+          {...scrollerProps}
+          className={`${scrollerProps.className ?? ""} med-thread-scroller`}
+        >
           <div
             ref={content}
             {...stylex.props(styles.content)}
@@ -975,6 +1154,8 @@ export function SessionThread({
                     ref={unitRef}
                     data-unit={unit.key}
                     data-rise={appended.has(unit.key) ? "" : undefined}
+                    data-message={isMessage(unit) ? unit.item.kind : undefined}
+                    data-current={unit.key === current ? "" : undefined}
                     {...stylex.props(styles.unit)}
                   >
                     <UnitBody
@@ -983,6 +1164,7 @@ export function SessionThread({
                       final={"item" in unit && finals.has(unit.item.id)}
                       renderThread={renderThread}
                       onOpenLink={onOpenLink}
+                      onWork={toggleWork}
                     />
                   </div>
                 );
@@ -998,7 +1180,9 @@ export function SessionThread({
                 <span {...stylex.props(styles.elapsed)}>{formatSeconds(Math.max(0, elapsed))}</span>
               </div>
             ) : (
-              snapshot.items.length > 0 && (
+              snapshot.items.length > 0 &&
+              // The last turn's own row says so when its work folds.
+              !folded && (
                 <div {...stylex.props(styles.done)}>
                   <span {...stylex.props(styles.rule)} />
                   Worked for {formatSeconds(elapsed)}
@@ -1029,7 +1213,7 @@ export function SessionThread({
           </button>
         )}
       </div>
-      <BackgroundDock items={snapshot.items} now={now ?? snapshot.updatedAt} />
+      <BackgroundDock items={snapshot.items} now={now ?? snapshot.updatedAt} onShow={showCall} />
       {snapshot.plan.length > 0 && <PlanDock entries={snapshot.plan} />}
     </div>
   );
@@ -1193,7 +1377,7 @@ const styles = stylex.create({
     cursor: { default: "pointer", ":disabled": "default" },
   },
   // A unit holds its children's margins, so its height is all of its space.
-  unit: { display: "flow-root", minWidth: 0, paddingBottom: 6 },
+  unit: { position: "relative", display: "flow-root", minWidth: 0, paddingBottom: 6 },
   nestedUnit: { minWidth: 0 },
   replyBar: { display: "flex", alignItems: "center", gap: 2, marginTop: 4, marginInline: -6 },
   replyAction: {
@@ -1270,6 +1454,12 @@ const styles = stylex.create({
     whiteSpace: "pre-wrap",
   },
   groupHead: { cursor: "pointer" },
+  work: {
+    gap: 6,
+    color: { default: tokens.faint, ":hover": tokens.muted },
+    fontSize: 11.5,
+    fontVariantNumeric: "tabular-nums",
+  },
   groupFailed: { color: tokens.red, fontSize: 11.5 },
   group: { display: "flex", flexDirection: "column", paddingInlineStart: 12 },
   chevron: {

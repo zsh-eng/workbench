@@ -107,7 +107,7 @@ event streams stay open, writes succeed and change nothing, and the clock
 starts at the time of the recording. The build compiles the app with
 `apps/med/vite.demo.config.ts` into `dist/demo/`.
 
-A window names its scene in `data-demo`: `demo.html?scene=review` for the
+A window names its scene in `data-demo`: `/demo/demo?scene=review` for the
 product window, and `brief`, `comment`, `session`, `commit`, and `notes` for
 the features. The scene sets the panes, opens the tab or note, scrolls to the
 comment, and then marks the page ready. The `notes` scene replays `vault.json`;
@@ -138,7 +138,7 @@ commit windows use the same files from the cache. The notes window adds about
 
 ## Deploy
 
-`dist/` is a complete static site. Any static host can serve it; for
-Cloudflare static assets, `dist/_headers` sets a one-year cache for the hashed
-files. This app has no deployment configuration, project name, or domain yet.
-Add them when the domain is chosen.
+`dist/` is a complete static site. `bun run deploy` builds it and deploys it to
+https://med.zsheng.app as the `med-site` Worker. The Worker has static assets
+only (`wrangler.jsonc`), and `dist/_headers` sets a one-year cache for the
+hashed files.

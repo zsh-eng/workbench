@@ -243,27 +243,63 @@ test("captures thoughts over a stable book and browses both notebook orders", as
 });
 
 /** Selects a short passage on the current spread and asks for a note on it.
- * The passage starts inside a line, so its page is the visible page even when
- * the line continues a paragraph from the previous page. */
-async function openSelectionNote(page: Page) {
-  await page.evaluate(() => {
-    const root = document.querySelector(
+ * "line" starts inside the first long line of the spread. "page-start" starts
+ * at the first character of the spread's first page. "lower" starts in the
+ * lower half of the window. Returns the passage's viewport top. */
+async function openSelectionNote(
+  page: Page,
+  start: "line" | "page-start" | "lower" = "line",
+) {
+  const selected = await page.evaluate((start) => {
+    const spread = document.querySelector(
       '[data-reader-spread-layer="current"]',
     )!;
+    const root =
+      start === "page-start"
+        ? spread.querySelector("[data-reader-page-content]")!
+        : spread;
+    const usable = (node: Node) => {
+      const length = node.textContent?.trim().length ?? 0;
+      if (start === "line") return length >= 30;
+      if (start === "page-start") return length > 0;
+      // Above the lowest top that the margin column can take.
+      const top = node.parentElement!.getBoundingClientRect().top;
+      return length > 0 && top > innerHeight / 2 && top < innerHeight - 260;
+    };
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     let node = walker.nextNode();
-    while (node && (node.textContent?.trim().length ?? 0) < 30)
-      node = walker.nextNode();
+    while (node && !usable(node)) node = walker.nextNode();
     if (!node) throw new Error("No passage to select");
     const range = document.createRange();
-    range.setStart(node, 5);
-    range.setEnd(node, 30);
+    const from = start === "line" ? 5 : node.textContent!.search(/\S/);
+    range.setStart(node, from);
+    // The passage can cross fragments, so count 25 characters across nodes.
+    let remaining = 25;
+    let end: Node | null = node;
+    let offset = from;
+    while (end) {
+      const available = end.textContent!.length - offset;
+      if (available >= remaining) {
+        range.setEnd(end, offset + remaining);
+        break;
+      }
+      remaining -= available;
+      end = walker.nextNode();
+      offset = 0;
+    }
     window.getSelection()!.removeAllRanges();
     window.getSelection()!.addRange(range);
-  });
+    // A selection reports rendered line breaks; compare words only.
+    const text = range.toString().replace(/\s+/g, " ");
+    return { text, top: range.getClientRects()[0].top };
+  }, start);
   await expect
-    .poll(() => page.evaluate(() => window.getSelection()?.toString().length))
-    .toBe(25);
+    .poll(() =>
+      page.evaluate(() =>
+        window.getSelection()?.toString().replace(/\s+/g, " "),
+      ),
+    )
+    .toBe(selected.text);
   await page.evaluate(() =>
     document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })),
   );
@@ -271,6 +307,7 @@ async function openSelectionNote(page: Page) {
     page.getByRole("button", { name: "Note on highlight" }),
   ).toHaveCount(1);
   await page.getByRole("button", { name: "Note on highlight" }).click();
+  return selected.top;
 }
 
 /** Margin UI must stay beside the text columns of the current spread. */
@@ -543,6 +580,27 @@ test.describe("Desktop margin notes", () => {
     expect(await currentPages(page)).toEqual(anchorPages);
     await nextSpread(page);
     const notebookPages = await currentPages(page);
+    // A margin note sits beside its passage, not at the top of the margin.
+    const passageTop = await openSelectionNote(page, "lower");
+    await page
+      .getByRole("textbox", { name: "Write a note" })
+      .fill("A thought lower on the page");
+    await page.getByRole("button", { name: "Save note", exact: true }).click();
+    const lowerNote = page
+      .locator("[data-margin-note]")
+      .filter({ hasText: "A thought lower on the page" });
+    await expect(lowerNote).toBeVisible();
+    // Saving adds the passage's highlight, and the chapter is laid out again.
+    await expect(
+      page.locator('[data-reader-spread-layer="current"] mark.epub-highlight'),
+    ).not.toHaveCount(0);
+    await waitForReaderReady(page);
+    await expect
+      .poll(async () =>
+        Math.abs((await lowerNote.boundingBox())!.y - passageTop),
+      )
+      .toBeLessThan(2);
+    await expectClearOfText(lowerNote);
     await page.mouse.move(600, 20);
     await page
       .getByRole("button", { name: "Open reader tools", exact: true })
@@ -580,6 +638,61 @@ test.describe("Desktop margin notes", () => {
     ).toHaveCount(0);
     expect(await stage.boundingBox()).toEqual(before);
     await page.screenshot({ path: "/tmp/reader-notes-tab.png" });
+  });
+  test("keeps a note on the page where its passage starts", async ({
+    page,
+    localBook,
+  }) => {
+    await page.setViewportSize({ width: 2048, height: 1000 });
+    await openLocalBook(page, localBook.id);
+    // Find a spread whose first page opens inside a paragraph from the page
+    // before: its first text does not start at offset 0:0:0 of its block.
+    const firstOffset = () =>
+      page.evaluate(
+        () =>
+          document
+            .querySelector(
+              '[data-reader-spread-layer="current"] [data-reader-page-content]',
+            )
+            ?.querySelector("[data-content-anchor-start]")
+            ?.getAttribute("data-content-anchor-start") ?? "0:0:0",
+      );
+    for (let spread = 0; (await firstOffset()) === "0:0:0"; spread++) {
+      expect(spread, "a page that continues a paragraph").toBeLessThan(20);
+      await nextSpread(page);
+    }
+    const pages = await currentPages(page);
+    await openSelectionNote(page, "page-start");
+    await page
+      .getByRole("textbox", { name: "Write a note" })
+      .fill("A thought at the top of the page");
+    await page.getByRole("button", { name: "Save note", exact: true }).click();
+    // Saving adds the passage's highlight, so its chapter is laid out again.
+    const savedNote = page
+      .locator("[data-margin-note]")
+      .filter({ hasText: "A thought at the top of the page" });
+    await expect(savedNote).toBeVisible();
+    await expect(page.locator("mark.epub-highlight")).not.toHaveCount(0);
+    await waitForReaderReady(page);
+    await expect(savedNote).toBeVisible();
+    expect(await currentPages(page)).toEqual(pages);
+
+    await page.mouse.move(600, 20);
+    await page
+      .getByRole("button", { name: "Open reader tools", exact: true })
+      .click();
+    const tools = page.getByRole("complementary", {
+      name: "Reader tools",
+      exact: true,
+    });
+    await tools.getByRole("button", { name: "Notebook", exact: true }).click();
+    await expect(
+      tools
+        .getByRole("region", { name: "Book notebook" })
+        .locator("article")
+        .filter({ hasText: "A thought at the top of the page" })
+        .getByRole("button", { name: /p\./ }),
+    ).toContainText(`p. ${pages[0]}`);
   });
   test("opens a note in the notebook when the page margin is narrow", async ({
     page,

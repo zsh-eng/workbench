@@ -980,9 +980,10 @@ export function App({
     iterations.find((entry) => state.savedTargetId && entry.targetIds.includes(state.savedTargetId))
       ?.number ??
     iterations.at(-1)?.number;
-  // An iteration without a brief keeps the one before it.
+  // An iteration without a brief keeps the one before it, unless the reader
+  // started its notes anew.
   const briefSource = shownIteration
-    ? iterations.findLast((entry) => entry.number <= shownIteration && entry.brief)
+    ? iterations.findLast((entry) => entry.number <= shownIteration && (entry.brief || entry.fresh))
     : undefined;
   const savedBrief = !state.savedView
     ? undefined
@@ -995,7 +996,10 @@ export function App({
     : shownIteration
       ? iterations.find((entry) => entry.number === shownIteration)?.pins
       : state.savedReview?.pins;
-  const hasNotes = !!savedBrief || !!savedPins?.length;
+  const hasNotes =
+    !!savedBrief ||
+    !!savedPins?.length ||
+    (!!state.savedView && briefSource?.fresh === true && briefSource.number === shownIteration);
   // Comments on passages of the shown brief and pins.
   const allBriefComments = state.savedReview?.briefComments;
   const briefComments = useMemo(
@@ -1169,6 +1173,22 @@ export function App({
       ),
     [controller, showToast],
   );
+  // New notes: a new iteration of the current comparisons, which later pins go to.
+  const startNotes = useCallback(() => {
+    controller.startNotes().then(
+      (iteration) => {
+        const first = iteration?.targetIds[0];
+        if (!iteration || !first) return;
+        setBriefIteration(iteration.number);
+        pendingIteration.current = first;
+        pendingSavedChanges.current = null;
+        void controller.selectSavedTarget(first);
+        showToast(`Started the notes of iteration ${iteration.number}.`);
+      },
+      (error: unknown) =>
+        showToast(error instanceof Error ? error.message : "New notes could not start."),
+    );
+  }, [controller, showToast]);
   // Pin to review on the agent's replies. A pin goes to the latest iteration.
   const showPinRef = useRef(showPin);
   useEffect(() => {
@@ -1803,14 +1823,15 @@ export function App({
         event.preventDefault();
         event.stopPropagation();
         openFind();
-      } else if (event.key === "]") {
+      } else if (event.key === "]" || event.key === "[") {
+        // Focus in the session thread gives these keys to its messages.
+        const inThread = event
+          .composedPath()
+          .some((node) => node instanceof HTMLElement && node.hasAttribute("data-message-keys"));
+        if (inThread) return;
         event.preventDefault();
         event.stopPropagation();
-        navigateHunk(1);
-      } else if (event.key === "[") {
-        event.preventDefault();
-        event.stopPropagation();
-        navigateHunk(-1);
+        navigateHunk(event.key === "]" ? 1 : -1);
       } else if (event.key === "n" && find) {
         event.preventDefault();
         event.stopPropagation();
@@ -3337,6 +3358,7 @@ export function App({
               <SavedReviewHeader
                 controller={controller}
                 state={state}
+                notesPickIteration={hasNotes}
                 pullRequest={pullRequest}
                 threadPlacement={pullRequestThreads.placement}
                 codexReviews={codexReviews}
@@ -3775,7 +3797,7 @@ export function App({
                         return text !== notesText ? [text] : [];
                       })}
                       iterations={iterations
-                        .filter((entry) => entry.brief || entry.pins?.length)
+                        .filter((entry) => entry.brief || entry.pins?.length || entry.fresh)
                         .map(({ number, createdAt }) => ({ number, createdAt }))}
                       iteration={savedPins?.length ? shownIteration : briefSource?.number}
                       onIteration={showIteration}
@@ -3788,6 +3810,7 @@ export function App({
                       onPaste={pasteBrief}
                       onCopy={copyNotes}
                       onRemove={removeBrief}
+                      onStartNotes={startNotes}
                       onUnpin={(id) => void unpin(id)}
                       notes={notes}
                       onMutateNote={(mutation) => controller.mutateNote(mutation)}

@@ -236,6 +236,77 @@ describe("Claude Code transcripts", () => {
       summary: "The server failed; the parser check runs in a subagent.",
     });
   });
+
+  test("a task that ends during a turn ends its call, also when the call is on an earlier page", () => {
+    const at = (second: number) => `2026-10-10T09:00:${String(second).padStart(2, "0")}.000Z`;
+    const call = [
+      {
+        type: "assistant",
+        timestamp: at(1),
+        uuid: "a1",
+        message: {
+          id: "m1",
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "tests",
+              name: "Bash",
+              input: { command: "bun test", description: "Run the tests", run_in_background: true },
+            },
+          ],
+        },
+      },
+      {
+        type: "user",
+        timestamp: at(1),
+        message: {
+          role: "user",
+          content: [
+            { type: "tool_result", tool_use_id: "tests", content: "Running in background: b2" },
+          ],
+        },
+        toolUseResult: { stdout: "", stderr: "", interrupted: false, backgroundTaskId: "b2" },
+      },
+    ];
+    // Claude Code queues a notification that comes during a turn.
+    const notification = {
+      type: "attachment",
+      timestamp: at(5),
+      attachment: {
+        type: "queued_command",
+        commandMode: "task-notification",
+        prompt:
+          "<task-notification>\n<task-id>b2</task-id>\n<tool-use-id>tests</tool-use-id>\n<status>completed</status>\n<summary>The tests passed</summary>\n</task-notification>",
+      },
+    };
+    const read = (lines: object[]) => {
+      const reader = createClaudeTranscriptReader();
+      return lines.flatMap((line) => reader.line(JSON.stringify(line)));
+    };
+    const status = (items: SessionItem[]) => {
+      const item = items.find((entry) => entry.id === "tests");
+      return item?.kind === "tool" && item.call.status;
+    };
+
+    // A status line names only the task.
+    const ended = {
+      type: "attachment",
+      timestamp: at(5),
+      attachment: { type: "task_status", taskId: "b2", status: "completed" },
+    };
+    for (const end of [notification, ended]) {
+      const whole = thread(read([...call, end]));
+      expect(status(whole.items)).toBe("completed");
+      expect(whole.items.filter((item) => item.kind === "user")).toEqual([]);
+
+      // The tail holds the end; an earlier page brings the call.
+      const store = createSessionStore();
+      store.applyAll(read([end]));
+      store.prepend(read(call));
+      expect(status(store.getSnapshot().items)).toBe("completed");
+    }
+  });
 });
 
 describe("Codex rollouts", () => {

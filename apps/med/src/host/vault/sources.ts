@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { Stats } from "node:fs";
 import { chmod, mkdir, realpath, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { git } from "../runtime/process";
@@ -9,6 +10,10 @@ export interface SavedSource {
   path: string;
   identity: string;
 }
+/** The saved identity of a directory. It leaves out the device number: macOS
+ * can number its volumes again when it starts, and saved sources must still
+ * match after a restart. */
+const directoryIdentity = (info: Stats) => `${info.ino}:${info.birthtimeMs}`;
 export class SourceCatalogue {
   private constructor(
     private db: Database,
@@ -45,12 +50,9 @@ export class SourceCatalogue {
       );
     }
     const id = `${kind}_${createHash("sha256").update(identity).digest("hex").slice(0, 24)}`;
-    const info = await stat(identity);
-    const directoryIdentity = `${info.dev}:${info.ino}:${info.birthtimeMs}`;
-    this.db
-      .prepare("INSERT OR REPLACE INTO sources VALUES (?,?,?,?)")
-      .run(id, kind, path, directoryIdentity);
-    return { id, kind, path, identity: directoryIdentity };
+    const saved = directoryIdentity(await stat(identity));
+    this.db.prepare("INSERT OR REPLACE INTO sources VALUES (?,?,?,?)").run(id, kind, path, saved);
+    return { id, kind, path, identity: saved };
   }
   async require(id: string, kind?: SavedSource["kind"]) {
     const source = this.list().find((source) => source.id === id);
@@ -65,10 +67,10 @@ export class SourceCatalogue {
               .trim(),
           )
         : canonical;
-    const info = await stat(identityPath);
     if (
       canonical !== source.path ||
-      source.identity !== `${info.dev}:${info.ino}:${info.birthtimeMs}`
+      // Older rows start with the device number.
+      source.identity.split(":").slice(-2).join(":") !== directoryIdentity(await stat(identityPath))
     )
       throw new Error("The registered directory changed. Remove it and register it again.");
     return source;

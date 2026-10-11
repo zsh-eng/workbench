@@ -8,6 +8,7 @@ import { createSessionReplay } from "../../data/session-replay";
 import { createSessionStore, type SessionStore } from "../../data/session-store";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon } from "../Icon";
+import { ToolButton } from "../ToolButton";
 import { SessionComposer, type ComposerAttachment } from "../session/SessionComposer";
 import { SessionThread } from "../session/SessionThread";
 import { sessionGallery } from "./session-gallery";
@@ -26,14 +27,18 @@ function Panel({
   title,
   store,
   now,
+  work = false,
   children,
 }: {
   title: string;
   store: SessionStore;
   now?: number;
+  /** Whether finished turns show their work at first. */
+  work?: boolean;
   children?: ReactNode;
 }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const [showWork, setShowWork] = useState(work);
   return (
     <div {...stylex.props(styles.panel)}>
       <header {...stylex.props(styles.panelHeader)}>
@@ -43,9 +48,16 @@ function Panel({
           aria-label={snapshot.running ? "Working" : "Idle"}
           {...stylex.props(styles.dot, snapshot.running && styles.dotLive)}
         />
+        <ToolButton
+          icon="expandAll"
+          label="Show work"
+          active={showWork}
+          aria-pressed={showWork}
+          onClick={() => setShowWork(!showWork)}
+        />
       </header>
       <div {...stylex.props(styles.thread)}>
-        <SessionThread snapshot={snapshot} now={now} />
+        <SessionThread snapshot={snapshot} now={now} showWork={showWork} />
       </div>
       {children}
     </div>
@@ -312,7 +324,7 @@ function Gallery() {
     store.applyAll(sessionGallery());
     return store;
   });
-  return <Panel title="Cache the branch list" store={store} />;
+  return <Panel title="Cache the branch list" store={store} work />;
 }
 
 /**

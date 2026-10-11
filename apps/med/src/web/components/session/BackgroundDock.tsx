@@ -35,7 +35,16 @@ function addressOf(item: ToolItem) {
  * them: running ones first, with the local address a dev server printed.
  * A task's name scrolls the thread to the call that started it.
  */
-export function BackgroundDock({ items, now }: { items: SessionItem[]; now?: number }) {
+export function BackgroundDock({
+  items,
+  now,
+  onShow,
+}: {
+  items: SessionItem[];
+  now?: number;
+  /** Scrolls the thread to the call, which a long thread may not have rendered. */
+  onShow?(id: string): void;
+}) {
   const [open, setOpen] = useState(true);
   const tasks = backgroundTasks(items);
   if (!tasks.length) return null;
@@ -83,11 +92,7 @@ export function BackgroundDock({ items, now }: { items: SessionItem[]; now?: num
                 </span>
                 <button
                   type="button"
-                  onClick={() =>
-                    document
-                      .querySelector(`[data-tool-call-id="${CSS.escape(item.id)}"]`)
-                      ?.scrollIntoView({ block: "center", behavior: "smooth" })
-                  }
+                  onClick={() => onShow?.(item.id)}
                   {...stylex.props(styles.name, !live && styles.finished)}
                 >
                   {item.call.title}

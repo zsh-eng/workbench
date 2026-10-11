@@ -2,7 +2,11 @@
  * Data for the System prototype: shelf books, the books that can be opened,
  * and one list of annotations where highlights and notes live together.
  */
-import type { StudioBook, StudioInk, StudioLibrary } from "../data/sample-library";
+import type {
+  StudioBook,
+  StudioInk,
+  StudioLibrary,
+} from "../data/sample-library";
 import {
   BOOK_MODELS,
   chapterOfPage,
@@ -38,20 +42,88 @@ export function modelFor(bookId: string): BookModel | null {
 
 export function shelfFromLibrary(library: StudioLibrary): ShelfBook[] {
   const own = library.books.filter((book) => book.origin === "library");
-  const books = own.length >= 3 ? own : library.books.filter((book) => book.origin === "sample");
+  const books =
+    own.length >= 3
+      ? own
+      : library.books.filter((book) => book.origin === "sample");
   return books.map((book) => {
     const model = modelFor(book.id);
     // A book that can be opened reports progress from its own page.
     if (!model) return { ...book, model: null };
-    return { ...book, model, progress: book.status === "finished" ? 1 : model.readingPage / model.pages };
+    return {
+      ...book,
+      model,
+      progress:
+        book.status === "finished" ? 1 : model.readingPage / model.pages,
+    };
   });
 }
 
+/** A change made in the prototype, kept apart from the live library. */
+export type ShelfEdit =
+  | Partial<Pick<ShelfBook, "status" | "lastReadAt">>
+  | "removed";
+
+/**
+ * The live library with the prototype's changes on top. Books, covers and
+ * statuses arrive after the first render, so the shelf is never a copy.
+ */
+export function applyShelfEdits(
+  books: ShelfBook[],
+  edits: Record<string, ShelfEdit>,
+): ShelfBook[] {
+  return books.flatMap((book) => {
+    const edit = edits[book.id];
+    if (edit === "removed") return [];
+    return [edit ? { ...book, ...edit } : book];
+  });
+}
+
+/** Whether every word of a query is in the title or the author. */
+export function matchesQuery(
+  book: Pick<ShelfBook, "title" | "author">,
+  query: string,
+): boolean {
+  const fold = (text: string) =>
+    text
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .toLocaleLowerCase();
+  const haystack = fold(`${book.title} ${book.author}`);
+  return fold(query)
+    .split(/\s+/)
+    .every((word) => haystack.includes(word));
+}
+
 const STANDALONE_NOTES: Omit<Entry, "id" | "kind" | "color" | "text">[] = [
-  { bookId: "walden", chapter: 1, page: 82, note: "Reading this at six in the morning, on purpose. It works.", daysAgo: 1 },
-  { bookId: "walden", chapter: 0, page: 30, note: "His house cost $28.12½. Compare with a month’s rent now.", daysAgo: 401 },
-  { bookId: "moby-dick", chapter: 0, page: 2, note: "Ishmael goes to sea the way other people go for a walk.", daysAgo: 49 },
-  { bookId: "essays", chapter: 1, page: 40, note: "Read alongside Walden: both are about trusting your own attention.", daysAgo: 12 },
+  {
+    bookId: "walden",
+    chapter: 1,
+    page: 82,
+    note: "Reading this at six in the morning, on purpose. It works.",
+    daysAgo: 1,
+  },
+  {
+    bookId: "walden",
+    chapter: 0,
+    page: 30,
+    note: "His house cost $28.12½. Compare with a month’s rent now.",
+    daysAgo: 401,
+  },
+  {
+    bookId: "moby-dick",
+    chapter: 0,
+    page: 2,
+    note: "Ishmael goes to sea the way other people go for a walk.",
+    daysAgo: 49,
+  },
+  {
+    bookId: "essays",
+    chapter: 1,
+    page: 40,
+    note: "Read alongside Walden: both are about trusting your own attention.",
+    daysAgo: 12,
+  },
 ];
 
 export function initialEntries(): Entry[] {
@@ -71,14 +143,26 @@ export function initialEntries(): Entry[] {
     ),
   );
   const notes = STANDALONE_NOTES.map(
-    (note, index): Entry => ({ ...note, id: `n${index + 1}`, kind: "note", color: null, text: null }),
+    (note, index): Entry => ({
+      ...note,
+      id: `n${index + 1}`,
+      kind: "note",
+      color: null,
+      text: null,
+    }),
   );
   return [...highlights, ...notes];
 }
 
-export function highlightsFor(entries: Entry[], bookId: string): EdgeHighlight[] {
+export function highlightsFor(
+  entries: Entry[],
+  bookId: string,
+): EdgeHighlight[] {
   return entries.flatMap((entry) =>
-    entry.bookId === bookId && entry.kind === "highlight" && entry.text && entry.color
+    entry.bookId === bookId &&
+    entry.kind === "highlight" &&
+    entry.text &&
+    entry.color
       ? [
           {
             id: entry.id,
@@ -94,10 +178,22 @@ export function highlightsFor(entries: Entry[], bookId: string): EdgeHighlight[]
   );
 }
 
-export function entryPage(entry: Entry, layout: BookLayout, model: BookModel): number {
+export function entryPage(
+  entry: Entry,
+  layout: BookLayout,
+  model: BookModel,
+): number {
   if (entry.kind === "note") return entry.page ?? model.textStart;
   return pageOfHighlight(
-    { id: entry.id, chapter: entry.chapter, text: entry.text ?? "", color: entry.color ?? "yellow", note: entry.note, page: entry.page, daysAgo: entry.daysAgo },
+    {
+      id: entry.id,
+      chapter: entry.chapter,
+      text: entry.text ?? "",
+      color: entry.color ?? "yellow",
+      note: entry.note,
+      page: entry.page,
+      daysAgo: entry.daysAgo,
+    },
     layout,
     model,
   );

@@ -305,6 +305,22 @@ export function SessionPanel({
   const [loadingEarlier, setLoadingEarlier] = useState(false);
   const [earlierFailed, setEarlierFailed] = useState(false);
   const [reveal, setReveal] = useState<{ id: string; nonce: number } | undefined>();
+  // Finished turns fold their work into one row; the switch shows it in each.
+  const [showWork, setShowWork] = useState(() => {
+    try {
+      return localStorage.getItem("med:work") === "shown";
+    } catch {
+      return false;
+    }
+  });
+  const toggleWork = () => {
+    setShowWork(!showWork);
+    try {
+      localStorage.setItem("med:work", showWork ? "folded" : "shown");
+    } catch {
+      /* Storage can be unavailable. */
+    }
+  };
   const start =
     loaded && loaded.generation === state.generation ? loaded.start : (state.start ?? 0);
   const pageable = session.agent !== "acp" && state.status === "live";
@@ -454,6 +470,13 @@ export function SessionPanel({
             onChange={setChosen}
           />
         )}
+        <ToolButton
+          icon="expandAll"
+          label="Show work"
+          active={showWork}
+          aria-pressed={showWork}
+          onClick={toggleWork}
+        />
         {pageable && (
           <TurnMenu
             load={() => loadSessionTurns(reviewId, session.id, fetcher)}
@@ -479,6 +502,7 @@ export function SessionPanel({
               snapshot={shown}
               earlier={earlier}
               reveal={reveal}
+              showWork={showWork}
               now={running ? now : undefined}
               before={
                 state.truncated && !pageable ? (

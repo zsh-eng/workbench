@@ -53,3 +53,36 @@
   margin: 0;
   white-space: pre-wrap;
 }
+
+/* The message that [ and ] reached: a bar on the edge it keeps to, beside a
+   reply's text on the left and a prompt's bubble on the right, while the
+   thread has focus. */
+.med-thread-scroller [data-current][data-message="agent"] > .med-session-prose {
+  position: relative;
+}
+.med-thread-scroller [data-current][data-message="agent"] > .med-session-prose::before,
+.med-thread-scroller [data-current][data-message="user"]::before {
+  content: "";
+  position: absolute;
+  inset-block: 1px;
+  inset-inline-start: -10px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--med-accent);
+  opacity: 0;
+  transition: opacity 160ms ease;
+  pointer-events: none;
+}
+.med-thread-scroller [data-current][data-message="user"]::before {
+  /* The bubble's margins. */
+  inset-block: 10px 16px;
+  inset-inline: auto -10px;
+}
+.med-thread-scroller:focus-within [data-current] > .med-session-prose::before,
+.med-thread-scroller:focus-within [data-current]::before {
+  opacity: 1;
+}
+.med-thread-scroller:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--med-accent) 45%, transparent);
+  outline-offset: -2px;
+}

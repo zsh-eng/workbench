@@ -18,8 +18,12 @@ export const DEFAULT_BACKUP_DIR = path.join(
   "Library/Application Support/Workbench Backup",
 );
 
-/** Its own origin keeps the real-data IndexedDB apart from everyday dev. */
-export const LOCAL_DATA_PORT = 5177;
+/**
+ * Its own origin keeps the real-data IndexedDB apart from everyday dev. A
+ * second copy, such as one from a worktree, sets READER_LOCAL_DATA_PORT.
+ */
+export const LOCAL_DATA_PORT =
+  Number(process.env.READER_LOCAL_DATA_PORT) || 5177;
 const NAMESPACE = "reader";
 const PULL_LIMIT = 500;
 const LOCAL_USER_ID = "local-reader";

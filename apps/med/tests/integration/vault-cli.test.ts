@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, rename, rm, symlink } from "node:fs/promises
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, expect, it } from "vitest";
+import { database } from "../../src/host/vault/database";
 const exec = promisify(execFile),
   temporary: string[] = [];
 afterEach(async () => {
@@ -107,6 +108,12 @@ it("separates repository and vault registrations and rejects a replaced director
     vault = await run("sources", "add", "vault", repo);
   expect(git.id).not.toBe(vault.id);
   expect((await run("sources", "list")).sources).toHaveLength(2);
+  // A restart can give the volume another device number; rows saved before
+  // kept it, and they still match.
+  const db = await database(join(temp, "state", "sources.sqlite"));
+  db.prepare("UPDATE sources SET identity = '1:' || identity").run();
+  db.close();
+  await run("vault", "index", vault.id);
   await rename(repo, join(temp, "moved"));
   await mkdir(repo);
   await expect(run("vault", "index", vault.id)).rejects.toThrow("registered directory changed");
