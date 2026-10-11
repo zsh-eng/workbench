@@ -13,15 +13,18 @@ const root = values.dist ? join(import.meta.dir, "../dist") : publicDir;
 const demo = join(import.meta.dir, "../.demo");
 const port = Number(values.port ?? 4320);
 
-function file(pathname: string, base = root): Response {
+// Like Cloudflare, /demo/demo also finds demo/demo.html.
+function find(pathname: string, base: string): string | undefined {
   const path = join(base, normalize(decodeURIComponent(pathname)));
-  if (
-    !path.startsWith(base) ||
-    !existsSync(path) ||
-    statSync(path).isDirectory()
-  ) {
-    return new Response("Not found", { status: 404 });
-  }
+  if (!path.startsWith(base)) return undefined;
+  return [path, `${path}.html`].find(
+    (candidate) => existsSync(candidate) && !statSync(candidate).isDirectory(),
+  );
+}
+
+function file(pathname: string, base = root): Response {
+  const path = find(pathname, base);
+  if (!path) return new Response("Not found", { status: 404 });
   return new Response(Bun.file(path));
 }
 
@@ -33,7 +36,7 @@ const server = Bun.serve({
     if (
       !values.dist &&
       pathname.startsWith("/demo/") &&
-      existsSync(join(demo, normalize(pathname)))
+      find(pathname, demo)
     )
       return file(pathname, demo);
     if (pathname !== "/") return file(pathname);

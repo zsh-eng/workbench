@@ -107,7 +107,7 @@ event streams stay open, writes succeed and change nothing, and the clock
 starts at the time of the recording. The build compiles the app with
 `apps/med/vite.demo.config.ts` into `dist/demo/`.
 
-A window names its scene in `data-demo`: `demo.html?scene=review` for the
+A window names its scene in `data-demo`: `/demo/demo?scene=review` for the
 product window, and `brief`, `comment`, `session`, `commit`, and `notes` for
 the features. The scene sets the panes, opens the tab or note, scrolls to the
 comment, and then marks the page ready. The `notes` scene replays `vault.json`;
