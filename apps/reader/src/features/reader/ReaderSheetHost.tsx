@@ -4,9 +4,12 @@ import type { ReaderSettings } from "@/types/reader.types";
 import { ReaderContentsPanel } from "./ReaderContentsSheet";
 import { ReaderBookActionsSheet } from "./ReaderBookActionsSheet";
 import {
+  ReaderSettingsList,
   ReaderSettingsPanel,
   type ReaderSettingsPanelTab,
 } from "./ReaderSettingsSheet";
+import { ReaderDetentSheets } from "./ReaderDetentSheets";
+import { useDetentSheetsEnabled } from "@/lib/detent-sheets-preference";
 import { ReaderControlMenu } from "./ReaderControlMenu";
 import { SlidingSheet } from "@/components/SlidingSheet";
 import { ReaderToolsSidebar } from "./ReaderToolsSidebar";
@@ -34,8 +37,9 @@ interface ReaderSheetHostProps {
 /**
  * Coordinates the reader's peer-level overlays.
  *
- * Mobile pages share one fixed-height sheet. Desktop tools share one
- * right-side workspace so contents and appearance stay beside the book.
+ * Mobile pages share one fixed-height sheet, or detent sheets when that
+ * trial is on in Settings. Desktop tools share one right-side workspace so
+ * contents and appearance stay beside the book.
  */
 export function ReaderSheetHost({
   isMobile,
@@ -56,6 +60,7 @@ export function ReaderSheetHost({
 }: ReaderSheetHostProps) {
   const [settingsTab, setSettingsTab] =
     useState<ReaderSettingsPanelTab>("theme");
+  const detentSheets = useDetentSheetsEnabled();
   if (!isMobile) {
     return (
       <ReaderToolsSidebar
@@ -76,23 +81,8 @@ export function ReaderSheetHost({
     );
   }
 
-  const page = activeSheet ?? "tools";
-  const titles: Record<string, string> = {
-    tools: "Reader tools",
-    contents: "Contents",
-    settings: "Reading settings",
-    "book-actions": "Reading status",
-    notes: "Notebook",
-  };
-  return (
-    <SlidingSheet
-      open={activeSheet !== null}
-      onClose={onCloseSheet}
-      page={page}
-      rootPage="tools"
-      title={titles[page] ?? "Reader tools"}
-      onBack={() => onOpenSheet("tools")}
-    >
+  const renderPage = (page: ReaderSheetId, detents: boolean) => (
+    <>
       {page === "tools" && (
         <ReaderControlMenu
           onOpenContents={() => onOpenSheet("contents")}
@@ -119,19 +109,58 @@ export function ReaderSheetHost({
           chapterStartPages={chapterStartPages}
           currentChapterHref={currentChapterHref}
           onNavigateToHref={onNavigateToHref}
-          className="h-full"
+          className={detents ? "min-h-0 flex-1" : "h-full"}
         />
       )}
-      {page === "settings" && (
-        <ReaderSettingsPanel
-          settings={settings}
-          onUpdateSettings={onUpdateSettings}
-          activeTab={settingsTab}
-          onActiveTabChange={setSettingsTab}
-          className="mt-0 h-full"
-        />
-      )}
+      {page === "settings" &&
+        (detents ? (
+          <ReaderSettingsList
+            settings={settings}
+            onUpdateSettings={onUpdateSettings}
+            className="min-h-0 flex-1"
+          />
+        ) : (
+          <ReaderSettingsPanel
+            settings={settings}
+            onUpdateSettings={onUpdateSettings}
+            activeTab={settingsTab}
+            onActiveTabChange={setSettingsTab}
+            className="mt-0 h-full"
+          />
+        ))}
       {page === "notes" && notesPanel}
+    </>
+  );
+
+  if (detentSheets) {
+    return (
+      <ReaderDetentSheets
+        activeSheet={activeSheet}
+        onOpenSheet={onOpenSheet}
+        onCloseSheet={onCloseSheet}
+        renderPage={(page) => renderPage(page, true)}
+      />
+    );
+  }
+
+  const page = activeSheet ?? "tools";
+  const titles: Record<string, string> = {
+    tools: "Reader tools",
+    contents: "Contents",
+    settings: "Reading settings",
+    "book-actions": "Reading status",
+    notes: "Notebook",
+  };
+  return (
+    <SlidingSheet
+      open={activeSheet !== null}
+      onClose={onCloseSheet}
+      page={page}
+      rootPage="tools"
+      title={titles[page] ?? "Reader tools"}
+      onBack={() => onOpenSheet("tools")}
+    >
+      {renderPage(page, false)}
     </SlidingSheet>
   );
 }

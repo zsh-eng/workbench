@@ -1,5 +1,5 @@
 import type { Locator, Page } from "@playwright/test";
-import { test, expect } from "./helpers/fixtures";
+import { test, expect, openLocalBook } from "./helpers/fixtures";
 
 test.use({
   viewport: { width: 390, height: 844 },
@@ -95,4 +95,41 @@ test("A page tapped while Reader tools still opens takes taps", async ({
   const finished = status.getByRole("button", { name: "Finished" });
   await finished.click();
   await expect(finished).toHaveAttribute("aria-pressed", "true");
+});
+
+test("With the trial on, the Reader opens Contents as a detent sheet", async ({
+  page,
+  localBook,
+}) => {
+  await page.addInitScript(() =>
+    localStorage.setItem("reader-detent-sheets-v1", "true"),
+  );
+  await openLocalBook(page, localBook.id);
+  await page.touchscreen.tap(195, 422);
+  await page
+    .getByRole("button", { name: "Open reader tools", exact: true })
+    .click();
+  const tools = page.getByRole("dialog", { name: "Reader tools" });
+  await expect(tools).toBeVisible();
+  await expect.poll(() => visibleShare(tools)).toBeCloseTo(1, 1);
+  await tools.getByRole("button", { name: /Contents/ }).click();
+  const contents = page.getByRole("dialog", { name: "Contents" });
+  await expect.poll(() => visibleShare(contents)).toBeCloseTo(0.6, 1);
+
+  // A chapter is a tap away at the detent; the book turns to it behind the
+  // sheet, which stays open, as the shipped sheet does.
+  const chapter = contents
+    .getByRole("button")
+    .filter({ hasText: /Pool of Tears/i })
+    .first();
+  await expect(chapter).not.toHaveAttribute("aria-current", "location");
+  await chapter.click();
+  await expect(chapter).toHaveAttribute("aria-current", "location");
+
+  // A swipe up takes the list to full height; Back returns to the tools.
+  await swipe(page, 700, -500);
+  await expect.poll(() => visibleShare(contents)).toBeGreaterThan(0.98);
+  await contents.getByRole("button", { name: "Back to reader tools" }).click();
+  await expect(contents).toBeHidden();
+  await expect(tools).toBeVisible();
 });
