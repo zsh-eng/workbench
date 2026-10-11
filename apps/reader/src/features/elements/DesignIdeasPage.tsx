@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
+import { useBooksWithStatuses } from "@/hooks/use-books-with-statuses";
 import {
   DEVICES,
   DeviceFrame,
@@ -13,7 +14,8 @@ interface Idea {
   id: string;
   title: string;
   description: string;
-  src: string;
+  /** A route, or one built from the book you read last. */
+  src: string | ((bookId: string) => string);
 }
 
 interface TopicIdeas {
@@ -70,6 +72,24 @@ const TOPICS: Record<IdeaTopic, TopicIdeas> = {
       },
     ],
   },
+  reader: {
+    current: {
+      id: "reader-current",
+      title: "Current Reader header",
+      description:
+        "What ships today: Library, the title in small capitals, and one button for every tool.",
+      src: (bookId) => `/reader/${bookId}`,
+    },
+    ideas: [
+      {
+        id: "reader-split",
+        title: "Aa and Contents",
+        description:
+          "Appearance and Contents get their own controls, as in the System prototype. The chapter follows the title. On a phone, Aa sits beside the menu.",
+        src: (bookId) => `/reader/${bookId}?header=split`,
+      },
+    ],
+  },
 };
 
 const SECTIONS = [
@@ -101,6 +121,13 @@ export function DesignIdeasPage() {
 
 function TopicPage({ topic }: { topic: IdeaTopic }) {
   const { current: CURRENT, ideas: IDEAS } = TOPICS[topic];
+  // Reader ideas open the book you read last, or any book.
+  const { data } = useBooksWithStatuses();
+  const bookId =
+    data?.categorized.continueReading[0]?.id ?? data?.books[0]?.id ?? null;
+  const needsBook = [CURRENT, ...IDEAS].some(
+    (item) => typeof item.src === "function",
+  );
   const [ideaId, setIdeaId] = useState(IDEAS[0].id);
   const [view, setView] = useState<View>("desktop");
   const [notes, setNotes] = useState(readNotes);
@@ -146,16 +173,23 @@ function TopicPage({ topic }: { topic: IdeaTopic }) {
             </div>
           ))}
         </div>
-        <div className="space-y-8">
-          {rows.map((device) => (
-            <ComparisonRow
-              key={device}
-              device={device}
-              left={CURRENT}
-              right={idea}
-            />
-          ))}
-        </div>
+        {needsBook && !bookId ? (
+          <p className="py-16 text-center text-sm text-muted-foreground">
+            {data ? "Add a book to compare the Reader." : "Loading your books…"}
+          </p>
+        ) : (
+          <div className="space-y-8">
+            {rows.map((device) => (
+              <ComparisonRow
+                key={device}
+                device={device}
+                left={CURRENT}
+                right={idea}
+                bookId={bookId ?? ""}
+              />
+            ))}
+          </div>
+        )}
       </ElementsSection>
       <ElementsSection
         id="notes"
@@ -194,10 +228,12 @@ function ComparisonRow({
   device,
   left,
   right,
+  bookId,
 }: {
   device: DeviceId;
   left: Idea;
   right: Idea;
+  bookId: string;
 }) {
   const { row, scale } = useRowScale([device, device]);
   return (
@@ -213,7 +249,7 @@ function ComparisonRow({
         >
           <DeviceFrame
             device={device}
-            src={item.src}
+            src={typeof item.src === "function" ? item.src(bookId) : item.src}
             title={`${item.title}, ${DEVICES[device].label.toLowerCase()}`}
             scale={scale}
           />

@@ -11,7 +11,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { isInteractiveTapTarget } from "./hooks/use-touch-spread-tap-nav";
 import { highlightNoteTarget } from "./note-locations";
 import type { NoteTarget } from "@/types/note";
@@ -78,6 +78,12 @@ export function Reader() {
   const debugEnabled = useDebugEnabled();
   const { bookId } = useParams<{ bookId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // A header idea for Design ideas; Debug mode only.
+  const headerVariant =
+    debugEnabled && searchParams.get("header") === "split"
+      ? "split"
+      : "current";
   const isMobile = useIsMobile();
   const { toast } = useToast();
   const [notebookOpen, setNotebookOpen] = useState(false);
@@ -492,6 +498,20 @@ export function Reader() {
                   if (displayReady) chromeActions.openReaderSheet("tools");
                 }}
                 toolsTriggerRef={toolsTriggerRef}
+                variant={headerVariant}
+                chapterTitle={currentChapterEntry?.title}
+                activeSheet={chromeState.activeReaderSheet}
+                onToggleSheet={(sheet) => {
+                  if (!displayReady) return;
+                  const active = chromeState.activeReaderSheet;
+                  // Contents opens the tools sidebar; any of its tools counts as open.
+                  const open =
+                    sheet === "settings"
+                      ? active === "settings"
+                      : active !== null && active !== "settings";
+                  if (open) chromeActions.closeReaderSheet();
+                  else chromeActions.openReaderSheet(sheet);
+                }}
               />
 
               <ReaderProgressPeek

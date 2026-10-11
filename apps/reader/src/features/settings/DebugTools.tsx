@@ -39,7 +39,7 @@ const GROUPS: { title: string; tools: DebugTool[] }[] = [
       {
         title: "Design ideas",
         description:
-          "New designs for the Library and Highlights next to what ships, with your books.",
+          "New designs for the Library, Highlights and Reader next to what ships, with your books.",
         to: "/debug/elements/highlights",
       },
       {
