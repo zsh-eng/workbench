@@ -1,4 +1,5 @@
 import { serveMedia, mediaHeaders } from "./media";
+import { imagesText, pruneImages, saveImages } from "./prompt-images";
 import { mediaType } from "../shared/media";
 import { fileChangesRequestSchema } from "../shared/file-changes";
 import { fileChanges } from "./repository/file-changes";
@@ -224,6 +225,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     ...(options.queueCodex ? { queueCodex: options.queueCodex } : {}),
   });
   const inboxStreams = new Set<ServerResponse>();
+  const imageDirectory = join(options.stateDir ?? temporaryState!, "images");
+  void pruneImages(imageDirectory);
   // Sessions that Med starts. ACP sessions keep their updates in the state directory.
   const ownedSessions = new OwnedSessions({
     agents: options.agents ?? (() => findAgents(options.stateDir)),
@@ -988,18 +991,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             }
             for (const attachment of input.attachments)
               parts.push(`## ${attachment.label}\n\n${attachment.text}`);
-            // Only a session that Med runs takes images: the others read text.
+            // An agent that Med runs and that takes images gets them in the
+            // prompt. Any other agent gets the paths of saved copies.
             const runner = ownedSessions.get(session.id);
             const running = runner && runner.state().status !== "exited" ? runner : undefined;
-            if (input.images.length && !running?.state().images)
-              throw new HostError(
-                "images-unsupported",
-                running
-                  ? `${running.state().name} does not take images.`
-                  : "Images go only to an agent that Med runs.",
-                400,
-              );
-            if (!parts.length && !input.images.length)
+            const native = running?.state().images ? input.images : [];
+            if (input.images.length && !native.length)
+              parts.push(imagesText(await saveImages(imageDirectory, input.images)));
+            if (!parts.length && !native.length)
               throw new HostError(
                 "empty-message",
                 "Write a message or choose comments to send.",
@@ -1015,7 +1014,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 attachmentCount: input.attachments.length,
               },
               parts.join("\n\n"),
-              running ? (body) => running.prompt(body, input.images) : undefined,
+              running ? (body) => running.prompt(body, native) : undefined,
             );
             send({ message, state: await inboxState() });
             return;

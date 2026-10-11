@@ -28,7 +28,7 @@ know which way an update came.
 | Source of updates  | Transcript lines, read every 400 ms             | Claude: the transcript and `stream-json`. ACP: the agent's stdio  |
 | Replies            | Whole blocks                                    | Token by token                                                    |
 | Send a message     | Claude: `med review wait`. Codex: `codex queue` | Claude: a `user` line on stdin. ACP: `session/prompt`             |
-| Images in a prompt | Not possible                                    | Claude: image blocks. ACP: when `promptCapabilities.image` is set |
+| Images in a prompt | Saved copies, named by path in the message      | Claude: image blocks. ACP: when `promptCapabilities.image` is set |
 | Permission prompts | Not visible                                     | A card above the prompt box                                       |
 | Stop, model, mode  | Not possible; model and effort show as text     | Controls in the prompt box                                        |
 | History on reload  | The transcript                                  | Claude: the transcript. ACP: Med's log of the updates             |

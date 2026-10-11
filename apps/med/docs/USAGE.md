@@ -217,9 +217,10 @@ with your own sign-in; it does not install them. The prompt box then has model,
 effort, and mode pickers, a context meter, `/` commands, and **Stop** (or
 `Esc`). Paste or drop images into the prompt box, or use its image button: they
 go with your message to Claude Code and to ACP agents that take images, up to
-ten of 5 MB each. An agent that Med does not run reads text only. A tool call
-that needs an answer shows **Allow** and **Deny**. Med stops its agents when
-the host stops.
+ten of 5 MB each. Any other agent gets the paths of saved copies, which Claude
+Code and Codex open themselves; Med keeps them for 30 days. A tool call that
+needs an answer shows **Allow** and **Deny**. Med stops its agents when the
+host stops.
 
 Saved reviews persist in `~/.local/state/med`; normal branch notes end with the
 host. See [agent integration](AGENT_INTEGRATION.md) for commands, limits, and
