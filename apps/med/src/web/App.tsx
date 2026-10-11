@@ -388,7 +388,14 @@ export function App({
   // An iteration chosen in the brief: its comparison loads, then the brief shows.
   const pendingIteration = useRef<string | null>(null);
   useEffect(() => {
-    fileWorkspace.configure(workspaceKey, browseSource, sourceLabel);
+    // The Notes belong to the saved review, so they stay in front while another
+    // iteration's comparison loads.
+    fileWorkspace.configure(
+      workspaceKey,
+      browseSource,
+      sourceLabel,
+      state.savedView ? "brief" : undefined,
+    );
     if (
       pendingSavedChanges.current &&
       state.savedView &&
@@ -448,10 +455,10 @@ export function App({
   useDocumentTitle(
     state.savedReview?.title ??
       (activeFile
-        ? `${activeFile.path.split("/").at(-1)} — med`
+        ? (activeFile.path.split("/").at(-1) ?? activeFile.path)
         : state.session
-          ? `${state.session.repository.name} · ${state.activeBranch ?? "Working changes"} — med`
-          : "med"),
+          ? `${state.session.repository.name} · ${state.activeBranch ?? "Working changes"}`
+          : "Med"),
   );
   const definitionScope = JSON.stringify([
     fileState.file?.source,
@@ -1750,6 +1757,22 @@ export function App({
         else toggleReviewSidebar();
         return;
       }
+      // ⌘⌃⇧← and ⌘⌃⇧→ move the side panes' edge, as Ghostty resizes a split;
+      // ⌘⌃= makes the panes as wide as the review, and again goes back.
+      if (event.ctrlKey && (event.metaKey || event.altKey) && panes.open.length) {
+        if (event.shiftKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+          event.preventDefault();
+          event.stopPropagation();
+          panes.resize(event.key === "ArrowLeft" ? 40 : -40);
+          return;
+        }
+        if (!event.shiftKey && (event.code === "Equal" || event.key === "=")) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (!event.repeat) panes.equalize();
+          return;
+        }
+      }
       if (themePickerOpen || filePickerOpen || symbolPickerOpen || helpOpen || rangeOpen) return;
       // ⌘⇧[ and ⌘⇧] show the previous and next tab, also from the editor. A
       // browser tab keeps these keys; the installed app receives them.
@@ -1879,6 +1902,7 @@ export function App({
     window.addEventListener("keydown", keydown, true);
     return () => window.removeEventListener("keydown", keydown, true);
   }, [
+    panes,
     symbolPickerOpen,
     openSymbols,
     branchPickerOpen,
@@ -3523,17 +3547,24 @@ export function App({
                                 browseSource.kind === "worktree"
                                   ? "Open working file"
                                   : "Open snapshot file",
+                              letter: "o",
                               onClick: () => openWorkingFile(selectedFile.path),
                             },
                             { label: "Show files sidebar", onClick: showFiles },
                           ]
                         : [],
                       [
-                        { label: "Find in diffs", shortcut: "⌘ F", onClick: openFind },
+                        {
+                          label: "Find in diffs",
+                          shortcut: "⌘ F",
+                          letter: "f",
+                          onClick: openFind,
+                        },
                         ...(gitAvailable
                           ? [
                               {
                                 label: "Compare revisions…",
+                                letter: "c",
                                 onClick: () => setRangeOpen(!rangeOpen),
                               },
                             ]
@@ -3545,12 +3576,18 @@ export function App({
                           checked: showNotes,
                           onClick: () => setShowNotes(!showNotes),
                         },
-                        { label: "Wrap long lines", checked: wrap, onClick: () => setWrap(!wrap) },
+                        {
+                          label: "Wrap long lines",
+                          checked: wrap,
+                          letter: "w",
+                          onClick: () => setWrap(!wrap),
+                        },
                       ],
                       [
-                        { label: "Zen mode", shortcut: "⌥ Z", onClick: toggleZen },
+                        { label: "Zen mode", shortcut: "⌥ Z", letter: "z", onClick: toggleZen },
                         {
                           label: "Refresh review",
+                          letter: "r",
                           disabled: state.status === "loading",
                           onClick: () => void controller.refresh(),
                         },

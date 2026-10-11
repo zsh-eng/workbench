@@ -42,9 +42,7 @@ Add `~/.local/bin` to your shell's PATH to use `med` directly. The executable
 includes Bun, the browser UI, fonts, workers, and offline documentation. No
 checkout, Node, or separate Bun install is needed.
 
-Med has no server of its own and sends no telemetry. When an agent's reply
-links a web page, Med asks that site for its icon, once per site while it runs,
-and only over HTTPS to public addresses. Bun uploads crash reports to bun.report on
+Med sends nothing to any server. Bun uploads crash reports to bun.report on
 macOS by default; Med turns that off with `BUN_ENABLE_CRASH_REPORTING=0` for
 itself, the processes it starts, and its login item.
 

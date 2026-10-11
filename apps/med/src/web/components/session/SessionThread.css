@@ -57,10 +57,11 @@
   text-decoration-line: underline;
   text-decoration-style: solid;
 }
-/* A web link: a pill with its site's icon, which is a little taller than the
-   pill and starts just outside it, as in Codex. It wraps like text. */
+/* A web link: a pill with its site's icon, as in Codex. The icon is a little
+   shorter than the pill, so a short link still reads as one shape. The pill
+   wraps like text. */
 .med-session-prose .med-web-link {
-  padding: 0.1em 0.5em 0.1em 0.2em;
+  padding: 0.1em 0.5em 0.1em 0.35em;
   border-radius: 999px;
   background: color-mix(in srgb, var(--med-text) 6%, transparent);
   color: var(--med-text);
@@ -70,14 +71,21 @@
 .med-session-prose .med-web-link:hover {
   background: color-mix(in srgb, var(--med-text) 10%, transparent);
 }
-.med-session-prose .med-web-link > .med-web-link-icon {
+.med-session-prose .med-web-link-lead {
+  white-space: nowrap;
+}
+.med-session-prose .med-web-link-lead > .med-web-link-icon {
   display: inline-block;
-  width: 1.6em;
-  height: 1.6em;
-  margin: -0.4em 0.3em -0.4em -0.4em;
-  vertical-align: -0.1em;
-  border-radius: calc(0.32em * var(--med-round, 1));
+  width: 1em;
+  height: 1em;
+  margin: 0 0.3em 0 0;
+  vertical-align: -0.15em;
+  border-radius: 0;
   object-fit: contain;
+}
+/* A black icon shows in white on a dark theme. */
+:root[data-appearance="dark"] .med-session-prose .med-web-link-icon[data-site-icon="dark"] {
+  filter: invert(1);
 }
 .med-session-plain {
   margin: 0;

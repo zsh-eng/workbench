@@ -23,6 +23,9 @@ export interface MenuAction {
   /** A checked item that is a choice, so choosing it closes the menu. */
   choice?: boolean;
   disabled?: boolean;
+  /** A letter that chooses the item while its menu is open. The label
+   * underlines it. */
+  letter?: string;
   onClick(): void;
 }
 export interface ReviewCommand {
@@ -134,8 +137,27 @@ export function ActionMenu({
   const toggles = sections.some((section) =>
     section.some((action) => action.checked !== undefined),
   );
+  const [open, setOpen] = useState(false);
+  // While the menu is open, a letter chooses its item as a click does; a
+  // toggle keeps the menu open. The key goes to the menu wherever focus is,
+  // as focus moves into the menu a moment after it opens.
+  useEffect(() => {
+    if (!open) return;
+    const choose = (event: globalThis.KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || event.key.length !== 1) return;
+      const key = event.key.toLowerCase();
+      const action = sections.flat().find((entry) => entry.letter === key && !entry.disabled);
+      if (!action) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (action.checked === undefined || action.choice) setOpen(false);
+      action.onClick();
+    };
+    window.addEventListener("keydown", choose, true);
+    return () => window.removeEventListener("keydown", choose, true);
+  }, [open, sections]);
   return (
-    <Menu.Root>
+    <Menu.Root open={open} onOpenChange={setOpen}>
       <ActionTooltip label={label}>
         <Menu.Trigger
           {...stylex.props(trigger ?? [ui.button, children ? null : ui.iconButton])}
@@ -166,7 +188,7 @@ export function ActionMenu({
                                 )}
                               </span>
                             )}
-                            {action.label}
+                            <Lettered label={action.label} letter={action.letter} />
                           </span>
                           <ShortcutKeys value={action.shortcut} />
                         </>
@@ -177,6 +199,7 @@ export function ActionMenu({
                       return action.checked === undefined ? (
                         <Menu.Item
                           key={action.label}
+                          aria-keyshortcuts={action.letter}
                           onClick={action.onClick}
                           disabled={action.disabled}
                           className={className}
@@ -186,6 +209,7 @@ export function ActionMenu({
                       ) : (
                         <Menu.CheckboxItem
                           key={action.label}
+                          aria-keyshortcuts={action.letter}
                           disabled={action.disabled}
                           checked={action.checked}
                           closeOnClick={action.choice}
@@ -203,6 +227,22 @@ export function ActionMenu({
         </Menu.Positioner>
       </Menu.Portal>
     </Menu.Root>
+  );
+}
+
+/** A label with its letter underlined: the first at the start of a word, or
+ * else the first anywhere. */
+function Lettered({ label, letter }: { label: string; letter?: string }) {
+  if (!letter) return label;
+  const word = label.search(new RegExp(`\\b${letter}`, "i"));
+  const at = word >= 0 ? word : label.toLowerCase().indexOf(letter);
+  if (at < 0) return label;
+  return (
+    <span>
+      {label.slice(0, at)}
+      <span {...stylex.props(styles.letter)}>{label[at]}</span>
+      {label.slice(at + 1)}
+    </span>
   );
 }
 
@@ -401,6 +441,11 @@ const styles = stylex.create({
   positioner: { zIndex: 100, outline: "none" },
   check: { display: "inline-flex", flexShrink: 0, width: 14, color: tokens.accent },
   indicator: { display: "inline-flex", color: tokens.accent },
+  letter: {
+    textDecorationLine: "underline",
+    textDecorationThickness: 1,
+    textUnderlineOffset: 2.5,
+  },
   menu: { minWidth: 220 },
   choice: { justifyContent: "flex-start", gap: 8, minWidth: 220 },
   describedChoice: { alignItems: "flex-start", paddingBlock: 6 },

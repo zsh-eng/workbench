@@ -649,16 +649,27 @@ export default function BriefView({
                   {
                     label: brief ? "Paste a new brief" : "Paste a brief",
                     shortcut: "⌘ V",
+                    letter: "p",
                     onClick: onPaste,
                   },
-                  { label: "Copy all notes", onClick: () => onCopy(text) },
+                  { label: "Copy all notes", letter: "c", onClick: () => onCopy(text) },
                 ],
-                ...(onStartNotes ? [[{ label: "Start new notes", onClick: onStartNotes }]] : []),
+                ...(onStartNotes
+                  ? [[{ label: "Start new notes", letter: "n", onClick: onStartNotes }]]
+                  : []),
                 ...[
                   [
-                    ...(brief ? [{ label: "Remove the brief", onClick: onRemove }] : []),
+                    ...(brief
+                      ? [{ label: "Remove the brief", letter: "r", onClick: onRemove }]
+                      : []),
                     ...(onDeleteNotes
-                      ? [{ label: "Delete these notes…", onClick: () => setDeleting("ask") }]
+                      ? [
+                          {
+                            label: "Delete these notes…",
+                            letter: "d",
+                            onClick: () => setDeleting("ask"),
+                          },
+                        ]
                       : []),
                   ],
                 ].filter((section) => section.length),
@@ -1224,8 +1235,12 @@ function NoteHead({
       <ActionMenu
         label={`Note ${number} options`}
         sections={[
-          [{ label: "Copy note", onClick: onCopy }],
-          [{ label: section.pin ? "Unpin from review" : "Remove the brief", onClick: onRemove }],
+          [{ label: "Copy note", letter: "c", onClick: onCopy }],
+          [
+            section.pin
+              ? { label: "Unpin from review", letter: "u", onClick: onRemove }
+              : { label: "Remove the brief", letter: "r", onClick: onRemove },
+          ],
         ]}
       >
         <Icon name="more" size={14} />

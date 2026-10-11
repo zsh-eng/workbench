@@ -30,6 +30,7 @@ export type IconName =
   | "codex"
   | "command"
   | "copy"
+  | "image"
   | "external"
   | "panelLeft"
   | "panelRight"
@@ -312,6 +313,13 @@ const icons: Record<IconName, ReactNode> = {
     </>
   ),
   external: <path d="M5 11 11 5M5.75 5H11v5.25" />,
+  image: (
+    <>
+      <rect x="2.25" y="3.25" width="11.5" height="9.5" rx="1.75" />
+      <circle cx="10.25" cy="6.25" r="1" />
+      <path d="m2.75 11.5 3.5-3.75 2.75 2.75 1.5-1.5 2.75 2.75" />
+    </>
+  ),
   edit: <path d="M10.6 2.9a1.6 1.6 0 0 1 2.26 2.26l-7.11 7.11-3 .98.98-3zM9.25 4.25l2.5 2.5" />,
   trash: (
     <path d="M2.75 4.25h10.5M6.25 4.25V3a.75.75 0 0 1 .75-.75h2a.75.75 0 0 1 .75.75v1.25M4.25 4.25l.62 8.36A1.5 1.5 0 0 0 6.37 14h3.26a1.5 1.5 0 0 0 1.5-1.39l.62-8.36" />

@@ -106,7 +106,10 @@ export function createFileWorkspace(api: BrowseApi) {
         listeners.delete(listener);
       };
     },
-    configure(key: string, source: BrowseSource | null, sourceLabel: string) {
+    /** Show a workspace's files. `keep` is a tab that is not a file's, such as
+     * the Notes of a saved review, that stays in front when the workspace
+     * changes under it. */
+    configure(key: string, source: BrowseSource | null, sourceLabel: string, keep?: string) {
       if (
         snapshot.key === key &&
         JSON.stringify(snapshot.source) === JSON.stringify(source) &&
@@ -121,7 +124,7 @@ export function createFileWorkspace(api: BrowseApi) {
         source,
         sourceLabel,
         tabs: saved?.tabs ?? [],
-        active: saved?.active ?? "changes",
+        active: keep && snapshot.active === keep ? keep : (saved?.active ?? "changes"),
         recentPaths: saved?.recentPaths ?? [],
         file: null,
         loading: false,

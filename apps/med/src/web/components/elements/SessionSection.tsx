@@ -5,12 +5,12 @@ import type { SessionEvent, SessionUpdate } from "../../../shared/agent-session"
 import { readClaudeTranscript } from "../../../shared/agent-session-claude";
 import { withSentMessages } from "../../data/agent-inbox";
 import { createSessionReplay } from "../../data/session-replay";
+import { knownSites } from "../../markdown/site-icons";
 import { createSessionStore, type SessionStore } from "../../data/session-store";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon } from "../Icon";
 import { ToolButton } from "../ToolButton";
 import { SessionComposer, type ComposerAttachment } from "../session/SessionComposer";
-import { FaviconSource, GLOBE } from "../session/favicons";
 import { SessionThread } from "../session/SessionThread";
 import { sessionGallery } from "./session-gallery";
 import transcript from "./session-fixture.jsonl?raw";
@@ -319,16 +319,18 @@ function ReplyDemo() {
   );
 }
 
-/** A letter on a tile, in place of a site's icon, so the page needs no network. */
-const tile = (letter: string, color: string) =>
-  `data:image/svg+xml,${encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="${color}"/><text x="16" y="22" font-family="system-ui, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#fff">${letter}</text></svg>`,
-  )}`;
-const ICONS: Record<string, string> = {
-  "https://react.dev": tile("R", "#087ea4"),
-  "https://developer.mozilla.org": tile("M", "#1b1b1b"),
-  "https://github.com": tile("G", "#6e40c9"),
-};
+/** Two screenshots of a summary, as a prompt attaches them. */
+const screen = (rows: string) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="440" font-family="system-ui" font-size="26"><rect width="720" height="440" fill="#f6f5f1"/><rect x="40" y="40" width="640" height="64" rx="10" fill="#e4e1d8"/><text x="64" y="82" fill="#3a3a38">Weekly summary</text>${rows}</svg>`;
+const row = (y: number, text: string, color = "#3a3a38") =>
+  `<text x="64" y="${y}" fill="${color}">${text}</text>`;
+const SCREEN_A = screen(
+  row(170, "Ridge Loop: best 5400000 ms", "#b4442c") +
+    row(230, "Cedar Falls: best 2310000 ms", "#b4442c"),
+);
+const SCREEN_B = screen(
+  row(170, "Ridge Loop: best 1 h 30 min") + row(230, "Cedar Falls: best 39 min"),
+);
 
 function Links() {
   const [store] = useState(() => {
@@ -342,6 +344,13 @@ function Links() {
       update: { sessionUpdate: kind, content: { type: "text" as const, text: value } },
     });
     store.applyAll([
+      ...[SCREEN_A, SCREEN_B].map((svg) => ({
+        at: 0,
+        update: {
+          sessionUpdate: "user_message_chunk" as const,
+          content: { type: "image" as const, mimeType: "image/svg+xml", data: btoa(svg) },
+        },
+      })),
       text(
         "user_message_chunk",
         0,
@@ -364,17 +373,37 @@ function Links() {
         [
           "Durations over 90 seconds now round to whole minutes in [summary.ts:14](src/summary.ts:14), and [duration.test.ts:22](tests/duration.test.ts:22) checks 90 seconds exactly.",
           "",
-          "Web links show their site's icon: the [useMemo reference](https://react.dev/reference/react/useMemo), [MDN on `:focus-visible`](https://developer.mozilla.org/en-US/docs/Web/CSS/:focus-visible), and https://github.com/acme/trail-notes/pull/42. A site without an icon, such as [the team wiki](https://wiki.trail-notes.dev/durations), shows a globe.",
+          "Web links show their site's icon: the [useMemo reference](https://react.dev/reference/react/useMemo), [MDN on `:focus-visible`](https://developer.mozilla.org/en-US/docs/Web/CSS/:focus-visible), [Duration](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/time/Duration.html), [datetime](https://docs.python.org/3/library/datetime.html), and https://github.com/acme/trail-notes/pull/42.",
+          "",
+          "A company's own servers match by name: [the review](https://github.acme.dev/trail/notes/pull/7), [a search](https://sourcegraph.acme.dev/search?q=formatDuration), and [the ticket](https://jira.acme.dev/browse/TRAIL-12). Any other site, such as [the team notes](https://notes.trail.dev/durations), shows a globe.",
         ].join("\n"),
       ),
     ]);
     return store;
   });
-  return (
-    <FaviconSource.Provider value={(origin) => ICONS[origin] ?? GLOBE}>
-      <Panel title="Round long durations" store={store} />
-    </FaviconSource.Provider>
-  );
+  return <Panel title="Round long durations" store={store} />;
+}
+
+function Sites() {
+  const [store] = useState(() => {
+    const store = createSessionStore();
+    store.applyAll([
+      {
+        at: 0,
+        update: {
+          sessionUpdate: "agent_message_chunk" as const,
+          content: {
+            type: "text" as const,
+            text: knownSites()
+              .map(({ id, href }) => `[${id}](${href})`)
+              .join(" "),
+          },
+        },
+      },
+    ]);
+    return store;
+  });
+  return <Panel title="Site icons" store={store} />;
 }
 
 function Gallery() {
@@ -428,14 +457,25 @@ export function SessionSection() {
         </div>
       </Specimen>
       <Specimen
-        title="Quotes and links"
-        note="A prompt that quotes the agent shows its quotes as Claude does; reply markers do not show. Links in a reply underline on hover. A web link is a pill with its site's icon, which the host fetches; this page uses letter tiles."
+        title="Prompts and links"
+        note="A prompt's images are square thumbnails; a click shows one at full size. Quotes show as Claude shows them; reply markers do not show. Links in a reply underline on hover. A web link is a pill with its site's icon, which Med holds; it fetches none."
         padded={false}
         zoomable={false}
         span="half"
       >
         <div {...stylex.props(styles.links)}>
           <Links />
+        </div>
+      </Specimen>
+      <Specimen
+        title="Site icons"
+        note="The favicons that Med holds, each fetched once from its site. A link matches by its host, or a company's own server by a word in its name."
+        padded={false}
+        zoomable={false}
+        span="half"
+      >
+        <div {...stylex.props(styles.links)}>
+          <Sites />
         </div>
       </Specimen>
     </Section>

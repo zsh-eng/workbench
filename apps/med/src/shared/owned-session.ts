@@ -68,6 +68,8 @@ export const ownedStateSchema = z.object({
   context: z.object({ used: z.number(), total: z.number() }).optional(),
   /** Turns sent so far; the first one starts the transcript. */
   turns: z.number().int().nonnegative(),
+  /** The agent takes images in a prompt. */
+  images: z.boolean().optional(),
   error: z.string().optional(),
 });
 export type OwnedState = z.infer<typeof ownedStateSchema>;

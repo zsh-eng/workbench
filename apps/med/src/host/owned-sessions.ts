@@ -18,6 +18,7 @@ import { compactUpdate } from "./agent-transcripts";
 import { createJsonRpc, RpcError, type JsonRpc } from "./json-rpc";
 import { HostError } from "./runtime/errors";
 import { userHome } from "./service/discover";
+import type { PromptImage } from "../shared/agent-inbox";
 
 /** An installed agent with the command that starts it. */
 export interface RunnableAgent extends AgentPreset {
@@ -31,7 +32,7 @@ export interface OwnedRunner {
   state(): OwnedState;
   /** Updates that Med keeps for an ACP session; Claude Code writes a transcript. */
   readonly log?: SessionLog;
-  prompt(text: string): Promise<void>;
+  prompt(text: string, images?: PromptImage[]): Promise<void>;
   answer(id: string, option: string): void;
   interrupt(): void;
   set(id: string, value: string): Promise<void>;
@@ -183,6 +184,7 @@ export function startClaude(
     settings: [],
     commands: [],
     turns: 0,
+    images: true,
   });
   let child: ChildProcessWithoutNullStreams;
   let stopping = false;
@@ -431,10 +433,20 @@ export function startClaude(
     session,
     state: store.get,
     subscribe: store.subscribe,
-    async prompt(text) {
+    async prompt(text, images = []) {
       if (store.get().status === "exited")
         throw new HostError("session-stopped", "This session has stopped.", 409);
-      write({ type: "user", message: { role: "user", content: text } });
+      // Images go first, as Claude Code puts pasted images before the text.
+      const content = images.length
+        ? [
+            ...images.map((image) => ({
+              type: "image",
+              source: { type: "base64", media_type: image.mimeType, data: image.data },
+            })),
+            ...(text ? [{ type: "text", text }] : []),
+          ]
+        : text;
+      write({ type: "user", message: { role: "user", content } });
       store.set({ status: "working", turns: store.get().turns + 1, error: undefined });
     },
     answer(id, option) {
@@ -707,11 +719,13 @@ export function startAcp(agent: RunnableAgent, cwd: string, logDirectory?: strin
   });
 
   const ready = (async () => {
-    await rpc.request("initialize", {
+    const initialized = await rpc.request<Record<string, any>>("initialize", {
       protocolVersion: 1,
       clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
       clientInfo: { name: "Med", version: "0.1" },
     });
+    if (initialized?.agentCapabilities?.promptCapabilities?.image === true)
+      store.set({ images: true });
     const created = await rpc.request<Record<string, any>>("session/new", { cwd, mcpServers: [] });
     acpSession = String(created.sessionId);
     const settings = configSettings(created.configOptions);
@@ -755,18 +769,24 @@ export function startAcp(agent: RunnableAgent, cwd: string, logDirectory?: strin
     log,
     state: store.get,
     subscribe: store.subscribe,
-    async prompt(text) {
+    async prompt(text, images = []) {
       await ready;
       if (store.get().status === "exited")
         throw new HostError("session-stopped", "This session has stopped.", 409);
-      log.push({ sessionUpdate: "user_message_chunk", content: { type: "text", text } });
+      if (images.length && !store.get().images)
+        throw new HostError("images-unsupported", `${agent.name} does not take images.`, 400);
+      const prompt = [
+        ...images.map((image) => ({ type: "image" as const, ...image })),
+        ...(text ? [{ type: "text" as const, text }] : []),
+      ];
+      for (const content of prompt) log.push({ sessionUpdate: "user_message_chunk", content });
       store.set({ status: "working", turns: store.get().turns + 1, error: undefined });
       const current = { text, answered: false };
       turn = current;
       rpc
         .request<{ stopReason?: string }>("session/prompt", {
           sessionId: acpSession,
-          prompt: [{ type: "text", text }],
+          prompt,
         })
         .then(
           (result) => {

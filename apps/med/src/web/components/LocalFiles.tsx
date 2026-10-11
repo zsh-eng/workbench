@@ -55,7 +55,7 @@ export function LocalFiles({ children }: { children: ReactNode }) {
   useSyncExternalStore(drafts.subscribe, drafts.getSnapshot);
   const active = tabs.find((tab) => tab.id === selected);
   useDocumentTitle(
-    active ? `${active.file.path.split("/").at(-1)} — med` : "Files — med",
+    active ? (active.file.path.split("/").at(-1) ?? active.file.path) : "Files",
     1,
     visible,
   );

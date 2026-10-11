@@ -7,6 +7,7 @@ import {
   type RichInlineItem,
 } from "@chenglou/pretext/rich-inline";
 import type { SessionItem } from "../../data/session-store";
+import { thumbsHeight } from "./ImageThumbs";
 import { promptBlocks } from "./prompt-blocks";
 import type { ToolItem, Unit } from "./thread-model";
 
@@ -640,17 +641,24 @@ function toolHeight(item: ToolItem, m: ThreadMetrics, open = false) {
   return m.row + 8 + parts.reduce((sum, part) => sum + part, 0) + 8 * (parts.length - 1);
 }
 
+/** A prompt's images, as thumbnails above its text, and its text's parts. */
+function promptParts(item: Extract<SessionItem, { kind: "user" }>, m: ThreadMetrics) {
+  const images = item.content.filter((block) => block.type === "image").length;
+  const parts = item.content.flatMap((block) =>
+    block.type === "text" ? promptBlocks(block.text) : [],
+  );
+  return { thumbs: thumbsHeight(images, m.user.width), images, parts };
+}
+
 function userHeight(item: Extract<SessionItem, { kind: "user" }>, m: ThreadMetrics) {
-  let height = m.user.chrome;
-  for (const block of item.content)
-    if (block.type === "text")
-      promptBlocks(block.text).forEach((part, index) => {
-        const width = part.quote ? m.user.quoteWidth : m.user.width;
-        height +=
-          (index ? m.user.gap : 0) +
-          lineCount(item, part.text, m.user.text, width, true) * m.user.text.lineHeight;
-      });
-    else if (block.type === "image") height += 160;
+  const { thumbs, images, parts } = promptParts(item, m);
+  let height = m.user.chrome + thumbs;
+  parts.forEach((part, index) => {
+    const width = part.quote ? m.user.quoteWidth : m.user.width;
+    height +=
+      (index || images ? m.user.gap : 0) +
+      lineCount(item, part.text, m.user.text, width, true) * m.user.text.lineHeight;
+  });
   if (item.queued || item.sent) height += 19;
   return height;
 }
@@ -696,29 +704,23 @@ export function roughUnit(
   };
   const r = m.reply;
   switch (item.kind) {
-    case "user":
+    case "user": {
+      const { thumbs, images, parts } = promptParts(item, m);
       return (
         m.user.chrome +
-        item.content.reduce(
-          (sum, block) =>
-            sum +
-            (block.type === "text"
-              ? promptBlocks(block.text).reduce(
-                  (height, part, index) =>
-                    height +
-                    (index ? m.user.gap : 0) +
-                    lines(part.text, m.user.text, part.quote ? m.user.quoteWidth : m.user.width) *
-                      m.user.text.lineHeight,
-                  0,
-                )
-              : block.type === "image"
-                ? 160
-                : 0),
+        thumbs +
+        parts.reduce(
+          (height, part, index) =>
+            height +
+            (index || images ? m.user.gap : 0) +
+            lines(part.text, m.user.text, part.quote ? m.user.quoteWidth : m.user.width) *
+              m.user.text.lineHeight,
           0,
         ) +
         (item.queued || item.sent ? 19 : 0) +
         m.gap
       );
+    }
     case "agent": {
       const text = item.text.trim();
       const blocks = text.split(/\n\s*\n/).length;
