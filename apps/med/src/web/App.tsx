@@ -3003,8 +3003,9 @@ export function App({
 
   const titleRow = useTitleBarOverlay();
   // Without a branch strip to head the window, the review card's first row
-  // rises beside the window controls as the card's tab.
-  const cardTab = titleRow && !zen && (!!workspace || branches.visible.length < 2);
+  // rises beside the window controls as the card's tab. Zen has no strip; its
+  // tab is empty.
+  const cardTab = titleRow && (zen || !!workspace || branches.visible.length < 2);
   const sidebarToggle = (
     <ToolButton
       label={leftVisible ? "Hide sidebar" : "Show sidebar"}
@@ -3251,12 +3252,12 @@ export function App({
         data-active-file={activeFile?.path ?? ""}
       >
         {/* With the title bar hidden and branch tabs open, the identity and
-            the tabs head the window beside its controls; zen leaves the row
-            empty. Otherwise the review card's tab heads it (CardTab). */}
+            the tabs head the window beside its controls. Otherwise the review
+            card's tab heads it (CardTab). */}
         {titleRow && !cardTab && (
           <TitleRow>
-            {!zen && identity}
-            {!zen && !workspace && <BranchStrip model={branches} inline />}
+            {identity}
+            {!workspace && <BranchStrip model={branches} inline />}
           </TitleRow>
         )}
         {zen ? (
@@ -3377,15 +3378,16 @@ export function App({
               style={{ width: sidebarWidth }}
               hidden={!leftVisible}
             >
-              {/* The tab row holds the identity while the sidebar is hidden. */}
-              {!zen && (!titleRow || cardTab) && (
+              {/* The tab row holds the identity while the sidebar is hidden. In
+                  zen, the row only keeps the sidebar below the window controls. */}
+              {(cardTab || (!zen && !titleRow)) && (
                 <div
                   {...titleClass(
                     cardTab,
                     stylex.props(styles.sidebarHeader, cardTab && styles.sidebarTitle),
                   )}
                 >
-                  {leftVisible && identity}
+                  {leftVisible && !zen && identity}
                 </div>
               )}
               {workspace && !zen && (
@@ -3475,6 +3477,8 @@ export function App({
             aria-label="Continuous review"
           >
             {cardTab && <CardTab />}
+            {/* Zen's tab is empty, and joins the card without a rule. */}
+            {cardTab && zen && <div aria-hidden="true" {...stylex.props(styles.zenTab)} />}
             {/* The review's own row heads the card, level with the sidebar's
             identity, so the sidebar keeps its place between workspaces. */}
             {state.savedReview && !zen && (
@@ -4157,6 +4161,7 @@ const styles = stylex.create({
     paddingInlineStart: 2,
     paddingInlineEnd: 8,
   },
+  zenTab: { flexShrink: 0 },
   // Level with the card's tab, after the window controls.
   sidebarTitle: {
     height: "calc(max(var(--med-titlebar-height), 38px) - 5px)",

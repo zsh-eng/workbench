@@ -108,6 +108,7 @@ export function CardTab() {
       );
       card.style.setProperty("--med-tab-inset-start", `${start ? flare + 1 : 0}px`);
       card.style.setProperty("--med-tab-inset-end", `${end < box.width ? flare + 1 : 0}px`);
+      card.style.setProperty("--med-card-body", `${shoulder + 1}px`);
       fill.setAttribute("d", edge(shape, 1));
       outline.setAttribute("d", edge(shape, 0.5));
     };
@@ -119,8 +120,14 @@ export function CardTab() {
     if (row) observer.observe(row);
     return () => {
       observer.disconnect();
-      for (const name of ["before", "after", "inset-start", "inset-end"])
-        card.style.removeProperty(`--med-tab-${name}`);
+      for (const name of [
+        "tab-before",
+        "tab-after",
+        "tab-inset-start",
+        "tab-inset-end",
+        "card-body",
+      ])
+        card.style.removeProperty(`--med-${name}`);
     };
   }, []);
   const frame = stylex.props(styles.svg);

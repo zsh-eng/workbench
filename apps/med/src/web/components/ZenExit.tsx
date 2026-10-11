@@ -102,7 +102,8 @@ const styles = stylex.create({
   // Only the button takes the pointer; the corner itself lets clicks through.
   corner: {
     position: "absolute",
-    top: "calc(var(--med-titlebar-height, 0px) + 6px)",
+    // Below the card's tab when the card heads the window (CardTab).
+    top: "calc(var(--med-card-body, 0px) + 6px)",
     right: 8,
     zIndex: 40,
     pointerEvents: "none",
