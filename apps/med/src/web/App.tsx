@@ -1,7 +1,7 @@
 import { useDocumentTitle } from "./data/document-title";
 import { useTitleBarOverlay } from "./data/title-bar";
 import { TitleRow } from "./components/TitleRow";
-import { CardTab } from "./components/CardTab";
+import { CardTab, tabbedCard } from "./components/CardTab";
 import { DiffImages } from "./components/MediaView";
 import { mediaType } from "../shared/media";
 import { ActionTooltip, ToolButton } from "./components/ToolButton";
@@ -3472,7 +3472,7 @@ export function App({
             {...stylex.props(
               styles.main,
               !leftVisible && styles.mainFlush,
-              cardTab && styles.tabbed,
+              cardTab && tabbedCard.card,
             )}
             aria-label="Continuous review"
           >
@@ -4259,16 +4259,6 @@ const styles = stylex.create({
     boxShadow: `0 0 0 1px ${tokens.line}, 0 1px 3px #0000000f`,
   },
   mainFlush: {},
-  // CardTab draws the card. Its 1px outline is inside the box, where the
-  // box-shadow outline was outside it.
-  tabbed: {
-    margin: -1,
-    padding: 1,
-    borderRadius: `calc(${tokens.frame} + 1px)`,
-    backgroundColor: "transparent",
-    boxShadow: "none",
-    isolation: "isolate",
-  },
   reviewSurface: {
     position: "relative",
     display: "flex",

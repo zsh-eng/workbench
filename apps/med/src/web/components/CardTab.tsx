@@ -144,6 +144,19 @@ export function CardTab() {
   );
 }
 
+/** The card that holds a CardTab: the tab's outline replaces its own. */
+export const tabbedCard = stylex.create({
+  // The 1px outline is inside the box, where the box-shadow outline was outside it.
+  card: {
+    margin: -1,
+    padding: 1,
+    borderRadius: `calc(${tokens.frame} + 1px)`,
+    backgroundColor: "transparent",
+    boxShadow: "none",
+    isolation: "isolate",
+  },
+});
+
 const styles = stylex.create({
   svg: {
     position: "absolute",
