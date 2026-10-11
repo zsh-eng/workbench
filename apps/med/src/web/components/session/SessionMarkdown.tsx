@@ -1,9 +1,10 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { renderBrief, renderedBrief } from "../../markdown/brief-render";
 import type { MarkdownResult } from "../../markdown/model";
 import { useTheme } from "../../themes";
 import { DiagramBlock } from "../DiagramBlock";
 import "../MarkdownPreview.css";
+import { FaviconSource, GLOBE } from "./favicons";
 
 /**
  * One reply as Markdown, rendered in the brief's worker. While the reply
@@ -63,6 +64,20 @@ export const SessionMarkdown = memo(function SessionMarkdown({
     };
     run(latest.current);
   }, [text, streaming, theme.pierreTheme]);
+
+  // A web link's icon: the site's own, or a globe when it has none.
+  const favicon = useContext(FaviconSource);
+  useLayoutEffect(() => {
+    for (const image of host.current?.querySelectorAll<HTMLImageElement>("img[data-favicon]") ??
+      []) {
+      if (image.getAttribute("src")) continue;
+      image.onerror = () => {
+        image.onerror = null;
+        image.src = GLOBE;
+      };
+      image.src = favicon(image.dataset.favicon!);
+    }
+  }, [result, favicon]);
 
   // Links to files open in Med; web links open in a new tab from the worker's HTML.
   useEffect(() => {

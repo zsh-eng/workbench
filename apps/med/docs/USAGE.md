@@ -201,7 +201,9 @@ on its latest work; scroll up for earlier work, or jump to a prompt from
 its thoughts, commentary, and tool calls fold into one **Worked for** row, as in
 Codex. Click the row to open that turn, or press **Show work** in the pane's
 header to open every turn. With focus in the thread, `[` and `]` step through
-the prompts and replies; a task in **Background** goes to its call. See
+the prompts and replies; a task in **Background** goes to its call. A prompt
+that quotes the agent shows its quotes as Claude does. Links in a reply open
+files in Med; a web link is a pill with its site's icon. See
 [agent sessions](SESSIONS.md).
 
 A saved review can also start an agent. A Session pane without a session lists

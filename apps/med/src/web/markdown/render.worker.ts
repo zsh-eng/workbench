@@ -25,6 +25,13 @@ const firstSourceLine = (node: RootContent): number | undefined => {
     }
   }
 };
+const originOf = (href: string) => {
+  try {
+    return new URL(href).origin;
+  } catch {
+    return undefined;
+  }
+};
 type Task = {
   id: number;
   text: string;
@@ -33,6 +40,8 @@ type Task = {
   fileLinks?: boolean;
   /** Keep every link target for the review brief to resolve against its files. */
   briefLinks?: boolean;
+  /** Web links are pills with their site's icon, as in an agent's replies. */
+  webLinks?: boolean;
 };
 let latest: Task | undefined;
 let running = false;
@@ -91,6 +100,17 @@ async function drain() {
           if (/^(https?:|mailto:)/i.test(href)) {
             node.properties.target = "_blank";
             node.properties.rel = ["noopener", "noreferrer"];
+            // The page sets the icon's source; the host fetches it.
+            const origin = task.webLinks && /^https?:/i.test(href) ? originOf(href) : undefined;
+            if (origin) {
+              node.properties.className = ["med-web-link"];
+              node.children.unshift({
+                type: "element",
+                tagName: "img",
+                properties: { className: ["med-web-link-icon"], alt: "", dataFavicon: origin },
+                children: [],
+              });
+            }
           } else if (task.vault && href.startsWith("med-vault:wiki:")) {
             node.properties.dataVaultLink = decodeURIComponent(
               href.replace(/^med-vault:wiki:/, ""),
@@ -110,10 +130,11 @@ async function drain() {
               : `#md-${href.slice(1).replace(/^md-/, "")}`;
           else {
             delete node.properties.href;
-            node.properties.title = `Relative link: ${href}`;
+            // A brief or a reply opens its own links; elsewhere the link is inert.
+            if (!task.briefLinks) node.properties.title = `Relative link: ${href}`;
           }
         }
-        if (node.tagName === "img") {
+        if (node.tagName === "img" && !node.properties.dataFavicon) {
           node.properties.dataImageSource = node.properties.src;
           delete node.properties.src;
           node.properties.loading = "lazy";

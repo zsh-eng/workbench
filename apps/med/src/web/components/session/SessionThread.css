@@ -46,8 +46,38 @@
   font-size: 0.85em;
   padding: 0.1em 0.3em;
 }
+/* Links open a file in Med or a page in a new tab: underlined on hover, with
+   the link cursor, also for a file link, which has no href. */
 .med-session-prose a {
+  cursor: pointer;
+  text-decoration-line: none;
   text-underline-offset: 3px;
+}
+.med-session-prose a:hover {
+  text-decoration-line: underline;
+  text-decoration-style: solid;
+}
+/* A web link: a pill with its site's icon, which is a little taller than the
+   pill and starts just outside it, as in Codex. It wraps like text. */
+.med-session-prose .med-web-link {
+  padding: 0.1em 0.5em 0.1em 0.2em;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--med-text) 6%, transparent);
+  color: var(--med-text);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.med-session-prose .med-web-link:hover {
+  background: color-mix(in srgb, var(--med-text) 10%, transparent);
+}
+.med-session-prose .med-web-link > .med-web-link-icon {
+  display: inline-block;
+  width: 1.6em;
+  height: 1.6em;
+  margin: -0.4em 0.3em -0.4em -0.4em;
+  vertical-align: -0.1em;
+  border-radius: calc(0.32em * var(--med-round, 1));
+  object-fit: contain;
 }
 .med-session-plain {
   margin: 0;
