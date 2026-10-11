@@ -7,7 +7,7 @@ import UIKit
 /// never bounces back before news pushes it down again. UIKit still owns every
 /// scroll offset and momentum curve.
 @MainActor @Observable final class DiscoveryMotion {
-  static let height: CGFloat = 128
+  nonisolated static let height: CGFloat = 128
   private(set) var isExpanded = false
   private(set) var pullDistance: CGFloat = 0
   private(set) var openness: CGFloat = 0
@@ -39,6 +39,12 @@ import UIKit
   nonisolated static let springDamping = 0.86
   private let spring = Animation.spring(
     response: DiscoveryMotion.springResponse, dampingFraction: DiscoveryMotion.springDamping)
+
+  /// The drawn bubble fades in over the first tenth of the distance. The
+  /// header circles fade out over the same tenth, so one set always shows.
+  nonisolated static func bubbleOpacity(openness: CGFloat) -> CGFloat {
+    min(1, max(0, openness / height * 10))
+  }
 
   /// The distance drawn on screen: a closed pull adds the rubber-band distance.
   var visibleOpenness: CGFloat { isExpanded ? openness : openness + pullDistance }
@@ -265,10 +271,18 @@ struct DiscoveryHeader: View {
   }
   /// The library leaves this nil and follows the motion. Elements sets it.
   var pose: Pose? = nil
+  /// The distance at which the circles give way to the drawn bubble. Open
+  /// news counts as its full height, so a tap that sets the bubble and starts
+  /// the spring in one update still animates the hand-off. A bounce at the
+  /// top that is not a pull leaves the circles in place.
+  private var handoff: CGFloat {
+    guard pose == nil, motion.isExpanded || motion.showsGhost else { return 0 }
+    return motion.visibleOpenness
+  }
 
   var body: some View {
     let folded = pose?.folded ?? (motion.isExpanded ? 1 : 0)
-    let stackOpacity = pose?.stackOpacity ?? (motion.showsGhost ? 0 : 1)
+    let stackOpacity = pose?.stackOpacity ?? 1
     Button(action: motion.toggle) {
       HStack(spacing: 0) {
         ZStack(alignment: .leading) {
@@ -284,6 +298,7 @@ struct DiscoveryHeader: View {
         }
         .frame(width: 46, height: 26, alignment: .leading)
         .opacity(stackOpacity)
+        .modifier(BubbleHandoff(openness: handoff))
         .onGeometryChange(for: CGRect.self) {
           $0.frame(in: .global)
         } action: {
@@ -303,6 +318,21 @@ struct DiscoveryHeader: View {
     .accessibilityHint(available ? "Show or hide news sites and this week's favourites" : "")
     .accessibilityIdentifier("toggle-news")
     .transaction { if motion.reduceMotion { $0.animation = nil } }
+  }
+}
+
+/// Fades the header circles out as the drawn bubble fades in. Animatable, so
+/// the spring on the distance sets the opacity on every frame: the circles
+/// come back as the closing bubble fades, not when the spring ends.
+private struct BubbleHandoff: ViewModifier, Animatable {
+  var openness: CGFloat
+  var animatableData: CGFloat {
+    get { openness }
+    set { openness = newValue }
+  }
+
+  func body(content: Content) -> some View {
+    content.opacity(1 - DiscoveryMotion.bubbleOpacity(openness: openness))
   }
 }
 
@@ -497,7 +527,7 @@ struct DiscoveryGhostFrame: View, Animatable {
       .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
       .readerGlass(cornerRadius: radius, interactive: false)
       .shadow(color: .black.opacity(0.08 * min(1, t)), radius: 10, y: 4)
-      .opacity(min(1, t * 10))
+      .opacity(DiscoveryMotion.bubbleOpacity(openness: openness))
       .position(x: frame.midX, y: frame.midY)
     }
   }

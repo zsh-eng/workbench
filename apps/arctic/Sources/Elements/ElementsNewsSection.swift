@@ -253,11 +253,9 @@ private struct NewsTabsStandIn: View {
   var release: Double { mode == .pull ? Self.pullSeconds : 0 }
   var duration: Double { release + Self.settle + 0.1 }
 
-  /// The stage at `time`. The header follows what the library does: a tap
-  /// sets the bubble state and starts the spring in one update, so the
-  /// circles' own opacity fades with the spring instead of hiding at once.
-  /// A pull hides them as the finger moves. After a close they return only
-  /// when the spring completes. A recording of Live shows the same sequence.
+  /// The stage at `time`. The header follows what the library does: while
+  /// the drawn bubble shows, the circles fade out as it fades in, over the
+  /// same distance (`DiscoveryMotion.bubbleOpacity`).
   func moment(at time: Double) -> Moment {
     switch mode {
     case .open, .live:
@@ -265,30 +263,36 @@ private struct NewsTabsStandIn: View {
       let unit = Self.unit(time)
       guard time < Self.settle else { return Self.open }
       return Moment(
-        openness: Self.height * unit, pull: 0, folded: unit, stackOpacity: 1 - unit,
-        bubble: true, settledOpen: false)
+        openness: Self.height * unit, pull: 0, folded: unit,
+        stackOpacity: Self.handoff(Self.height * unit), bubble: true, settledOpen: false)
     case .pull:
       guard time > Self.pullSeconds else {
         let distance = Self.pullDistance(at: time)
         let pulling = distance > 0.5
         return Moment(
-          openness: 0, pull: distance, folded: 0, stackOpacity: pulling ? 0 : 1, bubble: pulling,
-          settledOpen: false)
+          openness: 0, pull: distance, folded: 0,
+          stackOpacity: pulling ? Self.handoff(distance) : 1, bubble: pulling, settledOpen: false)
       }
       let since = time - Self.pullSeconds
       guard since < Self.settle else { return Self.open }
       let unit = Self.unit(since)
+      let openness = Self.pulled + (Self.height - Self.pulled) * unit
       return Moment(
-        openness: Self.pulled + (Self.height - Self.pulled) * unit, pull: 0, folded: unit,
-        stackOpacity: 0, bubble: true, settledOpen: false)
+        openness: openness, pull: 0, folded: unit, stackOpacity: Self.handoff(openness),
+        bubble: true, settledOpen: false)
     case .close:
       guard time > 0 else { return Self.open }
       guard time < Self.settle else { return Self.closed }
       let unit = Self.unit(time)
       return Moment(
-        openness: Self.height * (1 - unit), pull: 0, folded: 1 - unit, stackOpacity: 1 - unit,
-        bubble: true, settledOpen: false)
+        openness: Self.height * (1 - unit), pull: 0, folded: 1 - unit,
+        stackOpacity: Self.handoff(Self.height * (1 - unit)), bubble: true, settledOpen: false)
     }
+  }
+
+  /// The header circles' opacity while the drawn bubble is at `openness`.
+  private static func handoff(_ openness: CGFloat) -> CGFloat {
+    1 - DiscoveryMotion.bubbleOpacity(openness: openness)
   }
 
   private static let closed = Moment(
