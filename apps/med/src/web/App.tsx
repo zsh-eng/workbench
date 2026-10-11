@@ -1,7 +1,7 @@
 import { useDocumentTitle } from "./data/document-title";
 import { useTitleBarOverlay } from "./data/title-bar";
 import { TitleRow } from "./components/TitleRow";
-import { CardTab } from "./components/CardTab";
+import { CardTab, tabbedCard } from "./components/CardTab";
 import { DiffImages } from "./components/MediaView";
 import { mediaType } from "../shared/media";
 import { ActionTooltip, ToolButton } from "./components/ToolButton";
@@ -3003,8 +3003,9 @@ export function App({
 
   const titleRow = useTitleBarOverlay();
   // Without a branch strip to head the window, the review card's first row
-  // rises beside the window controls as the card's tab.
-  const cardTab = titleRow && !zen && (!!workspace || branches.visible.length < 2);
+  // rises beside the window controls as the card's tab. Zen has no strip; its
+  // tab is empty.
+  const cardTab = titleRow && (zen || !!workspace || branches.visible.length < 2);
   const sidebarToggle = (
     <ToolButton
       label={leftVisible ? "Hide sidebar" : "Show sidebar"}
@@ -3251,12 +3252,12 @@ export function App({
         data-active-file={activeFile?.path ?? ""}
       >
         {/* With the title bar hidden and branch tabs open, the identity and
-            the tabs head the window beside its controls; zen leaves the row
-            empty. Otherwise the review card's tab heads it (CardTab). */}
+            the tabs head the window beside its controls. Otherwise the review
+            card's tab heads it (CardTab). */}
         {titleRow && !cardTab && (
           <TitleRow>
-            {!zen && identity}
-            {!zen && !workspace && <BranchStrip model={branches} inline />}
+            {identity}
+            {!workspace && <BranchStrip model={branches} inline />}
           </TitleRow>
         )}
         {zen ? (
@@ -3377,15 +3378,16 @@ export function App({
               style={{ width: sidebarWidth }}
               hidden={!leftVisible}
             >
-              {/* The tab row holds the identity while the sidebar is hidden. */}
-              {!zen && (!titleRow || cardTab) && (
+              {/* The tab row holds the identity while the sidebar is hidden. In
+                  zen, the row only keeps the sidebar below the window controls. */}
+              {(cardTab || (!zen && !titleRow)) && (
                 <div
                   {...titleClass(
                     cardTab,
                     stylex.props(styles.sidebarHeader, cardTab && styles.sidebarTitle),
                   )}
                 >
-                  {leftVisible && identity}
+                  {leftVisible && !zen && identity}
                 </div>
               )}
               {workspace && !zen && (
@@ -3470,11 +3472,13 @@ export function App({
             {...stylex.props(
               styles.main,
               !leftVisible && styles.mainFlush,
-              cardTab && styles.tabbed,
+              cardTab && tabbedCard.card,
             )}
             aria-label="Continuous review"
           >
             {cardTab && <CardTab />}
+            {/* Zen's tab is empty, and joins the card without a rule. */}
+            {cardTab && zen && <div aria-hidden="true" {...stylex.props(styles.zenTab)} />}
             {/* The review's own row heads the card, level with the sidebar's
             identity, so the sidebar keeps its place between workspaces. */}
             {state.savedReview && !zen && (
@@ -4157,6 +4161,7 @@ const styles = stylex.create({
     paddingInlineStart: 2,
     paddingInlineEnd: 8,
   },
+  zenTab: { flexShrink: 0 },
   // Level with the card's tab, after the window controls.
   sidebarTitle: {
     height: "calc(max(var(--med-titlebar-height), 38px) - 5px)",
@@ -4190,7 +4195,7 @@ const styles = stylex.create({
     gap: 4,
     flex: "1",
     margin: 6,
-    borderRadius: `calc(10px * ${tokens.round})`,
+    borderRadius: tokens.frame,
     backgroundColor: tokens.canvas,
     boxShadow: `0 0 0 1px ${tokens.line}`,
     color: tokens.muted,
@@ -4250,20 +4255,10 @@ const styles = stylex.create({
     flexDirection: "column",
     overflow: "hidden",
     backgroundColor: tokens.canvas,
-    borderRadius: `calc(10px * ${tokens.round})`,
+    borderRadius: tokens.frame,
     boxShadow: `0 0 0 1px ${tokens.line}, 0 1px 3px #0000000f`,
   },
   mainFlush: {},
-  // CardTab draws the card. Its 1px outline is inside the box, where the
-  // box-shadow outline was outside it.
-  tabbed: {
-    margin: -1,
-    padding: 1,
-    borderRadius: `calc(10px * ${tokens.round} + 1px)`,
-    backgroundColor: "transparent",
-    boxShadow: "none",
-    isolation: "isolate",
-  },
   reviewSurface: {
     position: "relative",
     display: "flex",

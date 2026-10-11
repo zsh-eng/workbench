@@ -1,10 +1,11 @@
 import { randomBytes } from "node:crypto";
-import { chmod, link, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, link, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { z } from "zod";
 
-export const DEFAULT_PORT = 4173;
+/** "med" on a phone keypad. Vite's preview server takes 4173, Med's old default. */
+export const DEFAULT_PORT = 6330;
 const connectionSchema = z.object({
   version: z.literal(1),
   origin: z.string(),
@@ -79,6 +80,32 @@ export async function publishConnection(
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
   };
+}
+
+/** Whether a host published this port and its process still runs. */
+async function running(stateDir: string, port: number) {
+  try {
+    process.kill((await readConnection(stateDir, port)).pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * The port for a command without --port: the default port, or else the one
+ * host that runs from this state directory on another port, such as a service
+ * that kept Med's old default.
+ */
+export async function findPort(stateDir: string): Promise<number> {
+  if (await running(stateDir, DEFAULT_PORT)) return DEFAULT_PORT;
+  const names = await readdir(join(stateDir, "connections")).catch(() => [] as string[]);
+  const live: number[] = [];
+  for (const name of names) {
+    const port = Number(/^(\d+)\.json$/.exec(name)?.[1]);
+    if (port && (await running(stateDir, port))) live.push(port);
+  }
+  return live.length === 1 ? live[0]! : DEFAULT_PORT;
 }
 
 export async function readConnection(

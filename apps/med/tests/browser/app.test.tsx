@@ -987,11 +987,27 @@ describe("graphical review", () => {
       await expect.poll(() => column.checkVisibility()).toBe(true);
       expect(rect(column).top).toBe(39);
       await expect.poll(() => onCard(rect(card).right - 12, 20)).toBe(true);
+      await page.getByRole("button", { name: "Toggle files sidebar" }).click();
+      await expect.poll(() => column.checkVisibility()).toBe(false);
+
+      // Zen keeps the card in the title area with an empty tab. The sidebar
+      // and the way out start below the controls.
+      await page.getByRole("button", { name: "Enter zen mode", exact: true }).click();
+      const exit = page.getByRole("button", { name: "Exit zen mode", exact: true });
+      await expect.element(exit).toBeInTheDocument();
+      const empty = card.querySelector(".med-card-tab + *")!;
+      expect([empty.childElementCount, rect(empty).top, rect(empty).bottom]).toEqual([0, 6, 39]);
+      expect([onCard(640, 20), onCard(1220, 20)]).toEqual([true, false]);
+      const sidebar = document.getElementById("review-sidebar")!;
+      expect(rect(sidebar.firstElementChild!).bottom).toBe(39);
+      expect(rect(exit.element()).top).toBeGreaterThan(39);
+      await exit.click();
+      await expect.element(tabs).toBeVisible();
 
       // With the title bar back, the card is a plain card again.
       delete root.dataset.titlebar;
       await expect.poll(() => card.querySelector(".med-card-tab")).toBeNull();
-      expect(rect(row).height).toBe(38);
+      expect(rect(tabs.element().parentElement!).height).toBe(38);
       expect(toggle.element().closest(".med-title-row")).toBeNull();
       expect(toggle.element().closest("#review-sidebar")).not.toBeNull();
     } finally {

@@ -10,7 +10,7 @@ Mac. This guide covers the app. To hand off reviews from coding agents, see
 server keeps running when you close the terminal or the browser. `med status`
 shows it, `med stop` stops it, and `med serve` runs it in the foreground.
 
-Med serves port **4173** and keeps its state in `~/.local/state/med`. For a
+Med serves port **6330** and keeps its state in `~/.local/state/med`. For a
 second profile, give every command the same `--port` and `--state-dir`. Med
 does not choose another port for you; a port in use is an error.
 
@@ -341,7 +341,7 @@ To link to a working file in a registered repository, encode the worktree path
 and the repository-relative path:
 
 ```text
-http://127.0.0.1:4173/file?repo=%2Fpath%2Fto%2Frepo&path=src%2Fexample.ts&edit=1
+http://127.0.0.1:6330/file?repo=%2Fpath%2Fto%2Frepo&path=src%2Fexample.ts&edit=1
 ```
 
 The link opens live content; it does not save a review or register a
@@ -479,7 +479,7 @@ med open ~/code/my-app/src/Example.java --line 42 --column 8
 
 `--edit` starts in the editor, and `--port` and `--state-dir` work as for other
 commands. The command prints a link without a token, such as
-`http://127.0.0.1:4173/file/absolute/path/Example.java?line=42&column=8`. The
+`http://127.0.0.1:6330/file/absolute/path/Example.java?line=42&column=8`. The
 link reads the current file, not a snapshot. It grants access to that file
 only, not its folder; the server keeps at most 256 grants until it restarts.
 

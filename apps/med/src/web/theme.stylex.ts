@@ -38,6 +38,10 @@ export const tokens = stylex.defineVars({
   ui: 'var(--med-font-ui, "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif)',
   // Multiplies every corner radius: calc(6px * round). Buttons may be pills instead.
   round: "var(--med-round, 1)",
+  // Cards at the window's edges, in every theme. macOS rounds a window with a
+  // title bar at 16 pt; inside the frame's 6 px gutter, 10 px keeps the two
+  // corners concentric. The theme's `round` shapes what is inside the cards.
+  frame: "10px",
   buttonRound: "var(--med-button-round, 6px)",
   // The highlighted row of a list or menu, the chosen segment, and their text.
   pick: "var(--med-pick, color-mix(in srgb, var(--med-text, #ececef) 9%, transparent))",

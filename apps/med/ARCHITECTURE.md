@@ -285,9 +285,11 @@ staging, or branch switch.
 
 ## Saved reviews and agent sessions
 
-The CLI uses a stable default port (4173) and a private state directory
+The CLI uses a stable default port (6330) and a private state directory
 (`~/.local/state/med`). A persistent credential and a connection record for
-each port let `review repos` and `review create` find the running host. The
+each port let `review repos` and `review create` find the running host. Without
+`--port`, a client command uses the default port, or else the one live host on
+another port (a service that kept the old default, 4173). The
 browser exchanges the launch token for a same-origin HttpOnly cookie, then
 removes the token from the URL. Saved links contain only a review ID and cannot
 register repositories.

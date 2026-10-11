@@ -43,8 +43,10 @@ const app = (tile) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024
   <path d="${body}" fill="none" stroke="url(#rim)" stroke-width="5" clip-path="url(#tile)" />
 </svg>`;
 
-// Platforms that cut their own shape get a full-bleed square; the mark stays
-// inside the central safe circle.
+// Platforms that cut their own shape (iOS) get a full-bleed square; the mark
+// stays inside the central safe circle. The manifest offers no maskable icon:
+// Chrome on macOS prefers one and puts the square in the Dock as it is, so the
+// installed app uses the tile above, drawn on Apple's grid.
 const maskable = (tile) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
   <image href="${tile}" width="1024" height="1024" />
   <g transform="scale(16)">${dawnMark}</g>
@@ -98,7 +100,6 @@ try {
   const shots = [
     ["app-192.png", app(tiles.dawnTile.png), 192],
     ["app-512.png", app(tiles.dawnTile.png), 512],
-    ["maskable-512.png", maskable(tiles.dawnTile.png), 512],
     ["apple-touch-icon.png", maskable(tiles.dawnTile.png), 180],
   ];
   // ICON_ART=path also writes the app icon at 1024 pixels, for brand pages.

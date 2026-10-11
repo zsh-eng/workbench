@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util";
 import { resolve } from "node:path";
-import { readConnection, getStateDirectory, DEFAULT_PORT } from "../host/runtime/connection";
+import { findPort, readConnection, getStateDirectory } from "../host/runtime/connection";
 import { localReadSchema } from "../shared/local-file";
 import { request } from "./review";
 
@@ -24,9 +24,10 @@ export async function runOpenCommand(args: string[]) {
     return;
   }
   if (positionals.length !== 1) throw new Error("Use med-diff open <file>.");
-  const port = Number(values.port ?? DEFAULT_PORT);
+  const stateDir = getStateDirectory(values["state-dir"]);
+  const port = values.port === undefined ? await findPort(stateDir) : Number(values.port);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid port.");
-  const connection = await readConnection(getStateDirectory(values["state-dir"]), port);
+  const connection = await readConnection(stateDir, port);
   const file = localReadSchema.parse(
     await request(connection, "/api/local-files/open", fetch, { path: resolve(positionals[0]!) }),
   );

@@ -20,13 +20,14 @@ For agents without skills, see [AGENTS.md guidance](#agentsmd-guidance).
 Review commands talk to the running server, so start Med with `med web`. They
 find it through a private connection file in the state folder,
 `~/.local/state/med` by default. If you change the folder (`--state-dir` or
-`MED_STATE_DIR`) or the port (`--port`, default 4173), use the same values for
-the server and for the agent's commands. Saved reviews and their comments last
+`MED_STATE_DIR`) or the port (`--port`, default 6330), use the same values for
+the server and for the agent's commands. A command without `--port` uses the
+one server that runs from the state folder if no server runs on 6330. Saved reviews and their comments last
 as long as the state folder.
 
 Open the server's launch URL once in the browser where you review. Med changes
 its token for a browser cookie and removes the token from the address; review
-links such as `http://127.0.0.1:4173/review/r_…` then work in new tabs. Another
+links such as `http://127.0.0.1:6330/review/r_…` then work in new tabs. Another
 browser must open the launch URL once too. Never put the launch token in agent
 instructions or review links.
 
@@ -65,7 +66,7 @@ med review create --title "Fix navigation" --repo ~/code/my-app \
 The command prints a link to paste into the final message:
 
 ```markdown
-[Review changes here](http://127.0.0.1:4173/review/r_example)
+[Review changes here](http://127.0.0.1:6330/review/r_example)
 ```
 
 Open Med windows add the review to their workspace lists, marked new. `--open`

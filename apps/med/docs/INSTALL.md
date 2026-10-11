@@ -32,7 +32,7 @@ can open Med at login.
 
 The server keeps running when you close the browser. `med status` shows it,
 and `med stop` stops it. Med keeps your sources and saved reviews in
-`~/.local/state/med` and serves `http://127.0.0.1:4173`.
+`~/.local/state/med` and serves `http://127.0.0.1:6330`.
 
 ## Connect your agents
 

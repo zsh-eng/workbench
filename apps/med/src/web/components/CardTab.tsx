@@ -108,6 +108,7 @@ export function CardTab() {
       );
       card.style.setProperty("--med-tab-inset-start", `${start ? flare + 1 : 0}px`);
       card.style.setProperty("--med-tab-inset-end", `${end < box.width ? flare + 1 : 0}px`);
+      card.style.setProperty("--med-card-body", `${shoulder + 1}px`);
       fill.setAttribute("d", edge(shape, 1));
       outline.setAttribute("d", edge(shape, 0.5));
     };
@@ -119,8 +120,14 @@ export function CardTab() {
     if (row) observer.observe(row);
     return () => {
       observer.disconnect();
-      for (const name of ["before", "after", "inset-start", "inset-end"])
-        card.style.removeProperty(`--med-tab-${name}`);
+      for (const name of [
+        "tab-before",
+        "tab-after",
+        "tab-inset-start",
+        "tab-inset-end",
+        "card-body",
+      ])
+        card.style.removeProperty(`--med-${name}`);
     };
   }, []);
   const frame = stylex.props(styles.svg);
@@ -136,6 +143,19 @@ export function CardTab() {
     </>
   );
 }
+
+/** The card that holds a CardTab: the tab's outline replaces its own. */
+export const tabbedCard = stylex.create({
+  // The 1px outline is inside the box, where the box-shadow outline was outside it.
+  card: {
+    margin: -1,
+    padding: 1,
+    borderRadius: `calc(${tokens.frame} + 1px)`,
+    backgroundColor: "transparent",
+    boxShadow: "none",
+    isolation: "isolate",
+  },
+});
 
 const styles = stylex.create({
   svg: {
