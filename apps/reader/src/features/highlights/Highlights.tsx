@@ -176,6 +176,8 @@ interface BookGroup {
 
 interface DayGroup {
   key: string;
+  /** The start of the day. */
+  day: number;
   label: string;
   entries: Entry[];
 }
@@ -221,12 +223,20 @@ function Steady({
   );
 }
 
-function dayLabel(timestamp: number): string {
+function startOfDay(timestamp: number): number {
   const date = new Date(timestamp);
+  return new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+  ).getTime();
+}
+
+/** The label of a day, from its start. */
+function dayLabel(day: number): string {
+  const date = new Date(day);
   const today = new Date();
-  const startOfDay = (value: Date) =>
-    new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
-  const days = Math.round((startOfDay(today) - startOfDay(date)) / 86_400_000);
+  const days = Math.round((startOfDay(today.getTime()) - day) / 86_400_000);
   if (days === 0) return "Today";
   if (days === 1) return "Yesterday";
   if (days < 7) return date.toLocaleDateString([], { weekday: "long" });
@@ -318,16 +328,25 @@ export function Highlights() {
       }))
       .sort((a, b) => latest(b) - latest(a));
   }, [shown]);
+  // Only Recent shows days. Each day's label is formatted once, not once
+  // for each entry: formatting dates is slow.
   const byDay = useMemo(() => {
+    if (order !== "recent") return [];
     const days: DayGroup[] = [];
     for (const entry of [...shown].sort((a, b) => b.createdAt - a.createdAt)) {
-      const label = dayLabel(entry.createdAt);
-      const day = days.at(-1);
-      if (day?.label === label) day.entries.push(entry);
-      else days.push({ key: `day:${label}`, label, entries: [entry] });
+      const day = startOfDay(entry.createdAt);
+      const last = days.at(-1);
+      if (last?.day === day) last.entries.push(entry);
+      else
+        days.push({
+          key: `day:${day}`,
+          day,
+          label: dayLabel(day),
+          entries: [entry],
+        });
     }
     return days;
-  }, [shown]);
+  }, [shown, order]);
 
   const groupBooks = useMemo(() => byBook.map(({ book }) => book), [byBook]);
   const { coverUrls, requestCover } = useLibraryCoverUrls(groupBooks, {

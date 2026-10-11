@@ -31,11 +31,21 @@ animation.
 | Fixture  | Page   | First highlight | Settled | Longest task | Rendered highlights | DOM elements |
 | -------- | ------ | --------------: | ------: | -----------: | ------------------: | -----------: |
 | 20 books | Mosaic |          309 ms |  726 ms |        92 ms |                  10 |          552 |
-| 20 books | List   |          268 ms |  286 ms |         none |                  14 |          289 |
+| 20 books | List   |          264 ms |  285 ms |         none |                  14 |          289 |
 | 1 book   | Mosaic |          373 ms |  787 ms |       165 ms |                  10 |          284 |
-| 1 book   | List   |          264 ms |  285 ms |         none |                  18 |          337 |
+| 1 book   | List   |          258 ms |  277 ms |         none |                  18 |          337 |
 
 "None" means no task of 50 ms or more before the page settled.
+
+These times start at navigation. About 190 ms of them is the harness: it loads
+its bundle and writes 900 highlights to IndexedDB before the page mounts. With
+the data already in IndexedDB, as in the app, the first entry rendered about
+46 ms after the page mounted, and about 19 ms when it mounted again (medians of
+five runs, with a temporary mount gate in the harness). About 30 ms of the
+first mount is the IndexedDB reads of books and annotations.
+
+The day labels of Recent are formatted once for each day. Formatting one for
+each of 900 entries took about 25 ms of each render that grouped them.
 
 ## User-visible problem
 
