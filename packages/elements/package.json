@@ -1,0 +1,13 @@
+{
+  "name": "@workbench/elements",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/player.ts",
+    "./react": "./src/react.ts",
+    "./frames": "./src/frames.ts"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  }
+}
