@@ -20,7 +20,7 @@ import { BookOpenText, CalendarDays, Clock3, Timer } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
-type ReadingSessionScale = "week" | "month" | "year" | "all";
+export type ReadingSessionScale = "week" | "month" | "year" | "all";
 
 const SCALE_OPTIONS: { label: string; value: ReadingSessionScale }[] = [
   { label: "Week", value: "week" },
@@ -29,12 +29,12 @@ const SCALE_OPTIONS: { label: string; value: ReadingSessionScale }[] = [
   { label: "All", value: "all" },
 ];
 
-interface RangeOption {
+export interface RangeOption {
   label: string;
   range: ReadingSessionRange;
 }
 
-function getRangeKey(range: ReadingSessionRange): string {
+export function getRangeKey(range: ReadingSessionRange): string {
   if (range.kind === "rolling") return `rolling-${range.days}`;
   if (range.kind === "calendar-month") {
     return `month-${range.year}-${range.month}`;
@@ -43,7 +43,7 @@ function getRangeKey(range: ReadingSessionRange): string {
   return "all";
 }
 
-function getMonthOptions(now: Date): RangeOption[] {
+export function getMonthOptions(now: Date): RangeOption[] {
   const calendarMonths = Array.from({ length: 12 }, (_, index) => {
     const date = subMonths(now, index);
     return {
@@ -62,7 +62,7 @@ function getMonthOptions(now: Date): RangeOption[] {
   ];
 }
 
-function getYearOptions(
+export function getYearOptions(
   sessions: readonly ReadingSessionAnalyticsRecord[],
   now: Date,
 ): RangeOption[] {

@@ -118,7 +118,13 @@ export function BookCover({
 }
 
 /** A thin line of reading progress. */
-function Hairline({ value, className }: { value: number; className?: string }) {
+export function Hairline({
+  value,
+  className,
+}: {
+  value: number;
+  className?: string;
+}) {
   return (
     <span
       className={cn(
