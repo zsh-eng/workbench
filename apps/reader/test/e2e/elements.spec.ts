@@ -52,3 +52,48 @@ test("Elements shows a specimen on desktop and phone and changes it in place", a
   await expect(desktop.locator("html")).toHaveClass(/\bnight\b/);
   await expect(page.locator("html")).not.toHaveClass(/\bnight\b/);
 });
+
+test("Elements scrubs the proposal's detent sheet from the page", async ({
+  page,
+}) => {
+  await page.goto("/debug/elements");
+  const section = page.locator("#sheets");
+  await section.scrollIntoViewIfNeeded();
+  await section.getByRole("button", { name: "Contents", exact: true }).click();
+  const proposal = section
+    .locator('iframe[title$="proposal: detents"]')
+    .contentFrame();
+  const contents = proposal.getByRole("dialog", { name: "Contents" });
+  const share = () =>
+    contents.evaluate((element) => {
+      const sheet = element.closest(".reader-sheet") as HTMLElement;
+      const box = sheet.getBoundingClientRect();
+      const height =
+        box.height - parseFloat(getComputedStyle(sheet).paddingBottom);
+      return (innerHeight - box.top) / height;
+    });
+  await expect.poll(share, { timeout: 30_000 }).toBeCloseTo(0.6, 2);
+  // Once in, the sheet's dialog takes focus inside its frame.
+  await expect
+    .poll(() =>
+      contents.evaluate((element) => element.contains(document.activeElement)),
+    )
+    .toBe(true);
+
+  // The scrubber drives the sheet from a peek to full height. Keys would
+  // reach the frame here: its dialog keeps keyboard focus after entering.
+  const slider = section.getByRole("slider", { name: "Sheet position" });
+  const box = (await slider.boundingBox())!;
+  await slider.click({ position: { x: 1, y: box.height / 2 } });
+  await expect.poll(share).toBeCloseTo(0.12, 1);
+  // A drag past the end holds the sheet at full height. "Let go" now shows,
+  // so the scrubber has moved.
+  const track = (await slider.boundingBox())!;
+  const y = track.y + track.height / 2;
+  await page.mouse.move(track.x + track.width / 2, y);
+  await page.mouse.down();
+  await page.mouse.move(track.x + track.width + 40, y, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(share).toBeGreaterThan(0.98);
+  await expect(slider).toHaveAttribute("aria-valuetext", "3.0 s, Full height");
+});

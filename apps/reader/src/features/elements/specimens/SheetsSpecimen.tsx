@@ -19,7 +19,9 @@ import {
 import type { ReaderSheetId } from "@/features/reader/types";
 import type { ReadingStatus } from "@/lib/db";
 import { FONT_STACKS, type ReaderSettings } from "@/types/reader.types";
-import { useEffect, useState } from "react";
+import type { Beat } from "@workbench/elements";
+import { useFrameTime } from "@workbench/elements/frames";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   SAMPLE_CHAPTER_ENTRIES,
@@ -38,6 +40,22 @@ export const SHEET_STATES = [
 ] as const;
 
 export type SheetVariant = "now" | "detents";
+
+/**
+ * The Elements page can drive the open detent sheet through its range: from
+ * a peek, through its first detent, to full height. Swipe animations follow
+ * the sheet's position, so the dimming and the lower sheet's step back move
+ * with it.
+ */
+export const SHEET_TIMELINE = {
+  duration: 3,
+  beats: [
+    { at: 0, label: "Peek" },
+    { at: 1.5, label: "First detent" },
+    { at: 3, label: "Full height" },
+  ] satisfies Beat[],
+};
+const PEEK_SHARE = 0.12;
 
 const SAMPLE_SETTINGS: ReaderSettings = {
   fontSize: 17,
@@ -95,6 +113,8 @@ export function SheetsSpecimen({
       );
     return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, [state, nonce]);
+
+  useDrivenSheet(variant === "detents" ? active : null);
 
   const update = (next: Partial<ReaderSettings>) =>
     setSettings((value) => ({ ...value, ...next }));
@@ -203,6 +223,45 @@ export function SheetsSpecimen({
       )}
     </div>
   );
+}
+
+/**
+ * Holds the top sheet at the page's timeline. Snapping waits while the page
+ * drives it, then the sheet settles on the nearest detent.
+ */
+function useDrivenSheet(page: ReaderSheetId | null) {
+  const time = useFrameTime();
+  useLayoutEffect(() => {
+    const scrollers = document.querySelectorAll<HTMLElement>(
+      ".reader-sheet-overlay [data-sheet-scroll]",
+    );
+    const scroller = scrollers[scrollers.length - 1];
+    const sheet = scroller?.querySelector<HTMLElement>(".reader-sheet");
+    if (!page || !scroller || !sheet) return;
+    if (time === null) {
+      scroller.style.scrollSnapType = "y mandatory";
+      return;
+    }
+    scroller.style.scrollSnapType = "none";
+    const height =
+      sheet.getBoundingClientRect().height -
+      parseFloat(getComputedStyle(sheet).paddingBottom);
+    const point = READER_SHEET_PAGES[page].snapPoints?.[0];
+    const detent =
+      point === undefined
+        ? height
+        : typeof point === "number"
+          ? point
+          : (parseFloat(point) / 100) * height;
+    const progress = Math.min(1, Math.max(0, time / SHEET_TIMELINE.duration));
+    const lerp = (from: number, to: number, t: number) =>
+      from + (to - from) * t;
+    const visible =
+      progress <= 0.5
+        ? lerp(PEEK_SHARE * height, detent, progress / 0.5)
+        : lerp(detent, height, (progress - 0.5) / 0.5);
+    scroller.scrollTop = innerHeight - height + visible;
+  }, [page, time]);
 }
 
 /** A long Notebook on sample highlights, for scrolling at each detent. */

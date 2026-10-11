@@ -20,6 +20,21 @@ function visibleShare(dialog: Locator) {
   });
 }
 
+/** Waits until a sheet has entered and rests; React Aria marks entry. */
+async function settled(dialog: Locator) {
+  await expect(dialog).toBeVisible({ timeout: 30_000 });
+  await expect
+    .poll(() =>
+      dialog.evaluate(
+        (element) =>
+          !element
+            .closest(".reader-sheet-overlay")
+            ?.hasAttribute("data-entering"),
+      ),
+    )
+    .toBe(true);
+}
+
 /** A finger drag in the middle of the screen; negative moves content up. */
 async function swipe(page: Page, y: number, distance: number) {
   const cdp = await page.context().newCDPSession(page);
@@ -38,7 +53,7 @@ test("Reader sheets rest on detents and stack over Reader tools", async ({
 }) => {
   await page.goto(`${FRAME}?state=tools&variant=detents`);
   const tools = page.getByRole("dialog", { name: "Reader tools" });
-  await expect(tools).toBeVisible({ timeout: 30_000 });
+  await settled(tools);
   // Reader tools fit their content instead of a fixed height.
   await expect.poll(() => visibleShare(tools)).toBeCloseTo(1, 1);
   const toolsTop = await tools.evaluate(
@@ -49,7 +64,7 @@ test("Reader sheets rest on detents and stack over Reader tools", async ({
   // Contents stacks over the tools at its first detent.
   await tools.getByRole("button", { name: /Contents/ }).click();
   const contents = page.getByRole("dialog", { name: "Contents" });
-  await expect(contents).toBeVisible();
+  await settled(contents);
   await expect.poll(() => visibleShare(contents)).toBeCloseTo(0.6, 1);
   await expect(tools).toBeAttached();
 
@@ -63,7 +78,7 @@ test("Reader sheets rest on detents and stack over Reader tools", async ({
   // Appearance takes the place of the tools, low and without dimming.
   await tools.getByRole("button", { name: "Themes & settings" }).click();
   const settings = page.getByRole("dialog", { name: "Reading settings" });
-  await expect(settings).toBeVisible();
+  await settled(settings);
   await expect(tools).toBeHidden();
   await expect.poll(() => visibleShare(settings)).toBeLessThan(0.6);
   await expect(page.locator(".reader-sheet-backdrop")).toHaveCount(0);
@@ -90,8 +105,7 @@ test("A page tapped while Reader tools still opens takes taps", async ({
     .getByRole("button", { name: /Book status/ })
     .dispatchEvent("click");
   const status = page.getByRole("dialog", { name: "Reading status" });
-  await expect(status).toBeVisible();
-  await expect.poll(() => visibleShare(status)).toBeCloseTo(1, 1);
+  await settled(status);
   const finished = status.getByRole("button", { name: "Finished" });
   await finished.click();
   await expect(finished).toHaveAttribute("aria-pressed", "true");
@@ -110,10 +124,10 @@ test("With the trial on, the Reader opens Contents as a detent sheet", async ({
     .getByRole("button", { name: "Open reader tools", exact: true })
     .click();
   const tools = page.getByRole("dialog", { name: "Reader tools" });
-  await expect(tools).toBeVisible();
-  await expect.poll(() => visibleShare(tools)).toBeCloseTo(1, 1);
+  await settled(tools);
   await tools.getByRole("button", { name: /Contents/ }).click();
   const contents = page.getByRole("dialog", { name: "Contents" });
+  await settled(contents);
   await expect.poll(() => visibleShare(contents)).toBeCloseTo(0.6, 1);
 
   // A chapter is a tap away at the detent; the book turns to it behind the

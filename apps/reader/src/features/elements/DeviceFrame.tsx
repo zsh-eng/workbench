@@ -3,10 +3,12 @@ import { cn } from "@/lib/utils";
 import { ExternalLink, RotateCw } from "lucide-react";
 import {
   DEVICES,
+  isFrameReady,
   useDeviceRowScale,
   useNearView,
   type DeviceId,
   type FrameMessage,
+  type FrameTimeMessage,
 } from "@workbench/elements/frames";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 
@@ -70,12 +72,15 @@ export function VariantRow({
   src,
   title,
   message,
+  time,
   device,
   variants,
 }: {
   src: string;
   title: string;
   message?: FrameMessage;
+  /** Drives each frame's timeline; null gives control back. */
+  time?: number | null;
   device: DeviceId;
   variants: readonly { id: string; label: string }[];
 }) {
@@ -96,6 +101,7 @@ export function VariantRow({
           title={`${title}, ${variant.label.toLowerCase()}`}
           scale={scale}
           message={message}
+          time={time}
         />
       ))}
     </div>
@@ -113,6 +119,7 @@ export function DeviceFrame({
   title,
   scale,
   message,
+  time,
   label = DEVICES[device].label,
 }: {
   device: DeviceId;
@@ -120,6 +127,8 @@ export function DeviceFrame({
   title: string;
   scale: number;
   message?: FrameMessage;
+  /** Drives the frame's timeline; null gives control back. */
+  time?: number | null;
   /** Names the frame; the device name by default. */
   label?: string;
 }) {
@@ -151,10 +160,26 @@ export function DeviceFrame({
     return () => observer.disconnect();
   }, [theme, loaded, loads]);
 
+  // A lazy route mounts after the load event; its ready message counts as
+  // another load, so the state and time are sent again.
+  useEffect(() => {
+    const ready = (event: MessageEvent) => {
+      if (isFrameReady(event, frame.current)) setLoads((count) => count + 1);
+    };
+    window.addEventListener("message", ready);
+    return () => window.removeEventListener("message", ready);
+  }, []);
+
   useEffect(() => {
     if (!loaded || !message) return;
     frame.current?.contentWindow?.postMessage(message, location.origin);
   }, [message, loaded, loads]);
+
+  useEffect(() => {
+    if (!loaded || time === undefined) return;
+    const update: FrameTimeMessage = { type: "elements:time", time };
+    frame.current?.contentWindow?.postMessage(update, location.origin);
+  }, [time, loaded, loads]);
 
   return (
     <figure className="m-0 shrink-0">

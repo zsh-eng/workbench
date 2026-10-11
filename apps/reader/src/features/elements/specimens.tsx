@@ -1,7 +1,12 @@
 import type { ComponentType } from "react";
+import type { Beat } from "@workbench/elements";
 import type { DeviceId } from "./DeviceFrame";
 import { CHROME_STATES, ChromeSpecimen } from "./specimens/ChromeSpecimen";
-import { SHEET_STATES, SheetsSpecimen } from "./specimens/SheetsSpecimen";
+import {
+  SHEET_STATES,
+  SHEET_TIMELINE,
+  SheetsSpecimen,
+} from "./specimens/SheetsSpecimen";
 import { TOAST_STATES, ToastSpecimen } from "./specimens/ToastSpecimen";
 
 export interface Specimen {
@@ -19,6 +24,8 @@ export interface Specimen {
     device: DeviceId;
     options: readonly { id: string; label: string }[];
   };
+  /** A timeline that the page drives inside the frames. */
+  timeline?: { duration: number; beats: Beat[]; label: string; note: string };
   Component: ComponentType<{ state: string; nonce: number }>;
 }
 
@@ -46,6 +53,11 @@ export const SPECIMENS: Specimen[] = [
         { id: "now", label: "Now: fixed height" },
         { id: "detents", label: "Proposal: detents" },
       ],
+    },
+    timeline: {
+      ...SHEET_TIMELINE,
+      label: "Sheet position",
+      note: "Scrub the proposal's open sheet from a peek to full height. The page dims only past the last detent, and the sheet below steps back as the top one rises.",
     },
     Component: SheetsSpecimen,
   },

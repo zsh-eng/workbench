@@ -71,8 +71,31 @@ export function useNearView<T extends Element>(margin = "600px") {
 }
 
 /**
+ * A frame says it is ready once its listeners are in place. The page then
+ * sends its messages again: a lazy route can mount long after the frame's
+ * load event, and messages sent before then are lost.
+ */
+export interface FrameReadyMessage {
+  type: "elements:ready";
+}
+
+/** True for a ready message from `frame`. Use it on the page side. */
+export function isFrameReady(
+  event: MessageEvent,
+  frame: HTMLIFrameElement | null,
+) {
+  return (
+    event.origin === location.origin &&
+    !!frame &&
+    event.source === frame.contentWindow &&
+    (event.data as FrameReadyMessage | undefined)?.type === "elements:ready"
+  );
+}
+
+/**
  * The frame side of `FrameMessage`: the state from `?state=`, then from the
- * page's messages. Only messages from this origin count.
+ * page's messages. Only messages from this origin count. It tells the page
+ * when it is ready, so put it in the frame's top component.
  */
 export function useFrameSelection(fallback: string) {
   const [selection, setSelection] = useState(() => ({
@@ -86,7 +109,35 @@ export function useFrameSelection(fallback: string) {
       setSelection({ state: event.data.state, nonce: event.data.nonce });
     };
     window.addEventListener("message", receive);
+    if (window.parent !== window) {
+      const ready: FrameReadyMessage = { type: "elements:ready" };
+      window.parent.postMessage(ready, location.origin);
+    }
     return () => window.removeEventListener("message", receive);
   }, []);
   return selection;
+}
+
+/**
+ * The page drives a timeline inside a frame, for example to scrub a sheet
+ * that the frame owns. `time: null` gives control back to the frame.
+ */
+export interface FrameTimeMessage {
+  type: "elements:time";
+  time: number | null;
+}
+
+/** The frame side of `FrameTimeMessage`: seconds, or null when released. */
+export function useFrameTime() {
+  const [time, setTime] = useState<number | null>(null);
+  useEffect(() => {
+    const receive = (event: MessageEvent<FrameTimeMessage>) => {
+      if (event.origin !== location.origin) return;
+      if (event.data?.type !== "elements:time") return;
+      setTime(event.data.time);
+    };
+    window.addEventListener("message", receive);
+    return () => window.removeEventListener("message", receive);
+  }, []);
+  return time;
 }

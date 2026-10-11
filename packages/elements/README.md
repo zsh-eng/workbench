@@ -8,7 +8,8 @@ demo contract.
   `handleDemoKey`, `demoOptionsFromUrl`. No framework.
 - `@workbench/elements/react`: `useDemoPlayer` with prop getters for the
   stage, Play, Replay or Reset, and the scrubber; `useActiveSection`.
-- `@workbench/elements/frames`: `DEVICES`, `FrameMessage`,
-  `useDeviceRowScale`, `useNearView`, `useFrameSelection`.
+- `@workbench/elements/frames`: `DEVICES`, `FrameMessage`, `FrameTimeMessage`,
+  `FrameReadyMessage`, `isFrameReady`, `useDeviceRowScale`, `useNearView`,
+  `useFrameSelection`, `useFrameTime`.
 
 The package exports TypeScript source. It works with React 18 and 19.

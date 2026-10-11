@@ -1,6 +1,8 @@
 import { useBooks } from "@/hooks/use-book-loader";
-import { useState } from "react";
+import { useDemoPlayer } from "@workbench/elements/react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { DemoControls } from "./DemoControls";
 import { DevicePair, VariantRow, type FrameMessage } from "./DeviceFrame";
 import { Choice, ElementsLayout, ElementsSection } from "./ElementsLayout";
 import { Foundations } from "./Foundations";
@@ -64,6 +66,7 @@ function SpecimenSection({ specimen }: { specimen: Specimen }) {
     state: initial,
     nonce: 0,
   });
+  const [time, setTime] = useState<number | null>(null);
   return (
     <ElementsSection
       id={specimen.id}
@@ -90,6 +93,7 @@ function SpecimenSection({ specimen }: { specimen: Specimen }) {
           src={specimenSrc(specimen.id, initial)}
           title={specimen.title}
           message={message}
+          time={time}
           device={specimen.variants.device}
           variants={specimen.variants.options}
         />
@@ -100,7 +104,61 @@ function SpecimenSection({ specimen }: { specimen: Specimen }) {
           message={message}
         />
       )}
+      {specimen.timeline && (
+        // A new state starts the timeline over and gives the sheet back.
+        <TimelineDemo
+          key={`${message.state}-${message.nonce}`}
+          timeline={specimen.timeline}
+          onTime={setTime}
+        />
+      )}
     </ElementsSection>
+  );
+}
+
+/**
+ * Controls that drive a timeline inside the frames. The frames stay in the
+ * viewer's hands until they use a control; "Let go" hands them back.
+ */
+function TimelineDemo({
+  timeline,
+  onTime,
+}: {
+  timeline: NonNullable<Specimen["timeline"]>;
+  onTime: (time: number | null) => void;
+}) {
+  const demo = useDemoPlayer({
+    duration: timeline.duration,
+    beats: timeline.beats,
+    autoplay: "manual",
+  });
+  const [engaged, setEngaged] = useState(false);
+  const time = engaged ? demo.state.time : null;
+  useEffect(() => onTime(time), [onTime, time]);
+  return (
+    <div
+      className="mt-4 max-w-3xl space-y-2"
+      onPointerDownCapture={() => setEngaged(true)}
+      onKeyDownCapture={() => setEngaged(true)}
+    >
+      <div className="flex items-baseline justify-between gap-4">
+        <p className="text-sm text-muted-foreground">{timeline.note}</p>
+        {engaged && (
+          <button
+            type="button"
+            onPointerDownCapture={(event) => event.stopPropagation()}
+            onClick={() => {
+              demo.player.pause();
+              setEngaged(false);
+            }}
+            className="shrink-0 text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
+          >
+            Let go
+          </button>
+        )}
+      </div>
+      <DemoControls demo={demo} beats={timeline.beats} label={timeline.label} />
+    </div>
   );
 }
 
