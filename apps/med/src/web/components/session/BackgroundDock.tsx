@@ -1,8 +1,9 @@
 import * as stylex from "@stylexjs/stylex";
-import { useState } from "react";
+import { useContext, useState } from "react";
 import type { SessionItem } from "../../data/session-store";
 import { tokens } from "../../theme.stylex";
 import { Icon } from "../Icon";
+import { ZenContext } from "../ZenExit";
 import { motion, rowStyles } from "./session-styles";
 import { formatSeconds } from "./ToolCall";
 
@@ -46,8 +47,10 @@ export function BackgroundDock({
   onShow?(id: string): void;
 }) {
   const [open, setOpen] = useState(true);
+  const zen = useContext(ZenContext);
   const tasks = backgroundTasks(items);
-  if (!tasks.length) return null;
+  // Zen leaves the waiting to the session's status.
+  if (zen || !tasks.length) return null;
   const isRunning = (item: ToolItem) =>
     item.call.status === "pending" || item.call.status === "in_progress";
   const running = tasks.filter(isRunning);

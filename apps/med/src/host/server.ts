@@ -985,6 +985,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               );
             const parts: string[] = [];
             if (input.text.trim()) parts.push(input.text.trim());
+            // The thread shows the comments as they read now.
+            const drafts = input.noteIds.length ? (await inboxState()).drafts : [];
+            const comments = input.noteIds.flatMap((id) =>
+              drafts
+                .filter((draft) => draft.id === id)
+                .map(({ id: _id, replies: _replies, ...comment }) => comment),
+            );
             if (input.noteIds.length) {
               const feedback = await savedReviews.feedback(reviewId, new Set(input.noteIds));
               if (feedback.count) parts.push(feedback.text);
@@ -1011,6 +1018,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               {
                 text: input.text.trim(),
                 noteIds: input.noteIds,
+                comments,
                 attachmentCount: input.attachments.length,
               },
               parts.join("\n\n"),

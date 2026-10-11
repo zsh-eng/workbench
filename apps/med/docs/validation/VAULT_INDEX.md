@@ -95,8 +95,39 @@ backlinks, warm reuse, dotted names, additions/renames/edits, ambiguous names,
 revocation, embedded docs, and a real host launched with saved repositories.
 Three integration scenarios passed. Typecheck/build and lint passed.
 
-Use the copy and benchmark commands in [VAULTS.md](../VAULTS.md). Use a new
-external output directory. Each sample emits a `trace-N.json` with anonymous
+Use the copy and benchmark commands below. Use a new external output
+directory. Each sample emits a `trace-N.json` with anonymous
 read/parse/enumeration phases in Chrome trace format. The source files and
 private paths are not included in those traces. Detailed artifacts are kept
 with the private benchmark copy, not this repository.
+
+### Benchmark a private vault
+
+From `apps/med`, run `scripts/copy-vault-benchmark.py /path/to/vault` to create
+an independent copy in the system temporary directory. It copies visible
+regular files and attachments, excludes hidden/dependency folders and symlinks,
+and writes a manifest beside the copy. It never initializes a Git repository.
+Copying is not an atomic snapshot if another application edits the vault during
+the copy.
+
+Then run:
+
+```sh
+bun scripts/benchmark-vault.ts --copy /private/tmp/med-vault-benchmark-EXAMPLE/vault \
+  --output /private/tmp/med-vault-benchmark-EXAMPLE/results.json
+```
+
+The benchmark requires that copy manifest and rejects paths inside a Git
+repository. It uses fresh index files, measures three independent processes,
+checks an edit and deletion using its own temporary fixture, and records phase
+traces without note text or filenames. Use a new output directory for each run.
+The filesystem cache is not flushed. Results measure the index engine, not
+browser rendering or end-to-end CLI startup.
+
+To try a copy in the app, register it only with a separate `--state-dir`. The
+default service keeps a registration after its temporary folder is gone, and
+lists it as a broken vault.
+
+Never commit a vault, its index, attachment bytes, or private source paths.
+Only synthetic integration fixtures and aggregate benchmark results belong in
+source control.

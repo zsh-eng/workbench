@@ -4,7 +4,7 @@ import { constants } from "node:fs";
 import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { z } from "zod";
-import { agentMessageSchema, type AgentMessage } from "../shared/agent-inbox";
+import { agentMessageSchema, type AgentMessage, type SentComment } from "../shared/agent-inbox";
 import type { AgentSession } from "../shared/saved-review";
 import { HostError } from "./runtime/errors";
 
@@ -123,7 +123,12 @@ export class AgentInbox {
   async send(
     reviewId: string,
     session: AgentSession,
-    message: { text: string; noteIds: string[]; attachmentCount: number },
+    message: {
+      text: string;
+      noteIds: string[];
+      comments?: SentComment[];
+      attachmentCount: number;
+    },
     body: string,
     /** Sends to a session that Med owns, as its next prompt. */
     deliver?: (body: string) => Promise<void>,
@@ -134,6 +139,7 @@ export class AgentInbox {
       agent: session.agent,
       text: message.text,
       noteIds: message.noteIds,
+      ...(message.comments?.length ? { comments: message.comments } : {}),
       attachmentCount: message.attachmentCount,
       createdAt: new Date(this.now()).toISOString(),
       delivery: "pending",

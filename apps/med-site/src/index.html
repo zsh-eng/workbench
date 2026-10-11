@@ -1,41 +1,7 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{{title}}</title>
-    <meta name="description" content="{{description}}" />
-    <meta property="og:title" content="{{title}}" />
-    <meta property="og:description" content="{{description}}" />
-    <meta property="og:type" content="website" />
-    <meta name="color-scheme" content="light dark" />
-    <meta
-      name="theme-color"
-      media="(prefers-color-scheme: light)"
-      content="#f5f4f1"
-    />
-    <meta
-      name="theme-color"
-      media="(prefers-color-scheme: dark)"
-      content="#121318"
-    />
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <link
-      rel="preload"
-      href="{{asset:/fonts/geist.woff2}}"
-      as="font"
-      type="font/woff2"
-      crossorigin
-    />
-    <link
-      rel="preload"
-      href="{{asset:/fonts/paper-mono.woff2}}"
-      as="font"
-      type="font/woff2"
-      crossorigin
-    />
-    <style data-inline="src/styles.css"></style>
+    <!-- include src/partials/head.html -->
     <noscript>
       <style>
         .tabs,
@@ -50,54 +16,7 @@
     </noscript>
   </head>
   <body>
-    <header class="top">
-      <div class="wide">
-        <a class="brand" href="/" aria-label="Med">
-          <!-- Med's icon (apps/med/scripts/render-icons.mjs): Reflection on a
-               painted sea, dawn or moonrise with the system's colour scheme,
-               as the screenshots are. -->
-          <picture>
-            <source
-              media="(prefers-color-scheme: dark)"
-              srcset="{{asset:/icon-night.svg}}"
-            />
-            <img
-              class="mark"
-              src="{{asset:/icon-dawn.svg}}"
-              alt=""
-              width="26"
-              height="26"
-            />
-          </picture>
-          <!-- The wordmark: monoline strokes on a 100-unit x-height. The m's
-               arches and the round letters are circles, as in the icon. -->
-          <svg
-            class="word"
-            viewBox="0 -142 389 146"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="17.5"
-            aria-hidden="true"
-          >
-            <path
-              d="M8.75 0V-58.25A33 33 0 0 1 74.75 -58.25V0M74.75 -58.25A33 33 0 0 1 140.75 -58.25V0"
-            />
-            <path
-              d="M172.25 -50A44.25 44.25 0 0 1 260.75 -50M172.25 -50A44.25 44.25 0 0 0 251.37 -22.76"
-            />
-            <path stroke-width="14.35" d="M163.5 -50H269.5" />
-            <path
-              d="M291.25 -50A44.25 44.25 0 1 1 379.75 -50A44.25 44.25 0 1 1 291.25 -50ZM379.75 0V-142"
-            />
-          </svg>
-        </a>
-        <nav aria-label="Project">
-          <a href="#features">Features</a>
-          <a href="{{links.docs}}">Docs</a>
-          <a href="{{links.github}}">GitHub</a>
-        </nav>
-      </div>
-    </header>
+    <!-- include src/partials/header.html -->
 
     <main>
       <section class="intro column" aria-labelledby="title">
@@ -240,8 +159,8 @@
       <figure class="product">
         <div class="painting wide">
           <div class="window">
-            <div class="titlebar" aria-hidden="true">
-              <span class="lights"><i></i><i></i><i></i></span>
+            <div class="titlebar">
+              <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
             </div>
             <!-- On wide screens, src/main.js runs Med itself in each window:
                  the demo's scene from data-demo, over the screenshot. Narrow
@@ -265,10 +184,8 @@
           </div>
         </div>
         <figcaption class="column">
-          A saved review: its history, one continuous diff with your comment,
-          and the agent's session beside it. On a large screen, each window on
-          this page is Med itself, on a recorded review. Click in one to scroll
-          it.
+          Med on a recorded review: a comment goes to the agent, and its edits
+          come back.
         </figcaption>
       </figure>
 
@@ -328,10 +245,9 @@
               <p class="num">03</p>
               <h3 id="agents">Work with your agents</h3>
               <p>
-                The agent's session streams beside the review: its replies, tool
-                calls, plan, and background work. Send your comments from its
-                message box, and the next round becomes a new iteration of the
-                same review.
+                The agent's session streams beside the review. Send your
+                comments from its message box, and its next round opens as a
+                new iteration of the review.
               </p>
               <ul>
                 <li>Start an agent from a saved review</li>
@@ -439,23 +355,7 @@
       </section>
     </main>
 
-    <footer class="foot column">
-      <p>
-        Med is open source under the
-        <a href="{{links.license}}">{{license}}</a>.
-        <a href="{{links.github}}">Source on GitHub</a>.
-      </p>
-      <p>
-        The painting is made by
-        <a href="{{links.painting}}">a script in this repository</a>. Set in
-        Geist and Paper Mono under the SIL Open Font License 1.1 (<a
-          href="/fonts/GEIST-OFL.txt"
-          >Geist</a
-        >, <a href="/fonts/PAPER-MONO-OFL.txt">Paper Mono</a>). Agent marks from
-        Simple Icons.
-      </p>
-    </footer>
-    <p class="sr-only" role="status" id="copy-status"></p>
+    <!-- include src/partials/footer.html -->
 
     <script data-inline="src/main.js"></script>
   </body>

@@ -6,6 +6,8 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
+  cssV1,
+  cssV2,
   filtersV1,
   filtersV2,
   rounds,
@@ -14,6 +16,14 @@ import {
 } from "./fixture.ts";
 
 export const sessionId = "6f1d2c84-3b9a-4e57-a0c2-9d8e71b54f30";
+
+/** What a round that Med records live needs: time to pass, files to change,
+ * and the next review to hand over, which returns its link. */
+export interface Live {
+  pause(ms: number): Promise<void>;
+  write(files: Record<string, string>): void;
+  handoff(): string;
+}
 
 /** The lines of `after` that differ from `before`, with the same lines around them removed. */
 function edit(before: string, after: string) {
@@ -38,6 +48,8 @@ export class Transcript {
   // among the lines by time.
   private time = Date.now() - 4 * 60_000;
   private count = 0;
+  /** A live round writes each line at the time it happens. */
+  private live = false;
   readonly path: string;
 
   constructor(
@@ -50,7 +62,7 @@ export class Transcript {
   }
 
   private write(entry: Record<string, unknown>, seconds = 2) {
-    this.time += seconds * 1000;
+    this.time = this.live ? Date.now() : this.time + seconds * 1000;
     this.count += 1;
     const line = {
       uuid: `00000000-0000-4000-8000-${String(this.count).padStart(12, "0")}`,
@@ -162,41 +174,76 @@ export class Transcript {
     this.handoff(link, rounds[0]!.brief, "bq4w8n2");
   }
 
-  /** Round two: the reviewer's comment, answered. */
-  second(link: string) {
-    this.time = Math.max(this.time, Date.now());
+  /** Round two, live while Med records it: the agent takes the reviewer's
+   * comment, edits the files one at a time, and hands over the next review. */
+  async second(live: Live) {
+    this.live = true;
     this.finished(
       "bq4w8n2",
       'Background command "Wait for the review" completed (exit code 0)',
     );
+    // Med shows the agent idle until it thinks, so it thinks at once.
+    await live.pause(200);
     this.thought(1600);
+    await live.pause(300);
     this.say(
       "You want the active filters in the search bar, so people can see why trails are hidden. I'll list them under the input.",
     );
-    this.tool(
-      "Edit",
-      {
-        file_path: this.file("src/search/filters.ts"),
-        ...edit(filtersV1, filtersV2),
-      },
-      "The file has been updated successfully.",
-      { originalFile: filtersV1 },
-    );
-    this.tool(
-      "Edit",
-      {
-        file_path: this.file("src/ui/SearchBar.tsx"),
-        ...edit(searchBarV1, searchBarV2),
-      },
-      "The file has been updated successfully.",
-      { originalFile: searchBarV1 },
-    );
-    this.tool(
-      "Bash",
+    await live.pause(900);
+    for (const [name, before, after] of [
+      ["src/search/filters.ts", filtersV1, filtersV2],
+      ["src/ui/SearchBar.tsx", searchBarV1, searchBarV2],
+      ["src/ui/search.css", cssV1, cssV2],
+    ] as const)
+      await this.change(live, name, before, after);
+    await this.run(
+      live,
       { command: "bun test", description: "Run the tests" },
       "bun test v1.3.5\n\n 11 pass\n 0 fail\n 25 expect() calls\nRan 11 tests across 1 file. [51.00ms]",
     );
-    this.handoff(link, rounds[1]!.brief, "b5t1x7k");
+    this.handoff(live.handoff(), rounds[1]!.brief, "b5t1x7k");
+  }
+
+  /** A live edit: the call, the file changing, then the result. */
+  private async change(live: Live, name: string, before: string, after: string) {
+    const id = `toolu_demo${this.count}`;
+    this.assistant({
+      type: "tool_use",
+      id,
+      name: "Edit",
+      input: { file_path: this.file(name), ...edit(before, after) },
+    });
+    await live.pause(500);
+    live.write({ [name]: after });
+    await live.pause(300);
+    this.result(id, "The file has been updated successfully.", {
+      originalFile: before,
+    });
+    await live.pause(700);
+  }
+
+  /** A live command: the call, a moment, then its output. */
+  private async run(
+    live: Live,
+    input: Record<string, unknown>,
+    output: string,
+  ) {
+    const id = `toolu_demo${this.count}`;
+    this.assistant({ type: "tool_use", id, name: "Bash", input });
+    await live.pause(1300);
+    this.result(id, output, {});
+    await live.pause(500);
+  }
+
+  private result(id: string, output: string, result: Record<string, unknown>) {
+    this.write({
+      type: "user",
+      message: {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: id, content: output }],
+      },
+      toolUseResult: result,
+    });
   }
 
   private handoff(link: string, brief: string, task: string) {
