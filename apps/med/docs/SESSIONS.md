@@ -133,13 +133,16 @@ nothing.
   also moves the view up, and that move does not stop it. The Background and
   Tasks docks sit under the thread.
 - The thread is a virtual list. Only the units within 1,200 px of the view
-  render; spacers hold the height of the others. A unit's height is its own
-  from when it last rendered, or an estimate (`thread-heights.ts`). Browser
-  scroll anchoring is off, because it would count the spacers. The list
-  keeps the first unit that starts in view at its place when heights above it
-  change or an earlier page arrives. A render that comes between the
-  reader's scroll and its scroll event keeps the reader's place. Open rows
-  keep their state when they leave the view and come back.
+  render; spacers hold the height of the others. When less than 800 px stays
+  rendered past an edge, the range moves in a task after the frame, so the
+  frame does not wait for it. Only with less than 400 px does it move in the
+  scroll event. A unit's height is its own from when it last rendered, or an
+  estimate (`thread-heights.ts`). Browser scroll anchoring is off, because it
+  would count the spacers. The list keeps the first unit that starts in view
+  at its place when heights above it change or an earlier page arrives. A
+  render that comes between the reader's scroll and its scroll event keeps the
+  reader's place. Open rows keep their state when they leave the view and come
+  back.
 - `thread-heights.ts` estimates a unit from its text. Pretext measures the
   text with canvas and counts its lines; the file models the CSS around the
   lines (collapsing margins, list gaps, code blocks, tables). A hidden sample

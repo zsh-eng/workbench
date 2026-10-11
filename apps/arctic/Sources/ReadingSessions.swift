@@ -11,7 +11,7 @@ struct ArticleReadingSession: Codable, Identifiable, Equatable, Sendable {
 }
 
 /// Activity accounting has no render-loop observation or per-interaction writes.
-/// The owner enables this only for a visible, saved article in Reader mode.
+/// The owner enables this only for a visible article with readable text.
 /// A timer may checkpoint dirty values, but it must never manufacture activity.
 @MainActor final class ReadingSessions {
   static let shared = ReadingSessions()
@@ -94,17 +94,26 @@ struct ArticleReadingSession: Codable, Identifiable, Equatable, Sendable {
 
   /// Ends an active interval without ending the article visit. Repeated pauses
   /// have no effect. No time between this call and the next begin is included.
-  func pause() {
-    guard visit?.boundary != nil else { return }
+  /// With a URL, only that document's visit pauses: a page covered by another
+  /// page cannot pause the visible one.
+  func pause(url: URL? = nil) {
+    guard visit?.boundary != nil, owns(url) else { return }
     accountBoundary()
     visit?.boundary = nil
     flush(force: true)
   }
 
-  func end() {
+  func end(url: URL? = nil) {
+    guard owns(url) else { return }
     pause()
     if let visit, records[visit.id]?.seconds == 0 { records.removeValue(forKey: visit.id) }
     visit = nil
+  }
+
+  private func owns(_ url: URL?) -> Bool {
+    guard let url else { return true }
+    guard let visit else { return false }
+    return records[visit.id]?.articleURL == url
   }
 
   /// Includes durable history and completed activity intervals from this visit.

@@ -380,15 +380,47 @@ final class AnnotationUITests: XCTestCase {
     waitForExpectations(timeout: 5)
   }
 
-  @MainActor func testReadingTimeEligibilityFollowsSavedReaderAndNotes() {
+  /// The website paints and hit-tests the same records as Reader.
+  @MainActor func testWebsiteHighlightIsTappableAndPaintsInReader() {
+    let app = openFixture(reader: false)
+    let toggle = app.buttons["reader-toggle"]
+    let ready = expectation(
+      for: NSPredicate(format: "exists == true AND enabled == true"), evaluatedWith: toggle)
+    wait(for: [ready], timeout: 20)
+    XCTAssertEqual(toggle.label, "Reader", "The fixture should still show its website")
+    selectPassage(in: app)
+    tapSelectionAction("Highlight", in: app)
+    let yellow = app.buttons["highlight-colour-yellow"]
+    XCTAssertTrue(yellow.waitForExistence(timeout: 5), app.debugDescription)
+    XCTAssertTrue(yellow.isSelected)
+    expectRender("painted=1; marks=0; selected=0", in: app)
+    capture(app, "website-highlight-toolbar")
+    // Another visible paragraph clears focus; the painted passage takes it back.
+    let other = app.webViews.staticTexts.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "There is a particular pleasure")
+    ).firstMatch
+    XCTAssertTrue(other.isHittable)
+    other.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.2)).tap()
+    XCTAssertTrue(yellow.waitForNonExistence(timeout: 5))
+    let passage = app.webViews.staticTexts[paragraph].firstMatch
+    passage.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.2)).tap()
+    XCTAssertTrue(yellow.waitForExistence(timeout: 5))
+    capture(app, "website-highlight-tapped")
+    // Reader finds the website's quote in its own text.
+    other.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.2)).tap()
+    XCTAssertTrue(yellow.waitForNonExistence(timeout: 5))
+    showReader(app)
+    expectRender("painted=1; marks=0; selected=0", in: app)
+  }
+
+  @MainActor func testReadingTimeCountsAnyArticleAndPausesForNotes() {
     let app = openFixture(saved: false)
     let state = app.staticTexts["reading-time-state"]
     func expectState(_ value: String) {
       let ready = expectation(for: NSPredicate(format: "label == %@", value), evaluatedWith: state)
       wait(for: [ready], timeout: 5)
     }
-    expectState("Paused")
-    app.buttons["reader-save"].tap()
+    // An unsaved article counts from the start; saving later keeps that time.
     expectState("Tracking")
     app.buttons["reader-add-note"].tap()
     expectState("Paused")
@@ -398,26 +430,27 @@ final class AnnotationUITests: XCTestCase {
     expectState("Paused")
     app.buttons["Done"].tap()
     expectState("Tracking")
+    // Website counts too, because Reader found article text in the page.
     app.buttons["reader-toggle"].tap()
-    expectState("Paused")
+    XCTAssertTrue(app.buttons["Reader"].waitForExistence(timeout: 5))
+    expectState("Tracking")
     showReader(app)
     expectState("Tracking")
+    app.buttons["reader-save"].tap()
     // A lifecycle checkpoint must survive process restart, not just UI state.
     reopenOffline(app)
     app.buttons["Page options"].tap()
     app.buttons["reader-reading-time"].tap()
-    let estimate = app.alerts.staticTexts.matching(
-      NSPredicate(format: "label CONTAINS %@", "in Reader.")
-    ).firstMatch
-    XCTAssertTrue(estimate.waitForExistence(timeout: 5))
-    XCTAssertFalse(estimate.label.hasPrefix("0 seconds"), estimate.label)
-    app.alerts.buttons["Done"].tap()
+    let total = app.staticTexts["stats-week-total"]
+    XCTAssertTrue(total.waitForExistence(timeout: 5))
+    XCTAssertNotEqual(total.label, "0 min")
+    app.buttons["stats-done"].tap()
     expectState("Tracking")
-    app.buttons["reader-save"].tap()
-    expectState("Paused")
   }
 
-  @MainActor private func openFixture(dark: Bool = false, saved: Bool = true) -> XCUIApplication {
+  @MainActor private func openFixture(
+    dark: Bool = false, saved: Bool = true, reader: Bool = true
+  ) -> XCUIApplication {
     let app = XCUIApplication()
     app.launchArguments = [
       "-ui-testing", "-reset-store", "-reset-appearance", "-test-clipboard",
@@ -432,7 +465,7 @@ final class AnnotationUITests: XCTestCase {
     let bookmark = app.buttons["reader-save"]
     XCTAssertTrue(bookmark.waitForExistence(timeout: 5))
     if saved && bookmark.value as? String == "Not saved" { bookmark.tap() }
-    showReader(app)
+    if reader { showReader(app) }
     return app
   }
 

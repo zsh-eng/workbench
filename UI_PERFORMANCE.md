@@ -175,7 +175,13 @@ For a prediction:
   `Input.synthesizeScrollGesture` scrolls on the compositor, as a trackpad
   fling does. In a capture-phase scroll listener, before the list renders,
   add up the part of the view that no rendered row covers. Record frame times
-  and long tasks as well.
+  and long tasks as well. Headless Chromium draws at 60 Hz; for 120 Hz, run a
+  headed window on a ProMotion display. Turn the empty-view listener off when
+  you count missed frames, because its own layout reads cost frames.
+- Move a virtual list's range in a task after the frame, before the view
+  needs it. Render in the scroll event only when the view could reach empty
+  space first. Test the range's size by row index, not pixels: a row taller
+  than the overscan made Med render on every scroll event.
 - Keep costly rows closed until the reader opens them. In Med, edits that show
   only their file and line counts, as in Claude Desktop, removed all frames
   over 33 ms and all empty views from a 30,000 px/s fling.

@@ -75,8 +75,12 @@ enable `group.com.zsheng.ArticleReader` in App Groups for both targets. Both use
 - Long-press a saved article to **Favourite** or **Unfavourite**, edit **Tags**, archive, or remove it. Archived links
   retain their tags and history. **Move to Saved** restores them to the inbox.
   Both actions show a six-second **Undo** banner, including bulk changes and
-  archiving from Reader. Undo changes only archive status. A ring and digit
-  count down the remaining seconds. VoiceOver users can dismiss it explicitly;
+  archiving from Reader. Undo changes only archive status. **Remove link** and
+  bulk deletion show the same banner: Undo puts the record back in place with
+  its offline copy, which waits aside until the banner closes. Highlights,
+  notes, reading time and positions are keyed by URL and survive removal, so
+  saving a removed link again restores them. A ring and digit count down the
+  remaining seconds. VoiceOver users can dismiss it explicitly;
   its timer pauses while the app is inactive.
   Select supports bulk archiving and confirmed deletion. Tags use a compact sheet
   that grows with the tag list, up to 360 points.
@@ -99,7 +103,7 @@ enable `group.com.zsheng.ArticleReader` in App Groups for both targets. Both use
   Reader view has been written to disk. Cached articles open from their styled local
   HTML in any folder, without briefly showing the website. New HTML declares UTF-8;
   older cached bytes also load as UTF-8, preserving quotes, accents, and CJK text. Reader and Website
-  crossfade while preserving their separate scroll positions. Website loads on demand;
+  crossfade and keep separate scroll positions; see the switch rule below. Website loads on demand;
   the cached Reader stays visible until it is ready. Stored text, code and embedded
   header images do not need the website. Appearance controls
   still work. The two bundled custom fonts load from a fixed local asset scheme
@@ -113,6 +117,11 @@ enable `group.com.zsheng.ArticleReader` in App Groups for both targets. Both use
   offline Reader. Following a link uses its own save state, notes and HTML target.
   Back and Forward restore that identity; a detour cannot replace the original
   saved article. Website form/scroll state is not retained across history loads.
+- A link followed from a page opens as a new page above it, with its own web
+  views, like a tab. Back closes the new page and shows the previous page as you
+  left it: same scroll position, no reload, and no second Unwall request. Forward
+  reopens the last closed page while the previous page stays open. Pages close
+  when you return to the library.
 - Leading article images stay in their editorial position and suppress the OG
   hero. Large standalone images extend through the text gutter. Wide media caps
   at 60% of viewport height; other body images cap at 70%, without cropping.
@@ -126,14 +135,25 @@ enable `group.com.zsheng.ArticleReader` in App Groups for both targets. Both use
   Unknown languages remain plain code. No remote script is loaded.
 - Reader restores the last text passage after relaunch, including offline. Checkpoints
   are device-local and stored separately from the article index after scrolling settles
-  or Reader closes; Website scrolling never updates them. A paragraph anchor handles
-  text-size changes, with progress as a fallback after article text changes.
+  or Reader closes. A paragraph anchor handles text-size changes, with progress as a
+  fallback after article text changes.
+- Switching between Website and Reader keeps your place by words, not layout: a site
+  can put images, advertisements or links between paragraphs that Reader removes.
+  After you scroll one view, the other opens with the same words at the same height,
+  below the native bar and any fixed site bar; Reader then saves that place. Without
+  a scroll, each view keeps its own position. The incoming view stays transparent
+  until it is in place, for at most 0.3 s. If no words match, Reader uses its saved
+  passage. Unwall's article frame is searched too. The anchor is up to 12 words from
+  each of the first four visible text runs; the longest match wins, and a repeated
+  phrase is told apart by the words after it and its position in the page.
 - The page menu provides Copy link, Share, native Find in page, Open in browser,
   Favourite, Archive article, **Reading time**, **Refresh Reader**, Reload and Try Unwall.
   Refresh Reader uses the current page DOM, or loads the source if only cached
   HTML is open. A failed extraction keeps the previous saved document.
-  A saved, unarchived article also offers **Archive and close** after you scroll near
-  its end. Both archive actions return to the library only after storage succeeds.
+  Near the end of a page, a saved, unarchived article offers **Archive and close**,
+  or **Archive and go back** when you opened it from another page. An unsaved page
+  opened from another page offers **Back to** that publisher instead. Both archive
+  actions leave the page only after storage succeeds.
 - Empty folders use muted ink-wash landscapes and botanical studies: a shoreline,
   sheltered pine, snow trail, layered ridges, plum branch, reeds, pale sun and bird.
   Transparent edges and native multiply/screen blending let the light or dark
@@ -169,6 +189,16 @@ The top Notes button opens the article conversation with full note text. Empty
 conversations open at medium height. Editing uses explicit **Save** and **Cancel**.
 **Remove highlight** keeps an existing note; **Delete note** keeps its highlight.
 
+Highlights also work in Website mode, with the same records. The passage script
+runs in the app's own WebKit content world, so the site's scripts cannot read
+the records or send taps. It paints the page body, or Unwall's article frame,
+and skips script and style text. A passage highlighted on the website paints in
+Reader, and the reverse. A site can change the text between blocks, so a repeated
+quote is placed by 16 nearby letters on each side; only a single best match is
+used, and an unclear one stays in Notes. **Show passage** stays on the website
+when the passage is there, and otherwise opens Reader. A publisher's front page
+has no passage actions.
+
 The library notebook includes full notes, short quote previews, search and a
 small source link. Its filter/sort work uses cancellable background snapshots;
 stable IDs and lazy rows keep offscreen note views out of the scrolling path.
@@ -189,11 +219,14 @@ Open **Sort and filter → Reading stats** for the library, or
 seven days of activity, selectable day bubbles, today's time, weekly articles/visits,
 and an all-time total. Visits are grouped by their start day in the current
 time zone. Summaries use one in-memory snapshot when opened; no timer drives
-the chart or reads article content. Only a
-saved article's visible Reader content counts, including archived articles.
-Website mode, loading, background, notes and appearance controls pause tracking.
-Gaps longer than 120 seconds are discarded in full. Saving starts tracking from
-that point; unsaving stops it without deleting earlier time.
+the chart or reads article content. Any visible article counts, saved or not,
+including archived articles. Reader counts once its text is ready; Website counts
+once Reader extraction has found article text in the page. A publisher front page
+opened from the shelf never counts, but stories opened from it do. Loading,
+background, notes and appearance controls pause tracking. Gaps longer than 120
+seconds are discarded in full. Time is keyed by URL, so time read before saving
+stays with the article. A page opened above another starts its own visit; the
+covered page cannot pause or end it.
 
 Records use separate local files and background checkpoints. They are not synced.
 See [the reusable session guide](../../READING_TIME.md) for rules and tests.
@@ -218,10 +251,10 @@ upload intent are not integrated. No production Worker release or remote Arctic
 migration has been applied as part of this work.
 
 See [release boundaries](../../packages/arctic-sync-server/README.md) and the
-[measured storage limits and migration proposal](Sync/PERFORMANCE.md) before
-continuing integration. A 10,000-article JSON journal still has excessive write
-cost. Do not activate it as the live library store. The proposed live migration
-requires the explicit approval recorded in `OVERNIGHT.md`. Jev keys stay in the
+[measured SQLite journal](Sync/PERFORMANCE.md) before continuing integration.
+The dormant repository keeps one SQLite file in each profile; a one-article edit
+writes only its changed rows. It is not the live library store. The live
+migration requires the explicit approval recorded in `OVERNIGHT.md`. Jev keys stay in the
 device Keychain and are never sync data.
 
 ## Open from another app
@@ -417,13 +450,15 @@ checks remain open.
 
 ## Discovery and passage images
 
-The Saved shelf opens NY Times, Financial Times, Economist, New Yorker and
-Atlantic homepages through the existing Unwall route. The actual publisher marks are bundled assets;
+The Saved shelf opens the NY Times, Financial Times, New Yorker and Atlantic
+homepages, and the Economist's latest Weekly Edition. Shortcuts load the publisher
+directly, because some publishers block Unwall; articles opened from that page
+use the usual routing. The actual publisher marks are bundled assets;
 the shelf makes no favicon requests. [Asset sources](Design/publisher-marks.md) record provenance.
 News has two states: three small overlapping publisher circles beside the Arctic
 mark/name, or a publisher row above the folder tabs. In the compact state,
 the mark and name shift right to make room for the circles. Tap the header or pull
-down at the top by 44 points to open the row; the pull gives one medium haptic.
+down at the top by 56 points to open the row; the pull gives one haptic.
 A small pull uses the native bounce and stays closed. An upward drag, another tap,
 or leaving Saved closes it. News lives outside the article pager: opening it moves
 the tabs and pager down together by 128 points without changing a page's scroll
@@ -431,18 +466,21 @@ position. The tabs and news follow the list's native top bounce through a read-o
 scroll observation. Only those small header views observe per-frame changes.
 The news row owns a floating glass panel with a gap above the tabs; neither the
 panel nor its horizontal scroller shares the article pager's background or gestures.
-Bubbles travel continuously from the overlapping header stack to the expanded
-row, then return along the same path. One noninteractive overlay carries the
-circles through a 360 ms spring; their native hit targets stay in the row.
-An interrupted transition continues from the circles' current presentation
-frames. A 240 ms transition handles layout and the separate panel fades in.
-Reduce Motion skips circle travel, fades the news and changes the brand position
-immediately. Leaving the library cancels the flight. There are no scroll-inset
-changes or display-link writes to scroll offsets. Publisher availability
-requires a connection. A publisher shortcut starts a fresh website visit, even
-when that homepage has downloaded Reader content. In-page URL changes get their
-own history and article identity, so saving a linked article does not replace
-the homepage's Reader content.
+One glass bubble grows from the overlapping header stack into the row: the
+stack's capsule widens and drops into the panel while the circles spread to
+their slots. A single value, the open distance, drives the bubble. A pull
+scrubs it under the finger; a release past the trigger hands that distance to a
+well-damped spring (440 ms, under 1% overshoot); close runs the same path
+in reverse. The bubble is a drawn, noninteractive overlay; when it settles, the
+real row with its hit targets replaces it. Reduce Motion skips the bubble, fades
+the news and changes the brand position immediately. Leaving the library closes
+the row without animation. There are no scroll-inset changes or display-link
+writes to scroll offsets. Publisher availability requires a connection. A
+publisher shortcut starts a fresh website visit, even when that homepage has
+downloaded Reader content. Stories opened from it return to the loaded homepage,
+as described in the history section. In-page URL changes get their own history
+and article identity, so saving a linked article does not replace the homepage's
+Reader content.
 
 **This week** shows articles favourited from Monday to Sunday in the current
 time zone, including archived favourites. **All favourites** also includes

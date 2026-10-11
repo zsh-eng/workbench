@@ -11,8 +11,10 @@ struct ArcticPublisher: Identifiable {
     ArcticPublisher(
       name: "NY Times", asset: "PublisherNYTimes", address: "https://www.nytimes.com/"),
     ArcticPublisher(name: "Financial Times", asset: "PublisherFT", address: "https://www.ft.com/"),
+    // The latest issue, not the rolling homepage.
     ArcticPublisher(
-      name: "Economist", asset: "PublisherEconomist", address: "https://www.economist.com/"),
+      name: "Economist", asset: "PublisherEconomist",
+      address: "https://www.economist.com/weeklyedition"),
     ArcticPublisher(
       name: "New Yorker", asset: "PublisherNewYorker", address: "https://www.newyorker.com/"),
     ArcticPublisher(

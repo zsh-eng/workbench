@@ -218,3 +218,89 @@ test('empty and outside-article selections cannot become saved quotes', async ()
   expect(await select(p, 'header')).toBeNull();
   await p.close();
 });
+
+// Website mode: the same records, a publisher page as the document.
+const site = `<header>Menu Subscribe</header><script>window.data = { body: "Another quiet thought stays here." };</script>
+  <main><p>Before “café” — 日本語 and a <a href="#">quiet thought</a>.</p><aside>Advertisement</aside>
+  <p>Another quiet thought stays here.</p></main>`;
+async function website(html = site) {
+  const page = await browser.newPage();
+  await page.setContent(html);
+  await page.evaluate(script);
+  return page;
+}
+
+test('a Reader passage paints on the website, where scripts and other blocks surround it', async () => {
+  const reader = await page();
+  const quote = await select(reader, 'p:nth-child(2)');
+  await reader.close();
+  const p = await website();
+  // The page script repeats the passage; only article text counts.
+  expect(await p.evaluate(records => (globalThis as any).arcticAnnotations.render(records), [record(quote)])).toEqual([]);
+  expect(await p.evaluate(() => [...CSS.highlights.get('arctic-yellow')!].map(range => range.toString()))).toEqual([quote.exact]);
+  expect(await p.evaluate(() => (globalThis as any).arcticAnnotations.reveal('one'))).toBe(true);
+  await p.close();
+});
+
+test('a repeated phrase keeps its place by nearby words when blocks differ', async () => {
+  const reader = await page();
+  const phrase = await select(reader, 'em');
+  await reader.close();
+  // The advertisement changes the context after the passage; the words before it
+  // still tell it apart from the same phrase later in the page.
+  const p = await website(site.replace('</main>', '<p>Read more: a quiet thought.</p></main>'));
+  expect(await p.evaluate(records => (globalThis as any).arcticAnnotations.render(records), [record(phrase)])).toEqual([]);
+  const painted = await p.evaluate(() => {
+    const range = [...CSS.highlights.get('arctic-yellow')!][0] as Range;
+    return range.startContainer.parentElement!.tagName;
+  });
+  expect(painted).toBe('A');
+  await p.close();
+});
+
+test('website selection creates a quote that Reader can paint', async () => {
+  const p = await website();
+  const quote = await select(p, 'main p:last-of-type');
+  expect(quote.exact).toBe('Another quiet thought stays here.');
+  await p.close();
+  const reader = await page();
+  expect(await reader.evaluate(records => (globalThis as any).arcticAnnotations.render(records), [record(quote)])).toEqual([]);
+  expect(await reader.evaluate(() => [...CSS.highlights.get('arctic-yellow')!].map(range => range.toString()))).toEqual([quote.exact]);
+  await reader.close();
+});
+
+test('an Unwall article frame paints, measures and reports taps', async () => {
+  const p = await browser.newPage();
+  await p.setContent('<div style="height:80px">Unwall</div><iframe title="Article content" style="border:0;width:100%;height:600px"></iframe>');
+  await p.evaluate(html => new Promise<void>(resolve => {
+    const frame = document.querySelector('iframe')!;
+    frame.onload = () => resolve();
+    frame.srcdoc = html;
+  }), fixture);
+  await p.evaluate(script);
+  await p.evaluate(() => {
+    (globalThis as any).messages = [];
+    (globalThis as any).webkit = { messageHandlers: { arcticAnnotationTap: {
+      postMessage: (message: unknown) => (globalThis as any).messages.push(message)
+    } } };
+  });
+  const quote = await p.evaluate(() => {
+    const doc = document.querySelector('iframe')!.contentDocument!;
+    const range = doc.createRange();
+    range.selectNodeContents(doc.querySelector('em')!);
+    doc.getSelection()!.removeAllRanges();
+    doc.getSelection()!.addRange(range);
+    const quote = (globalThis as any).arcticAnnotations.selection();
+    doc.getSelection()!.removeAllRanges();
+    return quote;
+  });
+  expect(quote.exact).toBe('quiet thought');
+  expect(await p.evaluate(records => (globalThis as any).arcticAnnotations.render(records, 'frame'), [record(quote)])).toEqual([]);
+  expect(await p.evaluate(() => document.querySelector('iframe')!.contentWindow!.CSS.highlights.has('arctic-yellow'))).toBe(true);
+  const bounds = await p.evaluate(() => (globalThis as any).arcticAnnotations.bounds('one'));
+  const em = await p.frameLocator('iframe').locator('em').boundingBox();
+  expect(bounds.y).toBeCloseTo(em!.y, 0);
+  await p.frameLocator('iframe').locator('em').click();
+  expect(await p.evaluate(() => (globalThis as any).messages)).toEqual([{ id: 'one', token: 'frame' }]);
+  await p.close();
+});
