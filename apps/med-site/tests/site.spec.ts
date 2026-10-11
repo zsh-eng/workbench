@@ -91,6 +91,22 @@ test("every window runs Med on a wide screen, and the page still scrolls", async
     med.getByText("export function parseQuery").first(),
   ).toBeVisible();
 
+  // In view, the hero sends the comment and the agent edits; Replay starts it
+  // again from its first moment.
+  const edited = () =>
+    page
+      .frameLocator(".product .live:last-of-type")
+      .getByText("Edited src/search/filters.ts");
+  await show();
+  await expect(edited().first()).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: "Replay", exact: true }).click();
+  // The new scene loads behind the old one until it is ready.
+  await expect(page.locator(".product .live[data-next]")).toHaveCount(0, {
+    timeout: 20_000,
+  });
+  await expect(page.locator(".product .live")).toHaveCount(1);
+  await expect(edited()).toHaveCount(0);
+
   // Each feature's window opens on its own scene as it comes near.
   const scenes = {
     brief: "Cites 3 of 6 changed files",

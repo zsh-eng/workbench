@@ -54,7 +54,9 @@ from the message. After that, the run adds a second comment, opens the Commit
 tab and the commit dialog, and opens a small Obsidian vault
 (`scripts/screenshots/vault.ts`) on a second Med server, on the next port. It
 records those answers into `public/demo/recording.json` and
-`public/demo/vault.json`. Then it builds the live demo, serves it on the
+`public/demo/vault.json`. It also records the vault note's Mermaid diagram as
+Med draws it in Med Dawn and Med Night, into `vault.json`. Then it builds the
+live demo, serves it on the
 port after the vault's, and captures each scene of the demo (see
 [Live demo](#live-demo)) in Med's own Med Dawn and Med Night themes. So each
 screenshot shows what the live window shows. Each feature also gets a capture
@@ -124,12 +126,19 @@ the `notes` scene replays `vault.json`, and the others replay `recording.json`.
 The product window shows Med in zen mode: the sidebar's history and files, the
 diff with the comment, and the agent's session, without other bars and
 buttons. It renders at 1309 by 818, so its text is 10% larger than in a 1440
-by 900 window. When the window comes into view, the demo starts the hero's
-clock, types the message, and sends it. The agent's edits stream in, and the
+by 900 window. When most of the window is in view, the demo starts the
+hero's clock, types the message, and sends it. The agent's edits stream in, and the
 demo opens the edited search bar when the next iteration arrives. In the
-`commit` scene, the demo stages the remaining files, commits, and pushes. That
-window renders at 760 px, because Med's Commit tab stacks its columns below
-720 px.
+`commit` scene, the demo stages the remaining files, commits, and pushes,
+slowly enough to follow. That window renders at 760 px, because Med's Commit
+tab stacks its columns below 720 px. A live window has a button that starts
+its scene again: Replay in the hero's title bar and under the commit window,
+Reset under the others. The new scene loads behind the old one and fades in
+when it is ready.
+
+The demo build does not include Mermaid. `vite.demo.config.ts` points
+`mermaid` at `apps/med/src/web/demo-diagrams.ts`, which returns the recorded
+drawings. A diagram that a visitor edits shows its source.
 
 A feature's scene shows only its part:
 the brief, a short unified diff with the comment, the agent's session, the
@@ -152,7 +161,7 @@ window, the wheel scrolls the page, not the window.
 
 The first window loads about 780 KB (Brotli). The brief, comment, session, and
 commit windows use the same files from the cache. The notes window adds about
-640 KB for the editor and Mermaid. All of it loads after the page.
+140 KB for the editor. All of it loads after the page.
 
 ## Deploy
 

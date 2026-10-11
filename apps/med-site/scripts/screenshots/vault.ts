@@ -50,6 +50,13 @@ all three.
 
 export const noteNames = Object.keys(notes);
 
+/** The Mermaid diagrams in a note, in order. */
+export function diagramsIn(name: string) {
+  return [...notes[name]!.matchAll(/```mermaid\n([\s\S]*?)```/g)].map(
+    (match) => match[1]!.trim(),
+  );
+}
+
 export function createVault(dir: string) {
   mkdirSync(join(dir, ".obsidian"), { recursive: true });
   for (const [name, text] of Object.entries(notes)) {

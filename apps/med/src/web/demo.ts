@@ -19,6 +19,7 @@ import type { AgentInboxState, AgentMessage } from "../shared/agent-inbox";
 import type { Note, NoteMutation, NoteState } from "../shared/protocol";
 import type { SavedReview } from "../shared/saved-review";
 import type { WorkingStatus } from "../shared/git-actions";
+import { addDrawing, type Drawing } from "./demo-diagrams";
 
 interface Chunk {
   /** Milliseconds from the start of the timeline. */
@@ -51,6 +52,8 @@ interface Recording {
   /** The app's local settings: panes, workspaces, modes, and drafts. */
   storage: Record<string, string>;
   entries: Entry[];
+  /** Mermaid diagrams as Med drew them, which stand in for Mermaid. */
+  diagrams?: Drawing[];
 }
 
 const params = new URLSearchParams(location.search);
@@ -60,6 +63,7 @@ const file = scene === "notes" ? "vault.json" : scene === "review" ? "hero.json"
 const recording: Recording = await fetch(new URL(file, document.baseURI)).then((response) =>
   response.json(),
 );
+for (const drawing of recording.diagrams ?? []) addDrawing(drawing);
 
 // The clock. A timeline's recording time is its start, which the clock
 // shows again when the timeline starts.
@@ -613,8 +617,8 @@ const focus = HTMLElement.prototype.focus;
 HTMLElement.prototype.focus = function (options?: FocusOptions) {
   if (document.hasFocus()) focus.call(this, { ...options, preventScroll: true });
 };
-// A scene that plays waits until its window is in view; alone in a tab, it
-// plays at once.
+// A scene that plays waits until most of its window is in view, which the
+// page says; alone in a tab, it plays at once.
 let shown: () => void;
 const inView = new Promise<void>((resolve) => (shown = resolve));
 if (parent === window) {
@@ -643,14 +647,15 @@ if (parent === window) {
   // paints on each frame.
   const still = document.createElement("style");
   still.textContent = "*, ::before, ::after { animation-play-state: paused !important }";
-  addEventListener("message", (event: MessageEvent<{ type?: string; visible?: boolean }>) => {
-    if (event.source !== parent || event.data?.type !== "med-demo") return;
-    if (event.data.visible === true) {
-      still.remove();
-      shown();
-    }
-    if (event.data.visible === false) document.head.append(still);
-  });
+  addEventListener(
+    "message",
+    (event: MessageEvent<{ type?: string; visible?: boolean; play?: boolean }>) => {
+      if (event.source !== parent || event.data?.type !== "med-demo") return;
+      if (event.data.visible === true) still.remove();
+      if (event.data.visible === false) document.head.append(still);
+      if (event.data.play === true) shown();
+    },
+  );
 }
 
 const dark = matchMedia("(prefers-color-scheme: dark)");
@@ -905,26 +910,27 @@ const plays: Record<string, () => Promise<void>> = {
     await pause(1200);
     treeFile("src/ui/SearchBar.tsx")?.click();
   },
+  // Slow enough to follow: each file, the message, the commit, the push.
   async commit() {
-    await pause(700);
+    await pause(1200);
     for (let step = 0; step < 20 && marks("stage").length; step += 1) {
       marks("stage")[0]!.click();
-      await pause(420);
+      await pause(800);
     }
-    await pause(500);
+    await pause(900);
     all<HTMLButtonElement>("button")
       .find((button) => button.textContent?.includes("Commit…") && !button.disabled)
       ?.click();
     await until(() => visible("textarea[aria-label='Commit message']"));
     const field = visible("textarea[aria-label='Commit message']") as HTMLTextAreaElement;
     const message = field.value;
-    if (message) await type(field, message, 12);
-    await pause(600);
+    if (message) await type(field, message, 28);
+    await pause(1100);
     all<HTMLButtonElement>("[role='dialog'] button")
       .find((button) => /^Commit\b/.test(button.textContent ?? "") && !button.disabled)
       ?.click();
     await until(() => document.body.textContent?.includes("Committed"));
-    await pause(1400);
+    await pause(2400);
     visible("button[title^='Push to']")?.click();
   },
 };
