@@ -244,6 +244,9 @@ cite.
   notes never cite; read those yourself.
 - **Replace or remove.** Paste again to replace the brief; **Undo** restores
   it. The **⋯** menu copies all notes or removes the brief.
+- **Start new notes.** The **⋯** menu's **Start new notes** captures the
+  current comparisons again as a new, empty iteration. Later pins and a pasted
+  brief go there; the earlier notes stay with their iteration.
 
 Links can be `path`, `path:12`, `path:12-20`, `path#L12-L20`, absolute paths,
 editor links, or GitHub blob URLs. A unique suffix such as `App.tsx:42` works.
