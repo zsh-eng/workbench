@@ -11,7 +11,7 @@ import {
   closeSync,
 } from "node:fs";
 import { join } from "node:path";
-import { Store, keyParts, hasObject, objectPath } from "./store";
+import { Store, keyParts, hasObject, objectPath, NAMESPACES } from "./store";
 export function readFetch(origin: string, token: string): typeof fetch {
   return (async (input: any, init?: RequestInit) => {
     const u = new URL(
@@ -29,7 +29,11 @@ export function readFetch(origin: string, token: string): typeof fetch {
       !(
         u.pathname === "/api/me" ||
         u.pathname === "/api/namespaces" ||
-        /^\/api\/apps\/(reader|spaced)\/(sync\/v3\/(state|pull|pull-stream)|files(?:\/xxh64:[a-f0-9]{16})?\/?|me)$/.test(
+        /^\/api\/apps\/(reader|spaced|arctic)\/(sync\/v3\/(state|pull|pull-stream)|me)$/.test(
+          decodeURIComponent(u.pathname),
+        ) ||
+        // Arctic has no file API.
+        /^\/api\/apps\/(reader|spaced)\/files(?:\/xxh64:[a-f0-9]{16})?\/?$/.test(
           decodeURIComponent(u.pathname),
         )
       )
@@ -72,7 +76,7 @@ export async function namespaces(send: typeof fetch, origin: string) {
   const b = (await r.json()) as any;
   if (
     !Array.isArray(b.namespaces) ||
-    b.namespaces.some((n: any) => !["reader", "spaced"].includes(n))
+    b.namespaces.some((n: any) => !NAMESPACES.includes(n))
   )
     throw Error("Unsupported namespace registry");
   return b.namespaces as string[];

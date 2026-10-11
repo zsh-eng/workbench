@@ -9,6 +9,10 @@ import {
   type SyncClientStateStore,
 } from "@zsh-eng/local-sync";
 
+/** Namespaces this backup reads. Arctic syncs records only; its files stay on devices. */
+export const NAMESPACES = ["reader", "spaced", "arctic"];
+export const FILE_NAMESPACES = ["reader", "spaced"];
+
 export class Store {
   db: Database;
   directory: string;
@@ -32,7 +36,11 @@ export class Store {
       CREATE VIEW IF NOT EXISTS live_records AS SELECT * FROM records WHERE is_deleted=0;
       CREATE VIEW IF NOT EXISTS table_counts AS SELECT namespace,table_name,count(*) AS records,sum(is_deleted) AS tombstones FROM records GROUP BY namespace,table_name;
       CREATE VIEW IF NOT EXISTS reader_books AS SELECT record_id,value,json_extract(CASE WHEN json_valid(value) THEN value ELSE '{}' END,'$.title') AS title FROM live_records WHERE namespace='reader' AND table_name='books';
-      CREATE VIEW IF NOT EXISTS spaced_operations AS SELECT record_id,value,json_extract(CASE WHEN json_valid(value) THEN value ELSE '{}' END,'$.type') AS operation_type FROM live_records WHERE namespace='spaced';`);
+      CREATE VIEW IF NOT EXISTS spaced_operations AS SELECT record_id,value,json_extract(CASE WHEN json_valid(value) THEN value ELSE '{}' END,'$.type') AS operation_type FROM live_records WHERE namespace='spaced';
+      CREATE VIEW IF NOT EXISTS arctic_articles AS SELECT a.record_id,json_extract(a.v,'$.url') AS url,json_extract(a.v,'$.title') AS title,json_extract(l.v,'$.saved') AS saved,json_extract(l.v,'$.archived') AS archived,json_extract(l.v,'$.favourite') AS favourite,json_extract(l.v,'$.read') AS read,datetime(json_extract(l.v,'$.savedAt')+978307200,'unixepoch') AS saved_at,json_extract(t.v,'$.names') AS tags
+        FROM (SELECT record_id,CASE WHEN json_valid(value) THEN value ELSE '{}' END AS v FROM live_records WHERE namespace='arctic' AND table_name='article') a
+        LEFT JOIN (SELECT record_id,CASE WHEN json_valid(value) THEN value ELSE '{}' END AS v FROM live_records WHERE namespace='arctic' AND table_name='library') l USING(record_id)
+        LEFT JOIN (SELECT record_id,CASE WHEN json_valid(value) THEN value ELSE '{}' END AS v FROM live_records WHERE namespace='arctic' AND table_name='tags') t USING(record_id);`);
   }
   bindIdentity(origin: string, userId: string) {
     const value = JSON.stringify({ origin, userId });
@@ -163,6 +171,9 @@ export class Store {
   }
 }
 export function keyParts(key: string): [string | null, string | null] {
+  // Arctic keys are "family/id"; Reader and Spaced keys are JSON pairs.
+  const plain = /^([a-z]+)\/([^/]+)$/.exec(key);
+  if (plain) return [plain[1]!, plain[2]!];
   try {
     const x = JSON.parse(key);
     return Array.isArray(x) &&
