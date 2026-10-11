@@ -4,10 +4,14 @@ import { ReaderHeader } from "@/features/reader/ReaderHeader";
 import { ReaderFooter } from "@/features/reader/footer";
 import { getReaderStatusPrompt } from "@/features/reader/hooks/use-reader-status-prompt";
 import { NotesCapsule } from "@/features/reader/NotesIsland";
-import type { ChapterEntry } from "@/features/reader/types";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import {
+  SAMPLE_CHAPTER_ENTRIES as CHAPTER_ENTRIES,
+  SAMPLE_CHAPTER_START_PAGES as CHAPTER_START_PAGES,
+  SAMPLE_TOTAL_PAGES as TOTAL_PAGES,
+} from "./sample-book-fixture";
 import { SAMPLE_BOOK_TITLE, SamplePage } from "./SamplePage";
 
 export const CHROME_STATES = [
@@ -19,24 +23,6 @@ export const CHROME_STATES = [
   { id: "none", label: "No prompt" },
 ] as const;
 
-const CHAPTERS = [
-  "Down the Rabbit-Hole",
-  "The Pool of Tears",
-  "A Caucus-Race and a Long Tale",
-  "The Rabbit Sends in a Little Bill",
-  "Advice from a Caterpillar",
-  "Pig and Pepper",
-  "A Mad Tea-Party",
-  "The Queen’s Croquet-Ground",
-];
-const CHAPTER_ENTRIES: ChapterEntry[] = CHAPTERS.map((title, index) => ({
-  index,
-  spineItemId: `chapter-${index + 1}`,
-  href: `chapter-${index + 1}.xhtml`,
-  title: `Chapter ${index + 1}. ${title}`,
-}));
-const CHAPTER_START_PAGES = [1, 14, 27, 38, 52, 66, 80, 94];
-const TOTAL_PAGES = 120;
 const SAVE_DELAY_MS = 700;
 
 function chapterOfPage(page: number) {

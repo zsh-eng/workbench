@@ -16,13 +16,20 @@ export const SAMPLE_BOOK_TITLE = "Alice’s Adventures in Wonderland";
 
 /** A still Reader page: one column on phones, a two-page spread on desktop.
  * It sits under the real chrome, as the book does in the Reader. */
-export function SamplePage({ onTap }: { onTap?: () => void }) {
+export function SamplePage({
+  onTap,
+  typography,
+}: {
+  onTap?: () => void;
+  /** Reading settings to follow, for specimens that change them. */
+  typography?: { fontSize: number; lineHeight: number; fontFamily: string };
+}) {
   const isMobile = useIsMobile();
   return (
     <div
       onClick={onTap}
       className="absolute inset-0 overflow-hidden px-6 font-serif text-[17px] leading-[1.6] text-foreground md:px-14"
-      style={{ paddingTop: 56, paddingBottom: 56 }}
+      style={{ paddingTop: 56, paddingBottom: 56, ...typography }}
     >
       <div
         className={

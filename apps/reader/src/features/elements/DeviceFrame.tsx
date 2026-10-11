@@ -2,20 +2,15 @@ import { THEME_CLASSES, type ReaderTheme } from "@/types/reader.types";
 import { cn } from "@/lib/utils";
 import { ExternalLink, RotateCw } from "lucide-react";
 import {
-  createContext,
-  useContext,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+  DEVICES,
+  useDeviceRowScale,
+  useNearView,
+  type DeviceId,
+  type FrameMessage,
+} from "@workbench/elements/frames";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 
-export const DEVICES = {
-  desktop: { label: "Desktop", width: 1280, height: 800 },
-  phone: { label: "Phone", width: 390, height: 844 },
-} as const;
-
-export type DeviceId = keyof typeof DEVICES;
+export { DEVICES, type DeviceId, type FrameMessage };
 
 export interface StageSettings {
   theme: ReaderTheme;
@@ -28,39 +23,10 @@ export const StageContext = createContext<StageSettings>({
   zoom: "fit",
 });
 
-/** A state message for a specimen frame. The nonce replays the same state. */
-export interface FrameMessage {
-  type: "elements:state";
-  state: string;
-  nonce: number;
-}
-
-const GAP_PX = 24;
-
-/** Width of a row of devices, so a row can share one scale. */
+/** One scale for a row of devices, from the page's zoom. */
 export function useRowScale(devices: readonly DeviceId[]) {
-  const row = useRef<HTMLDivElement>(null);
   const { zoom } = useContext(StageContext);
-  const [width, setWidth] = useState(0);
-  useLayoutEffect(() => {
-    const node = row.current;
-    if (!node) return;
-    const observer = new ResizeObserver(([entry]) =>
-      setWidth(entry.contentRect.width),
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
-  const natural =
-    devices.reduce((sum, id) => sum + DEVICES[id].width, 0) +
-    GAP_PX * (devices.length - 1);
-  // Each frame adds a 1px border on both sides.
-  const borders = devices.length * 2;
-  const scale =
-    zoom === "actual" || width === 0
-      ? 1
-      : Math.min(1, (width - borders) / natural);
-  return { row, scale };
+  return useDeviceRowScale(devices, zoom);
 }
 
 /** A desktop and a phone of one address, at one scale. */
@@ -75,12 +41,12 @@ export function DevicePair({
   message?: FrameMessage;
   devices?: readonly DeviceId[];
 }) {
-  const { row, scale } = useRowScale(devices);
+  const { row, scale, gap } = useRowScale(devices);
   return (
     <div
       ref={row}
       className="flex items-start overflow-x-auto pb-2"
-      style={{ gap: GAP_PX }}
+      style={{ gap }}
     >
       {devices.map((device) => (
         <DeviceFrame
@@ -88,6 +54,46 @@ export function DevicePair({
           device={device}
           src={src}
           title={`${title}, ${DEVICES[device].label.toLowerCase()}`}
+          scale={scale}
+          message={message}
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Variants of one specimen side by side on one device, for example the
+ * shipped design and a proposal. Each frame gets `variant=<id>`.
+ */
+export function VariantRow({
+  src,
+  title,
+  message,
+  device,
+  variants,
+}: {
+  src: string;
+  title: string;
+  message?: FrameMessage;
+  device: DeviceId;
+  variants: readonly { id: string; label: string }[];
+}) {
+  const devices = variants.map(() => device);
+  const { row, scale, gap } = useRowScale(devices);
+  return (
+    <div
+      ref={row}
+      className="flex items-start overflow-x-auto pb-2"
+      style={{ gap }}
+    >
+      {variants.map((variant) => (
+        <DeviceFrame
+          key={variant.id}
+          device={device}
+          label={variant.label}
+          src={`${src}${src.includes("?") ? "&" : "?"}variant=${variant.id}`}
+          title={`${title}, ${variant.label.toLowerCase()}`}
           scale={scale}
           message={message}
         />
@@ -107,36 +113,25 @@ export function DeviceFrame({
   title,
   scale,
   message,
+  label = DEVICES[device].label,
 }: {
   device: DeviceId;
   src: string;
   title: string;
   scale: number;
   message?: FrameMessage;
+  /** Names the frame; the device name by default. */
+  label?: string;
 }) {
-  const { width, height, label } = DEVICES[device];
+  const { width, height } = DEVICES[device];
   const { theme } = useContext(StageContext);
-  const shell = useRef<HTMLDivElement>(null);
+  const { ref: shell, near } = useNearView<HTMLDivElement>();
   const frame = useRef<HTMLIFrameElement>(null);
-  const [near, setNear] = useState(false);
   const [loadKey, setLoadKey] = useState(0);
   // Each document load counts, so a full navigation inside the frame gets
   // the theme and state again.
   const [loads, setLoads] = useState(0);
   const loaded = loads > 0;
-
-  useEffect(() => {
-    const node = shell.current;
-    if (!node || near) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) setNear(true);
-      },
-      { rootMargin: "600px 0px" },
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [near]);
 
   // The frame shares this origin, so the theme applies to its document
   // without a saved setting. The app sets its own class once it mounts, so

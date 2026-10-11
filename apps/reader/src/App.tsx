@@ -279,7 +279,11 @@ function App() {
                     />
                   </Routes>
                   <Toaster position="top-center" />
-                  {!getLabRuntime() && <ReloadPrompt />}
+                  {/* Specimen frames show one part; offline notices are noise there. */}
+                  {!getLabRuntime() &&
+                    !location.pathname.startsWith("/debug/elements/frame/") && (
+                      <ReloadPrompt />
+                    )}
                 </EpubImportProvider>
               </AppRouter>
             </FileUploadInitializer>

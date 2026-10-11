@@ -1,7 +1,7 @@
 import { useBooks } from "@/hooks/use-book-loader";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { DevicePair, type FrameMessage } from "./DeviceFrame";
+import { DevicePair, VariantRow, type FrameMessage } from "./DeviceFrame";
 import { Choice, ElementsLayout, ElementsSection } from "./ElementsLayout";
 import { Foundations } from "./Foundations";
 import { SPECIMENS, specimenSrc, type Specimen } from "./specimens";
@@ -85,11 +85,21 @@ function SpecimenSection({ specimen }: { specimen: Specimen }) {
         />
       }
     >
-      <DevicePair
-        src={specimenSrc(specimen.id, initial)}
-        title={specimen.title}
-        message={message}
-      />
+      {specimen.variants ? (
+        <VariantRow
+          src={specimenSrc(specimen.id, initial)}
+          title={specimen.title}
+          message={message}
+          device={specimen.variants.device}
+          variants={specimen.variants.options}
+        />
+      ) : (
+        <DevicePair
+          src={specimenSrc(specimen.id, initial)}
+          title={specimen.title}
+          message={message}
+        />
+      )}
     </ElementsSection>
   );
 }
