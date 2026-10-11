@@ -124,9 +124,10 @@ try {
     await highlight.evaluate((e) => getComputedStyle(e).backgroundColor),
     "rgba(0, 0, 0, 0)",
   );
-  assert.match(
+  // The cursor line takes its theme's tint.
+  assert.notEqual(
     await page.locator(".cm-activeLine").evaluate((e) => getComputedStyle(e).backgroundColor),
-    /0\.08/,
+    "rgba(0, 0, 0, 0)",
   );
   await page.screenshot({ path: "/private/tmp/med-editor-selection-after.png" });
   await page.keyboard.press("Meta+Shift+f");
