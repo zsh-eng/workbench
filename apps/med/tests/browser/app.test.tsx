@@ -343,6 +343,18 @@ async function mountApp(
         });
         return Response.json(savedBundle());
       }
+      if (url.pathname === "/api/reviews/saved/delete-notes" && init?.method === "POST") {
+        const { iteration } = JSON.parse(String(init.body)) as { iteration?: number };
+        const started = startedNotes.findIndex((entry) => entry.number === iteration);
+        if (started >= 0) {
+          const [removed] = startedNotes.splice(started, 1);
+          savedTargets.splice(
+            savedTargets.findIndex((target) => target.id === removed!.targetIds[0]),
+            1,
+          );
+        }
+        return Response.json(savedBundle());
+      }
       if (url.pathname === "/api/reviews/saved/pins" && init?.method === "POST") {
         const mutation = JSON.parse(String(init.body)) as PinMutation;
         if ("add" in mutation)
@@ -2117,7 +2129,7 @@ describe("review brief", () => {
     await expect.poll(() => controller.getSnapshot().savedTargetId).toBe("target-1");
   });
 
-  test("Start new notes makes an empty iteration of the current comparison", async () => {
+  test("Start new notes makes an empty iteration of the current comparison, and Delete removes it", async () => {
     await page.viewport(1280, 800);
     const { controller } = await mountApp({
       savedReview: true,
@@ -2135,8 +2147,16 @@ describe("review brief", () => {
     await expect
       .element(page.getByRole("heading", { name: "Second round" }))
       .not.toBeInTheDocument();
-    await page.getByRole("button", { name: "Iteration 2" }).click();
+
+    // Deleting them asks first; their iteration goes, and the agent's latest notes show.
+    await page.getByRole("button", { name: "Notes options" }).click();
+    await page.getByRole("menuitem", { name: "Delete these notes…" }).click();
+    const confirm = page.getByRole("alertdialog", { name: "Delete notes" });
+    await confirm.getByRole("button", { name: "Delete", exact: true }).click();
     await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
+    await expect.poll(() => controller.getSnapshot().savedTargetId).toBe("target-1");
+    await expect.element(page.getByRole("button", { name: "Iteration 3" })).not.toBeInTheDocument();
+    await expect.element(confirm).not.toBeInTheDocument();
   });
 
   test("many iterations keep the latest keys and list earlier ones in a menu", async () => {

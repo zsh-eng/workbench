@@ -92,6 +92,12 @@ function PinDemo() {
   });
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [pins, setPins] = useState<SavedPin[]>(() => [pinOf("p_demo1", "r1", whyWeeks, 1)]);
+  // New notes, or deleted ones, start empty; pins add to them.
+  const [shownBrief, setShownBrief] = useState<typeof brief | undefined>(brief);
+  const empty = () => {
+    setShownBrief(undefined);
+    setPins([]);
+  };
   const [reveal, setReveal] = useState<{ key: string; nonce: number }>();
   const actions = useMemo<ReplyActions>(
     () => ({
@@ -121,7 +127,7 @@ function PinDemo() {
       <div {...stylex.props(styles.notes)}>
         <Suspense fallback={null}>
           <BriefView
-            brief={brief}
+            brief={shownBrief}
             pins={pins}
             reveal={reveal}
             files={files}
@@ -131,7 +137,9 @@ function PinDemo() {
             onOpenPath={noop}
             onPaste={noop}
             onCopy={noop}
-            onRemove={noop}
+            onRemove={() => setShownBrief(undefined)}
+            onStartNotes={empty}
+            onDeleteNotes={async () => empty()}
             onUnpin={(id) => setPins((list) => list.filter((pin) => pin.id !== id))}
             notes={[]}
             onMutateNote={async () => {}}
@@ -210,7 +218,7 @@ export function NotesSection() {
     >
       <Specimen
         title="Pin a reply"
-        note="Pin the second reply to add note 03, or select Pinned to go to note 02. Remove a pin from its note menu."
+        note="Pin the second reply to add note 03, or select Pinned to go to note 02. Remove a pin from its note menu. The Notes menu starts new, empty notes, or deletes these after you confirm."
         padded={false}
         zoomable={false}
       >

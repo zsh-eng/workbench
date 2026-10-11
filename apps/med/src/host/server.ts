@@ -1289,7 +1289,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           const savedRoute =
-            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes)|\/(feedback|clear|brief|brief-comments|pins|iterations|details|pull-request|codex-reviews))?$/.exec(
+            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes)|\/(feedback|clear|brief|brief-comments|pins|iterations|delete-notes|details|pull-request|codex-reviews))?$/.exec(
               url.pathname,
             );
           if (savedRoute) {
@@ -1391,6 +1391,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               const input = briefCommentMutationSchema.parse(await readBody(request));
               assertRequestAccess();
               send(await savedReviews.commentBrief(id!, input, assertRequestAccess));
+              inbox.touch(id!);
+              return;
+            }
+            if (request.method === "POST" && action === "delete-notes") {
+              const input = z
+                .object({
+                  iteration: z.number().int().positive().optional(),
+                  briefFrom: z.number().int().positive().optional(),
+                })
+                .parse(await readBody(request));
+              assertRequestAccess();
+              send(await savedReviews.deleteNotes(id!, input, assertRequestAccess));
               inbox.touch(id!);
               return;
             }

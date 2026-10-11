@@ -1058,6 +1058,62 @@ export class SavedReviewStore {
     }, beforeCommit);
   }
 
+  /**
+   * Delete the Notes that show for an iteration: its brief and pins, and a
+   * brief that it shows from an earlier iteration (`briefFrom`), with the
+   * comments on them. Without iterations, the review's own Notes go. Notes
+   * that the reader started go with their iteration and its comparisons,
+   * unless those have comments.
+   */
+  deleteNotes(
+    id: string,
+    { iteration, briefFrom }: { iteration?: number; briefFrom?: number },
+    beforeCommit?: () => void,
+  ): Promise<SavedReview> {
+    return this.writing(async () => {
+      const record = await this.read(id, true);
+      const saved = record.saved;
+      const find = (number: number | undefined) =>
+        number === undefined
+          ? saved.iterations
+            ? undefined
+            : saved
+          : saved.iterations?.find((entry) => entry.number === number);
+      const owner = find(iteration);
+      if (!owner) throw new HostError("notes-not-found", "These notes do not exist.", 404);
+      const earlier = briefFrom !== iteration ? find(briefFrom) : undefined;
+      const pins = new Set(owner.pins?.map((pin) => pin.id));
+      const briefs = new Set([iteration, ...(earlier ? [briefFrom] : [])]);
+      const comments = (saved.briefComments ?? []).filter((comment) =>
+        comment.section === "brief" ? !briefs.has(comment.iteration) : !pins.has(comment.section),
+      );
+      if (comments.length) saved.briefComments = comments;
+      else delete saved.briefComments;
+      delete owner.brief;
+      delete owner.pins;
+      if (earlier) delete earlier.brief;
+      if (saved.iterations) {
+        const started = saved.iterations.find((entry) => entry === owner && entry.fresh);
+        const captures = record.captures.filter((capture) =>
+          started?.targetIds.includes(capture.targetId),
+        );
+        if (started && captures.every((capture) => !capture.notes.notes.length)) {
+          saved.iterations = saved.iterations.filter((entry) => entry !== started);
+          record.captures = record.captures.filter((capture) => !captures.includes(capture));
+          saved.targets = saved.targets.filter((target) => !started.targetIds.includes(target.id));
+        }
+        // The review's brief is the latest one that an iteration still has.
+        const latest = saved.iterations.findLast((entry) => entry.brief)?.brief;
+        if (latest) saved.brief = latest;
+        else delete saved.brief;
+      }
+      saved.commentCount = countComments(record);
+      saved.revision++;
+      await this.write(record, beforeCommit);
+      return this.describe(record);
+    }, beforeCommit);
+  }
+
   /** Comment on a passage of the Notes, or edit or remove such a comment. */
   commentBrief(
     id: string,
