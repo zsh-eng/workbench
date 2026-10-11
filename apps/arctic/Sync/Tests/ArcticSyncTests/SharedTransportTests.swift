@@ -102,3 +102,16 @@ private actor SharedService {
   await #expect(throws: SyncFailure.unauthorized) { try await reopened.sync(using: remote) }
   #expect(await reopened.pendingCount == 1)
 }
+
+@Test func liveProfileDatabaseKeepsItsScope() async throws {
+  let file = Backend.sqlite.location()
+  defer { Backend.sqlite.remove(file) }
+  let scope = SyncScope(origin: "https://api.example.test", userId: "alice", epoch: "epoch-1")
+  let store = try SyncStore(database: file, scope: scope, deviceID: "phone")
+  try await store.commit([.init(key: "article/one", value: #"{"title":"Offline article"}"#)])
+  let reopened = try SyncStore(database: file, scope: scope)
+  #expect(await reopened.snapshot()["article/one"]?.value == #"{"title":"Offline article"}"#)
+  #expect(await reopened.pendingCount == 1)
+  let reset = SyncScope(origin: "https://api.example.test", userId: "alice", epoch: "epoch-2")
+  #expect(throws: SyncFailure.wrongAccount) { try SyncStore(database: file, scope: reset) }
+}

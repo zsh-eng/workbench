@@ -181,6 +181,8 @@ host, then returns a local review link. Open the launch URL once to authorize
 the browser; saved links then use the same session.
 
 A saved review opens its first target; choose others from **Review target**.
+An agent's review with one comparison in each iteration has no such picker: the
+iteration keys in **Notes** show each iteration's comparison.
 The saved diff stays fixed when agents make more changes. **Copy comments**
 copies the comments of all targets, with paths, revisions, line numbers, and
 nearby source. **Clear** clears that review after confirmation. Copying does
@@ -195,7 +197,9 @@ toolbar, and **Show agent session** in the palette. They open the Session pane:
 prompts, replies, thoughts, tool calls with output and diffs, the plan, and
 background shells and agents. It follows the session live. A long session opens
 on its latest work; scroll up for earlier work, or jump to a prompt from
-**Turns** (the clock). See [agent sessions](SESSIONS.md).
+**Turns** (the clock). With focus in the thread, `[` and `]` step through the
+prompts and replies; a task in **Background** goes to its call. See
+[agent sessions](SESSIONS.md).
 
 A saved review can also start an agent. A Session pane without a session lists
 the agents that Med found, and its **+** menu starts another. Med starts Claude
@@ -340,6 +344,7 @@ branches.
 | Add note to selected lines        | `c`           | `c`                       |
 | Paste a brief                     | `⌘V`          | `Ctrl+V`                  |
 | Next / previous brief excerpt     | `]` / `[`     | `]` / `[`                 |
+| Next / previous session message   | `]` / `[`     | `]` / `[`                 |
 | Resume search                     | `⌥R`          | `Alt+R`                   |
 | Keep preview tab                  | `⌥P`          | `Alt+P`                   |
 | Open a found file and keep it     | `⌘↵`          | `Ctrl+Enter`              |
@@ -483,13 +488,14 @@ command** on the workspace.
 ## Limits and evidence
 
 Syntax highlighting covers JavaScript/JSX, TypeScript/TSX, CSS, HTML, JSON/JSONC,
-Markdown, YAML, TOML, Bash, Go, Python, Rust, SQL, Svelte, diff, INI, HTTP,
-dotenv, shell sessions, Java, Gradle, C++, and XML. Twinkleplop supplies most
-grammars; Med's own grammars cover Java, C++, XML, and JSON/JSONC. Markdown code
-fences use the matching grammar. C, Zig, and other missing languages show as
-plain text. Colors can differ from Shiki: most grammars give token kinds, not
-full TextMate scope stacks, and Med ignores theme rules that match parent
-scopes.
+Markdown, YAML, TOML, Bash, Go, Python, Rust, Swift, SQL, Svelte, diff, INI,
+HTTP, dotenv, shell sessions, Java, Gradle, C++, and XML. Twinkleplop supplies
+most grammars; Med's own grammars cover Java, C++, XML, JSON/JSONC, Go, Rust,
+and Swift. Markdown code fences use the matching grammar. C, Zig, and other
+missing languages show as plain text. Colors can differ from Shiki: most
+grammars give token kinds or short scope stacks, not full TextMate scope stacks,
+so theme rules that match parent scopes can miss them. Go, Rust, and Swift give
+Shiki's full scope stacks.
 
 Images render in before/after diff cards, and the file viewer plays
 browser-supported videos. Other binary files and unsupported encodings show

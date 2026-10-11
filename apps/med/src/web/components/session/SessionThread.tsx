@@ -23,7 +23,7 @@ import { Icon } from "../Icon";
 import { motion, rowStyles } from "./session-styles";
 import { BackgroundDock } from "./BackgroundDock";
 import { SessionMarkdown } from "./SessionMarkdown";
-import { formatSeconds, RowOpen, ThreadScroller, ToolCall, useRowOpen } from "./ToolCall";
+import { formatSeconds, RowOpen, ToolCall, useRowOpen } from "./ToolCall";
 import { finalReplies, lastTurn, units, type ToolItem, type Unit } from "./thread-model";
 import {
   estimateUnit,
@@ -419,9 +419,12 @@ export function PlanDock({ entries }: { entries: PlanEntry[] }) {
   );
 }
 
-/** Space that renders above and below the view, and the least that must stay
- * rendered past each edge before the rendered range moves. */
+/** Space that renders above and below the view. The rendered range moves
+ * when less than LEAD stays rendered past an edge, in a task after the frame,
+ * so that a fling keeps its frames. With less than MARGIN, the view could reach
+ * empty space first, so the range moves at once, in the scroll event. */
 const OVERSCAN = 1200;
+const LEAD = 800;
 const MARGIN = 400;
 /** The newest units render before the thread has a size, as in a hidden pane. */
 const UNSIZED = 24;
@@ -443,6 +446,17 @@ function indexAt(offsets: Float64Array, y: number) {
   }
   return Math.max(0, low);
 }
+
+/** Prompts and replies, which [ and ] step through. */
+const isMessage = (
+  unit: Unit,
+): unit is { key: string; item: Extract<SessionItem, { kind: "user" | "agent" }> } =>
+  "item" in unit && (unit.item.kind === "user" || unit.item.kind === "agent");
+/** The item, or a call in a subagent's thread under it. */
+const holds = (item: SessionItem, id: string): boolean =>
+  item.id === id || (item.kind === "tool" && item.items.some((inner) => holds(inner, id)));
+/** Space above a unit that the reader asked for. */
+const GO_GAP = 16;
 
 /** The item that a measured height belongs to: a group grows with its last call. */
 const sourceOf = (unit: Unit): object => ("item" in unit ? unit.item : unit.explore.at(-1)!);
@@ -610,6 +624,7 @@ export function SessionThread({
     restore(): void;
     place(sync: boolean): void;
     loadEarlier(): void;
+    go(key: string): void;
   } | null>(null);
   // Units on screen report later changes, as when their Markdown arrives.
   const observer = useRef<ResizeObserver | null>(null);
@@ -763,16 +778,18 @@ export function SessionThread({
       const total = all.length;
       const y = node.scrollTop - listTop();
       const height = node.clientHeight;
-      // The range covers the view with a margin on each side, and not much
-      // more: units that come at the end join it, and it must not grow.
-      const covered =
+      // The range covers the view with a margin on each side.
+      const covered = (margin: number) =>
         range.end <= total &&
         range.start < range.end &&
-        (range.start === 0 || offsets[range.start]! <= y - MARGIN) &&
-        (range.end === total || offsets[range.end]! >= y + height + MARGIN) &&
-        offsets[range.start]! >= y - 2 * OVERSCAN &&
-        offsets[range.end]! <= y + height + 2 * OVERSCAN;
-      if (covered || !total) return;
+        (range.start === 0 || offsets[range.start]! <= y - margin) &&
+        (range.end === total || offsets[range.end]! >= y + height + margin);
+      // And not much more: units that come at the end join it, and it must not
+      // grow. A unit taller than the overscan counts as one unit.
+      const lean =
+        range.start >= indexAt(offsets, y - 2 * OVERSCAN) &&
+        range.end <= indexAt(offsets, y + height + 2 * OVERSCAN) + 1;
+      if (!total || (covered(LEAD) && lean)) return;
       const next: Range = {
         start: indexAt(offsets, y - OVERSCAN),
         end: Math.min(total, indexAt(offsets, y + height + OVERSCAN) + 1),
@@ -780,7 +797,7 @@ export function SessionThread({
         tail: false,
       };
       next.tail = next.end === total;
-      if (sync) flushSync(() => setRange(next));
+      if (sync && !covered(MARGIN)) flushSync(() => setRange(next));
       else setRange(next);
     };
     // One request for each state of the earlier work: the new state comes
@@ -798,7 +815,22 @@ export function SessionThread({
       record();
       void more.load();
     };
-    list.current = { record, restore, place, loadEarlier };
+    // A unit that the reader asked for goes near the top of the view, rendered
+    // or not: the view keeps it there as the units around it render.
+    const go = (key: string) => {
+      stuck.current = false;
+      anchor.current = { key, delta: -GO_GAP };
+      recorded = node.scrollTop;
+      restore();
+      // Near the end the view follows again, so it goes all the way there.
+      if (atEnd()) {
+        stuck.current = true;
+        node.scrollTop = node.scrollHeight;
+        recorded = node.scrollTop;
+      }
+      place(true);
+    };
+    list.current = { record, restore, place, loadEarlier, go };
     const follow = () => {
       check();
       if (stuck.current) node.scrollTop = node.scrollHeight;
@@ -856,6 +888,56 @@ export function SessionThread({
       doc.removeEventListener("keydown", onKey);
     };
   }, []);
+
+  // [ and ] step through the prompts and replies, as through hunks in
+  // Changes. The message they reach is marked while the thread has focus.
+  const [current, setCurrent] = useState<string>();
+  const step = useCallback(
+    (direction: 1 | -1) => {
+      const node = scroller.current;
+      const { all, offsets, index } = latest.current.model;
+      if (!node || !all.length || !latest.current.metrics) return;
+      const y = node.scrollTop - (head.current?.offsetTop ?? 0);
+      const from = current === undefined ? undefined : index.get(current);
+      let at: number;
+      if (from !== undefined && offsets[from + 1]! > y && offsets[from]! < y + node.clientHeight)
+        at = from + direction;
+      // At the end, the previous message is the latest.
+      else if (direction < 0 && stuck.current) at = all.length - 1;
+      else {
+        // From the view: the next message starts below its top, the previous above it.
+        at = indexAt(offsets, y);
+        if (direction > 0 ? offsets[at]! <= y + 1 : offsets[at]! >= y - 1) at += direction;
+      }
+      while (at >= 0 && at < all.length && !isMessage(all[at]!)) at += direction;
+      if (at < 0 || at >= all.length) return;
+      setCurrent(all[at]!.key);
+      list.current?.go(all[at]!.key);
+    },
+    [current],
+  );
+  useEffect(() => {
+    const node = scroller.current;
+    if (!node) return;
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key !== "[" && event.key !== "]") return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement;
+      if (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      step(event.key === "]" ? 1 : -1);
+    };
+    node.addEventListener("keydown", keydown);
+    return () => node.removeEventListener("keydown", keydown);
+  }, [step]);
+  // A task in the Background dock: the unit that holds its call.
+  const showCall = (id: string) => {
+    const unit = latest.current.model.all.find((entry) =>
+      "item" in entry ? holds(entry.item, id) : entry.explore.some((item) => holds(item, id)),
+    );
+    if (unit) list.current?.go(unit.key);
+  };
 
   // A turn from the index: its unit goes to the top of the view.
   const [handled, setHandled] = useState<{ nonce: number; key: string } | undefined>(undefined);
@@ -931,13 +1013,23 @@ export function SessionThread({
   const elapsed =
     turn.startedAt !== undefined ? (now ?? snapshot.updatedAt ?? 0) - turn.startedAt : 0;
   const offsets = model.offsets;
+  const scrollerProps = stylex.props(styles.scroller);
   const above = metrics ? offsets[start]! : 0;
   const below = metrics ? offsets[count]! - offsets[end]! : 0;
 
   return (
     <div {...stylex.props(styles.frame)}>
       <div {...stylex.props(styles.viewport)}>
-        <div ref={scroller} {...stylex.props(styles.scroller)}>
+        <div
+          ref={scroller}
+          // A scrolling region takes focus, so keys can scroll it. Focus in the
+          // thread also gives [ and ] to its messages, not to hunks.
+          // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+          tabIndex={0}
+          data-message-keys=""
+          {...scrollerProps}
+          className={`${scrollerProps.className ?? ""} med-thread-scroller`}
+        >
           <div
             ref={content}
             {...stylex.props(styles.content)}
@@ -967,28 +1059,28 @@ export function SessionThread({
             )}
             <div ref={head} {...stylex.props(styles.space(above))} />
             <RowOpen value={rows}>
-              <ThreadScroller value={scroller}>
-                {all.slice(start, end).map((unit, offset) => {
-                  const at = start + offset;
-                  return (
-                    <div
-                      key={unit.key}
-                      ref={unitRef}
-                      data-unit={unit.key}
-                      data-rise={appended.has(unit.key) ? "" : undefined}
-                      {...stylex.props(styles.unit)}
-                    >
-                      <UnitBody
-                        unit={unit}
-                        last={snapshot.running && at === count - 1}
-                        final={"item" in unit && finals.has(unit.item.id)}
-                        renderThread={renderThread}
-                        onOpenLink={onOpenLink}
-                      />
-                    </div>
-                  );
-                })}
-              </ThreadScroller>
+              {all.slice(start, end).map((unit, offset) => {
+                const at = start + offset;
+                return (
+                  <div
+                    key={unit.key}
+                    ref={unitRef}
+                    data-unit={unit.key}
+                    data-rise={appended.has(unit.key) ? "" : undefined}
+                    data-message={isMessage(unit) ? unit.item.kind : undefined}
+                    data-current={unit.key === current ? "" : undefined}
+                    {...stylex.props(styles.unit)}
+                  >
+                    <UnitBody
+                      unit={unit}
+                      last={snapshot.running && at === count - 1}
+                      final={"item" in unit && finals.has(unit.item.id)}
+                      renderThread={renderThread}
+                      onOpenLink={onOpenLink}
+                    />
+                  </div>
+                );
+              })}
             </RowOpen>
             <div {...stylex.props(styles.space(below))} />
             {snapshot.running ? (
@@ -1031,7 +1123,7 @@ export function SessionThread({
           </button>
         )}
       </div>
-      <BackgroundDock items={snapshot.items} now={now ?? snapshot.updatedAt} />
+      <BackgroundDock items={snapshot.items} now={now ?? snapshot.updatedAt} onShow={showCall} />
       {snapshot.plan.length > 0 && <PlanDock entries={snapshot.plan} />}
     </div>
   );
@@ -1195,7 +1287,7 @@ const styles = stylex.create({
     cursor: { default: "pointer", ":disabled": "default" },
   },
   // A unit holds its children's margins, so its height is all of its space.
-  unit: { display: "flow-root", minWidth: 0, paddingBottom: 6 },
+  unit: { position: "relative", display: "flow-root", minWidth: 0, paddingBottom: 6 },
   nestedUnit: { minWidth: 0 },
   replyBar: { display: "flex", alignItems: "center", gap: 2, marginTop: 4, marginInline: -6 },
   replyAction: {

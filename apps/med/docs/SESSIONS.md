@@ -65,10 +65,13 @@ the line then keeps `thinkingDurationMs`. The reader:
   file's text from Claude Code's `originalFile` or an earlier Write;
 - turns TodoWrite and TaskCreate/TaskUpdate into the plan;
 - links background shells and agents to their calls, and their
-  `<task-notification>` messages to the same calls;
+  `<task-notification>` messages to the same calls. A notification that comes
+  during a turn is a `queued_command` attachment. When the call is on an
+  earlier page, the update names the call (`<tool-use-id>`) or its task
+  (`task:<id>`), and the thread gives it to the call when the page arrives;
 - reports subagents, whose transcripts are `<session>/subagents/agent-<id>.jsonl`;
 - turns compactions, API errors, and interruptions into dividers and notices;
-- skips attachments, system reminders, and meta messages;
+- skips other attachments, system reminders, and meta messages;
 - tracks the turn: a reply with `stop_reason: "end_turn"` or a subagent's
   report ends it, and a typed prompt starts the next one.
 
@@ -125,19 +128,24 @@ nothing.
   only the items that it changes, so memoized rows do not render again.
   Subagent updates go into the thread of their call.
 - `components/session/SessionThread.tsx` renders the thread. Reads and
-  searches in a row form one "Explored" group. Edits show Pierre diffs. The
-  thread opens at its end. The view follows new items while the reader is at
-  the bottom; only the reader's move up (wheel, touch, keys, or the pointer)
-  stops it. A thread that gets shorter also moves the view up, and that move
-  does not stop it. The Background and Tasks docks sit under the thread.
+  searches in a row form one "Explored" group. An edit is a row with its file
+  and its added and removed lines; its Pierre diff renders when the reader
+  opens the row, as in Claude Desktop. The thread opens at its end. The view
+  follows new items while the reader is at the bottom; only the reader's move
+  up (wheel, touch, keys, or the pointer) stops it. A thread that gets shorter
+  also moves the view up, and that move does not stop it. The Background and
+  Tasks docks sit under the thread.
 - The thread is a virtual list. Only the units within 1,200 px of the view
-  render; spacers hold the height of the others. A unit's height is its own
-  from when it last rendered, or an estimate (`thread-heights.ts`). Browser
-  scroll anchoring is off, because it would count the spacers. The list
-  keeps the first unit that starts in view at its place when heights above it
-  change or an earlier page arrives. A render that comes between the
-  reader's scroll and its scroll event keeps the reader's place. Open rows
-  keep their state when they leave the view and come back.
+  render; spacers hold the height of the others. When less than 800 px stays
+  rendered past an edge, the range moves in a task after the frame, so the
+  frame does not wait for it. Only with less than 400 px does it move in the
+  scroll event. A unit's height is its own from when it last rendered, or an
+  estimate (`thread-heights.ts`). Browser scroll anchoring is off, because it
+  would count the spacers. The list keeps the first unit that starts in view
+  at its place when heights above it change or an earlier page arrives. A
+  render that comes between the reader's scroll and its scroll event keeps the
+  reader's place. Open rows keep their state when they leave the view and come
+  back.
 - `thread-heights.ts` estimates a unit from its text. Pretext measures the
   text with canvas and counts its lines; the file models the CSS around the
   lines (collapsing margins, list gaps, code blocks, tables). A hidden sample
@@ -148,7 +156,8 @@ nothing.
   replies, rows, and tables are exact or within 1 px for 93 to 100% of units
   in four themes; the sum is within 0.4%. Open edits are the weak part: 66%
   are exact, because the estimate does not know Pierre's hunks and
-  separators.
+  separators. Edits are closed until the reader opens one, so this error
+  stays small.
 - Items without an ID take one from their kind and time, so they keep it
   when an earlier page builds the thread again.
 - Once the review is idle, the Session pane mounts hidden: the thread
@@ -209,8 +218,7 @@ work.
 
 - The sidebar shows sessions recorded with saved reviews. Branch workspaces
   have no session.
-- Nested subagent threads render whole inside their call. An edit's diff
-  renders when its row comes within two screens of the view.
+- Nested subagent threads render whole inside their call.
 - Estimates of open edits miss Pierre's hunk separators. A wrong estimate
   costs only a move of the units below it when the edit renders.
 - Not shown yet for attached sessions: context usage, permission requests

@@ -40,7 +40,7 @@ There is one engine per build, so cached render results cannot cross engines. Th
 
 ### Coverage and limits
 
-This record describes the first integration. Med has since added its own grammars for Java, C++, XML, and JSON/JSONC; [usage](../USAGE.md#limits-and-evidence) lists the current languages. JSX maps to TSX. Markdown fences use installed language factories; HTML and Svelte supply embedded script/style tokens.
+This record describes the first integration. Med has since added its own grammars for Java, C++, XML, JSON/JSONC, Go, Rust, and Swift, and the adapter now resolves parent scope selectors for grammars that give scope stacks; [usage](../USAGE.md#limits-and-evidence) lists the current languages. JSX maps to TSX. Markdown fences use installed language factories; HTML and Svelte supply embedded script/style tokens.
 
 C, Zig, and other missing grammars use plain text. Their files and diffs remain usable, including navigation and comments. A full-file view identifies a known unsupported syntax language. This is reduced syntax coverage compared with Shiki.
 

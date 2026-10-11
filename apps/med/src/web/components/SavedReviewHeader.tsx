@@ -26,6 +26,7 @@ export function SavedReviewHeader({
   onReturn,
   onTarget,
   sendTo,
+  notesPickIteration,
 }: {
   controller: ReviewController;
   /** The agent session that comments can go to, and how to open its message. */
@@ -41,6 +42,8 @@ export function SavedReviewHeader({
   browsingSourceLabel?: string;
   onReturn(): void;
   onTarget(id: string): void;
+  /** The Notes tab shows, and its iteration keys show each iteration's comparison. */
+  notesPickIteration?: boolean;
 }) {
   const saved = state.savedReview!;
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
@@ -54,6 +57,16 @@ export function SavedReviewHeader({
   const iterations = saved.iterations ?? [];
   const iterationOf = (id: string) =>
     iterations.find((iteration) => iteration.targetIds.includes(id))?.number;
+  // With one comparison in each iteration, the Notes' iteration keys choose it,
+  // and the header has no second picker.
+  const pickTarget =
+    saved.targets.length > 1 &&
+    !(
+      notesPickIteration &&
+      iterations.length > 1 &&
+      iterations.every((iteration) => iteration.targetIds.length === 1) &&
+      saved.targets.every((entry) => iterationOf(entry.id))
+    );
   const option = (entry: (typeof saved.targets)[number]) => (
     <option key={entry.id} value={entry.id}>
       {iterations.length > 1 && iterationOf(entry.id) ? `#${iterationOf(entry.id)} · ` : ""}
@@ -145,7 +158,7 @@ export function SavedReviewHeader({
           <span {...stylex.props(ui.removed)}>−{saved.totals.deletions.toLocaleString()}</span>
         </span>
       )}
-      {saved.targets.length > 1 && (
+      {pickTarget && (
         <select
           aria-label="Review target"
           {...stylex.props(styles.select)}

@@ -18,7 +18,7 @@ _Bun and med · Vitesse Light_
 
 ## Find and read code
 
-Find files or search committed code with a preview. Open files in tabs, jump to symbols, and inspect line blame. Keyboard shortcuts and Vim navigation are built in. Twinkleplop supplies syntax colours, including local Java and C++ support; Groovy and Gradle files use the Java colours. Files without a supported grammar remain readable as plain text. See [highlighting parity and performance](docs/validation/JAVA_CPP_HIGHLIGHTING.md) for measured results and known differences from Shiki.
+Find files or search committed code with a preview. Open files in tabs, jump to symbols, and inspect line blame. Keyboard shortcuts and Vim navigation are built in. Twinkleplop supplies syntax colours, including local Java, C++, Go, Rust, and Swift support; Groovy and Gradle files use the Java colours. Files without a supported grammar remain readable as plain text. See [highlighting parity and performance](docs/validation/JAVA_CPP_HIGHLIGHTING.md) for measured results and known differences from Shiki.
 
 ![Bun file search with matching paths and a code preview in Vitesse Dark](docs/screenshots/bun-search-vitesse-dark.png)
 

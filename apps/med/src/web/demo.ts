@@ -267,8 +267,10 @@ const scenes: Record<string, () => Promise<void>> = {
     await review({ sidebar: false, session: false }, "Notes");
     await until(() => visible("diffs-container"));
   },
+  // A short unified diff with the reviewer's comment.
   async comment() {
     await review({ sidebar: false, session: false }, "Changes");
+    visible("[role='group'][aria-label='Diff layout'] button[aria-label='Unified']")?.click();
     await toComment();
   },
   async session() {
@@ -303,6 +305,66 @@ const scenes: Record<string, () => Promise<void>> = {
   },
 };
 await scenes[scene]?.();
+
+// A feature's scene shows one part of Med, which fills the window over the
+// rest of the app; the app still runs underneath. While the part is gone, as
+// when the visitor opens something else, the whole app shows.
+const parts: Record<string, () => HTMLElement | undefined> = {
+  brief: () => visible("section[aria-label='Notes']"),
+  comment: () => scroller(visible("diffs-container") ?? null) as HTMLElement | undefined,
+  session: () => visible("section[aria-label='Claude session']"),
+  commit: () => visible("[role='dialog']"),
+  notes: () => visible("#vault-file-panel"),
+};
+const find = parts[scene];
+if (find) {
+  const fill = document.createElement("style");
+  fill.textContent = `
+    [data-demo-part] {
+      position: fixed !important;
+      inset: 0 !important;
+      z-index: 2147483000 !important;
+      width: auto !important;
+      height: auto !important;
+      min-width: 0 !important;
+      min-height: 0 !important;
+      max-width: none !important;
+      max-height: none !important;
+      margin: 0 !important;
+      border: 0 !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+      transform: none !important;
+      overflow: hidden !important;
+      background: var(--demo-canvas) !important;
+    }
+    [data-demo-part="session"] > header {
+      display: none !important;
+    }`;
+  document.head.append(fill);
+  const canvas = () =>
+    document.documentElement.style.setProperty(
+      "--demo-canvas",
+      themeController.getSnapshot().active.palette.canvas,
+    );
+  canvas();
+  themeController.subscribe(canvas);
+  let part: HTMLElement | undefined;
+  const keep = () => {
+    if (part?.isConnected && part.checkVisibility()) return;
+    part?.removeAttribute("data-demo-part");
+    part = find();
+    part?.setAttribute("data-demo-part", scene);
+  };
+  keep();
+  new MutationObserver(keep).observe(document.body, { childList: true, subtree: true });
+  // The comment sits near the foot of its window, under the lines it is about.
+  if (scene === "comment" && part) {
+    await pause(200);
+    const card = visible("[data-comment-card]");
+    if (card) part.scrollTop += card.getBoundingClientRect().bottom - (innerHeight - 64);
+  }
+}
 await pause(400);
 document.documentElement.dataset.demo = "ready";
 if (parent !== window) parent.postMessage({ type: "med-demo", state: "ready" }, "*");

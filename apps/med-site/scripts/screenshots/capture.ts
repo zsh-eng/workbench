@@ -47,22 +47,43 @@ const output = join(site, "public/screenshots");
 const demoOnly = process.argv.includes("--demo");
 
 // The demo's scenes, at the size of Med in each window, and display widths
-// for srcset. The capture is twice the CSS size.
-const feature = { viewport: { width: 880, height: 550 }, widths: [880, 1760] };
-const shots = {
+// for srcset. A shot captures at `scale` times its CSS size, 2 by default. A
+// feature's scene shows only its part of Med; phones get the same part at
+// 390 px, where Med lays it out again for the narrow window.
+type Spec = {
+  viewport: { width: number; height: number };
+  widths: number[];
+  scene?: string;
+  scale?: number;
+};
+const feature = (width: number, height: number): Spec => ({
+  viewport: { width, height },
+  widths: [width, width * 2],
+});
+const phone = (scene: string, height: number): Spec => ({
+  scene,
+  viewport: { width: 390, height },
+  scale: 3,
+  widths: [780, 1170],
+});
+const shots: Record<string, Spec> = {
   review: {
     viewport: { width: 1440, height: 900 },
     // No 2240: the full-size capture is smaller as AVIF than a resample to it.
     widths: [720, 1120, 1680, 2880],
   },
-  brief: feature,
-  comment: feature,
-  // The session pane beside the diff needs room for the review's tabs.
-  session: { viewport: { width: 1040, height: 650 }, widths: [1040, 2080] },
-  commit: feature,
-  notes: feature,
+  brief: feature(720, 420),
+  comment: feature(720, 400),
+  session: feature(720, 520),
+  commit: feature(720, 260),
+  notes: feature(720, 440),
+  "brief-phone": phone("brief", 460),
+  "comment-phone": phone("comment", 440),
+  "session-phone": phone("session", 556),
+  "commit-phone": phone("commit", 240),
+  "notes-phone": phone("notes", 480),
 };
-type Shot = keyof typeof shots;
+type Shot = string;
 
 const scratch = mkdtempSync(join(tmpdir(), "med-site-"));
 const repo = join(scratch, "trailhead");
@@ -248,9 +269,9 @@ async function checkPrivacy(page: Page) {
   }
 }
 
-/** Parks the pointer in the status bar, so no hover state shows. */
+/** Lets the scene finish drawing. The pointer never enters the page, so no
+ * hover state shows: a feature's part fills the whole window. */
 async function settle(page: Page) {
-  await page.mouse.move(2, page.viewportSize()!.height - 2);
   await page.waitForTimeout(600);
   await checkPrivacy(page);
 }
@@ -526,14 +547,17 @@ function serveDemo() {
 
 /** Opens a scene of the demo at its window's size, ready to capture. */
 async function scene(browser: Browser, shot: Shot, scheme: Scheme) {
+  const spec = shots[shot]!;
   const context = await browser.newContext({
-    viewport: shots[shot].viewport,
-    deviceScaleFactor: 2,
+    viewport: spec.viewport,
+    deviceScaleFactor: spec.scale ?? 2,
     colorScheme: scheme,
     reducedMotion: "reduce",
   });
   const page = await context.newPage();
-  await page.goto(`http://127.0.0.1:${port + 2}/demo.html?scene=${shot}`);
+  await page.goto(
+    `http://127.0.0.1:${port + 2}/demo.html?scene=${spec.scene ?? shot}`,
+  );
   await page.waitForFunction(
     () => document.documentElement.dataset.demo === "ready",
     null,
@@ -546,7 +570,8 @@ async function scene(browser: Browser, shot: Shot, scheme: Scheme) {
 async function encode(shot: Shot, scheme: Scheme, png: Buffer) {
   const image = sharp(png);
   const { width = 0, height = 0 } = await image.metadata();
-  for (const target of shots[shot].widths) {
+  const { widths, scale = 2 } = shots[shot]!;
+  for (const target of widths) {
     const resized = image.clone().resize({ width: target });
     const base = join(staging, `${shot}-${scheme}-${target}`);
     await resized
@@ -558,7 +583,7 @@ async function encode(shot: Shot, scheme: Scheme, png: Buffer) {
       .webp({ quality: 82, effort: 5 })
       .toFile(`${base}.webp`);
   }
-  return { width: Math.round(width / 2), height: Math.round(height / 2) };
+  return { width: Math.round(width / scale), height: Math.round(height / scale) };
 }
 
 // Image work stays on one thread, so other work on the machine keeps its share.
@@ -630,7 +655,7 @@ try {
         keep("", png);
         await page.context().close();
         const size = await encode(shot, scheme, png);
-        manifest[shot] = { ...size, widths: shots[shot].widths };
+        manifest[shot] = { ...size, widths: shots[shot]!.widths };
         console.log(`${shot} ${scheme}: ${size.width}x${size.height}`);
       }
     }

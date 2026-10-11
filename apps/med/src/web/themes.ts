@@ -55,7 +55,17 @@ export interface Aesthetic {
    * tracking. `measure` is the prose column width in em. Characters per line
    * depend on the prose font: 38em holds about 86 in Geist, 66 in Paper Mono at 40em.
    */
-  fonts: { ui: string; prose: string; headings: string; headingTracking: string; measure: string };
+  fonts: {
+    ui: string;
+    prose: string;
+    headings: string;
+    headingTracking: string;
+    measure: string;
+    /** Notes text and headings multiply their sizes by these: a wide
+     * monospace reads larger than a proportional font at the same size. */
+    proseScale?: number;
+    headingScale?: number;
+  };
   /** Multiplies every corner radius: 1 is Med's own, 0.3 is nearly square. */
   round: number;
   /** "pill" makes command buttons fully round. */
@@ -618,6 +628,9 @@ export const aesthetics = {
       headingTracking: "0",
       // A Paper Mono character is about 0.61em wide, so 40em holds about 66.
       measure: "40em",
+      // Notes at 14px, and headings closer to the text.
+      proseScale: 14 / 15,
+      headingScale: 0.85,
     },
     round: 0.3,
     buttons: "rounded",
@@ -1465,6 +1478,8 @@ export function aestheticVariables({ aesthetic: look, palette }: Theme): Record<
     "--med-font-headings": look.fonts.headings,
     "--med-headings-tracking": look.fonts.headingTracking,
     "--med-measure": look.fonts.measure,
+    "--med-prose-scale": String(look.fonts.proseScale ?? 1),
+    "--med-heading-scale": String(look.fonts.headingScale ?? 1),
     "--med-round": String(look.round),
     "--med-button-round": look.buttons === "pill" ? "999px" : `calc(6px * ${look.round})`,
     "--med-line-from": look.lines.from === "accent" ? palette.accent : palette.text,

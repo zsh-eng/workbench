@@ -37,6 +37,19 @@ struct ReaderPage: View {
       && article?.downloadedAt == nil
   }
   private var canArchive: Bool { isSaved && article?.isArchived != true }
+  /// Back first walks this page's own history, then returns to the page whose
+  /// link opened it.
+  private var canGoBack: Bool { browser.canGoBack || browser.opener != nil }
+  /// The page below, named by its publisher or site for the end prompt.
+  private var openerName: String? {
+    guard let opener = browser.opener else { return nil }
+    func site(_ url: URL?) -> String {
+      (url?.host ?? "").replacingOccurrences(of: "www.", with: "")
+    }
+    let host = site(opener.sourceURL)
+    return ArcticPublisher.all.first { site($0.url) == host }?.name
+      ?? (host.isEmpty ? "previous page" : host)
+  }
   init(browser: ArticleBrowser, store: ArticleStore) {
     _browser = State(initialValue: browser)
     self.store = store
@@ -71,7 +84,10 @@ struct ReaderPage: View {
           guard let browser else { return }
           ReadingSessions.shared.activity(for: browser.libraryURL)
         }
-        browser.readingDocumentEnded = { ReadingSessions.shared.end() }
+        browser.readingDocumentEnded = { [weak browser] in
+          guard let browser else { return }
+          ReadingSessions.shared.end(url: browser.libraryURL)
+        }
         readingVisible = true
         updateReadingSession()
       }
@@ -80,7 +96,7 @@ struct ReaderPage: View {
         browser.showingReadingTime = false
         browser.readingActivity = nil
         browser.readingDocumentEnded = nil
-        ReadingSessions.shared.end()
+        ReadingSessions.shared.end(url: browser.libraryURL)
         browser.captureReaderPosition()
         if browser.selectedAnnotationID != nil { browser.selectedAnnotationID = nil }
       }
@@ -135,27 +151,29 @@ struct ReaderPage: View {
 
   private struct ReadingContext: Equatable {
     let url: URL
-    let saved: Bool
     let eligible: Bool
   }
 
+  /// Any article counts, saved or not. Website counts once Reader extraction has
+  /// found article text in the page; a publisher's front page never counts.
   private var readingContext: ReadingContext {
-    ReadingContext(
-      url: browser.libraryURL, saved: isSaved,
-      eligible: readingVisible && scenePhase == .active && isSaved && browser.isReader
-        && browser.readerReady && browser.positionReady && !appearance
+    let readable = browser.readerReady && (!browser.isReader || browser.positionReady)
+    return ReadingContext(
+      url: browser.libraryURL,
+      eligible: readingVisible && scenePhase == .active && readable
+        && !browser.isPublisherFront && !appearance
         && browser.noteDraft == nil && browser.annotationPresentation == nil
         && !browser.showingReadingTime && sharingPassage == nil
         && browser.errorMessage == nil && actionError == nil)
   }
 
+  /// Calls carry this page's URL, so a covered page cannot stop the visible one.
   private func updateReadingSession() {
     let context = readingContext
-    if !context.saved { ReadingSessions.shared.end(); return }
     if context.eligible {
       ReadingSessions.shared.begin(url: context.url)
     } else {
-      ReadingSessions.shared.pause()
+      ReadingSessions.shared.pause(url: context.url)
     }
   }
 
@@ -182,7 +200,7 @@ struct ReaderPage: View {
             WebSurface(
               webView: browser.readerView, insets: geometry.safeAreaInsets,
               isActive: { browser.isReader && browser.readerReady }, nearEnd: $nearEnd,
-              onScrollEnd: browser.captureReaderPosition,
+              onScrollEnd: browser.readerScrollEnded,
               onReadingActivity: { browser.readingActivity?() },
               onTap: browser.noteDraft == nil ? nil : { browser.noteDismissRequest += 1 }
             )
@@ -194,8 +212,12 @@ struct ReaderPage: View {
             WebSurface(
               webView: browser.webView, insets: geometry.safeAreaInsets,
               isActive: { !browser.isReader }, nearEnd: $nearEnd,
+              onScrollEnd: browser.websiteScrollEnded,
+              onReadingActivity: { browser.readingActivity?() },
               onTap: browser.noteDraft == nil ? nil : { browser.noteDismissRequest += 1 }
             )
+            .opacity(browser.websiteAligning ? 0 : 1)
+            .animation(.easeOut(duration: 0.12), value: browser.websiteAligning)
             .transition(.opacity)
           }
         }
@@ -266,19 +288,35 @@ struct ReaderPage: View {
 
   private var interactiveBottomControls: some View {
     VStack(spacing: 10) {
-      if browser.selectedAnnotationID == nil, !appearance, nearEnd, canArchive {
-        Button(action: archive) {
-          Label("Archive and close", systemImage: "archivebox")
+      if browser.selectedAnnotationID == nil, !appearance, nearEnd {
+        // A page opened from another page returns there; a library page closes.
+        if canArchive {
+          Button(action: archive) {
+            Label(
+              openerName == nil ? "Archive and close" : "Archive and go back",
+              systemImage: "archivebox"
+            )
             .font(.subheadline.weight(.semibold)).padding(.horizontal, 20).frame(height: 44)
+          }
+          .readerGlass().accessibilityIdentifier("reader-archive-prompt")
+          .transition(reduceMotion ? .opacity : .offset(y: 8).combined(with: .opacity))
+        } else if let openerName {
+          Button {
+            dismiss()
+          } label: {
+            Label("Back to " + openerName, systemImage: "chevron.left")
+              .font(.subheadline.weight(.semibold)).lineLimit(1)
+              .padding(.horizontal, 20).frame(height: 44)
+          }
+          .readerGlass().accessibilityIdentifier("reader-back-prompt")
+          .transition(reduceMotion ? .opacity : .offset(y: 8).combined(with: .opacity))
         }
-        .readerGlass().accessibilityIdentifier("reader-archive-prompt")
-        .transition(reduceMotion ? .opacity : .offset(y: 8).combined(with: .opacity))
       }
       if let draft = browser.noteDraft {
         ReaderNoteComposer(browser: browser, draft: draft).id(draft.id)
           .transition(.opacity)
       } else if let id = browser.selectedAnnotationID,
-        let annotation = browser.annotations.first(where: { $0.id == id }), browser.isReader
+        let annotation = browser.annotations.first(where: { $0.id == id })
       {
         HighlightToolbar(annotation: annotation, browser: browser) {
           sharingPassage = PassageStory(
@@ -317,14 +355,17 @@ struct ReaderPage: View {
 
   private var navigationControls: some View {
     HStack(spacing: 0) {
-      Button("Back", systemImage: "chevron.left", action: browser.back)
-        .labelStyle(.iconOnly).frame(width: 44, height: 44).disabled(!browser.canGoBack)
-        .accessibilityIdentifier("browser-back")
-        .opacity(browser.canGoBack ? 1 : 0.28).frame(maxWidth: .infinity)
-      Button("Forward", systemImage: "chevron.right", action: browser.forward)
-        .labelStyle(.iconOnly).frame(width: 44, height: 44).disabled(!browser.canGoForward)
+      Button("Back", systemImage: "chevron.left") {
+        if browser.canGoBack { browser.back() } else { dismiss() }
+      }
+      .labelStyle(.iconOnly).frame(width: 44, height: 44).disabled(!canGoBack)
+      .accessibilityIdentifier("browser-back")
+      .opacity(canGoBack ? 1 : 0.28).frame(maxWidth: .infinity)
+      Button("Forward", systemImage: "chevron.right", action: browser.goForward)
+        .labelStyle(.iconOnly).frame(width: 44, height: 44)
+        .disabled(!browser.canGoForwardPage)
         .accessibilityIdentifier("browser-forward")
-        .opacity(browser.canGoForward ? 1 : 0.28).frame(maxWidth: .infinity)
+        .opacity(browser.canGoForwardPage ? 1 : 0.28).frame(maxWidth: .infinity)
       Button {
         if !browser.isReader { browser.toggleReader() }
         appearance = true
@@ -437,7 +478,7 @@ struct ReaderNavigationBar: View {
           .disabled(!browser.hasLoaded || browser.noteDraft != nil)
           .accessibilityIdentifier("reader-find")
         Button("Reading time", systemImage: "clock") {
-          ReadingSessions.shared.pause()
+          ReadingSessions.shared.pause(url: browser.libraryURL)
           browser.showingReadingTime = true
         }.accessibilityIdentifier("reader-reading-time")
         Divider()

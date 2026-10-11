@@ -106,14 +106,22 @@ formats; TypeScript and Vitest check. The lockfile pins all versions.
 ## Syntax highlighting
 
 Twinkleplop gives tokens to the worker and main-thread paths. Med has its own
-grammars for Java, C++, XML, JSON, and JSONC in `src/web/highlighting/languages/`.
-`languages.ts` loads each grammar on demand, and `scopeOverrides` maps
+grammars for Java, C++, XML, JSON, JSONC, Go, Rust, and Swift in
+`src/web/highlighting/languages/`. The Go, Rust, and Swift scanners give the
+scope stacks of the TextMate grammars that Shiki uses;
+[upstream/GRAMMARS.md](upstream/GRAMMARS.md) records their sources and licenses.
+`languages.ts` loads each grammar on demand and adds the root scope, such as
+`source.json`, to scanners that give scope stacks. `scopeOverrides` maps
 Twinkleplop's CSS token kinds to the scopes that Shiki uses. The adapter
-(`src/web/highlighting/adapter.ts`) maps each token kind to one TextMate scope,
-changes UTF-16 ranges to Pierre's HAST, and adds word-change decorations and
-theme colors. It ignores parent and descendant scope selectors. Markdown fences
-load their embedded grammars. Unsupported languages use plain text.
+(`src/web/highlighting/adapter.ts`) reads each token's scope stack, changes
+UTF-16 ranges to Pierre's HAST, and adds word-change decorations and theme
+colors. It resolves theme rules as vscode-textmate does, with parent and child
+(`>`) selectors and their specificity. Twinkleplop grammars give one scope per
+token kind, so parent selectors seldom match them. Markdown fences load their
+embedded grammars. Unsupported languages use plain text.
 `bun run test:highlighting` compares Med's grammars with Shiki through Pierre.
+Go, Rust, and Swift use Shiki's Oniguruma engine as the reference, because its
+JavaScript engine misreads some Swift comments and fails on some Go files.
 
 `tools/pierre-highlighter.ts` patches Pierre 1.4.3 at build time and rejects
 another version or a missing source boundary. Pierre keeps the worker queue,

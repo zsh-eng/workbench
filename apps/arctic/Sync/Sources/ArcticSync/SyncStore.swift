@@ -28,9 +28,11 @@ public struct JournalMutation: Sendable {
   }
 }
 
-/// One actor owns each account's durable rows, versions, outbox and cursor.
-/// Domain updates and their upload intent are one atomic file replacement.
-/// Callers must keep one store instance per file and keep account files separate.
+/// One actor owns each account's durable rows, versions, outbox and cursor, so
+/// storage work runs off the main actor and never during a network await.
+/// Domain updates and their upload intent commit together: as one SQLite
+/// transaction of the changed rows, or as one atomic replacement of the small
+/// trial's JSON file. Keep one store instance per profile and separate accounts.
 public actor SyncStore {
   struct State: Codable {
     var accountID: String
@@ -42,6 +44,7 @@ public actor SyncStore {
     var localValues: [String: String]?
   }
   private let file: URL
+  private let database: SQLiteJournal?
   private var state: State
   private var syncing = false
   private var hasPersisted: Bool
@@ -52,6 +55,7 @@ public actor SyncStore {
   ) throws {
     self.validateValue = validateValue
     self.file = file
+    database = nil
     hasPersisted = FileManager.default.fileExists(atPath: file.path)
     if hasPersisted {
       state = try JSONDecoder().decode(State.self, from: Data(contentsOf: file))
@@ -68,8 +72,38 @@ public actor SyncStore {
     try self.init(
       file: file, accountID: scope.header, deviceID: deviceID, validateValue: validateValue)
   }
+  /// A live profile's SQLite journal. Opening another account's file fails.
+  public init(
+    database file: URL, scope: SyncScope, deviceID: String = UUID().uuidString,
+    validateValue: @escaping @Sendable (SyncChange) throws -> Void = { _ in }
+  ) throws {
+    try self.init(
+      database: file, accountID: scope.header, deviceID: deviceID, validateValue: validateValue)
+  }
+
+  /// `busyTimeout` is in milliseconds: how long a write waits for another
+  /// connection's lock before it fails and leaves the store unchanged.
+  public init(
+    database file: URL, accountID: String, deviceID: String = UUID().uuidString,
+    busyTimeout: Int32 = 5_000,
+    validateValue: @escaping @Sendable (SyncChange) throws -> Void = { _ in }
+  ) throws {
+    self.validateValue = validateValue
+    self.file = file
+    let database = try SQLiteJournal(file: file, busyTimeout: busyTimeout)
+    self.database = database
+    let stored = try database.load()
+    if let stored, stored.accountID != accountID { throw SyncFailure.wrongAccount }
+    state = stored ?? State(accountID: accountID, deviceID: deviceID)
+    hasPersisted = stored != nil
+  }
+
+  /// False until the first transaction commits. An import that stopped before
+  /// then left no rows, so the caller can safely run it again.
+  public var hasCommitted: Bool { hasPersisted }
+
   /// Read the small, disposable trial journal's identity without a network call.
-  /// Production SQLite profiles will carry this identity in their state table.
+  /// SQLite profiles keep this identity in their state table.
   public static func persistedScope(file: URL) throws -> SyncScope? {
     guard FileManager.default.fileExists(atPath: file.path) else { return nil }
     let stored = try JSONDecoder().decode(State.self, from: Data(contentsOf: file))
@@ -87,7 +121,7 @@ public actor SyncStore {
     let update = try transform(snapshotState())
     var next = try applying(update.mutations, now: now)
     next.localValues = update.localValues
-    try persist(next)
+    try persist(next, keys: update.mutations.map(\.key))
     return snapshotState()
   }
   public var pendingCount: Int { state.pending.count }
@@ -95,7 +129,7 @@ public actor SyncStore {
 
   /// Import batches produce one file write. A failed write publishes no in-memory change.
   public func commit(_ mutations: [LocalMutation], now: Date = Date()) throws {
-    try persist(applying(mutations, now: now))
+    try persist(applying(mutations, now: now), keys: mutations.map(\.key))
   }
 
   private func applying(_ mutations: [LocalMutation], now: Date) throws -> State {
@@ -164,7 +198,7 @@ public actor SyncStore {
       var next = state
       for record in page.records { merge(record, into: &next) }
       next.cursor = page.cursor
-      try persist(next)
+      try persist(next, keys: page.records.map(\.key))
       if !page.hasMore { break }
       head = page.head
     }
@@ -195,7 +229,7 @@ public actor SyncStore {
         if next.pending[key] == submitted[key] { next.pending.removeValue(forKey: key) }
         merge(result.winner, into: &next)
       }
-      try persist(next)
+      try persist(next, keys: response.results.map(\.winner.key))
     }
   }
 
@@ -213,12 +247,21 @@ public actor SyncStore {
       next.pending.removeValue(forKey: record.key)
     }
   }
-  private func persist(_ next: State) throws {
-    // A repeated value or an empty pull should not rewrite the entire journal.
+  /// `keys` names every row and outbox entry that `next` can change, so a
+  /// one-article edit costs the same in a large library as in a small one.
+  private func persist(_ next: State, keys: [String]) throws {
+    // A repeated value or an empty pull should not rewrite the journal.
     // The first empty commit still creates the durable migration marker.
     if hasPersisted, next.clock == state.clock, next.cursor == state.cursor,
-      next.rows == state.rows, next.pending == state.pending, next.localValues == state.localValues
+      next.localValues == state.localValues,
+      keys.allSatisfy({ next.rows[$0] == state.rows[$0] && next.pending[$0] == state.pending[$0] })
     {
+      return
+    }
+    if let database {
+      try database.persist(next, previous: hasPersisted ? state : nil, keys: keys)
+      state = next
+      hasPersisted = true
       return
     }
     let data = try JSONEncoder().encode(next)

@@ -178,6 +178,95 @@ test("a long thread renders only the units near the view", async () => {
     .toBeLessThan(32);
 });
 
+test("a reply taller than the overscan does not move the range on each scroll", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  const tall = Array.from({ length: 150 }, (_, n) => `Paragraph ${n} of a long reply.`);
+  store.applyAll([
+    ...turnEvents(0, 20),
+    {
+      at: 20_500,
+      update: {
+        sessionUpdate: "agent_message_chunk" as const,
+        messageId: "tall",
+        content: { type: "text" as const, text: tall.join("\n\n") },
+      },
+    },
+    ...turnEvents(21, 20),
+  ]);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r40");
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  // Each commit that adds or removes units is one move of the range.
+  let moves = 0;
+  const watch = new MutationObserver((records) => {
+    const nodes = records.flatMap((record) => [...record.addedNodes, ...record.removedNodes]);
+    if (nodes.some((node) => node instanceof HTMLElement && node.dataset.unit)) moves++;
+  });
+  watch.observe(document.querySelector('[aria-label="Session"]')!, { childList: true });
+  const scroller = threadScroller();
+  for (let step = 0; step < 80; step++) {
+    scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -50 }));
+    scroller.scrollTop -= 50;
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+  }
+  watch.disconnect();
+  expect(document.querySelector('[data-unit="tall"]')).not.toBeNull();
+  // 4,000 px up, past the end of the tall reply: the range moves about every 400 px.
+  expect(moves).toBeLessThan(12);
+});
+
+test("a task in the Background dock scrolls a long thread to its call", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  store.applyAll([
+    {
+      at: 0,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "server",
+        title: "Start the dev server",
+        kind: "execute",
+        status: "in_progress",
+        _meta: { med: { background: { id: "b1", kind: "shell" } } },
+      },
+    },
+    ...turnEvents(1, 300),
+  ]);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r300");
+  expect(document.querySelector('[data-unit="server"]')).toBeNull();
+  await userEvent.click(
+    page.getByRole("region", { name: "Background tasks" }).getByRole("button", {
+      name: "Start the dev server",
+    }),
+  );
+  await expect.poll(() => document.querySelector('[data-unit="server"]')).not.toBeNull();
+  await expect.poll(() => Math.round(topOf("server"))).toBe(16);
+});
+
+test("[ and ] step through the prompts and replies of a focused thread", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(300);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r299");
+  const current = () => document.querySelector<HTMLElement>("[data-current]")?.dataset.unit;
+  threadScroller().focus();
+  // From the end, the latest reply first, then up through the messages.
+  await userEvent.keyboard("[[");
+  expect(current()).toBe("r299");
+  await userEvent.keyboard("[[[[[[");
+  expect(document.querySelector("[data-current]")!.textContent).toContain("Prompt 298");
+  await userEvent.keyboard("]");
+  await expect.poll(current).toBe("r298");
+  // Far from the end, the message goes near the top of the view.
+  for (let step = 0; step < 20; step++) await userEvent.keyboard("[[");
+  await expect.poll(() => Math.round(topOf(current()!))).toBe(16);
+});
+
 test("a thread that arrives in batches still renders only the units near the view", async () => {
   await page.viewport(1280, 900);
   initializeTheme();
@@ -227,6 +316,8 @@ test("the units in view keep their place as earlier work loads above them", asyn
   const scroller = threadScroller();
   await userEvent.wheel(scroller, { delta: { y: -100000 } });
   await expect.poll(() => loads).toBe(1);
+  // The wheel's scroll ends at the top before the page arrives.
+  await expect.poll(() => scroller.scrollTop).toBe(0);
   render(true, true);
   const before = firstInView();
 
@@ -236,6 +327,8 @@ test("the units in view keep their place as earlier work loads above them", asyn
   resolve();
   await expect.poll(() => units()[0]?.textContent?.includes("Prompt 300")).toBe(false);
   expect(before.text).toContain("Prompt 300");
+  // The replies in view show their Markdown, so the thread has settled.
+  await expect.poll(() => document.querySelector("[data-unit] .med-session-plain")).toBeNull();
   expect(Math.abs(topOf(before.key) - before.top)).toBeLessThan(2);
   // The thread holds the earlier work's space above the view.
   expect(scroller.scrollTop).toBeGreaterThan(2000);
@@ -318,7 +411,7 @@ test("a turn from the index goes to the top of the view", async () => {
   expect(Math.abs(firstInView().top)).toBeLessThan(2);
 });
 
-test("a long thread renders each edit's diff once it comes near the view", async () => {
+test("an edit shows its file and line counts, and its diff when the reader opens it", async () => {
   await page.viewport(1280, 900);
   initializeTheme();
   const store = createSessionStore();
@@ -336,7 +429,7 @@ test("a long thread renders each edit's diff once it comes near the view", async
             type: "diff" as const,
             path: `/repo/file-${turn}.ts`,
             oldText: `export const value = ${turn};\n`,
-            newText: `export const value = ${turn + 1};\n`,
+            newText: `export const value = ${turn + 1};\nexport const next = ${turn + 2};\n`,
           },
         ],
       },
@@ -347,19 +440,14 @@ test("a long thread renders each edit's diff once it comes near the view", async
   document.body.append(mount);
   root = createRoot(mount);
   root.render(<SessionThread snapshot={store.getSnapshot()} />);
-  const diffs = (state: "rendered" | "pending") =>
-    document.querySelectorAll(
-      state === "pending" ? "[data-diff-pending]" : "[data-unit] figure:not([data-diff-pending])",
-    ).length;
-  const scroller = () => document.querySelector('[aria-label="Session"]')!.parentElement!;
-  await expect.poll(() => diffs("rendered")).toBeGreaterThan(0);
-  // Edits near the view render; the others are not in the page.
-  expect(diffs("rendered") + diffs("pending")).toBeLessThan(40);
-  expect(document.querySelector('[data-unit="edit-0"]')).toBeNull();
-  expect(document.querySelector('[data-unit="edit-79"] [data-diff-pending]')).toBeNull();
+  const row = () => document.querySelector<HTMLButtonElement>('[data-unit="edit-79"] button')!;
+  await expect.poll(() => row()?.textContent).toContain("file-79.ts");
+  expect(row().textContent).toContain("+2");
+  expect(row().textContent).toContain("−1");
+  expect(row().getAttribute("aria-expanded")).toBe("false");
+  expect(document.querySelector("[data-unit] figure")).toBeNull();
 
-  await userEvent.wheel(scroller(), { delta: { y: -100000 } });
-  await expect
-    .poll(() => document.querySelector('[data-unit="edit-0"] figure:not([data-diff-pending])'))
-    .not.toBeNull();
+  await userEvent.click(row());
+  await expect.poll(() => document.querySelector('[data-unit="edit-79"] figure')).not.toBeNull();
+  expect(document.querySelectorAll("[data-unit] figure")).toHaveLength(1);
 });

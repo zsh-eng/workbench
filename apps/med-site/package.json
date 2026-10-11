@@ -8,6 +8,7 @@
     "preview": "bun scripts/dev.ts --dist",
     "demo": "bun scripts/demo.ts",
     "test": "bun run build && playwright test",
+    "deploy": "bun run build && wrangler deploy",
     "fonts": "bun scripts/fonts.ts",
     "paint": "bun scripts/painting/paint.ts",
     "screenshots": "bun scripts/screenshots/capture.ts"
@@ -16,6 +17,7 @@
     "@playwright/test": "1.59.1",
     "playwright": "1.59.1",
     "sharp": "0.33.5",
-    "subset-font": "2.9.0"
+    "subset-font": "2.9.0",
+    "wrangler": "4.135.0"
   }
 }

@@ -150,6 +150,14 @@ for (const colorScheme of ["light", "dark"] as const) {
     expect(layout.mark).toContain(
       colorScheme === "dark" ? "icon-night" : "icon-dawn",
     );
+    // A feature shows its part as Med lays it out for a phone.
+    const comment = page.locator('[data-demo$="scene=comment"] img');
+    await comment.scrollIntoViewIfNeeded();
+    await expect
+      .poll(() =>
+        comment.evaluate((image: HTMLImageElement) => image.currentSrc),
+      )
+      .toContain(`comment-phone-${colorScheme}-`);
     await context.close();
   });
 }

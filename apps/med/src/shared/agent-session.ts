@@ -56,6 +56,11 @@ export interface PlanEntry {
   status: "pending" | "in_progress" | "completed";
 }
 
+/** The call ID of an update for a background task whose call the reader has
+ * not seen, as on an earlier page. The thread gives it to the call that
+ * started the task. */
+export const taskCallId = (task: string) => `task:${task}`;
+
 /** Med's additions, under ACP's reserved `_meta` key. */
 export interface MedMeta {
   med?: {

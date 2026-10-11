@@ -1,48 +1,146 @@
 import SwiftUI
 import UIKit
 
-/// Two stable states. UIKit owns every scroll offset, inset and momentum curve.
-/// Only a deliberate drag or a header tap changes the news row above the tabs.
+/// Two stable states joined by one distance. `openness` is the space news takes
+/// above the tabs: 0 when closed, `height` when open. A pull scrubs it directly;
+/// releasing past the trigger hands the pulled distance to a spring, so the list
+/// never bounces back before news pushes it down again. UIKit still owns every
+/// scroll offset and momentum curve.
 @MainActor @Observable final class DiscoveryMotion {
-  @ObservationIgnored let flight = DiscoveryBubbleFlight()
+  static let height: CGFloat = 128
   private(set) var isExpanded = false
   private(set) var pullDistance: CGFloat = 0
-  @ObservationIgnored var enabled = false
-  @ObservationIgnored var reduceMotion = false
+  private(set) var openness: CGFloat = 0
+  /// The real shelf takes over once opening settles. Until then, and while
+  /// closing, drawn bubbles carry the publishers between header and shelf.
+  private(set) var settled = false
+  private(set) var ghostActive = false
+  private(set) var compactFrame: CGRect = .zero
+  private(set) var panelFrame: CGRect = .zero
+  private(set) var shelfScroll: CGFloat = 0
+  /// A drag that began at the top of a closed list. Momentum bounces do not
+  /// count, so a fast scroll back to the top never shakes the bubbles loose.
+  private(set) var pulling = false
+  @ObservationIgnored weak var shelf: DiscoveryShelfView?
+  // Observed, so a view that first rendered while news was unavailable still
+  // tracks the motion values once it becomes available.
+  private(set) var enabled = false
+  var reduceMotion = false
   @ObservationIgnored private var startedAtTop = false
   @ObservationIgnored private var startedExpanded = false
   @ObservationIgnored private var signalled = false
+  @ObservationIgnored private var generation = 0
   @ObservationIgnored private let feedback = UIImpactFeedbackGenerator(style: .medium)
-  private let trigger: CGFloat = 44
+  private let trigger: CGFloat = 56
+  // Settles in about half a second with a few points of give, not a bounce.
+  private let spring = Animation.spring(response: 0.44, dampingFraction: 0.86)
+
+  /// The distance drawn on screen: a closed pull adds the rubber-band distance.
+  var visibleOpenness: CGFloat { isExpanded ? openness : openness + pullDistance }
+  var showsGhost: Bool {
+    enabled && !reduceMotion && (ghostActive || (pulling && !isExpanded && pullDistance > 0.5))
+  }
 
   func setEnabled(_ value: Bool) {
-    enabled = value
+    if enabled != value { enabled = value }
     if !value {
-      flight.cancel()
+      generation += 1
       isExpanded = false
+      openness = 0
+      settled = false
+      ghostActive = false
+      pulling = false
       pullDistance = 0
     }
   }
 
+  func setCompactFrame(_ frame: CGRect) { if compactFrame != frame { compactFrame = frame } }
+  func setPanelFrame(_ frame: CGRect) { if panelFrame != frame { panelFrame = frame } }
+
   func followBounce(_ scroll: UIScrollView) {
     let distance = enabled ? max(0, -(scroll.contentOffset.y + scroll.adjustedContentInset.top)) : 0
     if pullDistance != distance { pullDistance = distance }
+    if pulling, distance == 0, !scroll.isDragging { pulling = false }
   }
 
   func toggle() {
     guard enabled else { return }
-    setExpanded(!isExpanded)
+    if isExpanded { close() } else { open(from: 0) }
   }
 
-  func close() { setExpanded(false) }
-
-  private func setExpanded(_ value: Bool) {
-    guard isExpanded != value else { return }
-    flight.prepare(opening: value, reduced: reduceMotion)
-    withAnimation(reduceMotion ? .easeOut(duration: 0.12) : .smooth(duration: 0.24)) {
-      isExpanded = value
+  /// Closes with the bubbles flying home, or at once when the library is
+  /// about to be hidden.
+  func close(animated: Bool = true) {
+    guard isExpanded else { return }
+    generation += 1
+    let token = generation
+    if !animated {
+      var transaction = Transaction()
+      transaction.disablesAnimations = true
+      withTransaction(transaction) {
+        isExpanded = false
+        openness = 0
+        settled = false
+        ghostActive = false
+        shelfScroll = 0
+      }
+      return
     }
-    DispatchQueue.main.async { self.flight.startIfReady() }
+    if reduceMotion {
+      withAnimation(.easeOut(duration: 0.12)) {
+        isExpanded = false
+        openness = 0
+        settled = false
+      }
+      return
+    }
+    // Draw the bubbles where the shelf shows them, then let them fly home.
+    shelfScroll = shelf?.scroller.contentOffset.x ?? 0
+    settled = false
+    ghostActive = true
+    DispatchQueue.main.async { [self] in
+      guard generation == token else { return }
+      withAnimation(spring, completionCriteria: .removed) {
+        isExpanded = false
+        openness = 0
+      } completion: { [self] in
+        guard generation == token else { return }
+        ghostActive = false
+        shelfScroll = 0
+      }
+    }
+  }
+
+  /// Opens from `start` points of space: zero for a tap, the pulled distance
+  /// for a released pull.
+  private func open(from start: CGFloat) {
+    guard enabled, !isExpanded else { return }
+    generation += 1
+    let token = generation
+    if reduceMotion {
+      withAnimation(.easeOut(duration: 0.12)) {
+        isExpanded = true
+        openness = Self.height
+        settled = true
+      }
+      return
+    }
+    settled = false
+    shelfScroll = 0
+    ghostActive = true
+    openness = start
+    // The bubbles render once at the starting distance before the spring moves them.
+    DispatchQueue.main.async { [self] in
+      guard generation == token else { return }
+      withAnimation(spring, completionCriteria: .removed) {
+        isExpanded = true
+        openness = Self.height
+      } completion: { [self] in
+        guard generation == token else { return }
+        settled = true
+        ghostActive = false
+      }
+    }
   }
 
   func handle(_ pan: UIPanGestureRecognizer, in scroll: UIScrollView) {
@@ -54,6 +152,7 @@ import UIKit
       startedAtTop = offset <= 1
       startedExpanded = isExpanded
       signalled = false
+      pulling = startedAtTop && !isExpanded
       feedback.prepare()
     case .changed:
       if startedExpanded, translation < -12, !signalled {
@@ -66,7 +165,12 @@ import UIKit
       }
     case .ended:
       if !startedExpanded, startedAtTop, -offset >= trigger {
-        setExpanded(true)
+        let pulled = -offset
+        // Hold the list where the finger left it; the spring continues from there.
+        scroll.setContentOffset(
+          CGPoint(x: scroll.contentOffset.x, y: -scroll.adjustedContentInset.top), animated: false)
+        pulling = false
+        open(from: pulled)
       }
     case .cancelled, .failed:
       signalled = false
@@ -163,8 +267,12 @@ struct DiscoveryHeader: View {
           }
         }
         .frame(width: 46, height: 26, alignment: .leading)
-        .opacity(motion.flight.active ? 0 : 1)
-        .background(DiscoveryCompactAnchor(flight: motion.flight))
+        .opacity(motion.showsGhost ? 0 : 1)
+        .onGeometryChange(for: CGRect.self) {
+          $0.frame(in: .global)
+        } action: {
+          motion.setCompactFrame($0)
+        }
         .frame(width: available && !motion.isExpanded ? 54 : 0, alignment: .leading)
         .clipped().opacity(available && !motion.isExpanded ? 1 : 0)
         ArcticMark().frame(width: 22, height: 22)
@@ -188,8 +296,7 @@ struct NativeDiscoveryShelf: UIViewRepresentable {
   let weekly: () -> Void
   func makeUIView(context: Context) -> DiscoveryShelfView {
     let view = DiscoveryShelfView()
-    view.flight = motion.flight
-    motion.flight.shelf = view
+    motion.shelf = view
     return view
   }
   func updateUIView(_ view: DiscoveryShelfView, context: Context) {
@@ -206,7 +313,6 @@ final class DiscoveryShelfView: UIView {
   var buttons: [UIButton] = []
   var open: (URL) -> Void = { _ in }
   var weekly: () -> Void = {}
-  weak var flight: DiscoveryBubbleFlight?
 
   init() {
     super.init(frame: .zero)
@@ -282,167 +388,146 @@ final class DiscoveryShelfView: UIView {
   override func layoutSubviews() {
     super.layoutSubviews()
     scroller.frame = bounds
-    scroller.contentSize = CGSize(width: CGFloat(buttons.count) * 86 + 22, height: bounds.height)
+    typealias Layout = DiscoveryShelfLayout
+    scroller.contentSize = CGSize(
+      width: CGFloat(buttons.count) * Layout.pitch + 22, height: bounds.height)
     for index in buttons.indices {
-      buttons[index].frame = CGRect(x: 16 + CGFloat(index) * 86, y: 0, width: 68, height: 88)
-      icons[index].frame = CGRect(x: 5, y: 4, width: 58, height: 58)
-      labels[index].frame = CGRect(x: 0, y: 70, width: 68, height: 18)
-      icons[index].alpha = flight?.active == true ? 0 : 1
+      buttons[index].frame = CGRect(
+        x: Layout.leading + CGFloat(index) * Layout.pitch, y: 0, width: Layout.slot, height: 88)
+      icons[index].frame = CGRect(
+        x: (Layout.slot - Layout.icon) / 2, y: Layout.iconTop, width: Layout.icon,
+        height: Layout.icon)
+      labels[index].frame = CGRect(x: 0, y: Layout.labelTop, width: Layout.slot, height: 18)
     }
-    flight?.startIfReady()
   }
 }
 
-/// One overlay carries the same circles between their two real layouts. It never
-/// changes a scroll offset. Interrupted transitions start at presentation frames.
-@MainActor @Observable final class DiscoveryBubbleFlight {
-  private(set) var active = false
-  @ObservationIgnored weak var compact: UIView?
-  @ObservationIgnored weak var shelf: DiscoveryShelfView?
-  @ObservationIgnored weak var surface: UIView?
-  @ObservationIgnored private var copies: [UIImageView] = []
-  @ObservationIgnored private var animator: UIViewPropertyAnimator?
-  @ObservationIgnored private var compactFrames: [CGRect] = []
-  @ObservationIgnored private var pending = false
-  @ObservationIgnored private var opening = false
-  @ObservationIgnored private var generation = 0
+/// Shelf geometry shared by the UIKit row and the drawn bubbles, so the hand-off
+/// between them lands on the same pixels.
+enum DiscoveryShelfLayout {
+  static let leading: CGFloat = 16
+  static let pitch: CGFloat = 86
+  static let slot: CGFloat = 68
+  static let icon: CGFloat = 58
+  static let iconTop: CGFloat = 4
+  static let labelTop: CGFloat = 70
+  /// The row sits inside the glass panel with this vertical padding.
+  static let inset: CGFloat = 6
+  static let panelHeight: CGFloat = 110
+  static let compact: CGFloat = 24
+}
 
-  func attach(_ surface: UIView) {
-    self.surface = surface
-    copies = (0...ArcticPublisher.all.count).map { index in
-      let image = UIImageView()
-      image.image =
-        index == 0
-        ? UIImage(
-          systemName: "star.fill",
-          withConfiguration: UIImage.SymbolConfiguration(pointSize: 22, weight: .medium))
-        : DiscoveryShelfView.publisherImage(ArcticPublisher.all[index - 1].asset)
-      image.contentMode = index == 0 ? .center : .scaleAspectFill
-      image.tintColor = UIColor(ArcticBrand.accent)
-      image.backgroundColor =
-        index == 0 ? UIColor(ArcticBrand.accent).withAlphaComponent(0.1) : .white
-      image.clipsToBounds = true
-      image.isHidden = true
-      surface.addSubview(image)
-      return image
+/// The shelf grows out of the compact stack as one glass bubble. Its frame and
+/// every circle inside it interpolate between the header and the shelf, driven
+/// only by `openness`: a pull scrubs it, and the open and close springs animate
+/// the same value. It is drawn in screen coordinates and never takes touches.
+struct DiscoveryGhost: View {
+  let motion: DiscoveryMotion
+
+  var body: some View {
+    if motion.showsGhost, motion.panelFrame.width > 0, motion.compactFrame.width > 0 {
+      DiscoveryGhostFrame(
+        openness: motion.visibleOpenness, panel: motion.panelFrame,
+        compact: motion.compactFrame, shelfScroll: motion.shelfScroll
+      )
+      .ignoresSafeArea()
+      .allowsHitTesting(false)
+      .accessibilityHidden(true)
+    }
+  }
+}
+
+/// Animatable, so a spring on `openness` redraws every frame along the same
+/// path a pull takes, instead of moving each view straight to its end state.
+private struct DiscoveryGhostFrame: View, Animatable {
+  var openness: CGFloat
+  let panel: CGRect
+  let compact: CGRect
+  let shelfScroll: CGFloat
+  var animatableData: CGFloat {
+    get { openness }
+    set { openness = newValue }
+  }
+  private typealias Layout = DiscoveryShelfLayout
+  private static let titles = ["This week"] + ArcticPublisher.all.map(\.name)
+
+  private static func mix(_ from: CGFloat, _ to: CGFloat, _ t: CGFloat) -> CGFloat {
+    from + (to - from) * t
+  }
+
+  var body: some View {
+    GeometryReader { proxy in
+      let origin = proxy.frame(in: .global).origin
+      let panel = panel.offsetBy(dx: -origin.x, dy: -origin.y)
+      let compact = compact.offsetBy(dx: -origin.x, dy: -origin.y)
+      // A capsule around the compact stack is the bubble's first shape.
+      let seed = compact.insetBy(dx: -4, dy: -4)
+      // Linear in openness, so a pull moves the bubble with the finger. It drops
+      // a little ahead of its growth to clear the title; its lower edge still
+      // stays above the tabs, which move down by the same distance.
+      let t = max(0, openness / DiscoveryMotion.height)
+      let drop = t < 1 ? 1 - (1 - t) * (1 - t) : t
+      let frame = CGRect(
+        x: Self.mix(seed.minX, panel.minX, t), y: Self.mix(seed.minY, panel.minY, drop),
+        width: Self.mix(seed.width, panel.width, t), height: Self.mix(seed.height, panel.height, t))
+      let radius = Self.mix(seed.height / 2, 30, min(1, t))
+      ZStack(alignment: .topLeading) {
+        ForEach(Self.titles.indices, id: \.self) { index in
+          circle(index, t: t, panel: panel, compact: compact, frame: frame)
+        }
+      }
+      .frame(width: frame.width, height: frame.height, alignment: .topLeading)
+      .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+      .readerGlass(cornerRadius: radius, interactive: false)
+      .shadow(color: .black.opacity(0.08 * min(1, t)), radius: 10, y: 4)
+      .opacity(min(1, t * 10))
+      .position(x: frame.midX, y: frame.midY)
     }
   }
 
-  func prepare(opening: Bool, reduced: Bool) {
-    guard !reduced, let surface, let compact, surface.window != nil else {
-      cancel()
-      return
-    }
-    if !active && opening {
-      compactFrames = (0..<3).map {
-        compact.convert(CGRect(x: CGFloat($0) * 11, y: 1, width: 24, height: 24), to: surface)
+  @ViewBuilder
+  private func circle(_ index: Int, t: CGFloat, panel: CGRect, compact: CGRect, frame: CGRect)
+    -> some View
+  {
+    // Circles to the right leave a moment later, so the row fans out from the stack.
+    let p = min(1, max(0, (t - 0.03 * CGFloat(index)) / 0.85))
+    // The compact stack shows three publishers. The star and the others wait
+    // behind them and fade in as they leave.
+    let stacked = max(0, min(index - 1, 2))
+    let start = CGPoint(
+      x: compact.minX + CGFloat(stacked) * 11 + Layout.compact / 2,
+      y: compact.minY + 1 + Layout.compact / 2)
+    let slotX =
+      panel.minX + Layout.leading + CGFloat(index) * Layout.pitch + Layout.slot / 2 - shelfScroll
+    let end = CGPoint(x: slotX, y: panel.minY + Layout.inset + Layout.iconTop + Layout.icon / 2)
+    let size = Self.mix(Layout.compact, Layout.icon, p)
+    Group {
+      if index == 0 {
+        Image(systemName: "star.fill")
+          .font(.system(size: 22 * size / Layout.icon, weight: .medium))
+          .foregroundStyle(ArcticBrand.accent)
+          .frame(width: size, height: size)
+          .background(ArcticBrand.accent.opacity(0.1))
+      } else if let image = DiscoveryShelfView.publisherImage(ArcticPublisher.all[index - 1].asset)
+      {
+        Image(uiImage: image).resizable().scaledToFill()
+          .frame(width: size, height: size)
+          .background(Color.white)
       }
     }
-    guard compactFrames.count == 3 else {
-      cancel()
-      return
-    }
-    let current =
-      active
-      ? copies.map { image -> (CGRect, CGFloat) in
-        let layer = image.layer.presentation() ?? image.layer
-        return (layer.frame, CGFloat(layer.opacity))
-      } : (opening ? compactPoses() : expandedPoses())
-    guard current.count == copies.count else {
-      cancel()
-      return
-    }
-    generation += 1
-    animator?.stopAnimation(true)
-    animator = nil
-    self.opening = opening
-    pending = true
-    active = true
-    for icon in shelf?.icons ?? [] { icon.alpha = 0 }
-    for (index, copy) in copies.enumerated() {
-      copy.frame = current[index].0
-      copy.layer.cornerRadius = current[index].0.width / 2
-      copy.alpha = current[index].1
-      copy.isHidden = false
-      // Match the overlapping stack's order, with NY Times in front.
-      copy.layer.zPosition = CGFloat(copies.count - index)
-    }
-  }
-
-  private func compactPoses() -> [(CGRect, CGFloat)] {
-    (0..<copies.count).map { index in
-      (compactFrames[max(0, min(index - 1, 2))], (1...3).contains(index) ? 1 : 0)
-    }
-  }
-
-  private func expandedPoses() -> [(CGRect, CGFloat)] {
-    guard let shelf, let surface, shelf.window != nil, shelf.bounds.width > 0 else { return [] }
-    let visible = shelf.scroller.convert(shelf.scroller.bounds, to: surface)
-    return shelf.icons.map { icon in
-      let rect = icon.convert(icon.bounds, to: surface)
-      // Keep clipped edge items in the row instead of flying outside its panel.
-      return (rect, visible.contains(rect) ? 1 : 0)
-    }
-  }
-
-  func startIfReady() {
-    guard pending, let surface, surface.window != nil else { return }
-    let ends = opening ? expandedPoses() : compactPoses()
-    guard ends.count == copies.count else { return }
-    pending = false
-    let token = generation
-    let animator = UIViewPropertyAnimator(duration: 0.36, dampingRatio: 0.9)
-    animator.addAnimations { [self] in
-      for (index, copy) in copies.enumerated() {
-        copy.frame = ends[index].0
-        copy.layer.cornerRadius = ends[index].0.width / 2
-        copy.alpha = ends[index].1
-      }
-    }
-    animator.addCompletion { [weak self] _ in
-      guard let self, self.generation == token else { return }
-      self.active = false
-      for copy in self.copies { copy.isHidden = true }
-      for icon in self.shelf?.icons ?? [] { icon.alpha = 1 }
-      self.animator = nil
-    }
-    self.animator = animator
-    animator.startAnimation()
-  }
-
-  func cancel() {
-    generation += 1
-    animator?.stopAnimation(true)
-    animator = nil
-    pending = false
-    active = false
-    for copy in copies { copy.isHidden = true }
-    for icon in shelf?.icons ?? [] { icon.alpha = 1 }
-  }
-}
-
-struct DiscoveryCompactAnchor: UIViewRepresentable {
-  let flight: DiscoveryBubbleFlight
-  func makeUIView(context: Context) -> UIView {
-    let view = UIView()
-    view.isUserInteractionEnabled = false
-    flight.compact = view
-    return view
-  }
-  func updateUIView(_ view: UIView, context: Context) { flight.compact = view }
-}
-
-struct DiscoveryFlightSurface: UIViewRepresentable {
-  let flight: DiscoveryBubbleFlight
-  func makeCoordinator() -> DiscoveryBubbleFlight { flight }
-  func makeUIView(context: Context) -> UIView {
-    let view = UIView()
-    view.isUserInteractionEnabled = false
-    flight.attach(view)
-    return view
-  }
-  func updateUIView(_ view: UIView, context: Context) {}
-  static func dismantleUIView(_ view: UIView, coordinator: DiscoveryBubbleFlight) {
-    coordinator.cancel()
+    .clipShape(Circle())
+    .overlay(Circle().stroke(ReaderTheme.background, lineWidth: 2 * (1 - p)))
+    .opacity((1...3).contains(index) ? 1 : min(1, p * 3))
+    .position(
+      x: Self.mix(start.x, end.x, p) - frame.minX, y: Self.mix(start.y, end.y, p) - frame.minY
+    )
+    .zIndex(index == 0 ? 0 : Double(Self.titles.count - index))
+    Text(Self.titles[index]).font(.caption2).lineLimit(1).minimumScaleFactor(0.78)
+      .foregroundStyle(.primary)
+      .frame(width: Layout.slot)
+      .position(
+        x: slotX - frame.minX, y: panel.minY + Layout.inset + Layout.labelTop + 9 - frame.minY
+      )
+      .opacity(min(1, max(0, (p - 0.7) / 0.3)))
   }
 }
