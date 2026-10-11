@@ -7,6 +7,7 @@ import {
   SHEET_TIMELINE,
   SheetsSpecimen,
 } from "./specimens/SheetsSpecimen";
+import { SHELF_STATES, ShelfSpecimen } from "./specimens/ShelfSpecimen";
 import { TOAST_STATES, ToastSpecimen } from "./specimens/ToastSpecimen";
 
 export interface Specimen {
@@ -69,6 +70,23 @@ export const SPECIMENS: Specimen[] = [
       "Feedback after an action. Undo counts down and holds while you point at it or focus it.",
     states: TOAST_STATES,
     Component: ToastSpecimen,
+  },
+  {
+    id: "shelf",
+    label: "Reading shelf",
+    title: "Reading shelf on a phone",
+    description:
+      "The books you are reading, at the top of the phone Library, on sample books. Left: the shelf that ships, one wide card at a time, so about one book shows. Middle: a list, with three books in the height of one card. Right: smaller covers, three or four across. Change the number of books to see how each grows.",
+    states: SHELF_STATES,
+    variants: {
+      device: "phone",
+      options: [
+        { id: "now", label: "Now: wide cards" },
+        { id: "list", label: "Proposal: list" },
+        { id: "covers", label: "Proposal: covers" },
+      ],
+    },
+    Component: ShelfSpecimen,
   },
 ];
 

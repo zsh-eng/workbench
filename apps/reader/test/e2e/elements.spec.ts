@@ -97,3 +97,33 @@ test("Elements scrubs the proposal's detent sheet from the page", async ({
   await expect.poll(share).toBeGreaterThan(0.98);
   await expect(slider).toHaveAttribute("aria-valuetext", "3.0 s, Full height");
 });
+
+test("Elements compares Reading shelves on a phone", async ({ page }) => {
+  await page.goto("/debug/elements");
+  const section = page.locator("#shelf");
+  await section.scrollIntoViewIfNeeded();
+  await section
+    .getByRole("button", { name: "Five books", exact: true })
+    .click();
+  /** Reading books whose covers are wholly on the phone's screen. */
+  const inView = (variant: string) =>
+    section
+      .locator(`iframe[src*="variant=${variant}"]`)
+      .contentFrame()
+      .getByRole("region", { name: "Reading" })
+      .getByRole("link")
+      .evaluateAll(
+        (links) =>
+          links.filter((link) => {
+            const box = link.getBoundingClientRect();
+            return (
+              box.left >= 0 &&
+              box.right <= innerWidth &&
+              box.bottom <= innerHeight
+            );
+          }).length,
+      );
+  await expect.poll(() => inView("now"), { timeout: 30_000 }).toBe(1);
+  await expect.poll(() => inView("list")).toBe(5);
+  await expect.poll(() => inView("covers")).toBe(3);
+});

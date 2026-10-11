@@ -34,7 +34,7 @@ export interface LibraryBookProps {
   onRemove: (bookId: string) => Promise<void>;
 }
 
-const COVER_SHADOW =
+export const COVER_SHADOW =
   "shadow-[0_1px_2px_rgb(0_0_0/0.1),0_10px_22px_-14px_rgb(0_0_0/0.4)]";
 
 /** Loads a cover once its book nears the screen. */
