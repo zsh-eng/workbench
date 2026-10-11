@@ -18,10 +18,10 @@ export const LIBRARY_FILTERS: { value: LibraryFilter; label: string }[] = [
 ];
 
 export const LIBRARY_SORTS: { value: LibrarySort; label: string }[] = [
+  { value: "added", label: "Date added" },
   { value: "recent", label: "Recently read" },
   { value: "title", label: "Title" },
   { value: "author", label: "Author" },
-  { value: "added", label: "Date added" },
 ];
 
 export function matchesFilter(
@@ -97,8 +97,10 @@ export interface LibraryViewPreferences {
   layout: LibraryLayout;
 }
 
+// The shelf already orders what you are reading by recency. Date added keeps
+// the grid in place when you come back from a book you opened from it.
 const DEFAULT_VIEW: LibraryViewPreferences = {
-  sort: "recent",
+  sort: "added",
   layout: "covers",
 };
 
