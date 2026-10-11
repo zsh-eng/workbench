@@ -667,6 +667,7 @@ test("Sessions shows each review's session on a board, answers it there, and ope
   await expect
     .element(board.getByRole("option", { name: /^Agent review/ }))
     .toHaveAttribute("aria-selected", "true");
+  await expect.poll(() => document.activeElement?.getAttribute("data-session")).toBe("agent");
   await expect.element(board.getByRole("button", { name: /^Open review/ })).toBeVisible();
   await userEvent.keyboard("{Escape}");
   await expect.poll(() => location.search).toBe("");

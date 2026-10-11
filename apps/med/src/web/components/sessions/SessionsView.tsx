@@ -219,8 +219,10 @@ function Board({
   onOpenReview(reviewId: string): void;
   onAnswer(summary: SessionSummary, option: string): void;
 }) {
+  // Two to four columns share the width; a narrow card keeps panes at 270px.
+  const columns = Math.min(4, Math.max(2, sessions.length));
   return (
-    <div {...stylex.props(styles.board)}>
+    <div {...stylex.props(styles.board, styles.columns(columns))}>
       {sessions.map((summary) => {
         const ask = summary.ask;
         const steps = summary.steps.slice(-5);
@@ -269,7 +271,8 @@ function Board({
                 <p {...stylex.props(styles.panePrompt, styles.indent)}>{summary.prompt}</p>
               )
             )}
-            {summary.state === "idle" && summary.reply && (
+            {/* The reply that ended the turn: a hand-off, or the agent's question. */}
+            {(summary.state === "idle" || ask?.kind === "review") && summary.reply && (
               <p {...stylex.props(styles.paneReply, styles.indent)}>{summary.reply}</p>
             )}
             <footer {...stylex.props(styles.paneFoot)}>
@@ -373,15 +376,16 @@ export function SessionsView({
   const chosen = selected ? (sessions.find((entry) => entry.reviewId === selected) ?? null) : null;
   const waiting = sessions.filter((entry) => entry.state === "waiting").length;
   const working = sessions.filter((entry) => entry.state === "working").length;
-  // Back on the Board, the session that was open keeps the focus.
+  // The Desk opens with its session's row in focus, so the keys move in the
+  // list; back on the Board, the session that was open keeps the focus.
+  const shown = chosen?.reviewId ?? null;
   const last = useRef<string | null>(null);
   useEffect(() => {
-    if (!selected && last.current)
-      card.current
-        ?.querySelector<HTMLElement>(`[data-pane="${CSS.escape(last.current)}"]`)
-        ?.focus();
-    last.current = selected;
-  }, [selected]);
+    const focus = (selector: string) => card.current?.querySelector<HTMLElement>(selector)?.focus();
+    if (!shown && last.current) focus(`[data-pane="${CSS.escape(last.current)}"]`);
+    else if (shown && !last.current) focus(`[data-session="${CSS.escape(shown)}"]`);
+    last.current = shown;
+  }, [shown]);
   // Escape leaves the Desk; ⌘↵ opens the chosen session's review. Keys in a
   // text field belong to it.
   useEffect(() => {
@@ -735,7 +739,8 @@ const styles = stylex.create({
     flex: "1",
     minHeight: 0,
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(270px, 1fr))",
+    gridTemplateColumns:
+      "repeat(auto-fill, minmax(max(270px, calc(100% / var(--columns) - 1px)), 1fr))",
     // Two rows fill the card; more rows scroll.
     gridAutoRows: "minmax(290px, 50%)",
     alignContent: "start",
@@ -744,6 +749,7 @@ const styles = stylex.create({
     marginInlineEnd: -1,
     marginBottom: -1,
   },
+  columns: (columns: number) => ({ "--columns": columns }),
   pane: {
     position: "relative",
     minWidth: 0,

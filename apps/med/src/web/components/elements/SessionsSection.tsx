@@ -1,7 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { AgentMessage } from "../../../shared/agent-inbox";
-import type { SessionStep, SessionSummary } from "../../../shared/session-summary";
+import { plainText, type SessionStep, type SessionSummary } from "../../../shared/session-summary";
 import { withSentMessages } from "../../data/agent-inbox";
 import { createSessionStore } from "../../data/session-store";
 import { tokens } from "../../theme.stylex";
@@ -123,7 +123,7 @@ function summaryOf(session: LiveSession): SessionSummary {
     sessions: [{ agent: session.agent, id: `${session.id}-session`, cwd: "/work" }],
     prompt: session.prompt,
     steps: steps.slice(-6),
-    ...(session.reply && { reply: session.reply }),
+    ...(session.reply && { reply: plainText(session.reply, 600) }),
     ...(session.turnStartedAt !== undefined && { turnStartedAt: session.turnStartedAt }),
     ...(session.ask && {
       ask:
