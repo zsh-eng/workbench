@@ -56,18 +56,40 @@ Rules:
 
 - **States.** Give a specimen a row of named states, not one sample. When you
   choose the current state again, it replays. Frames get the state through
-  `?state=` and the `elements:state` message (`FrameMessage`), so a change
+  `?state=` and messages (see [Frame messages](#frame-messages)), so a change
   does not reload the frame.
 - **Real components.** Render the production component. Do not copy it into
   the page. If a part needs app context, give it a small sample provider.
 - **Sample data.** Keep fixtures beside the section, in `*-fixture.ts` files.
-  Do not show production data in a specimen. A live-app row must say that it
-  shows this origin's data.
+  Do not show production data in a specimen, and do not write the user's
+  data. Frame routes do not start sync. A live-app row must say that it shows
+  this origin's data.
 - **Compare.** When a design changes, show the current and the proposed
-  version side by side, with the same data. Keep the proposal on the page
-  until the user chooses.
+  version side by side, with the same data. For device stages, give the frame
+  URL `?variant=<id>` and show one phone per variant in one row (Reader's
+  `VariantRow`). Keep the proposal on the page until the user chooses.
 - **Captions.** The title names the part as the user knows it. The note says
   what to try, for example "Drag the handle up to the second detent".
+
+### Frame messages
+
+The page and its frames share an origin. Each message checks the origin and
+its source window. The types are in `@workbench/elements/frames`.
+
+| Message          | From  | Purpose                                                                      |
+| ---------------- | ----- | ---------------------------------------------------------------------------- |
+| `elements:ready` | frame | The specimen listens now. The page sends the theme, state, and time again.   |
+| `elements:state` | page  | `{ state, nonce }`. A new nonce for the same state replays it.               |
+| `elements:time`  | page  | `{ time }` drives a timeline that the frame owns. `null` gives control back. |
+
+- Put `useFrameSelection` in the frame's top component. It reads `?state=`
+  and sends `elements:ready`, which a lazy frame route needs: it can mount
+  after the frame's load event, and earlier messages are lost.
+- On the page, count `isFrameReady(event, frame)` as a load.
+- Use `elements:time` when a demo's motion lives in the frame, for example a
+  sheet's position. The page draws the scrubber; the frame calls
+  `useFrameTime()`. Send `null` when the viewer lets go, so the frame takes
+  touch again (Reader's "Let go").
 
 ## Demos: play, replay, reset, and scrub
 
@@ -139,8 +161,11 @@ Arctic follows the same shape in SwiftUI:
 A TODO can link to a recording as well as a section. Recordings are local
 files; do not commit them.
 
-- Web: open the section with `?autoplay=0`, then record with Playwright
-  (`recordVideo`) or the browser pane.
+- Web: open the section or a frame route with `?autoplay=0`, then record
+  with Playwright. `recordVideo` and headless screencasts capture CSS pixels,
+  so a phone recording is 390 px wide. For 2×, run Chromium headed on a
+  Retina display, collect CDP `Page.screencastFrame` frames, and join them
+  with ffmpeg's concat demuxer at each frame's duration.
 - iOS: `xcrun simctl io booted recordVideo <file>.mp4` while the specimen
   plays. A simulator recording does not show device frame rate.
 
