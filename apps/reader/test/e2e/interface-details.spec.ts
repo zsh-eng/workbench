@@ -102,19 +102,22 @@ test("review highlight filters and all theme contrast pairs", async ({
       for (const [pair, ratio] of Object.entries(pairs))
         expect.soft(ratio, `${theme} ${pair}`).toBeGreaterThanOrEqual(4.5);
   }
+  await page.getByRole("button", { name: "Search", exact: true }).click();
   await page.getByRole("searchbox").fill("not present in this book");
-  await expect(page.getByText("No matching highlights")).toBeVisible();
+  await expect(
+    page.getByText("Nothing matches", { exact: false }),
+  ).toBeVisible();
   await page.screenshot({
     path: resolve(folder, "highlights-no-results.png"),
     animations: "disabled",
   });
   if (!stage.endsWith("before")) {
-    const message = page.getByText("No matching highlights");
+    const message = page.getByText("Nothing matches", { exact: false });
     expect((await message.boundingBox())!.y).toBeGreaterThan(
       (await page.getByRole("searchbox").boundingBox())!.y + 56,
     );
     await page
-      .getByRole("button", { name: "Clear filters", exact: true })
+      .getByRole("button", { name: "Show everything", exact: true })
       .click();
     await expect(page.getByRole("searchbox")).toHaveValue("");
     await expect(page.getByRole("searchbox")).toBeFocused();
@@ -122,8 +125,8 @@ test("review highlight filters and all theme contrast pairs", async ({
       page.getByText("A thought worth keeping.", { exact: false }),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "Show only yellow highlights" }),
-    ).toHaveAttribute("aria-pressed", "true");
+      page.getByRole("button", { name: "Yellow highlights" }),
+    ).toHaveAttribute("aria-pressed", "false");
   }
 });
 

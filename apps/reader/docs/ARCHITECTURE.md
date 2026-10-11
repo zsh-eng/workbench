@@ -86,7 +86,7 @@ Library owns its page, grid cards, and import flow in `src/features/library`;
 the app shell can use that flow through its provider and hook. Keep shared book
 queries, cover loading, sorting, and reusable book UI outside the feature, and
 keep persistence in `src/data`. Highlights owns its grouped view, filtering,
-and mosaic layout; Devices owns signed-in device management; Reading Sessions
+and virtual list; Devices owns signed-in device management; Reading Sessions
 owns the reading-history page. Reader keeps its existing content pipeline,
 hooks, controls, and diagnostics together under `src/features/reader`, including
 the toolbar and settings panels shared by its reading and debug views.

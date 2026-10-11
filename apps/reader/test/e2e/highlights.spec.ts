@@ -1,6 +1,6 @@
-import { expect, test } from "./helpers/fixtures";
+import { expect, test, waitForReaderReady } from "./helpers/fixtures";
 
-test("renders highlight cards after a cold query resolves", async ({
+test("renders highlights after a cold query resolves", async ({
   page,
   localBook,
 }) => {
@@ -26,8 +26,74 @@ test("renders highlight cards after a cold query resolves", async ({
     page.getByText("Cold query card.", { exact: false }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Copy highlight to clipboard" }),
+    page.getByRole("button", { name: "Open at: Cold query card." }),
   ).toBeVisible();
+});
+
+test("a long list renders near the view and returns to its place from a book", async ({
+  page,
+  localBook,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 850 });
+  await page.evaluate(async (bookId) => {
+    const path = "/src/lib/db.ts";
+    const data = await import(path);
+    const books = await data.getAllBooks();
+    const book = books.find((item: { id: string }) => item.id === bookId);
+    const spineItemId = book.spine[2].idref as string;
+    for (let index = 0; index < 200; index++)
+      await data.addHighlight({
+        id: `long-${index}`,
+        bookId,
+        spineItemId,
+        startOffset: index,
+        endOffset: index + 5,
+        selectedText: `Passage ${index}. ${"A line of kept words. ".repeat(4 + (index % 5) * 6)}`,
+        textBefore: "",
+        textAfter: "",
+        color: index % 7 === 0 ? "blue" : "yellow",
+        createdAt: 1720000000000 + index,
+      });
+  }, localBook.id);
+  await page.goto("/highlights");
+  await expect(page.getByText("Passage 0.", { exact: false })).toBeVisible();
+  expect(await page.locator("article").count()).toBeLessThan(60);
+
+  // The filters stay in place as the list and its counts shrink.
+  const blue = page.getByRole("button", { name: "Blue highlights" });
+  const left = (await blue.boundingBox())!.x;
+  await blue.click();
+  await expect(page.getByText("Passage 1.", { exact: false })).toHaveCount(0);
+  expect((await blue.boundingBox())!.x).toBe(left);
+  await blue.click();
+
+  await page.evaluate(() =>
+    window.scrollTo(0, document.documentElement.scrollHeight),
+  );
+  await expect(page.getByText("Passage 199.", { exact: false })).toBeVisible();
+
+  // A passage partway down opens the book, and Back returns to it.
+  await page.evaluate(() => window.scrollTo(0, 8000));
+  await page.waitForTimeout(200);
+  const before = await page.evaluate(() => {
+    const button = [
+      ...document.querySelectorAll<HTMLElement>('[aria-label^="Open at:"]'),
+    ].find((item) => item.getBoundingClientRect().top >= 0)!;
+    return {
+      name: button.getAttribute("aria-label")!,
+      top: button.getBoundingClientRect().top,
+    };
+  });
+  await page.getByRole("button", { name: before.name, exact: true }).click();
+  await expect(page).toHaveURL(`/reader/${localBook.id}`);
+  await waitForReaderReady(page);
+  await page.goBack();
+  await expect(page).toHaveURL("/highlights");
+  const returned = page.getByRole("button", { name: before.name, exact: true });
+  await expect(returned).toBeVisible();
+  expect(
+    Math.abs((await returned.boundingBox())!.y - before.top),
+  ).toBeLessThanOrEqual(2);
 });
 
 test.describe("Mobile highlight durability", () => {

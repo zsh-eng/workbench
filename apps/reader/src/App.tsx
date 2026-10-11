@@ -6,7 +6,7 @@ import { DebugGate } from "@/features/settings/DebugGate";
 import { DebugTools } from "@/features/settings/DebugTools";
 import "@/App.css";
 import { AppShell } from "@/components/AppShell";
-import { HighlightsMasonry } from "@/features/highlights/HighlightsMasonry";
+import { Highlights } from "@/features/highlights/Highlights";
 import { Library } from "@/features/library/Library";
 import { Reader } from "@/features/reader";
 import { ReaderDebug } from "@/features/reader/debug";
@@ -66,11 +66,6 @@ const SessionsIdea = lazy(() =>
     default: module.SessionsIdea,
   })),
 );
-const HighlightsIdea = lazy(() =>
-  import("@/features/highlights/HighlightsIdea").then((module) => ({
-    default: module.HighlightsIdea,
-  })),
-);
 
 const ElementsFrame = lazy(() =>
   import("@/features/elements/ElementsFrame").then((module) => ({
@@ -126,10 +121,7 @@ function App() {
                     <Route element={<AppShell />}>
                       <Route index element={<Library />} />
                       <Route path="/reader/:bookId" element={<Reader />} />
-                      <Route
-                        path="/highlights"
-                        element={<HighlightsMasonry />}
-                      />
+                      <Route path="/highlights" element={<Highlights />} />
                       <Route path="/devices" element={<Devices />} />
                       <Route path="/settings" element={<Settings />} />
                       <Route
@@ -150,16 +142,6 @@ function App() {
                           <DebugGate>
                             <Suspense fallback={null}>
                               <SessionsIdea />
-                            </Suspense>
-                          </DebugGate>
-                        }
-                      />
-                      <Route
-                        path="/debug/ideas/highlights"
-                        element={
-                          <DebugGate>
-                            <Suspense fallback={null}>
-                              <HighlightsIdea />
                             </Suspense>
                           </DebugGate>
                         }

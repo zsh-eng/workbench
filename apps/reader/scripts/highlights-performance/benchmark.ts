@@ -39,19 +39,22 @@ interface BenchmarkRun {
 interface ScrollValidation {
   midpointArticleCount: number;
   midpointVisibleArticleCount: number;
-  navigationTopPx: number;
+  /** The last book's heading, after a scroll to the end. */
+  endHeadingTopPx: number;
 }
 
 async function assertMountedSectionsDoNotOverlap(page: Page): Promise<void> {
   const overlap = await page.evaluate(() => {
     const sections = [
-      ...document.querySelectorAll<HTMLElement>(
-        "section[id^='highlights-book-']",
-      ),
+      ...document.querySelectorAll<HTMLElement>("section[data-section]"),
     ]
       .map((section) => {
         const bounds = section.getBoundingClientRect();
-        return { id: section.id, top: bounds.top, bottom: bounds.bottom };
+        return {
+          id: section.dataset.section,
+          top: bounds.top,
+          bottom: bounds.bottom,
+        };
       })
       .sort((left, right) => left.top - right.top);
 
@@ -230,7 +233,7 @@ async function installObservers(page: Page): Promise<void> {
 
     const articleObserver = new MutationObserver(() => {
       if (state.firstArticleMs !== null) return;
-      if (document.querySelector("article")) {
+      if (document.querySelector("[data-row] article")) {
         state.firstArticleMs = performance.now();
         articleObserver.disconnect();
       }
@@ -251,9 +254,13 @@ async function installObservers(page: Page): Promise<void> {
 async function measurePage(
   page: Page,
 ): Promise<Omit<BenchmarkRun, "distribution" | "repetition">> {
-  await page.waitForFunction(() => document.querySelector("article"), null, {
-    timeout: 15_000,
-  });
+  await page.waitForFunction(
+    () => document.querySelector("[data-row] article"),
+    null,
+    {
+      timeout: 15_000,
+    },
+  );
 
   return page.evaluate(async () => {
     const state = (
@@ -271,7 +278,9 @@ async function measurePage(
         requestAnimationFrame(() => resolve()),
       );
 
-      const articles = [...document.querySelectorAll<HTMLElement>("article")];
+      const articles = [
+        ...document.querySelectorAll<HTMLElement>("[data-row] article"),
+      ];
       const animatedTiles = articles
         .map((article) => article.parentElement)
         .filter(
@@ -309,7 +318,7 @@ async function measurePage(
       }
     }
 
-    const articles = document.querySelectorAll("article");
+    const articles = document.querySelectorAll("[data-row] article");
     const animatedTileCount = [...articles].filter(
       (article) =>
         article.parentElement instanceof HTMLElement &&
@@ -355,7 +364,9 @@ async function validateVirtualizedScroll(
   await assertMountedSectionsDoNotOverlap(page);
 
   const midpoint = await page.evaluate(() => {
-    const articles = [...document.querySelectorAll<HTMLElement>("article")];
+    const articles = [
+      ...document.querySelectorAll<HTMLElement>("[data-row] article"),
+    ];
     return {
       midpointArticleCount: articles.length,
       midpointVisibleArticleCount: articles.filter((article) => {
@@ -368,28 +379,35 @@ async function validateVirtualizedScroll(
     throw new Error("Virtualized Highlights left the midpoint viewport empty.");
   }
 
+  // Books are in order of their latest highlight, so the first book is last.
   const lastBookIndex = distribution === "single" ? 0 : 19;
-  const sectionId = `highlights-book-highlights-performance-book-${lastBookIndex}`;
-  await page.locator(`a[href="#${sectionId}"]`).first().click();
-  await page.waitForFunction((id) => document.getElementById(id), sectionId, {
+  const headingId = `book-highlights-performance-book-${lastBookIndex}`;
+  await page.evaluate(() =>
+    window.scrollTo(0, document.documentElement.scrollHeight),
+  );
+  await page.waitForFunction((id) => document.getElementById(id), headingId, {
     timeout: 5_000,
   });
-  const navigationTopPx = await page
-    .locator(`#${sectionId}`)
-    .evaluate((section) => section.getBoundingClientRect().top);
-  if (Math.abs(navigationTopPx - 112) > 2) {
+  await assertMountedSectionsDoNotOverlap(page);
+  const endHeadingTopPx = await page
+    .locator(`#${headingId}`)
+    .evaluate((heading) => heading.getBoundingClientRect().top);
+  if (endHeadingTopPx < 0 || endHeadingTopPx > 720) {
     throw new Error(
-      `Book navigation settled at ${navigationTopPx}px instead of the 112px desktop offset.`,
+      `The last book's heading is at ${endHeadingTopPx}px, outside the view at the end.`,
     );
   }
 
-  return { ...midpoint, navigationTopPx };
+  return { ...midpoint, endHeadingTopPx };
 }
 
 async function validateDebouncedSearchLayout(page: Page): Promise<void> {
+  await page.keyboard.press("/");
   await page.locator('input[type="search"]').fill("stable interface");
   await page.waitForTimeout(250);
-  await page.waitForFunction(() => document.querySelector("article"));
+  await page.waitForFunction(() =>
+    document.querySelector("[data-row] article"),
+  );
   await assertMountedSectionsDoNotOverlap(page);
 }
 

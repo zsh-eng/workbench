@@ -13,6 +13,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { HighlightSections } from "@/features/highlights/HighlightSections";
 import { BookCover, useCoverRequest } from "@/features/library/LibraryBooks";
 import { useBooksWithStatuses } from "@/hooks/use-books-with-statuses";
 import { useLibraryCoverUrls } from "@/hooks/use-library-cover-urls";
@@ -31,15 +32,15 @@ import { cn } from "@/lib/utils";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Check, ChevronRight, Copy, SlidersHorizontal } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 
 /**
- * An idea for the Highlights page. Everything you kept, in the Library's
- * frame and type. Notes and highlights live together as in the Reader's
- * Notebook: a note shows its passage, and a highlight with a note shows once.
- * By book, each book's passages are in reading order beside the book; Recent
- * lists them by date across books. Search narrows the page in place.
+ * Highlights: everything you kept, in the Library's frame and type. Notes and
+ * highlights live together as in the Reader's Notebook: a note shows its
+ * passage, and a highlight with a note shows once. By book, each book's
+ * passages are in reading order beside the book; Recent lists them by date
+ * across books. Search narrows the page in place.
  */
 
 type Kind = "all" | "highlights" | "notes";
@@ -66,9 +67,6 @@ const KINDS: { value: Kind; label: string }[] = [
   { value: "notes", label: "Notes" },
 ];
 
-/** The context (a book or a day) beside its passages; one column on a phone. */
-const SECTION_GRID = "grid gap-x-12 md:grid-cols-[12.5rem_minmax(0,42rem)]";
-
 const FADE = {
   initial: { opacity: 0 },
   animate: { opacity: 1, transition: MOTION.enter },
@@ -82,14 +80,27 @@ function fold(text: string): string {
     .toLocaleLowerCase();
 }
 
+type Annotations = {
+  highlights: Awaited<ReturnType<typeof getAllHighlights>>;
+  notes: Awaited<ReturnType<typeof getAllNotes>>;
+};
+
+/** The last annotations read. The page comes back from a book with them at
+ * once, so that the window can return to its place. */
+let lastAnnotations: Annotations | undefined;
+
 function useEntries(books: Book[] | undefined): Entry[] | undefined {
-  const annotations = useLiveQuery(async () => {
-    const [highlights, notes] = await Promise.all([
-      getAllHighlights(),
-      getAllNotes(),
-    ]);
-    return { highlights, notes };
-  }, []);
+  const annotations = useLiveQuery(
+    async () => {
+      const [highlights, notes] = await Promise.all([
+        getAllHighlights(),
+        getAllNotes(),
+      ]);
+      return (lastAnnotations = { highlights, notes });
+    },
+    [],
+    lastAnnotations,
+  );
   return useMemo(() => {
     if (!annotations || !books) return undefined;
     const booksById = new Map(books.map((book) => [book.id, book]));
@@ -157,6 +168,59 @@ function useEntries(books: Book[] | undefined): Entry[] | undefined {
   }, [annotations, books]);
 }
 
+interface BookGroup {
+  key: string;
+  book: Book;
+  entries: Entry[];
+}
+
+interface DayGroup {
+  key: string;
+  label: string;
+  entries: Entry[];
+}
+
+function countKinds(entries: Entry[]): Record<Kind, number> {
+  const notes = entries.filter((entry) => entry.kind === "note").length;
+  return { all: entries.length, highlights: entries.length - notes, notes };
+}
+
+const dayId = (key: string) =>
+  key.replace(/[^\p{L}\p{N}]+/gu, "-").toLowerCase();
+
+/** An entry the list measures for its estimates: one line of each text. */
+const PROBE = (
+  <EntryRow
+    passage="Probe"
+    note="Probe"
+    color={null}
+    meta="Probe"
+    terms=""
+    copyText=""
+    onOpen={() => undefined}
+  />
+);
+
+/** Text that keeps the width of its widest form, so what follows stays put. */
+function Steady({
+  widest,
+  className,
+  children,
+}: {
+  widest: ReactNode;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <span className={cn("inline-grid", className)}>
+      <span aria-hidden="true" className="invisible col-start-1 row-start-1">
+        {widest}
+      </span>
+      <span className="col-start-1 row-start-1">{children}</span>
+    </span>
+  );
+}
+
 function dayLabel(timestamp: number): string {
   const date = new Date(timestamp);
   const today = new Date();
@@ -183,7 +247,7 @@ function shortDate(timestamp: number): string {
   });
 }
 
-export function HighlightsIdea() {
+export function Highlights() {
   const navigate = useNavigate();
   const { data } = useBooksWithStatuses();
   const entries = useEntries(data?.books);
@@ -218,14 +282,9 @@ export function HighlightsIdea() {
       return words.every((word) => haystack.includes(word));
     });
   }, [entries, colors, terms]);
-  const counts = useMemo(
-    () => ({
-      all: narrowed.length,
-      highlights: narrowed.filter((entry) => entry.kind === "highlight").length,
-      notes: narrowed.filter((entry) => entry.kind === "note").length,
-    }),
-    [narrowed],
-  );
+  const counts = useMemo(() => countKinds(narrowed), [narrowed]);
+  // Counts keep the width of the totals, so the filters do not move.
+  const totals = useMemo(() => countKinds(entries ?? []), [entries]);
   const shown = useMemo(
     () =>
       narrowed.filter(
@@ -237,11 +296,16 @@ export function HighlightsIdea() {
   );
 
   const byBook = useMemo(() => {
-    const groups = new Map<string, { book: Book; entries: Entry[] }>();
+    const groups = new Map<string, BookGroup>();
     for (const entry of shown) {
       const group = groups.get(entry.book.id);
       if (group) group.entries.push(entry);
-      else groups.set(entry.book.id, { book: entry.book, entries: [entry] });
+      else
+        groups.set(entry.book.id, {
+          key: `book:${entry.book.id}`,
+          book: entry.book,
+          entries: [entry],
+        });
     }
     const latest = (group: { entries: Entry[] }) =>
       Math.max(...group.entries.map((entry) => entry.createdAt));
@@ -255,12 +319,12 @@ export function HighlightsIdea() {
       .sort((a, b) => latest(b) - latest(a));
   }, [shown]);
   const byDay = useMemo(() => {
-    const days: { label: string; entries: Entry[] }[] = [];
+    const days: DayGroup[] = [];
     for (const entry of [...shown].sort((a, b) => b.createdAt - a.createdAt)) {
       const label = dayLabel(entry.createdAt);
       const day = days.at(-1);
       if (day?.label === label) day.entries.push(entry);
-      else days.push({ label, entries: [entry] });
+      else days.push({ key: `day:${label}`, label, entries: [entry] });
     }
     return days;
   }, [shown]);
@@ -281,7 +345,32 @@ export function HighlightsIdea() {
       entry.target ? { state: { scrollToHighlight: entry.target } } : undefined,
     );
   };
+  const openBook = (book: Book) => {
+    beginReaderTrace({
+      bookId: book.id,
+      bookTitle: book.title,
+      source: "highlight",
+    });
+    navigate(`/reader/${book.id}`);
+  };
   const first = order === "book" ? byBook[0]?.entries[0] : byDay[0]?.entries[0];
+  const row = (entry: Entry, meta: string) => (
+    <EntryRow
+      passage={entry.passage}
+      note={entry.note}
+      color={entry.color}
+      meta={meta}
+      terms={terms}
+      copyText={[
+        entry.passage && `“${entry.passage}”`,
+        entry.note,
+        `${entry.book.title}, ${entry.book.author}`,
+      ]
+        .filter(Boolean)
+        .join("\n\n")}
+      onOpen={() => open(entry)}
+    />
+  );
 
   const orderMenu = (
     <DropdownMenu>
@@ -341,7 +430,9 @@ export function HighlightsIdea() {
 
         {entries !== undefined && !nothingYet && (
           <div className="mt-5 flex items-center justify-between gap-3 md:mt-8">
-            <div className="flex min-w-0 items-center gap-5 overflow-x-auto [scrollbar-width:none] max-md:[mask-image:linear-gradient(to_right,black_calc(100%-20px),transparent)]">
+            {/* A phone scrolls the filters sideways; the padding keeps their
+                rings and focus outlines inside the scrolling box. */}
+            <div className="flex min-w-0 items-center gap-5 max-md:-ml-1 max-md:overflow-x-auto max-md:pl-1 max-md:[mask-image:linear-gradient(to_right,black_calc(100%-20px),transparent)] max-md:[scrollbar-width:none]">
               <div
                 role="group"
                 aria-label="Show"
@@ -362,10 +453,19 @@ export function HighlightsIdea() {
                           : "text-muted-foreground hover:text-foreground",
                       )}
                     >
-                      {option.label}
-                      <span className="ml-1.5 font-numeric text-[12px] font-normal text-muted-foreground/60 tabular-nums max-md:hidden">
+                      <Steady
+                        widest={
+                          <span className="font-medium">{option.label}</span>
+                        }
+                      >
+                        {option.label}
+                      </Steady>
+                      <Steady
+                        widest={"0".repeat(String(totals[option.value]).length)}
+                        className="ml-1.5 font-numeric text-[12px] font-normal text-muted-foreground/60 tabular-nums max-md:hidden"
+                      >
                         {counts[option.value]}
-                      </span>
+                      </Steady>
                     </button>
                   );
                 })}
@@ -377,7 +477,7 @@ export function HighlightsIdea() {
               <div
                 role="group"
                 aria-label="Filter by colour"
-                className="flex shrink-0 items-center gap-3.5 pr-5 md:pr-0"
+                className="flex shrink-0 items-center gap-3.5 max-md:pr-5"
               >
                 {HIGHLIGHT_COLORS.map(({ name }) => {
                   const selected = colors.includes(name);
@@ -395,7 +495,7 @@ export function HighlightsIdea() {
                         )
                       }
                       className={cn(
-                        "relative size-3.5 shrink-0 rounded-full before:absolute before:-inset-x-2 before:-inset-y-3.5 before:content-[''] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_10%,transparent)] transition-opacity duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+                        "relative size-3.5 shrink-0 rounded-full before:absolute before:-inset-x-2 before:-inset-y-[11px] before:content-[''] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_10%,transparent)] transition-opacity duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
                         "after:pointer-events-none after:absolute after:-inset-[3px] after:rounded-full after:border-[1.5px] after:border-foreground/70 after:opacity-0 after:transition-opacity after:duration-150",
                         selected && "after:opacity-100",
                         colors.length > 0 && !selected && "opacity-40",
@@ -423,7 +523,10 @@ export function HighlightsIdea() {
               onClick={() => {
                 setKind("all");
                 setColors([]);
-                if (terms) placeSearch.setSearch("");
+                if (terms) {
+                  placeSearch.setSearch("");
+                  placeSearch.openSearch();
+                }
               }}
             >
               Show everything
@@ -433,53 +536,46 @@ export function HighlightsIdea() {
 
         <AnimatePresence mode="wait" initial={false}>
           <motion.div key={order} {...FADE}>
-            {order === "book"
-              ? byBook.map(({ book, entries: bookEntries }, index) => (
-                  <BookSection
-                    key={book.id}
+            {order === "book" ? (
+              <HighlightSections
+                kind="book"
+                sections={byBook}
+                divided
+                heading={({ book }) => `book-${book.id}`}
+                aside={({ book, entries: bookEntries }) => (
+                  <BookAside
                     book={book}
                     entries={bookEntries}
-                    first={index === 0}
                     readingMs={readingTime.get(book.id) ?? 0}
                     coverUrl={coverUrls.get(book.id)}
                     onCoverRequest={requestCover}
-                    onOpenBook={() => {
-                      beginReaderTrace({
-                        bookId: book.id,
-                        bookTitle: book.title,
-                        source: "highlight",
-                      });
-                      navigate(`/reader/${book.id}`);
-                    }}
-                    terms={terms}
-                    onOpen={open}
+                    onOpenBook={() => openBook(book)}
                   />
-                ))
-              : byDay.map(({ label, entries: dayEntries }, index) => (
-                  <section
-                    key={label}
-                    aria-label={label}
-                    className={cn(
-                      SECTION_GRID,
-                      index === 0 ? "mt-6 md:mt-10" : "mt-8 md:mt-12",
-                    )}
+                )}
+                entry={(entry) =>
+                  row(entry, `${entry.chapter} · ${shortDate(entry.createdAt)}`)
+                }
+                probe={PROBE}
+              />
+            ) : (
+              <HighlightSections
+                kind="recent"
+                sections={byDay}
+                heading={({ key }) => dayId(key)}
+                aside={({ key, label }) => (
+                  <h2
+                    id={dayId(key)}
+                    className="mb-1 text-[12px] text-muted-foreground md:mb-0 md:pt-3.5 md:font-serif md:text-[19px] md:leading-tight md:text-foreground"
                   >
-                    <h2 className="mb-1 text-[12px] text-muted-foreground md:sticky md:top-8 md:mb-0 md:self-start md:pt-3.5 md:font-serif md:text-[19px] md:leading-tight md:text-foreground">
-                      {label}
-                    </h2>
-                    <div>
-                      {dayEntries.map((entry) => (
-                        <EntryRow
-                          key={entry.id}
-                          entry={entry}
-                          terms={terms}
-                          meta={`${entry.book.title} · ${entry.chapter}`}
-                          onOpen={() => open(entry)}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                ))}
+                    {label}
+                  </h2>
+                )}
+                entry={(entry) =>
+                  row(entry, `${entry.book.title} · ${entry.chapter}`)
+                }
+                probe={PROBE}
+              />
+            )}
           </motion.div>
         </AnimatePresence>
       </div>
@@ -487,27 +583,21 @@ export function HighlightsIdea() {
   );
 }
 
-/** A book beside its passages. On a phone, the book sits above them. */
-function BookSection({
+/** The book beside its passages. On a phone, it sits above them. */
+function BookAside({
   book,
   entries,
-  first,
   readingMs,
   coverUrl,
   onCoverRequest,
   onOpenBook,
-  onOpen,
-  terms,
 }: {
-  terms: string;
   book: Book;
   entries: Entry[];
-  first: boolean;
   readingMs: number;
   coverUrl: string | undefined;
   onCoverRequest: (book: Book) => void;
   onOpenBook: () => void;
-  onOpen: (entry: Entry) => void;
 }) {
   const [element, setElement] = useState<HTMLElement | null>(null);
   useCoverRequest(element, book, coverUrl, onCoverRequest);
@@ -521,71 +611,49 @@ function BookSection({
     .filter(Boolean)
     .join(" · ");
   return (
-    <section
-      ref={setElement}
-      aria-labelledby={`book-${book.id}`}
-      className={cn(
-        SECTION_GRID,
-        first
-          ? "mt-6 md:mt-10"
-          : "mt-10 border-t border-border/60 pt-8 md:mt-14 md:pt-12",
-      )}
-    >
-      <aside className="mb-3 flex gap-3.5 md:sticky md:top-8 md:mb-0 md:block md:self-start">
+    <aside ref={setElement} className="mb-3 flex gap-3.5 md:mb-0 md:block">
+      <button
+        type="button"
+        onClick={onOpenBook}
+        aria-label={`Open ${book.title}`}
+        className="block w-11 shrink-0 rounded-[3px] outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 md:w-[72px]"
+      >
+        <BookCover
+          book={book}
+          coverUrl={coverUrl}
+          compact
+          className="aspect-[2/3] w-full rounded-[3px] shadow-[0_1px_2px_rgb(0_0_0/0.1),0_10px_22px_-14px_rgb(0_0_0/0.4)]"
+        />
+      </button>
+      <div className="min-w-0 md:mt-4">
+        <h2
+          id={`book-${book.id}`}
+          className="font-serif text-[17px] leading-tight text-balance md:text-[19px]"
+        >
+          {book.title}
+        </h2>
+        <p className="mt-0.5 truncate text-[13px] text-muted-foreground">
+          {book.author}
+        </p>
+        <p className="mt-2 font-numeric text-[12px] text-muted-foreground/80 tabular-nums">
+          {counts}
+          {readingMs > 0 && (
+            <span className="max-md:hidden">
+              <br />
+              {formatReadingDuration(readingMs)} read
+            </span>
+          )}
+        </p>
         <button
           type="button"
           onClick={onOpenBook}
-          aria-label={`Open ${book.title}`}
-          className="block w-11 shrink-0 rounded-[3px] outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 md:w-[72px]"
+          className="mt-3 hidden items-center gap-0.5 rounded-sm text-[13px] text-muted-foreground outline-none transition-colors duration-150 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring md:inline-flex"
         >
-          <BookCover
-            book={book}
-            coverUrl={coverUrl}
-            compact
-            className="aspect-[2/3] w-full rounded-[3px] shadow-[0_1px_2px_rgb(0_0_0/0.1),0_10px_22px_-14px_rgb(0_0_0/0.4)]"
-          />
+          Open book
+          <ChevronRight className="size-3.5" strokeWidth={1.8} />
         </button>
-        <div className="min-w-0 md:mt-4">
-          <h2
-            id={`book-${book.id}`}
-            className="font-serif text-[17px] leading-tight text-balance md:text-[19px]"
-          >
-            {book.title}
-          </h2>
-          <p className="mt-0.5 truncate text-[13px] text-muted-foreground">
-            {book.author}
-          </p>
-          <p className="mt-2 font-numeric text-[12px] text-muted-foreground/80 tabular-nums">
-            {counts}
-            {readingMs > 0 && (
-              <span className="max-md:hidden">
-                <br />
-                {formatReadingDuration(readingMs)} read
-              </span>
-            )}
-          </p>
-          <button
-            type="button"
-            onClick={onOpenBook}
-            className="mt-3 hidden items-center gap-0.5 rounded-sm text-[13px] text-muted-foreground outline-none transition-colors duration-150 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring md:inline-flex"
-          >
-            Open book
-            <ChevronRight className="size-3.5" strokeWidth={1.8} />
-          </button>
-        </div>
-      </aside>
-      <div>
-        {entries.map((entry) => (
-          <EntryRow
-            key={entry.id}
-            entry={entry}
-            terms={terms}
-            meta={`${entry.chapter} · ${shortDate(entry.createdAt)}`}
-            onOpen={() => onOpen(entry)}
-          />
-        ))}
       </div>
-    </section>
+    </aside>
   );
 }
 
@@ -594,14 +662,20 @@ function BookSection({
  * the app's sans, with the highlight's colour as a rule beside them.
  */
 function EntryRow({
-  entry,
-  terms,
+  passage,
+  note,
+  color,
   meta,
+  terms,
+  copyText,
   onOpen,
 }: {
-  entry: Entry;
-  terms: string;
+  passage: string | null;
+  note: string | null;
+  color: AnnotationColor | null;
   meta: string;
+  terms: string;
+  copyText: string;
   onOpen: () => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -611,23 +685,16 @@ function EntryRow({
     return () => window.clearTimeout(timer);
   }, [copied]);
   const copy = () => {
-    const text = [
-      entry.passage && `“${entry.passage}”`,
-      entry.note,
-      `${entry.book.title}, ${entry.book.author}`,
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-    void navigator.clipboard?.writeText(text).then(
+    void navigator.clipboard?.writeText(copyText).then(
       () => setCopied(true),
       () => undefined,
     );
   };
   const rule =
-    entry.color && entry.color !== "invisible"
-      ? `var(--${entry.color}-secondary)`
+    color && color !== "invisible"
+      ? `var(--${color}-secondary)`
       : "color-mix(in oklab, var(--foreground) 18%, transparent)";
-  const summary = entry.passage ?? entry.note ?? "";
+  const summary = passage ?? note ?? "";
   return (
     <article className="group relative -mx-3 rounded-xl px-3 py-3 transition-colors duration-150 hover:bg-foreground/[0.025]">
       <button
@@ -643,21 +710,23 @@ function EntryRow({
           style={{ background: rule }}
         />
         <div className="min-w-0 flex-1 md:pr-8">
-          {entry.passage && (
-            <p className="font-serif text-[17px] leading-[1.5] break-words whitespace-pre-wrap text-foreground/90">
-              <Marked text={entry.passage} terms={terms} />
+          {passage && (
+            <p
+              data-passage=""
+              className="font-serif text-[17px] leading-[1.5] break-words whitespace-pre-wrap text-foreground/90"
+            >
+              <Marked text={passage} terms={terms} />
             </p>
           )}
-          {entry.note && (
+          {note && (
             <p
+              data-note=""
               className={cn(
                 "text-[14px] leading-relaxed break-words whitespace-pre-wrap",
-                entry.passage
-                  ? "mt-2 text-foreground/70"
-                  : "text-foreground/85",
+                passage ? "mt-2 text-foreground/70" : "text-foreground/85",
               )}
             >
-              <Marked text={entry.note} terms={terms} />
+              <Marked text={note} terms={terms} />
             </p>
           )}
           <p className="mt-1.5 truncate text-[12px] text-muted-foreground">

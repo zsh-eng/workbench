@@ -17,9 +17,10 @@ import "@fontsource/lora/600.css";
 import "@/App.css";
 import "./styles.css";
 
-import { HighlightsMasonry } from "@/features/highlights/HighlightsMasonry";
-import { allHighlightsKeys } from "@/features/highlights/use-all-highlights-query";
+import { Highlights } from "@/features/highlights/Highlights";
+import { ReaderSettingsProvider } from "@/hooks/use-reader-settings";
 import { readingSessionKeys } from "@/hooks/use-reading-sessions-query";
+import { SyncProvider } from "@/hooks/use-sync";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
@@ -35,7 +36,6 @@ const [groups] = await Promise.all([
   document.fonts.load('400 18px "EB Garamond"'),
   document.fonts.load('500 44px "EB Garamond"'),
 ]);
-queryClient.setQueryData(allHighlightsKeys.all, groups);
 queryClient.setQueryData(readingSessionKeys.overview, {
   books: groups.map(({ book }) => book),
   sessions: [],
@@ -44,9 +44,13 @@ queryClient.setQueryData(readingSessionKeys.overview, {
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
-        <HighlightsMasonry />
-      </MemoryRouter>
+      <ReaderSettingsProvider>
+        <SyncProvider>
+          <MemoryRouter>
+            <Highlights />
+          </MemoryRouter>
+        </SyncProvider>
+      </ReaderSettingsProvider>
     </QueryClientProvider>
   </StrictMode>,
 );

@@ -54,24 +54,6 @@ const TOPICS: Record<IdeaTopic, TopicIdeas> = {
       },
     ],
   },
-  highlights: {
-    current: {
-      id: "highlights-current",
-      title: "Current Highlights",
-      description:
-        "What ships today: a mosaic of highlight cards per book, with a book index. Notes are not shown.",
-      src: "/highlights",
-    },
-    ideas: [
-      {
-        id: "highlights-notebook",
-        title: "Notebook, in the Library's frame",
-        description:
-          "Highlights and notes together, as in the Reader's Notebook. Each book sits beside its passages in reading order; Recent lists them by date. Search like the Library.",
-        src: "/debug/ideas/highlights",
-      },
-    ],
-  },
   reader: {
     current: {
       id: "reader-current",

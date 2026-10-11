@@ -1,7 +1,41 @@
 # Highlights rendering performance
 
-This document records the current Highlights performance model, measured
-results, implemented optimizations, and possible follow-up work.
+This document records the Highlights performance model, measured results,
+implemented optimizations, and possible follow-up work. Most of it is about the
+mosaic. In October 2026 a list replaced the mosaic; see
+[The list that replaced the mosaic](#the-list-that-replaced-the-mosaic).
+
+## The list that replaced the mosaic
+
+The Highlights page is now a list of books (or days), each beside its passages.
+`HighlightSections.tsx` virtualizes it as Med's session thread does:
+
+- Rows render only within 1200 px of the view. Spacers hold the space of the
+  other rows.
+- A row takes its height from when it last rendered. Before that, Pretext
+  estimates the height of its text from sizes read from a hidden sample entry.
+  Entries without an estimate get a rough one from their length, and Pretext
+  measures them in idle time.
+- Browser scroll anchoring is off. The first row in view keeps its place when
+  heights above it change.
+- Heights and the last annotations outlive the page. When you come back from
+  a book, the page has its full height at once, so the window scroll returns
+  to the same row.
+
+Medians of five runs of the harness in `scripts/highlights-performance`, on one
+machine, with 900 highlights: the mosaic at the commit before the change, and
+the list after it. Both harnesses mount the app's settings and sync providers,
+which the page header needs. The mosaic's settled time includes its entrance
+animation.
+
+| Fixture  | Page   | First highlight | Settled | Longest task | Rendered highlights | DOM elements |
+| -------- | ------ | --------------: | ------: | -----------: | ------------------: | -----------: |
+| 20 books | Mosaic |          309 ms |  726 ms |        92 ms |                  10 |          552 |
+| 20 books | List   |          268 ms |  286 ms |         none |                  14 |          289 |
+| 1 book   | Mosaic |          373 ms |  787 ms |       165 ms |                  10 |          284 |
+| 1 book   | List   |          264 ms |  285 ms |         none |                  18 |          337 |
+
+"None" means no task of 50 ms or more before the page settled.
 
 ## User-visible problem
 

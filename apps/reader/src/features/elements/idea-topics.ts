@@ -1,7 +1,6 @@
 /** The parts of the app with ideas to compare, each on its own page. */
 export const IDEA_TOPICS = [
   { id: "library", label: "Library" },
-  { id: "highlights", label: "Highlights" },
   { id: "reader", label: "Reader" },
   { id: "sessions", label: "Sessions" },
 ] as const;

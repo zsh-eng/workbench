@@ -90,8 +90,7 @@ for (const remoteOnly of [false, true]) {
       });
     }
     await page.goto("/highlights");
-    await page.getByText(quote, { exact: false }).click({ button: "right" });
-    await page.getByRole("menuitem", { name: "Open in book" }).click();
+    await page.getByRole("button", { name: `Open at: ${quote}` }).click();
     await expect(page).toHaveURL(`/reader/${localBook.id}`);
     if (remoteOnly) {
       await expect.poll(() => requested).toBe(true);

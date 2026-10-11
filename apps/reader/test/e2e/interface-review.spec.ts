@@ -52,7 +52,7 @@ test("review desktop library and empty highlights", async ({
   await page.keyboard.press("Escape");
   await page.goto("/highlights");
   await expect(
-    page.getByText("No highlights yet", { exact: true }),
+    page.getByText("Nothing kept yet", { exact: true }),
   ).toBeVisible();
   await capture(page, "highlights-empty");
   expect(localBook.id).toBeTruthy();
