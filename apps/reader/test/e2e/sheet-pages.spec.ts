@@ -1,4 +1,9 @@
-import { test, expect, openLocalBook } from "./helpers/fixtures";
+import {
+  test,
+  expect,
+  openAccountMenu,
+  openLocalBook,
+} from "./helpers/fixtures";
 
 test.use({
   viewport: { width: 390, height: 844 },
@@ -113,51 +118,43 @@ for (const reducedMotion of [false, true]) {
   });
 }
 
-test("Library omits its current destination and retains three utilities", async ({
+test("the phone Library keeps every place and the account menu in its header", async ({
   page,
 }) => {
   await page.goto("/");
-  await page
-    .getByRole("button", { name: "Open navigation", exact: true })
-    .click();
-  const dialog = page.getByRole("dialog");
-  await expect(dialog.getByRole("link", { name: /Library/ })).toHaveCount(0);
+  const places = page.getByRole("navigation", { name: "Places" });
+  for (const name of ["Library", "Highlights", "Sessions"])
+    await expect(places.getByRole("link", { name, exact: true })).toBeVisible();
   await expect(
-    dialog.getByRole("button", { name: /Switch appearance/ }),
+    places.getByRole("link", { name: "Library", exact: true }),
+  ).toHaveAttribute("aria-current", "page");
+  const menu = await openAccountMenu(page);
+  await expect(
+    menu.getByRole("menuitemradio", { name: "Match system" }),
   ).toBeVisible();
   await expect(
-    dialog.getByRole("button", { name: "Add book", exact: true }),
+    menu.getByRole("menuitem", { name: "Settings", exact: true }),
   ).toBeVisible();
   await expect(
-    dialog.getByRole("button", { name: "Sign in with Google" }),
+    menu.getByRole("menuitem", { name: "Sign in with Google" }),
   ).toBeVisible();
 });
 
-test.describe("Account pages", () => {
+test.describe("Account menu", () => {
   test.use({ signedIn: true });
-  test("slides to account and back without replacing the drawer", async ({
-    page,
-  }) => {
+  test("names the account and leads to its devices", async ({ page }) => {
+    await page.route("**/api/sessions", (route) =>
+      route.fulfill({ json: { sessions: [] } }),
+    );
     await page.goto("/");
-    await page
-      .getByRole("button", { name: "Open navigation", exact: true })
-      .click();
-    const dialog = page.getByRole("dialog");
-    const shell = await dialog.elementHandle();
-    await dialog
-      .getByRole("button", { name: "Test Reader, reader@example.test" })
-      .click();
+    const menu = await openAccountMenu(page);
+    await expect(menu.getByText("reader@example.test")).toBeVisible();
+    await menu.getByRole("menuitem", { name: "Devices", exact: true }).click();
+    await expect(page).toHaveURL("/devices");
     await expect(
-      page.getByRole("dialog", { name: "Account", exact: true }),
+      page.getByRole("heading", { name: "Devices", exact: true }),
     ).toBeVisible();
-    expect(
-      await shell!.evaluate(
-        (el) => el === document.querySelector('[role="dialog"]'),
-      ),
-    ).toBe(true);
-    await dialog.getByRole("button", { name: "Back to navigation" }).click();
-    await expect(
-      dialog.getByRole("button", { name: "Add book", exact: true }),
-    ).toBeVisible();
+    await page.getByRole("link", { name: "Back to library" }).click();
+    await expect(page).toHaveURL("/");
   });
 });

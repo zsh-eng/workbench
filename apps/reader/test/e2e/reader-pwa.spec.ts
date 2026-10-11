@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import {
   importSampleBook,
+  openAccountMenu,
   SAMPLE_BOOK_TITLE,
   waitForReaderReady,
   nextSpread,
@@ -78,27 +79,20 @@ test("production debug mode defaults off and keeps an explicit override", async 
     route.fulfill({ json: null }),
   );
   await page.goto("/");
-  await page
-    .getByRole("button", { name: "Toggle sidebar", exact: true })
-    .click();
+  let menu = await openAccountMenu(page);
   await expect(
-    page.getByRole("link", { name: "Performance", exact: true }),
+    menu.getByRole("menuitem", { name: "Debug tools", exact: true }),
   ).toHaveCount(0);
-  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await menu.getByRole("menuitem", { name: "Settings", exact: true }).click();
   const toggle = page.getByRole("switch", { name: "Debug mode" });
   await expect(toggle).not.toBeChecked();
-  await page
-    .getByRole("button", { name: "Toggle sidebar", exact: true })
-    .click();
   await toggle.check();
   // The static PWA test server serves the root document; enter Settings through navigation.
   await page.goto("/");
-  await page
-    .getByRole("button", { name: "Toggle sidebar", exact: true })
-    .click();
+  menu = await openAccountMenu(page);
   await expect(
-    page.getByRole("link", { name: "Performance", exact: true }),
+    menu.getByRole("menuitem", { name: "Debug tools", exact: true }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await menu.getByRole("menuitem", { name: "Settings", exact: true }).click();
   await expect(toggle).toBeChecked();
 });

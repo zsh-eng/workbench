@@ -509,14 +509,6 @@ test.describe("Desktop margin notes", () => {
       .getByRole("button", { name: "Close reader tools", exact: true })
       .last()
       .click();
-    await page.mouse.move(200, 10);
-    await page
-      .getByRole("button", { name: "Toggle sidebar", exact: true })
-      .click();
-    await expect(page.locator('[data-slot="sidebar-inner"]')).toHaveCSS(
-      "border-radius",
-      "28px",
-    );
   });
   test("captures a margin note without resizing the book", async ({
     page,

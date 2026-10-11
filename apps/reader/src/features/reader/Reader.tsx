@@ -18,7 +18,6 @@ import type { NoteTarget } from "@/types/note";
 import { ReaderNotesPrototype } from "./ReaderNotesPrototype";
 import { ReaderController } from "./ReaderController";
 import { ReaderHeader } from "./ReaderHeader";
-import { useSidebar } from "@/components/ui/sidebar";
 import { ReaderSheetHost } from "./ReaderSheetHost";
 import { ReaderStateScreen } from "./ReaderStateScreen";
 import { SpreadStage } from "./SpreadStage";
@@ -77,7 +76,6 @@ function DisplayReadyCommitProbe({
 
 export function Reader() {
   const debugEnabled = useDebugEnabled();
-  const { open: isSidebarOpen, openMobile: isMobileSidebarOpen } = useSidebar();
   const { bookId } = useParams<{ bookId: string }>();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
@@ -257,10 +255,7 @@ export function Reader() {
     ] ??
     sessionState.chapters.entries[sessionState.navigation.currentChapterIndex];
   const isReaderInteractionSuppressed =
-    chromeState.activeReaderSheet !== null ||
-    isSidebarOpen ||
-    isMobileSidebarOpen ||
-    !displayReady;
+    chromeState.activeReaderSheet !== null || !displayReady;
   // The annotation panel owns the mobile bottom edge, including before focus
   // and while its notebook is open. Reading controls must not compete with it.
   const mobileAnnotationVisible =

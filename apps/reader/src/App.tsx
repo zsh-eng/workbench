@@ -3,6 +3,7 @@ import { lazy, Suspense } from "react";
 import { AppRouter } from "@/features/sync-lab/AppLocation";
 import { Settings } from "@/features/settings/Settings";
 import { DebugGate } from "@/features/settings/DebugGate";
+import { DebugTools } from "@/features/settings/DebugTools";
 import "@/App.css";
 import { AppShell } from "@/components/AppShell";
 import { HighlightsMasonry } from "@/features/highlights/HighlightsMasonry";
@@ -121,6 +122,14 @@ function App() {
                       />
                       <Route path="/devices" element={<Devices />} />
                       <Route path="/settings" element={<Settings />} />
+                      <Route
+                        path="/debug"
+                        element={
+                          <DebugGate>
+                            <DebugTools />
+                          </DebugGate>
+                        }
+                      />
                       <Route
                         path="/reading-sessions"
                         element={<ReadingSessions />}

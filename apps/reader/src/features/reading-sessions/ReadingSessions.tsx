@@ -1,5 +1,5 @@
 import { ContinueReadingCard } from "@/components/ContinueReadingCard";
-import { MobileBackToLibrary } from "@/components/ui/mobile-back-to-library";
+import { AppHeader } from "@/components/AppNavigation";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLibraryCoverUrls } from "@/hooks/use-library-cover-urls";
 import { useReadingSessionsQuery } from "@/hooks/use-reading-sessions-query";
@@ -252,7 +252,12 @@ function Metric({
 
 function SessionsLoadingState() {
   return (
-    <div role="status" className="space-y-4" aria-label="Loading reading sessions"><span className="sr-only">Loading reading sessions…</span>
+    <div
+      role="status"
+      className="space-y-4"
+      aria-label="Loading reading sessions"
+    >
+      <span className="sr-only">Loading reading sessions…</span>
       <div className="grid gap-3 lg:grid-cols-2">
         <Skeleton className="h-44 rounded-3xl" />
         <div className="grid grid-cols-2 gap-3">
@@ -323,15 +328,10 @@ function getReadingInvitation(
 
 function SessionsHeader() {
   return (
-    <header className="px-4 pt-10 pb-5 text-center md:pt-14 md:pb-7">
-      <div className="grid grid-cols-[2rem_minmax(0,1fr)_2rem] items-center gap-3 md:block">
-        <MobileBackToLibrary />
-        <h1 className="text-balance font-serif text-2xl font-medium leading-none tracking-tight md:text-6xl">
-          Sessions
-        </h1>
-        <div className="size-8 md:hidden" aria-hidden="true" />
-      </div>
-    </header>
+    <>
+      <h1 className="sr-only">Sessions</h1>
+      <AppHeader current="sessions" className="pb-5 md:pb-7" />
+    </>
   );
 }
 

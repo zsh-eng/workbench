@@ -42,6 +42,7 @@ export function ReaderHeader({
         accessory={accessory}
         chromeSurfaceProps={chromeSurfaceProps}
         bookTitle={bookTitle}
+        onBackToLibrary={onBackToLibrary}
         isMenuOpen={isMenuOpen}
         onOpenMenu={onOpenMenu}
         toolsTriggerRef={toolsTriggerRef}

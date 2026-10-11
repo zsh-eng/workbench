@@ -5,9 +5,10 @@
 
 import {
   getAllBooks,
-  getAllReadingCheckpointLastReads,
   getAllReadingStatuses,
+  getLatestReadingCheckpoints,
   type Book,
+  type ReadingCheckpoint,
   type ReadingStatus,
 } from "@/lib/db";
 import {
@@ -48,15 +49,23 @@ export function useBooksWithStatuses() {
       books: Book[];
       statuses: Map<string, ReadingStatus>;
       lastReadByBook: Map<string, number>;
+      /** The latest checkpoint per book across devices, for reading progress. */
+      latestCheckpoints: Map<string, ReadingCheckpoint>;
       categorized: CategorizedBooks;
     }> => {
       // Fetch all sources in parallel: book metadata, reading statuses, and
-      // the latest "last read" timestamp per book from reading checkpoints.
-      const [books, statuses, lastReadByBook] = await Promise.all([
+      // the latest reading checkpoint per book.
+      const [books, statuses, latestCheckpoints] = await Promise.all([
         getAllBooks(),
         getAllReadingStatuses(),
-        getAllReadingCheckpointLastReads(),
+        getLatestReadingCheckpoints(),
       ]);
+      const lastReadByBook = new Map(
+        [...latestCheckpoints].map(([bookId, checkpoint]) => [
+          bookId,
+          checkpoint.lastRead,
+        ]),
+      );
 
       // Categorize books by status
       const continueReading: Book[] = [];
@@ -87,6 +96,7 @@ export function useBooksWithStatuses() {
         books,
         statuses,
         lastReadByBook,
+        latestCheckpoints,
         categorized: {
           continueReading,
           library,

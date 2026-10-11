@@ -1,5 +1,4 @@
 import { ReadingStatusChangeMessage } from "@/components/ReadingStatusChangeMessage";
-import { SidebarProvider } from "@/components/ui/sidebar";
 import { ReaderChromeAccessory } from "@/features/reader/ReaderChromeAccessory";
 import { ReaderHeader } from "@/features/reader/ReaderHeader";
 import { ReaderFooter } from "@/features/reader/footer";
@@ -129,50 +128,48 @@ export function ChromeSpecimen({
   const chapter = chapterOfPage(page);
 
   return (
-    <SidebarProvider className="block min-h-0">
-      <div className="relative h-dvh w-full overflow-hidden bg-background">
-        <SamplePage onTap={() => setChromeVisible((visible) => !visible)} />
-        <ReaderHeader
-          chromeVisible={chromeVisible}
-          accessory={accessory}
-          bookTitle={SAMPLE_BOOK_TITLE}
-          isMobile={isMobile}
-          onBackToLibrary={() => {}}
-          isMenuOpen={false}
-          onOpenMenu={() => {}}
-        />
-        <ReaderFooter
-          chromeVisible={chromeVisible}
-          isMobile={isMobile}
-          currentPage={page}
-          totalPages={TOTAL_PAGES}
-          currentChapterIndex={chapter}
-          currentChapterEndIndex={chapter}
-          displayChapterIndex={chapter}
-          isContentsOpen={false}
-          chapterEntries={CHAPTER_ENTRIES}
-          chapterStartPages={CHAPTER_START_PAGES}
-          onScrubPreview={() => {}}
-          onScrubCommit={setPage}
-          onGoToChapter={(index) => setPage(CHAPTER_START_PAGES[index])}
-          onPrevChapter={() =>
-            setPage(CHAPTER_START_PAGES[Math.max(0, chapter - 1)])
-          }
-          onOpenContents={() => {}}
-          noteAccessory={
-            isMobile && (
-              <NotesCapsule
-                bookId="elements-sample"
-                highlights={[]}
-                draft={false}
-                disabled={false}
-                onJot={() => {}}
-                onOpenNotebook={() => {}}
-              />
-            )
-          }
-        />
-      </div>
-    </SidebarProvider>
+    <div className="relative h-dvh w-full overflow-hidden bg-background">
+      <SamplePage onTap={() => setChromeVisible((visible) => !visible)} />
+      <ReaderHeader
+        chromeVisible={chromeVisible}
+        accessory={accessory}
+        bookTitle={SAMPLE_BOOK_TITLE}
+        isMobile={isMobile}
+        onBackToLibrary={() => {}}
+        isMenuOpen={false}
+        onOpenMenu={() => {}}
+      />
+      <ReaderFooter
+        chromeVisible={chromeVisible}
+        isMobile={isMobile}
+        currentPage={page}
+        totalPages={TOTAL_PAGES}
+        currentChapterIndex={chapter}
+        currentChapterEndIndex={chapter}
+        displayChapterIndex={chapter}
+        isContentsOpen={false}
+        chapterEntries={CHAPTER_ENTRIES}
+        chapterStartPages={CHAPTER_START_PAGES}
+        onScrubPreview={() => {}}
+        onScrubCommit={setPage}
+        onGoToChapter={(index) => setPage(CHAPTER_START_PAGES[index])}
+        onPrevChapter={() =>
+          setPage(CHAPTER_START_PAGES[Math.max(0, chapter - 1)])
+        }
+        onOpenContents={() => {}}
+        noteAccessory={
+          isMobile && (
+            <NotesCapsule
+              bookId="elements-sample"
+              highlights={[]}
+              draft={false}
+              disabled={false}
+              onJot={() => {}}
+              onOpenNotebook={() => {}}
+            />
+          )
+        }
+      />
+    </div>
   );
 }

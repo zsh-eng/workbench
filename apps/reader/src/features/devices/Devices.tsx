@@ -1,5 +1,5 @@
 import { Card } from "@/components/ui/card";
-import { MobileBackToLibrary } from "@/components/ui/mobile-back-to-library";
+import { BackToLibrary } from "@/components/ui/back-to-library";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
 import { useSessions } from "./use-sessions";
@@ -121,7 +121,7 @@ export function Devices() {
         {/* Header */}
         <header className="mb-8">
           <div className="grid grid-cols-[2rem_1fr_2rem] items-center gap-3 md:block">
-            <MobileBackToLibrary />
+            <BackToLibrary />
             <h1 className="text-balance text-center text-2xl font-bold tracking-tight text-foreground md:text-left">
               Devices
             </h1>

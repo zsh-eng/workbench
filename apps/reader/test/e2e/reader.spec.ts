@@ -10,14 +10,8 @@ import {
 
 async function returnToLibrary(page: import("@playwright/test").Page) {
   await page.mouse.move(200, 10);
-  await page
-    .getByRole("button", { name: "Toggle sidebar", exact: true })
-    .click();
-  await page.getByRole("link", { name: "Library", exact: true }).click();
+  await page.getByRole("button", { name: "Library", exact: true }).click();
   await expect(page).toHaveURL("/");
-  await page
-    .getByRole("button", { name: "Toggle sidebar", exact: true })
-    .click();
 }
 
 test.describe("Reader with local EPUB data", () => {

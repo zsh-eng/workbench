@@ -84,6 +84,27 @@ export async function getAllReadingCheckpointLastReads(): Promise<
   return lastReadByBook;
 }
 
+/**
+ * The latest checkpoint per book across all devices: where the book was last
+ * read, and when. The Library shows its position as reading progress.
+ */
+export async function getLatestReadingCheckpoints(): Promise<
+  Map<string, ReadingCheckpoint>
+> {
+  const checkpoints = await db.readingCheckpoints
+    .filter(isNotDeleted)
+    .toArray();
+
+  const latestByBook = new Map<string, ReadingCheckpoint>();
+  for (const checkpoint of checkpoints) {
+    const existing = latestByBook.get(checkpoint.bookId);
+    if (!existing || checkpoint.lastRead > existing.lastRead) {
+      latestByBook.set(checkpoint.bookId, checkpoint);
+    }
+  }
+  return latestByBook;
+}
+
 export async function upsertReadingCheckpoint(
   checkpoint: Omit<ReadingCheckpoint, "id">,
 ): Promise<string> {

@@ -19,9 +19,10 @@ for (const theme of [
       );
     }, theme);
     await page.goto("/");
+    // A test's first page can also load Vite's cold application module graph.
     await expect(
-      page.getByRole("button", { name: "Import EPUB", exact: true }),
-    ).toBeVisible();
+      page.getByRole("button", { name: "Choose EPUB files", exact: true }),
+    ).toBeVisible({ timeout: 15_000 });
     const dark = ["dark", "night", "flexoki-dark"].includes(theme);
     await expect(page.locator("html")).toHaveCSS(
       "color-scheme",
@@ -56,7 +57,7 @@ test("system appearance follows changes and survives a mobile reload", async ({
   });
   await page.goto("/");
   await expect(
-    page.getByRole("button", { name: "Import EPUB", exact: true }),
+    page.getByRole("button", { name: "Choose EPUB files", exact: true }),
   ).toBeVisible();
   await page.emulateMedia({ colorScheme: "dark" });
   await expect(page.locator("html")).toHaveCSS("color-scheme", "dark");
@@ -69,7 +70,7 @@ test("system appearance follows changes and survives a mobile reload", async ({
     .toBe("dark");
   await page.reload();
   await expect(
-    page.getByRole("button", { name: "Import EPUB", exact: true }),
+    page.getByRole("button", { name: "Choose EPUB files", exact: true }),
   ).toBeVisible();
   await expect(page.locator("html")).toHaveCSS("color-scheme", "dark");
   await page.emulateMedia({ colorScheme: "light" });

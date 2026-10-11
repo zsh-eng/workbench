@@ -126,10 +126,6 @@ test("loads stored reading history offline with the default query policy", async
     });
   }, localBook.id);
   await context.setOffline(true);
-  await page.mouse.move(200, 10);
-  await page
-    .getByRole("button", { name: "Toggle sidebar", exact: true })
-    .click();
   await page.getByRole("link", { name: "Sessions", exact: true }).click();
   await expect(page).toHaveURL(/\/reading-sessions$/);
   await expect(

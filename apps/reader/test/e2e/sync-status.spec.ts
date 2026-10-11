@@ -1,4 +1,4 @@
-import { test, expect } from "./helpers/fixtures";
+import { test, expect, openAccountMenu } from "./helpers/fixtures";
 
 test.use({ signedIn: true });
 
@@ -11,12 +11,15 @@ test("automatic auth failure is visible and does not retry on reconnect", async 
     await route.fulfill({ status: 401, json: { error: "Unauthorized" } });
   });
   await page.goto("/");
-  await page
-    .getByRole("button", { name: "Toggle sidebar", exact: true })
-    .click();
+  // Sync needs attention, so its state shows beside the account button.
   await expect(
-    page.getByRole("button", { name: "Sign in again", exact: true }),
+    page.getByRole("button", { name: "Account: Sign in again", exact: true }),
   ).toBeVisible();
+  const menu = await openAccountMenu(page);
+  await expect(
+    menu.getByRole("menuitem", { name: "Sign in again", exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
   await page.evaluate(async () => {
     const { syncService } = await import("/src/lib/sync-service.ts");
     window.dispatchEvent(new Event("offline"));
@@ -52,25 +55,24 @@ test("record completion does not claim a pending file upload has completed", asy
     });
   });
   await page.goto("/");
-  await page
-    .getByRole("button", { name: "Toggle sidebar", exact: true })
-    .click();
   try {
     await page.evaluate(async () => {
       const { files } = await import("/src/lib/files/files-manager.ts");
       await files.put(new Blob(["pending"], { type: "text/plain" }));
     });
+    let menu = await openAccountMenu(page);
     await expect(
-      page.getByRole("button", {
+      menu.getByRole("menuitem", {
         name: "Sync now: Uploading files…",
         exact: true,
       }),
     ).toBeVisible();
-    await page
-      .getByRole("button", { name: "Sync now: Uploading files…", exact: true })
+    await menu
+      .getByRole("menuitem", { name: "Sync now: Uploading files…", exact: true })
       .click();
+    menu = await openAccountMenu(page);
     await expect(
-      page.getByRole("button", {
+      menu.getByRole("menuitem", {
         name: "Sync now: Uploading files…",
         exact: true,
       }),
@@ -80,7 +82,7 @@ test("record completion does not claim a pending file upload has completed", asy
     );
     release();
     await expect(
-      page.getByRole("button", {
+      menu.getByRole("menuitem", {
         name: "Sync now: Reading data synced",
         exact: true,
       }),
