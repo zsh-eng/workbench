@@ -1,6 +1,7 @@
 import { cn } from "@/lib/utils";
 import {
   DEVICES,
+  isFrameReady,
   useDeviceRowScale,
   useNearView,
   type DeviceId,
@@ -9,7 +10,7 @@ import {
 import { useMediaQuery } from "@uidotdev/usehooks";
 import { RefreshCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { FRAME_READY, previewTheme, useStage } from "./stage";
+import { previewTheme, useStage } from "./stage";
 
 const BOTH: readonly DeviceId[] = ["desktop", "phone"];
 
@@ -121,9 +122,7 @@ function DeviceFrame({
   // It says when it is ready, and gets the theme and the state again.
   useEffect(() => {
     const receive = (event: MessageEvent) => {
-      if (event.origin !== location.origin) return;
-      if (event.source !== frame.current?.contentWindow) return;
-      if (event.data?.type === FRAME_READY) setLoads((count) => count + 1);
+      if (isFrameReady(event, frame.current)) setLoads((count) => count + 1);
     };
     window.addEventListener("message", receive);
     return () => window.removeEventListener("message", receive);

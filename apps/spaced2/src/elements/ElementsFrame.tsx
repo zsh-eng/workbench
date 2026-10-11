@@ -4,7 +4,6 @@ import { useParams } from "react-router";
 import { silenceVibration } from "./frame-sandbox";
 import { frameSpecimen } from "./frame-specimens";
 import { keepLinksInPlace } from "./selection";
-import { FRAME_READY } from "./stage";
 
 /**
  * One specimen alone at device size. The Elements page changes its state
@@ -19,8 +18,6 @@ export function ElementsFrame() {
 
   useEffect(() => {
     document.title = `${specimen?.title ?? "Specimen"} · Elements · Spaced`;
-    if (window.parent !== window)
-      window.parent.postMessage({ type: FRAME_READY }, location.origin);
   }, [specimen]);
 
   if (!specimen)

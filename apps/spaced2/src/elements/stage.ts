@@ -21,9 +21,6 @@ export const StageContext = createContext<StageSettings>({
 
 export const useStage = () => useContext(StageContext);
 
-/** A frame posts this to the page once its specimen listens for states. */
-export const FRAME_READY = "elements:ready";
-
 /**
  * Keeps `theme` on a document while the app's ThemeProvider sets its own
  * class. Returns a function that stops and restores the earlier class.
