@@ -3,7 +3,7 @@ import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
 import { z } from "zod";
-import { DEFAULT_PORT, getStateDirectory } from "../host/runtime/connection";
+import { findPort, getStateDirectory } from "../host/runtime/connection";
 import { pullRequestUrlSchema, type SavedReviewCreate } from "../shared/saved-review";
 import { openBrowser, request, showReview } from "./review";
 
@@ -26,7 +26,8 @@ export interface PullRequestCommand {
   selector?: string;
   gh: string[];
   repoOption: string[];
-  port: number;
+  /** Without --port, the running host's port (findPort). */
+  port?: number;
   stateDir: string;
   open: boolean;
 }
@@ -43,7 +44,6 @@ export function parsePullRequestCommand(args: string[]): PullRequestCommand {
     kind: "help" as const,
     gh,
     repoOption,
-    port: DEFAULT_PORT,
     stateDir: getStateDirectory(),
     open,
   });
@@ -69,8 +69,8 @@ export function parsePullRequestCommand(args: string[]): PullRequestCommand {
     else gh.push(arg);
   }
   if (!selector) throw new Error("Choose a pull request: med pr checkout <number|url|branch>.");
-  const number = port === undefined ? DEFAULT_PORT : Number(port);
-  if (!Number.isInteger(number) || number < 1 || number > 65535)
+  const number = port === undefined ? undefined : Number(port);
+  if (number !== undefined && (!Number.isInteger(number) || number < 1 || number > 65535))
     throw new Error("Choose a port from 1 to 65535.");
   return {
     kind: "checkout",
@@ -205,7 +205,10 @@ export async function runPullRequestCommand(
     throw new Error(`gh did not fetch the pull request head ${pullRequest.headRefOid}.`);
 
   const { ensureService } = await import("./service");
-  const connection = await ensureService(command.stateDir, command.port);
+  const connection = await ensureService(
+    command.stateDir,
+    command.port ?? (await findPort(command.stateDir)),
+  );
   const fetcher = options.fetcher ?? fetch;
   const known = z
     .object({

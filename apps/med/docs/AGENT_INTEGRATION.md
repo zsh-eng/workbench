@@ -21,7 +21,8 @@ Review commands talk to the running server, so start Med with `med web`. They
 find it through a private connection file in the state folder,
 `~/.local/state/med` by default. If you change the folder (`--state-dir` or
 `MED_STATE_DIR`) or the port (`--port`, default 6330), use the same values for
-the server and for the agent's commands. Saved reviews and their comments last
+the server and for the agent's commands. A command without `--port` uses the
+one server that runs from the state folder if no server runs on 6330. Saved reviews and their comments last
 as long as the state folder.
 
 Open the server's launch URL once in the browser where you review. Med changes

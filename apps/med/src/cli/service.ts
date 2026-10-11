@@ -9,6 +9,7 @@ import {
   getStateDirectory,
   readConnection,
   DEFAULT_PORT,
+  findPort,
   type RunningConnection,
 } from "../host/runtime/connection";
 import { startHost } from "../host/server";
@@ -225,8 +226,14 @@ export async function runServiceCommand(command: string, args: string[]) {
     console.log(serviceHelp);
     return;
   }
+  // serve binds the default port; the other commands find the running host.
   const stateDir = getStateDirectory(values["state-dir"]),
-    port = values.port === undefined ? DEFAULT_PORT : Number(values.port);
+    port =
+      values.port !== undefined
+        ? Number(values.port)
+        : command === "serve"
+          ? DEFAULT_PORT
+          : await findPort(stateDir);
   if (!Number.isInteger(port) || port < 1 || port > 65535)
     throw new Error("Choose a port from 1 to 65535.");
   if (
