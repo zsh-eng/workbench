@@ -83,7 +83,8 @@ try {
     await page.getByRole("link", { name: "Samples", exact: true }).waitFor();
   };
   await showPreview();
-  await page.keyboard.press("Meta+Shift+b");
+  // The files sidebar has only its button; ⌘⇧B toggles the agent session.
+  await page.getByRole("button", { name: "Toggle files sidebar", exact: true }).click();
   const filesSidebar = page.getByRole("complementary", { name: "Workspace files", exact: true });
   await filesSidebar.waitFor();
   const sidebarBox = await filesSidebar.boundingBox();

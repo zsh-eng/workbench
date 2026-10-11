@@ -256,9 +256,10 @@ process.stdout.write(process.env.MED_TEST_PR);
   const page = await context.newPage();
   await page.goto(reviewUrl);
   await page.waitForFunction(() => document.title === "Agent handoff validation");
+  // The header names the pull request by its own title; the tab keeps the review's.
   assert.equal(
     await page
-      .getByRole("link", { name: "Open pull request: Agent handoff validation", exact: true })
+      .getByRole("link", { name: "Open pull request: Faster lookups", exact: true })
       .getAttribute("href"),
     "https://github.com/example/repo/pull/42",
   );
@@ -266,7 +267,7 @@ process.stdout.write(process.env.MED_TEST_PR);
   await page.locator('[data-review-status="ready"]').waitFor();
   assert.equal(new URL(page.url()).hash, "");
   const header = page.getByRole("region", { name: "Saved review" });
-  await header.getByText("Agent handoff validation", { exact: true }).waitFor();
+  await header.getByText("Faster lookups", { exact: true }).waitFor();
   assert.equal(await page.getByRole("button", { name: "Push", exact: true }).isEnabled(), false);
   await page.getByRole("button", { name: "Split", exact: true }).click();
   // Select the changed line itself. A hover-only gutter button can disappear
@@ -299,7 +300,7 @@ process.stdout.write(process.env.MED_TEST_PR);
   await page.waitForFunction(() => document.title === "Agent handoff validation");
   assert.equal(
     await page
-      .getByRole("link", { name: "Open pull request: Agent handoff validation", exact: true })
+      .getByRole("link", { name: "Open pull request: Faster lookups", exact: true })
       .getAttribute("href"),
     "https://github.com/example/repo/pull/42",
   );
@@ -311,7 +312,7 @@ process.stdout.write(process.env.MED_TEST_PR);
     .waitFor();
   assert.equal(
     await header
-      .getByRole("link", { name: "Open pull request: Agent handoff validation", exact: true })
+      .getByRole("link", { name: "Open pull request: Faster lookups", exact: true })
       .locator("svg")
       .count(),
     2,
@@ -497,7 +498,7 @@ process.stdout.write(process.env.MED_TEST_PR);
   await page.waitForFunction(() => document.title === "Agent handoff validation");
   assert.equal(
     await page
-      .getByRole("link", { name: "Open pull request: Agent handoff validation", exact: true })
+      .getByRole("link", { name: "Open pull request: Faster lookups", exact: true })
       .getAttribute("href"),
     "https://github.com/example/repo/pull/42",
   );
