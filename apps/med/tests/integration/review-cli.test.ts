@@ -396,6 +396,23 @@ exit 1
       "A reply to keep.",
     ]);
     expect(pinned.iterations[0].pins).toBeUndefined();
+
+    // Deleting the started notes takes their iteration and its comparison.
+    const commented = await post("brief-comments", {
+      add: { section: "brief", iteration: 1, quote: "First round", text: "Keep this round." },
+    });
+    expect(commented.commentCount).toBe(1);
+    const deleted = await post("delete-notes", { iteration: 2 });
+    expect(deleted.iterations.map((entry: { number: number }) => entry.number)).toEqual([1]);
+    expect(deleted.targets.map((target: { id: string }) => target.id)).not.toContain(current);
+    expect(deleted.brief).toMatchObject({ text: "First round" });
+    // Agent notes lose their brief and its comments; the comparison stays.
+    const cleared = await post("delete-notes", { iteration: 1 });
+    expect(cleared.iterations).toMatchObject([{ number: 1 }]);
+    expect(cleared.iterations[0].brief).toBeUndefined();
+    expect(cleared.brief).toBeUndefined();
+    expect(cleared.commentCount).toBe(0);
+    expect(cleared.targets).toHaveLength(1);
   });
 
   it("records the agent sessions that made a review, with the directories they started in", async () => {

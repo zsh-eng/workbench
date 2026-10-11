@@ -3,6 +3,7 @@ import { page, userEvent } from "vitest/browser";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { SessionSection } from "../../src/web/components/elements/SessionSection";
+import { FaviconSource, GLOBE } from "../../src/web/components/session/favicons";
 import { SessionThread } from "../../src/web/components/session/SessionThread";
 import { createSessionStore } from "../../src/web/data/session-store";
 import "../../src/web/pierre-theme";
@@ -267,6 +268,82 @@ test("[ and ] step through the prompts and replies of a focused thread", async (
   // Far from the end, the message goes near the top of the view.
   for (let step = 0; step < 20; step++) await userEvent.keyboard("[[");
   await expect.poll(() => Math.round(topOf(current()!))).toBe(16);
+  // The mark is for the keys: a click in the thread takes it away.
+  await userEvent.click(document.querySelector(`[data-unit="${current()}"]`)!);
+  expect(current()).toBeUndefined();
+});
+
+test("a prompt shows its quotes as Claude does, without reply markers", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  store.applyAll([
+    {
+      at: 0,
+      update: {
+        sessionUpdate: "user_message_chunk" as const,
+        content: {
+          type: "text" as const,
+          text: "<!-- reply 1 -->\n> Pins keep adding to the notes.\n\nThis makes sense.\n\n<!-- reply 2 -->\n> Show the prompt.\n> Add one switch.\n\nYes.",
+        },
+      },
+    },
+  ]);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  const bubble = () => document.querySelector('[data-message="user"]');
+  await expect.poll(() => bubble()?.querySelectorAll("blockquote").length).toBe(2);
+  expect([...bubble()!.querySelectorAll("blockquote")].map((quote) => quote.textContent)).toEqual([
+    "Pins keep adding to the notes.",
+    "Show the prompt.\nAdd one switch.",
+  ]);
+  expect([...bubble()!.querySelectorAll("p")].map((text) => text.textContent)).toEqual([
+    "This makes sense.",
+    "Yes.",
+  ]);
+  expect(bubble()!.textContent).not.toMatch(/<!--|>/);
+});
+
+test("a reply's links act as links, and a web link shows its site's icon", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  store.applyAll([
+    {
+      at: 0,
+      update: {
+        sessionUpdate: "agent_message_chunk" as const,
+        content: {
+          type: "text" as const,
+          text: "See [summary.ts:14](src/summary.ts:14), the [Docs](https://docs.trail.dev/a), and the [Wiki](https://wiki.trail.dev/b).",
+        },
+      },
+    },
+  ]);
+  const icon = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1"/></svg>')}`;
+  const opened: string[] = [];
+  root!.render(
+    <FaviconSource.Provider
+      value={(origin) => (origin === "https://docs.trail.dev" ? icon : "/no-such-icon.ico")}
+    >
+      <SessionThread snapshot={store.getSnapshot()} onOpenLink={(href) => opened.push(href)} />
+    </FaviconSource.Provider>,
+  );
+  const docs = page.getByRole("link", { name: "Docs" });
+  await expect.element(docs).toHaveAttribute("href", "https://docs.trail.dev/a");
+  await expect.poll(() => docs.element().querySelector("img")?.src).toBe(icon);
+  // A site without an icon shows a globe.
+  await expect
+    .poll(() => page.getByRole("link", { name: "Wiki" }).element().querySelector("img")?.src)
+    .toBe(GLOBE);
+
+  // A file link has no href, but it has the link cursor and underlines on hover.
+  const file = page.getByText("summary.ts:14");
+  expect(getComputedStyle(file.element()).cursor).toBe("pointer");
+  expect(getComputedStyle(file.element()).textDecorationLine).toBe("none");
+  await userEvent.hover(file);
+  await expect.poll(() => getComputedStyle(file.element()).textDecorationLine).toBe("underline");
+  await userEvent.click(file);
+  expect(opened).toEqual(["src/summary.ts:14"]);
 });
 
 test("a thread that arrives in batches still renders only the units near the view", async () => {

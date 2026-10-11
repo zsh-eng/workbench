@@ -1,3 +1,4 @@
+import { createFavicons } from "./favicon";
 import { serveMedia, mediaHeaders } from "./media";
 import { mediaType } from "../shared/media";
 import { fileChangesRequestSchema } from "../shared/file-changes";
@@ -304,6 +305,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       if (watcher) await retireWatcher(watcher);
     }
   };
+  const favicons = createFavicons();
   const registry = new RepositoryRegistry(options.search, async (id, paths) => {
     for (const [abort, owners] of activeRequests) if (owners.has(id)) abort.abort();
     await forgetCheckouts(paths);
@@ -1287,7 +1289,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           const savedRoute =
-            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes)|\/(feedback|clear|brief|brief-comments|pins|iterations|details|pull-request|codex-reviews))?$/.exec(
+            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes)|\/(feedback|clear|brief|brief-comments|pins|iterations|delete-notes|details|pull-request|codex-reviews))?$/.exec(
               url.pathname,
             );
           if (savedRoute) {
@@ -1392,6 +1394,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               inbox.touch(id!);
               return;
             }
+            if (request.method === "POST" && action === "delete-notes") {
+              const input = z
+                .object({
+                  iteration: z.number().int().positive().optional(),
+                  briefFrom: z.number().int().positive().optional(),
+                })
+                .parse(await readBody(request));
+              assertRequestAccess();
+              send(await savedReviews.deleteNotes(id!, input, assertRequestAccess));
+              inbox.touch(id!);
+              return;
+            }
             if (request.method === "POST" && action === "iterations") {
               assertRequestAccess();
               send(await savedReviews.startNotes(id!, captureTarget, assertRequestAccess));
@@ -1423,6 +1437,20 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               "This saved review action is not supported.",
               405,
             );
+          }
+          if (url.pathname === "/api/favicon" && request.method === "GET") {
+            const icon = await favicons.get(url.searchParams.get("origin") ?? "");
+            if (!icon) throw new HostError("favicon-unavailable", "This site has no icon.", 404);
+            assertRequestAccess();
+            response.writeHead(200, {
+              ...mediaHeaders,
+              // An icon does not change while the host runs.
+              "Cache-Control": "private, max-age=86400",
+              "Content-Type": icon.type,
+              "Content-Length": icon.bytes.length,
+            });
+            response.end(icon.bytes);
+            return;
           }
           if (url.pathname === "/api/build" && request.method === "GET") {
             send({

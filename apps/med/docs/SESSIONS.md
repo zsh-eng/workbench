@@ -134,11 +134,16 @@ nothing.
   between its prompt and its final reply, except errors) folds into one
   "Worked for" unit (`fold` in `thread-model.ts`). The unit opens its turn in
   place; **Show work** in the Session pane opens every turn. The turn that
-  runs does not fold. The thread opens at its end. The view
-  follows new items while the reader is at the bottom; only the reader's move
-  up (wheel, touch, keys, or the pointer) stops it. A thread that gets shorter
-  also moves the view up, and that move does not stop it. The Background and
-  Tasks docks sit under the thread.
+  runs does not fold. A prompt shows each run of quoted lines as a quote,
+  as Claude does, and hides HTML comments such as reply markers
+  (`prompt-blocks.ts`). A reply's web links are pills with their site's icon,
+  as in Codex. The page loads images only from Med, so `/api/favicon` fetches
+  each icon in the host (`favicon.ts`): HTTPS only, public addresses only,
+  each redirect checked, and kept while the host runs. The thread opens at
+  its end. The view follows new items while the reader is at the bottom; only
+  the reader's move up (wheel, touch, keys, or the pointer) stops it. A thread
+  that gets shorter also moves the view up, and that move does not stop it.
+  The Background and Tasks docks sit under the thread.
 - The thread is a virtual list. Only the units within 1,200 px of the view
   render; spacers hold the height of the others. When less than 800 px stays
   rendered past an edge, the range moves in a task after the frame, so the

@@ -201,7 +201,9 @@ on its latest work; scroll up for earlier work, or jump to a prompt from
 its thoughts, commentary, and tool calls fold into one **Worked for** row, as in
 Codex. Click the row to open that turn, or press **Show work** in the pane's
 header to open every turn. With focus in the thread, `[` and `]` step through
-the prompts and replies; a task in **Background** goes to its call. See
+the prompts and replies; a task in **Background** goes to its call. A prompt
+that quotes the agent shows its quotes as Claude does. Links in a reply open
+files in Med; a web link is a pill with its site's icon. See
 [agent sessions](SESSIONS.md).
 
 A saved review can also start an agent. A Session pane without a session lists
@@ -247,6 +249,10 @@ cite.
 - **Start new notes.** The **⋯** menu's **Start new notes** captures the
   current comparisons again as a new, empty iteration. Later pins and a pasted
   brief go there; the earlier notes stay with their iteration.
+- **Delete notes.** **Delete these notes…** in the **⋯** menu asks first, then
+  deletes the shown brief and pins and the comments on them. Notes that you
+  started also take their iteration with them, unless its comparisons have
+  comments.
 
 Links can be `path`, `path:12`, `path:12-20`, `path#L12-L20`, absolute paths,
 editor links, or GitHub blob URLs. A unique suffix such as `App.tsx:42` works.

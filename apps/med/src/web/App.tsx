@@ -1189,6 +1189,31 @@ export function App({
         showToast(error instanceof Error ? error.message : "New notes could not start."),
     );
   }, [controller, showToast]);
+  // Delete the notes on screen: the shown iteration's, and a brief that it
+  // shows from an earlier iteration.
+  const deleteNotes = useCallback(
+    () =>
+      controller
+        .deleteNotes(
+          shownIteration === undefined
+            ? {}
+            : {
+                iteration: shownIteration,
+                ...(briefSource && briefSource.number !== shownIteration
+                  ? { briefFrom: briefSource.number }
+                  : {}),
+              },
+        )
+        .then(
+          () => {
+            setBriefIteration(null);
+            showToast("Notes deleted.");
+          },
+          (error: unknown) =>
+            showToast(error instanceof Error ? error.message : "The notes could not be deleted."),
+        ),
+    [controller, shownIteration, briefSource, showToast],
+  );
   // Pin to review on the agent's replies. A pin goes to the latest iteration.
   const showPinRef = useRef(showPin);
   useEffect(() => {
@@ -3811,6 +3836,7 @@ export function App({
                       onCopy={copyNotes}
                       onRemove={removeBrief}
                       onStartNotes={startNotes}
+                      onDeleteNotes={deleteNotes}
                       onUnpin={(id) => void unpin(id)}
                       notes={notes}
                       onMutateNote={(mutation) => controller.mutateNote(mutation)}
