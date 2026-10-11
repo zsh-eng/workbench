@@ -142,19 +142,28 @@ marketing site's Replay and Reset buttons are runs.
 
 ## Native apps
 
-Arctic follows the same shape in SwiftUI:
+Arctic follows the same shape in SwiftUI (`apps/arctic/Sources/Elements/`):
 
-- An **Elements** screen opens from Sort and filter → Elements. The launch
-  argument `-ArcticElements <section>` opens it at a section for screenshots
-  and recordings.
-- A `List` of sections, with Foundations first. Each specimen has a caption
-  and a stage. A segmented state picker replays its state when you choose it
-  again.
+- **Elements** opens from Sort and filter → Elements as a full-screen cover.
+  The index is a `List` of sections, with Foundations first. Each section is
+  one page in a `NavigationStack`, and its title is a menu to the others.
+- Each specimen has a caption and a stage. A segmented state picker replays
+  its state when you choose it again.
 - `DemoPlayer`, an `@Observable` type, has the same contract as the web
-  player: time, beats, play, pause, scrub, restart, start in view, and
-  Reduce Motion.
-- Specimens render the production views with fixtures. They never read or
-  write the user's library.
+  player: timelines and runs, beats, play, pause, scrub, speed, restart,
+  start in view (`demoStage`), and Reduce Motion. A display link ticks only
+  while a timeline plays.
+- A run that ends by itself, such as the Undo toast, starts the first time
+  it is mostly in view (`onDemoFirstSight`), so the viewer sees it from the
+  start.
+- Specimens render the production views with fixtures. Views that need the
+  library take a small protocol (`UndoReceiptSource`, `ArticleTagSource`)
+  that a fixture store implements. Elements never reads or writes the
+  library.
+- Launch arguments replace the web's deep links, for screenshots and
+  recordings: `-ArcticElements <section>`, `-ArcticElementsState <state>`,
+  `-ArcticElementsTime <seconds>` (opens paused), and
+  `-ArcticElementsAutoplay NO`. Add `-ui-testing` to use the test store.
 
 ## Recordings
 
