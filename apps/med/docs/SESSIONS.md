@@ -130,7 +130,11 @@ nothing.
 - `components/session/SessionThread.tsx` renders the thread. Reads and
   searches in a row form one "Explored" group. An edit is a row with its file
   and its added and removed lines; its Pierre diff renders when the reader
-  opens the row, as in Claude Desktop. The thread opens at its end. The view
+  opens the row, as in Claude Desktop. A finished turn's work (the units
+  between its prompt and its final reply, except errors) folds into one
+  "Worked for" unit (`fold` in `thread-model.ts`). The unit opens its turn in
+  place; **Show work** in the Session pane opens every turn. The turn that
+  runs does not fold. The thread opens at its end. The view
   follows new items while the reader is at the bottom; only the reader's move
   up (wheel, touch, keys, or the pointer) stops it. A thread that gets shorter
   also moves the view up, and that move does not stop it. The Background and

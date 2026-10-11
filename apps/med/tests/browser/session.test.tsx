@@ -56,6 +56,8 @@ test("the replay plays a recorded session into the thread and stops when paused"
 
 test("a tool call opens to show its command and output", async () => {
   const replay = await setup();
+  // The finished turn's work is folded.
+  await userEvent.click(replay.getByRole("button", { name: /Worked for/ }));
   const row = replay.getByRole("button", { name: /Run the test suite/ });
   await expect.element(row).toHaveAttribute("aria-expanded", "false");
   await userEvent.click(row);
@@ -288,6 +290,106 @@ test("a thread that arrives in batches still renders only the units near the vie
   expect(units().length).toBeLessThan(120);
 });
 
+test("a finished turn's work folds into one row that opens in place, and Show work opens every turn", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  store.applyAll(
+    [0, 1].flatMap((turn) => {
+      const at = turn * 10_000;
+      const text = (id: string, value: string, offset: number) => ({
+        at: at + offset,
+        update: {
+          sessionUpdate: "agent_message_chunk" as const,
+          messageId: id,
+          content: { type: "text" as const, text: value },
+        },
+      });
+      return [
+        {
+          at,
+          update: {
+            sessionUpdate: "user_message_chunk" as const,
+            content: { type: "text" as const, text: `Prompt ${turn}` },
+          },
+        },
+        text(`c${turn}`, `I will run the tests ${turn}.`, 1000),
+        {
+          at: at + 2000,
+          update: {
+            sessionUpdate: "tool_call" as const,
+            toolCallId: `run-${turn}`,
+            title: `Run the tests ${turn}`,
+            kind: "execute" as const,
+            status: "completed" as const,
+            rawInput: { command: "bun test" },
+          },
+        },
+        text(`f${turn}`, `The tests ${turn} pass.`, 4000),
+      ];
+    }),
+  );
+  const render = (showWork?: boolean) =>
+    root!.render(<SessionThread snapshot={store.getSnapshot()} showWork={showWork} />);
+  render();
+  const rows = page.getByRole("button", { name: /^Worked for 4\.0s · 1 tool call$/ });
+  await expect.poll(() => rows.elements().length).toBe(2);
+  await expect.element(page.getByText("The tests 1 pass.")).toBeVisible();
+  // The prompt and the final reply show; the commentary and the call fold.
+  expect(page.getByText("I will run the tests 0.").query()).toBeNull();
+  expect(page.getByRole("button", { name: /Run the tests/ }).query()).toBeNull();
+
+  const first = rows.nth(0);
+  const top = first.element().getBoundingClientRect().top;
+  await userEvent.click(first);
+  await expect.element(first).toHaveAttribute("aria-expanded", "true");
+  await expect.element(page.getByRole("button", { name: /Run the tests 0/ })).toBeVisible();
+  await expect.element(page.getByText("I will run the tests 0.")).toBeVisible();
+  expect(Math.abs(first.element().getBoundingClientRect().top - top)).toBeLessThan(2);
+  expect(page.getByRole("button", { name: /Run the tests 1/ }).query()).toBeNull();
+
+  render(true);
+  await expect.element(page.getByRole("button", { name: /Run the tests 1/ })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: /Run the tests 0/ })).toBeVisible();
+  // A turn closes against the switch too.
+  await userEvent.click(rows.nth(1));
+  await expect.element(rows.nth(1)).toHaveAttribute("aria-expanded", "false");
+  expect(page.getByRole("button", { name: /Run the tests 1/ }).query()).toBeNull();
+
+  // The turn that runs keeps its work in view, with a prompt queued behind it.
+  store.applyAll([
+    {
+      at: 30_000,
+      update: {
+        sessionUpdate: "user_message_chunk" as const,
+        content: { type: "text" as const, text: "Prompt 2" },
+      },
+    },
+    {
+      at: 31_000,
+      update: {
+        sessionUpdate: "tool_call" as const,
+        toolCallId: "run-2",
+        title: "Run the tests 2",
+        kind: "execute" as const,
+        status: "in_progress" as const,
+      },
+    },
+    {
+      at: 32_000,
+      update: {
+        sessionUpdate: "user_message_chunk" as const,
+        content: { type: "text" as const, text: "Then the docs." },
+        _meta: { med: { queued: true } },
+      },
+    },
+  ]);
+  root!.render(<SessionThread snapshot={{ ...store.getSnapshot(), running: true }} />);
+  await expect.element(page.getByText("Then the docs.")).toBeVisible();
+  await expect.element(page.getByRole("button", { name: /Run the tests 2/ })).toBeVisible();
+  expect(rows.elements()).toHaveLength(2);
+});
+
 test("the units in view keep their place as earlier work loads above them", async () => {
   await page.viewport(1280, 900);
   initializeTheme();
@@ -373,7 +475,7 @@ test("a row keeps its state when it leaves the view and comes back", async () =>
       },
     },
   ]);
-  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} showWork />);
   const call = page.getByRole("button", { name: /Run the tests/ });
   await userEvent.click(call);
   await expect.element(page.getByText("12 pass")).toBeVisible();
@@ -439,7 +541,7 @@ test("an edit shows its file and line counts, and its diff when the reader opens
   mount.style.height = "600px";
   document.body.append(mount);
   root = createRoot(mount);
-  root.render(<SessionThread snapshot={store.getSnapshot()} />);
+  root.render(<SessionThread snapshot={store.getSnapshot()} showWork />);
   const row = () => document.querySelector<HTMLButtonElement>('[data-unit="edit-79"] button')!;
   await expect.poll(() => row()?.textContent).toContain("file-79.ts");
   expect(row().textContent).toContain("+2");

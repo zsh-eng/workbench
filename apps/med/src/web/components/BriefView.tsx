@@ -86,6 +86,8 @@ export interface BriefViewProps {
   onPaste(): void;
   onCopy(text: string): void;
   onRemove(): void;
+  /** Starts new, empty notes, which later pins go to. */
+  onStartNotes?(): void;
   onUnpin?(id: string): void;
   /** Notes texts to render in the background, such as other iterations. */
   prerender?: readonly string[];
@@ -193,6 +195,7 @@ export default function BriefView({
   onPaste,
   onCopy,
   onRemove,
+  onStartNotes,
   onUnpin,
   iterations,
   iteration,
@@ -644,6 +647,7 @@ export default function BriefView({
                   },
                   { label: "Copy all notes", onClick: () => onCopy(text) },
                 ],
+                ...(onStartNotes ? [[{ label: "Start new notes", onClick: onStartNotes }]] : []),
                 ...(brief ? [[{ label: "Remove the brief", onClick: onRemove }]] : []),
               ]}
             >
@@ -654,6 +658,11 @@ export default function BriefView({
             <div role="alert" className="med-md-notice">
               {error}
             </div>
+          )}
+          {shown?.sections.length === 0 && (
+            <p {...stylex.props(styles.empty)}>
+              No notes yet. Pin a reply from the session, or paste a brief with ⌘V.
+            </p>
           )}
           {groups.map(({ section, blocks }, number) => (
             <section
@@ -1391,6 +1400,7 @@ function IterationKeys({
 }
 
 const styles = stylex.create({
+  empty: { color: tokens.muted, fontFamily: tokens.ui, fontSize: 13 },
   root: {
     position: "relative",
     containerType: "inline-size",

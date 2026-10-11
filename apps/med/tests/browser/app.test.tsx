@@ -66,6 +66,7 @@ const storedPreferences = [
   "med-markdown-preview",
   "med:pane-layout",
   "med:pane-width",
+  "med:work",
 ];
 beforeEach(() => {
   for (const key of storedPreferences) localStorage.removeItem(key);
@@ -204,6 +205,9 @@ async function mountApp(
     );
   };
   const savedNotes: Note[] = [];
+  // Notes that the reader started: each a new iteration of the latest comparison.
+  const startedNotes: { number: number; createdAt: string; targetIds: string[]; fresh: true }[] =
+    [];
   const savedBundle = () => ({
     id: "saved",
     title: "Agent review",
@@ -221,17 +225,20 @@ async function mountApp(
     ...(options.iterationBriefs
       ? {
           key: "feat/agent",
-          iterations: options.iterationBriefs.map((text, index) => ({
-            number: index + 1,
-            createdAt: new Date(Date.UTC(2026, 8, 20 + index)).toISOString(),
-            targetIds:
-              index === 0
-                ? [savedTargets[0]!.id]
-                : index === options.iterationBriefs!.length - 1
-                  ? [savedTargets[1]!.id]
-                  : [],
-            brief: { text, updatedAt: new Date(Date.UTC(2026, 8, 20 + index)).toISOString() },
-          })),
+          iterations: [
+            ...options.iterationBriefs.map((text, index) => ({
+              number: index + 1,
+              createdAt: new Date(Date.UTC(2026, 8, 20 + index)).toISOString(),
+              targetIds:
+                index === 0
+                  ? [savedTargets[0]!.id]
+                  : index === options.iterationBriefs!.length - 1
+                    ? [savedTargets[1]!.id]
+                    : [],
+              brief: { text, updatedAt: new Date(Date.UTC(2026, 8, 20 + index)).toISOString() },
+            })),
+            ...startedNotes,
+          ],
         }
       : {}),
   });
@@ -321,6 +328,21 @@ async function mountApp(
         pullRequestReads.push(url.search);
         return Response.json(options.pullRequest);
       }
+      if (url.pathname === "/api/reviews/saved/iterations" && init?.method === "POST") {
+        const id = `target-${savedTargets.length}`;
+        savedTargets.push({
+          ...savedTargets.at(-1)!,
+          id,
+          label: `Captured ${savedTargets.length}`,
+        });
+        startedNotes.push({
+          number: options.iterationBriefs!.length + startedNotes.length + 1,
+          createdAt: "2026-09-23T00:00:00Z",
+          targetIds: [id],
+          fresh: true,
+        });
+        return Response.json(savedBundle());
+      }
       if (url.pathname === "/api/reviews/saved/pins" && init?.method === "POST") {
         const mutation = JSON.parse(String(init.body)) as PinMutation;
         if ("add" in mutation)
@@ -369,7 +391,7 @@ async function mountApp(
           savedRepositories.find((entry) => entry.path === url.searchParams.get("repo"))
             ?.branches ?? [],
         );
-      const savedRoute = /^\/api\/reviews\/saved\/targets\/target-([01])\/(review|notes)$/.exec(
+      const savedRoute = /^\/api\/reviews\/saved\/targets\/target-(\d)\/(review|notes)$/.exec(
         url.pathname,
       );
       if (savedRoute) {
@@ -2095,6 +2117,28 @@ describe("review brief", () => {
     await expect.poll(() => controller.getSnapshot().savedTargetId).toBe("target-1");
   });
 
+  test("Start new notes makes an empty iteration of the current comparison", async () => {
+    await page.viewport(1280, 800);
+    const { controller } = await mountApp({
+      savedReview: true,
+      iterationBriefs: ["# First round\n", "# Second round\n"],
+    });
+    await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
+    await page.getByRole("button", { name: "Notes options" }).click();
+    await page.getByRole("menuitem", { name: "Start new notes" }).click();
+    // The new notes are empty: the brief before them stays with its iteration.
+    await expect.element(page.getByText("No notes yet.", { exact: false })).toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: "Iteration 3" }))
+      .toHaveAttribute("aria-pressed", "true");
+    await expect.poll(() => controller.getSnapshot().savedTargetId).toBe("target-2");
+    await expect
+      .element(page.getByRole("heading", { name: "Second round" }))
+      .not.toBeInTheDocument();
+    await page.getByRole("button", { name: "Iteration 2" }).click();
+    await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
+  });
+
   test("many iterations keep the latest keys and list earlier ones in a menu", async () => {
     await page.viewport(1280, 800);
     await mountApp({
@@ -2459,7 +2503,14 @@ describe("agent session", () => {
     await page.getByRole("button", { name: "Toggle agent session" }).click();
     const panel = page.getByRole("complementary", { name: "Agent session" });
     await expect.element(panel.getByText("Rename the export.")).toBeVisible();
+    // The finished turn's work folds into one row; Show work opens it, and stays on.
+    await expect
+      .element(panel.getByRole("button", { name: "Worked for 2.0s · 1 tool call" }))
+      .toBeVisible();
+    expect(panel.getByRole("button", { name: /Run the tests/ }).query()).toBeNull();
+    await panel.getByRole("button", { name: "Show work" }).click();
     await expect.element(panel.getByRole("button", { name: /Run the tests/ })).toBeVisible();
+    expect(localStorage.getItem("med:work")).toBe("shown");
     await expect.element(panel.getByText("Idle")).toBeVisible();
 
     await panel.getByText("alpha.ts:1").click();
@@ -2553,7 +2604,9 @@ describe("agent session", () => {
     // A short thread reaches its top at once, so the earlier page loads.
     await expect.element(panel.getByText("First prompt")).toBeVisible();
     expect(pageReads).toEqual(["4096"]);
-    // The result that came first now completes its call: one row, with its title.
+    // The result that came first now completes its call: one row, with its
+    // title, in the first turn's folded work.
+    await panel.getByRole("button", { name: /^Worked for/ }).click();
     const build = panel.getByRole("button", { name: /Build the app/ });
     await expect.element(build).toBeVisible();
     expect(document.querySelectorAll('[aria-label="Session"] [data-unit="early"]')).toHaveLength(1);

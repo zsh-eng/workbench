@@ -143,6 +143,7 @@ const savedSchema = z.object({
         targetIds: z.array(z.string().regex(TARGET_ID)),
         brief: briefSchema.optional(),
         pins: pinsSchema.optional(),
+        fresh: z.boolean().optional(),
       }),
     )
     .max(MAX_ITERATIONS)
@@ -667,6 +668,32 @@ export class SavedReviewStore {
     }, beforeCommit);
   }
 
+  /** New notes from the reader: the current iteration's comparisons, captured
+   * again as a new, empty iteration. Later pins go to it. */
+  startNotes(
+    id: string,
+    capture: (target: SavedReviewCreate["targets"][number]) => Promise<CapturedReviewTarget>,
+    beforeCommit?: () => void,
+  ): Promise<SavedReview> {
+    return this.writing(async () => {
+      const record = await this.read(id, true);
+      const saved = record.saved;
+      const current = new Set(
+        saved.iterations?.at(-1)?.targetIds ??
+          saved.targets.filter((target) => !target.commentReviewId).map((target) => target.id),
+      );
+      // Saved reviews hold Git comparisons and working changes only.
+      const targets = saved.targets.flatMap(({ id, repo, comparison }) =>
+        current.has(id) && comparison.kind !== "files" && comparison.kind !== "patch"
+          ? [{ repo, comparison }]
+          : [],
+      );
+      if (!targets.length)
+        throw new HostError("saved-review-empty", "This review has no comparison to capture.", 409);
+      return this.iterate(record, { title: saved.title, targets }, capture, beforeCommit, true);
+    }, beforeCommit);
+  }
+
   /** The agent's next round on a keyed review: new comparisons and brief as a
    * new iteration. Comments, earlier briefs, and earlier comparisons stay. */
   private async iterate(
@@ -674,6 +701,7 @@ export class SavedReviewStore {
     input: SavedReviewCreate,
     capture: (target: SavedReviewCreate["targets"][number]) => Promise<CapturedReviewTarget>,
     beforeCommit?: () => void,
+    fresh = false,
   ): Promise<SavedReview> {
     const saved = record.saved;
     const iterations = saved.iterations ?? [
@@ -708,6 +736,7 @@ export class SavedReviewStore {
       createdAt: now,
       targetIds,
       ...(brief ? { brief } : {}),
+      ...(fresh ? { fresh } : {}),
     });
     saved.iterations = iterations;
     saved.title = input.title.trim();
