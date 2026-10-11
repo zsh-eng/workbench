@@ -88,6 +88,8 @@ the Library on the first visit.
 - The data comes from the Workbench Backup mirror in
   `~/Library/Application Support/Workbench Backup`. Set `READER_BACKUP_DIR`
   to use a different mirror folder.
+- Set `READER_LOCAL_DATA_PORT` to run a second copy, for example from a
+  worktree, next to the first. Each port installs its own copy of the data.
 - The mirror opens read-only. Edits, imports and deletions in the browser stay
   in the dev server's memory and in the browser. They never reach the backup
   or the production API, and a restart discards them on the server.
