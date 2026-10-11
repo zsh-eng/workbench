@@ -653,7 +653,7 @@ private struct ReaderLoadingBar: View {
 
 /// Live appearance controls. Each choice is shown as itself: themes as their
 /// colours, typefaces in their own letterforms, sizes as numbers.
-private struct ReaderAppearancePanel: View {
+struct ReaderAppearancePanel: View {
   @Binding var font: String
   @Binding var paletteName: String
   @Binding var fontSize: Double
@@ -663,7 +663,7 @@ private struct ReaderAppearancePanel: View {
   let done: () -> Void
   @Namespace private var selection
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  private static let fonts = ["System", "DM Sans", "EB Garamond", "Georgia", "Palatino"]
+  static let fonts = ["System", "DM Sans", "EB Garamond", "Georgia", "Palatino"]
 
   private var choice: Animation? {
     reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.8)
@@ -802,7 +802,7 @@ private struct ReaderAppearancePanel: View {
     .accessibilityIdentifier("reader-font")
   }
 
-  private static func sample(_ name: String, size: CGFloat) -> Font {
+  static func sample(_ name: String, size: CGFloat) -> Font {
     switch name {
     case "System": .system(size: size, weight: .regular)
     case "Palatino": .custom("Palatino", size: size)

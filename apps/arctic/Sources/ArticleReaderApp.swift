@@ -72,6 +72,9 @@ private struct ArticleRootView: View {
   let store: ArticleStore
   let sync: LibrarySync
   @State private var completed: Bool
+  /// `-ArcticElements <section>` opens Elements in place of the library, for
+  /// screenshots and recordings. Closing it shows the usual first screen.
+  @State private var launchElements = ElementsLaunch.requested
 
   private static var completionKey: String {
     TestMode.enabled ? "test-onboarding-completed" : "onboarding-completed"
@@ -92,7 +95,9 @@ private struct ArticleRootView: View {
   }
 
   var body: some View {
-    if needsOnboarding {
+    if launchElements {
+      ElementsView(initialSection: ElementsLaunch.section) { launchElements = false }
+    } else if needsOnboarding {
       OnboardingView {
         UserDefaults.standard.set(true, forKey: Self.completionKey)
         completed = true
@@ -137,6 +142,7 @@ struct LibraryView: View {
   @State private var passageToOpen: ReaderAnnotation?
   @State private var showingOnboarding = false
   @State private var showingArticleReplay = false
+  @State private var showingElements = false
   @State private var editingTags: SavedArticle?
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.articleReduceMotion) private var appReduceMotion
@@ -173,8 +179,8 @@ struct LibraryView: View {
   private var discoveryAvailable: Bool {
     selected == nil && !searching && !selecting && folder == .saved
       && !showingAnnotations && !showingWeeklyFavourites && !showingReadingStats
-      && !showingOnboarding && !showingArticleReplay && !showingTaggingSettings && !showingSync
-      && !choosingImport && editingTags == nil
+      && !showingOnboarding && !showingArticleReplay && !showingElements
+      && !showingTaggingSettings && !showingSync && !choosingImport && editingTags == nil
   }
 
   private func matches(in folder: ArticleFolder, query: String = "") -> [SavedArticle] {
@@ -242,7 +248,7 @@ struct LibraryView: View {
         searching: searching,
         isLibraryScrolling: isLibraryScrolling, clipboardURL: clipboard.url,
         resumeURL: clipboard.url == nil && !selecting ? continuation.article?.url : nil,
-        enabled: selected == nil && !showingOnboarding && !showingArticleReplay
+        enabled: selected == nil && !showingOnboarding && !showingArticleReplay && !showingElements
           && !showingTaggingSettings && !showingSync
           && !showingAnnotations && !showingReadingStats && !showingWeeklyFavourites && !choosingImport && editingTags == nil
       )
@@ -427,6 +433,9 @@ struct LibraryView: View {
     .fullScreenCover(isPresented: $showingArticleReplay) {
       ArticleReplayView()
     }
+    .fullScreenCover(isPresented: $showingElements) {
+      ElementsView()
+    }
     .sheet(item: $editingTags) { article in
       ArticleTagsSheet(article: article, store: store)
     }
@@ -548,6 +557,8 @@ struct LibraryView: View {
             .accessibilityIdentifier("show-onboarding")
           Button("Article replay", systemImage: "play.rectangle") { showingArticleReplay = true }
             .accessibilityIdentifier("show-article-replay")
+          Button("Elements", systemImage: "square.grid.2x2") { showingElements = true }
+            .accessibilityIdentifier("show-elements")
           Divider()
           Toggle("Frame diagnostics", isOn: $frameDiagnostics)
             .accessibilityIdentifier("toggle-frame-diagnostics")

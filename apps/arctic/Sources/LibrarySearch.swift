@@ -109,6 +109,14 @@ struct ThumbnailRequest: Hashable, Sendable {
     return images.object(forKey: ThumbnailRequest(url: url, pixels: pixels).key)
   }
 
+  /// Elements shows bundled fixtures through the real thumbnail views. The
+  /// image stays in memory only: no download, disk write, or library record.
+  func insert(_ image: UIImage, for url: URL, pixels: Int) {
+    images.setObject(
+      image, forKey: ThumbnailRequest(url: url, pixels: pixels).key,
+      cost: image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0)
+  }
+
   @discardableResult
   func load(_ url: URL?, pixels: Int = 960, prefetch: Bool = false) async -> UIImage? {
     guard let url else { return nil }

@@ -1,10 +1,19 @@
 import SwiftUI
 
+/// The library store offers Undo; Elements uses a fixture with the same shape.
+@MainActor protocol UndoReceiptSource: AnyObject, Observable {
+  var undoReceipt: UndoReceipt? { get }
+  func undo(_ id: UUID)
+  func dismissUndo(_ id: UUID)
+}
+
+extension ArticleStore: UndoReceiptSource {}
+
 /// Telegram's Undo overlay informs this transient, stationary feedback surface.
 /// The archive or removal is already durable; timeout dismisses the offer, and
 /// for a removal it also discards the held Reader file.
-struct ArchiveUndoToast: View {
-  let store: ArticleStore
+struct ArchiveUndoToast<Store: UndoReceiptSource>: View {
+  let store: Store
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
   @Environment(\.scenePhase) private var scenePhase
