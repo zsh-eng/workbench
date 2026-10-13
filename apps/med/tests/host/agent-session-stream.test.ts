@@ -165,7 +165,7 @@ test("a review's agent session streams its transcript, then new lines and subage
           update: expect.objectContaining({
             sessionUpdate: "agent_message_chunk",
             content: { type: "text", text: "Zero rounds to 0 min." },
-            _meta: { med: { parentToolCallId: "agent" } },
+            _meta: { med: { parentToolCallId: "agent", endsTurn: true } },
           }),
         }),
       );
