@@ -43,7 +43,7 @@ import {
   type DragEvent,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import { BookRow, BookTile, ShelfBook } from "./LibraryBooks";
+import { BookRow, BookTile, ReadingShelf, ShelfBook } from "./LibraryBooks";
 import {
   LIBRARY_FILTERS,
   LIBRARY_SORTS,
@@ -402,27 +402,19 @@ export function Library() {
         )}
 
         {showShelf && (
-          <section aria-label="Reading" className="mt-5 md:mt-8">
-            <h2 className="text-[12px] text-muted-foreground">
-              Reading
-              <span className="ml-1.5 font-numeric text-muted-foreground/60 tabular-nums">
-                {reading.length}
-              </span>
-            </h2>
-            <div className="-mx-4 mt-4 flex gap-6 overflow-x-auto px-4 pb-2 [scrollbar-width:none] md:mx-0 md:gap-12 md:px-0">
-              {reading.map((book) => (
-                <ShelfBook
-                  key={book.id}
-                  {...bookProps(book)}
-                  progress={readingProgress(
-                    book,
-                    "reading",
-                    data?.latestCheckpoints.get(book.id),
-                  )}
-                />
-              ))}
-            </div>
-          </section>
+          <ReadingShelf count={reading.length}>
+            {reading.map((book) => (
+              <ShelfBook
+                key={book.id}
+                {...bookProps(book)}
+                progress={readingProgress(
+                  book,
+                  "reading",
+                  data?.latestCheckpoints.get(book.id),
+                )}
+              />
+            ))}
+          </ReadingShelf>
         )}
 
         {showRest && (

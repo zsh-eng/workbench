@@ -74,18 +74,10 @@ export const SPECIMENS: Specimen[] = [
   {
     id: "shelf",
     label: "Reading shelf",
-    title: "Reading shelf on a phone",
+    title: "Reading shelf",
     description:
-      "The books you are reading, at the top of the phone Library, on sample books. Left: the shelf that ships, one wide card at a time, so about one book shows. Middle: a list, with three books in the height of one card. Right: smaller covers, three or four across. Change the number of books to see how each grows.",
+      "The books you are reading, at the top of the Library, on sample books. A phone shows small covers with their progress, so three or four fit across. A wider window shows a card with the title for each book. Change the number of books to see the row grow.",
     states: SHELF_STATES,
-    variants: {
-      device: "phone",
-      options: [
-        { id: "now", label: "Now: wide cards" },
-        { id: "list", label: "Proposal: list" },
-        { id: "covers", label: "Proposal: covers" },
-      ],
-    },
     Component: ShelfSpecimen,
   },
 ];

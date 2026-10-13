@@ -98,32 +98,47 @@ test("Elements scrubs the proposal's detent sheet from the page", async ({
   await expect(slider).toHaveAttribute("aria-valuetext", "3.0 s, Full height");
 });
 
-test("Elements compares Reading shelves on a phone", async ({ page }) => {
+test("Elements shows the Reading shelf as covers on a phone", async ({
+  page,
+}) => {
   await page.goto("/debug/elements");
   const section = page.locator("#shelf");
   await section.scrollIntoViewIfNeeded();
   await section
     .getByRole("button", { name: "Five books", exact: true })
     .click();
-  /** Reading books whose covers are wholly on the phone's screen. */
-  const inView = (variant: string) =>
+  /** The reading books' widths, and how many are wholly on screen. */
+  const shelf = (device: string) =>
     section
-      .locator(`iframe[src*="variant=${variant}"]`)
+      .locator(`iframe[title$="${device}"]`)
       .contentFrame()
       .getByRole("region", { name: "Reading" })
       .getByRole("link")
-      .evaluateAll(
-        (links) =>
-          links.filter((link) => {
-            const box = link.getBoundingClientRect();
-            return (
+      .evaluateAll((links) => {
+        const boxes = links.map((link) => link.getBoundingClientRect());
+        return {
+          count: boxes.length,
+          width: Math.round(boxes[0]?.width ?? 0),
+          inView: boxes.filter(
+            (box) =>
               box.left >= 0 &&
               box.right <= innerWidth &&
-              box.bottom <= innerHeight
-            );
-          }).length,
-      );
-  await expect.poll(() => inView("now"), { timeout: 30_000 }).toBe(1);
-  await expect.poll(() => inView("list")).toBe(5);
-  await expect.poll(() => inView("covers")).toBe(3);
+              box.bottom <= innerHeight,
+          ).length,
+        };
+      });
+  // A phone fits three small covers across; the rest scroll into view.
+  await expect
+    .poll(() => shelf("phone"), { timeout: 30_000 })
+    .toEqual({ count: 5, width: 92, inView: 3 });
+  // A wider window keeps a card with the title for each book.
+  await expect
+    .poll(() => shelf("desktop").then((result) => result.width))
+    .toBeGreaterThan(250);
+  await expect(
+    section
+      .locator('iframe[title$="desktop"]')
+      .contentFrame()
+      .getByRole("heading", { name: "Middlemarch" }),
+  ).toBeVisible();
 });

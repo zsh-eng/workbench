@@ -290,7 +290,34 @@ function BookLink({
   );
 }
 
-/** A book you are reading, on the shelf: cover, title and progress. */
+/** The books you are reading, in one row that scrolls sideways. */
+export function ReadingShelf({
+  count,
+  children,
+}: {
+  count: number;
+  children: ReactNode;
+}) {
+  return (
+    <section aria-label="Reading" className="mt-5 md:mt-8">
+      <h2 className="text-[12px] text-muted-foreground">
+        Reading
+        <span className="ml-1.5 font-numeric text-muted-foreground/60 tabular-nums">
+          {count}
+        </span>
+      </h2>
+      <div className="-mx-4 mt-4 flex gap-4 overflow-x-auto px-4 pb-2 [scrollbar-width:none] md:mx-0 md:gap-12 md:px-0">
+        {children}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * A book you are reading, on the shelf. With room: cover, title and
+ * progress. On a phone: a smaller cover with the progress under it, so three
+ * or four books show at once. The cover carries the title there.
+ */
 export function ShelfBook({
   book,
   status,
@@ -304,44 +331,45 @@ export function ShelfBook({
   const [menuOpen, setMenuOpen] = useState(false);
   useCoverRequest(element, book, coverUrl, onCoverRequest);
   return (
-    <div className="group relative w-[min(300px,78vw)] shrink-0">
+    <div className="group relative w-[92px] shrink-0 md:w-[300px]">
       <BookLink
         book={book}
         source="library-shelf"
         onPrefetch={onPrefetch}
         onContextMenu={() => setMenuOpen(true)}
         linkRef={setElement}
-        className="flex items-end gap-4 rounded-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4"
+        className="flex flex-col rounded-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 md:flex-row md:items-end md:gap-4"
       >
         <BookCover
           book={book}
           coverUrl={coverUrl}
           className={cn(
-            "h-[126px] w-[84px] shrink-0 rounded-[3px] transition-transform duration-200 ease-out [@media(hover:hover)]:group-hover:-translate-y-0.5 [@media(hover:hover)]:group-has-[[data-popup-open]]:-translate-y-0.5",
+            "h-[138px] w-[92px] shrink-0 rounded-[3px] md:h-[126px] md:w-[84px] transition-transform duration-200 ease-out [@media(hover:hover)]:group-hover:-translate-y-0.5 [@media(hover:hover)]:group-has-[[data-popup-open]]:-translate-y-0.5",
             COVER_SHADOW,
           )}
         />
-        <span className="min-w-0 flex-1 pr-6 pb-1">
-          <h3 className="line-clamp-2 font-serif text-[18px] leading-[1.15] font-normal">
+        <span className="min-w-0 flex-1 md:pr-6 md:pb-1">
+          <h3 className="line-clamp-2 font-serif text-[18px] leading-[1.15] font-normal max-md:sr-only">
             {book.title}
           </h3>
-          <span className="mt-1 block truncate text-[12.5px] text-muted-foreground">
+          <span className="mt-1 block truncate text-[12.5px] text-muted-foreground max-md:sr-only">
             {book.author}
           </span>
-          <Hairline value={progress} className="mt-3 w-full max-w-[160px]" />
+          <Hairline value={progress} className="mt-3 w-full md:max-w-[160px]" />
           <span className="mt-1.5 block font-numeric text-[11.5px] text-muted-foreground tabular-nums">
             {Math.round(progress * 100)}%
           </span>
         </span>
       </BookLink>
-      <div className="absolute top-0 right-0">
+      {/* On a narrow window with a pointer, the button sits on the cover. */}
+      <div className="absolute top-1 right-1 md:top-0 md:right-0">
         <BookActions
           book={book}
           status={status}
           open={menuOpen}
           onOpenChange={setMenuOpen}
           onRemove={onRemove}
-          className="text-muted-foreground hover:text-foreground"
+          className="text-muted-foreground hover:text-foreground max-md:bg-background/90 max-md:shadow-sm"
         />
       </div>
     </div>
