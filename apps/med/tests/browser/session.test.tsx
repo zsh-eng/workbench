@@ -4,6 +4,7 @@ import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { SessionSection } from "../../src/web/components/elements/SessionSection";
 import { SessionThread } from "../../src/web/components/session/SessionThread";
+import { withSentMessages, type SentMessage } from "../../src/web/data/agent-inbox";
 import { createSessionStore } from "../../src/web/data/session-store";
 import "../../src/web/pierre-theme";
 import { initializeTheme } from "../../src/web/themes";
@@ -510,6 +511,67 @@ test("a finished turn's work folds into one row that opens in place, and Show wo
   await expect.element(page.getByText("Then the docs.")).toBeVisible();
   await expect.element(page.getByRole("button", { name: /Run the tests 2/ })).toBeVisible();
   expect(rows.elements()).toHaveLength(2);
+});
+
+test("a message from Med joins the thread where the agent took it, so the turn before keeps its reply", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  const text = (sessionUpdate: string, value: string, at: number, messageId?: string) => ({
+    at,
+    update: {
+      sessionUpdate,
+      ...(messageId ? { messageId } : {}),
+      content: { type: "text", text: value },
+    },
+  });
+  store.applyAll([
+    text("user_message_chunk", "Fix the export.", 0),
+    text("agent_message_chunk", "Looking at the export.", 1000, "a"),
+    {
+      at: 2000,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "test",
+        title: "Run the tests",
+        kind: "execute",
+        status: "completed",
+      },
+    },
+    text("agent_message_chunk", "The export keeps the old format.", 8000, "b"),
+  ] as Parameters<typeof store.applyAll>[0]);
+  // Sent while the agent worked; the agent took it once it waited again.
+  const message = (delivery: SentMessage["delivery"]): SentMessage => ({
+    id: "m1",
+    sessionId: "s1",
+    agent: "claude",
+    text: "Also check the import.",
+    noteIds: [],
+    attachmentCount: 0,
+    createdAt: new Date(4000).toISOString(),
+    delivery,
+    ...(delivery === "delivered" ? { deliveredAt: new Date(9000).toISOString() } : {}),
+  });
+  const render = (delivery: SentMessage["delivery"]) => {
+    const snapshot = store.getSnapshot();
+    root!.render(
+      <SessionThread
+        snapshot={{ ...snapshot, items: withSentMessages(snapshot.items, [message(delivery)]) }}
+      />,
+    );
+  };
+  for (const delivery of ["pending", "delivered"] as const) {
+    render(delivery);
+    await expect.element(page.getByText("Also check the import.")).toBeVisible();
+    // The turn's work folds, and its reply stays in view above the message.
+    await expect.element(page.getByText("The export keeps the old format.")).toBeVisible();
+    await expect.element(page.getByRole("button", { name: /^Worked for 8\.0s/ })).toBeVisible();
+    expect(page.getByText("Looking at the export.").query()).toBeNull();
+    const reply = page.getByText("The export keeps the old format.").element();
+    const sent = page.getByText("Also check the import.").element();
+    expect(reply.compareDocumentPosition(sent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  }
+  await expect.element(page.getByText("Waiting for Claude to take it")).not.toBeInTheDocument();
 });
 
 test("the units in view keep their place as earlier work loads above them", async () => {

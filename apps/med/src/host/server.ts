@@ -1041,6 +1041,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               reviewId,
               session,
               {
+                ...(input.id ? { id: input.id } : {}),
                 text: input.text.trim(),
                 noteIds: input.noteIds,
                 comments,

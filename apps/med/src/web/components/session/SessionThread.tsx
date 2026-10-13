@@ -13,7 +13,8 @@ import {
   type RefObject,
 } from "react";
 import { flushSync } from "react-dom";
-import type { AgentMessage, SentComment } from "../../../shared/agent-inbox";
+import type { SentComment } from "../../../shared/agent-inbox";
+import type { SentMessage } from "../../data/agent-inbox";
 import type { PlanEntry } from "../../../shared/agent-session";
 import type { SessionItem, SessionSnapshot } from "../../data/session-store";
 import { renderBrief } from "../../markdown/brief-render";
@@ -140,7 +141,7 @@ const Item = memo(function Item({
       const images = item.content.filter((block) => block.type === "image");
       return (
         <div {...stylex.props(styles.userRow)}>
-          {item.queued && <span {...stylex.props(styles.queued)}>Queued</span>}
+          {item.queued && !item.sent && <span {...stylex.props(styles.queued)}>Queued</span>}
           <div {...stylex.props(styles.user)}>
             {images.length > 0 && <ImageThumbs images={images} />}
             {item.content
@@ -286,30 +287,49 @@ function Comment({ comment }: { comment: SentComment }) {
 
 const AGENT_NAMES = { claude: "Claude", codex: "Codex", acp: "the agent" } as const;
 
-/** Where a message sent from Med is: waiting for the agent, taken, or queued. */
-function Delivery({ message }: { message: AgentMessage }) {
+/**
+ * Where a message sent from Med is, while that matters: on its way, waiting
+ * for the agent, queued, or not sent. A message that the agent took says
+ * nothing more; the thread goes on below it.
+ */
+function Delivery({ message }: { message: SentMessage }) {
   const agent = AGENT_NAMES[message.agent];
-  const comments = message.noteIds.length;
   const extra = message.attachmentCount;
   const parts = [
-    "Sent from Med",
-    ...(comments && message.text ? [`${comments} ${comments === 1 ? "comment" : "comments"}`] : []),
     ...(extra ? [`${extra} ${extra === 1 ? "attachment" : "attachments"}`] : []),
-    message.delivery === "pending"
-      ? `Waiting for ${agent} to take it`
-      : message.delivery === "delivered"
-        ? `${agent} took it`
+    ...(message.delivery === "sending"
+      ? ["Sending…"]
+      : message.delivery === "pending"
+        ? [`Waiting for ${agent} to take it`]
         : message.delivery === "queued"
-          ? `Queued for ${agent}`
-          : `Not sent: ${message.error ?? "an error occurred"}`,
+          ? [`Queued for ${agent}`]
+          : message.delivery === "failed"
+            ? [`Not sent: ${message.error ?? "an error occurred"}`]
+            : []),
   ];
+  if (!parts.length) return null;
+  const failed = message.delivery === "failed";
   return (
     <span
-      role={message.delivery === "failed" ? "alert" : undefined}
-      {...stylex.props(styles.delivery, message.delivery === "failed" && styles.deliveryFailed)}
+      role={failed ? "alert" : undefined}
+      {...stylex.props(styles.delivery, failed && styles.deliveryFailed)}
     >
-      {message.delivery === "pending" && <span {...stylex.props(styles.pendingDot)} />}
-      {parts.join(" · ")}
+      {(message.delivery === "pending" || message.delivery === "sending") && (
+        <span
+          {...stylex.props(styles.pendingDot, message.delivery === "sending" && styles.sendingDot)}
+        />
+      )}
+      <span>{parts.join(" · ")}</span>
+      {failed && message.retry && (
+        <button type="button" onClick={message.retry} {...stylex.props(styles.deliveryAction)}>
+          Retry
+        </button>
+      )}
+      {failed && message.discard && (
+        <button type="button" onClick={message.discard} {...stylex.props(styles.deliveryAction)}>
+          Discard
+        </button>
+      )}
     </span>
   );
 }
@@ -1141,8 +1161,13 @@ export function SessionThread({
   const folded =
     all.findLastIndex((unit) => "work" in unit) >
     all.findLastIndex((unit) => "item" in unit && unit.item.kind === "user");
-  const elapsed =
-    turn.startedAt !== undefined ? (now ?? snapshot.updatedAt ?? 0) - turn.startedAt : 0;
+  // A message that waits for the agent ends the thread; the turn before it
+  // already says how long it worked.
+  const waitingMessage = last?.kind === "user" && (last.queued || !!last.sent);
+  const elapsed = Math.max(
+    0,
+    turn.startedAt !== undefined ? (now ?? snapshot.updatedAt ?? 0) - turn.startedAt : 0,
+  );
   const offsets = model.offsets;
   const scrollerProps = stylex.props(styles.scroller);
   const above = metrics ? offsets[start]! : 0;
@@ -1221,12 +1246,13 @@ export function SessionThread({
                   <span {...stylex.props(motion.spinner)} />
                 </span>
                 <span {...stylex.props(motion.shimmer)}>{thinking ? "Thinking" : "Working"}</span>
-                <span {...stylex.props(styles.elapsed)}>{formatSeconds(Math.max(0, elapsed))}</span>
+                <span {...stylex.props(styles.elapsed)}>{formatSeconds(elapsed)}</span>
               </div>
             ) : (
               snapshot.items.length > 0 &&
               // The last turn's own row says so when its work folds.
-              !folded && (
+              !folded &&
+              !waitingMessage && (
                 <div {...stylex.props(styles.done)}>
                   <span {...stylex.props(styles.rule)} />
                   Worked for {formatSeconds(elapsed)}
@@ -1383,6 +1409,7 @@ function ThreadProbe({ probe }: { probe: RefObject<HTMLDivElement | null> }) {
   );
 }
 
+const sendingPulse = stylex.keyframes({ from: { opacity: 0.35 }, to: { opacity: 1 } });
 const styles = stylex.create({
   frame: {
     position: "relative",
@@ -1524,6 +1551,23 @@ const styles = stylex.create({
     flexShrink: 0,
     borderRadius: "50%",
     backgroundColor: tokens.accent,
+  },
+  sendingDot: {
+    backgroundColor: tokens.faint,
+    animationName: { default: sendingPulse, "@media (prefers-reduced-motion: reduce)": "none" },
+    animationDuration: "900ms",
+    animationIterationCount: "infinite",
+    animationDirection: "alternate",
+  },
+  deliveryAction: {
+    padding: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    color: { default: tokens.text, ":hover": tokens.accent },
+    font: "inherit",
+    textDecoration: "underline",
+    textUnderlineOffset: 2,
+    cursor: "pointer",
   },
   verb: { color: tokens.text, fontWeight: 500 },
   thought: { color: tokens.faint, cursor: { default: "pointer", ":disabled": "default" } },

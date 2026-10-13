@@ -128,6 +128,8 @@ async function mountApp(
     session?: string;
     /** The saved review's messages to its agent: drafts and who waits. */
     inbox?: AgentInboxState;
+    /** Each message waits for its own call; a call with an error fails the send. */
+    answerAgentMessages?: boolean;
     /** Agents that Med can start; a started one runs as session o1. */
     agents?: AgentPreset[];
     /** Session s1's earlier page and its prompts. The session stream stays open. */
@@ -165,6 +167,8 @@ async function mountApp(
   const pullRequestReads: string[] = [];
   let inbox = options.inbox;
   const agentMessages: unknown[] = [];
+  // The host's answers to the messages that wait, in order.
+  const agentAnswers: ((error?: string) => void)[] = [];
   const savedRepositories = savedTargets.slice(0, options.oneBranch ? 1 : 2).map((target) => ({
     id: target.repositoryId,
     path: target.repo,
@@ -303,10 +307,21 @@ async function mountApp(
           headers: { "content-type": "text/event-stream" },
         });
       if (url.pathname === "/api/reviews/saved/agent/messages" && inbox) {
-        const input = JSON.parse(String(init?.body)) as { text: string; noteIds: string[] };
+        const input = JSON.parse(String(init?.body)) as {
+          id?: string;
+          text: string;
+          noteIds: string[];
+        };
+        if (options.answerAgentMessages) {
+          const error = await new Promise<string | undefined>((answer) =>
+            agentAnswers.push(answer),
+          );
+          if (error)
+            return Response.json({ error: { code: "busy", message: error } }, { status: 503 });
+        }
         agentMessages.push(input);
         const message: AgentInboxState["messages"][number] = {
-          id: `m${agentMessages.length}`,
+          id: input.id ?? `m${agentMessages.length}`,
           sessionId: "s1",
           agent: "claude",
           text: input.text,
@@ -606,6 +621,7 @@ async function mountApp(
     fileRequests,
     pullRequestReads,
     agentMessages,
+    agentAnswers,
     setOwned,
     ownedActions,
     pageReads,
@@ -2845,9 +2861,14 @@ describe("agent session", () => {
   });
 
   test("comments go to the waiting agent from the review", async () => {
-    const { agentMessages } = await mountApp({
+    const reply = (at: number, sessionUpdate: string, text: string) => ({
+      at,
+      update: { sessionUpdate, content: { type: "text", text } },
+    });
+    const { agentMessages, agentAnswers } = await mountApp({
       savedReview: true,
-      session: `event: reset\ndata: ${JSON.stringify({ events: [], idle: true, modifiedAt: 0, truncated: false })}\n\n`,
+      answerAgentMessages: true,
+      session: `event: reset\ndata: ${JSON.stringify({ events: [reply(1000, "user_message_chunk", "Check the durations."), reply(5000, "agent_message_chunk", "They read in seconds.")], idle: true, modifiedAt: 0, truncated: false })}\n\n`,
       inbox: {
         messages: [],
         waiting: ["s1"],
@@ -2869,17 +2890,38 @@ describe("agent session", () => {
     await panel.getByRole("textbox", { name: "Message Claude" }).fill("Use minutes.");
     await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
 
+    // The message and its comment show at once, before the host answers, and
+    // the composer is ready for the next one. The turn before keeps its time.
+    await expect.element(panel.getByText("Use minutes.")).toBeVisible();
+    await expect.element(panel.getByText("Sending…")).toBeVisible();
+    await expect.element(panel.getByText("Rename it.")).toBeVisible();
+    await expect.element(panel.getByRole("textbox", { name: "Message Claude" })).toHaveValue("");
+    await expect.element(panel.getByRole("button", { name: "1 comment" })).toBeVisible();
+    expect(panel.element().textContent).not.toMatch(/Worked for -/);
+
+    // A send that fails stays, and goes again with the same ID.
+    await expect.poll(() => agentAnswers.length).toBe(1);
+    agentAnswers.shift()!("The host is busy.");
+    await expect.element(panel.getByText("Not sent: The host is busy.")).toBeVisible();
+    await panel.getByRole("button", { name: "Retry" }).click();
+    await expect.poll(() => agentAnswers.length).toBe(1);
+    agentAnswers.shift()!();
     await expect
       .poll(() => agentMessages)
       .toEqual([
-        { sessionId: "s1", text: "Use minutes.", noteIds: ["n1"], attachments: [], images: [] },
+        {
+          id: expect.stringMatching(/^[0-9a-f-]{36}$/),
+          sessionId: "s1",
+          text: "Use minutes.",
+          noteIds: ["n1"],
+          attachments: [],
+          images: [],
+        },
       ]);
-    await expect.element(panel.getByText("Use minutes.")).toBeVisible();
-    await expect
-      .element(panel.getByText("Sent from Med · 1 comment · Claude took it"))
-      .toBeVisible();
-    await expect.element(panel.getByRole("textbox", { name: "Message Claude" })).toHaveValue("");
-    await expect.element(panel.getByRole("button", { name: "1 comment" })).toBeVisible();
+    // Claude took it: the thread goes on below it, without a status.
+    await expect.element(panel.getByText("Sending…")).not.toBeInTheDocument();
+    await expect.element(panel.getByText("Not sent", { exact: false })).not.toBeInTheDocument();
+    expect(panel.getByText("Use minutes.").elements()).toHaveLength(1);
   });
 
   test("a saved review starts an agent in the Session pane, and the composer drives it", async () => {

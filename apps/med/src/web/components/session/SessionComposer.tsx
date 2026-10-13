@@ -158,19 +158,19 @@ export function SessionComposer({
   drafts: DraftComment[];
   attachments: ComposerAttachment[];
   onRemoveAttachment(id: string): void;
+  /** Shows the message in the thread at once; the thread reports its delivery. */
   onSend(message: {
     text: string;
     noteIds: string[];
     attachments: { label: string; text: string }[];
     images: PromptImage[];
-  }): Promise<unknown>;
+  }): void;
 }) {
   const [text, setText] = useState("");
   const [images, setImages] = useState<(PromptImage & { id: string })[]>([]);
   const imageInput = useRef<HTMLInputElement>(null);
   const [left, setLeft] = useState<ReadonlySet<string>>(new Set());
   const [open, setOpen] = useState(false);
-  const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [menuClosed, setMenuClosed] = useState(false);
   const [highlight, setHighlight] = useState(0);
@@ -221,27 +221,20 @@ export function SessionComposer({
     setHighlight(0);
   };
 
-  const send = async () => {
-    if (empty || sending || working || stopped) return;
-    setSending(true);
+  const send = () => {
+    if (empty || working || stopped) return;
     setError(null);
-    try {
-      await onSend({
-        text: text.trim(),
-        noteIds: chosen.map((draft) => draft.id),
-        attachments: attachments.map(({ label, text }) => ({ label, text })),
-        images: images.map(({ mimeType, data }) => ({ mimeType, data })),
-      });
-      setText("");
-      setImages([]);
-      setLeft(new Set());
-      setOpen(false);
-      for (const attachment of attachments) onRemoveAttachment(attachment.id);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The message was not sent.");
-    } finally {
-      setSending(false);
-    }
+    onSend({
+      text: text.trim(),
+      noteIds: chosen.map((draft) => draft.id),
+      attachments: attachments.map(({ label, text }) => ({ label, text })),
+      images: images.map(({ mimeType, data }) => ({ mimeType, data })),
+    });
+    setText("");
+    setImages([]);
+    setLeft(new Set());
+    setOpen(false);
+    for (const attachment of attachments) onRemoveAttachment(attachment.id);
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (matches.length) {
@@ -265,7 +258,7 @@ export function SessionComposer({
     }
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
-      void send();
+      send();
     } else if (event.key === "Escape" && working) {
       // As in Claude Code, Escape stops the turn.
       event.preventDefault();
@@ -296,7 +289,7 @@ export function SessionComposer({
         aria-label={`Message ${name}`}
         onSubmit={(event) => {
           event.preventDefault();
-          void send();
+          send();
         }}
         {...stylex.props(styles.box)}
       >
@@ -541,7 +534,7 @@ export function SessionComposer({
               type="submit"
               aria-label="Send"
               title="Send (⌘↩)"
-              disabled={empty || sending || stopped}
+              disabled={empty || stopped}
               {...stylex.props(ui.button, ui.iconButton, ui.pressable, styles.send)}
             >
               <Icon name="arrowUp" size={14} />

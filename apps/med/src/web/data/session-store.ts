@@ -9,7 +9,7 @@ import {
   type ToolCallStatus,
   type ToolKind,
 } from "../../shared/agent-session";
-import type { AgentMessage } from "../../shared/agent-inbox";
+import type { SentMessage } from "./agent-inbox";
 
 export interface ToolCallState {
   toolCallId: string;
@@ -34,7 +34,7 @@ export type SessionItem =
       content: ContentBlock[];
       queued?: boolean;
       /** A message that the user sent from Med, and how far it got. */
-      sent?: AgentMessage;
+      sent?: SentMessage;
     }
   | { kind: "agent"; id: string; at: number; text: string }
   | { kind: "thought"; id: string; at: number; text: string; durationMs?: number }
