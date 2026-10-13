@@ -2,7 +2,7 @@
 // control requests, asks to edit a file, and writes a transcript under
 // MED_HOME_DIR as Claude Code does.
 import { randomUUID } from "node:crypto";
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
@@ -15,6 +15,8 @@ const sessionId = flag("--session-id") ?? flag("--resume");
 const project = join(process.env.MED_HOME_DIR, ".claude", "projects", "-fake-repo");
 mkdirSync(project, { recursive: true });
 const transcript = join(project, `${sessionId}.jsonl`);
+// A test reads the arguments, such as the system prompt that Med appends.
+writeFileSync(join(project, `${sessionId}.args.json`), JSON.stringify(args));
 let model = flag("--model") ?? "default";
 let mode = flag("--permission-mode") ?? "default";
 const effort = flag("--effort") ?? "default";

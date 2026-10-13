@@ -1305,7 +1305,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               systemPrompt: [
                 `You work in a Med thread named "${title}", in ${cwd}.`,
                 "Med shows the user your changes there as you work, and sends you their messages.",
-                `When a piece of work is ready, hand it off for review with \`med review create --key ${key} --working --title "<2-4 words>" --brief -\` and a short Markdown brief on standard input; the key keeps it in this thread.`,
+                `When a piece of work is ready, hand it off for review with \`med review create --key ${key} --repo ${JSON.stringify(cwd)} --working --title "<2-4 words>" --brief -\` and a short Markdown brief on standard input; the key keeps it in this thread.`,
               ].join(" "),
             });
             const review = await savedReviews.create(

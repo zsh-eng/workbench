@@ -26,7 +26,7 @@ const note = (text: string) => ({
 
 // The controller, HTTP routes, Git capture, parser and store are real. Delay only
 // transport delivery to reproduce races without replacing the mechanism tested.
-async function fixture({ removeWorktreeDuringOpen = false } = {}) {
+async function fixture({ removeWorktreeDuringOpen = false, staleCatalogue = false } = {}) {
   const directory = await realpath(await mkdtemp(join(tmpdir(), "med-comment-transport-")));
   cleanup.push(() => rm(directory, { recursive: true, force: true }));
   const repo = join(directory, "repo");
@@ -51,7 +51,7 @@ async function fixture({ removeWorktreeDuringOpen = false } = {}) {
   git("commit", "-m", "baseline");
   await writeFile(join(repo, "file.ts"), "export const after = 2;\n");
   const linked = join(directory, "linked");
-  if (removeWorktreeDuringOpen) {
+  if (removeWorktreeDuringOpen || staleCatalogue) {
     git("worktree", "add", "-b", "linked", linked);
     await writeFile(join(linked, "file.ts"), "export const after = 2;\n");
   }
@@ -68,7 +68,10 @@ async function fixture({ removeWorktreeDuringOpen = false } = {}) {
     await api("/api/reviews", {
       title: "Comment races",
       targets: [
-        { repo: removeWorktreeDuringOpen ? linked : repo, comparison: { kind: "working" } },
+        {
+          repo: removeWorktreeDuringOpen || staleCatalogue ? linked : repo,
+          comparison: { kind: "working" },
+        },
         { repo, comparison: { kind: "commit", commit: "HEAD" } },
       ],
     })
@@ -86,6 +89,18 @@ async function fixture({ removeWorktreeDuringOpen = false } = {}) {
         git("worktree", "remove", "--force", linked);
         removeWorktreeDuringOpen = false;
       }
+    },
+    // A repository list read before the worktree existed, as a page reads it
+    // before a new thread makes its worktree.
+    after: async (url, response) => {
+      if (!staleCatalogue || url.pathname !== "/api/repositories") return response;
+      staleCatalogue = false;
+      const body = (await response.json()) as {
+        repositories: { worktrees: { path: string }[] }[];
+      };
+      for (const repository of body.repositories)
+        repository.worktrees = repository.worktrees.filter((tree) => tree.path !== linked);
+      return Response.json(body);
     },
   };
   const windowEvents = new EventTarget();
@@ -122,11 +137,17 @@ async function fixture({ removeWorktreeDuringOpen = false } = {}) {
     windowEvents,
     feedback,
     repo,
+    linked,
     api,
     host,
     clipboard: () => clipboard,
   };
 }
+
+test("a review in a worktree that is newer than the repository list opens in that worktree", async () => {
+  const { controller, linked } = await fixture({ staleCatalogue: true });
+  expect(controller.getSnapshot().session?.repository.path).toBe(linked);
+});
 
 test("clearing while switching targets removes the newly visible comments too", async () => {
   const { controller, saved, transport, feedback } = await fixture();

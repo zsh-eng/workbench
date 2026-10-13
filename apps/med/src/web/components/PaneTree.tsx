@@ -912,7 +912,20 @@ const styles = stylex.create({
     height,
   }),
   hidden: { display: "none" },
-  grip: { cursor: { default: "grab", ":active": "grabbing" }, touchAction: "none" },
+  // The grip shows while the pointer is on its pane, as a tab shows its close
+  // button; a screen without hover always shows it.
+  grip: {
+    cursor: { default: "grab", ":active": "grabbing" },
+    touchAction: "none",
+    opacity: {
+      default: 0,
+      ":is([data-pane]:hover *)": 1,
+      ":is([data-pane]:focus-within *)": 1,
+      "@media (hover: none)": 1,
+    },
+    transitionProperty: "opacity",
+    transitionDuration: "120ms",
+  },
   veil: {
     position: "absolute",
     zIndex: 3,

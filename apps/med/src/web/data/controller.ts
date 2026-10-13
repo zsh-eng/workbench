@@ -1179,6 +1179,19 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
   async function selectSavedTarget(id: string): Promise<void> {
     const target = snapshot.savedReview?.targets.find((entry) => entry.id === id);
     if (!target || disposed) return;
+    // A thread's new worktree can be newer than the repository list that the
+    // page read; read it again before the review falls back to the main checkout.
+    const knows = (list: RegisteredRepository[]) =>
+      list.some(
+        (entry) =>
+          entry.id === target.repositoryId &&
+          (entry.path === target.repo || entry.worktrees.some((tree) => tree.path === target.repo)),
+      );
+    if (!knows(snapshot.repositories)) {
+      const result = await api.json("/api/repositories", repositoriesSchema).catch(() => undefined);
+      if (disposed) return;
+      if (result) update({ repositories: result.repositories });
+    }
     const repository = snapshot.repositories.find((entry) => entry.id === target.repositoryId);
     if (!repository) {
       clearWorkspace();

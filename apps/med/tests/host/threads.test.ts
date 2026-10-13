@@ -1,7 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +9,7 @@ import type { OwnedState } from "../../src/shared/owned-session";
 import type { SavedReview } from "../../src/shared/saved-review";
 import type { ThreadList } from "../../src/shared/threads";
 import { startHost, type RunningHost } from "../../src/host/server";
+import { runReviewCommand } from "../../src/cli/review";
 import { readServerEvents } from "../../src/web/data/sse";
 
 const directories: string[] = [];
@@ -91,7 +92,7 @@ async function fixture() {
   };
   const repositoryId = (await api<{ repositories: { id: string }[] }>("/api/repositories")).data
     .repositories[0]!.id;
-  return { api, list, repo, repositoryId };
+  return { api, list, repo, repositoryId, home, host, stateDir: join(directory, "state") };
 }
 
 test("a thread starts its agent on a new branch in a worktree, and archiving can remove it", async () => {
@@ -169,4 +170,42 @@ test("a thread starts its agent on a new branch in a worktree, and archiving can
     () => expect(threads.value!.threads.map((thread) => thread.id)).toContain(review.id),
     { timeout: 5000 },
   );
+});
+
+test("a thread's agent hands off its work with the command that its system prompt gives", async () => {
+  const { api, home, host, repositoryId, stateDir } = await fixture();
+  const review = (
+    await api<{ review: SavedReview }>("/api/threads", {
+      repositoryId,
+      prompt: "Make the best result two.",
+      preset: "claude",
+    })
+  ).data.review;
+  const worktree = review.targets[0]!.repo;
+  const session = review.sessions![0]!;
+  const argsFile = join(home, ".claude", "projects", "-fake-repo", `${session.id}.args.json`);
+  const args = await vi.waitFor(
+    async () => JSON.parse(await readFile(argsFile, "utf8")) as string[],
+  );
+  const prompt = args[args.indexOf("--append-system-prompt") + 1]!;
+  const command = /`med review (create [^`]+)`/.exec(prompt)![1]!;
+
+  // The agent changes a file and runs the command as written; the brief comes
+  // from a file here instead of standard input.
+  await writeFile(join(worktree, "summary.ts"), "export const best = 2;\n");
+  const brief = join(worktree, "..", "brief.md");
+  await writeFile(brief, "The best result is two.\n");
+  const words = [...command.matchAll(/"((?:[^"\\]|\\.)*)"|(\S+)/g)].map((match) =>
+    match[1] === undefined ? match[2]! : (JSON.parse(`"${match[1]}"`) as string),
+  );
+  words[words.indexOf("--brief") + 1] = brief;
+  await runReviewCommand([...words, "--state-dir", stateDir, "--port", String(host.port)], {
+    print: () => {},
+    home,
+  });
+
+  // The thread gets a second round with the change.
+  const saved = (await api<SavedReview>(`/api/reviews/${review.id}`)).data;
+  expect(saved.iterations).toHaveLength(2);
+  expect(saved.totals).toMatchObject({ files: 1, additions: 1, deletions: 1 });
 });
