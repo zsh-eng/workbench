@@ -82,6 +82,7 @@ import { findAgents, OwnedSessions, type RunnableAgent } from "./owned-sessions"
 import { createAgentStatus } from "./agent-status";
 import { createSessionSummaries } from "./session-summaries";
 import { ownedActionSchema, ownedStartSchema } from "../shared/owned-session";
+import type { Thread, ThreadList } from "../shared/threads";
 import {
   agentMessageInputSchema,
   deliveredText,
@@ -264,6 +265,48 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   const reviewStateStreams = {
     statuses: new Set<ServerResponse>(),
     sessions: new Set<ServerResponse>(),
+  };
+  // The windows' thread lists.
+  const threadStreams = new Set<ServerResponse>();
+  /** Every thread, newest first, with the repositories that threads start in. */
+  const listThreads = async (): Promise<ThreadList> => {
+    const repositories = registry.snapshot();
+    const reviews = await savedReviews.list();
+    const threads = await Promise.all(
+      reviews.map(async (review): Promise<Thread> => {
+        const target =
+          review.targets.find((entry) => !entry.commentReviewId) ?? review.targets[0];
+        const family = repositories.find((entry) => entry.id === target?.repositoryId);
+        const status = review.sessions?.length
+          ? await reviewStatus(review.id, review.sessions).catch(() => undefined)
+          : undefined;
+        return {
+          id: review.id,
+          title: review.pullRequestTitle ?? review.title,
+          createdAt: review.createdAt,
+          updatedAt: Math.max(review.modifiedAt, status?.updatedAt ?? 0),
+          ...(family && {
+            repository: { id: family.id, name: family.name, path: family.path },
+          }),
+          ...(target && { checkout: target.repo }),
+          ...(target?.branch && { branch: target.branch }),
+          ...(status && { agent: status.agent, state: status.state }),
+          ...(review.totals && {
+            changes: {
+              files: review.totals.files,
+              additions: review.totals.additions,
+              deletions: review.totals.deletions,
+            },
+          }),
+          ...(review.pullRequestUrl && { pullRequestUrl: review.pullRequestUrl }),
+        };
+      }),
+    );
+    threads.sort((a, b) => b.updatedAt - a.updatedAt);
+    return {
+      threads,
+      repositories: repositories.map(({ id, name, path }) => ({ id, name, path })),
+    };
   };
 
   const watchers = new Map<string, Promise<() => Promise<void>>>();
@@ -825,7 +868,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             while (!abort.signal.aborted && !closing) {
               const values = await Promise.all(
                 ids.map(async (id) => {
-                  const bundle = await savedReviews.get(id).catch(() => undefined);
+                  const bundle = await savedReviews.summary(id).catch(() => undefined);
                   if (!bundle?.sessions) return undefined;
                   return (
                     reviewState === "statuses"
@@ -835,6 +878,32 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 }),
               );
               const text = JSON.stringify({ [reviewState]: values.filter(Boolean) });
+              if (text !== last && !abort.signal.aborted) {
+                last = text;
+                response.write(`event: state\ndata: ${text}\n\n`);
+              }
+              await new Promise((done) => setTimeout(done, STATUS_MS));
+            }
+          })();
+          return;
+        }
+        // Every thread the host keeps, with its lead session's state, sent
+        // again when one changes; and the registered repositories.
+        if (url.pathname === "/api/threads/events" && request.method === "GET") {
+          if (threadStreams.size >= 8)
+            throw new HostError("too-many-streams", "Too many thread streams are open.", 503);
+          response.writeHead(200, {
+            "content-type": "text/event-stream",
+            "cache-control": "no-store",
+            connection: "keep-alive",
+            "x-accel-buffering": "no",
+          });
+          threadStreams.add(response);
+          response.once("close", () => threadStreams.delete(response));
+          void (async () => {
+            let last = "";
+            while (!abort.signal.aborted && !closing) {
+              const text = JSON.stringify(await listThreads());
               if (text !== last && !abort.signal.aborted) {
                 last = text;
                 response.write(`event: state\ndata: ${text}\n\n`);

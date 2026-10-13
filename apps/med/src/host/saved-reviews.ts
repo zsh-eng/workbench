@@ -335,6 +335,10 @@ export class SavedReviewStore {
   // Reads skip the parse while the file keeps its identity. A write renames a
   // new file into place, so its next read parses again.
   private cache = new Map<string, { identity: string; size: number; record: SavedRecord }>();
+  // Each review's description while its file keeps its identity. Lists and
+  // status streams read every review often; a description is small, and a
+  // record can take megabytes to parse.
+  private described = new Map<string, { identity: string; review: SavedReview }>();
   constructor(private readonly directory: string) {}
 
   private serial<T>(work: () => Promise<T>): Promise<T> {
@@ -886,6 +890,34 @@ export class SavedReviewStore {
 
   get(id: string): Promise<SavedReview> {
     return this.serial(async () => this.describe(await this.read(id)));
+  }
+
+  /** A review's description, read again only when its file changes, with
+   * the time of that change. */
+  async summary(id: string): Promise<SavedReview & { modifiedAt: number }> {
+    const info = await stat(this.file(id)).catch(() => {
+      throw new HostError("saved-review-not-found", "This saved review does not exist.", 404);
+    });
+    const identity = `${info.dev}:${info.ino}:${info.size}:${info.mtimeMs}`;
+    let known = this.described.get(id);
+    if (known?.identity !== identity) {
+      known = { identity, review: await this.get(id) };
+      this.described.set(id, known);
+    }
+    return { ...known.review, modifiedAt: info.mtimeMs };
+  }
+
+  /** Every saved review's description. A review that cannot be read is left out. */
+  async list(): Promise<(SavedReview & { modifiedAt: number })[]> {
+    const names = await readdir(this.directory).catch(() => [] as string[]);
+    const ids = names.flatMap((name) => /^(r_[a-f0-9]{24})\.json$/.exec(name)?.[1] ?? []);
+    for (const id of this.described.keys()) if (!ids.includes(id)) this.described.delete(id);
+    const reviews = [];
+    for (const id of ids) {
+      const review = await this.summary(id).catch(() => undefined);
+      if (review) reviews.push(review);
+    }
+    return reviews;
   }
   review(id: string, targetId: string): Promise<ReviewResponse> {
     return this.serial(async () => this.target(await this.read(id), targetId).review);

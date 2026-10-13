@@ -41,7 +41,6 @@ import {
 } from "./components/Controls";
 import { DiffStat } from "./components/DiffStat";
 import { ChangeTotals } from "./components/ChangeTotals";
-import { HistoryPanel } from "./components/HistoryPanel";
 import { FileSidebar } from "./components/FileSidebar";
 import { NoteCard, NoteComposer, type NoteTarget } from "./components/NoteCard";
 import { Icon, type IconName } from "./components/Icon";
@@ -49,7 +48,7 @@ import "./pierre-theme";
 import { useTheme } from "./themes";
 import { ThemePicker } from "./components/ThemePicker";
 import { BranchStrip, BranchSwitch, useBranchTabs } from "./components/BranchTabs";
-import { useDisposeOnClose, useWorkspace, whenIdle, WorkspaceList } from "./components/Workspaces";
+import { useDisposeOnClose, useShell, useWorkspace, whenIdle } from "./components/Workspaces";
 import type { BranchEntry } from "./components/BranchPicker";
 import { visibleElement } from "./data/palette-focus";
 import { setFilePreviewShown, useFilePreviewShown } from "./data/picker-preferences";
@@ -59,7 +58,8 @@ import { agentName, type AgentSession } from "../shared/saved-review";
 import { createBrowseApi, useBrowseFiles, type BrowseApi } from "./data/browse";
 import { createFileWorkspace, isFileTab, sourceKey, useFileWorkspace } from "./data/file-workspace";
 import { RepositoryFiles } from "./components/RepositoryFiles";
-import { PaneColumn, PaneHeader, usePaneColumn, type PaneSpec } from "./components/PaneColumn";
+import { PaneHeader, PaneTree, usePaneTree, type PaneSpec } from "./components/PaneTree";
+import type { PaneNode, Side } from "./data/pane-tree";
 import { FilePicker } from "./components/FilePicker";
 import { SymbolPicker } from "./components/SymbolPicker";
 import { FullFileView, type BeginFileSymbolPreview } from "./components/FullFileView";
@@ -220,6 +220,14 @@ function readPreference<T extends string>(key: string, fallback: T, values: read
   }
 }
 
+/** Where each pane opens beside the review, and its share of the room. */
+const PANE_PLACES: Record<string, { near: string; side: Side; share: number }> = {
+  session: { near: "review", side: "left", share: 0.5 },
+  changed: { near: "review", side: "left", share: 0.24 },
+  files: { near: "review", side: "right", share: 0.26 },
+  preview: { near: "review", side: "right", share: 0.5 },
+};
+
 export function App({
   controller,
   browseApi: providedBrowseApi,
@@ -268,12 +276,30 @@ export function App({
   const { active: activeTheme } = useTheme();
   const theme = activeTheme.appearance;
   const [themePickerOpen, setThemePickerOpen] = useState(false);
-  const [sidebarVisible, setSidebarVisible] = useState(true);
-  // One column on the right holds the Session, Files, and Preview panes. A
-  // pane mounts when first shown and keeps its thread or tree.
-  const panes = usePaneColumn();
+  const shell = useShell();
+  // The workspace's panes: the review, its thread, the file trees, and the
+  // preview, tiled as the reader leaves them. Each workspace keeps its own.
+  const entry = workspace?.getSnapshot().workspaces.find((item) => item.id === workspace.id);
+  const layoutKey =
+    entry?.kind === "review"
+      ? `review:${entry.reviewId}`
+      : entry?.kind === "repository"
+        ? `repository:${entry.path ?? "default"}`
+        : entry?.kind === "pull"
+          ? `pull:${entry.url}`
+          : undefined;
+  const threadLayout = entry?.kind === "review" || entry?.kind === "pull";
+  const initialPanes = useCallback(
+    (): PaneNode =>
+      threadLayout
+        ? { axis: "row", children: [{ id: "session" }, { id: "review" }], sizes: [0.5, 0.5] }
+        : { axis: "row", children: [{ id: "changed" }, { id: "review" }], sizes: [0.24, 0.76] },
+    [threadLayout],
+  );
+  const panes = usePaneTree({ key: layoutKey, initial: initialPanes });
   const filesVisible = panes.isOpen("files");
   const sessionVisible = panes.isOpen("session");
+  const changedVisible = panes.isOpen("changed");
   // The Markdown preview follows the main view: it shows while a Markdown
   // file is open, if you want it. The wish persists, as before.
   const [previewWanted, setPreviewWanted] = useState(() => {
@@ -292,12 +318,7 @@ export function App({
     focusBeforeZen.current = document.activeElement;
     setZenState(next);
   }, []);
-  const leftVisible = sidebarVisible;
   const rightVisible = filesVisible;
-  // The sidebar stays mounted once shown, so ⌘B does not build its history
-  // and file tree again.
-  const [sidebarMounted, setSidebarMounted] = useState(leftVisible);
-  if (leftVisible && !sidebarMounted) setSidebarMounted(true);
   useEffect(() => {
     try {
       localStorage.setItem("med:zen", zen ? "on" : "off");
@@ -341,16 +362,6 @@ export function App({
       /* Storage can be unavailable. */
     }
   }, [lineBlame]);
-  const [historyCollapsed, setHistoryCollapsed] = useState(
-    () => readPreference("history", "open", ["open", "closed"]) === "closed",
-  );
-  useEffect(() => {
-    try {
-      localStorage.setItem("med:history", historyCollapsed ? "closed" : "open");
-    } catch {
-      /* Storage can be unavailable. */
-    }
-  }, [historyCollapsed]);
   const [helpOpen, setHelpOpen] = useState(false);
   const fileNavigation = useRef<((key: string, control?: boolean) => void) | null>(null);
   const onNavigationReady = useCallback(
@@ -587,21 +598,25 @@ export function App({
     setPickerResume(true);
     setFilePickerOpen(true);
   }, []);
-  const { show: showPane, close: closePane, toggle: togglePane } = panes;
-  const showFiles = useCallback(() => {
-    showPane("files");
-    if (window.innerWidth < 1100) setSidebarVisible(false);
-  }, [showPane]);
+  const { close: closePane, show: showInTree, toggle: toggleInTree } = panes;
+  const showPane = useCallback(
+    (id: string, options: { quiet?: boolean } = {}) =>
+      showInTree(id, { ...PANE_PLACES[id], ...options }),
+    [showInTree],
+  );
+  const togglePane = useCallback(
+    (id: string) => toggleInTree(id, PANE_PLACES[id]),
+    [toggleInTree],
+  );
+  const showFiles = useCallback(() => showPane("files"), [showPane]);
   const toggleFilesSidebar = useCallback(() => {
     if (rightVisible) closePane("files");
     else showFiles();
   }, [rightVisible, showFiles, closePane]);
   const toggleSession = useCallback(() => togglePane("session"), [togglePane]);
-  const toggleReviewSidebar = useCallback(() => {
-    const narrow = window.innerWidth < 1100;
-    if (!sidebarVisible && narrow) closePane("files");
-    setSidebarVisible(!sidebarVisible);
-  }, [sidebarVisible, closePane]);
+  // ⌘B shows or hides the window's thread list; alone, the changed files.
+  const toggleChanged = useCallback(() => togglePane("changed"), [togglePane]);
+  const toggleReviewSidebar = shell?.toggleSidebar ?? toggleChanged;
   const previewable =
     !!activeFile &&
     fileState.file?.kind === "text" &&
@@ -696,7 +711,6 @@ export function App({
     return () => window.removeEventListener("pointerdown", pointerdown, true);
   }, [clearLineSelection]);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
-  const [sidebarWidth, setSidebarWidth] = useState(300);
   const [contextError, setContextError] = useState<string | null>(null);
   const [frameMs, setFrameMs] = useState<number | null>(null);
   const [baseRef, setBaseRef] = useState("main");
@@ -2089,21 +2103,18 @@ export function App({
         else toggleReviewSidebar();
         return;
       }
-      // ⌘⌃⇧← and ⌘⌃⇧→ move the side panes' edge, as Ghostty resizes a split;
-      // ⌘⌃= makes the panes as wide as the review, and again goes back.
-      if (event.ctrlKey && (event.metaKey || event.altKey) && panes.open.length) {
-        if (event.shiftKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
-          event.preventDefault();
-          event.stopPropagation();
-          panes.resize(event.key === "ArrowLeft" ? 40 : -40);
-          return;
-        }
-        if (!event.shiftKey && (event.code === "Equal" || event.key === "=")) {
-          event.preventDefault();
-          event.stopPropagation();
-          if (!event.repeat) panes.equalize();
-          return;
-        }
+      // ⌘⌃= gives every pane the same room, as Ghostty balances its splits.
+      if (
+        event.ctrlKey &&
+        (event.metaKey || event.altKey) &&
+        !event.shiftKey &&
+        (event.code === "Equal" || event.key === "=") &&
+        panes.open.length > 1
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) panes.balance();
+        return;
       }
       if (themePickerOpen || filePickerOpen || symbolPickerOpen || helpOpen || rangeOpen) return;
       // ⌘⇧[ and ⌘⇧] show the previous and next tab, also from the editor. A
@@ -2926,11 +2937,23 @@ export function App({
                   })),
               ]
             : []),
-          {
-            id: "pane-layout",
-            label: panes.layout === "stack" ? "Show side panes as tabs" : "Stack side panes",
-            run: () => panes.setLayout(panes.layout === "stack" ? "tabs" : "stack"),
-          },
+          ...(panes.open.length > 1
+            ? [
+                {
+                  id: "zoom-pane",
+                  label: panes.zoom ? "Restore panes" : "Zoom the focused pane",
+                  shortcut: "⌘ E",
+                  run: () => panes.toggleZoom(panes.zoom ?? panes.focused),
+                },
+                {
+                  id: "balance-panes",
+                  label: "Balance panes",
+                  shortcut: "⌘⌃=",
+                  disabled: panes.balanced,
+                  run: panes.balance,
+                },
+              ]
+            : []),
           ...(selectedFile
             ? [
                 {
@@ -2964,7 +2987,7 @@ export function App({
       id: "filter",
       label: "Filter changed files",
       run: () => {
-        setSidebarVisible(true);
+        showPane("changed");
         requestAnimationFrame(() => filterRef.current?.focus());
       },
     },
@@ -3004,16 +3027,22 @@ export function App({
       : []),
     {
       id: "sidebar",
-      label: leftVisible ? "Hide sidebar" : "Show sidebar",
+      label: shell
+        ? shell.sidebarVisible
+          ? "Hide threads"
+          : "Show threads"
+        : changedVisible
+          ? "Hide changed files"
+          : "Show changed files",
       shortcut: "⌘ B",
       run: toggleReviewSidebar,
     },
-    ...(gitAvailable && leftVisible
+    ...(shell
       ? [
           {
-            id: "history",
-            label: historyCollapsed ? "Expand history" : "Collapse history",
-            run: () => setHistoryCollapsed((value) => !value),
+            id: "changed-files",
+            label: changedVisible ? "Hide changed files" : "Show changed files",
+            run: toggleChanged,
           },
         ]
       : []),
@@ -3583,26 +3612,26 @@ export function App({
     ],
   );
 
-  const titleRow = useTitleBarOverlay();
+  // In the window's shell, the shell heads the window; alone, the review does.
+  const titleRow = useTitleBarOverlay() && !shell;
   // Without a branch strip to head the window, the review card's first row
   // rises beside the window controls as the card's tab. Zen has no strip; its
   // tab is empty.
   const cardTab = titleRow && (zen || !!workspace || branches.visible.length < 2);
-  const sidebarToggle = (
-    <ToolButton
-      label={leftVisible ? "Hide sidebar" : "Show sidebar"}
-      shortcut="⌘ B"
-      icon="panelLeft"
-      aria-label="Toggle sidebar"
-      aria-pressed={leftVisible}
-      onClick={toggleReviewSidebar}
-    />
-  );
-  // Where am I, and the way to another branch. It heads the sidebar, or the
-  // tab row when the sidebar is hidden.
+  // Where am I, and the way to another branch. It heads a branch's changes;
+  // a saved review's header names its own branch.
   const identity = (
     <div {...stylex.props(styles.identity)}>
-      {sidebarToggle}
+      {!shell && (
+        <ToolButton
+          label={changedVisible ? "Hide changed files" : "Show changed files"}
+          shortcut="⌘ B"
+          icon="panelLeft"
+          aria-label="Toggle sidebar"
+          aria-pressed={changedVisible}
+          onClick={toggleReviewSidebar}
+        />
+      )}
       {gitAvailable && <BranchSwitch model={branches} onOpen={() => openBranchPicker(false)} />}
     </div>
   );
@@ -3645,19 +3674,24 @@ export function App({
       )}
     </span>
   );
-  const leading = !leftVisible && (!titleRow || cardTab) && (
+  const leading = !state.savedReview && (!titleRow || cardTab) && (
     <>
       {identity}
       <span {...stylex.props(styles.headerDivider)} />
     </>
   );
-  const mainHeader =
+  const mainHeader = (controls: ReactNode) =>
     browseSource || hasNotes || hasGuide ? (
       <FileViewTabs
         panelId={`${idPrefix}file-view-panel`}
         pathActions={pathActions}
         leading={leading}
-        trailing={viewControls}
+        trailing={
+          <>
+            {viewControls}
+            {controls}
+          </>
+        }
         showBrief={hasNotes}
         showGuide={hasGuide}
         showCommit={!!commitApi}
@@ -3678,6 +3712,7 @@ export function App({
         {leading}
         <span {...stylex.props(ui.grow)} />
         {viewControls}
+        {controls}
       </header>
     );
   // The tab is the card's first row, so the notice follows it.
@@ -3820,12 +3855,670 @@ export function App({
       </div>
     );
 
+  const workspacePanes: PaneSpec[] = [
+    {
+      id: "review",
+      label: state.savedReview ? "Review" : "Changes",
+      ariaLabel: "Review",
+      icon: "diff",
+      fixed: true,
+      render: (controls: ReactNode) => (
+      <main
+        {...stylex.props(styles.main, cardTab && tabbedCard.card)}
+        aria-label="Continuous review"
+      >
+        {cardTab && <CardTab lift={zen} />}
+        {/* Zen's tab is empty: the content rises into it (CardTab.css). */}
+        {cardTab && zen && (
+          <div aria-hidden="true" data-zen-tab="" {...stylex.props(styles.zenTab)} />
+        )}
+        {/* The review's own row heads the card, level with the sidebar's
+        identity, so the sidebar keeps its place between workspaces. */}
+        {state.savedReview && !zen && (
+          <SavedReviewHeader
+            controller={controller}
+            state={state}
+            notesPickIteration={hasNotes}
+            pullRequest={pullRequest}
+            threadPlacement={pullRequestThreads.placement}
+            codexReviews={codexReviews}
+            findingPlacement={codexFindings.placement}
+            sendTo={
+              replyAgent
+                ? {
+                    name: replyAgent,
+                    icon: leadIcon,
+                    drafts: agentInbox.state?.drafts.length ?? 0,
+                    open: () => showPane("session"),
+                  }
+                : undefined
+            }
+            browsing={isFileTab(fileState.active)}
+            browsingSourceLabel={activeFile?.sourceLabel ?? sourceLabel}
+            onReturn={returnToReview}
+            onTarget={(id) => {
+              pendingSavedChanges.current = id;
+              pendingIteration.current = null;
+              fileWorkspace.select("changes");
+              void controller.selectSavedTarget(id);
+            }}
+          />
+        )}
+        {!cardTab && linkError}
+        {zen ? <ZenExit onExit={toggleZen} /> : mainHeader(controls)}
+        {cardTab && linkError}
+        <div
+          id={`${idPrefix}file-view-panel`}
+          role="tabpanel"
+          aria-label={
+            activeFile
+              ? `File ${activeFile.path}`
+              : fileState.active === "brief"
+                ? "Notes"
+                : fileState.active === "guide"
+                  ? "Guide"
+                  : fileState.active === "commit"
+                    ? "Commit"
+                    : "Changes"
+          }
+          {...stylex.props(styles.reviewSurface)}
+        >
+          <div
+            {...stylex.props(
+              styles.reviewSurface,
+              !streamShown && !guideTab && styles.hiddenSurface,
+            )}
+            aria-hidden={!streamShown && !guideTab}
+          >
+            <div {...stylex.props(styles.guideRow)}>
+              {guideTab && !zen && (
+                <GuideRail
+                  sections={guideSections}
+                  commits={guideCommits}
+                  moreCommits={guideTarget?.moreCommits}
+                  scope={guideScope}
+                  filesById={guideFilesById}
+                  viewed={guideViewedIds}
+                  total={shownGuideFiles.length}
+                  done={guideViewedIds.size}
+                  onScope={openGuide}
+                  onFile={(key, id) => {
+                    if (guideDiff && guideSection?.key === key) reveal(id);
+                    else {
+                      // The chosen file, not the saved scroll, places the stream.
+                      explicitReveal.current = true;
+                      openGuide({ kind: "segment", key }, id);
+                    }
+                  }}
+                  onToggleViewed={setFilesViewed}
+                />
+              )}
+              {guideOverview && (
+                <GuideOverview
+                  title={
+                    state.savedReview?.pullRequestTitle ?? state.savedReview?.title ?? "Review"
+                  }
+                  meta={guideMeta}
+                  summary={resolvedGuide?.summary}
+                  from={
+                    guideSource &&
+                    shownIteration !== undefined &&
+                    guideSource.number !== shownIteration
+                      ? guideSource.number
+                      : undefined
+                  }
+                  agent={leadSession ? { name: guideAgent.name, mark: guideAgent.mark } : null}
+                  sections={guideSections}
+                  commits={guideCommits}
+                  moreCommits={guideTarget?.moreCommits}
+                  viewed={guideViewedIds}
+                  total={shownGuideFiles.length}
+                  done={guideViewedIds.size}
+                  onScope={openGuide}
+                  onOpenLink={openGuideLink}
+                />
+              )}
+              <div
+                {...stylex.props(styles.reviewSurface, guideOverview && styles.hiddenSurface)}
+              >
+                <div
+                  {...stylex.props(styles.toolbar, zen && styles.hiddenSurface)}
+                  hidden={zen}
+                >
+                  <ChoiceSelect
+                    label="Comparison"
+                    value={comparisonValue}
+                    choices={comparisonChoices}
+                    onChange={(value) => {
+                      if (["working", "staged", "unstaged"].includes(value))
+                        void controller.selectComparison({ kind: value } as Comparison);
+                    }}
+                  />
+                  {actionRepo &&
+                    state.status === "ready" &&
+                    state.session?.repository.git !== false && (
+                      <ComparisonActions
+                        key={`${actionRepo}:${actionHead}:${actionBranch}`}
+                        repo={actionRepo}
+                        head={actionHead}
+                        sourceBranch={actionBranch}
+                        comparison={state.comparison}
+                        onCompare={(base, head) => {
+                          fileWorkspace.select("changes");
+                          void controller.selectComparison({
+                            kind: "range",
+                            base,
+                            head,
+                            mergeBase: true,
+                          });
+                        }}
+                      />
+                    )}
+                  {state.review && (
+                    <span {...stylex.props(styles.toolbarTotals)}>
+                      <ChangeTotals
+                        files={state.review.files}
+                        range={`${shortRevision(state.review.base)} → ${shortRevision(state.review.head)}`}
+                      />
+                    </span>
+                  )}
+                  <span {...stylex.props(ui.grow)} />
+                  {files.length > 1 && (
+                    <ToolButton
+                      label={allCollapsed ? "Expand all files" : "Collapse all files"}
+                      icon={allCollapsed ? "expandAll" : "collapseAll"}
+                      aria-label={allCollapsed ? "Expand all files" : "Collapse all files"}
+                      onClick={toggleAllFiles}
+                    />
+                  )}
+                  <SegmentedControl<"split" | "unified">
+                    label="Diff layout"
+                    value={mode}
+                    onChange={setMode}
+                    options={[
+                      { value: "split", label: "Split", icon: "split" },
+                      { value: "unified", label: "Unified", icon: "unified" },
+                    ]}
+                  />
+                  <ActionTooltip label={showNotes ? "Hide comments" : "Show comments"}>
+                    <button
+                      {...stylex.props(
+                        ui.button,
+                        ui.pressable,
+                        styles.notesButton,
+                        showNotes && ui.active,
+                      )}
+                      aria-label="Toggle notes"
+                      aria-pressed={showNotes}
+                      onClick={() => setShowNotes(!showNotes)}
+                    >
+                      <Icon name="note" size={15} />
+                      {notes.length > 0 && (
+                        <span {...stylex.props(styles.notesCount)}>{notes.length}</span>
+                      )}
+                    </button>
+                  </ActionTooltip>
+                  <ActionMenu
+                    sections={[
+                      selectedFile && browseSource
+                        ? [
+                            {
+                              label:
+                                browseSource.kind === "worktree"
+                                  ? "Open working file"
+                                  : "Open snapshot file",
+                              letter: "o",
+                              onClick: () => openWorkingFile(selectedFile.path),
+                            },
+                            { label: "Show files sidebar", onClick: showFiles },
+                          ]
+                        : [],
+                      [
+                        {
+                          label: "Find in diffs",
+                          shortcut: "⌘ F",
+                          letter: "f",
+                          onClick: openFind,
+                        },
+                        ...(gitAvailable
+                          ? [
+                              {
+                                label: "Compare revisions…",
+                                letter: "c",
+                                onClick: () => setRangeOpen(!rangeOpen),
+                              },
+                            ]
+                          : []),
+                      ],
+                      [
+                        {
+                          label: "Show comments",
+                          checked: showNotes,
+                          onClick: () => setShowNotes(!showNotes),
+                        },
+                        {
+                          label: "Wrap long lines",
+                          checked: wrap,
+                          letter: "w",
+                          onClick: () => setWrap(!wrap),
+                        },
+                      ],
+                      [
+                        { label: "Zen mode", shortcut: "⌥ Z", letter: "z", onClick: toggleZen },
+                        {
+                          label: "Refresh review",
+                          letter: "r",
+                          disabled: state.status === "loading",
+                          onClick: () => void controller.refresh(),
+                        },
+                      ],
+                    ]}
+                  />
+                  {state.status === "loading" && (
+                    <span role="presentation" {...stylex.props(styles.loadingTrack)}>
+                      <span {...stylex.props(styles.loadingBar)} />
+                    </span>
+                  )}
+                </div>
+                {rangeOpen && (
+                  <form
+                    {...stylex.props(styles.rangeBar)}
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      if (baseRef && headRef) {
+                        void controller.selectComparison({
+                          kind: "range",
+                          base: baseRef,
+                          head: headRef,
+                        });
+                        setRangeOpen(false);
+                      }
+                    }}
+                  >
+                    <Icon name="compare" size={14} />
+                    <span>Compare</span>
+                    <input
+                      aria-label="Base revision"
+                      value={baseRef}
+                      onChange={(event) => setBaseRef(event.target.value)}
+                      {...stylex.props(ui.input, styles.revisionInput)}
+                    />
+                    <Icon name="arrowUp" size={12} style={{ transform: "rotate(90deg)" }} />
+                    <input
+                      aria-label="Head revision"
+                      value={headRef}
+                      onChange={(event) => setHeadRef(event.target.value)}
+                      {...stylex.props(ui.input, styles.revisionInput)}
+                    />
+                    <button
+                      type="submit"
+                      {...stylex.props(ui.button, ui.primary, ui.pressable)}
+                    >
+                      Review
+                    </button>
+                    <button
+                      type="button"
+                      {...stylex.props(ui.button, ui.iconButton)}
+                      aria-label="Close revision comparison"
+                      onClick={() => setRangeOpen(false)}
+                    >
+                      <Icon name="close" size={13} />
+                    </button>
+                  </form>
+                )}
+                {state.error && (
+                  <div role="alert" {...stylex.props(styles.notice, styles.error)}>
+                    <span>{state.error}</span>
+                    <button
+                      {...stylex.props(ui.button)}
+                      onClick={() => void controller.refresh()}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
+                {state.notesError && (
+                  <div role="alert" {...stylex.props(styles.notice, styles.error)}>
+                    Notes: {state.notesError}
+                  </div>
+                )}
+                {orphaned.length > 0 && showNotes && (
+                  <details {...stylex.props(styles.orphanPanel)}>
+                    <summary>
+                      {orphaned.length} preserved {orphaned.length === 1 ? "note" : "notes"}{" "}
+                      outside this diff
+                    </summary>
+                    {orphaned.map((note) => (
+                      <NoteCard
+                        key={note.id}
+                        note={note}
+                        replies={notes.filter((reply) => reply.parentId === note.id)}
+                        onMutate={(mutation) => controller.mutateNote(mutation)}
+                      />
+                    ))}
+                  </details>
+                )}
+                {contextError && (
+                  <div role="alert" {...stylex.props(styles.notice, styles.error)}>
+                    <span>{contextError}</span>
+                    <button {...stylex.props(ui.button)} onClick={() => setContextError(null)}>
+                      Dismiss
+                    </button>
+                  </div>
+                )}
+                {state.review?.warnings.map((warning) => (
+                  <div key={warning} {...stylex.props(styles.notice)}>
+                    {warning}
+                  </div>
+                ))}
+                <div ref={streamRef} {...stylex.props(styles.stream)}>
+                  {findOpen && (
+                    <div {...stylex.props(styles.findWidget)}>
+                      <Icon name="search" size={14} />
+                      <input
+                        ref={findRef}
+                        value={find}
+                        onChange={(event) => {
+                          setFind(event.target.value);
+                          setFindIndex(0);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            jumpHit(event.shiftKey ? findIndex - 1 : findIndex + 1);
+                          }
+                          if (event.key === "Escape") {
+                            event.stopPropagation();
+                            setFindOpen(false);
+                          }
+                        }}
+                        aria-label="Find in diff contents"
+                        placeholder="Find in changed hunks"
+                        {...stylex.props(styles.findInput)}
+                      />
+                      <span
+                        {...stylex.props(
+                          styles.findCount,
+                          !!find && !hits.length && styles.findEmpty,
+                        )}
+                      >
+                        {find
+                          ? hits.length
+                            ? `${Math.min(findIndex + 1, hits.length)} / ${hits.length} hunks`
+                            : "No matches"
+                          : ""}
+                      </span>
+                      <button
+                        {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
+                        aria-label="Previous match"
+                        disabled={!hits.length}
+                        onClick={() => jumpHit(findIndex - 1)}
+                      >
+                        <Icon name="arrowUp" size={14} />
+                      </button>
+                      <button
+                        {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
+                        aria-label="Next match"
+                        disabled={!hits.length}
+                        onClick={() => jumpHit(findIndex + 1)}
+                      >
+                        <Icon name="arrowDown" size={14} />
+                      </button>
+                      <button
+                        {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
+                        aria-label="Close find"
+                        onClick={() => setFindOpen(false)}
+                      >
+                        <Icon name="close" size={14} />
+                      </button>
+                    </div>
+                  )}
+                  {selection && (
+                    <div
+                      data-line-selection-controls
+                      role="toolbar"
+                      aria-label="Line selection"
+                      {...stylex.props(styles.selectionbar)}
+                    >
+                      <span {...stylex.props(styles.selectionRange)}>
+                        L{selection.range.start}
+                        {selection.range.end !== selection.range.start
+                          ? `–${selection.range.end}`
+                          : ""}
+                      </span>
+                      <span {...stylex.props(styles.selectionLabel)}>selected</span>
+                      <button
+                        {...stylex.props(
+                          ui.button,
+                          ui.primary,
+                          ui.pressable,
+                          styles.selectionAction,
+                        )}
+                        aria-label="Add note"
+                        onClick={startNote}
+                      >
+                        <Icon name="note" size={14} />
+                        Add note
+                        <kbd {...stylex.props(styles.selectionKey)}>c</kbd>
+                      </button>
+                      <button
+                        {...stylex.props(ui.button, ui.iconButton, styles.selectionClose)}
+                        aria-label="Clear line selection"
+                        onClick={clearLineSelection}
+                      >
+                        <Icon name="close" size={14} />
+                      </button>
+                    </div>
+                  )}
+                  {items.length > 0 ? (
+                    <ReviewCodeView
+                      key={`${streamScope}:${state.review?.id}`}
+                      ref={viewer}
+                      onScroll={onReviewScroll}
+                      items={items}
+                      selectedLines={selection}
+                      onSelectedLinesChange={setSelection}
+                      options={options}
+                      className={stylex.props(styles.codeView).className}
+                      style={diffSurfaceStyle}
+                      renderCustomHeader={renderCustomHeader}
+                      renderAnnotation={renderAnnotation}
+                      renderCodeViewHeader={renderCodeViewHeader}
+                      renderCodeViewFooter={renderCodeViewFooter}
+                    />
+                  ) : skipped.length && state.status !== "loading" && !state.error ? (
+                    <div style={{ overflow: "auto", height: "100%" }}>
+                      {renderMetadataRows()}
+                    </div>
+                  ) : state.status !== "loading" && !state.error ? (
+                    <div {...stylex.props(styles.emptyState)}>
+                      <span
+                        {...stylex.props(styles.emptyMark, !skipped.length && styles.emptyDone)}
+                      >
+                        <Icon name={skipped.length ? "file" : "check"} size={20} />
+                      </span>
+                      <h1 {...stylex.props(styles.emptyTitle)}>
+                        {state.filter
+                          ? "No matching diffs"
+                          : skipped.length
+                            ? "No text diff to display"
+                            : "All caught up"}
+                      </h1>
+                      {skipped.length ? (
+                        renderMetadataRows()
+                      ) : (
+                        <p {...stylex.props(styles.emptyDescription)}>
+                          {state.comparison.kind === "working"
+                            ? "Working tree clean."
+                            : "No changed text files."}
+                        </p>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </div>
+          {hasNotes && briefMounted && state.savedReview && (
+            <div
+              {...stylex.props(
+                styles.reviewSurface,
+                fileState.active !== "brief" && styles.hiddenSurface,
+              )}
+              aria-hidden={fileState.active !== "brief"}
+            >
+              <Suspense fallback={null}>
+                <BriefView
+                  key={state.savedReview.id}
+                  brief={savedBrief}
+                  briefFrom={
+                    briefSource && briefSource.number !== shownIteration
+                      ? briefSource.number
+                      : undefined
+                  }
+                  pins={savedPins}
+                  reveal={noteReveal}
+                  prerender={iterations.flatMap((entry) => {
+                    if (!entry.brief && !entry.pins?.length) return [];
+                    const brief = iterations.findLast(
+                      (earlier) => earlier.number <= entry.number && earlier.brief,
+                    )?.brief;
+                    const text = joinNotes([
+                      ...(brief ? [brief.text] : []),
+                      ...(entry.pins ?? []).map((pin) => pin.text),
+                    ]).text;
+                    return text !== notesText ? [text] : [];
+                  })}
+                  iterations={iterations
+                    .filter((entry) => entry.brief || entry.pins?.length || entry.fresh)
+                    .map(({ number, createdAt }) => ({ number, createdAt }))}
+                  iteration={savedPins?.length ? shownIteration : briefSource?.number}
+                  onIteration={showIteration}
+                  files={state.files}
+                  root={state.review?.repo}
+                  active={fileState.active === "brief"}
+                  loadSource={controller.loadSources}
+                  onOpen={openBriefLocation}
+                  onOpenPath={(path, line) => fileWorkspace.open(path, true, line)}
+                  onPaste={pasteBrief}
+                  onCopy={copyNotes}
+                  onRemove={removeBrief}
+                  onStartNotes={startNotes}
+                  onDeleteNotes={deleteNotes}
+                  onUnpin={(id) => void unpin(id)}
+                  notes={notes}
+                  onMutateNote={(mutation) => controller.mutateNote(mutation)}
+                  comments={briefComments}
+                  briefIteration={briefSource?.number}
+                  onCommentBrief={(mutation) => controller.commentBrief(mutation)}
+                />
+              </Suspense>
+            </div>
+          )}
+          {commitApi && commitMounted && (
+            <div
+              {...stylex.props(
+                styles.reviewSurface,
+                fileState.active !== "commit" && styles.hiddenSurface,
+              )}
+              aria-hidden={fileState.active !== "commit"}
+            >
+              <Suspense fallback={null}>
+                <CommitView
+                  api={commitApi}
+                  revision={state.sourceRevision}
+                  active={fileState.active === "commit"}
+                  draftKey={`med:commit-message:${commitRepo}`}
+                  onOpenFile={openCommitFile}
+                />
+              </Suspense>
+            </div>
+          )}
+          {activeFile && (
+            <FullFileView
+              editor={fileEditor}
+              file={fileState.file}
+              path={activeFile.path}
+              loading={fileState.loading}
+              error={fileState.error}
+              stale={fileState.stale}
+              loadBlame={loadBlame}
+              loadChanges={browseApi.changes ? loadFileChanges : undefined}
+              blameEnabled={blameEnabled}
+              onBlameEnabledChange={setFileBlame}
+              lineBlame={lineBlame}
+              loadCommit={loadCommit}
+              sourceLabel={activeFile.sourceLabel}
+              line={activeFile.line}
+              column={activeFile.column}
+              vimEnabled={vimEnabled}
+              onNavigationReady={onNavigationReady}
+              onSelectionReaderReady={onSelectionReaderReady}
+              onDefinition={goToDefinition}
+              onSymbolPreviewReady={onSymbolPreviewReady}
+              onRefresh={refreshFile}
+              onClose={closeActiveFile}
+              onOpenFile={openLinkedFile}
+              onOpenBefore={openBefore}
+              onOpenAfter={openAfter}
+              previewPane={previewPane}
+            />
+          )}
+        </div>
+        {toast && (
+          <div key={toast.id} role="status" {...stylex.props(styles.toast)}>
+            {toast.text}
+            {toast.restore !== undefined && (
+              <button
+                {...stylex.props(styles.toastAction)}
+                onClick={() => {
+                  const restore = toast.restore!;
+                  setToast(null);
+                  void setBrief(restore, restore ? "Brief restored." : "Brief removed.");
+                }}
+              >
+                Undo
+              </button>
+            )}
+          </div>
+        )}
+      </main>
+      ),
+    },
+    ...(gitAvailable
+      ? [
+          {
+            id: "changed",
+            label: "Changed files",
+            ariaLabel: "Changed files",
+            icon: "diff" as const,
+            render: (controls: ReactNode) => (
+          <FileSidebar
+              controls={controls}
+            repo={state.session?.repository.path ?? null}
+            pathActions={pathActions}
+            files={files}
+            total={state.files.length}
+            selected={state.selectedFileId}
+            filter={state.filter}
+            onFilter={controller.setFilter}
+            onSelect={reveal}
+            onPrefetch={prefetchFile}
+            onOpen={browseSource ? openChangedFile : undefined}
+            filterRef={filterRef}
+          />
+            ),
+          },
+        ]
+      : []),
+    ...sidePanes,
+  ];
   const app = (
     <AgentReplyContext.Provider value={agentReply}>
       <div
         {...stylex.props(styles.app)}
         data-theme={activeTheme.id}
-        data-sidebar-visible={sidebarVisible}
+        data-sidebar-visible={shell ? shell.sidebarVisible : changedVisible}
         data-selected-branch={state.activeBranch ?? ""}
         data-selected-repository={state.activeRepositoryId ?? ""}
         data-selected-commit={loadedCommit}
@@ -3886,7 +4579,7 @@ export function App({
           />
         )}
         <SymbolPicker
-          sidebarWidth={leftVisible ? sidebarWidth : 316}
+          sidebarWidth={316}
           beginFilePreview={beginFilePreview}
           open={symbolPickerOpen}
           onOpenChange={setSymbolPickerOpen}
@@ -3943,739 +4636,12 @@ export function App({
           }
         />
         <div
-          {...stylex.props(
-            styles.workspace,
-            (titleRow || zen || workspace || branches.visible.length < 2) && styles.workspaceTop,
-            zen && styles.zenWorkspace,
-          )}
+          {...stylex.props(styles.workspace, zen && styles.zenWorkspace)}
           id={`${idPrefix}review-workspace`}
           role="tabpanel"
           aria-label={`${state.activeBranch ?? "Workspace"} review`}
         >
-          {sidebarMounted && (
-            <aside
-              id={`${idPrefix}review-sidebar`}
-              className={
-                stylex.props(styles.sidebar, !leftVisible && styles.hiddenSurface).className
-              }
-              style={{ width: sidebarWidth }}
-              hidden={!leftVisible}
-            >
-              {/* The tab row holds the identity while the sidebar is hidden. In
-                  zen, the row only keeps the sidebar below the window controls. */}
-              {(cardTab || (!zen && !titleRow)) && (
-                <div
-                  {...titleClass(
-                    cardTab,
-                    stylex.props(styles.sidebarHeader, cardTab && styles.sidebarTitle),
-                  )}
-                >
-                  {leftVisible && !zen && identity}
-                </div>
-              )}
-              {workspace && !zen && (
-                <WorkspaceList
-                  onNew={gitAvailable ? () => openBranchPicker(true) : undefined}
-                  repositories={state.repositories}
-                />
-              )}
-              {gitAvailable && (
-                <HistoryPanel
-                  key={JSON.stringify([state.session?.repository.path, state.activeBranch])}
-                  commits={state.history}
-                  selected={
-                    state.comparison.kind === "commit" ? state.comparison.commit : undefined
-                  }
-                  selectedRange={
-                    state.comparison.kind === "range" && state.comparison.includeBase
-                      ? state.comparison
-                      : undefined
-                  }
-                  working={state.comparison.kind === "working"}
-                  workingAvailable={workingAvailable}
-                  collapsed={historyCollapsed}
-                  onCollapsedChange={setHistoryCollapsed}
-                  loading={state.historyLoading}
-                  hasMore={state.historyHasMore}
-                  error={state.historyError}
-                  loadDetails={controller.loadCommitDetails}
-                  onSelect={selectCommit}
-                  onSelectRange={selectCommitRange}
-                  onLoadMore={loadMoreHistory}
-                  onWorking={selectWorking}
-                />
-              )}
-              <FileSidebar
-                repo={state.session?.repository.path ?? null}
-                pathActions={pathActions}
-                files={files}
-                total={state.files.length}
-                selected={state.selectedFileId}
-                filter={state.filter}
-                onFilter={controller.setFilter}
-                onSelect={reveal}
-                onPrefetch={prefetchFile}
-                onOpen={browseSource ? openChangedFile : undefined}
-                filterRef={filterRef}
-              />
-            </aside>
-          )}
-          {leftVisible && (
-            <div
-              role="separator"
-              aria-label="Resize sidebar"
-              aria-orientation="vertical"
-              aria-valuenow={sidebarWidth}
-              aria-valuemin={220}
-              aria-valuemax={520}
-              tabIndex={0}
-              {...stylex.props(styles.divider, stylex.defaultMarker())}
-              onKeyDown={(event) => {
-                if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-                  event.preventDefault();
-                  setSidebarWidth((width) =>
-                    Math.max(220, Math.min(520, width + (event.key === "ArrowLeft" ? -16 : 16))),
-                  );
-                }
-              }}
-              onPointerDown={(event) => {
-                event.currentTarget.setPointerCapture(event.pointerId);
-              }}
-              onPointerMove={(event) => {
-                if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
-                const left =
-                  event.currentTarget.previousElementSibling?.getBoundingClientRect().left ?? 0;
-                setSidebarWidth(Math.max(220, Math.min(520, event.clientX - left)));
-              }}
-            >
-              <span {...stylex.props(styles.dividerLine)} />
-            </div>
-          )}
-          <main
-            {...stylex.props(
-              styles.main,
-              !leftVisible && styles.mainFlush,
-              cardTab && tabbedCard.card,
-            )}
-            aria-label="Continuous review"
-          >
-            {cardTab && <CardTab lift={zen} />}
-            {/* Zen's tab is empty: the content rises into it (CardTab.css). */}
-            {cardTab && zen && (
-              <div aria-hidden="true" data-zen-tab="" {...stylex.props(styles.zenTab)} />
-            )}
-            {/* The review's own row heads the card, level with the sidebar's
-            identity, so the sidebar keeps its place between workspaces. */}
-            {state.savedReview && !zen && (
-              <SavedReviewHeader
-                controller={controller}
-                state={state}
-                notesPickIteration={hasNotes}
-                pullRequest={pullRequest}
-                threadPlacement={pullRequestThreads.placement}
-                codexReviews={codexReviews}
-                findingPlacement={codexFindings.placement}
-                sendTo={
-                  replyAgent
-                    ? {
-                        name: replyAgent,
-                        icon: leadIcon,
-                        drafts: agentInbox.state?.drafts.length ?? 0,
-                        open: () => showPane("session"),
-                      }
-                    : undefined
-                }
-                browsing={isFileTab(fileState.active)}
-                browsingSourceLabel={activeFile?.sourceLabel ?? sourceLabel}
-                onReturn={returnToReview}
-                onTarget={(id) => {
-                  pendingSavedChanges.current = id;
-                  pendingIteration.current = null;
-                  fileWorkspace.select("changes");
-                  void controller.selectSavedTarget(id);
-                }}
-              />
-            )}
-            {!cardTab && linkError}
-            {zen ? <ZenExit onExit={toggleZen} /> : mainHeader}
-            {cardTab && linkError}
-            <div
-              id={`${idPrefix}file-view-panel`}
-              role="tabpanel"
-              aria-label={
-                activeFile
-                  ? `File ${activeFile.path}`
-                  : fileState.active === "brief"
-                    ? "Notes"
-                    : fileState.active === "guide"
-                      ? "Guide"
-                      : fileState.active === "commit"
-                        ? "Commit"
-                        : "Changes"
-              }
-              {...stylex.props(styles.reviewSurface)}
-            >
-              <div
-                {...stylex.props(
-                  styles.reviewSurface,
-                  !streamShown && !guideTab && styles.hiddenSurface,
-                )}
-                aria-hidden={!streamShown && !guideTab}
-              >
-                <div {...stylex.props(styles.guideRow)}>
-                  {guideTab && !zen && (
-                    <GuideRail
-                      sections={guideSections}
-                      commits={guideCommits}
-                      moreCommits={guideTarget?.moreCommits}
-                      scope={guideScope}
-                      filesById={guideFilesById}
-                      viewed={guideViewedIds}
-                      total={shownGuideFiles.length}
-                      done={guideViewedIds.size}
-                      onScope={openGuide}
-                      onFile={(key, id) => {
-                        if (guideDiff && guideSection?.key === key) reveal(id);
-                        else {
-                          // The chosen file, not the saved scroll, places the stream.
-                          explicitReveal.current = true;
-                          openGuide({ kind: "segment", key }, id);
-                        }
-                      }}
-                      onToggleViewed={setFilesViewed}
-                    />
-                  )}
-                  {guideOverview && (
-                    <GuideOverview
-                      title={
-                        state.savedReview?.pullRequestTitle ?? state.savedReview?.title ?? "Review"
-                      }
-                      meta={guideMeta}
-                      summary={resolvedGuide?.summary}
-                      from={
-                        guideSource &&
-                        shownIteration !== undefined &&
-                        guideSource.number !== shownIteration
-                          ? guideSource.number
-                          : undefined
-                      }
-                      agent={leadSession ? { name: guideAgent.name, mark: guideAgent.mark } : null}
-                      sections={guideSections}
-                      commits={guideCommits}
-                      moreCommits={guideTarget?.moreCommits}
-                      viewed={guideViewedIds}
-                      total={shownGuideFiles.length}
-                      done={guideViewedIds.size}
-                      onScope={openGuide}
-                      onOpenLink={openGuideLink}
-                    />
-                  )}
-                  <div
-                    {...stylex.props(styles.reviewSurface, guideOverview && styles.hiddenSurface)}
-                  >
-                    <div
-                      {...stylex.props(styles.toolbar, zen && styles.hiddenSurface)}
-                      hidden={zen}
-                    >
-                      <ChoiceSelect
-                        label="Comparison"
-                        value={comparisonValue}
-                        choices={comparisonChoices}
-                        onChange={(value) => {
-                          if (["working", "staged", "unstaged"].includes(value))
-                            void controller.selectComparison({ kind: value } as Comparison);
-                        }}
-                      />
-                      {actionRepo &&
-                        state.status === "ready" &&
-                        state.session?.repository.git !== false && (
-                          <ComparisonActions
-                            key={`${actionRepo}:${actionHead}:${actionBranch}`}
-                            repo={actionRepo}
-                            head={actionHead}
-                            sourceBranch={actionBranch}
-                            comparison={state.comparison}
-                            onCompare={(base, head) => {
-                              fileWorkspace.select("changes");
-                              void controller.selectComparison({
-                                kind: "range",
-                                base,
-                                head,
-                                mergeBase: true,
-                              });
-                            }}
-                          />
-                        )}
-                      {state.review && (
-                        <span {...stylex.props(styles.toolbarTotals)}>
-                          <ChangeTotals
-                            files={state.review.files}
-                            range={`${shortRevision(state.review.base)} → ${shortRevision(state.review.head)}`}
-                          />
-                        </span>
-                      )}
-                      <span {...stylex.props(ui.grow)} />
-                      {files.length > 1 && (
-                        <ToolButton
-                          label={allCollapsed ? "Expand all files" : "Collapse all files"}
-                          icon={allCollapsed ? "expandAll" : "collapseAll"}
-                          aria-label={allCollapsed ? "Expand all files" : "Collapse all files"}
-                          onClick={toggleAllFiles}
-                        />
-                      )}
-                      <SegmentedControl<"split" | "unified">
-                        label="Diff layout"
-                        value={mode}
-                        onChange={setMode}
-                        options={[
-                          { value: "split", label: "Split", icon: "split" },
-                          { value: "unified", label: "Unified", icon: "unified" },
-                        ]}
-                      />
-                      <ActionTooltip label={showNotes ? "Hide comments" : "Show comments"}>
-                        <button
-                          {...stylex.props(
-                            ui.button,
-                            ui.pressable,
-                            styles.notesButton,
-                            showNotes && ui.active,
-                          )}
-                          aria-label="Toggle notes"
-                          aria-pressed={showNotes}
-                          onClick={() => setShowNotes(!showNotes)}
-                        >
-                          <Icon name="note" size={15} />
-                          {notes.length > 0 && (
-                            <span {...stylex.props(styles.notesCount)}>{notes.length}</span>
-                          )}
-                        </button>
-                      </ActionTooltip>
-                      <ActionMenu
-                        sections={[
-                          selectedFile && browseSource
-                            ? [
-                                {
-                                  label:
-                                    browseSource.kind === "worktree"
-                                      ? "Open working file"
-                                      : "Open snapshot file",
-                                  letter: "o",
-                                  onClick: () => openWorkingFile(selectedFile.path),
-                                },
-                                { label: "Show files sidebar", onClick: showFiles },
-                              ]
-                            : [],
-                          [
-                            {
-                              label: "Find in diffs",
-                              shortcut: "⌘ F",
-                              letter: "f",
-                              onClick: openFind,
-                            },
-                            ...(gitAvailable
-                              ? [
-                                  {
-                                    label: "Compare revisions…",
-                                    letter: "c",
-                                    onClick: () => setRangeOpen(!rangeOpen),
-                                  },
-                                ]
-                              : []),
-                          ],
-                          [
-                            {
-                              label: "Show comments",
-                              checked: showNotes,
-                              onClick: () => setShowNotes(!showNotes),
-                            },
-                            {
-                              label: "Wrap long lines",
-                              checked: wrap,
-                              letter: "w",
-                              onClick: () => setWrap(!wrap),
-                            },
-                          ],
-                          [
-                            { label: "Zen mode", shortcut: "⌥ Z", letter: "z", onClick: toggleZen },
-                            {
-                              label: "Refresh review",
-                              letter: "r",
-                              disabled: state.status === "loading",
-                              onClick: () => void controller.refresh(),
-                            },
-                          ],
-                        ]}
-                      />
-                      {state.status === "loading" && (
-                        <span role="presentation" {...stylex.props(styles.loadingTrack)}>
-                          <span {...stylex.props(styles.loadingBar)} />
-                        </span>
-                      )}
-                    </div>
-                    {rangeOpen && (
-                      <form
-                        {...stylex.props(styles.rangeBar)}
-                        onSubmit={(event) => {
-                          event.preventDefault();
-                          if (baseRef && headRef) {
-                            void controller.selectComparison({
-                              kind: "range",
-                              base: baseRef,
-                              head: headRef,
-                            });
-                            setRangeOpen(false);
-                          }
-                        }}
-                      >
-                        <Icon name="compare" size={14} />
-                        <span>Compare</span>
-                        <input
-                          aria-label="Base revision"
-                          value={baseRef}
-                          onChange={(event) => setBaseRef(event.target.value)}
-                          {...stylex.props(ui.input, styles.revisionInput)}
-                        />
-                        <Icon name="arrowUp" size={12} style={{ transform: "rotate(90deg)" }} />
-                        <input
-                          aria-label="Head revision"
-                          value={headRef}
-                          onChange={(event) => setHeadRef(event.target.value)}
-                          {...stylex.props(ui.input, styles.revisionInput)}
-                        />
-                        <button
-                          type="submit"
-                          {...stylex.props(ui.button, ui.primary, ui.pressable)}
-                        >
-                          Review
-                        </button>
-                        <button
-                          type="button"
-                          {...stylex.props(ui.button, ui.iconButton)}
-                          aria-label="Close revision comparison"
-                          onClick={() => setRangeOpen(false)}
-                        >
-                          <Icon name="close" size={13} />
-                        </button>
-                      </form>
-                    )}
-                    {state.error && (
-                      <div role="alert" {...stylex.props(styles.notice, styles.error)}>
-                        <span>{state.error}</span>
-                        <button
-                          {...stylex.props(ui.button)}
-                          onClick={() => void controller.refresh()}
-                        >
-                          Retry
-                        </button>
-                      </div>
-                    )}
-                    {state.notesError && (
-                      <div role="alert" {...stylex.props(styles.notice, styles.error)}>
-                        Notes: {state.notesError}
-                      </div>
-                    )}
-                    {orphaned.length > 0 && showNotes && (
-                      <details {...stylex.props(styles.orphanPanel)}>
-                        <summary>
-                          {orphaned.length} preserved {orphaned.length === 1 ? "note" : "notes"}{" "}
-                          outside this diff
-                        </summary>
-                        {orphaned.map((note) => (
-                          <NoteCard
-                            key={note.id}
-                            note={note}
-                            replies={notes.filter((reply) => reply.parentId === note.id)}
-                            onMutate={(mutation) => controller.mutateNote(mutation)}
-                          />
-                        ))}
-                      </details>
-                    )}
-                    {contextError && (
-                      <div role="alert" {...stylex.props(styles.notice, styles.error)}>
-                        <span>{contextError}</span>
-                        <button {...stylex.props(ui.button)} onClick={() => setContextError(null)}>
-                          Dismiss
-                        </button>
-                      </div>
-                    )}
-                    {state.review?.warnings.map((warning) => (
-                      <div key={warning} {...stylex.props(styles.notice)}>
-                        {warning}
-                      </div>
-                    ))}
-                    <div ref={streamRef} {...stylex.props(styles.stream)}>
-                      {findOpen && (
-                        <div {...stylex.props(styles.findWidget)}>
-                          <Icon name="search" size={14} />
-                          <input
-                            ref={findRef}
-                            value={find}
-                            onChange={(event) => {
-                              setFind(event.target.value);
-                              setFindIndex(0);
-                            }}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter") {
-                                event.preventDefault();
-                                jumpHit(event.shiftKey ? findIndex - 1 : findIndex + 1);
-                              }
-                              if (event.key === "Escape") {
-                                event.stopPropagation();
-                                setFindOpen(false);
-                              }
-                            }}
-                            aria-label="Find in diff contents"
-                            placeholder="Find in changed hunks"
-                            {...stylex.props(styles.findInput)}
-                          />
-                          <span
-                            {...stylex.props(
-                              styles.findCount,
-                              !!find && !hits.length && styles.findEmpty,
-                            )}
-                          >
-                            {find
-                              ? hits.length
-                                ? `${Math.min(findIndex + 1, hits.length)} / ${hits.length} hunks`
-                                : "No matches"
-                              : ""}
-                          </span>
-                          <button
-                            {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
-                            aria-label="Previous match"
-                            disabled={!hits.length}
-                            onClick={() => jumpHit(findIndex - 1)}
-                          >
-                            <Icon name="arrowUp" size={14} />
-                          </button>
-                          <button
-                            {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
-                            aria-label="Next match"
-                            disabled={!hits.length}
-                            onClick={() => jumpHit(findIndex + 1)}
-                          >
-                            <Icon name="arrowDown" size={14} />
-                          </button>
-                          <button
-                            {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
-                            aria-label="Close find"
-                            onClick={() => setFindOpen(false)}
-                          >
-                            <Icon name="close" size={14} />
-                          </button>
-                        </div>
-                      )}
-                      {selection && (
-                        <div
-                          data-line-selection-controls
-                          role="toolbar"
-                          aria-label="Line selection"
-                          {...stylex.props(styles.selectionbar)}
-                        >
-                          <span {...stylex.props(styles.selectionRange)}>
-                            L{selection.range.start}
-                            {selection.range.end !== selection.range.start
-                              ? `–${selection.range.end}`
-                              : ""}
-                          </span>
-                          <span {...stylex.props(styles.selectionLabel)}>selected</span>
-                          <button
-                            {...stylex.props(
-                              ui.button,
-                              ui.primary,
-                              ui.pressable,
-                              styles.selectionAction,
-                            )}
-                            aria-label="Add note"
-                            onClick={startNote}
-                          >
-                            <Icon name="note" size={14} />
-                            Add note
-                            <kbd {...stylex.props(styles.selectionKey)}>c</kbd>
-                          </button>
-                          <button
-                            {...stylex.props(ui.button, ui.iconButton, styles.selectionClose)}
-                            aria-label="Clear line selection"
-                            onClick={clearLineSelection}
-                          >
-                            <Icon name="close" size={14} />
-                          </button>
-                        </div>
-                      )}
-                      {items.length > 0 ? (
-                        <ReviewCodeView
-                          key={`${streamScope}:${state.review?.id}`}
-                          ref={viewer}
-                          onScroll={onReviewScroll}
-                          items={items}
-                          selectedLines={selection}
-                          onSelectedLinesChange={setSelection}
-                          options={options}
-                          className={stylex.props(styles.codeView).className}
-                          style={diffSurfaceStyle}
-                          renderCustomHeader={renderCustomHeader}
-                          renderAnnotation={renderAnnotation}
-                          renderCodeViewHeader={renderCodeViewHeader}
-                          renderCodeViewFooter={renderCodeViewFooter}
-                        />
-                      ) : skipped.length && state.status !== "loading" && !state.error ? (
-                        <div style={{ overflow: "auto", height: "100%" }}>
-                          {renderMetadataRows()}
-                        </div>
-                      ) : state.status !== "loading" && !state.error ? (
-                        <div {...stylex.props(styles.emptyState)}>
-                          <span
-                            {...stylex.props(styles.emptyMark, !skipped.length && styles.emptyDone)}
-                          >
-                            <Icon name={skipped.length ? "file" : "check"} size={20} />
-                          </span>
-                          <h1 {...stylex.props(styles.emptyTitle)}>
-                            {state.filter
-                              ? "No matching diffs"
-                              : skipped.length
-                                ? "No text diff to display"
-                                : "All caught up"}
-                          </h1>
-                          {skipped.length ? (
-                            renderMetadataRows()
-                          ) : (
-                            <p {...stylex.props(styles.emptyDescription)}>
-                              {state.comparison.kind === "working"
-                                ? "Working tree clean."
-                                : "No changed text files."}
-                            </p>
-                          )}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              </div>
-              {hasNotes && briefMounted && state.savedReview && (
-                <div
-                  {...stylex.props(
-                    styles.reviewSurface,
-                    fileState.active !== "brief" && styles.hiddenSurface,
-                  )}
-                  aria-hidden={fileState.active !== "brief"}
-                >
-                  <Suspense fallback={null}>
-                    <BriefView
-                      key={state.savedReview.id}
-                      brief={savedBrief}
-                      briefFrom={
-                        briefSource && briefSource.number !== shownIteration
-                          ? briefSource.number
-                          : undefined
-                      }
-                      pins={savedPins}
-                      reveal={noteReveal}
-                      prerender={iterations.flatMap((entry) => {
-                        if (!entry.brief && !entry.pins?.length) return [];
-                        const brief = iterations.findLast(
-                          (earlier) => earlier.number <= entry.number && earlier.brief,
-                        )?.brief;
-                        const text = joinNotes([
-                          ...(brief ? [brief.text] : []),
-                          ...(entry.pins ?? []).map((pin) => pin.text),
-                        ]).text;
-                        return text !== notesText ? [text] : [];
-                      })}
-                      iterations={iterations
-                        .filter((entry) => entry.brief || entry.pins?.length || entry.fresh)
-                        .map(({ number, createdAt }) => ({ number, createdAt }))}
-                      iteration={savedPins?.length ? shownIteration : briefSource?.number}
-                      onIteration={showIteration}
-                      files={state.files}
-                      root={state.review?.repo}
-                      active={fileState.active === "brief"}
-                      loadSource={controller.loadSources}
-                      onOpen={openBriefLocation}
-                      onOpenPath={(path, line) => fileWorkspace.open(path, true, line)}
-                      onPaste={pasteBrief}
-                      onCopy={copyNotes}
-                      onRemove={removeBrief}
-                      onStartNotes={startNotes}
-                      onDeleteNotes={deleteNotes}
-                      onUnpin={(id) => void unpin(id)}
-                      notes={notes}
-                      onMutateNote={(mutation) => controller.mutateNote(mutation)}
-                      comments={briefComments}
-                      briefIteration={briefSource?.number}
-                      onCommentBrief={(mutation) => controller.commentBrief(mutation)}
-                    />
-                  </Suspense>
-                </div>
-              )}
-              {commitApi && commitMounted && (
-                <div
-                  {...stylex.props(
-                    styles.reviewSurface,
-                    fileState.active !== "commit" && styles.hiddenSurface,
-                  )}
-                  aria-hidden={fileState.active !== "commit"}
-                >
-                  <Suspense fallback={null}>
-                    <CommitView
-                      api={commitApi}
-                      revision={state.sourceRevision}
-                      active={fileState.active === "commit"}
-                      draftKey={`med:commit-message:${commitRepo}`}
-                      onOpenFile={openCommitFile}
-                    />
-                  </Suspense>
-                </div>
-              )}
-              {activeFile && (
-                <FullFileView
-                  editor={fileEditor}
-                  file={fileState.file}
-                  path={activeFile.path}
-                  loading={fileState.loading}
-                  error={fileState.error}
-                  stale={fileState.stale}
-                  loadBlame={loadBlame}
-                  loadChanges={browseApi.changes ? loadFileChanges : undefined}
-                  blameEnabled={blameEnabled}
-                  onBlameEnabledChange={setFileBlame}
-                  lineBlame={lineBlame}
-                  loadCommit={loadCommit}
-                  sourceLabel={activeFile.sourceLabel}
-                  line={activeFile.line}
-                  column={activeFile.column}
-                  vimEnabled={vimEnabled}
-                  onNavigationReady={onNavigationReady}
-                  onSelectionReaderReady={onSelectionReaderReady}
-                  onDefinition={goToDefinition}
-                  onSymbolPreviewReady={onSymbolPreviewReady}
-                  onRefresh={refreshFile}
-                  onClose={closeActiveFile}
-                  onOpenFile={openLinkedFile}
-                  onOpenBefore={openBefore}
-                  onOpenAfter={openAfter}
-                  previewPane={previewPane}
-                />
-              )}
-            </div>
-            {toast && (
-              <div key={toast.id} role="status" {...stylex.props(styles.toast)}>
-                {toast.text}
-                {toast.restore !== undefined && (
-                  <button
-                    {...stylex.props(styles.toastAction)}
-                    onClick={() => {
-                      const restore = toast.restore!;
-                      setToast(null);
-                      void setBrief(restore, restore ? "Brief restored." : "Brief removed.");
-                    }}
-                  >
-                    Undo
-                  </button>
-                )}
-              </div>
-            )}
-          </main>
-          <PaneColumn state={panes} panes={sidePanes} belowTitle={cardTab} />
+          <PaneTree state={panes} panes={workspacePanes} label="Workspace panes" />
         </div>
         <footer
           {...stylex.props(styles.statusbar, stylex.defaultMarker(), zen && styles.hiddenSurface)}
@@ -4790,8 +4756,9 @@ const toastRise = stylex.keyframes({
   to: { opacity: 1, transform: "translate(-50%, 0)" },
 });
 const styles = stylex.create({
+  // The workspace fills its place in the window's shell.
   app: {
-    position: "fixed",
+    position: "absolute",
     inset: 0,
     display: "flex",
     flexDirection: "column",

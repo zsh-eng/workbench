@@ -30,7 +30,10 @@ export const FileSidebar = memo(function FileSidebar({
   filterRef,
   repo = null,
   pathActions,
+  controls,
 }: {
+  /** A pane's controls, at the heading's end. */
+  controls?: React.ReactNode;
   /** The checkout that holds the files, for Reveal in Finder. */
   repo?: string | null;
   pathActions?: PathActions;
@@ -102,6 +105,7 @@ export const FileSidebar = memo(function FileSidebar({
       <div {...stylex.props(styles.heading)}>
         <span {...stylex.props(ui.label)}>Changes</span>
         <span {...stylex.props(styles.count)}>{filter ? `${files.length} / ${total}` : total}</span>
+        {controls && <span {...stylex.props(styles.controls)}>{controls}</span>}
       </div>
       <div {...stylex.props(styles.filter)}>
         <Icon name="search" size={14} />
@@ -215,6 +219,7 @@ export const FileSidebar = memo(function FileSidebar({
 });
 
 const styles = stylex.create({
+  controls: { display: "flex", alignItems: "center", marginBlock: -4, marginInlineEnd: -8 },
   panel: {
     flex: "1",
     minHeight: 140,
@@ -232,13 +237,14 @@ const styles = stylex.create({
     minHeight: 36,
     display: "flex",
     alignItems: "center",
-    justifyContent: "space-between",
+    gap: 8,
     paddingInline: 14,
     color: tokens.muted,
     fontSize: 11.5,
     fontWeight: 500,
   },
   count: {
+    marginInlineStart: "auto",
     color: tokens.faint,
     fontFamily: tokens.code,
     fontSize: 10.5,

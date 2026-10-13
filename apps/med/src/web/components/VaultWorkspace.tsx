@@ -22,7 +22,6 @@ import { CommandDialog, type ReviewCommand } from "./Controls";
 import { createEditorDrafts } from "../data/editor-drafts";
 import { ThemePicker } from "./ThemePicker";
 import { Icon } from "./Icon";
-import { WorkspaceList } from "./Workspaces";
 import { SourcesPage, type Source } from "./SourcesPage";
 import { ui } from "../theme.stylex";
 import "./VaultWorkspace.css";
@@ -574,7 +573,6 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
                 style={{ width: sidebarWidth }}
               >
                 <div className="med-vault-sidebar-header">{identity}</div>
-                <WorkspaceList />
                 <RepositoryFiles
                   key={locationState.id}
                   label="Vault files"

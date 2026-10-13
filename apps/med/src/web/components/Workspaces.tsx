@@ -56,6 +56,8 @@ import { parsePullUrl } from "../../shared/pull-workspace";
 import { startPull, usePullJob } from "../data/pull-jobs";
 import { PullWorkspaceView, pullTitle, SettlingText, type PullState } from "./PullWorkspace";
 import { checkoutNameFor } from "../data/checkout-names";
+import { useThreads } from "../data/threads";
+import { ThreadSidebar, type SidebarSource } from "./shell/ThreadSidebar";
 import type { RegisteredRepository } from "../../shared/protocol";
 
 /** Workspaces kept mounted, most recently shown first. Older ones reload. */
@@ -132,6 +134,18 @@ export function useWorkspace() {
 }
 const noSubscription = () => () => {};
 
+/** The window's shell around the workspaces: its thread list. */
+export interface ShellActions {
+  sidebarVisible: boolean;
+  toggleSidebar(): void;
+}
+export const ShellContext = createContext<ShellActions | null>(null);
+
+/** The window's shell, or null for an App alone, such as in a test. */
+export function useShell() {
+  return use(ShellContext);
+}
+
 /** The host's actions, for pages that cover every workspace, such as Sources. */
 export function useWorkspaceActions() {
   return use(Actions);
@@ -157,6 +171,28 @@ export function useDisposeOnClose(dispose: () => void) {
 
 /** The window used last shows the reviews that agents open. */
 const WINDOW_KEY = "med:window";
+const SIDEBAR_KEY = "med:sidebar";
+const SIDEBAR_WIDTH_KEY = "med:sidebar-width";
+const SIDEBAR_WIDTH = 272;
+const SIDEBAR_MIN = 220;
+const SIDEBAR_MAX = 440;
+const clampSidebar = (width: number) =>
+  Math.round(Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, width)));
+function readStored(key: string) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function writeStored(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* The choice lasts for this window. */
+  }
+}
+
 /** The lock and broadcast channel that share the host's window channel. */
 const WINDOW_CHANNEL = "med:windows";
 const reviewEvent = z.object({
@@ -601,35 +637,52 @@ export function WorkspaceHost({
     }
   }, [statuses, snapshot.workspaces, snapshot.active, store]);
 
-  // One workspace list serves every workspace, as a browser's tab strip does:
-  // a copy in each sidebar showed again on each switch, so it replayed its
-  // entrance and lost its hover state.
-  const [list] = useState(() => {
-    const element = document.createElement("div");
-    element.style.display = "contents";
-    return element;
-  });
-  const [owner, setOwner] = useState<(ListOwner & { slot: HTMLElement }) | null>(null);
-  const settling = useRef(0);
-  const claimList = useCallback(
-    (slot: HTMLElement, { onNew, repositories }: ListOwner) => {
-      if (list.parentElement !== slot) {
-        list.style.setProperty(MOTION, "0s");
-        cancelAnimationFrame(settling.current);
-        settling.current = requestAnimationFrame(() => {
-          settling.current = requestAnimationFrame(() => list.style.removeProperty(MOTION));
-        });
-        // moveBefore keeps focus and running animations; appendChild resets them.
-        const move = (slot as HTMLElement & { moveBefore?: HTMLElement["insertBefore"] })
-          .moveBefore;
-        if (move && list.isConnected) move.call(slot, list, null);
-        else slot.append(list);
-      }
-      setOwner({ slot, onNew, repositories });
-      return () => setOwner((current) => (current?.slot === slot ? null : current));
-    },
-    [list],
+  // The sidebar lists every thread the host keeps and the repositories.
+  const threadList = useThreads(fetcher);
+  const sources = useMemo<SidebarSource[]>(
+    () => [
+      ...(threadList?.repositories ?? []).map((repository) => ({
+        kind: "repository" as const,
+        ...repository,
+      })),
+      ...snapshot.workspaces.flatMap((workspace) =>
+        workspace.kind === "vault"
+          ? [{ kind: "vault" as const, id: workspace.sourceId, name: workspace.title ?? "Vault" }]
+          : [],
+      ),
+    ],
+    [threadList, snapshot.workspaces],
   );
+  const [sidebarVisible, setSidebarVisible] = useState(() => readStored(SIDEBAR_KEY) !== "hidden");
+  const [sidebarWidth, setSidebarWidth] = useState(() =>
+    clampSidebar(Number(readStored(SIDEBAR_WIDTH_KEY)) || SIDEBAR_WIDTH),
+  );
+  const resizeSidebar = useCallback((width: number) => setSidebarWidth(clampSidebar(width)), []);
+  useEffect(() => {
+    const timer = setTimeout(() => writeStored(SIDEBAR_WIDTH_KEY, String(sidebarWidth)), 200);
+    return () => clearTimeout(timer);
+  }, [sidebarWidth]);
+  const toggleSidebar = useCallback(
+    () =>
+      setSidebarVisible((visible) => {
+        writeStored(SIDEBAR_KEY, visible ? "hidden" : "shown");
+        return !visible;
+      }),
+    [],
+  );
+  const shell = useMemo(() => ({ sidebarVisible, toggleSidebar }), [sidebarVisible, toggleSidebar]);
+  // ⌘B anywhere, such as in a vault; a review handles it first.
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey || event.shiftKey) return;
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "b") return;
+      if ((event.target as HTMLElement).closest?.(".cm-editor") && event.ctrlKey) return;
+      event.preventDefault();
+      toggleSidebar();
+    };
+    window.addEventListener("keydown", keydown);
+    return () => window.removeEventListener("keydown", keydown);
+  }, [toggleSidebar]);
   return (
     <Actions value={actions}>
       <Snapshot value={snapshot}>
@@ -644,11 +697,76 @@ export function WorkspaceHost({
                   onSaved={(reviewId) => settlePull(workspace.id, reviewId)}
                 />
               ))}
-              <ListSlot value={claimList}>{children}</ListSlot>
-              {createPortal(
-                <WorkspaceRows onNew={owner?.onNew} repositories={owner?.repositories} />,
-                list,
-              )}
+              <ShellContext value={shell}>
+                <div {...stylex.props(styles.shell)}>
+                  {sidebarVisible && (
+                    <>
+                      <aside
+                        aria-label="Sidebar"
+                        style={{ width: sidebarWidth }}
+                        {...stylex.props(styles.shellSidebar)}
+                      >
+                        <ThreadSidebar
+                          threads={threadList?.threads ?? []}
+                          sources={sources}
+                          snapshot={snapshot}
+                          loaded={!!threadList}
+                          onOpen={actions.open}
+                          onHide={toggleSidebar}
+                          onSources={() => {
+                            history.pushState(null, "", "/sources");
+                            window.dispatchEvent(new PopStateEvent("popstate"));
+                          }}
+                        />
+                      </aside>
+                      <div
+                        role="separator"
+                        aria-label="Resize sidebar"
+                        aria-orientation="vertical"
+                        aria-valuenow={sidebarWidth}
+                        aria-valuemin={SIDEBAR_MIN}
+                        aria-valuemax={SIDEBAR_MAX}
+                        tabIndex={0}
+                        {...stylex.props(styles.shellGutter, stylex.defaultMarker())}
+                        onKeyDown={(event) => {
+                          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                          event.preventDefault();
+                          resizeSidebar(sidebarWidth + (event.key === "ArrowLeft" ? -16 : 16));
+                        }}
+                        onPointerDown={(event) =>
+                          event.currentTarget.setPointerCapture(event.pointerId)
+                        }
+                        onPointerMove={(event) => {
+                          if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+                          resizeSidebar(event.clientX);
+                        }}
+                        onDoubleClick={() => resizeSidebar(SIDEBAR_WIDTH)}
+                      >
+                        <span {...stylex.props(styles.shellGutterLine)} />
+                      </div>
+                    </>
+                  )}
+                  <div
+                    {...stylex.props(styles.shellViews, !sidebarVisible && styles.shellViewsAlone)}
+                  >
+                    {!sidebarVisible && (
+                      <div {...stylex.props(styles.shellShow)}>
+                        <ActionTooltip label="Show sidebar" shortcut="Mod+B">
+                          <button
+                            type="button"
+                            aria-label="Show sidebar"
+                            onClick={toggleSidebar}
+                            {...stylex.props(ui.button, ui.iconButton, ui.pressable)}
+                          >
+                            <Icon name="panelLeft" size={15} />
+                          </button>
+                        </ActionTooltip>
+                      </div>
+                    )}
+                    {children}
+                  </div>
+                </div>
+              </ShellContext>
             </PullErrors>
           </HostFetch>
           {switcher && (
@@ -1621,6 +1739,71 @@ const MOTION = "--workspace-list-motion";
 const listMotion = `var(${MOTION}, 120ms)`;
 
 const styles = stylex.create({
+  // The window: the sidebar on the frame, then the shown workspace.
+  shell: {
+    position: "fixed",
+    inset: 0,
+    display: "flex",
+    backgroundColor: tokens.panel,
+    color: tokens.text,
+    fontFamily: tokens.ui,
+    fontSize: 12,
+    WebkitFontSmoothing: "antialiased",
+  },
+  shellSidebar: {
+    display: "flex",
+    flexShrink: 0,
+    minWidth: 0,
+    minHeight: 0,
+  },
+  shellGutter: {
+    position: "relative",
+    display: "flex",
+    justifyContent: "center",
+    width: 6,
+    marginInlineEnd: -6,
+    flexShrink: 0,
+    zIndex: 3,
+    cursor: "col-resize",
+    outline: "none",
+    touchAction: "none",
+  },
+  shellGutterLine: {
+    width: 2,
+    marginBlock: 6,
+    borderRadius: 2,
+    backgroundColor: tokens.accentLine,
+    opacity: {
+      default: 0,
+      [stylex.when.ancestor(":hover")]: 1,
+      [stylex.when.ancestor(":focus-visible")]: 1,
+      [stylex.when.ancestor(":active")]: 1,
+    },
+    transitionProperty: "opacity",
+    transitionDuration: "120ms",
+    transitionDelay: {
+      default: "0ms",
+      [stylex.when.ancestor(":hover")]: "250ms",
+      [stylex.when.ancestor(":active")]: "0ms",
+    },
+  },
+  // Below the window controls' band, which stays free to drag the window.
+  shellViews: {
+    position: "relative",
+    flex: "1",
+    minWidth: 0,
+    minHeight: 0,
+    marginTop: "var(--med-titlebar-height)",
+  },
+  // With the sidebar hidden, a workspace starts below the button that shows it.
+  shellViewsAlone: {},
+  shellShow: {
+    position: "fixed",
+    zIndex: 20,
+    top: "calc(var(--med-titlebar-height) / 2 - 14px)",
+    left: "max(calc(var(--med-titlebar-left) + 4px), 8px)",
+    ":is(html:not([data-titlebar]) *)": { top: 8 },
+  },
   slot: { display: "contents" },
   // The list sits under the sidebar's identity row and above History. It
   // appears with the second workspace, so it settles in rather than sliding.

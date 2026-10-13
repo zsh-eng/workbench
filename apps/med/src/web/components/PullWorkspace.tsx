@@ -236,7 +236,7 @@ export function PullWorkspaceView({
 
 const styles = stylex.create({
   frame: {
-    position: "fixed",
+    position: "absolute",
     inset: 0,
     display: "flex",
     flexDirection: "column",

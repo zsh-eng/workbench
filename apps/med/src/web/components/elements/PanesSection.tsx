@@ -4,13 +4,8 @@ import type { SessionEvent } from "../../../shared/agent-session";
 import { createSessionStore } from "../../data/session-store";
 import { tokens } from "../../theme.stylex";
 import { Icon } from "../Icon";
-import {
-  PaneColumn,
-  PaneHeader,
-  usePaneColumn,
-  type PaneLayout,
-  type PaneSpec,
-} from "../PaneColumn";
+import { PaneHeader, PaneTree, usePaneTree, type PaneSpec } from "../PaneTree";
+import type { PaneNode } from "../../data/pane-tree";
 import { SessionThread } from "../session/SessionThread";
 import { ToolButton } from "../ToolButton";
 import { Section, Specimen } from "./Specimen";
@@ -79,8 +74,25 @@ function SessionBody({ controls }: { controls: ReactNode }) {
 function demoPanes(): PaneSpec[] {
   return [
     {
+      id: "review",
+      label: "Changes",
+      ariaLabel: "Changes",
+      icon: "diff",
+      fixed: true,
+      render: (controls) => (
+        <>
+          <PaneHeader icon="diff" title="Changes" detail="4 files" controls={controls} />
+          <div {...stylex.props(styles.lines)} aria-hidden="true">
+            {[72, 56, 88, 40, 64, 80, 52].map((width, index) => (
+              <span key={index} {...stylex.props(styles.line(width))} />
+            ))}
+          </div>
+        </>
+      ),
+    },
+    {
       id: "session",
-      label: "Session",
+      label: "Thread",
       ariaLabel: "Agent session",
       icon: "claude",
       render: (controls) => <SessionBody controls={controls} />,
@@ -135,72 +147,67 @@ function demoPanes(): PaneSpec[] {
 }
 
 const TOGGLES = [
-  { id: "session", label: "Session", icon: "claude" },
-  { id: "files", label: "Files", icon: "folder" },
-  { id: "preview", label: "Preview", icon: "preview" },
+  { id: "session", label: "Thread", icon: "claude", side: "left", share: 0.5 },
+  { id: "files", label: "Files", icon: "folder", side: "right", share: 0.3 },
+  { id: "preview", label: "Preview", icon: "preview", side: "below", share: 0.45 },
 ] as const;
 
-/** A review window in small: the main view, the pane toggles, and the column. */
-function PaneDemo({ layout }: { layout: PaneLayout }) {
-  const panes = usePaneColumn({ persist: false, layout, initial: ["session", "files"] });
+const initial = (): PaneNode => ({
+  axis: "row",
+  children: [{ id: "session" }, { id: "review" }],
+  sizes: [0.5, 0.5],
+});
+
+/** A workspace in small: the thread beside the changes, and toggles for more panes. */
+function PaneDemo() {
+  const panes = usePaneTree({ initial, persist: false });
   const [specs] = useState(demoPanes);
   return (
-    <div {...stylex.props(styles.window)}>
-      <div {...stylex.props(styles.main)}>
-        <div {...stylex.props(styles.toolbar)}>
-          <span {...stylex.props(styles.tab)}>
-            <Icon name="diff" size={13} />
-            Changes
-          </span>
-          <span {...stylex.props(styles.grow)} />
-          {TOGGLES.map((toggle) => (
-            <ToolButton
-              key={toggle.id}
-              label={`${panes.isOpen(toggle.id) ? "Hide" : "Show"} ${toggle.label.toLowerCase()}`}
-              icon={toggle.icon}
-              aria-pressed={panes.isOpen(toggle.id)}
-              active={panes.isOpen(toggle.id)}
-              onClick={() => panes.toggle(toggle.id)}
-            />
-          ))}
-        </div>
-        <div {...stylex.props(styles.lines)} aria-hidden="true">
-          {[72, 56, 88, 40, 64, 80, 52].map((width, index) => (
-            <span key={index} {...stylex.props(styles.line(width))} />
-          ))}
-        </div>
+    <div {...stylex.props(styles.window)} data-pane-scope="">
+      <div {...stylex.props(styles.toolbar)}>
+        {TOGGLES.map((toggle) => (
+          <ToolButton
+            key={toggle.id}
+            label={`${panes.isOpen(toggle.id) ? "Close" : "Open"} ${toggle.label.toLowerCase()}`}
+            icon={toggle.icon}
+            aria-pressed={panes.isOpen(toggle.id)}
+            active={panes.isOpen(toggle.id)}
+            onClick={() =>
+              panes.toggle(toggle.id, { near: "review", side: toggle.side, share: toggle.share })
+            }
+          />
+        ))}
+        <span {...stylex.props(styles.grow)} />
+        <ToolButton
+          label="Balance panes"
+          icon="split"
+          disabled={panes.balanced}
+          onClick={panes.balance}
+        />
       </div>
-      <PaneColumn state={panes} panes={specs} />
+      <PaneTree state={panes} panes={specs} />
     </div>
   );
 }
 
 /**
- * The right column holds the Session, Files, and Preview panes at one width.
- * Two layouts are prototypes: stacked panes and tabs.
+ * A workspace's panes tile its room, as splits in a terminal multiplexer do.
+ * Each pane is a card; gutters between them resize them.
  */
 export function PanesSection() {
   return (
     <Section
       id="panes"
-      title="Side panes"
-      lede="One column on the right holds the Session, Files, and Preview panes at one width. Drag its left edge to resize it. The two layouts are prototypes; choose one in the app with the command Show side panes as tabs."
+      title="Panes"
+      lede="A workspace's panes tile its room as a tree of splits. Drag a gutter to resize two panes; double-click it to give them the same room. ⌘E zooms the focused pane, and ⌘⌥ with an arrow moves focus to the next pane. Opening, closing, or zooming a pane never rebuilds the others, so each keeps its scroll and its thread."
     >
       <Specimen
-        title="Stacked"
-        note="The two latest panes, one above the other. Opening a third closes the oldest. Maximize leaves the other pane as its header."
+        title="Tiled"
+        note="The thread beside the changes. Open files to the right or a preview below; the pane beside it gives up its room."
         padded={false}
         zoomable={false}
       >
-        <PaneDemo layout="stack" />
-      </Specimen>
-      <Specimen
-        title="Tabs"
-        note="One pane at a time. Each open pane has a tab."
-        padded={false}
-        zoomable={false}
-      >
-        <PaneDemo layout="tabs" />
+        <PaneDemo />
       </Specimen>
     </Section>
   );
@@ -209,32 +216,13 @@ export function PanesSection() {
 const styles = stylex.create({
   window: {
     display: "flex",
-    height: 520,
+    flexDirection: "column",
+    gap: 6,
+    height: 560,
     padding: 6,
     backgroundColor: tokens.panel,
   },
-  main: {
-    flex: "1",
-    minWidth: 0,
-    display: "flex",
-    flexDirection: "column",
-    overflow: "hidden",
-    borderRadius: tokens.frame,
-    backgroundColor: tokens.canvas,
-    boxShadow: `0 0 0 1px ${tokens.line}, 0 1px 3px #0000000f`,
-  },
-  toolbar: {
-    display: "flex",
-    alignItems: "center",
-    gap: 2,
-    height: 40,
-    flexShrink: 0,
-    paddingInline: 10,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: tokens.line,
-  },
-  tab: { display: "flex", alignItems: "center", gap: 6, color: tokens.text, fontSize: 12 },
+  toolbar: { display: "flex", alignItems: "center", gap: 2, flexShrink: 0 },
   grow: { flex: "1" },
   lines: { display: "flex", flexDirection: "column", gap: 12, padding: 20 },
   line: (width: number) => ({
