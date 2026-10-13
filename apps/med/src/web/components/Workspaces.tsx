@@ -110,6 +110,12 @@ const removedSchema = z.object({ removed: z.literal(true) });
 /** Disposers that run when a workspace closes or leaves memory. */
 const Lifetime = createContext<Set<() => void> | null>(null);
 
+const collator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
+
+/** Names in reading order: case aside, and numbers by value. */
+export const byName = (a: { name: string }, b: { name: string }) =>
+  collator.compare(a.name, b.name);
+
 /** The workspace that renders this App, with the host's actions. Outside a
  * host, such as in a test of App alone, it is null. */
 export function useWorkspace() {
@@ -612,18 +618,20 @@ export function WorkspaceHost({
     () => new Map((threadList?.threads ?? []).map((thread) => [thread.id, thread])),
     [threadList],
   );
+  // A vault is one more repository: one list, by name.
   const sources = useMemo<SidebarSource[]>(
-    () => [
-      ...(threadList?.repositories ?? []).map((repository) => ({
-        kind: "repository" as const,
-        ...repository,
-      })),
-      ...snapshot.workspaces.flatMap((workspace) =>
-        workspace.kind === "vault"
-          ? [{ kind: "vault" as const, id: workspace.sourceId, name: workspace.title ?? "Vault" }]
-          : [],
-      ),
-    ],
+    () =>
+      [
+        ...(threadList?.repositories ?? []).map((repository) => ({
+          kind: "repository" as const,
+          ...repository,
+        })),
+        ...snapshot.workspaces.flatMap((workspace) =>
+          workspace.kind === "vault"
+            ? [{ kind: "vault" as const, id: workspace.sourceId, name: workspace.title ?? "Vault" }]
+            : [],
+        ),
+      ].sort(byName),
     [threadList, snapshot.workspaces],
   );
   const [sidebarVisible, setSidebarVisible] = useState(() => readStored(SIDEBAR_KEY) !== "hidden");

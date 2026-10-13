@@ -1210,6 +1210,67 @@ describe("graphical review", () => {
     await page.viewport(1280, 800);
     await expect.poll(ids).toEqual(["changed", "review", "files"]);
   });
+  test("a pane's grip drags it beside another pane or swaps the two; Escape keeps it", async () => {
+    await page.viewport(1280, 800);
+    await mountApp();
+    await page.getByRole("button", { name: "Toggle files sidebar" }).click();
+    const order = () =>
+      [...document.querySelectorAll<HTMLElement>("[data-pane]:not([hidden])")]
+        .map((pane) => [pane.dataset.pane!, pane.getBoundingClientRect()] as const)
+        .sort((a, b) => a[1].top - b[1].top || a[1].left - b[1].left)
+        .map(([id]) => id);
+    await expect.poll(order).toEqual(["changed", "review", "files"]);
+    const rect = (id: string) =>
+      document.querySelector(`[data-pane="${id}"]`)!.getBoundingClientRect();
+    const grip = () => page.getByRole("button", { name: "Drag to move files" }).element();
+    const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+    /** Drags the Files grip to a point, then drops it or presses Escape. */
+    const dragTo = async (x: number, y: number, end: "drop" | "escape" = "drop") => {
+      const handle = grip();
+      const start = handle.getBoundingClientRect();
+      const at = (type: string, clientX: number, clientY: number) =>
+        handle.dispatchEvent(
+          new PointerEvent(type, { bubbles: true, button: 0, pointerId: 7, clientX, clientY }),
+        );
+      at("pointerdown", start.x + 4, start.y + 4);
+      at("pointermove", start.x + 40, start.y + 40);
+      at("pointermove", x, y);
+      await frame();
+      await frame();
+      if (end === "escape")
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      else at("pointerup", x, y);
+    };
+
+    // The lower edge of the review: Files goes below it.
+    const review = rect("review");
+    await dragTo(review.left + review.width / 2, review.bottom - 10);
+    await expect.poll(order).toEqual(["changed", "review", "files"]);
+    expect(Math.round(rect("files").top)).toBeGreaterThan(Math.round(review.top) + 100);
+    // It settles in from a slight scale, as a new pane does.
+    await expect.poll(() => Math.round(rect("files").left)).toBe(Math.round(rect("review").left));
+
+    // The middle of Changed files swaps the two.
+    const changed = rect("changed");
+    await dragTo(changed.left + changed.width / 2, changed.top + changed.height / 2);
+    await expect.poll(() => Math.round(rect("files").left)).toBe(Math.round(changed.left));
+
+    // Escape keeps the pane where it was.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const before = order();
+    const target = rect("review");
+    await dragTo(target.left + 8, target.top + target.height / 2, "escape");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(order()).toEqual(before);
+    expect(document.querySelector("[data-pane-tree] > [aria-hidden='true']")).toBeNull();
+
+    // ⌘⌥⇧ and an arrow move the focused pane past its neighbor.
+    document.querySelector<HTMLElement>('[data-pane="files"]')!.focus();
+    const files = Math.round(rect("files").left);
+    await userEvent.keyboard("{Meta>}{Alt>}{Shift>}{ArrowRight}{/Shift}{/Alt}{/Meta}");
+    await expect.poll(() => Math.round(rect("files").left)).toBeGreaterThan(files);
+  });
+
   test("files sidebar retains its tree and collapsed folders across toggles", async () => {
     await page.viewport(1280, 800);
     await mountApp({ branches: true });

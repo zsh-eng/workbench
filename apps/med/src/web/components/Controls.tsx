@@ -400,7 +400,7 @@ export function SegmentedControl<T extends string>({
   label,
 }: {
   value: T;
-  options: { value: T; label: string; icon: IconName; shortcut?: string }[];
+  options: { value: T; label: string; icon: IconName; shortcut?: string; disabled?: boolean }[];
   onChange(value: T): void;
   label: string;
 }) {
@@ -420,12 +420,14 @@ export function SegmentedControl<T extends string>({
             type="button"
             aria-label={option.label}
             aria-pressed={option.value === value}
-            onClick={() => onChange(option.value)}
+            aria-disabled={option.disabled || undefined}
+            onClick={() => !option.disabled && onChange(option.value)}
             {...stylex.props(
               ui.button,
               ui.iconButton,
               styles.segment,
               option.value === value && styles.segmentActive,
+              option.disabled && styles.disabled,
             )}
           >
             <Icon name={option.icon} size={15} />

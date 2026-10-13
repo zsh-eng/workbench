@@ -5,6 +5,7 @@ import type { CSSProperties, ReactNode } from "react";
 // this size; do not scale 24-pixel sets down, because their strokes become thin.
 export type IconName =
   | "branch"
+  | "grip"
   | "gitBranch"
   | "gitWorktree"
   | "chevron"
@@ -103,6 +104,16 @@ const icons: Record<IconName, ReactNode> = {
   // Out to the corners: fill the column. In from the corners: share it again.
   maximize: <path d="M9.5 2.75h3.75V6.5M13.25 2.75 9.25 6.75M6.5 13.25H2.75V9.5M2.75 13.25l4-4" />,
   restore: <path d="M13.25 2.75l-4 4M9.25 3.5v3.25h3.25M2.75 13.25l4-4M6.75 12.5V9.25H3.5" />,
+  grip: (
+    <>
+      <circle cx="6" cy="4" r="1" fill="currentColor" stroke="none" />
+      <circle cx="10" cy="4" r="1" fill="currentColor" stroke="none" />
+      <circle cx="6" cy="8" r="1" fill="currentColor" stroke="none" />
+      <circle cx="10" cy="8" r="1" fill="currentColor" stroke="none" />
+      <circle cx="6" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="10" cy="12" r="1" fill="currentColor" stroke="none" />
+    </>
+  ),
   more: (
     <>
       <circle cx="3.75" cy="8" r="1" fill="currentColor" stroke="none" />

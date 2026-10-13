@@ -262,6 +262,19 @@ export function balanced(node: PaneNode | null): boolean {
   return node.sizes.every((size) => Math.abs(size - even) < 0.01) && node.children.every(balanced);
 }
 
+/** Exchanges the places of two panes; every size stays. */
+export function swap(root: PaneNode, a: string, b: string): PaneNode {
+  if (!isSplit(root)) return root.id === a ? { id: b } : root.id === b ? { id: a } : root;
+  return { ...root, children: root.children.map((child) => swap(child, a, b)) };
+}
+
+/** Moves a pane to a side of another, which gives it half of its room. */
+export function move(root: PaneNode, id: string, near: string, side: Side): PaneNode {
+  if (id === near || !has(root, id) || !has(root, near)) return root;
+  const rest = remove(root, id);
+  return rest ? insert(rest, id, { near, side, share: 0.5 }) : root;
+}
+
 /** A split's sizes in pixels. A child below its smallest size grows to it, and
  * the others give up the room in proportion to what they have above theirs. */
 function fitted(node: PaneSplit, length: number, gap: number) {

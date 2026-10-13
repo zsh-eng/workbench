@@ -9,7 +9,7 @@ import { CardTab, tabbedCard } from "./CardTab";
 import { Icon } from "./Icon";
 import { ToolButton } from "./ToolButton";
 import { displayPath } from "./welcome/Welcome";
-import { useWorkspaceActions } from "./Workspaces";
+import { byName, useWorkspaceActions } from "./Workspaces";
 
 export interface Source {
   id: string;
@@ -185,14 +185,8 @@ export function SourcesView({
               </div>
             ) : (
               <>
-                {group(
-                  "Repositories",
-                  sources.filter((source) => source.kind === "repo"),
-                )}
-                {group(
-                  "Vaults",
-                  sources.filter((source) => source.kind === "vault"),
-                )}
+                {/* A vault is one more repository: one list, by name. */}
+                {group("Repositories", [...sources].sort(byName))}
                 {loaded && (
                   <p {...stylex.props(styles.note, styles.footnote)}>
                     Med keeps a workspace ready for each folder here. To add one from a terminal,

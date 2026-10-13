@@ -64,7 +64,7 @@ test("a page reads all its event streams over one connection", async () => {
     "/api/windows",
     `/api/events?repo=${encodeURIComponent(directory)}`,
     `/api/events?repo=${encodeURIComponent(directory)}`,
-    `/api/agent-status/events?reviews=${review.id}`,
+    "/api/threads/events",
     `/api/reviews/${review.id}/agent/events`,
     `/api/reviews/${review.id}/agent/events`,
     "/api/threads/events",

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SessionEvent } from "../../src/shared/agent-session";
-import type { AgentStatus } from "../../src/shared/agent-status";
+import type { Thread, ThreadList } from "../../src/shared/threads";
 import type { OwnedState } from "../../src/shared/owned-session";
 import type { SavedReview } from "../../src/shared/saved-review";
 import { startHost, type RunningHost } from "../../src/host/server";
@@ -128,23 +128,22 @@ async function fixture() {
     const act = (action: unknown) => api<OwnedState>(path, action);
     return { id, review: started.data.review, state, until, act };
   };
-  /** The workspace list's stream of lead session states. */
-  const statuses = async (ids: string[]) => {
-    const response = await fetch(
-      `http://127.0.0.1:${host.port}/api/agent-status/events?reviews=${ids.join(",")}`,
-      { headers: { authorization: `Bearer ${host.token}` } },
-    );
-    const latest: { value: AgentStatus[] } = { value: [] };
+  /** The thread list's stream, with each thread's lead session state. */
+  const threads = async () => {
+    const response = await fetch(`http://127.0.0.1:${host.port}/api/threads/events`, {
+      headers: { authorization: `Bearer ${host.token}` },
+    });
+    const latest: { value: Thread[] } = { value: [] };
     const controller = new AbortController();
     streams.push(controller);
     void readServerEvents(
       response.body!,
-      (event) => (latest.value = (JSON.parse(event.data) as { statuses: AgentStatus[] }).statuses),
+      (event) => (latest.value = (JSON.parse(event.data) as ThreadList).threads),
       controller.signal,
     ).catch(() => {});
     return latest;
   };
-  return { api, repo, home, review, stateDir, thread, start, statuses };
+  return { api, repo, home, review, stateDir, thread, start, threads };
 }
 
 test("Med starts Claude Code, sends review messages as prompts, and answers its questions", async () => {
@@ -351,8 +350,8 @@ test("Med runs an ACP agent and keeps its thread", async () => {
   await vi.waitFor(() => expect(again()).toEqual(replies()));
 });
 
-test("the workspace list follows each review's lead session: working, needs you, and idle", async () => {
-  const { api, repo, home, review, start, statuses } = await fixture();
+test("the thread list follows each thread's lead session: working, needs you, and idle", async () => {
+  const { api, repo, home, review, start, threads } = await fixture();
   // A Claude session that another app runs: Med reads its transcript.
   const attached = "5f0c2a8e-1111-4222-8333-944455556666";
   const project = join(home, ".claude", "projects", "-work-repo");
@@ -377,13 +376,13 @@ test("the workspace list follows each review's lead session: working, needs you,
   const session = await start("fake");
   await session.until((state) => state.status === "idle");
 
-  const latest = await statuses([review.id, other.id, "r_missing"]);
-  const of = (id: string) => latest.value.find((status) => status.reviewId === id);
+  const latest = await threads();
+  const of = (id: string) => latest.value.find((entry) => entry.id === id);
   await vi.waitFor(() => {
-    expect(of(other.id)).toMatchObject({ sessionId: attached, agent: "claude", state: "working" });
-    expect(of(review.id)).toMatchObject({ agent: "acp", name: "Fake ACP", state: "idle" });
+    expect(of(other.id)).toMatchObject({ agent: "claude", state: "working" });
+    expect(of(review.id)).toMatchObject({ agent: "acp", state: "idle" });
   });
-  expect(latest.value).toHaveLength(2);
+  expect(of(other.id)!.sessions).toEqual([{ agent: "claude", id: attached, cwd: repo }]);
 
   // A permission request needs the user; the answer lets the turn finish.
   await session.act({ action: "prompt", text: "Edit summary.ts." });

@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import {
@@ -18,10 +19,12 @@ import {
   isSplit,
   layout,
   leaves,
+  move as moveTree,
   neighbor,
   parseTree,
   remove,
   resize as resizeTree,
+  swap as swapTree,
   withSizes,
   type Direction,
   type Gutter,
@@ -29,7 +32,7 @@ import {
   type Rect,
   type Side,
 } from "../data/pane-tree";
-import { tokens } from "../theme.stylex";
+import { tokens, ui } from "../theme.stylex";
 import { Icon, type IconName } from "./Icon";
 import { ToolButton } from "./ToolButton";
 
@@ -75,6 +78,8 @@ function write(key: string, value: string | null) {
 interface Stored {
   root: PaneNode | null;
   zoom: string | null;
+  /** The layout is the initial one, untouched, not one that the reader left. */
+  fresh?: boolean;
 }
 
 function load(key: string | undefined, initial: () => PaneNode | null): Stored {
@@ -92,7 +97,7 @@ function load(key: string | undefined, initial: () => PaneNode | null): Stored {
       /* A broken layout starts over. */
     }
   }
-  return { root: initial(), zoom: null };
+  return { root: initial(), zoom: null, fresh: true };
 }
 
 /**
@@ -120,6 +125,91 @@ function createPaneView() {
       return () => void listeners.delete(listener);
     },
   };
+}
+
+/** Where a dragged pane lands: a side of another pane, or its place (a swap). */
+type DropSide = Side | "center";
+interface PaneDrag {
+  id: string;
+  /** The pointer in the tree's own coordinates. */
+  x: number;
+  y: number;
+  target: { id: string; side: DropSide } | null;
+}
+function createDragStore() {
+  let value: PaneDrag | null = null;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => value,
+    set(next: PaneDrag | null) {
+      value = next;
+      for (const listener of listeners) listener();
+    },
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
+  };
+}
+type DragStore = ReturnType<typeof createDragStore>;
+
+/** The drop zone in a pane under the pointer: the middle swaps, an edge splits. */
+function dropAt(rects: ReadonlyMap<string, Rect>, id: string, x: number, y: number) {
+  for (const [other, rect] of rects) {
+    if (other === id) continue;
+    if (x < rect.x || y < rect.y || x > rect.x + rect.width || y > rect.y + rect.height) continue;
+    const across = (x - rect.x) / rect.width;
+    const down = (y - rect.y) / rect.height;
+    if (across > 0.3 && across < 0.7 && down > 0.3 && down < 0.7)
+      return { id: other, side: "center" as const };
+    const edges: [Side, number][] = [
+      ["left", across],
+      ["right", 1 - across],
+      ["above", down],
+      ["below", 1 - down],
+    ];
+    edges.sort((a, b) => a[1] - b[1]);
+    return { id: other, side: edges[0]![0] };
+  }
+  return null;
+}
+
+/** The part of a pane that a drop fills. */
+function zone(rect: Rect, side: DropSide): Rect {
+  const inset = 4;
+  const half = (length: number) => length / 2 - inset * 1.5;
+  switch (side) {
+    case "left":
+      return {
+        x: rect.x + inset,
+        y: rect.y + inset,
+        width: half(rect.width),
+        height: rect.height - inset * 2,
+      };
+    case "right":
+      return {
+        x: rect.x + rect.width / 2 + inset / 2,
+        y: rect.y + inset,
+        width: half(rect.width),
+        height: rect.height - inset * 2,
+      };
+    case "above":
+      return {
+        x: rect.x + inset,
+        y: rect.y + inset,
+        width: rect.width - inset * 2,
+        height: half(rect.height),
+      };
+    case "below":
+      return {
+        x: rect.x + inset,
+        y: rect.y + rect.height / 2 + inset / 2,
+        width: rect.width - inset * 2,
+        height: half(rect.height),
+      };
+    case "center":
+      return { x: rect.x + 12, y: rect.y + 12, width: rect.width - 24, height: rect.height - 24 };
+  }
 }
 
 export function usePaneTree({
@@ -167,7 +257,9 @@ export function usePaneTree({
         const next = change(value);
         const root = "root" in next ? (next.root ?? null) : value.root;
         const zoom = "zoom" in next ? (next.zoom ?? null) : value.zoom;
-        return root === value.root && zoom === value.zoom ? value : { ...value, root, zoom };
+        return root === value.root && zoom === value.zoom
+          ? value
+          : { ...value, root, zoom, fresh: false };
       }),
     [],
   );
@@ -229,6 +321,31 @@ export function usePaneTree({
     () => update(() => ({ root: initial(), zoom: null })),
     [update, initial],
   );
+  /** Moves a pane to a side of another pane; it settles in as a new pane does. */
+  const move = useCallback(
+    (id: string, near: string, side: Side) => {
+      update(({ root }) => ({ root: root && moveTree(root, id, near, side), zoom: null }));
+      view.set({ entering: id, focused: id });
+    },
+    [update, view],
+  );
+  /** Exchanges two panes' places. */
+  const swap = useCallback(
+    (a: string, b: string) => {
+      update(({ root }) => ({ root: root && swapTree(root, a, b) }));
+      view.set({ entering: a, focused: a });
+    },
+    [update, view],
+  );
+  /** Replaces the initial layout once the workspace knows better, such as a
+   * thread that turns out to have no agent. A layout the reader changed stays. */
+  const adopt = useCallback(
+    (next: PaneNode) =>
+      setState((value) =>
+        value.fresh ? { ...value, root: next, zoom: null, fresh: false } : value,
+      ),
+    [],
+  );
 
   return useMemo(
     () => ({
@@ -253,6 +370,9 @@ export function usePaneTree({
       balance,
       balanced: balanced(root),
       reset,
+      adopt,
+      move,
+      swap,
     }),
     [
       root,
@@ -269,6 +389,9 @@ export function usePaneTree({
       setSizes,
       balance,
       reset,
+      adopt,
+      move,
+      swap,
     ],
   );
 }
@@ -304,16 +427,28 @@ export function PaneControls({
   zoomed,
   onZoom,
   onClose,
+  onMove,
 }: {
   label: string;
   zoomable: boolean;
   zoomed: boolean;
   onZoom(): void;
   onClose?(): void;
+  /** Starts a drag that moves the pane. */
+  onMove?(event: ReactPointerEvent<HTMLElement>): void;
 }) {
   const name = label.toLowerCase();
   return (
     <>
+      {onMove && (
+        <ToolButton
+          label={`Drag to move ${name}`}
+          shortcut="Mod+Alt+Shift+Right"
+          icon="grip"
+          onPointerDown={onMove}
+          {...stylex.props(ui.button, ui.iconButton, ui.pressable, styles.grip)}
+        />
+      )}
       {zoomable && (
         <ToolButton
           label={zoomed ? `Restore ${name}` : `Zoom ${name}`}
@@ -373,6 +508,7 @@ export function PaneTree({
   const [element, setElement] = useState<HTMLDivElement | null>(null);
   const box = useBox(element);
   const view = useSyncExternalStore(state.view.subscribe, state.view.get);
+  const [drag] = useState(createDragStore);
   const chosen = view.focused && state.open.includes(view.focused) ? view.focused : null;
   const focusedId = chosen ?? state.open[0] ?? null;
   // In a small window, panes that do not fit leave from the left; the chosen
@@ -426,6 +562,14 @@ export function PaneTree({
       };
       const direction = arrows[key.key];
       const from = state.focused();
+      // With Shift, the focused pane moves past its neighbor, as a swap of two.
+      if (mod && key.altKey && key.shiftKey && direction && from && !state.zoom) {
+        const next = neighbor(rectsRef.current, from, direction);
+        if (!next) return;
+        key.preventDefault();
+        state.move(from, next, direction);
+        return;
+      }
       if (mod && key.altKey && !key.shiftKey && direction && from && !state.zoom) {
         const next = neighbor(rectsRef.current, from, direction);
         if (!next) return;
@@ -439,6 +583,63 @@ export function PaneTree({
   }, [element, state]);
 
   const byId = new Map(panes.map((pane) => [pane.id, pane]));
+
+  // A pane's grip drags it onto a side of another pane, or onto its middle to
+  // swap the two. Escape leaves it where it was.
+  const startMove = (id: string, event: ReactPointerEvent<HTMLElement>) => {
+    if (event.button !== 0 || !element) return;
+    event.preventDefault();
+    const handle = event.currentTarget;
+    try {
+      handle.setPointerCapture(event.pointerId);
+    } catch {
+      /* A pointer that the browser does not track, as in a test, moves without capture. */
+    }
+    const origin = { x: event.clientX, y: event.clientY };
+    let started = false;
+    let frame = 0;
+    let done = false;
+    const follow = (pointer: PointerEvent) => {
+      if (!started && Math.hypot(pointer.clientX - origin.x, pointer.clientY - origin.y) < 4)
+        return;
+      started = true;
+      document.documentElement.dataset.paneMoving = "";
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const box = element.getBoundingClientRect();
+        const x = pointer.clientX - box.left;
+        const y = pointer.clientY - box.top;
+        drag.set({ id, x, y, target: dropAt(rectsRef.current, id, x, y) });
+      });
+    };
+    const finish = (commit: boolean) => {
+      if (done) return;
+      done = true;
+      cancelAnimationFrame(frame);
+      handle.removeEventListener("pointermove", follow);
+      handle.removeEventListener("pointerup", drop);
+      handle.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("keydown", escape, true);
+      delete document.documentElement.dataset.paneMoving;
+      const target = drag.get()?.target;
+      drag.set(null);
+      if (!commit || !target) return;
+      if (target.side === "center") state.swap(id, target.id);
+      else state.move(id, target.id, target.side);
+    };
+    const drop = () => finish(true);
+    const cancel = () => finish(false);
+    const escape = (key: KeyboardEvent) => {
+      if (key.key !== "Escape") return;
+      key.preventDefault();
+      key.stopPropagation();
+      finish(false);
+    };
+    handle.addEventListener("pointermove", follow);
+    handle.addEventListener("pointerup", drop);
+    handle.addEventListener("pointercancel", cancel);
+    window.addEventListener("keydown", escape, true);
+  };
   const full: Rect = { x: 0, y: 0, width: box.width, height: box.height };
   return (
     <div
@@ -485,6 +686,7 @@ export function PaneTree({
                 zoomable={several}
                 zoomed={zoomed === pane.id}
                 onZoom={() => state.toggleZoom(pane.id)}
+                onMove={several && !zoomed ? (event) => startMove(pane.id, event) : undefined}
                 onClose={
                   pane.fixed
                     ? undefined
@@ -495,6 +697,7 @@ export function PaneTree({
           </section>
         );
       })}
+      <DropOverlay drag={drag} rects={rects} byId={byId} width={box.width} />
       {!zoomed &&
         gutters.map((gutter) => (
           <PaneGutter
@@ -505,6 +708,61 @@ export function PaneTree({
           />
         ))}
     </div>
+  );
+}
+
+/** While a pane moves: a veil on its place, the zone it would fill, and its name
+ * at the pointer. Only this renders as the pointer moves. */
+function DropOverlay({
+  drag,
+  rects,
+  byId,
+  width,
+}: {
+  drag: DragStore;
+  rects: ReadonlyMap<string, Rect>;
+  byId: Map<string, PaneSpec>;
+  /** The tree's width: near its end, the name sits before the pointer. */
+  width: number;
+}) {
+  const value = useSyncExternalStore(drag.subscribe, drag.get);
+  if (!value) return null;
+  const from = rects.get(value.id);
+  const target = value.target && rects.get(value.target.id);
+  const filled = target && value.target && zone(target, value.target.side);
+  const pane = byId.get(value.id);
+  return (
+    <>
+      {from && (
+        <div
+          aria-hidden="true"
+          {...stylex.props(styles.veil, styles.rect(from.x, from.y, from.width, from.height))}
+        />
+      )}
+      {filled && (
+        <div
+          aria-hidden="true"
+          {...stylex.props(
+            styles.drop,
+            styles.rect(filled.x, filled.y, filled.width, filled.height),
+          )}
+        />
+      )}
+      {pane && (
+        <div
+          aria-hidden="true"
+          {...stylex.props(styles.ghost, styles.at(value.x, value.y, value.x > width - 260))}
+        >
+          <Icon name={pane.icon} size={13} />
+          {pane.label}
+          {value.target?.side === "center" && (
+            <span {...stylex.props(styles.ghostHint)}>
+              swap with {byId.get(value.target.id)?.label.toLowerCase()}
+            </span>
+          )}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -654,6 +912,51 @@ const styles = stylex.create({
     height,
   }),
   hidden: { display: "none" },
+  grip: { cursor: { default: "grab", ":active": "grabbing" }, touchAction: "none" },
+  veil: {
+    position: "absolute",
+    zIndex: 3,
+    borderRadius: tokens.frame,
+    backgroundColor: `color-mix(in srgb, ${tokens.panel} 55%, transparent)`,
+    pointerEvents: "none",
+  },
+  drop: {
+    position: "absolute",
+    zIndex: 4,
+    borderRadius: `calc(${tokens.frame} - 2px)`,
+    backgroundColor: `color-mix(in srgb, ${tokens.accent} 12%, transparent)`,
+    boxShadow: `inset 0 0 0 1.5px ${tokens.accentLine}`,
+    pointerEvents: "none",
+    transitionProperty: { default: "left, top, width, height", [reduced]: "none" },
+    transitionDuration: "140ms",
+    transitionTimingFunction: tokens.easeOut,
+  },
+  ghost: {
+    position: "absolute",
+    zIndex: 5,
+    left: 0,
+    top: 0,
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    height: 26,
+    paddingInline: 10,
+    borderRadius: 999,
+    backgroundColor: tokens.raised,
+    boxShadow: `0 0 0 1px ${tokens.lineStrong}, ${tokens.shadow}`,
+    color: tokens.text,
+    fontFamily: tokens.ui,
+    fontSize: 12,
+    fontWeight: 500,
+    whiteSpace: "nowrap",
+    pointerEvents: "none",
+  },
+  at: (x: number, y: number, before: boolean) => ({
+    transform: before
+      ? `translate(calc(${x - 14}px - 100%), ${y + 12}px)`
+      : `translate(${x + 14}px, ${y + 12}px)`,
+  }),
+  ghostHint: { color: tokens.faint, fontWeight: 400 },
   entering: {
     animationName: { default: enter, [reduced]: "none" },
     animationDuration: "180ms",

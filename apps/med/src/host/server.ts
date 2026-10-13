@@ -84,7 +84,6 @@ import {
 import { AgentInbox } from "./agent-inbox";
 import { findAgents, OwnedSessions, type RunnableAgent } from "./owned-sessions";
 import { createAgentStatus } from "./agent-status";
-import { createSessionSummaries } from "./session-summaries";
 import { ownedActionSchema, ownedStartSchema } from "../shared/owned-session";
 import {
   threadSlug,
@@ -262,20 +261,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     logPath: (sessionId) =>
       join(options.stateDir ?? temporaryState!, "sessions", `${sessionId}.jsonl`),
   });
-  const sessionSummary = createSessionSummaries({
-    status: reviewStatus,
-    owned(sessionId) {
-      const runner = ownedSessions.get(sessionId);
-      return runner && { state: runner.state(), updatedAt: ownedSessions.updatedAt(sessionId) };
-    },
-    waiting: (reviewId) => inbox.waiting(reviewId),
-    acpEvents: (sessionId) => ownedSessions.events(sessionId),
-  });
-  // The workspace lists' status streams and the Sessions pages' streams.
-  const reviewStateStreams = {
-    statuses: new Set<ServerResponse>(),
-    sessions: new Set<ServerResponse>(),
-  };
   // The windows' thread lists.
   const threadStreams = new Set<ServerResponse>();
   /** Every thread, newest first, with the repositories that threads start in. */
@@ -867,57 +852,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             unsubscribe();
           });
           push();
-          return;
-        }
-        // Each saved review's lead session, sent when it changes: its state for
-        // the workspace list, or with its current turn for the Sessions page.
-        const reviewState =
-          url.pathname === "/api/agent-status/events"
-            ? "statuses"
-            : url.pathname === "/api/sessions/events"
-              ? "sessions"
-              : undefined;
-        if (reviewState && request.method === "GET") {
-          const ids = [
-            ...new Set(
-              (url.searchParams.get("reviews") ?? "")
-                .split(",")
-                .filter((id) => /^[A-Za-z0-9_-]{1,80}$/.test(id)),
-            ),
-          ].slice(0, 50);
-          const open = reviewStateStreams[reviewState];
-          if (open.size >= 8)
-            throw new HostError("too-many-streams", "Too many status streams are open.", 503);
-          response.writeHead(200, {
-            "content-type": "text/event-stream",
-            "cache-control": "no-store",
-            connection: "keep-alive",
-            "x-accel-buffering": "no",
-          });
-          open.add(response);
-          response.once("close", () => open.delete(response));
-          void (async () => {
-            let last = "";
-            while (!abort.signal.aborted && !closing) {
-              const values = await Promise.all(
-                ids.map(async (id) => {
-                  const bundle = await savedReviews.summary(id).catch(() => undefined);
-                  if (!bundle?.sessions) return undefined;
-                  return (
-                    reviewState === "statuses"
-                      ? reviewStatus(id, bundle.sessions)
-                      : sessionSummary(bundle)
-                  ).catch(() => undefined);
-                }),
-              );
-              const text = JSON.stringify({ [reviewState]: values.filter(Boolean) });
-              if (text !== last && !abort.signal.aborted) {
-                last = text;
-                response.write(`event: state\ndata: ${text}\n\n`);
-              }
-              await new Promise((done) => setTimeout(done, STATUS_MS));
-            }
-          })();
           return;
         }
         // Every thread the host keeps, with its lead session's state, sent

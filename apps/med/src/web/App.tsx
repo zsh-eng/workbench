@@ -219,6 +219,9 @@ const PANE_PLACES: Record<string, { near: string; side: Side; share: number }> =
   preview: { near: "review", side: "right", share: 0.5 },
 };
 
+/** The narrowest review pane that shows a split diff, in pixels. */
+const SPLIT_MIN_WIDTH = 760;
+
 export function App({
   controller,
   browseApi: providedBrowseApi,
@@ -646,9 +649,26 @@ export function App({
       (visibleElement('[data-file-pane="main"]') ?? visibleElement("[data-zen-exit]"))?.focus();
     else zenToggle.current?.focus();
   }, [zen]);
-  const [mode, setMode] = useState<"split" | "unified">(() =>
+  const [preferredMode, setMode] = useState<"split" | "unified">(() =>
     readPreference("mode", "split", ["split", "unified"]),
   );
+  // Split diffs need room for two columns; a narrow review pane shows them
+  // unified until it has room again.
+  const [mainElement, setMainElement] = useState<HTMLElement | null>(null);
+  const [roomy, setRoomy] = useState(true);
+  useLayoutEffect(() => {
+    if (!mainElement) return;
+    const measure = () => {
+      // A hidden workspace has no width; it keeps its layout for its return.
+      const width = mainElement.clientWidth;
+      if (width) setRoomy(width >= SPLIT_MIN_WIDTH);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(mainElement);
+    return () => observer.disconnect();
+  }, [mainElement]);
+  const mode = preferredMode === "split" && !roomy ? "unified" : preferredMode;
   const [wrap, setWrap] = useState(false);
   const [showNotes, setShowNotes] = useState(true);
   const [findOpen, setFindOpen] = useState(false);
@@ -799,6 +819,17 @@ export function App({
   // once: its thread streams, and its newest replies render ahead.
   const [sessionReady, setSessionReady] = useState(false);
   const hasSessions = agentSessions.length > 0;
+  // A thread without an agent opens as a branch does: its changed files and
+  // the review. The reader starts an agent from the session toggle.
+  const adoptPanes = panes.adopt;
+  useEffect(() => {
+    if (threadLayout && state.savedReview && !hasSessions)
+      adoptPanes({
+        axis: "row",
+        children: [{ id: "changed" }, { id: "review" }],
+        sizes: [0.24, 0.76],
+      });
+  }, [threadLayout, state.savedReview, hasSessions, adoptPanes]);
   useEffect(() => {
     if (sessionReady || !hasSessions) return;
     return whenIdle(() => setSessionReady(true));
@@ -959,11 +990,11 @@ export function App({
   }, [controller, managed]);
   useEffect(() => {
     try {
-      localStorage.setItem("med:mode", mode);
+      localStorage.setItem("med:mode", preferredMode);
     } catch {
       /* Preferences can be unavailable in private storage. */
     }
-  }, [mode]);
+  }, [preferredMode]);
   // A file of the Guide's shown segment opens in place; others open in Changes.
   const streamFilesRef = useRef<ParsedReviewFile[]>(NO_FILES);
   const showInStream = useCallback(
@@ -2962,6 +2993,7 @@ export function App({
     {
       id: "layout",
       label: `Use ${mode === "split" ? "unified" : "split"} diff layout`,
+      disabled: mode === "unified" && !roomy,
       run: () => setMode(mode === "split" ? "unified" : "split"),
     },
     {
@@ -3881,7 +3913,7 @@ export function App({
       icon: "diff",
       fixed: true,
       render: (controls: ReactNode) => (
-        <main {...stylex.props(styles.main)} aria-label="Continuous review">
+        <main ref={setMainElement} {...stylex.props(styles.main)} aria-label="Continuous review">
           {/* The review's own row heads the card; beside a thread, its actions
         join the tab row. */}
           {state.savedReview && !zen && !sessionVisible && savedHeader(false)}
@@ -4011,7 +4043,14 @@ export function App({
                       value={mode}
                       onChange={setMode}
                       options={[
-                        { value: "split", label: "Split", icon: "split" },
+                        roomy
+                          ? { value: "split", label: "Split", icon: "split" }
+                          : {
+                              value: "split",
+                              label: "Split needs a wider pane",
+                              icon: "split",
+                              disabled: true,
+                            },
                         { value: "unified", label: "Unified", icon: "unified" },
                       ]}
                     />
@@ -4597,7 +4636,11 @@ export function App({
           }
         />
         <div
-          {...stylex.props(styles.workspace, zen && styles.zenWorkspace)}
+          {...stylex.props(
+            styles.workspace,
+            (!!workspace || branches.visible.length < 2) && styles.workspaceTop,
+            zen && styles.zenWorkspace,
+          )}
           id={`${idPrefix}review-workspace`}
           role="tabpanel"
           aria-label={`${state.activeBranch ?? "Workspace"} review`}
@@ -4732,20 +4775,6 @@ const styles = stylex.create({
     WebkitFontSmoothing: "antialiased",
   },
   identity: { display: "flex", alignItems: "center", gap: 2, minWidth: 0 },
-  // Same height as the tab row beside it, so the two read as one line.
-  sidebarHeader: {
-    display: "flex",
-    alignItems: "center",
-    flexShrink: 0,
-    height: 38,
-    paddingInlineStart: 2,
-    paddingInlineEnd: 8,
-  },
-  // Level with the card's tab, after the window controls.
-  sidebarTitle: {
-    height: "calc(max(var(--med-titlebar-height), 38px) - 5px)",
-    paddingInlineStart: "calc(var(--med-titlebar-left) - 2px)",
-  },
   mainHeader: {
     display: "flex",
     alignItems: "center",
@@ -4786,46 +4815,6 @@ const styles = stylex.create({
   // Without the strip, the frame's own inset is the top margin.
   workspaceTop: { paddingTop: 6 },
   zenWorkspace: { paddingBottom: 6 },
-  sidebar: {
-    display: "flex",
-    flexDirection: "column",
-    flexShrink: 0,
-    backgroundColor: tokens.panel,
-    minWidth: 180,
-    maxWidth: "45vw",
-  },
-  divider: {
-    position: "relative",
-    display: "flex",
-    justifyContent: "center",
-    width: 6,
-    minWidth: 6,
-    cursor: "col-resize",
-    zIndex: 2,
-    outline: "none",
-    touchAction: "none",
-  },
-  // Show the handle only after a short hover so passing the pointer across
-  // the gap does not flash it, as in VS Code's sashes.
-  dividerLine: {
-    width: 2,
-    height: "100%",
-    borderRadius: `calc(1px * ${tokens.round})`,
-    backgroundColor: tokens.accentLine,
-    opacity: {
-      default: 0,
-      [stylex.when.ancestor(":hover")]: 1,
-      [stylex.when.ancestor(":focus-visible")]: 1,
-      [stylex.when.ancestor(":active")]: 1,
-    },
-    transitionProperty: "opacity",
-    transitionDuration: "120ms",
-    transitionDelay: {
-      default: "0ms",
-      [stylex.when.ancestor(":hover")]: "250ms",
-      [stylex.when.ancestor(":active")]: "0ms",
-    },
-  },
   main: {
     position: "relative",
     minWidth: 0,
@@ -4837,7 +4826,6 @@ const styles = stylex.create({
     borderRadius: tokens.frame,
     boxShadow: `0 0 0 1px ${tokens.line}, 0 1px 3px #0000000f`,
   },
-  mainFlush: {},
   reviewSurface: {
     position: "relative",
     display: "flex",

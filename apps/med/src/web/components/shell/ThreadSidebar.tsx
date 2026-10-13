@@ -204,7 +204,7 @@ export function ThreadSidebar({
     const move = (event: KeyboardEvent) => {
       const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
       if (!keys.includes(event.key) || event.altKey || event.metaKey || event.ctrlKey) return;
-      const rows = [...nav.querySelectorAll<HTMLElement>("[data-sidebar-row]:not([hidden] *)")];
+      const rows = [...nav.querySelectorAll<HTMLElement>("[data-sidebar-row]")];
       const index = rows.indexOf(document.activeElement as HTMLElement);
       if (index < 0) return;
       const next =
@@ -316,36 +316,38 @@ export function ThreadSidebar({
           </button>
           <ToolButton label="Add or remove repositories" icon="plus" onClick={onSources} />
         </div>
-        <ul {...stylex.props(styles.list)} hidden={!sourcesOpen}>
-          {sources.map((source) => {
-            const current = sourceActive(source);
-            return (
-              <li key={`${source.kind}:${source.id}`}>
-                <button
-                  type="button"
-                  data-sidebar-row=""
-                  aria-current={current ? "page" : undefined}
-                  onClick={() =>
-                    onOpen(
-                      source.kind === "vault"
-                        ? { kind: "vault", sourceId: source.id, title: source.name }
-                        : {
-                            kind: "repository",
-                            repositoryId: source.id,
-                            ...(source.path && { path: source.path }),
-                            title: source.name,
-                          },
-                    )
-                  }
-                  {...stylex.props(styles.row, styles.source, current && styles.current)}
-                >
-                  <Icon name={source.kind === "vault" ? "vault" : "gitBranch"} size={14} />
-                  <span {...stylex.props(styles.title)}>{source.name}</span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+        {sourcesOpen && (
+          <ul {...stylex.props(styles.list)}>
+            {sources.map((source) => {
+              const current = sourceActive(source);
+              return (
+                <li key={`${source.kind}:${source.id}`}>
+                  <button
+                    type="button"
+                    data-sidebar-row=""
+                    aria-current={current ? "page" : undefined}
+                    onClick={() =>
+                      onOpen(
+                        source.kind === "vault"
+                          ? { kind: "vault", sourceId: source.id, title: source.name }
+                          : {
+                              kind: "repository",
+                              repositoryId: source.id,
+                              ...(source.path && { path: source.path }),
+                              title: source.name,
+                            },
+                      )
+                    }
+                    {...stylex.props(styles.row, styles.source, current && styles.current)}
+                  >
+                    <Icon name={source.kind === "vault" ? "vault" : "gitBranch"} size={14} />
+                    <span {...stylex.props(styles.title)}>{source.name}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </section>
     </nav>
   );

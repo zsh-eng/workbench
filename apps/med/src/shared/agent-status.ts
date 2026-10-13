@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * The state of a saved review's lead session, for the workspace list:
+ * The state of a saved review's lead session, for the thread list:
  * working, waiting for the user, or idle since `updatedAt`. The lead is the
  * newest session that works or waits, else the newest session.
  */
@@ -16,4 +16,3 @@ export const agentStatusSchema = z.object({
   updatedAt: z.number(),
 });
 export type AgentStatus = z.infer<typeof agentStatusSchema>;
-export const agentStatusesSchema = z.object({ statuses: z.array(agentStatusSchema) });
