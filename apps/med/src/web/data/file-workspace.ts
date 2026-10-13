@@ -35,9 +35,74 @@ export function sourceKey(source: BrowseSource) {
   );
 }
 
-/** Retain navigation per workspace, but retain bytes only for the active file. */
-export function createFileWorkspace(api: BrowseApi) {
+const STORAGE = "med:files:v1:";
+const STORAGE_INDEX = "med:files:v1";
+/** Workspaces whose open files outlast the window, most recent last. */
+const STORED = 48;
+
+function readStored(key: string): Workspace | undefined {
+  try {
+    const value = JSON.parse(localStorage.getItem(STORAGE + key) ?? "null") as Workspace | null;
+    if (!value || !Array.isArray(value.tabs) || typeof value.active !== "string") return undefined;
+    const tabs = value.tabs.filter(
+      (tab) =>
+        tab &&
+        typeof tab.id === "string" &&
+        typeof tab.path === "string" &&
+        typeof tab.sourceLabel === "string" &&
+        typeof tab.source?.repo === "string" &&
+        (tab.source.kind === "worktree" ||
+          (tab.source.kind === "commit" && typeof tab.source.oid === "string")),
+    );
+    const active =
+      !isFileTab(value.active) || tabs.some((tab) => tab.id === value.active)
+        ? value.active
+        : "changes";
+    return {
+      tabs: tabs.map((tab) => ({ ...tab, pinned: tab.pinned === true })),
+      active,
+      recentPaths: Array.isArray(value.recentPaths)
+        ? value.recentPaths.filter((path) => typeof path === "string").slice(0, 50)
+        : [],
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function writeStored(key: string, workspace: Workspace) {
+  try {
+    localStorage.setItem(STORAGE + key, JSON.stringify(workspace));
+    const index = (JSON.parse(localStorage.getItem(STORAGE_INDEX) ?? "[]") as unknown[]).filter(
+      (entry): entry is string => typeof entry === "string" && entry !== key,
+    );
+    index.push(key);
+    while (index.length > STORED) localStorage.removeItem(STORAGE + index.shift()!);
+    localStorage.setItem(STORAGE_INDEX, JSON.stringify(index));
+  } catch {
+    /* The open files last for this window. */
+  }
+}
+
+/** Retain navigation per workspace, but retain bytes only for the active file.
+ * With `persist`, each workspace's open files and tab outlast the window, so a
+ * restart opens them again. */
+export function createFileWorkspace(api: BrowseApi, { persist = false } = {}) {
   const workspaces = new Map<string, Workspace>();
+  // Each workspace's open files reach storage shortly after they change,
+  // and at once when the window goes away.
+  const pending = new Map<string, Workspace>();
+  const written = new Map<string, string>();
+  let storeTimer: ReturnType<typeof setTimeout> | undefined;
+  const flush = () => {
+    clearTimeout(storeTimer);
+    for (const [key, navigation] of pending) {
+      written.set(key, JSON.stringify(navigation));
+      writeStored(key, navigation);
+    }
+    pending.clear();
+  };
+  if (persist) addEventListener("pagehide", flush);
   const listeners = new Set<() => void>();
   let snapshot: FileWorkspaceSnapshot = {
     key: "",
@@ -67,6 +132,19 @@ export function createFileWorkspace(api: BrowseApi) {
       });
       // Match the branch-tab limit. These entries contain navigation, never file bytes.
       while (workspaces.size > 32) workspaces.delete(workspaces.keys().next().value!);
+      if (persist) {
+        const key = snapshot.key;
+        const navigation = {
+          tabs: snapshot.tabs.map(({ line: _line, column: _column, ...tab }) => tab),
+          active: snapshot.active,
+          recentPaths: snapshot.recentPaths,
+        };
+        if (written.get(key) !== JSON.stringify(navigation)) {
+          pending.set(key, navigation);
+          clearTimeout(storeTimer);
+          storeTimer = setTimeout(flush, 250);
+        }
+      }
     }
     for (const listener of listeners) listener();
   };
@@ -123,7 +201,9 @@ export function createFileWorkspace(api: BrowseApi) {
       )
         return;
       const sameWorkspace = snapshot.key === key;
-      const saved = sameWorkspace ? snapshot : workspaces.get(key);
+      const saved = sameWorkspace
+        ? snapshot
+        : (workspaces.get(key) ?? (persist && key ? readStored(key) : undefined));
       cancel();
       publish({
         key,
@@ -280,6 +360,8 @@ export function createFileWorkspace(api: BrowseApi) {
     },
     refresh: load,
     dispose() {
+      flush();
+      removeEventListener("pagehide", flush);
       disposed = true;
       cancel();
       listeners.clear();

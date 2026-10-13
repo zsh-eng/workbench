@@ -13,6 +13,7 @@ import { localPathSchema } from "../shared/local-file";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type { Duplex } from "node:stream";
 import { existsSync } from "node:fs";
 import { lstat, mkdir, mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
 import { basename, dirname, extname, resolve, relative, isAbsolute, join } from "node:path";
@@ -71,6 +72,7 @@ import { type SearchOptions } from "./search/service";
 import { RepositoryRegistry } from "./repository/registry";
 import { removeWorktree } from "./repository/worktrees";
 import { runProcess } from "./runtime/process";
+import { acceptWebSocket } from "./runtime/websocket";
 import { CodexReviews } from "./codex-reviews";
 import { SavedReviewStore } from "./saved-reviews";
 import {
@@ -335,7 +337,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   // One stream per page that carries the streams above as channels.
   const lives = new Map<
     string,
-    { response: ServerResponse; channels: Map<string, ChannelResponse> }
+    {
+      response: { write(text: string): unknown; end(): void; readonly writableEnded: boolean };
+      channels: Map<string, ChannelResponse>;
+    }
   >();
   /** Session updates per server event; the browser reads events up to 4 MiB. */
   const SESSION_EVENT_BYTES = 1024 * 1024;
@@ -2170,6 +2175,37 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       });
   };
   const server = createServer(handle);
+  // A page's live stream as a WebSocket: the same events as /api/live sends,
+  // without holding one of the browser's six connections to the host.
+  server.on("upgrade", (request: IncomingMessage, socket: Duplex) => {
+    const host = request.headers.host;
+    const url = new URL(request.url ?? "/", `http://${host ?? "127.0.0.1"}`);
+    const cookie = request.headers.cookie
+      ?.split(";")
+      .map((entry) => entry.trim())
+      .find((entry) => entry.startsWith(`med_session_${port}=`))
+      ?.slice(`med_session_${port}=`.length);
+    const allowed =
+      !closing &&
+      (host === `127.0.0.1:${port}` || host === `localhost:${port}`) &&
+      (!request.headers.origin || request.headers.origin === `http://${host}`) &&
+      url.pathname === "/api/live" &&
+      lives.size < 32 &&
+      timingSafeEqual(tokenDigest, createHash("sha256").update(cookie ?? "").digest());
+    const peer = allowed ? acceptWebSocket(request, socket) : undefined;
+    if (!peer) {
+      socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+      return;
+    }
+    const id = randomUUID();
+    const channels = new Map<string, ChannelResponse>();
+    lives.set(id, { response: peer, channels });
+    peer.send(`event: live\ndata: ${JSON.stringify({ id })}\n\n`);
+    peer.onClose(() => {
+      lives.delete(id);
+      for (const channel of channels.values()) channel.destroy();
+    });
+  });
   server.requestTimeout = 35_000;
   server.headersTimeout = 10_000;
   await new Promise<void>((resolvePromise, reject) => {

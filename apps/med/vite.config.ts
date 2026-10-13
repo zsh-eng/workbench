@@ -47,8 +47,13 @@ export default defineConfig({
       "/api": {
         target: "http://127.0.0.1:4174",
         changeOrigin: true,
+        // The live stream is a WebSocket.
+        ws: true,
         configure(proxy) {
           proxy.on("proxyReq", (request) => request.setHeader("origin", "http://127.0.0.1:4174"));
+          proxy.on("proxyReqWs", (request) =>
+            request.setHeader("origin", "http://127.0.0.1:4174"),
+          );
         },
       },
     },

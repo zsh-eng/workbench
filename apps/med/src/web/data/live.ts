@@ -36,16 +36,49 @@ const close = (controller: ReadableStreamDefaultController<Uint8Array>) => {
   }
 };
 
+/**
+ * The page's live stream. A WebSocket takes none of the six connections that a
+ * browser allows each host, so every Med window and tab can keep one; where it
+ * cannot open, such as without the session cookie, an event stream does.
+ */
+function openStream(token: string): Promise<ReadableStream<Uint8Array> | undefined> {
+  const eventStream = async () => {
+    const response = await browserFetch("/api/live", {
+      headers: headers(token, { Accept: "text/event-stream" }),
+    });
+    return response.ok && response.body ? response.body : undefined;
+  };
+  if (typeof WebSocket !== "function") return eventStream();
+  return new Promise((resolve) => {
+    const socket = new WebSocket(
+      `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/api/live`,
+    );
+    let opened = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        socket.onmessage = (event) => controller.enqueue(encoder.encode(String(event.data)));
+        socket.onclose = () => {
+          if (opened) close(controller);
+          else resolve(eventStream());
+        };
+      },
+      cancel: () => socket.close(),
+    });
+    socket.onopen = () => {
+      opened = true;
+      resolve(body);
+    };
+  });
+}
+
 function connect(token: string): Live {
   const live: Live = { token, id: Promise.resolve(undefined), channels: new Map(), closed: false };
   live.id = new Promise((resolve) => {
     void (async () => {
-      const response = await browserFetch("/api/live", {
-        headers: headers(token, { Accept: "text/event-stream" }),
-      });
-      if (!response.ok || !response.body) return;
+      const stream = await openStream(token);
+      if (!stream) return;
       await readServerEvents(
-        response.body,
+        stream,
         (event) => {
           if (event.event === "live") {
             resolve((JSON.parse(event.data) as { id: string }).id);

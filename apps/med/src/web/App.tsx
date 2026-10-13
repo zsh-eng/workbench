@@ -388,7 +388,8 @@ export function App({
   );
   const browseApi = prefetch.api;
   useDisposeOnClose(prefetch.dispose);
-  const [fileWorkspace] = useState(() => createFileWorkspace(browseApi));
+  // In the window's shell, open files outlast a restart.
+  const [fileWorkspace] = useState(() => createFileWorkspace(browseApi, { persist: !!workspace }));
   const [editorDrafts] = useState(createEditorDrafts);
   useSyncExternalStore(editorDrafts.subscribe, editorDrafts.getSnapshot);
   useEffect(() => {

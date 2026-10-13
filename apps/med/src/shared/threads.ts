@@ -55,6 +55,9 @@ const SMALL_WORDS = new Set(["a", "an", "the", "to", "of", "for", "and", "in", "
 export function threadTitle(prompt: string) {
   const line = prompt.trim().split("\n")[0]!.replace(/[.!?:;,]+$/, "").trim();
   if (line.length <= 52) return line || "New thread";
+  // A clause that ends early enough makes the best name.
+  const clause = /^(.{16,52}?)[,;:(—–]/.exec(line)?.[1]?.trim();
+  if (clause) return clause;
   const cut = line.slice(0, 48);
   const space = cut.lastIndexOf(" ");
   return (space > 24 ? cut.slice(0, space) : cut).replace(/[.,;:]+$/, "");
