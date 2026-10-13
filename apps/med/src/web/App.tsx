@@ -166,6 +166,9 @@ function shownLine(
   });
 }
 
+/** A guide note on lines, not on its whole file. */
+const onLines = (note: GuideNote): note is GuideNote & { line: number } => note.line !== undefined;
+
 type Annotation = {
   note?: Note;
   draft?: NoteTarget;
@@ -1223,6 +1226,7 @@ export function App({
   );
   // Reply to an agent's comment with your own note on the same lines.
   const replyToGuideNote = useCallback((note: GuideNote) => {
+    if (!onLines(note)) return;
     setShowNotes(true);
     setSelection(null);
     setDraft({
@@ -1661,6 +1665,7 @@ export function App({
                 metadata: { note },
               })),
             ...(guideNotesByFile?.get(file.id) ?? [])
+              .filter(onLines)
               .filter((note) => shownLine(file.metadata, note))
               .map((note): DiffLineAnnotation<Annotation> => ({
                 side: note.side === "old" ? "deletions" : "additions",
@@ -3394,9 +3399,13 @@ export function App({
   // The Guide's segment or commit heads the stream and ends it with the next part.
   const guideStray = useMemo(() => {
     if (!guideSection || !state.savedView) return [];
+    // Notes on whole files, on unchanged lines, or on files outside the segment.
     const byId = new Map(state.files.map((file) => [file.id, file]));
     return guideSection.notes.filter(
-      (note) => !shownLine(byId.get(note.fileId)?.metadata ?? null, note),
+      (note) =>
+        !onLines(note) ||
+        !guideSection.fileIds.includes(note.fileId) ||
+        !shownLine(byId.get(note.fileId)?.metadata ?? null, note),
     );
   }, [guideSection, state.savedView, state.files]);
   const loadGuideCommit = useCallback(

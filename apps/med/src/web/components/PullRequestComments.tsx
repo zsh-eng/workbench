@@ -760,9 +760,11 @@ const guideTags: Record<GuideNote["kind"], Tag | undefined> = {
   question: { label: "Question", tone: "ask" },
 };
 const guideLines = (note: GuideNote) =>
-  `${note.side === "old" ? "L" : "R"}${note.line}${note.endLine ? `–${note.endLine}` : ""}`;
+  note.line === undefined
+    ? "the whole file"
+    : `${note.side === "old" ? "L" : "R"}${note.line}${note.endLine ? `–${note.endLine}` : ""}`;
 export const guideNoteText = (note: GuideNote, author: string) =>
-  `${author} on ${note.path}:${note.line}${note.endLine ? `-${note.endLine}` : ""}${
+  `${author} on ${note.path}${note.line ? `:${note.line}` : ""}${note.endLine ? `-${note.endLine}` : ""}${
     guideTags[note.kind] ? ` (${guideTags[note.kind]!.label})` : ""
   }:\n\n${note.body}`;
 
@@ -812,7 +814,7 @@ export function GuideNoteCard({
               </button>
             )}
             <AddToReplyButton
-              label={`${note.path.split("/").at(-1)}:${guideLines(note)}`}
+              label={`${note.path.split("/").at(-1)}${note.line ? `:${guideLines(note)}` : ""}`}
               text={() => guideNoteText(note, author)}
             />
             <CopyButton label="Copy comment" text={() => guideNoteText(note, author)} />

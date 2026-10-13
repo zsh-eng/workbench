@@ -1,7 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { useState } from "react";
 import type { SavedCommit } from "../../../shared/review-guide";
-import { firstSentence, type GuideScope, type GuideSection } from "../../data/guide";
+import { AREA_LABELS, firstSentence, type GuideScope, type GuideSection } from "../../data/guide";
 import { relativeTime } from "../../data/relative-time";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon, type IconName } from "../Icon";
@@ -123,8 +123,14 @@ export function GuideOverview({
                       <span {...stylex.props(styles.cardBody)}>
                         <span {...stylex.props(styles.cardTitle)}>{section.title}</span>
                         <span {...stylex.props(styles.cardMeta)}>
-                          {section.kind && (
-                            <span {...stylex.props(styles.kind)}>{section.kind}</span>
+                          {section.critical && (
+                            <span {...stylex.props(styles.critical)}>
+                              <Icon name="alert" size={11} />
+                              Needs care
+                            </span>
+                          )}
+                          {section.area && (
+                            <span {...stylex.props(styles.kind)}>{AREA_LABELS[section.area]}</span>
                           )}
                           {section.additions > 0 && (
                             <span {...stylex.props(ui.added)}>+{section.additions}</span>
@@ -316,6 +322,15 @@ const styles = stylex.create({
     textTransform: "uppercase",
   },
   notes: { display: "inline-flex", alignItems: "center", gap: 3, color: tokens.accent },
+  critical: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    color: tokens.warning,
+    fontFamily: tokens.ui,
+    fontSize: 10.5,
+    fontWeight: 500,
+  },
   sentence: { color: tokens.muted, fontSize: 12.5, lineHeight: 1.5 },
   progress: { display: "flex", paddingTop: 2 },
   commit: {

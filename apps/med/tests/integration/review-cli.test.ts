@@ -199,10 +199,14 @@ describe("agent review CLI through the production host", () => {
       segments: [
         {
           title: "The file",
-          kind: "fix",
+          area: "core",
+          critical: true,
           summary: "One line changes.",
           files: ["file.txt"],
-          comments: [{ file: "file.txt", line: 1, kind: "risk", body: "Check the old callers." }],
+          comments: [
+            { file: "file.txt", line: 1, kind: "risk", body: "Check the old callers." },
+            { file: "file.txt", body: "The whole file is one value." },
+          ],
         },
         { title: "Notes", summary: "New notes.", files: ["*.md"] },
       ],
@@ -229,7 +233,12 @@ describe("agent review CLI through the production host", () => {
       segments: [
         {
           title: "The file",
-          comments: [{ file: "file.txt", line: 1, side: "new", kind: "risk" }],
+          area: "core",
+          critical: true,
+          comments: [
+            { file: "file.txt", line: 1, side: "new", kind: "risk" },
+            { file: "file.txt", side: "new", kind: "note" },
+          ],
         },
         { title: "Notes", files: ["*.md"] },
       ],
@@ -241,8 +250,42 @@ describe("agent review CLI through the production host", () => {
     ]);
     expect(bundle.targets[0].moreCommits).toBeUndefined();
 
+    // A guide that leaves a file out, names one twice, and names a missing one.
+    const partial = {
+      segments: [
+        { title: "File", files: ["file.txt", "gone.ts"] },
+        {
+          title: "Again",
+          files: ["file.txt"],
+          comments: [{ file: "notes.md", line: 1, body: "x" }],
+        },
+      ],
+    };
+    const checked = await f.run(
+      "update",
+      "--key",
+      "guided",
+      "--guide",
+      await guide("partial.json", partial),
+    );
+    expect(checked.split("\n").slice(1)).toEqual([
+      "Guide check: put every changed file in exactly one segment.",
+      '- In no segment (Med shows them under "Other changes"): notes.md',
+      "- In more than one segment: file.txt",
+      "- Match no changed file: segments[0].files: gone.ts",
+      "- Comments on a file that is not a changed file of their segment: segments[1].comments[0]: notes.md",
+      'Fix the guide, then run: med review update --key "guided" --guide <file>',
+    ]);
+
     const second = { summary: "Second guide.", segments: [{ title: "All", files: ["**"] }] };
-    await f.run("update", "--key", "guided", "--guide", await guide("second.json", second));
+    const clean = await f.run(
+      "update",
+      "--key",
+      "guided",
+      "--guide",
+      await guide("second.json", second),
+    );
+    expect(clean).not.toContain("Guide check");
     const updated = await f.api(`/api/reviews/${bundle.id}`);
     expect(updated.guide.summary).toBe("Second guide.");
     expect(updated.revision).toBe(bundle.revision);

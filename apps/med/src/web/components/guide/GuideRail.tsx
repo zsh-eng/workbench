@@ -82,7 +82,7 @@ export const GuideRail = memo(function GuideRail({
                   <button
                     type="button"
                     aria-current={open ? "page" : undefined}
-                    aria-label={`${section.number}. ${section.title}, ${seen} of ${section.fileIds.length} files viewed`}
+                    aria-label={`${section.number}. ${section.title}${section.critical ? ", needs care" : ""}, ${seen} of ${section.fileIds.length} files viewed`}
                     onClick={() => onScope({ kind: "segment", key: section.key })}
                     {...stylex.props(styles.row, styles.segment, open && [styles.on, picked])}
                   >
@@ -94,6 +94,11 @@ export const GuideRail = memo(function GuideRail({
                         {section.title}
                       </span>
                       <span {...stylex.props(styles.meta)}>
+                        {section.critical && (
+                          <span {...stylex.props(styles.critical)} title="Needs care">
+                            <Icon name="alert" size={11} />
+                          </span>
+                        )}
                         {section.additions > 0 && (
                           <span {...stylex.props(ui.added)}>+{section.additions}</span>
                         )}
@@ -309,6 +314,7 @@ const styles = stylex.create({
     lineHeight: 1.35,
   },
   autoTitle: { color: tokens.muted, fontWeight: 450 },
+  critical: { display: "inline-flex", color: tokens.warning },
   meta: {
     display: "flex",
     alignItems: "center",

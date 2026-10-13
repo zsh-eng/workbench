@@ -20,20 +20,35 @@ and any changes that were already there (`git status --short`).
 1. Check that Med runs and which repositories the user registered:
    `med review repos`. If Med is not running, tell the user to run `med web`.
    If your repository is not in the list, ask before you run `med add <path>`.
-2. Write a guide in JSON. Give a summary of 2–4 sentences: what changed and
-   why. Then split the change into segments that can be reviewed one at a
-   time, in reading order: usually 2–7, each one idea, with its files. Add
-   comments only on lines the reader must check: a risk, a question, or a
-   suggestion.
+2. Write a guide in JSON. It splits your change into segments that the user
+   reads one at a time:
+
+   - Group by intent, not by folder. One feature that touches several modules
+     is one segment.
+   - Use the fewest segments that still separate independent intents, usually
+     1–5. Split a segment of more than about 15 files by sub-area.
+   - Put tests, fixtures, and stories in their own segment, after the code
+     they cover.
+   - Order by review priority: the core change first, supporting changes next,
+     mechanical changes (lockfiles, generated files, formatting) last.
+   - Put every changed file in exactly one segment. Your commits hint at your
+     intents, but group by the final change, not by commit.
+   - Summaries say why over what, in 1–3 sentences of Markdown. Titles have at
+     most 4 words.
+   - Comment only where it saves the reader time: non-obvious logic, a subtle
+     change in behavior, a risk. Do not explain the obvious; most files need
+     no comment. Use the `risk` kind for what needs extra care (security, data
+     loss, hard to revert, easy to get wrong), and `"critical": true` only
+     when a whole segment does.
 
    ```json
    {
-     "summary": "What changed and why, in Markdown.",
+     "summary": "Why the change exists, then what it does, in Markdown.",
      "segments": [
        {
-         "title": "Recovery in the parser",
-         "kind": "feature",
-         "summary": "What this part does, and what to check.",
+         "title": "Parser recovery",
+         "area": "core",
+         "summary": "Why this part exists, and what to check.",
          "files": ["src/parse.ts", "src/recover/"],
          "comments": [
            {
@@ -41,19 +56,23 @@ and any changes that were already there (`git status --short`).
              "line": 42,
              "endLine": 58,
              "kind": "risk",
-             "body": "Why this needs a look."
-           }
+             "body": "Callers that stop at the first error now see all of them."
+           },
+           { "file": "src/recover/index.ts", "body": "The new entry point." }
          ]
        },
-       { "title": "Tests", "kind": "test", "files": ["tests/**"] }
+       { "title": "Tests", "area": "tests", "files": ["tests/**"] }
      ]
    }
    ```
 
-   `files` takes paths, folders that end in `/`, and globs. Kinds are
-   `feature`, `fix`, `refactor`, `perf`, `test`, `docs`, `config`, `chore`;
-   comment kinds are `note`, `suggestion`, `risk`, `question`. A comment's
-   `side` is `new` by default, or `old` for a removed line.
+   `files` takes paths, folders that end in `/`, and globs. Areas say which
+   part of the system a segment touches: `ui`, `api`, `core`, `data`, `cli`,
+   `security`, `tests`, `docs`, `examples`, `deps`, `build`, `scripts`,
+   `config`, `i18n`, `assets`, `other`. Comment kinds are `note`,
+   `suggestion`, `risk`, `question`. A comment without `line` is about the
+   whole file. `side` is `new` by default (new-file line numbers), or `old`
+   for a removed line.
 
 3. Create the review. Use the same `--key` for every round of the same task,
    such as the branch name; a later round becomes a new iteration of the same
@@ -82,11 +101,14 @@ and any changes that were already there (`git status --short`).
      --repo <repository-root> --base <commit-before-work> --head HEAD --guide -
    ```
 
-4. Put the printed Markdown link in your final message.
-5. Wait for the user's review (Claude Code): run `med review wait --key <task>`
+4. Med checks the guide against the changed files and prints what it leaves
+   out or names twice. Fix those, then run
+   `med review update --key <task> --guide -` with the fixed guide.
+5. Put the printed Markdown link in your final message.
+6. Wait for the user's review (Claude Code): run `med review wait --key <task>`
    as a background command (`run_in_background`). It has no time limit, and it
    ends when the user sends a message from Med. Do not poll it.
-6. After you open a pull request: `med review update --key <task> --pr <url>`.
+7. After you open a pull request: `med review update --key <task> --pr <url>`.
    The review header then shows the PR title.
 
 ## When the user's message arrives

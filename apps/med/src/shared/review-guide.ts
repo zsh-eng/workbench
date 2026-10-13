@@ -3,20 +3,35 @@ import { z } from "zod";
 /**
  * A guide splits a review into segments that a reader can check one at a
  * time: a short summary of the whole change, then a few segments, each with a
- * title, a summary, its files, and the agent's comments on lines. The agent
- * that made the change writes it (`med review create --guide`).
+ * title, a summary, its files, and the agent's comments. The agent that made
+ * the change writes it (`med review create --guide`).
  */
-export const GUIDE_KINDS = [
-  "feature",
-  "fix",
-  "refactor",
-  "perf",
-  "test",
+
+/**
+ * Which part of the system a segment touches, after pulls.review's categories
+ * (upstream/PULLS-REVIEW.md). Segments already split the change by intent, so
+ * this is one other axis that sets segments apart at a glance.
+ */
+export const GUIDE_AREAS = [
+  "ui",
+  "api",
+  "core",
+  "data",
+  "cli",
+  "security",
+  "tests",
   "docs",
+  "examples",
+  "deps",
+  "build",
+  "scripts",
   "config",
-  "chore",
+  "i18n",
+  "assets",
+  "other",
 ] as const;
-export type GuideKind = (typeof GUIDE_KINDS)[number];
+export type GuideArea = (typeof GUIDE_AREAS)[number];
+/** "risk" is for what needs extra care: security, data loss, hard to revert, easy to get wrong. */
 export const GUIDE_COMMENT_KINDS = ["note", "suggestion", "risk", "question"] as const;
 export type GuideCommentKind = (typeof GUIDE_COMMENT_KINDS)[number];
 
@@ -32,23 +47,28 @@ export const guideCommentSchema = z
   .object({
     /** A repository-relative path, as in the segment's `files`. */
     file: path,
-    line,
+    /** Without a line, the comment is about the whole file. */
+    line: line.optional(),
     endLine: line.optional(),
     /** "new" for added and unchanged lines, "old" for removed ones. */
     side: z.enum(["old", "new"]).default("new"),
     kind: z.enum(GUIDE_COMMENT_KINDS).default("note"),
     body: z.string().trim().min(1).max(4000),
   })
-  .refine((comment) => (comment.endLine ?? comment.line) >= comment.line, {
-    message: "A comment's endLine cannot come before its line.",
-    path: ["endLine"],
-  });
+  .refine(
+    (comment) =>
+      comment.endLine === undefined ||
+      (comment.line !== undefined && comment.endLine >= comment.line),
+    { message: "A comment's endLine needs a line and cannot come before it.", path: ["endLine"] },
+  );
 export type GuideComment = z.infer<typeof guideCommentSchema>;
 
 export const guideSegmentSchema = z.object({
   title: z.string().trim().min(1).max(120),
-  kind: z.enum(GUIDE_KINDS).optional(),
-  /** One to four sentences of Markdown: what this segment does and why. */
+  area: z.enum(GUIDE_AREAS).optional(),
+  /** The whole segment needs extra care: security, data loss, hard to revert. */
+  critical: z.boolean().optional(),
+  /** One to three sentences of Markdown: why this segment exists, over what it does. */
   summary: z.string().trim().max(4000).optional(),
   /** Paths, folders that end in "/", or globs with * and **. */
   files: z.array(path).min(1).max(500),
@@ -79,14 +99,15 @@ export const savedGuideSchema = z.object({
   segments: z.array(
     z.object({
       title: z.string(),
-      kind: z.enum(GUIDE_KINDS).optional(),
+      area: z.enum(GUIDE_AREAS).optional(),
+      critical: z.boolean().optional(),
       summary: z.string().optional(),
       files: z.array(z.string()),
       comments: z
         .array(
           z.object({
             file: z.string(),
-            line: z.number().int().positive(),
+            line: z.number().int().positive().optional(),
             endLine: z.number().int().positive().optional(),
             side: z.enum(["old", "new"]),
             kind: z.enum(GUIDE_COMMENT_KINDS),

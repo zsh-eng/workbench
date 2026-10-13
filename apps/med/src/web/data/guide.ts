@@ -1,8 +1,8 @@
+import { matchGuidePaths, namesOneFile } from "../../shared/guide-paths";
 import type { ParsedReviewFile } from "../../shared/review";
-import type { GuideCommentKind, GuideKind, SavedGuide } from "../../shared/review-guide";
-import { matchReviewFile } from "./brief";
+import type { GuideArea, GuideCommentKind, SavedGuide } from "../../shared/review-guide";
 
-/** An agent's comment on lines of a changed file. */
+/** An agent's comment on lines of a changed file, or on the whole file. */
 export interface GuideNote {
   id: string;
   /** The segment that holds it, by key. */
@@ -10,7 +10,8 @@ export interface GuideNote {
   fileId: string;
   path: string;
   side: "old" | "new";
-  line: number;
+  /** None for a comment on the whole file. */
+  line?: number;
   endLine?: number;
   kind: GuideCommentKind;
   body: string;
@@ -22,7 +23,9 @@ export interface GuideSection {
   /** 1-based order. */
   number: number;
   title: string;
-  kind?: GuideKind;
+  area?: GuideArea;
+  /** The agent marked the whole segment for extra care. */
+  critical?: boolean;
   summary?: string;
   /** Changed files in reading order. */
   fileIds: string[];
@@ -50,66 +53,38 @@ export type GuideScope =
   | { kind: "segment"; key: string }
   | { kind: "commit"; id: string };
 
-const escape = (text: string) => text.replace(/[.+^${}()|[\]\\]/g, "\\$&");
-
-/** A glob with *, **, and ? as a regular expression for whole paths. */
-function globPattern(glob: string): RegExp {
-  let source = "";
-  for (let i = 0; i < glob.length; i++) {
-    const char = glob[i]!;
-    if (char === "*" && glob[i + 1] === "*") {
-      const slash = glob[i + 2] === "/";
-      source += slash ? "(?:.*/)?" : ".*";
-      i += slash ? 2 : 1;
-    } else if (char === "*") source += "[^/]*";
-    else if (char === "?") source += "[^/]";
-    else source += escape(char);
-  }
-  // A pattern can start inside the repository, as paths in briefs can.
-  return new RegExp(`^(?:.*/)?${source}$`);
-}
-
-const clean = (pattern: string, root?: string) => {
-  let path = pattern
-    .trim()
-    .replace(/\\/g, "/")
-    .replace(/^(?:\.{1,2}\/)+/, "")
-    .replace(/\/{2,}/g, "/");
-  const base = root?.replace(/\/$/, "");
-  if (base && path.startsWith(`${base}/`)) path = path.slice(base.length + 1);
-  return path.replace(/^\//, "");
+/** Area names as the Guide shows them. */
+export const AREA_LABELS: Record<GuideArea, string> = {
+  ui: "UI",
+  api: "API",
+  core: "Core",
+  data: "Data",
+  cli: "CLI",
+  security: "Security",
+  tests: "Tests",
+  docs: "Docs",
+  examples: "Examples",
+  deps: "Dependencies",
+  build: "Build",
+  scripts: "Scripts",
+  config: "Config",
+  i18n: "i18n",
+  assets: "Assets",
+  other: "Other",
 };
 
+const fileNames = (file: ParsedReviewFile) =>
+  file.info.previousPath ? [file.path, file.info.previousPath] : [file.path];
+
 /** The changed files that a segment's path, folder, or glob names, in review order. */
-export function matchFiles(
-  pattern: string,
-  files: ParsedReviewFile[],
-  root?: string,
-): ParsedReviewFile[] {
-  const path = clean(pattern, root);
-  if (!path) return [];
-  const names = (file: ParsedReviewFile) =>
-    file.info.previousPath ? [file.path, file.info.previousPath] : [file.path];
-  if (/[*?]/.test(path)) {
-    const expression = globPattern(path);
-    return files.filter((file) => names(file).some((name) => expression.test(name)));
-  }
-  const folder = (prefix: string) =>
-    files.filter((file) =>
-      names(file).some((name) => name.startsWith(prefix) || name.includes(`/${prefix}`)),
-    );
-  if (path.endsWith("/")) return folder(path);
-  const one = matchReviewFile({ path }, files, root);
-  if (one) return [one];
-  // A folder written without its slash.
-  return folder(`${path}/`);
-}
+export const matchFiles = (pattern: string, files: ParsedReviewFile[], root?: string) =>
+  matchGuidePaths(pattern, files, fileNames, root);
 
 /**
  * Place a guide on a comparison's files. Each segment takes the files that its
  * paths name, in the order written; files that no segment names form a last
  * "Other changes" segment, so the guide covers every change. A file can be in
- * more than one segment.
+ * more than one segment, though the CLI's check advises against it.
  */
 export function resolveGuide(
   guide: SavedGuide,
@@ -135,8 +110,10 @@ export function resolveGuide(
     }
     const notes: GuideNote[] = [];
     (segment.comments ?? []).forEach((comment, number) => {
-      const file = matchFiles(comment.file, files, root).at(0);
-      if (!file || /[*?]/.test(comment.file) || comment.file.endsWith("/")) {
+      const file = namesOneFile(comment.file)
+        ? matchFiles(comment.file, files, root).at(0)
+        : undefined;
+      if (!file) {
         unplaced++;
         return;
       }
@@ -146,8 +123,10 @@ export function resolveGuide(
         fileId: file.id,
         path: file.path,
         side: comment.side,
-        line: comment.line,
-        ...(comment.endLine && comment.endLine > comment.line ? { endLine: comment.endLine } : {}),
+        ...(comment.line ? { line: comment.line } : {}),
+        ...(comment.line && comment.endLine && comment.endLine > comment.line
+          ? { endLine: comment.endLine }
+          : {}),
         kind: comment.kind,
         body: comment.body,
       };
@@ -158,7 +137,8 @@ export function resolveGuide(
       key,
       number: index + 1,
       title: segment.title,
-      ...(segment.kind ? { kind: segment.kind } : {}),
+      ...(segment.area ? { area: segment.area } : {}),
+      ...(segment.critical ? { critical: true } : {}),
       ...(segment.summary ? { summary: segment.summary } : {}),
       fileIds,
       unmatched,
@@ -180,7 +160,9 @@ export function resolveGuide(
       ...totals(rest, byId),
     });
   for (const list of notesByFile.values())
-    list.sort((a, b) => (a.side === b.side ? a.line - b.line : a.side === "old" ? -1 : 1));
+    list.sort((a, b) =>
+      a.side === b.side ? (a.line ?? 0) - (b.line ?? 0) : a.side === "old" ? -1 : 1,
+    );
   return {
     ...(guide.summary ? { summary: guide.summary } : {}),
     sections,

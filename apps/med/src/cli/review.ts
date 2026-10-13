@@ -9,6 +9,7 @@ import {
   type AgentSession,
 } from "../shared/saved-review";
 import { apiErrorMessage } from "../shared/protocol";
+import { checkGuide, guideCheckText } from "../shared/guide-paths";
 import { guideError, reviewGuideSchema, type ReviewGuide } from "../shared/review-guide";
 import { agentSessions } from "./agent-sessions";
 import {
@@ -356,6 +357,7 @@ export async function runReviewCommand(
     if (guide) await request(connection, `/api/reviews/${found.id}/guide`, fetcher, { guide });
     await showReview(connection, found.id, false, fetcher, options.openUrl, true);
     print(`[Review changes here](${connection.origin}/review/${found.id})`);
+    if (guide) await printGuideCheck(connection, found.id, guide, key, fetcher, print);
     return;
   }
   const repositories = await request(connection, "/api/repositories", fetcher);
@@ -387,6 +389,59 @@ export async function runReviewCommand(
   );
   print(`[Review changes here](${connection.origin}/review/${parsed.data.id})`);
   if (iteration > 1) print(`Added iteration ${iteration} to the review with this key.`);
+  if (manifest.guide)
+    await printGuideCheck(connection, parsed.data.id, manifest.guide, manifest.key, fetcher, print);
+}
+
+/**
+ * Check a guide against the comparisons of the review's current iteration and
+ * print what it leaves out, so the agent can fix it. A check that cannot run
+ * stays silent: the review exists either way.
+ */
+async function printGuideCheck(
+  connection: RunningConnection,
+  id: string,
+  guide: ReviewGuide,
+  key: string | undefined,
+  fetcher: typeof fetch,
+  print: (text: string) => void,
+) {
+  try {
+    const saved = z
+      .object({
+        targets: z.array(z.object({ id: z.string(), repo: z.string() })),
+        iterations: z.array(z.object({ targetIds: z.array(z.string()) })).optional(),
+      })
+      .parse(await request(connection, `/api/reviews/${id}`, fetcher));
+    const current = saved.iterations?.findLast((entry) => entry.targetIds.length)?.targetIds;
+    const targets = current
+      ? saved.targets.filter((target) => current.includes(target.id))
+      : saved.targets;
+    const fileList = z.object({
+      files: z.array(z.object({ path: z.string(), previousPath: z.string().optional() })),
+    });
+    const comparisons = await Promise.all(
+      targets.map(async (target) => ({
+        root: target.repo,
+        files: fileList.parse(
+          await request(
+            connection,
+            `/api/reviews/${id}/targets/${encodeURIComponent(target.id)}/review`,
+            fetcher,
+          ),
+        ).files,
+      })),
+    );
+    const text = guideCheckText(
+      checkGuide(guide, comparisons),
+      key
+        ? `med review update --key ${JSON.stringify(key)} --guide <file>`
+        : "med review create again with the same options and the fixed --guide",
+    );
+    if (text) print(text);
+  } catch {
+    // The check is advice; the review was saved.
+  }
 }
 
 /**

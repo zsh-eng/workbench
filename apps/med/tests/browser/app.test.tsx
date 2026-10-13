@@ -2194,7 +2194,8 @@ describe("review guide", () => {
         segments: [
           {
             title: "Rename alpha",
-            kind: "refactor",
+            area: "core",
+            critical: true,
             summary: "The constant becomes `after`.",
             files: ["src/alpha.ts"],
             comments: [
@@ -2204,6 +2205,12 @@ describe("review guide", () => {
                 side: "new",
                 kind: "risk",
                 body: "Callers still import the old name.",
+              },
+              {
+                file: "src/alpha.ts",
+                side: "new",
+                kind: "note",
+                body: "The module keeps one export.",
               },
             ],
           },
@@ -2217,10 +2224,14 @@ describe("review guide", () => {
     const overview = page.getByRole("region", { name: "Guide overview" });
     await expect.element(overview.getByText(/^Renames the/)).toBeVisible();
     await expect.element(overview.getByRole("button", { name: /Rename alpha/ })).toBeVisible();
+    await expect.element(overview.getByText("Needs care")).toBeVisible();
 
     await userEvent.keyboard("j");
     await expect.element(page.getByRole("heading", { name: "Rename alpha" })).toBeVisible();
     await expect.element(page.getByText("Callers still import the old name.")).toBeVisible();
+    // A comment on the whole file follows the segment's summary.
+    await expect.element(page.getByText("On whole files")).toBeVisible();
+    await expect.element(page.getByText("The module keeps one export.")).toBeVisible();
     await expect.poll(streamFiles).toEqual([expect.stringContaining("alpha.ts")]);
 
     const rail = page.getByRole("navigation", { name: "Guide" });

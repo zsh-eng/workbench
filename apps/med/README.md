@@ -28,6 +28,8 @@ _Bun · Vitesse Dark_
 
 Open an agent's review link, leave line comments, then copy comments from all its repositories back to the agent. Comments appear immediately and stay attached to the captured code.
 
+The agent can split its change into a [Guide](docs/USAGE.md#the-guide): a summary, then segments that you read one at a time, each with only its files and the agent's comments. Mark files viewed as you go, or read a range one commit at a time.
+
 ![Saved med review with a multiline comment and Copy comments controls in Rosé Pine Dawn](docs/screenshots/med-comments-rose-pine-dawn.png)
 
 _Example saved review in med · Rosé Pine Dawn_
@@ -140,6 +142,7 @@ Build and test tools: TypeScript, Vite, Vitest, Playwright, Oxlint, and Oxfmt. S
 - **[Zed](https://zed.dev/)** — a reference for selected UI designs, including theme preview, confirm, and dismiss behavior. See [theme provenance](upstream/THEMES.md).
 - **[snacks.nvim](https://github.com/folke/snacks.nvim)** — a reference for the file picker and code preview.
 - **Hunk** — adapted review logic and tests. See [source provenance](upstream/HUNK.md) and the original [MIT notice](upstream/HUNK-LICENSE).
+- **[pulls.review](https://pulls.review/)** — the Guide's grouping rules, areas, and coverage check, adapted for agents. See [provenance](upstream/PULLS-REVIEW.md) and the original [MIT notice](upstream/PULLS-REVIEW-LICENSE).
 
 ## Development
 

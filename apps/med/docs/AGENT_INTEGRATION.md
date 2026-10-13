@@ -156,16 +156,16 @@ newest sessions.
 
 A guide splits the review into segments that the reader checks one at a time.
 Write it in JSON: a short summary of the whole change, then up to 40 segments.
-Each segment has a title, an optional kind, a summary in Markdown, its files,
-and your comments on lines.
+Each segment has a title, an optional area, a summary in Markdown, its files,
+and your comments.
 
 ```json
 {
-  "summary": "The parser recovers from a bad token and reports every error.",
+  "summary": "Errors no longer stop the parse, so the editor can show all of them at once.",
   "segments": [
     {
-      "title": "Recovery in the parser",
-      "kind": "feature",
+      "title": "Parser recovery",
+      "area": "core",
       "summary": "`parse` skips to the next statement after an error.",
       "files": ["src/parse.ts", "src/recover/"],
       "comments": [
@@ -175,23 +175,51 @@ and your comments on lines.
           "endLine": 58,
           "kind": "risk",
           "body": "Callers that stop at the first error now see all of them."
-        }
+        },
+        { "file": "src/recover/index.ts", "body": "The new entry point." }
       ]
     },
-    { "title": "Tests", "kind": "test", "files": ["tests/**"] }
+    { "title": "Tests", "area": "tests", "files": ["tests/**"] }
   ]
 }
 ```
 
+#### How to split a change
+
+These rules come from pulls.review's grouping prompt (see
+[upstream/PULLS-REVIEW.md](../upstream/PULLS-REVIEW.md)), adapted to an agent
+that wrote the change itself.
+
+- Group by intent, not by folder. One feature that touches several modules is
+  one segment.
+- Use the fewest segments that still separate independent intents, usually
+  1–5. Split a segment of more than about 15 files by sub-area.
+- Put tests, fixtures, and stories in their own segment, after the code they
+  cover.
+- Order by review priority: the core change first, supporting changes next,
+  mechanical changes (lockfiles, generated files, formatting) last.
+- Put every changed file in exactly one segment. Commits hint at your intents,
+  but group by the final change, not by commit: fixup commits often mix
+  concerns.
+- Summaries say why over what, in 1–3 sentences. Titles have at most 4 words.
+- Comment only where it saves the reader time: non-obvious logic, a subtle
+  change in behavior, a risk. Do not explain the obvious; most files need no
+  comment. Use `risk` for what needs extra care (security, data loss, hard to
+  revert, easy to get wrong). Set `"critical": true` on a segment only when the
+  whole segment does; the Guide marks it "Needs care".
+
+#### Fields
+
 - `files` takes paths, folders that end in `/`, and globs with `*` and `**`.
-  Put the segments in reading order. Files that no segment names show in a
-  last "Other changes" segment.
-- Kinds are `feature`, `fix`, `refactor`, `perf`, `test`, `docs`, `config`, and
-  `chore`.
-- A comment has `file`, `line`, an optional `endLine`, `side` (`new` by
-  default, or `old` for removed lines), `kind` (`note`, `suggestion`, `risk`,
-  or `question`), and a `body` in Markdown. Comment on what the reader must
-  check, not on every change.
+  Files that no segment names show in a last "Other changes" segment.
+- `area` says which part of the system a segment touches: `ui`, `api`, `core`,
+  `data`, `cli`, `security`, `tests`, `docs`, `examples`, `deps`, `build`,
+  `scripts`, `config`, `i18n`, `assets`, or `other`.
+- A comment has `file`, an optional `line` and `endLine`, `side` (`new` by
+  default, with new-file line numbers, or `old` for removed lines), `kind`
+  (`note`, `suggestion`, `risk`, or `question`), and a `body` in Markdown. A
+  comment without `line` is about the whole file. Put each comment in the
+  segment that holds its file.
 - A guide holds up to 200 comments and 200,000 characters.
 
 Pass it with `--guide`, as a file or as `-` for standard input. Only one of
@@ -202,12 +230,23 @@ med review create --key parser-recovery --title "Parser recovery" \
   --repo ~/code/parser --base main --head HEAD --merge-base --guide - < guide.json
 ```
 
+After it saves the review, the command checks the guide against the changed
+files and prints what to fix: files in no segment, files in more than one,
+paths that match no changed file, and comments outside their segment's files.
+
+```text
+Guide check: put every changed file in exactly one segment.
+- In no segment (Med shows them under "Other changes"): src/lexer.ts
+Fix the guide, then run: med review update --key "parser-recovery" --guide <file>
+```
+
 The Guide tab opens first. Its Overview shows the summary, the segments, and
 the range's commits. A segment shows its summary and only its files, with your
-comments on their lines; `j` and `k` step between segments, `v` marks the top
-file viewed, and `⇧V` marks the segment viewed and goes on. Viewed marks stay
-in the browser until a file changes. A commit of the range shows on its own,
-with its message.
+comments on their lines; comments on whole files, and on lines the diff does
+not show, follow the summary. `j` and `k` step between segments, `v` marks the
+top file viewed, and `⇧V` marks the segment viewed and goes on. Viewed marks
+stay in the browser until a file changes. A commit of the range shows on its
+own, with its message.
 
 To replace the guide of the current iteration, run
 `med review update --key <name> --guide guide.json`. A later iteration without

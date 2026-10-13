@@ -221,12 +221,14 @@ When an agent attaches a guide, the review opens on the **Guide** tab. A guide
 splits the change into segments that you check one at a time, like a pull
 request split into small ones.
 
-- **Overview.** The agent's summary, the segments with their size and comment
-  count, and the range's commits. **Start reviewing** opens the first segment
-  that you have not finished.
+- **Overview.** The agent's summary, the segments with their area, size, and
+  comment count, and the range's commits. **Needs care** marks a segment that
+  the agent flagged as risky. **Start reviewing** opens the first segment that
+  you have not finished.
 - **A segment.** Its title, summary, and only its files, with the agent's
-  comments on their lines. A comment on an unchanged line shows under the
-  summary. Reply to a comment with your own note from its **Reply** button.
+  comments on their lines. Comments on whole files, and on lines the diff does
+  not show, follow the summary. Reply to a comment on lines with your own note
+  from its **Reply** button.
 - **Viewed.** Check **Viewed** in a file's header, or press `v` for the file at
   the top. A viewed file folds and stays viewed until it changes. `⇧V` marks
   the segment viewed and opens the next one. The rail at the left shows your

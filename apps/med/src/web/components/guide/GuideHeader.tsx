@@ -2,7 +2,7 @@ import * as stylex from "@stylexjs/stylex";
 import { useEffect, useState, type ReactNode } from "react";
 import type { CommitDetails } from "../../../shared/protocol";
 import type { SavedCommit } from "../../../shared/review-guide";
-import type { GuideNote, GuideSection } from "../../data/guide";
+import { AREA_LABELS, type GuideNote, type GuideSection } from "../../data/guide";
 import { relativeTime } from "../../data/relative-time";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon, type IconName } from "../Icon";
@@ -53,7 +53,13 @@ export function SegmentHeader({
             {section.automatic ? "··" : pad(section.number)}
             <span {...stylex.props(styles.of)}> / {pad(count)}</span>
           </span>
-          {section.kind && <span {...stylex.props(styles.kind)}>{section.kind}</span>}
+          {section.area && <span {...stylex.props(styles.kind)}>{AREA_LABELS[section.area]}</span>}
+          {section.critical && (
+            <span {...stylex.props(styles.critical)}>
+              <Icon name="alert" size={12} />
+              Needs care
+            </span>
+          )}
         </>
       }
       action={
@@ -100,11 +106,19 @@ export function SegmentHeader({
       )}
       {stray.length > 0 && (
         <div {...stylex.props(styles.stray)}>
-          <p {...stylex.props(styles.strayLabel)}>On unchanged lines</p>
+          <p {...stylex.props(styles.strayLabel)}>
+            {stray.every((note) => note.line === undefined)
+              ? "On whole files"
+              : stray.some((note) => note.line === undefined)
+                ? "On whole files and lines the diff does not show"
+                : "On lines the diff does not show"}
+          </p>
           {stray.map((note) => (
             <div key={note.id} {...stylex.props(styles.strayItem)}>
               <span {...stylex.props(styles.strayPath)}>
-                {note.path.split("/").at(-1)}:{note.line}
+                {note.line === undefined
+                  ? note.path
+                  : `${note.path.split("/").at(-1)}:${note.line}`}
                 {note.endLine ? `–${note.endLine}` : ""}
               </span>
               <GuideNoteCard
@@ -113,7 +127,7 @@ export function SegmentHeader({
                 mark={agent.mark}
                 createdAt={agent.at}
                 embedded
-                onReply={() => onReply(note)}
+                onReply={note.line === undefined ? undefined : () => onReply(note)}
               />
             </div>
           ))}
@@ -298,6 +312,14 @@ const styles = stylex.create({
     fontWeight: 500,
     letterSpacing: "0.08em",
     textTransform: "uppercase",
+  },
+  critical: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    color: tokens.warning,
+    fontSize: 11.5,
+    fontWeight: 500,
   },
   sha: { color: tokens.faint, fontFamily: tokens.code, fontSize: 11 },
   viewed: {

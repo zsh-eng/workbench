@@ -313,9 +313,12 @@ A bundle and each iteration can hold a guide (`src/shared/review-guide.ts`): a
 summary and segments, each with file patterns and the agent's comments on
 lines. The host checks it with the shared schema on create and on
 `POST /api/reviews/:id/guide`. For a commit range, a capture also records up to
-50 commits of `base..head`. `src/web/data/guide.ts` matches each segment's
-patterns to the captured files and places each comment on its file; files that
-no segment names form a last automatic segment. The Guide tab reuses the
+50 commits of `base..head`. `src/shared/guide-paths.ts` matches a segment's
+paths, folders, and globs to changed files. The CLI uses it after create and
+update to print the files that the guide leaves out or names twice, after
+pulls.review's coverage check; `src/web/data/guide.ts` uses it to place each
+segment and comment, and files that no segment names form a last automatic
+segment. The Guide tab reuses the
 Changes stream with only the segment's files, so it keeps virtualization,
 annotations, and notes. Viewed marks (`src/web/data/viewed.ts`) are kept in
 `localStorage` for each review, keyed by path and new blob ID, so a changed
