@@ -49,6 +49,10 @@ const commandOf = (call: ToolCallState) => {
   const input = call.rawInput as { command?: unknown } | undefined;
   return typeof input?.command === "string" ? input.command : undefined;
 };
+/** The skill's `med review wait`, in the agent's own command or a path to the CLI. */
+const MED_WAIT = /(?:^|[\s;&|(])(?:\S*\/)?med review wait\b/;
+/** The agent waits for the user's next message from Med; it does no work. */
+export const isMedWait = (call: ToolCallState) => MED_WAIT.test(commandOf(call) ?? "");
 const basename = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 /** An edit's diff scrolls past this height. */
 const DIFF_MAX_HEIGHT = 360;
@@ -79,6 +83,10 @@ export function formatSeconds(milliseconds: number) {
 }
 
 function phrase(call: ToolCallState): { verb?: string; target: string } {
+  if (isMedWait(call) && call.status !== "failed")
+    return call.status === "completed"
+      ? { verb: "Took", target: "your message from Med" }
+      : { verb: "Waiting", target: "for your message in Med" };
   if (call.kind === "execute" || isSubagent(call)) return { target: call.title };
   const space = call.title.indexOf(" ");
   const first = space < 0 ? call.title : call.title.slice(0, space);
@@ -121,7 +129,8 @@ export const ToolCall = memo(function ToolCall({
   // An edit shows its file and its added and removed lines; its diff
   // renders when the reader opens it, as in Claude Desktop.
   const [open, setOpen] = useRowOpen(item.id, false);
-  const running = call.status === "pending" || call.status === "in_progress";
+  // A wait is not work: it does not shimmer or spin.
+  const running = (call.status === "pending" || call.status === "in_progress") && !isMedWait(call);
   const stat = useMemo(
     () =>
       diffs.reduce(

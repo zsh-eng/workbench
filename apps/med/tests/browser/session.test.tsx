@@ -250,6 +250,64 @@ test("a task in the Background dock scrolls a long thread to its call", async ()
   await expect.poll(() => Math.round(topOf("server"))).toBe(16);
 });
 
+test("the Background dock lists this turn's tasks without Med's wait, and stays hidden until a new task", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  localStorage.removeItem("med:background-hidden");
+  const shell = (at: number, id: string, title: string, command: string, running = false) => ({
+    at,
+    update: {
+      sessionUpdate: "tool_call" as const,
+      toolCallId: id,
+      title,
+      kind: "execute" as const,
+      status: running ? ("in_progress" as const) : ("completed" as const),
+      rawInput: { command },
+      _meta: { med: { background: { id, kind: "shell" as const } } },
+    },
+  });
+  const prompt = (at: number, text: string) => ({
+    at,
+    update: {
+      sessionUpdate: "user_message_chunk" as const,
+      content: { type: "text" as const, text },
+    },
+  });
+  const store = longThread(0);
+  store.applyAll([
+    prompt(0, "Format the durations."),
+    shell(100, "server", "Start the dev server", "bun run dev", true),
+    shell(200, "old", "Build the old bundle", "bun run build"),
+    prompt(5000, "Use minutes."),
+    shell(6000, "tests", "Run the tests", "bun test"),
+    shell(6500, "wait", "Wait for the review", "med review wait --key durations", true),
+  ]);
+  const render = () => root!.render(<SessionThread snapshot={store.getSnapshot()} showWork />);
+  render();
+  const dock = page.getByRole("region", { name: "Background tasks" });
+  await expect.element(dock.getByText("1 running")).toBeVisible();
+  await expect.element(dock.getByRole("button", { name: "Start the dev server" })).toBeVisible();
+  await expect.element(dock.getByRole("button", { name: "Run the tests" })).toBeVisible();
+  // A task from an earlier turn has left; the agent's wait for the reader is not a task.
+  await expect.element(dock.getByText("Build the old bundle")).not.toBeInTheDocument();
+  await expect.element(dock.getByText("Wait for the review")).not.toBeInTheDocument();
+  await expect.element(page.getByRole("log").getByText("for your message in Med")).toBeVisible();
+
+  await userEvent.click(dock.getByRole("button", { name: "Hide background tasks" }));
+  await expect.element(dock).not.toBeInTheDocument();
+  // The thread opens again, and the dock stays hidden.
+  root!.unmount();
+  root = createRoot(mount!);
+  render();
+  await expect.element(page.getByRole("log").getByText("Run the tests")).toBeVisible();
+  await expect.element(dock).not.toBeInTheDocument();
+  // A new task shows it again.
+  store.applyAll([shell(7000, "styles", "Watch the styles", "bun run watch", true)]);
+  render();
+  await expect.element(dock.getByText("2 running")).toBeVisible();
+  localStorage.removeItem("med:background-hidden");
+});
+
 test("[ and ] step through the prompts and replies of a focused thread", async () => {
   await page.viewport(1280, 900);
   initializeTheme();
