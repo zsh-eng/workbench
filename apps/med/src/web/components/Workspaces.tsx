@@ -54,6 +54,8 @@ import { prefetchSavedReview } from "../data/controller";
 
 /** Workspaces kept mounted, most recently shown first. Older ones reload. */
 const MOUNTED = 6;
+/** The longest that a new workspace prepares out of sight before it shows. */
+const PREPARE_MS = 600;
 
 type ControllerOptions = Omit<ReviewControllerOptions, "savedReviewId" | "start">;
 /** A patch parser keeps only its latest request, so each workspace has its own:
@@ -951,6 +953,45 @@ export function WorkspaceViews({
   useEffect(() => pool.retain(mounted), [pool, mounted]);
   useEffect(() => pool.focus(onScreen), [pool, onScreen, mounted]);
 
+  // A workspace that has not shown yet renders out of sight while the last
+  // one stays on screen, and takes its place in one frame when nothing in it
+  // is still pending, as a native app swaps views. A slow one shows anyway
+  // after PREPARE_MS.
+  const [seen] = useState(() => new Set<string>());
+  const [shown, setShown] = useState(onScreen);
+  const preparing =
+    onScreen && shown && onScreen !== shown && !seen.has(onScreen) && next.includes(shown)
+      ? onScreen
+      : null;
+  if (!preparing && shown !== onScreen) setShown(onScreen);
+  const visible = preparing ? shown : onScreen;
+  useLayoutEffect(() => {
+    if (visible) seen.add(visible);
+  }, [seen, visible]);
+  useEffect(() => {
+    if (!preparing) return;
+    const started = performance.now();
+    let frame = requestAnimationFrame(function check() {
+      const slot = document.querySelector(`[data-workspace-slot="${CSS.escape(preparing)}"]`);
+      const ready = !!slot?.firstElementChild && !slot.querySelector("[data-pending]");
+      if (ready || performance.now() - started > PREPARE_MS) setShown(preparing);
+      else frame = requestAnimationFrame(check);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [preparing]);
+  // A workspace that shows ends its entrance animations at once for a moment
+  // (see reset.css): they restart when display: none ends.
+  useLayoutEffect(() => {
+    if (!visible) return;
+    const root = document.documentElement;
+    root.dataset.workspaceShown = "";
+    const timer = setTimeout(() => delete root.dataset.workspaceShown, 400);
+    return () => {
+      clearTimeout(timer);
+      delete root.dataset.workspaceShown;
+    };
+  }, [visible]);
+
   // When every mounted workspace has loaded, the next one in the list loads
   // hidden while the browser is idle, until MOUNTED are ready. A first visit
   // then shows a rendered review instead of loading in front of the reviewer,
@@ -1030,10 +1071,12 @@ export function WorkspaceViews({
       );
     const { controller, disposers } = pool.get(workspace);
     return (
-      <Activity key={id} mode={id === onScreen ? "visible" : "hidden"}>
+      <Activity key={id} mode={id === visible || id === preparing ? "visible" : "hidden"}>
         <Current value={id}>
           <Lifetime value={disposers}>
-            <KeepScroll>{render(controller)}</KeepScroll>
+            <KeepScroll id={id} preparing={id === preparing}>
+              {render(controller)}
+            </KeepScroll>
           </Lifetime>
         </Current>
       </Activity>
@@ -1099,7 +1142,16 @@ export function whenIdle(run: () => void) {
  * workspace is shown, before its own effects read them. Virtualized diffs
  * measure themselves again after the first frame and re-anchor, so the saved
  * offsets apply once more after that measurement. */
-function KeepScroll({ children }: { children: ReactNode }) {
+function KeepScroll({
+  id,
+  preparing,
+  children,
+}: {
+  id: string;
+  /** Renders out of sight until it shows; it takes no input meanwhile. */
+  preparing: boolean;
+  children: ReactNode;
+}) {
   const root = useRef<HTMLDivElement>(null);
   const offsets = useRef(new Map<Element, [number, number]>());
   useLayoutEffect(() => {
@@ -1127,7 +1179,12 @@ function KeepScroll({ children }: { children: ReactNode }) {
     };
   }, []);
   return (
-    <div ref={root} style={{ display: "contents" }}>
+    <div
+      ref={root}
+      data-workspace-slot={id}
+      inert={preparing || undefined}
+      style={{ display: "contents", visibility: preparing ? "hidden" : undefined }}
+    >
       {children}
     </div>
   );

@@ -616,7 +616,12 @@ export default function BriefView({
   const citedCount = annotated?.cited.length ?? 0;
   const total = groups.length;
   return (
-    <section aria-label="Notes" {...stylex.props(styles.root)}>
+    <section
+      aria-label="Notes"
+      // A workspace shows once its notes have rendered (see WorkspaceViews).
+      data-pending={(!shown && !error) || undefined}
+      {...stylex.props(styles.root)}
+    >
       <div className="med-md-scroll med-brief-scroll" ref={pane}>
         <article ref={article} className="med-md-prose med-brief-prose">
           <header {...stylex.props(styles.meta)}>

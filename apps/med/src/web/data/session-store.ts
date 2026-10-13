@@ -332,6 +332,16 @@ export function createSessionStore() {
     }
   }
 
+  function clear() {
+    snapshot = empty;
+    threads = new Map([[ROOT, []]]);
+    where = new Map();
+    named = new Map();
+    events = [];
+    orphans = new Map();
+    tasks = new Map();
+  }
+
   function applyAll(added: Iterable<SessionEvent>) {
     batch++;
     try {
@@ -377,14 +387,16 @@ export function createSessionStore() {
       emit();
     },
     reset() {
-      snapshot = empty;
-      threads = new Map([[ROOT, []]]);
-      where = new Map();
-      named = new Map();
-      events = [];
-      orphans = new Map();
-      tasks = new Map();
+      clear();
       emit();
+    },
+    /** Replaces the thread with a new first view and notifies once, so a
+     * reconnect never shows an empty thread between the two. */
+    replace(added: Iterable<SessionEvent>) {
+      const running = snapshot.running;
+      clear();
+      snapshot = { ...empty, running };
+      applyAll(added);
     },
     /** Puts an earlier page before the updates so far. The thread builds again
      * in order, so results that waited for their calls find them. */

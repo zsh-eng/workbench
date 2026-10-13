@@ -4533,6 +4533,7 @@ export function App({
         data-selected-commit={loadedCommit}
         data-review-id={state.review?.id ?? ""}
         data-review-status={state.status}
+        data-pending={state.status === "loading" || undefined}
         data-file-count={state.files.length}
         data-active-file={activeFile?.path ?? ""}
       >

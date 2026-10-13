@@ -317,9 +317,15 @@ export function SessionPanel({
   });
   const [now, setNow] = useState(() => Date.now());
 
+  // A hidden workspace stops its stream, and showing it again connects anew.
+  // The thread stays until the stream's first view replaces it in one step,
+  // so a revisit never shows an empty pane; another session starts empty.
+  const followed = useRef<string | null>(null);
   useEffect(() => {
     const controller = new AbortController();
-    store.reset();
+    const key = `${reviewId}:${session.id}`;
+    if (followed.current !== key) store.reset();
+    followed.current = key;
     void followSession(reviewId, session.id, store, setState, controller.signal, fetcher);
     return () => controller.abort();
   }, [reviewId, session.id, store, fetcher]);
@@ -537,7 +543,12 @@ export function SessionPanel({
               : "Idle";
 
   return (
-    <section aria-label={`${agent} session`} {...stylex.props(styles.panel)}>
+    <section
+      aria-label={`${agent} session`}
+      // A workspace shows once this has its thread (see WorkspaceViews).
+      data-pending={(state.status === "connecting" && !snapshot.items.length) || undefined}
+      {...stylex.props(styles.panel)}
+    >
       <header {...stylex.props(styles.header)}>
         <Icon name={session.agent === "acp" ? "agent" : session.agent} size={14} />
         <span {...stylex.props(styles.title)} title={title ?? snapshot.title ?? `${agent} session`}>

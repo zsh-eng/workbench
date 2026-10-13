@@ -45,3 +45,13 @@ diffs-container,
   font-variant-ligatures: none;
   font-kerning: none;
 }
+
+/* A hidden workspace has display: none, and showing it again restarts its CSS
+   animations. Just after a switch, they end at once, so a thread appears as it
+   was left instead of replaying its entrances (Workspaces.tsx sets this). */
+html[data-workspace-shown] [data-pane-tree] *,
+html[data-workspace-shown] [data-pane-tree] *::before,
+html[data-workspace-shown] [data-pane-tree] *::after {
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
+}

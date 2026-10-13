@@ -97,15 +97,14 @@ export async function followSession(
             return;
           }
           if (event.event === "reset") {
-            store.reset();
+            store.replace(payload.events);
             set({
               status: "live",
               generation: (state.generation ?? 0) + 1,
               truncated: payload.truncated ?? false,
               ...(payload.start !== undefined ? { start: payload.start } : {}),
             });
-          }
-          store.applyAll(payload.events);
+          } else store.applyAll(payload.events);
           set({ idle: payload.idle, modifiedAt: payload.modifiedAt });
         },
         signal,
