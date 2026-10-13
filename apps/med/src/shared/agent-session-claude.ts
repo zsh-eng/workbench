@@ -454,7 +454,10 @@ export function createClaudeTranscriptReader(options: ClaudeReaderOptions = {}) 
               sessionUpdate: "agent_message_chunk",
               content: { type: "text", text: text(block.text)! },
               messageId,
-              ...meta({ ...(text(message.model) ? { model: text(message.model) } : {}) }),
+              ...meta({
+                ...(text(message.model) ? { model: text(message.model) } : {}),
+                ...(message.stop_reason === "end_turn" ? { endsTurn: true } : {}),
+              }),
             },
           ];
         if (block.type === "thinking" || block.type === "redacted_thinking")

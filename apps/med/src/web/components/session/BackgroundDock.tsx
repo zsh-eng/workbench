@@ -5,7 +5,8 @@ import { tokens } from "../../theme.stylex";
 import { Icon } from "../Icon";
 import { ZenContext } from "../ZenExit";
 import { motion, rowStyles } from "./session-styles";
-import { formatSeconds, isMedWait } from "./ToolCall";
+import { isMedWait } from "./thread-model";
+import { formatSeconds } from "./ToolCall";
 
 type ToolItem = Extract<SessionItem, { kind: "tool" }>;
 

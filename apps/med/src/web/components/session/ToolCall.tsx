@@ -8,6 +8,7 @@ import { useTheme } from "../../themes";
 import { diffSurfaceStyle } from "../diff-surface";
 import { Icon, type IconName } from "../Icon";
 import { motion, rowStyles } from "./session-styles";
+import { isMedWait } from "./thread-model";
 
 type ToolItem = Extract<SessionItem, { kind: "tool" }>;
 type DiffContent = Extract<ToolCallContent, { type: "diff" }>;
@@ -51,10 +52,6 @@ const commandOf = (call: ToolCallState) => {
   const input = call.rawInput as { command?: unknown } | undefined;
   return typeof input?.command === "string" ? input.command : undefined;
 };
-/** The skill's `med review wait`, in the agent's own command or a path to the CLI. */
-const MED_WAIT = /(?:^|[\s;&|(])(?:\S*\/)?med review wait\b/;
-/** The agent waits for the user's next message from Med; it does no work. */
-export const isMedWait = (call: ToolCallState) => MED_WAIT.test(commandOf(call) ?? "");
 const basename = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 /** An edit's diff scrolls past this height. */
 const DIFF_MAX_HEIGHT = 360;

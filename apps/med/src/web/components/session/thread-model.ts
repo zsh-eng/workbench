@@ -16,6 +16,14 @@ export type Unit =
   | { key: string; explore: ToolItem[] }
   | WorkUnit;
 
+/** The skill's `med review wait`, in the agent's own command or a path to the CLI. */
+const MED_WAIT = /(?:^|[\s;&|(])(?:\S*\/)?med review wait\b/;
+/** The agent waits for the user's next message from Med; it does no work. */
+export function isMedWait(call: ToolItem["call"]) {
+  const input = call.rawInput as { command?: unknown } | undefined;
+  return typeof input?.command === "string" && MED_WAIT.test(input.command);
+}
+
 /** Tool calls, with the calls of their subagents. */
 const countCalls = (list: SessionItem[]): number =>
   list.reduce((sum, item) => sum + (item.kind === "tool" ? 1 + countCalls(item.items) : 0), 0);
@@ -61,17 +69,20 @@ export function units(items: SessionItem[]): Unit[] {
   return result;
 }
 
-/** The reply that ends each turn: the last agent text before the user's next
- * message, or at the end of a finished thread. */
+/** The replies that end each turn: the last agent text before the user's next
+ * message, before the agent waits for one in `med review wait`, or at the end
+ * of a finished thread; and each text that ended the agent's own turn, since
+ * a background task's report can start more work without a prompt. */
 export function finalReplies(list: Unit[], live: boolean) {
   const result = new Set<string>();
   let open = !live;
   for (let index = list.length - 1; index >= 0; index--) {
     const unit = list[index]!;
     if (!("item" in unit)) continue;
-    if (unit.item.kind === "user") open = true;
-    else if (unit.item.kind === "agent" && open) {
-      result.add(unit.item.id);
+    const { item } = unit;
+    if (item.kind === "user" || (item.kind === "tool" && isMedWait(item.call))) open = true;
+    else if (item.kind === "agent" && (open || item.endsTurn)) {
+      result.add(item.id);
       open = false;
     }
   }

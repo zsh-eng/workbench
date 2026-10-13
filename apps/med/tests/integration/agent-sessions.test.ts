@@ -54,6 +54,28 @@ describe("Claude Code transcripts", () => {
     ]);
   });
 
+  test("a reply that ends Claude's turn says so; commentary before a tool call does not", () => {
+    const line = (uuid: string, stop: string, value: string) =>
+      JSON.stringify({
+        type: "assistant",
+        uuid,
+        timestamp: "2026-10-13T09:00:00.000Z",
+        message: { role: "assistant", stop_reason: stop, content: [{ type: "text", text: value }] },
+      });
+    const session = thread(
+      readClaudeTranscript(
+        [line("a", "tool_use", "I'll start the server."), line("b", "end_turn", "It runs.")].join(
+          "\n",
+        ),
+      ),
+    );
+    expect(session.items).toMatchObject([
+      { kind: "agent", text: "I'll start the server." },
+      { kind: "agent", text: "It runs.", endsTurn: true },
+    ]);
+    expect(session.items[0]).not.toHaveProperty("endsTurn");
+  });
+
   test("reading a growing transcript line by line gives the same thread", () => {
     const reader = createClaudeTranscriptReader();
     const store = createSessionStore();
