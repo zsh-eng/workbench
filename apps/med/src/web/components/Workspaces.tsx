@@ -58,6 +58,7 @@ import { PullWorkspaceView, pullTitle, SettlingText, type PullState } from "./Pu
 import { checkoutNameFor } from "../data/checkout-names";
 import { useThreads } from "../data/threads";
 import { ThreadSidebar, type SidebarSource } from "./shell/ThreadSidebar";
+import { NewThread } from "./shell/NewThread";
 import type { RegisteredRepository } from "../../shared/protocol";
 
 /** Workspaces kept mounted, most recently shown first. Older ones reload. */
@@ -671,6 +672,25 @@ export function WorkspaceHost({
     [],
   );
   const shell = useMemo(() => ({ sidebarVisible, toggleSidebar }), [sidebarVisible, toggleSidebar]);
+  // A new thread covers the workspaces until it starts or the reader leaves.
+  const [newThread, setNewThread] = useState(false);
+  const activeEntry = snapshot.workspaces.find((entry) => entry.id === snapshot.active);
+  const activeRepositoryId =
+    activeEntry?.kind === "repository"
+      ? activeEntry.repositoryId
+      : activeEntry?.kind === "review"
+        ? threadList?.threads.find((thread) => thread.id === activeEntry.reviewId)?.repository?.id
+        : undefined;
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey) return;
+      if (!event.altKey || event.code !== "KeyN") return;
+      event.preventDefault();
+      setNewThread(true);
+    };
+    window.addEventListener("keydown", keydown);
+    return () => window.removeEventListener("keydown", keydown);
+  }, []);
   // ⌘B anywhere, such as in a vault; a review handles it first.
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
@@ -711,7 +731,12 @@ export function WorkspaceHost({
                           sources={sources}
                           snapshot={snapshot}
                           loaded={!!threadList}
-                          onOpen={actions.open}
+                          onOpen={(input) => {
+                            setNewThread(false);
+                            actions.open(input);
+                          }}
+                          onNewThread={() => setNewThread(true)}
+                          newThread={newThread}
                           onHide={toggleSidebar}
                           onSources={() => {
                             history.pushState(null, "", "/sources");
@@ -763,7 +788,21 @@ export function WorkspaceHost({
                         </ActionTooltip>
                       </div>
                     )}
-                    {children}
+                    <div inert={newThread || undefined} {...stylex.props(styles.shellLayer)}>
+                      {children}
+                    </div>
+                    {newThread && (
+                      <NewThread
+                        list={threadList}
+                        fetcher={fetcher}
+                        repositoryId={activeRepositoryId}
+                        onCancel={() => setNewThread(false)}
+                        onStarted={(review) => {
+                          setNewThread(false);
+                          actions.open({ kind: "review", reviewId: review.id, title: review.title });
+                        }}
+                      />
+                    )}
                   </div>
                 </div>
               </ShellContext>
@@ -1797,6 +1836,7 @@ const styles = stylex.create({
   },
   // With the sidebar hidden, a workspace starts below the button that shows it.
   shellViewsAlone: {},
+  shellLayer: { position: "absolute", inset: 0 },
   shellShow: {
     position: "fixed",
     zIndex: 20,

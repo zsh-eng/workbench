@@ -5,6 +5,7 @@ import { groupThreads, shortAge } from "../../data/threads";
 import type { WorkspaceInput, WorkspaceSnapshot } from "../../data/workspaces";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon, type IconName } from "../Icon";
+import { ShortcutKeys } from "../ShortcutKeys";
 import { ToolButton } from "../ToolButton";
 
 const SEEN_KEY = "med:thread-seen";
@@ -78,9 +79,12 @@ export function ThreadSidebar({
   loaded,
   onOpen,
   onNewThread,
+  newThread = false,
   onHide,
   onSources,
 }: {
+  /** The New thread view shows. */
+  newThread?: boolean;
   threads: readonly Thread[];
   sources: readonly SidebarSource[];
   snapshot: WorkspaceSnapshot;
@@ -90,8 +94,10 @@ export function ThreadSidebar({
   onHide(): void;
   onSources(): void;
 }) {
-  const active = snapshot.workspaces.find((entry) => entry.id === snapshot.active);
-  const currentThread = active?.kind === "review" ? active.reviewId : null;
+  const active = newThread
+    ? undefined
+    : snapshot.workspaces.find((entry) => entry.id === snapshot.active);
+  const currentThread = !newThread && active?.kind === "review" ? active.reviewId : null;
   const isUnread = useUnread(threads, currentThread);
   const groups = useMemo(() => groupThreads(threads), [threads]);
   // Ages move while the list shows.
@@ -135,20 +141,19 @@ export function ThreadSidebar({
           aria-label="Hide sidebar"
           onClick={onHide}
         />
-        {onNewThread && (
-          <ToolButton label="New thread" shortcut="Alt+N" icon="edit" onClick={onNewThread} />
-        )}
       </div>
       <div {...stylex.props(styles.scroll)}>
         {onNewThread && (
           <button
             type="button"
             data-sidebar-row=""
+            aria-current={newThread ? "page" : undefined}
             onClick={onNewThread}
-            {...stylex.props(styles.row, styles.newRow)}
+            {...stylex.props(styles.row, styles.newRow, newThread && styles.current)}
           >
             <Icon name="plus" size={14} />
             <span {...stylex.props(styles.title)}>New thread</span>
+            <ShortcutKeys value="Alt+N" />
           </button>
         )}
         {loaded && !threads.length && (

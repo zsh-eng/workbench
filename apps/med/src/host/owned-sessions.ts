@@ -185,7 +185,7 @@ const claudeInitSchema = z
 export function startClaude(
   agent: RunnableAgent,
   cwd: string,
-  options: { sessionId?: string } = {},
+  options: { sessionId?: string; systemPrompt?: string } = {},
 ): OwnedRunner {
   const sessionId = options.sessionId ?? randomUUID();
   const session: AgentSession = { agent: "claude", id: sessionId, cwd };
@@ -378,6 +378,7 @@ export function startClaude(
       "--permission-prompt-tool",
       "stdio",
       ...(resume ? ["--resume", sessionId] : ["--session-id", sessionId]),
+      ...(options.systemPrompt ? ["--append-system-prompt", options.systemPrompt] : []),
       ...(chosen.model !== "default" ? ["--model", chosen.model] : []),
       ...(chosen.effort !== "default" ? ["--effort", chosen.effort] : []),
       ...(chosen.mode !== "default" ? ["--permission-mode", chosen.mode] : []),
@@ -976,13 +977,18 @@ export class OwnedSessions {
       available,
     }));
   }
-  async start(presetId: string, cwd: string): Promise<OwnedRunner> {
+  /** Starts an agent in `cwd`. Claude Code adds `systemPrompt` to its own. */
+  async start(
+    presetId: string,
+    cwd: string,
+    { systemPrompt }: { systemPrompt?: string } = {},
+  ): Promise<OwnedRunner> {
     const agent = (await this.options.agents()).find((entry) => entry.id === presetId);
     if (!agent?.available)
       throw new HostError("agent-unavailable", "This agent is not installed here.", 404);
     const runner =
       agent.kind === "claude"
-        ? startClaude(agent, cwd)
+        ? startClaude(agent, cwd, systemPrompt ? { systemPrompt } : {})
         : startAcp(agent, cwd, this.options.logDirectory);
     const id = runner.session.id;
     this.runners.set(id, runner);

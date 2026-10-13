@@ -13,7 +13,8 @@ import { localPathSchema } from "../shared/local-file";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { lstat, mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { lstat, mkdir, mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
 import { basename, dirname, extname, resolve, relative, isAbsolute, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -69,6 +70,7 @@ import { FileSymbolService } from "./search/symbols";
 import { type SearchOptions } from "./search/service";
 import { RepositoryRegistry } from "./repository/registry";
 import { removeWorktree } from "./repository/worktrees";
+import { runProcess } from "./runtime/process";
 import { CodexReviews } from "./codex-reviews";
 import { SavedReviewStore } from "./saved-reviews";
 import {
@@ -82,7 +84,13 @@ import { findAgents, OwnedSessions, type RunnableAgent } from "./owned-sessions"
 import { createAgentStatus } from "./agent-status";
 import { createSessionSummaries } from "./session-summaries";
 import { ownedActionSchema, ownedStartSchema } from "../shared/owned-session";
-import type { Thread, ThreadList } from "../shared/threads";
+import {
+  threadSlug,
+  threadStartSchema,
+  threadTitle,
+  type Thread,
+  type ThreadList,
+} from "../shared/threads";
 import {
   agentMessageInputSchema,
   deliveredText,
@@ -1298,6 +1306,63 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               await readBody(request, MAX_BRIEF_BODY + MAX_GUIDE_BODY),
             );
             send(await savedReviews.create(input, captureTarget, assertRequestAccess));
+            return;
+          }
+          // A new thread: a branch in a new worktree (or the checkout itself),
+          // its review, and an agent that starts on the task there.
+          if (url.pathname === "/api/threads" && request.method === "POST") {
+            const input = threadStartSchema.parse(await readBody(request));
+            const entry = registry.snapshot().find((item) => item.id === input.repositoryId);
+            if (!entry)
+              throw new HostError("repository-not-found", "Add this repository to Med first.", 404);
+            const title = input.title ?? threadTitle(input.prompt);
+            const slug = threadSlug(title);
+            let cwd = await requireRepo(entry.path);
+            let key = `${slug}-${randomUUID().slice(0, 4)}`;
+            if (input.worktree) {
+              const git = (args: string[]) =>
+                runProcess("git", args, { cwd: entry.path, timeoutMs: 120_000 });
+              const folder = join(
+                options.stateDir ?? temporaryState!,
+                "worktrees",
+                `${entry.name}-${entry.id.slice(0, 8)}`,
+              );
+              await mkdir(folder, { recursive: true });
+              const base = await realpath(folder);
+              const branches = new Set(
+                (await git(["branch", "--format=%(refname:short)"])).stdout
+                  .toString()
+                  .split("\n"),
+              );
+              let name = slug;
+              for (let n = 2; branches.has(name) || existsSync(join(base, name)); n++)
+                name = `${slug}-${n}`;
+              assertRequestAccess();
+              await git(["worktree", "add", "-b", name, join(base, name)]);
+              await registry.refreshOwner(entry.path);
+              cwd = await requireRepo(join(base, name));
+              key = name;
+            }
+            assertRequestAccess();
+            const runner = await ownedSessions.start(input.preset, cwd, {
+              systemPrompt: [
+                `You work in a Med thread named "${title}", in ${cwd}.`,
+                "Med shows the user your changes there as you work, and sends you their messages.",
+                `When a piece of work is ready, hand it off for review with \`med review create --key ${key} --working --title "<2-4 words>" --brief -\` and a short Markdown brief on standard input; the key keeps it in this thread.`,
+              ].join(" "),
+            });
+            const review = await savedReviews.create(
+              {
+                title,
+                key,
+                sessions: [runner.session],
+                targets: [{ repo: cwd, comparison: { kind: "working" } }],
+              },
+              captureTarget,
+              assertRequestAccess,
+            );
+            await runner.prompt(input.prompt);
+            send({ review });
             return;
           }
           const browsingNotes = /^\/api\/reviews\/([^/]+)\/browsing\/([a-f0-9]{64})\/notes$/.exec(
