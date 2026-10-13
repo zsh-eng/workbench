@@ -105,6 +105,11 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     }
   }
   if (message.type !== "user") return;
+  // Bare mode never reads the signed-in account.
+  if (process.env.CLAUDE_CODE_SIMPLE === "1") {
+    send({ type: "result", subtype: "success", is_error: true, result: "Not logged in" });
+    return;
+  }
   const content = message.message.content;
   // A prompt with images is a list of blocks, as the Claude API takes it.
   const blocks = typeof content === "string" ? [{ type: "text", text: content }] : content;

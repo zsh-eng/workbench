@@ -89,13 +89,26 @@ export class SessionLog {
   }
 }
 
-// Variables that tie a process to the Claude Code session that started Med.
+// Variables that tie a process to the Claude Code session or app that started
+// Med. An agent that Med starts is a session of its own. CLAUDE_CODE_SIMPLE
+// is bare mode, which ignores the user's login.
 const SESSION_VARIABLES = [
   "CLAUDECODE",
   "CLAUDE_CODE_ENTRYPOINT",
   "CLAUDE_CODE_SESSION_ID",
   "CLAUDE_CODE_MESSAGING_SOCKET",
+  "CLAUDE_CODE_MESSAGING_TOKEN",
   "CLAUDE_CODE_SSE_PORT",
+  "CLAUDE_CODE_SIMPLE",
+  "CLAUDE_CODE_CHILD_SESSION",
+  "CLAUDE_CODE_HOST_SESSION_ID",
+  "CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH",
+  "CLAUDE_CODE_SESSION_ATTENDED",
+  "CLAUDE_CODE_EXECPATH",
+  "CLAUDE_CODE_DESKTOP_APP_VERSION",
+  "CLAUDE_AGENT_SDK_VERSION",
+  "CLAUDE_AGENT_SDK_MCP_NO_PREFIX",
+  "CLAUDE_PID",
 ];
 function agentEnvironment() {
   const env = { ...process.env };
