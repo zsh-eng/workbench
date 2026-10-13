@@ -3957,7 +3957,7 @@ export function App({
           {state.savedView && !zen && state.savedDrift && state.savedDrift !== dismissedDrift && (
             <div role="status" {...stylex.props(styles.notice, styles.drift)}>
               <span {...stylex.props(styles.driftText)}>
-                The worktree has changes that this review does not show.
+                The worktree changed after this review.
               </span>
               <span {...stylex.props(ui.row)}>
                 <button

@@ -2272,7 +2272,9 @@ describe("review brief", () => {
       iterationBriefs: ["# Only round\n"],
       drift: true,
     });
-    const bar = page.getByRole("status").filter({ hasText: "The worktree has changes" });
+    const bar = page
+      .getByRole("status")
+      .filter({ hasText: "The worktree changed after this review" });
     await expect.element(bar).toBeVisible();
     // The live changes replace the capture until Return to review.
     await bar.getByRole("button", { name: "Show live changes" }).click();
