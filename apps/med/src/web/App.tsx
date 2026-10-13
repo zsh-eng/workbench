@@ -1704,9 +1704,9 @@ export function App({
         return;
       }
       const optionKey = event.code || `Key${event.key.toUpperCase()}`;
-      // These Alt keys also work from the editor, so ⌥W, ⌥Z, and ⌥1–9 do not type there.
+      // These Alt keys also work from the editor, so ⌥W, ⌥P, ⌥Z, and ⌥1–9 do not type there.
       const fromEditor =
-        (optionKey === "KeyW" || optionKey === "KeyZ" || /^Digit[1-9]$/.test(optionKey)) &&
+        (["KeyW", "KeyP", "KeyZ"].includes(optionKey) || /^Digit[1-9]$/.test(optionKey)) &&
         event
           .composedPath()
           .some((node) => node instanceof HTMLElement && node.classList.contains("cm-content"));
@@ -1867,6 +1867,32 @@ export function App({
         event.preventDefault();
         event.stopPropagation();
         openFind();
+        return;
+      }
+      // In a file, / starts Vim's search also when the file does not have
+      // focus, such as after a click on its tab. The side panes keep the key.
+      if (
+        event.key === "/" &&
+        !editing &&
+        !modal &&
+        !visibleElement('[role="dialog"]') &&
+        fileState.active !== "changes" &&
+        fileState.file?.kind === "text" &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event
+          .composedPath()
+          .some(
+            (node) =>
+              node instanceof HTMLElement &&
+              (node.matches('[data-file-pane="main"][tabindex="0"]') ||
+                node.hasAttribute("data-pane")),
+          )
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        fileNavigation.current?.("/");
         return;
       }
       if (

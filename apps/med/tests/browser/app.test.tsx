@@ -1131,6 +1131,16 @@ describe("graphical review", () => {
     // From alpha.ts's editor too, where Option+3 would otherwise type £.
     const editor = page.getByRole("textbox", { name: "Edit src/alpha.ts", exact: true });
     await expect.element(editor).toBeVisible();
+    // Option+P keeps the preview tab, also from its editor, where it would type π.
+    key({ key: "π", code: "KeyP", altKey: true }, editor.element());
+    await expect.poll(() => title("alpha.ts")).toMatch(/^src\/alpha\.ts(?!.*Preview)/);
+    expect(editor.element().textContent).not.toContain("π");
+    // / starts Vim's search in the file, also from outside it.
+    (document.activeElement as HTMLElement | null)?.blur();
+    key({ key: "/", code: "Slash" });
+    await expect.element(page.getByRole("textbox", { name: "Edit src/alpha.ts" })).toBeVisible();
+    await expect.poll(() => document.activeElement?.closest(".cm-vim-panel")).not.toBeNull();
+    key({ key: "Escape", code: "Escape" }, document.activeElement!);
     key({ key: "£", code: "Digit3", altKey: true }, editor.element());
     await selected("beta.ts");
     key({ key: "¡", code: "Digit1", altKey: true });
