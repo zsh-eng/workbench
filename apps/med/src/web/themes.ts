@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from "react";
+import type { BundledTheme } from "shiki";
 import { codeVariables } from "./code-colors";
+import { editorThemes } from "./editor-themes";
 
 export interface ThemePalette {
   canvas: string;
@@ -94,29 +96,34 @@ export interface SyntaxTheme {
   rules: { scope: string[]; color?: string; style?: "italic" | "bold" }[];
 }
 
+/** The syntax themes that @pierre/theme adds to Shiki's in Pierre's resolver. */
+type PierreSyntax = `pierre-${"light" | "dark"}${
+  | ""
+  | "-soft"
+  | "-vibrant"
+  | "-protanopia-deuteranopia"
+  | "-tritanopia"}`;
+
 export interface Theme {
   id: string;
   label: string;
+  /** The picker groups themes by family. */
   family: string;
   appearance: "dark" | "light";
-  syntax:
-    | "pierre-dark"
-    | "pierre-light"
-    | "vitesse-dark"
-    | "vitesse-light"
-    | "rose-pine"
-    | "rose-pine-moon"
-    | "rose-pine-dawn"
-    | "tokyo-night"
-    | "dark-plus"
-    | "light-plus"
-    | SyntaxTheme;
+  /** A syntax theme that Pierre bundles, or one written for Med. */
+  syntax: PierreSyntax | BundledTheme | SyntaxTheme;
   pierreTheme: string;
   source: string | null;
   aesthetic: Aesthetic;
   palette: ThemePalette;
   code: CodePalette;
 }
+
+/** An editor theme as scripts/generate-editor-themes.ts writes it. */
+export type EditorTheme = Omit<Theme, "pierreTheme" | "aesthetic" | "palette" | "syntax"> & {
+  syntax: PierreSyntax | BundledTheme;
+  palette: Omit<ThemePalette, "shadow">;
+};
 
 // Layered shadows: a tight contact shadow, a soft ambient one, and (dark only)
 // a one-pixel top highlight that separates raised surfaces from the canvas.
@@ -649,7 +656,7 @@ export const aesthetics = {
 // Med Dawn and Med Night are Med's own, from its website's painting; Med Night
 // is the default. Graphite is an original neutral palette, not an official
 // Vercel/Geist theme.
-export const themes: readonly Theme[] = [
+const tunedThemes: readonly Theme[] = [
   {
     id: "med-night",
     label: "Med Night",
@@ -1460,6 +1467,39 @@ export const themes: readonly Theme[] = [
     },
   },
 ];
+
+// Pierre's own themes and popular editor themes, with palettes generated from
+// their editor colors. They use Med's aesthetic.
+export const themes: readonly Theme[] = [
+  ...tunedThemes,
+  ...editorThemes.map((theme): Theme => ({
+    ...theme,
+    pierreTheme: `med-${theme.id}`,
+    aesthetic: aesthetics.med,
+    palette: { ...theme.palette, shadow: theme.appearance === "dark" ? darkShadow : lightShadow },
+  })),
+];
+
+// Product themes first, then editor themes by name.
+const FAMILY_ORDER = ["Med", "Pierre", "Neutral", "Claude", "Codex", "Cursor", "Linear", "Paper"];
+
+/** Themes by family, for the picker: light before dark within a family. */
+export const themeGroups: readonly { family: string; items: readonly Theme[] }[] = [
+  ...new Set(themes.map((theme) => theme.family)),
+]
+  .sort((a, b) => {
+    const rank = (family: string) => {
+      const index = FAMILY_ORDER.indexOf(family);
+      return index < 0 ? FAMILY_ORDER.length : index;
+    };
+    return rank(a) - rank(b) || a.localeCompare(b);
+  })
+  .map((family) => ({
+    family,
+    items: themes
+      .filter((theme) => theme.family === family)
+      .sort((a, b) => Number(a.appearance === "dark") - Number(b.appearance === "dark")),
+  }));
 
 export const THEME_STORAGE_KEY = "med:theme:v1";
 export const defaultTheme = themes[0];

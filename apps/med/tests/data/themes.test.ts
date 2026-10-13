@@ -61,7 +61,8 @@ describe("theme choices", () => {
       expect(resolved.settings.length).toBeGreaterThan(1);
       const upstream =
         typeof theme.syntax === "string" ? (await resolveTheme(theme.syntax)).settings : null;
-      const colors = resolved.settings.map((rule) => rule.settings.foreground?.toLowerCase());
+      // Vesper has a rule without settings; Shiki skips it.
+      const colors = resolved.settings.map((rule) => rule.settings?.foreground?.toLowerCase());
       const expected =
         typeof theme.syntax === "string"
           ? colors

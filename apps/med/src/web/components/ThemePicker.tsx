@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
 import { Combobox } from "@base-ui/react/combobox";
 import * as stylex from "@stylexjs/stylex";
-import { themeController, themes, useTheme, type Theme } from "../themes";
+import { themeController, themeGroups, useTheme, type Theme } from "../themes";
 import { picked, tokens, ui } from "../theme.stylex";
 
 export interface ThemePickerProps {
@@ -35,7 +35,7 @@ export function ThemePicker({ open, onOpenChange }: ThemePickerProps) {
       inline
       open={open}
       onOpenChange={setOpen}
-      items={themes}
+      items={themeGroups}
       value={saved}
       inputValue={query}
       onInputValueChange={(value, details) => {
@@ -85,35 +85,50 @@ export function ThemePicker({ open, onOpenChange }: ThemePickerProps) {
               <div {...stylex.props(styles.empty)}>No themes found.</div>
             </Combobox.Empty>
             <Combobox.List {...stylex.props(styles.list)} aria-label="Themes">
-              {(theme: Theme) => (
-                <Combobox.Item
-                  key={theme.id}
-                  value={theme}
-                  onFocus={() => themeController.preview(theme.id)}
-                  className={(state) =>
-                    stylex.props(styles.item, state.highlighted && [styles.highlighted, picked])
-                      .className
-                  }
+              {(group: (typeof themeGroups)[number]) => (
+                <Combobox.Group
+                  key={group.family}
+                  items={group.items}
+                  {...stylex.props(styles.group)}
                 >
-                  <span {...stylex.props(styles.swatches)} aria-hidden="true">
-                    {[
-                      theme.palette.canvas,
-                      theme.palette.accent,
-                      theme.palette.green,
-                      theme.palette.red,
-                    ].map((color, index) => (
-                      <span key={index} {...stylex.props(styles.swatch(color))} />
-                    ))}
-                  </span>
-                  <span {...stylex.props(styles.name)}>{theme.label}</span>
-                  <span {...stylex.props(styles.kind)}>{theme.appearance}</span>
-                  <span
-                    {...stylex.props(styles.saved)}
-                    aria-label={saved.id === theme.id ? "Saved theme" : undefined}
-                  >
-                    {saved.id === theme.id ? "✓" : ""}
-                  </span>
-                </Combobox.Item>
+                  <Combobox.GroupLabel {...stylex.props(styles.groupLabel)}>
+                    {group.family}
+                  </Combobox.GroupLabel>
+                  <Combobox.Collection>
+                    {(theme: Theme) => (
+                      <Combobox.Item
+                        key={theme.id}
+                        value={theme}
+                        onFocus={() => themeController.preview(theme.id)}
+                        className={(state) =>
+                          stylex.props(
+                            styles.item,
+                            state.highlighted && [styles.highlighted, picked],
+                          ).className
+                        }
+                      >
+                        <span {...stylex.props(styles.swatches)} aria-hidden="true">
+                          {[
+                            theme.palette.canvas,
+                            theme.palette.accent,
+                            theme.palette.green,
+                            theme.palette.red,
+                          ].map((color, index) => (
+                            <span key={index} {...stylex.props(styles.swatch(color))} />
+                          ))}
+                        </span>
+                        <span {...stylex.props(styles.name)}>{theme.label}</span>
+                        <span {...stylex.props(styles.kind)}>{theme.appearance}</span>
+                        <span
+                          {...stylex.props(styles.saved)}
+                          aria-label={saved.id === theme.id ? "Saved theme" : undefined}
+                        >
+                          {saved.id === theme.id ? "✓" : ""}
+                        </span>
+                      </Combobox.Item>
+                    )}
+                  </Combobox.Collection>
+                </Combobox.Group>
               )}
             </Combobox.List>
             <div {...stylex.props(styles.footer)}>
@@ -204,6 +219,15 @@ const styles = stylex.create({
     paddingBlock: 6,
     outline: "none",
   },
+  group: { paddingBottom: 4 },
+  groupLabel: {
+    paddingTop: 8,
+    paddingBottom: 4,
+    paddingInline: 10,
+    color: tokens.faint,
+    fontSize: 10.5,
+    fontWeight: 500,
+  },
   item: {
     display: "flex",
     alignItems: "center",
@@ -216,7 +240,14 @@ const styles = stylex.create({
     outline: "none",
   },
   highlighted: { backgroundColor: tokens.pick, color: tokens.selectedText },
-  name: { flex: "1", fontSize: 12 },
+  name: {
+    flex: "1",
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    fontSize: 12,
+  },
   kind: { color: tokens.muted, fontSize: 10 },
   saved: { width: 12, color: tokens.accent, fontSize: 12 },
   swatches: { display: "flex", gap: 3, alignItems: "center" },

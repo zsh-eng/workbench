@@ -6,6 +6,12 @@ The picker follows Zed's preview / confirm / dismiss behavior. No Zed code is co
 - Vitesse by Anthony Fu: https://github.com/antfu/vscode-theme-vitesse
 - Rosé Pine: https://rosepinetheme.com/palette/
 - Tokyo Night: https://github.com/folke/tokyonight.nvim/tree/main/lua/tokyonight/colors
+- Pierre Light, Dark, Soft, Vibrant, and the color-blind variants: `@pierre/theme` 2.0.0 (Apache-2.0), which `@pierre/diffs` already depends on.
+- GitHub, Light+ and Dark+, Catppuccin, One, Solarized, Gruvbox, Everforest, Kanagawa, Ayu, Night Owl, Min, Nord, Dracula, Monokai, Poimandres, Vesper, Houston, and Vitesse Black: the Shiki builds in `@shikijs/themes` 4.4.3, each under its own author's license.
+
+## Generated editor themes
+
+`scripts/generate-editor-themes.ts` writes `src/web/editor-themes.ts` from the Pierre and Shiki theme files that Pierre already bundles. It copies no syntax rules: Pierre loads each theme's own definition when it is chosen. The script reads a few VS Code `colors` for Med's palette (`editor.background`, `editor.foreground`, `sideBar.background`, borders, `textLink.foreground` or `focusBorder`, Git decoration and terminal colors) and the code colors under the same keys as the tuned themes. A key that a theme leaves unset, or sets too close to the canvas, is mixed from its text and canvas, and status colors are moved toward the text until they read at 3:1. Display P3 colors (Pierre Vibrant) are converted to sRGB. Where a theme's keys pick a gray or a comment color for its accent, the script names the theme's signature color instead (Solarized blue, Night Owl blue and red, Dracula purple and yellow, Monokai cyan and pink). These themes use Med's own aesthetic.
 - Claude Light and Dark: the Claude desktop app's Code tab, which ships `claude-light` and `claude-dark` editor themes and design-system tokens for diffs (Claude 2.31226, read on 2026-10-09).
 - Codex Light and Dark: the Codex desktop app's Codex Light and Codex Dark code themes and default appearance values (Codex 26.930, read on 2026-10-09). Chrome values are computed from the app's own formulas.
 - Cursor Light and Dark: Cursor 3.12's built-in theme-cursor extension, from public copies such as https://github.com/evanlong-me/cursor-themes-vscode (commit d6cd033f).
@@ -21,7 +27,7 @@ A theme family also sets fonts, a corner scale, hairlines, selection, the primar
 - Cursor: VS Code's workbench conventions that Cursor keeps: the system font, small corners, and uppercase section headers.
 - Linear: the linear.app stylesheet's `--font-regular` (Inter Variable), `--font-weight-medium` 510, radii 4–12 px, and indigo brand fill.
 - Paper: Paper's mono interface as the user supplied it in a screenshot of Paper's "hello-mono" file: Paper Mono throughout, nearly square corners, light accent outlines, a solid accent selection with white text, uppercase tracked accent labels, accent-filled segments, and no shadows.
-- Graphite, Rosé Pine, Tokyo Night, and Vitesse use Med's own aesthetic: Geist, soft corners, and a tinted selection.
+- Graphite, Rosé Pine, Tokyo Night, Vitesse, and the generated editor themes use Med's own aesthetic: Geist, soft corners, and a tinted selection.
 
 The application maps these palettes to its own semantic surface tokens. Pierre loads its bundled Shiki syntax definitions on demand; no new theme package is installed. Claude, Codex, and Cursor have no Shiki build, so `themes.ts` maps their syntax colors to Med's own TextMate scope rules; no theme file is copied.
 
