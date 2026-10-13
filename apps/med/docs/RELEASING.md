@@ -10,11 +10,11 @@ From `apps/med`:
 
 ```sh
 bun scripts/release-macos.ts /tmp/med-release
-MED_EXECUTABLE=/tmp/med-release/med-v0.3.0-macos-arm64/med node scripts/validate-editor-interactions.mjs
-MED_EXECUTABLE=/tmp/med-release/med-v0.3.0-macos-arm64/med node scripts/validate-media.mjs
-MED_EXECUTABLE=/tmp/med-release/med-v0.3.0-macos-arm64/med node scripts/validate-service.mjs
-MED_EXECUTABLE=/tmp/med-release/med-v0.3.0-macos-arm64/med node scripts/validate-markdown-links.mjs
-MED_EXECUTABLE=/tmp/med-release/med-v0.3.0-macos-arm64/med node scripts/validate-review-links.mjs
+MED_EXECUTABLE=/tmp/med-release/med-v0.4.0-macos-arm64/med node scripts/validate-editor-interactions.mjs
+MED_EXECUTABLE=/tmp/med-release/med-v0.4.0-macos-arm64/med node scripts/validate-media.mjs
+MED_EXECUTABLE=/tmp/med-release/med-v0.4.0-macos-arm64/med node scripts/validate-service.mjs
+MED_EXECUTABLE=/tmp/med-release/med-v0.4.0-macos-arm64/med node scripts/validate-markdown-links.mjs
+MED_EXECUTABLE=/tmp/med-release/med-v0.4.0-macos-arm64/med node scripts/validate-review-links.mjs
 ```
 
 The script checks types, builds the UI, compiles the executable, checks its
@@ -34,7 +34,7 @@ from the release with tag `med-v<version>`. It takes the newest plain
 `med-v<x.y.z>` tag from the release list, so a release-candidate tag such as
 `med-v0.2.0-rc.1` is skipped. Keep these names when changing the release script.
 
-Publish only when authorized. Use Med-specific tags (`med-v0.3.0`) because this
+Publish only when authorized. Use Med-specific tags (`med-v0.4.0`) because this
 repository also releases other apps. Tag the exact `BUILD.json` commit, push the
 tag without force, and attach the tarball and `SHA256SUMS` to a GitHub release.
 Set `--latest=false` so a Med release does not replace another app's latest marker.
