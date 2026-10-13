@@ -43,7 +43,12 @@ import {
   pushRequestSchema,
   stageRequestSchema,
 } from "../shared/git-actions";
-import { loadCommitDetails, loadHistory, resolveRepository } from "./repository/history";
+import {
+  loadCommitDetails,
+  loadHistory,
+  loadRangeCommits,
+  resolveRepository,
+} from "./repository/history";
 import { loadPullRequestComments } from "./repository/pull-request";
 import { ReviewService } from "./repository/review";
 import { HostError } from "./runtime/errors";
@@ -141,6 +146,8 @@ function revealInFileManager(path: string) {
 const MAX_BODY = 128 * 1024;
 // A brief holds up to 100,000 characters; UTF-8 can need four bytes for one.
 const MAX_BRIEF_BODY = 512 * 1024;
+// A guide holds up to 200,000 characters of JSON.
+const MAX_GUIDE_BODY = 1024 * 1024;
 // A message to an agent can hold ten images of 5 MB, in base64.
 const MAX_AGENT_MESSAGE_BODY = 72 * 1024 * 1024;
 const MIME: Record<string, string> = {
@@ -1187,6 +1194,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 throw error;
               }
             }
+            // A range keeps its commits, so the Guide can show them one by one.
+            const commits =
+              review.comparison.kind === "range"
+                ? await loadRangeCommits(repo, review.base, review.head, abort.signal)
+                : undefined;
             abort.signal.throwIfAborted();
             if (!owner.valid())
               throw new HostError(
@@ -1201,6 +1213,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               review,
               sources,
               images,
+              ...(commits ? { commits } : {}),
             };
           };
           if (url.pathname === "/api/reviews" && request.method === "POST") {
@@ -1210,7 +1223,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 "Start med with Git repositories to create a review.",
                 422,
               );
-            const input = savedReviewCreateSchema.parse(await readBody(request, MAX_BRIEF_BODY));
+            // The brief and the guide arrive in one body.
+            const input = savedReviewCreateSchema.parse(
+              await readBody(request, MAX_BRIEF_BODY + MAX_GUIDE_BODY),
+            );
             send(await savedReviews.create(input, captureTarget, assertRequestAccess));
             return;
           }
@@ -1331,7 +1347,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           const savedRoute =
-            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes)|\/(feedback|clear|brief|brief-comments|pins|iterations|delete-notes|details|pull-request|codex-reviews))?$/.exec(
+            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes)|\/(feedback|clear|brief|guide|brief-comments|pins|iterations|delete-notes|details|pull-request|codex-reviews))?$/.exec(
               url.pathname,
             );
           if (savedRoute) {
@@ -1427,6 +1443,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 .parse(await readBody(request, MAX_BRIEF_BODY));
               assertRequestAccess();
               send(await savedReviews.setBrief(id!, input.brief, assertRequestAccess));
+              return;
+            }
+            if (request.method === "POST" && action === "guide") {
+              const input = z
+                .object({ guide: z.unknown() })
+                .parse(await readBody(request, MAX_GUIDE_BODY));
+              assertRequestAccess();
+              send(await savedReviews.setGuide(id!, input.guide ?? null, assertRequestAccess));
               return;
             }
             if (request.method === "POST" && action === "brief-comments") {

@@ -1,5 +1,11 @@
 import { z } from "zod";
 import { comparisonSchema, type ReviewResponse, type SourceResponse } from "./protocol";
+import {
+  reviewGuideSchema,
+  savedCommitSchema,
+  savedGuideSchema,
+  type SavedCommit,
+} from "./review-guide";
 
 export const pullRequestUrlSchema = z
   .string()
@@ -131,6 +137,8 @@ export const savedReviewCreateSchema = z.object({
   /** The PR's own title, read with gh. The review header shows it. */
   pullRequestTitle: z.string().trim().min(1).max(200).optional(),
   brief: briefTextSchema.optional(),
+  /** Segments to read the change in; see review-guide.ts. */
+  guide: reviewGuideSchema.optional(),
   targets: z
     .array(
       z.object({
@@ -156,6 +164,10 @@ export const savedReviewTargetSchema = z.object({
   head: z.string(),
   captured: z.boolean(),
   commentReviewId: z.string().optional(),
+  /** A range's commits, oldest first, so the Guide can show them one by one. */
+  commits: z.array(savedCommitSchema).optional(),
+  /** The range has more commits than `commits` keeps. */
+  moreCommits: z.boolean().optional(),
 });
 export type SavedReviewTarget = z.infer<typeof savedReviewTargetSchema>;
 /** One round of agent work: the comparisons it captured and its brief. */
@@ -164,6 +176,7 @@ export const savedIterationSchema = z.object({
   createdAt: z.string(),
   targetIds: z.array(z.string()),
   brief: savedBriefSchema.optional(),
+  guide: savedGuideSchema.optional(),
   pins: z.array(savedPinSchema).optional(),
   /** The reader started these notes: they begin empty, without the brief of
    * an iteration before them. */
@@ -187,6 +200,8 @@ export const savedReviewSchema = z.object({
   /** The PR's own title, shown in the review header in place of the title. */
   pullRequestTitle: z.string().optional(),
   brief: savedBriefSchema.optional(),
+  /** The guide of a review without iterations; otherwise each iteration has its own. */
+  guide: savedGuideSchema.optional(),
   /** Pins of a review without iterations; otherwise each iteration has its own. */
   pins: z.array(savedPinSchema).optional(),
   /** Comments on passages of the Notes. `commentCount` counts them. */
@@ -216,6 +231,7 @@ export const savedFeedbackSchema = z.object({
 });
 export type SavedFeedback = z.infer<typeof savedFeedbackSchema>;
 export interface CapturedReviewTarget {
+  commits?: { list: SavedCommit[]; more: boolean };
   images?: { path: string; side: "old" | "new"; mime: string; data: string }[];
   repositoryId: string;
   repo: string;

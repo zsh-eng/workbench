@@ -152,6 +152,67 @@ Med reads a session's folder from its transcript in `~/.claude` or `~/.codex`.
 Without a transcript, it records the command's folder. A review keeps its 32
 newest sessions.
 
+### Attach a guide
+
+A guide splits the review into segments that the reader checks one at a time.
+Write it in JSON: a short summary of the whole change, then up to 40 segments.
+Each segment has a title, an optional kind, a summary in Markdown, its files,
+and your comments on lines.
+
+```json
+{
+  "summary": "The parser recovers from a bad token and reports every error.",
+  "segments": [
+    {
+      "title": "Recovery in the parser",
+      "kind": "feature",
+      "summary": "`parse` skips to the next statement after an error.",
+      "files": ["src/parse.ts", "src/recover/"],
+      "comments": [
+        {
+          "file": "src/parse.ts",
+          "line": 42,
+          "endLine": 58,
+          "kind": "risk",
+          "body": "Callers that stop at the first error now see all of them."
+        }
+      ]
+    },
+    { "title": "Tests", "kind": "test", "files": ["tests/**"] }
+  ]
+}
+```
+
+- `files` takes paths, folders that end in `/`, and globs with `*` and `**`.
+  Put the segments in reading order. Files that no segment names show in a
+  last "Other changes" segment.
+- Kinds are `feature`, `fix`, `refactor`, `perf`, `test`, `docs`, `config`, and
+  `chore`.
+- A comment has `file`, `line`, an optional `endLine`, `side` (`new` by
+  default, or `old` for removed lines), `kind` (`note`, `suggestion`, `risk`,
+  or `question`), and a `body` in Markdown. Comment on what the reader must
+  check, not on every change.
+- A guide holds up to 200 comments and 200,000 characters.
+
+Pass it with `--guide`, as a file or as `-` for standard input. Only one of
+`--brief` and `--guide` can read standard input.
+
+```sh
+med review create --key parser-recovery --title "Parser recovery" \
+  --repo ~/code/parser --base main --head HEAD --merge-base --guide - < guide.json
+```
+
+The Guide tab opens first. Its Overview shows the summary, the segments, and
+the range's commits. A segment shows its summary and only its files, with your
+comments on their lines; `j` and `k` step between segments, `v` marks the top
+file viewed, and `⇧V` marks the segment viewed and goes on. Viewed marks stay
+in the browser until a file changes. A commit of the range shows on its own,
+with its message.
+
+To replace the guide of the current iteration, run
+`med review update --key <name> --guide guide.json`. A later iteration without
+a guide keeps the one before it.
+
 ### Attach a brief
 
 A brief explains the change to the reviewer. Write it in Markdown, and cite
@@ -346,7 +407,7 @@ When you hand off code changes, give a Med review link if Med is running.
 - Use a `--title` of 2–4 words that names what the task builds. Pass `--pr` when a pull request exists; never invent its URL.
 - Use `med review create` for one target and `--manifest` for several. Put the printed Markdown link in your final message.
 - Pass `--key` with the branch or task name, and reuse it for later rounds. After you open a pull request, run `med review update --key <name> --pr <url>`.
-- Pass your explanation with `--brief -`, citing lines as `[label](path:line)` or `path:start-end`.
+- Pass a guide with `--guide -`: a summary, segments in reading order with their files, and comments on the lines that need attention (see `med docs agents`).
 - For one current file or line, give a `med open` link instead.
 - Do not commit, switch branches, add repositories, or edit AGENTS.md only to make a link.
 - If Med is not running or a repository is missing, say what is needed. Never invent a URL or print Med's access token.

@@ -16,6 +16,7 @@ import type {
   PullRequestComments,
   PullRequestThread,
 } from "../../shared/protocol";
+import type { GuideNote } from "../data/guide";
 import { relativeTime } from "../data/relative-time";
 import { tokens, ui } from "../theme.stylex";
 import { Icon, type IconName } from "./Icon";
@@ -284,7 +285,7 @@ function OpenButton({ url }: { url: string }) {
   );
 }
 
-type Tag = { label: string; tone?: "good" | "bad" | "quiet" };
+type Tag = { label: string; tone?: "good" | "bad" | "quiet" | "warn" | "ask" };
 const states: Record<string, Tag> = {
   APPROVED: { label: "Approved", tone: "good" },
   CHANGES_REQUESTED: { label: "Changes requested", tone: "bad" },
@@ -330,6 +331,8 @@ function Entry({
               review.tone === "good" && styles.good,
               review.tone === "bad" && styles.bad,
               review.tone === "quiet" && styles.quiet,
+              review.tone === "warn" && styles.warn,
+              review.tone === "ask" && styles.ask,
             )}
           >
             {review.label}
@@ -750,6 +753,76 @@ export function CodexFindingCard({
   );
 }
 
+const guideTags: Record<GuideNote["kind"], Tag | undefined> = {
+  note: undefined,
+  suggestion: { label: "Suggestion", tone: "good" },
+  risk: { label: "Risk", tone: "warn" },
+  question: { label: "Question", tone: "ask" },
+};
+const guideLines = (note: GuideNote) =>
+  `${note.side === "old" ? "L" : "R"}${note.line}${note.endLine ? `–${note.endLine}` : ""}`;
+export const guideNoteText = (note: GuideNote, author: string) =>
+  `${author} on ${note.path}:${note.line}${note.endLine ? `-${note.endLine}` : ""}${
+    guideTags[note.kind] ? ` (${guideTags[note.kind]!.label})` : ""
+  }:\n\n${note.body}`;
+
+/** An agent's comment from the review's guide. It is read-only; Reply starts
+ * your own note on the same lines. */
+export function GuideNoteCard({
+  note,
+  author,
+  mark,
+  createdAt,
+  now: fixedNow,
+  embedded = false,
+  onReply,
+}: {
+  note: GuideNote;
+  author: string;
+  mark: IconName;
+  createdAt: string;
+  now?: number;
+  embedded?: boolean;
+  onReply?(): void;
+}) {
+  const [now] = useState(() => fixedNow ?? Date.now());
+  return (
+    <article
+      data-comment-card
+      data-guide-note={note.id}
+      aria-label={`${author} comment at ${guideLines(note)}, read-only`}
+      {...stylex.props(styles.card, embedded && styles.embedded)}
+    >
+      <Entry
+        comment={{ author, body: note.body, createdAt }}
+        now={now}
+        mark={mark}
+        tag={guideTags[note.kind]}
+        tools={
+          <>
+            {onReply && (
+              <button
+                type="button"
+                title="Reply with a note"
+                aria-label="Reply with a note"
+                {...stylex.props(ui.button, ui.iconButton, styles.tool)}
+                onClick={onReply}
+              >
+                <Icon name="note" size={13} />
+              </button>
+            )}
+            <AddToReplyButton
+              label={`${note.path.split("/").at(-1)}:${guideLines(note)}`}
+              text={() => guideNoteText(note, author)}
+            />
+            <CopyButton label="Copy comment" text={() => guideNoteText(note, author)} />
+          </>
+        }
+      />
+    </article>
+  );
+}
+
 /** Which findings show in the diff, and why each other run's do not. */
 export interface FindingPlacement {
   inline: ReadonlySet<string>;
@@ -942,6 +1015,8 @@ const styles = stylex.create({
   good: { color: tokens.green },
   bad: { color: tokens.red },
   quiet: { color: tokens.faint },
+  warn: { color: tokens.warning },
+  ask: { color: tokens.accent },
   tools: {
     display: "inline-flex",
     gap: 2,

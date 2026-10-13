@@ -1,13 +1,14 @@
 ---
 name: med
-description: Hand off code changes for review in Med, the user's local review app. Use when you finish a coding task, or a round of one, in a Git repository and the `med` command exists. Creates a review link with a brief that cites the changed lines, keeps one review per task, and links the pull request once it exists.
+description: Hand off code changes for review in Med, the user's local review app. Use when you finish a coding task, or a round of one, in a Git repository and the `med` command exists. Creates a review link with a guide that splits the change into segments with comments on lines, keeps one review per task, and links the pull request once it exists.
 ---
 
 # Hand off changes in Med
 
 Med shows your changes to the user as a local review. You create the review with
 the `med` command and put its link in your final message. The user reads your
-brief, comments on lines, and sends the comments back to you from Med.
+guide one segment at a time, comments on lines, and sends the comments back to
+you from Med.
 
 ## Before you start work
 
@@ -19,9 +20,41 @@ and any changes that were already there (`git status --short`).
 1. Check that Med runs and which repositories the user registered:
    `med review repos`. If Med is not running, tell the user to run `med web`.
    If your repository is not in the list, ask before you run `med add <path>`.
-2. Write a brief in Markdown. Explain what changed and why, and cite code with
-   repository-relative links that end in line numbers, such as
-   `[parse.ts:42-58](src/parse.ts:42-58)`. Cite the files that need attention.
+2. Write a guide in JSON. Give a summary of 2–4 sentences: what changed and
+   why. Then split the change into segments that can be reviewed one at a
+   time, in reading order: usually 2–7, each one idea, with its files. Add
+   comments only on lines the reader must check: a risk, a question, or a
+   suggestion.
+
+   ```json
+   {
+     "summary": "What changed and why, in Markdown.",
+     "segments": [
+       {
+         "title": "Recovery in the parser",
+         "kind": "feature",
+         "summary": "What this part does, and what to check.",
+         "files": ["src/parse.ts", "src/recover/"],
+         "comments": [
+           {
+             "file": "src/parse.ts",
+             "line": 42,
+             "endLine": 58,
+             "kind": "risk",
+             "body": "Why this needs a look."
+           }
+         ]
+       },
+       { "title": "Tests", "kind": "test", "files": ["tests/**"] }
+     ]
+   }
+   ```
+
+   `files` takes paths, folders that end in `/`, and globs. Kinds are
+   `feature`, `fix`, `refactor`, `perf`, `test`, `docs`, `config`, `chore`;
+   comment kinds are `note`, `suggestion`, `risk`, `question`. A comment's
+   `side` is `new` by default, or `old` for a removed line.
+
 3. Create the review. Use the same `--key` for every round of the same task,
    such as the branch name; a later round becomes a new iteration of the same
    review. Use a `--title` of 2–4 words that names what the task builds.
@@ -30,23 +63,23 @@ and any changes that were already there (`git status --short`).
 
    ```sh
    med review create --key <task> --title "Parser recovery" \
-     --repo <repository-root> --working --brief - <<'BRIEF'
-   <your brief>
-   BRIEF
+     --repo <repository-root> --working --guide - <<'GUIDE'
+   <your guide>
+   GUIDE
    ```
 
    Committed work on a branch:
 
    ```sh
    med review create --key <task> --title "Parser recovery" \
-     --repo <repository-root> --base main --head HEAD --merge-base --brief -
+     --repo <repository-root> --base main --head HEAD --merge-base --guide -
    ```
 
    Commits made on `main` during the task need exact endpoints:
 
    ```sh
    med review create --key <task> --title "Parser recovery" \
-     --repo <repository-root> --base <commit-before-work> --head HEAD --brief -
+     --repo <repository-root> --base <commit-before-work> --head HEAD --guide -
    ```
 
 4. Put the printed Markdown link in your final message.
@@ -71,7 +104,7 @@ Codex session does not run `med review wait`.
 - Include only the repositories your task changed. Use `--manifest` for more
   than one (see `med docs agents`).
 - `--working` captures every current change, including changes that were there
-  before you started. Say so in the brief when that applies.
+  before you started. Say so in the guide's summary when that applies.
 - Do not commit, switch branches, or fetch just to create a link.
 - Do not invent a review or PR URL, and never print Med's access token.
 - Comments refer to the captured comparison. Check the current source before

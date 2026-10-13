@@ -282,3 +282,54 @@ export async function loadCommitDetails(
     deletions: Number(stat?.[3] ?? 0),
   };
 }
+
+/**
+ * The commits of a resolved range, oldest first: at most `limit` of the newest
+ * ones, and whether there are more. A base that is not a commit (the empty
+ * tree) or a failed read gives no commits; the review still saves.
+ */
+export async function loadRangeCommits(
+  repo: string,
+  base: string,
+  head: string,
+  signal?: AbortSignal,
+  limit = 50,
+): Promise<
+  | { list: { id: string; subject: string; author: string; timestamp: number }[]; more: boolean }
+  | undefined
+> {
+  if (!OID.test(base) || !OID.test(head)) return undefined;
+  let bytes: Buffer;
+  try {
+    bytes = await git(
+      repo,
+      [
+        "log",
+        "--topo-order",
+        `--max-count=${limit + 1}`,
+        "-z",
+        "--format=%H%x00%an%x00%at%x00%s",
+        `${base}..${head}`,
+        "--",
+      ],
+      { signal, maxBytes: 1024 * 1024 },
+    );
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    return undefined;
+  }
+  const fields = bytes.toString("utf8").split("\0");
+  const list: { id: string; subject: string; author: string; timestamp: number }[] = [];
+  for (let i = 0; i + 3 < fields.length; i += 4) {
+    const id = fields[i]!.trim();
+    if (!OID.test(id)) continue;
+    list.push({
+      id,
+      author: fields[i + 1]!.slice(0, 200),
+      timestamp: Number(fields[i + 2]) * 1000,
+      subject: fields[i + 3]!.slice(0, 1000),
+    });
+  }
+  const more = list.length > limit;
+  return { list: list.slice(0, limit).reverse(), more };
+}

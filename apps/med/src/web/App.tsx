@@ -72,6 +72,7 @@ import {
   PullRequestThreadCard,
   AgentReplyContext,
   CodexFindingCard,
+  GuideNoteCard,
   type AgentReplyTarget,
   type FindingPlacement,
   useCodexReviews,
@@ -97,9 +98,16 @@ import { createFilePrefetch } from "./data/file-prefetch";
 import { createRenderDiagnostics } from "./data/render-diagnostics";
 import { findDefinitions } from "./data/definitions";
 import type { SymbolSearch } from "../shared/symbols";
-import { clipboardBrief, joinNotes } from "./data/brief";
+import { clipboardBrief, joinNotes, matchReviewFile, parseBriefHref } from "./data/brief";
 import type { BriefLocation } from "./components/BriefView";
 import { SaveReviewDialog } from "./components/SaveReviewDialog";
+import { GuideRail } from "./components/guide/GuideRail";
+import { GuideOverview } from "./components/guide/GuideOverview";
+import { CommitHeader, GuideFooter, SegmentHeader } from "./components/guide/GuideHeader";
+import { resolveGuide, type GuideNote, type GuideScope, type GuideSection } from "./data/guide";
+import { useViewed, viewKey } from "./data/viewed";
+import type { ParsedReviewFile } from "../shared/review";
+import type { SavedCommit } from "../shared/review-guide";
 import { requestServerRestart } from "./components/UpdateNotice";
 import type { PathActions } from "./components/PathMenu";
 import { diffSurfaceStyle, EXPANSION_LINES } from "./components/diff-surface";
@@ -124,6 +132,9 @@ const SessionStart = lazy(() =>
   import("./components/session/SessionPanel").then((module) => ({ default: module.SessionStart })),
 );
 const NO_SESSIONS: AgentSession[] = [];
+const NO_COMMITS: SavedCommit[] = [];
+const NO_FILES: ParsedReviewFile[] = [];
+const NO_SECTIONS: GuideSection[] = [];
 // Pierre's view renders its file headers and comments again whenever it renders.
 const ReviewCodeView = memo(CodeView) as typeof CodeView;
 
@@ -142,11 +153,25 @@ function noteLine(
   return whole ? end : note.line;
 }
 
+/** Whether a hunk shows the line that a note's card sits below. */
+function shownLine(
+  metadata: FileDiffMetadata | null,
+  note: { side: "old" | "new"; line: number; endLine?: number },
+) {
+  const line = noteLine(metadata, note);
+  return !!metadata?.hunks.some((hunk) => {
+    const start = note.side === "old" ? hunk.deletionStart : hunk.additionStart;
+    const count = note.side === "old" ? hunk.deletionCount : hunk.additionCount;
+    return line >= start && line < start + count;
+  });
+}
+
 type Annotation = {
   note?: Note;
   draft?: NoteTarget;
   thread?: PullRequestThread;
   finding?: { finding: CodexFinding; run: CodexReviewRun };
+  guide?: GuideNote;
 };
 type Selection = {
   id: string;
@@ -397,13 +422,13 @@ export function App({
   // An iteration chosen in the brief: its comparison loads, then the brief shows.
   const pendingIteration = useRef<string | null>(null);
   useEffect(() => {
-    // The Notes belong to the saved review, so they stay in front while another
-    // iteration's comparison loads.
+    // The Notes and the Guide belong to the saved review, so they stay in front
+    // while another iteration's comparison, or a commit of the guide, loads.
     fileWorkspace.configure(
       workspaceKey,
       browseSource,
       sourceLabel,
-      state.savedView ? "brief" : undefined,
+      state.savedView ? ["brief", "guide"] : state.savedReview ? ["guide"] : [],
     );
     if (
       pendingSavedChanges.current &&
@@ -429,6 +454,7 @@ export function App({
     browseSource,
     sourceLabel,
     state.savedView,
+    state.savedReview,
     state.savedTargetId,
     state.status,
   ]);
@@ -676,6 +702,13 @@ export function App({
   const viewer = useRef<CodeViewHandle<Annotation, undefined>>(null);
   const reviewScroll = useRef(new Map<string, number>());
   const reviewScope = JSON.stringify([state.activeRepositoryId, workspaceKey, state.comparison]);
+  // The Guide's part on screen: the Overview, a segment, or a commit. Each
+  // segment keeps its own place in the stream.
+  const [guideScope, setGuideScope] = useState<GuideScope>({ kind: "overview" });
+  const streamScope =
+    fileState.active === "guide" && guideScope.kind !== "overview"
+      ? JSON.stringify([state.activeRepositoryId, workspaceKey, state.comparison, guideScope])
+      : reviewScope;
   const previousRepositories = useRef(new Set<string>());
   useEffect(() => {
     const current = new Set(state.repositories.map((repository) => repository.id));
@@ -691,7 +724,7 @@ export function App({
   const reviewId = state.review?.id;
   const explicitReveal = useRef(false);
   useEffect(() => {
-    if (fileState.active !== "changes") return;
+    if (fileState.active !== "changes" && fileState.active !== "guide") return;
     if (explicitReveal.current) {
       explicitReveal.current = false;
       restoringScroll.current = false;
@@ -699,7 +732,7 @@ export function App({
     }
     if (!reviewId) return;
     restoringScroll.current = true;
-    const position = reviewScroll.current.get(reviewScope) ?? 0;
+    const position = reviewScroll.current.get(streamScope) ?? 0;
     const frame = requestAnimationFrame(() => {
       viewer.current?.scrollTo({ type: "position", position });
       restoringScroll.current = false;
@@ -708,7 +741,7 @@ export function App({
       cancelAnimationFrame(frame);
       restoringScroll.current = true;
     };
-  }, [fileState.active, reviewScope, reviewId]);
+  }, [fileState.active, streamScope, reviewId]);
   const metadataRows = useRef(new Map<string, HTMLDivElement>());
   const filterRef = useRef<HTMLInputElement>(null);
   const findRef = useRef<HTMLInputElement>(null);
@@ -744,13 +777,11 @@ export function App({
     });
   }, [controller]);
   const files = state.visibleFiles;
-  // Collapse all while any file is open; expand all once every file is closed.
-  const allCollapsed = files.length > 0 && files.every((file) => collapsed.has(file.id));
-  const toggleAllFiles = useCallback(
-    () => setCollapsed(allCollapsed ? new Set() : new Set(files.map((file) => file.id))),
-    [allCollapsed, files],
+  // A guide segment shows files that a path filter can hide, so headers read every file.
+  const fileInfoById = useMemo(
+    () => new Map(state.files.map((file) => [file.id, file.info])),
+    [state.files],
   );
-  const fileInfoById = useMemo(() => new Map(files.map((file) => [file.id, file.info])), [files]);
   const notes = state.notes?.notes ?? emptyNotes;
   const agentSessions = state.savedReview?.sessions ?? NO_SESSIONS;
   const agentInbox = useAgentInbox(
@@ -927,10 +958,20 @@ export function App({
       /* Preferences can be unavailable in private storage. */
     }
   }, [mode]);
+  // A file of the Guide's shown segment opens in place; others open in Changes.
+  const streamFilesRef = useRef<ParsedReviewFile[]>(NO_FILES);
+  const showInStream = useCallback(
+    (id: string) => {
+      const active = fileWorkspace.getSnapshot().active;
+      if (active === "guide" && streamFilesRef.current.some((file) => file.id === id)) return;
+      explicitReveal.current = active !== "changes";
+      fileWorkspace.select("changes");
+    },
+    [fileWorkspace],
+  );
   const reveal = useCallback(
     (id: string) => {
-      explicitReveal.current = fileWorkspace.getSnapshot().active !== "changes";
-      fileWorkspace.select("changes");
+      showInStream(id);
       controller.revealFile(id);
       setCollapsed((current) => {
         if (!current.has(id)) return current;
@@ -944,7 +985,7 @@ export function App({
         else viewer.current?.scrollTo({ type: "item", id, align: "start" });
       });
     },
-    [controller, fileWorkspace],
+    [controller, showInStream],
   );
   // The file whose line a jump is about to show. Selecting that file must not
   // scroll to the file as well, or the file scroll replaces the line scroll.
@@ -953,8 +994,7 @@ export function App({
     (id: string, start: number, end: number, side: "additions" | "deletions") => {
       const serial = (lineJump.current?.serial ?? 0) + 1;
       lineJump.current = { id, serial };
-      explicitReveal.current = fileWorkspace.getSnapshot().active !== "changes";
-      fileWorkspace.select("changes");
+      showInStream(id);
       controller.revealFile(id);
       setCollapsed((current) => {
         if (!current.has(id)) return current;
@@ -976,7 +1016,7 @@ export function App({
         }),
       );
     },
-    [controller, fileWorkspace],
+    [controller, showInStream],
   );
 
   // A brief explains a saved review. Paste one with Command-V; its links open
@@ -1035,6 +1075,245 @@ export function App({
       ]).text,
     [savedBrief, savedPins],
   );
+  // The Guide: the agent's segments over the saved comparison, and the range's
+  // commits, to review one part at a time. An iteration without a guide keeps
+  // the one before it, as the brief does.
+  const guideSource = shownIteration
+    ? iterations.findLast((entry) => entry.number <= shownIteration && entry.guide)
+    : undefined;
+  const savedGuide = !state.savedReview
+    ? undefined
+    : shownIteration
+      ? guideSource?.guide
+      : state.savedReview.guide;
+  const guideTarget = savedTarget;
+  const guideCommits = guideTarget?.commits ?? NO_COMMITS;
+  const hasGuide = !!state.savedReview && (!!savedGuide || guideCommits.length >= 2);
+  // Segments refer to the saved comparison's files. They stay while a commit
+  // of the range shows in their place.
+  const [guideFiles, setGuideFiles] = useState<{
+    target: string | null;
+    files: ParsedReviewFile[];
+    root?: string;
+  }>({ target: null, files: NO_FILES });
+  if (
+    state.savedView &&
+    state.status === "ready" &&
+    state.review &&
+    state.savedTargetId &&
+    (guideFiles.target !== state.savedTargetId || guideFiles.files !== state.files)
+  )
+    setGuideFiles({ target: state.savedTargetId, files: state.files, root: state.review.repo });
+  const shownGuideFiles = guideFiles.target === state.savedTargetId ? guideFiles.files : NO_FILES;
+  const resolvedGuide = useMemo(
+    () => (savedGuide ? resolveGuide(savedGuide, shownGuideFiles, guideFiles.root) : null),
+    [savedGuide, shownGuideFiles, guideFiles.root],
+  );
+  const guideSections = resolvedGuide?.sections ?? NO_SECTIONS;
+  const [guideReview, setGuideReview] = useState(state.savedReview?.id);
+  if (guideReview !== state.savedReview?.id) {
+    setGuideReview(state.savedReview?.id);
+    setGuideScope({ kind: "overview" });
+  }
+  const guideSection =
+    guideScope.kind === "segment"
+      ? guideSections.find((section) => section.key === guideScope.key)
+      : undefined;
+  const commitIndex =
+    guideScope.kind === "commit"
+      ? guideCommits.findIndex((commit) => commit.id === guideScope.id)
+      : -1;
+  const guideCommit = commitIndex >= 0 ? guideCommits[commitIndex] : undefined;
+  const guideTab = hasGuide && fileState.active === "guide";
+  // A segment shows the saved comparison; a commit shows that commit.
+  const guideDiff =
+    guideTab &&
+    ((!!guideSection && state.savedView) ||
+      (!!guideCommit &&
+        state.comparison.kind === "commit" &&
+        state.comparison.commit === guideCommit.id));
+  const guideOverview = guideTab && !guideDiff;
+  // The diff stream shows in Changes, and in the Guide for a segment or commit.
+  const streamShown = fileState.active === "changes" || guideDiff;
+  const streamFiles = useMemo(() => {
+    if (!guideDiff || !guideSection) return files;
+    const byId = new Map(state.files.map((file) => [file.id, file]));
+    return guideSection.fileIds.flatMap((id) => byId.get(id) ?? []);
+  }, [guideDiff, guideSection, files, state.files]);
+  useLayoutEffect(() => {
+    streamFilesRef.current = guideDiff ? streamFiles : NO_FILES;
+  });
+  // Collapse all while any file is open; expand all once every file is closed.
+  const allCollapsed =
+    streamFiles.length > 0 && streamFiles.every((file) => collapsed.has(file.id));
+  const toggleAllFiles = useCallback(
+    () => setCollapsed(allCollapsed ? new Set() : new Set(streamFiles.map((file) => file.id))),
+    [allCollapsed, streamFiles],
+  );
+  // Viewed marks, by file ID, for the shown comparison and for the guide's files.
+  const viewed = useViewed(state.savedReview?.id ?? null);
+  const markedIds = useCallback(
+    (list: readonly ParsedReviewFile[]) => {
+      const ids = new Set<string>();
+      for (const file of list) if (viewed.marks.has(viewKey(file))) ids.add(file.id);
+      return ids;
+    },
+    [viewed.marks],
+  );
+  const viewedIds = useMemo(() => markedIds(state.files), [markedIds, state.files]);
+  const guideViewedIds = useMemo(
+    () => (shownGuideFiles === state.files ? viewedIds : markedIds(shownGuideFiles)),
+    [markedIds, shownGuideFiles, state.files, viewedIds],
+  );
+  const setFilesViewed = useCallback(
+    (ids: readonly string[], value: boolean) => {
+      const byId = new Map([...shownGuideFiles, ...state.files].map((file) => [file.id, file]));
+      const keys = ids.flatMap((id) => {
+        const file = byId.get(id);
+        return file ? [viewKey(file)] : [];
+      });
+      viewed.set(keys, value);
+      // A viewed file folds away, as on GitHub; marking it unviewed opens it again.
+      setCollapsed((current) => {
+        const next = new Set(current);
+        for (const id of ids) {
+          if (value) next.add(id);
+          else next.delete(id);
+        }
+        return next;
+      });
+    },
+    [shownGuideFiles, state.files, viewed],
+  );
+  const guideFilesById = useMemo(
+    () => new Map(shownGuideFiles.map((file) => [file.id, file])),
+    [shownGuideFiles],
+  );
+  const guideMeta = useMemo(() => {
+    if (!guideTarget) return "";
+    let additions = 0;
+    let deletions = 0;
+    for (const file of shownGuideFiles) {
+      additions += file.info.additions;
+      deletions += file.info.deletions;
+    }
+    return [
+      guideTarget.branch ?? guideTarget.repo.split("/").at(-1),
+      guideTarget.captured
+        ? guideTarget.label
+        : `${shortRevision(guideTarget.base)} → ${shortRevision(guideTarget.head)}`,
+      ...(shownGuideFiles.length
+        ? [
+            `+${additions.toLocaleString()} −${deletions.toLocaleString()}`,
+            `${shownGuideFiles.length} ${shownGuideFiles.length === 1 ? "file" : "files"}`,
+          ]
+        : []),
+    ].join(" · ");
+  }, [guideTarget, shownGuideFiles]);
+  const canMarkViewed = !!state.savedReview;
+  const guideAt = savedGuide?.updatedAt ?? state.savedReview?.createdAt ?? "";
+  const guideAgent = useMemo(
+    () => ({
+      name: replyAgent ?? "Guide",
+      mark: replyAgent ? leadIcon : ("guide" as const),
+      named: !!replyAgent,
+      at: guideAt,
+    }),
+    [replyAgent, leadIcon, guideAt],
+  );
+  // Reply to an agent's comment with your own note on the same lines.
+  const replyToGuideNote = useCallback((note: GuideNote) => {
+    setShowNotes(true);
+    setSelection(null);
+    setDraft({
+      path: note.path,
+      side: note.side,
+      line: note.line,
+      ...(note.endLine ? { endLine: note.endLine } : {}),
+    });
+  }, []);
+  // A file to show once its segment's stream mounts.
+  const [pendingGuideFile, setPendingGuideFile] = useState<string | null>(null);
+  const openGuide = useCallback(
+    (scope: GuideScope, fileId?: string) => {
+      const snapshot = controller.getSnapshot();
+      setGuideScope(scope);
+      setSelection(null);
+      fileWorkspace.select("guide");
+      setPendingGuideFile(fileId ?? null);
+      if (scope.kind === "commit") {
+        if (snapshot.comparison.kind !== "commit" || snapshot.comparison.commit !== scope.id)
+          void controller.selectComparison({ kind: "commit", commit: scope.id });
+        return;
+      }
+      if (!snapshot.savedView) void controller.returnToSavedReview();
+      // A segment's viewed files start folded.
+      const section =
+        scope.kind === "segment" ? guideSections.find((entry) => entry.key === scope.key) : null;
+      if (section)
+        setCollapsed((current) => {
+          const next = new Set(current);
+          for (const id of section.fileIds)
+            if (guideViewedIds.has(id) && id !== fileId) next.add(id);
+            else if (id === fileId) next.delete(id);
+          return next;
+        });
+    },
+    [controller, fileWorkspace, guideSections, guideViewedIds],
+  );
+  // j and k step through the segments, or through the commits once one shows.
+  const stepGuide = useCallback(
+    (delta: number) => {
+      const commits = guideScope.kind === "commit" || !guideSections.length;
+      const order: GuideScope[] = commits
+        ? guideCommits.map((commit) => ({ kind: "commit", id: commit.id }))
+        : [
+            { kind: "overview" },
+            ...guideSections.map((section) => ({ kind: "segment" as const, key: section.key })),
+          ];
+      if (commits && guideScope.kind !== "commit" && delta > 0 && order[0]) {
+        openGuide(order[0]);
+        return;
+      }
+      const index = order.findIndex(
+        (scope) => JSON.stringify(scope) === JSON.stringify(guideScope),
+      );
+      const next = order[Math.max(0, Math.min(order.length - 1, index + delta))];
+      if (next && index + delta >= 0) openGuide(next);
+      else if (commits && delta < 0) openGuide({ kind: "overview" });
+    },
+    [guideScope, guideSections, guideCommits, openGuide],
+  );
+  // v: the file whose header is at the top of the stream, or the first one
+  // below the segment's header. Marking it viewed folds it and shows the next.
+  const streamRef = useRef<HTMLDivElement>(null);
+  const toggleTopFileViewed = useCallback(() => {
+    const host = streamRef.current;
+    if (!host) return;
+    const top = host.getBoundingClientRect().top;
+    let current: string | undefined;
+    for (const header of host.querySelectorAll<HTMLElement>("[data-stream-file]"))
+      if (header.getBoundingClientRect().top <= top + 4) current = header.dataset.streamFile;
+    current ??= streamFiles[0]?.id;
+    if (!current) return;
+    const value = !viewedIds.has(current);
+    setFilesViewed([current], value);
+    if (!value) return;
+    const next = streamFiles[streamFiles.findIndex((file) => file.id === current) + 1];
+    requestAnimationFrame(() =>
+      viewer.current?.scrollTo({ type: "item", id: next?.id ?? current, align: "start" }),
+    );
+  }, [streamFiles, viewedIds, setFilesViewed]);
+  // A file chosen in the rail shows once its segment's stream has mounted.
+  useEffect(() => {
+    const id = pendingGuideFile;
+    if (!id || !guideDiff || !streamFiles.some((file) => file.id === id)) return;
+    const frame = requestAnimationFrame(() => {
+      setPendingGuideFile(null);
+      viewer.current?.scrollTo({ type: "item", id, align: "start" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [pendingGuideFile, guideDiff, streamFiles]);
   const [noteReveal, setNoteReveal] = useState<{ key: string; nonce: number }>();
   const showIteration = (number: number) => {
     setBriefIteration(number);
@@ -1062,10 +1341,11 @@ export function App({
   // The tab row in order, for Alt+number and ⌘⇧[ / ⌘⇧]; empty when the row is hidden.
   // Keys read the store at event time, so a quick second key sees the first one's tab.
   const tabRow = useCallback(() => {
-    if (!browseSource && !hasNotes) return { order: [] as string[], active: "" };
+    if (!browseSource && !hasNotes && !hasGuide) return { order: [] as string[], active: "" };
     const { tabs, active } = fileWorkspace.getSnapshot();
     return {
       order: [
+        ...(hasGuide ? ["guide"] : []),
         ...(hasNotes ? ["brief"] : []),
         "changes",
         ...(commitApi ? ["commit"] : []),
@@ -1073,7 +1353,7 @@ export function App({
       ],
       active,
     };
-  }, [browseSource, hasNotes, commitApi, fileWorkspace]);
+  }, [browseSource, hasNotes, hasGuide, commitApi, fileWorkspace]);
   const toggleCommit = useCallback(() => {
     if (fileState.active !== "commit") {
       commitReturn.current = fileState.active;
@@ -1118,10 +1398,23 @@ export function App({
     }
     if (state.status !== "ready" || !state.savedReview) return;
     // Open on the brief once per review and after each paste; tab choices stay.
+    // A review with a guide opens on the guide instead.
     if (briefShown.current === state.savedReview.id) return;
     briefShown.current = state.savedReview.id;
-    fileWorkspace.select("brief");
-  }, [hasNotes, state.savedReview, state.status, fileState.active, fileWorkspace]);
+    if (!hasGuide) fileWorkspace.select("brief");
+  }, [hasNotes, hasGuide, state.savedReview, state.status, fileState.active, fileWorkspace]);
+  const guideShown = useRef<string | null>(null);
+  useEffect(() => {
+    if (!hasGuide) {
+      if (fileState.active === "guide") fileWorkspace.select(hasNotes ? "brief" : "changes");
+      return;
+    }
+    if (state.status !== "ready" || !state.savedReview) return;
+    // Open on the guide once per review; tab choices stay.
+    if (guideShown.current === state.savedReview.id) return;
+    guideShown.current = state.savedReview.id;
+    fileWorkspace.select("guide");
+  }, [hasGuide, hasNotes, state.savedReview, state.status, fileState.active, fileWorkspace]);
   useEffect(() => {
     if (fileState.active === "commit" && !commitApi) fileWorkspace.select("changes");
   }, [commitApi, fileState.active, fileWorkspace]);
@@ -1313,15 +1606,29 @@ export function App({
     pullRequestThreads.placement.kind === "inline" ? [...pullRequestThreads.placement.ids] : [],
     codexReviews.revision,
     [...codexFindings.placement.inline],
+    savedGuide?.updatedAt ?? null,
+    state.savedView,
   ]);
-  const [itemVersion, setItemVersion] = useState({ key: itemKey, files, notes, value: 0 });
+  const [itemVersion, setItemVersion] = useState({
+    key: itemKey,
+    files: streamFiles,
+    notes,
+    value: 0,
+  });
   let currentVersion = itemVersion.value;
-  if (itemVersion.key !== itemKey || itemVersion.files !== files || itemVersion.notes !== notes) {
+  if (
+    itemVersion.key !== itemKey ||
+    itemVersion.files !== streamFiles ||
+    itemVersion.notes !== notes
+  ) {
     currentVersion++;
-    setItemVersion({ key: itemKey, files, notes, value: currentVersion });
+    setItemVersion({ key: itemKey, files: streamFiles, notes, value: currentVersion });
   }
+  // The guide's comments refer to the saved comparison's lines. One on a line
+  // that no hunk shows goes to its segment's header instead.
+  const guideNotesByFile = state.savedView ? resolvedGuide?.notesByFile : undefined;
   const items = useMemo<CodeViewItem<Annotation>[]>(() => {
-    return files.flatMap((file) => {
+    return streamFiles.flatMap((file) => {
       if (!file.metadata || mediaType(file.path)?.kind === "image") return [];
       // GitHub threads come first: they are the review so far.
       const annotations: DiffLineAnnotation<Annotation>[] = showNotes
@@ -1353,6 +1660,13 @@ export function App({
                 lineNumber: noteLine(file.metadata, note),
                 metadata: { note },
               })),
+            ...(guideNotesByFile?.get(file.id) ?? [])
+              .filter((note) => shownLine(file.metadata, note))
+              .map((note): DiffLineAnnotation<Annotation> => ({
+                side: note.side === "old" ? "deletions" : "additions",
+                lineNumber: noteLine(file.metadata, note),
+                metadata: { guide: note },
+              })),
           ]
         : [];
       if (visibleDraft?.path === file.path)
@@ -1373,7 +1687,7 @@ export function App({
       ];
     });
   }, [
-    files,
+    streamFiles,
     notes,
     showNotes,
     visibleDraft,
@@ -1381,6 +1695,7 @@ export function App({
     currentVersion,
     pullRequestThreads,
     codexFindings,
+    guideNotesByFile,
   ]);
 
   useEffect(() => {
@@ -1538,7 +1853,7 @@ export function App({
     if (!find) return [];
     const query = find.toLowerCase();
     const result: { id: string; side: "additions" | "deletions"; line: number }[] = [];
-    for (const file of files) {
+    for (const file of streamFiles) {
       const metadata = file.metadata;
       if (!metadata) continue;
       for (const hunk of metadata.hunks) {
@@ -1559,15 +1874,15 @@ export function App({
       }
     }
     return result;
-  }, [files, find]);
+  }, [streamFiles, find]);
   useEffect(() => {
     const hit = findOpen ? hits[findIndex] : undefined;
-    const path = hit && files.find((file) => file.id === hit.id)?.path;
+    const path = hit && streamFiles.find((file) => file.id === hit.id)?.path;
     findHighlights.set(
       findOpen ? find : "",
       hit && path ? { path, side: hit.side, line: hit.line } : null,
     );
-  }, [findHighlights, findOpen, find, hits, findIndex, files]);
+  }, [findHighlights, findOpen, find, hits, findIndex, streamFiles]);
   const jumpHit = useCallback(
     (index: number) => {
       if (!hits.length) return;
@@ -1580,7 +1895,7 @@ export function App({
   );
   const startNote = useCallback(() => {
     if (!selection) return;
-    const file = files.find((entry) => entry.id === selection.id);
+    const file = streamFiles.find((entry) => entry.id === selection.id);
     if (!file) return;
     if (selection.range.endSide && selection.range.side !== selection.range.endSide) {
       setContextError("Select lines on one side to add a note.");
@@ -1593,18 +1908,18 @@ export function App({
       line: Math.min(selection.range.start, selection.range.end),
       endLine: Math.max(selection.range.start, selection.range.end),
     });
-  }, [selection, files]);
+  }, [selection, streamFiles]);
   const navigateFile = useCallback(
     (delta: number) => {
-      const index = files.findIndex((file) => file.id === state.selectedFileId);
-      const next = files[Math.max(0, Math.min(files.length - 1, index + delta))];
+      const index = streamFiles.findIndex((file) => file.id === state.selectedFileId);
+      const next = streamFiles[Math.max(0, Math.min(streamFiles.length - 1, index + delta))];
       if (next) reveal(next.id);
     },
-    [files, state.selectedFileId, reveal],
+    [streamFiles, state.selectedFileId, reveal],
   );
   const navigateHunk = useCallback(
     (delta: number) => {
-      const targets = files.flatMap(
+      const targets = streamFiles.flatMap(
         (file) =>
           file.metadata?.hunks.map((hunk) => ({
             id: file.id,
@@ -1639,7 +1954,7 @@ export function App({
         });
       }
     },
-    [files, selection, state.selectedFileId, controller],
+    [streamFiles, selection, state.selectedFileId, controller],
   );
   const openFind = useCallback(() => {
     setFindOpen(true);
@@ -1853,7 +2168,7 @@ export function App({
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
         if (commandsOpen || branchPickerOpen) return;
-        if (fileState.active !== "changes") {
+        if (!streamShown) {
           if (fileState.file?.kind === "text") {
             event.preventDefault();
             event.stopPropagation();
@@ -1870,12 +2185,33 @@ export function App({
         editing ||
         modal ||
         Boolean(visibleElement('[role="dialog"]')) ||
-        fileState.active !== "changes" ||
+        (!streamShown && !guideTab) ||
         event.metaKey ||
         event.ctrlKey ||
         event.altKey
       )
         return;
+      // The Guide: j and k step through its parts; v marks the file at the top
+      // of the stream as viewed; Shift+V marks the part and moves on.
+      if (guideTab && (event.key === "j" || event.key === "k")) {
+        event.preventDefault();
+        event.stopPropagation();
+        stepGuide(event.key === "j" ? 1 : -1);
+        return;
+      }
+      if (guideDiff && (event.key === "v" || event.key === "V")) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.key === "V") {
+          setFilesViewed(
+            streamFiles.map((file) => file.id),
+            true,
+          );
+          stepGuide(1);
+        } else toggleTopFileViewed();
+        return;
+      }
+      if (!streamShown) return;
       if (event.key === "/") {
         event.preventDefault();
         event.stopPropagation();
@@ -1944,6 +2280,13 @@ export function App({
     commitApi,
     toggleCommit,
     tabRow,
+    streamShown,
+    guideTab,
+    guideDiff,
+    stepGuide,
+    setFilesViewed,
+    streamFiles,
+    toggleTopFileViewed,
   ]);
 
   const selectBranch = useCallback(
@@ -2441,6 +2784,25 @@ export function App({
       label: "Return to Changes",
       run: () => fileWorkspace.select("changes"),
     },
+    ...(hasGuide
+      ? [
+          {
+            id: "guide",
+            label: "Open the guide",
+            run: () => openGuide({ kind: "overview" }),
+          },
+          ...(savedGuide
+            ? [
+                {
+                  id: "guide-next",
+                  label: "Next part of the guide",
+                  shortcut: "j",
+                  run: () => stepGuide(1),
+                },
+              ]
+            : []),
+        ]
+      : []),
     ...(hasNotes
       ? [
           { id: "brief", label: "Open the notes", run: () => fileWorkspace.select("brief") },
@@ -2771,8 +3133,8 @@ export function App({
         state.session?.repository.head ??
         "");
   const skipped = useMemo(
-    () => files.filter((file) => !file.metadata || mediaType(file.path)?.kind === "image"),
-    [files],
+    () => streamFiles.filter((file) => !file.metadata || mediaType(file.path)?.kind === "image"),
+    [streamFiles],
   );
   const orphaned = notes.filter(
     (note) =>
@@ -2855,14 +3217,17 @@ export function App({
   // Pierre does not render every file header and comment again.
   const onReviewScroll = useCallback(
     (position: number) => {
-      if (fileState.active === "changes" && !restoringScroll.current) {
-        reviewScroll.current.delete(reviewScope);
-        reviewScroll.current.set(reviewScope, position);
+      if (
+        (fileState.active === "changes" || fileState.active === "guide") &&
+        !restoringScroll.current
+      ) {
+        reviewScroll.current.delete(streamScope);
+        reviewScroll.current.set(streamScope, position);
         while (reviewScroll.current.size > 256)
           reviewScroll.current.delete(reviewScroll.current.keys().next().value!);
       }
     },
-    [fileState.active, reviewScope],
+    [fileState.active, streamScope],
   );
   const renderCustomHeader = useCallback(
     (item: CodeViewItem<Annotation>) => {
@@ -2885,8 +3250,9 @@ export function App({
               : renamedFrom
                 ? { label: "Renamed", tone: styles.statusRenamed }
                 : null;
+      const isViewed = viewedIds.has(item.id);
       return (
-        <div {...stylex.props(styles.diffHeader)}>
+        <div data-stream-file={item.id} {...stylex.props(styles.diffHeader)}>
           <button
             {...stylex.props(styles.headerToggle)}
             aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${path}`}
@@ -2929,10 +3295,34 @@ export function App({
               <DiffStat additions={info.additions} deletions={info.deletions} />
             </span>
           )}
+          {canMarkViewed && (
+            <button
+              type="button"
+              role="checkbox"
+              aria-checked={isViewed}
+              aria-label={`Viewed ${path}`}
+              title={isViewed ? "Viewed · folds the file (v)" : "Mark as viewed (v)"}
+              onClick={() => setFilesViewed([item.id], !isViewed)}
+              {...stylex.props(styles.viewedToggle, isViewed && styles.viewedOn)}
+            >
+              <span {...stylex.props(styles.viewedBox, isViewed && styles.viewedBoxOn)}>
+                {isViewed && <Icon name="check" size={10} />}
+              </span>
+              Viewed
+            </button>
+          )}
         </div>
       );
     },
-    [fileInfoById, collapsed, prefetchFile, openWorkingFile],
+    [
+      fileInfoById,
+      collapsed,
+      prefetchFile,
+      openWorkingFile,
+      viewedIds,
+      canMarkViewed,
+      setFilesViewed,
+    ],
   );
   const renderAnnotation = useCallback(
     (annotation: { metadata?: Annotation }) =>
@@ -2984,6 +3374,14 @@ export function App({
           finding={annotation.metadata.finding.finding}
           run={annotation.metadata.finding.run}
         />
+      ) : annotation.metadata?.guide ? (
+        <GuideNoteCard
+          note={annotation.metadata.guide}
+          author={guideAgent.name}
+          mark={guideAgent.mark}
+          createdAt={guideAgent.at}
+          onReply={() => replyToGuideNote(annotation.metadata!.guide!)}
+        />
       ) : annotation.metadata?.note ? (
         <NoteCard
           note={annotation.metadata.note}
@@ -2991,20 +3389,160 @@ export function App({
           onMutate={(mutation) => controller.mutateNote(mutation)}
         />
       ) : null,
-    [pendingDraft, reviewId, notes, controller],
+    [pendingDraft, reviewId, notes, controller, guideAgent, replyToGuideNote],
   );
+  // The Guide's segment or commit heads the stream and ends it with the next part.
+  const guideStray = useMemo(() => {
+    if (!guideSection || !state.savedView) return [];
+    const byId = new Map(state.files.map((file) => [file.id, file]));
+    return guideSection.notes.filter(
+      (note) => !shownLine(byId.get(note.fileId)?.metadata ?? null, note),
+    );
+  }, [guideSection, state.savedView, state.files]);
+  const loadGuideCommit = useCallback(
+    (id: string, signal: AbortSignal) => controller.loadCommitDetails(id, signal),
+    [controller],
+  );
+  // Links in a summary: a file of the review opens in its segment, at its line.
+  const openGuideLink = useCallback(
+    (href: string) => {
+      const target = parseBriefHref(href);
+      if (!target) return;
+      const file = matchReviewFile(target, shownGuideFiles, guideFiles.root);
+      const section = file
+        ? guideSection?.fileIds.includes(file.id)
+          ? guideSection
+          : guideSections.find((entry) => entry.fileIds.includes(file.id))
+        : undefined;
+      if (!file || !section) {
+        fileWorkspace.open(target.path, true, target.line);
+        return;
+      }
+      if (section !== guideSection || !guideDiff) openGuide({ kind: "segment", key: section.key });
+      requestAnimationFrame(() =>
+        target.line
+          ? revealLine(
+              file.id,
+              target.line,
+              target.endLine ?? target.line,
+              file.info.status.startsWith("D") ? "deletions" : "additions",
+            )
+          : reveal(file.id),
+      );
+    },
+    [
+      shownGuideFiles,
+      guideFiles.root,
+      guideSection,
+      guideSections,
+      guideDiff,
+      fileWorkspace,
+      openGuide,
+      revealLine,
+      reveal,
+    ],
+  );
+  const nextGuidePart = guideSection
+    ? guideSections[guideSections.indexOf(guideSection) + 1]
+    : undefined;
+  const nextGuideCommit = commitIndex >= 0 ? guideCommits[commitIndex + 1] : undefined;
+  const nextGuideLabel = nextGuidePart
+    ? `${nextGuidePart.automatic ? "" : `${String(nextGuidePart.number).padStart(2, "0")} · `}${nextGuidePart.title}`
+    : nextGuideCommit
+      ? `${nextGuideCommit.id.slice(0, 7)} · ${nextGuideCommit.subject}`
+      : undefined;
+  const streamViewed =
+    streamFiles.length > 0 && streamFiles.every((file) => viewedIds.has(file.id));
+  const renderCodeViewHeader = useCallback(() => {
+    if (!guideDiff) return null;
+    if (guideSection)
+      return (
+        <SegmentHeader
+          section={guideSection}
+          count={guideSections.length}
+          viewed={guideSection.fileIds.filter((id) => viewedIds.has(id)).length}
+          agent={guideAgent}
+          stray={guideStray}
+          onMarkAll={(value) => setFilesViewed(guideSection.fileIds, value)}
+          onReply={replyToGuideNote}
+          onOpenLink={openGuideLink}
+        />
+      );
+    if (guideCommit)
+      return (
+        <CommitHeader
+          commit={guideCommit}
+          number={commitIndex + 1}
+          count={guideCommits.length}
+          totals={
+            state.review
+              ? {
+                  additions: state.files.reduce((sum, file) => sum + file.info.additions, 0),
+                  deletions: state.files.reduce((sum, file) => sum + file.info.deletions, 0),
+                  files: state.files.length,
+                }
+              : undefined
+          }
+          loadDetails={loadGuideCommit}
+        />
+      );
+    return null;
+  }, [
+    guideDiff,
+    guideSection,
+    guideSections.length,
+    viewedIds,
+    guideAgent,
+    guideStray,
+    setFilesViewed,
+    replyToGuideNote,
+    openGuideLink,
+    guideCommit,
+    commitIndex,
+    guideCommits,
+    state.review,
+    state.files,
+    loadGuideCommit,
+  ]);
   const renderCodeViewFooter = useCallback(
     () =>
-      skipped.length ? (
+      guideDiff ? (
+        <>
+          {skipped.length > 0 && renderMetadataRows()}
+          <GuideFooter
+            next={nextGuideLabel}
+            allViewed={streamViewed}
+            onNext={(mark) => {
+              if (mark)
+                setFilesViewed(
+                  streamFiles.map((file) => file.id),
+                  true,
+                );
+              stepGuide(1);
+            }}
+            onOverview={() => openGuide({ kind: "overview" })}
+          />
+        </>
+      ) : skipped.length ? (
         renderMetadataRows()
       ) : (
         <div {...stylex.props(styles.streamEnd)}>
           <span {...stylex.props(styles.streamRule)} />
-          End of review · {files.length} {files.length === 1 ? "file" : "files"}
+          End of review · {streamFiles.length} {streamFiles.length === 1 ? "file" : "files"}
           <span {...stylex.props(styles.streamRule)} />
         </div>
       ),
-    [skipped, renderMetadataRows, files.length],
+    [
+      guideDiff,
+      skipped,
+      renderMetadataRows,
+      nextGuideLabel,
+      streamViewed,
+      setFilesViewed,
+      streamFiles,
+      stepGuide,
+      openGuide,
+    ],
   );
 
   const titleRow = useTitleBarOverlay();
@@ -3076,13 +3614,14 @@ export function App({
     </>
   );
   const mainHeader =
-    browseSource || hasNotes ? (
+    browseSource || hasNotes || hasGuide ? (
       <FileViewTabs
         panelId={`${idPrefix}file-view-panel`}
         pathActions={pathActions}
         leading={leading}
         trailing={viewControls}
         showBrief={hasNotes}
+        showGuide={hasGuide}
         showCommit={!!commitApi}
         tabs={fileState.tabs.map((tab) => ({
           ...tab,
@@ -3528,381 +4067,448 @@ export function App({
                   ? `File ${activeFile.path}`
                   : fileState.active === "brief"
                     ? "Notes"
-                    : fileState.active === "commit"
-                      ? "Commit"
-                      : "Changes"
+                    : fileState.active === "guide"
+                      ? "Guide"
+                      : fileState.active === "commit"
+                        ? "Commit"
+                        : "Changes"
               }
               {...stylex.props(styles.reviewSurface)}
             >
               <div
                 {...stylex.props(
                   styles.reviewSurface,
-                  fileState.active !== "changes" && styles.hiddenSurface,
+                  !streamShown && !guideTab && styles.hiddenSurface,
                 )}
-                aria-hidden={fileState.active !== "changes"}
+                aria-hidden={!streamShown && !guideTab}
               >
-                <div {...stylex.props(styles.toolbar, zen && styles.hiddenSurface)} hidden={zen}>
-                  <ChoiceSelect
-                    label="Comparison"
-                    value={comparisonValue}
-                    choices={comparisonChoices}
-                    onChange={(value) => {
-                      if (["working", "staged", "unstaged"].includes(value))
-                        void controller.selectComparison({ kind: value } as Comparison);
-                    }}
-                  />
-                  {actionRepo &&
-                    state.status === "ready" &&
-                    state.session?.repository.git !== false && (
-                      <ComparisonActions
-                        key={`${actionRepo}:${actionHead}:${actionBranch}`}
-                        repo={actionRepo}
-                        head={actionHead}
-                        sourceBranch={actionBranch}
-                        comparison={state.comparison}
-                        onCompare={(base, head) => {
-                          fileWorkspace.select("changes");
-                          void controller.selectComparison({
-                            kind: "range",
-                            base,
-                            head,
-                            mergeBase: true,
-                          });
-                        }}
-                      />
-                    )}
-                  {state.review && (
-                    <span {...stylex.props(styles.toolbarTotals)}>
-                      <ChangeTotals
-                        files={state.review.files}
-                        range={`${shortRevision(state.review.base)} → ${shortRevision(state.review.head)}`}
-                      />
-                    </span>
-                  )}
-                  <span {...stylex.props(ui.grow)} />
-                  {files.length > 1 && (
-                    <ToolButton
-                      label={allCollapsed ? "Expand all files" : "Collapse all files"}
-                      icon={allCollapsed ? "expandAll" : "collapseAll"}
-                      aria-label={allCollapsed ? "Expand all files" : "Collapse all files"}
-                      onClick={toggleAllFiles}
+                <div {...stylex.props(styles.guideRow)}>
+                  {guideTab && !zen && (
+                    <GuideRail
+                      sections={guideSections}
+                      commits={guideCommits}
+                      moreCommits={guideTarget?.moreCommits}
+                      scope={guideScope}
+                      filesById={guideFilesById}
+                      viewed={guideViewedIds}
+                      total={shownGuideFiles.length}
+                      done={guideViewedIds.size}
+                      onScope={openGuide}
+                      onFile={(key, id) => {
+                        if (guideDiff && guideSection?.key === key) reveal(id);
+                        else {
+                          // The chosen file, not the saved scroll, places the stream.
+                          explicitReveal.current = true;
+                          openGuide({ kind: "segment", key }, id);
+                        }
+                      }}
+                      onToggleViewed={setFilesViewed}
                     />
                   )}
-                  <SegmentedControl<"split" | "unified">
-                    label="Diff layout"
-                    value={mode}
-                    onChange={setMode}
-                    options={[
-                      { value: "split", label: "Split", icon: "split" },
-                      { value: "unified", label: "Unified", icon: "unified" },
-                    ]}
-                  />
-                  <ActionTooltip label={showNotes ? "Hide comments" : "Show comments"}>
-                    <button
-                      {...stylex.props(
-                        ui.button,
-                        ui.pressable,
-                        styles.notesButton,
-                        showNotes && ui.active,
-                      )}
-                      aria-label="Toggle notes"
-                      aria-pressed={showNotes}
-                      onClick={() => setShowNotes(!showNotes)}
-                    >
-                      <Icon name="note" size={15} />
-                      {notes.length > 0 && (
-                        <span {...stylex.props(styles.notesCount)}>{notes.length}</span>
-                      )}
-                    </button>
-                  </ActionTooltip>
-                  <ActionMenu
-                    sections={[
-                      selectedFile && browseSource
-                        ? [
-                            {
-                              label:
-                                browseSource.kind === "worktree"
-                                  ? "Open working file"
-                                  : "Open snapshot file",
-                              letter: "o",
-                              onClick: () => openWorkingFile(selectedFile.path),
-                            },
-                            { label: "Show files sidebar", onClick: showFiles },
-                          ]
-                        : [],
-                      [
-                        {
-                          label: "Find in diffs",
-                          shortcut: "⌘ F",
-                          letter: "f",
-                          onClick: openFind,
-                        },
-                        ...(gitAvailable
-                          ? [
-                              {
-                                label: "Compare revisions…",
-                                letter: "c",
-                                onClick: () => setRangeOpen(!rangeOpen),
-                              },
-                            ]
-                          : []),
-                      ],
-                      [
-                        {
-                          label: "Show comments",
-                          checked: showNotes,
-                          onClick: () => setShowNotes(!showNotes),
-                        },
-                        {
-                          label: "Wrap long lines",
-                          checked: wrap,
-                          letter: "w",
-                          onClick: () => setWrap(!wrap),
-                        },
-                      ],
-                      [
-                        { label: "Zen mode", shortcut: "⌥ Z", letter: "z", onClick: toggleZen },
-                        {
-                          label: "Refresh review",
-                          letter: "r",
-                          disabled: state.status === "loading",
-                          onClick: () => void controller.refresh(),
-                        },
-                      ],
-                    ]}
-                  />
-                  {state.status === "loading" && (
-                    <span role="presentation" {...stylex.props(styles.loadingTrack)}>
-                      <span {...stylex.props(styles.loadingBar)} />
-                    </span>
-                  )}
-                </div>
-                {rangeOpen && (
-                  <form
-                    {...stylex.props(styles.rangeBar)}
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      if (baseRef && headRef) {
-                        void controller.selectComparison({
-                          kind: "range",
-                          base: baseRef,
-                          head: headRef,
-                        });
-                        setRangeOpen(false);
+                  {guideOverview && (
+                    <GuideOverview
+                      title={
+                        state.savedReview?.pullRequestTitle ?? state.savedReview?.title ?? "Review"
                       }
-                    }}
+                      meta={guideMeta}
+                      summary={resolvedGuide?.summary}
+                      from={
+                        guideSource &&
+                        shownIteration !== undefined &&
+                        guideSource.number !== shownIteration
+                          ? guideSource.number
+                          : undefined
+                      }
+                      agent={leadSession ? { name: guideAgent.name, mark: guideAgent.mark } : null}
+                      sections={guideSections}
+                      commits={guideCommits}
+                      moreCommits={guideTarget?.moreCommits}
+                      viewed={guideViewedIds}
+                      total={shownGuideFiles.length}
+                      done={guideViewedIds.size}
+                      onScope={openGuide}
+                      onOpenLink={openGuideLink}
+                    />
+                  )}
+                  <div
+                    {...stylex.props(styles.reviewSurface, guideOverview && styles.hiddenSurface)}
                   >
-                    <Icon name="compare" size={14} />
-                    <span>Compare</span>
-                    <input
-                      aria-label="Base revision"
-                      value={baseRef}
-                      onChange={(event) => setBaseRef(event.target.value)}
-                      {...stylex.props(ui.input, styles.revisionInput)}
-                    />
-                    <Icon name="arrowUp" size={12} style={{ transform: "rotate(90deg)" }} />
-                    <input
-                      aria-label="Head revision"
-                      value={headRef}
-                      onChange={(event) => setHeadRef(event.target.value)}
-                      {...stylex.props(ui.input, styles.revisionInput)}
-                    />
-                    <button type="submit" {...stylex.props(ui.button, ui.primary, ui.pressable)}>
-                      Review
-                    </button>
-                    <button
-                      type="button"
-                      {...stylex.props(ui.button, ui.iconButton)}
-                      aria-label="Close revision comparison"
-                      onClick={() => setRangeOpen(false)}
-                    >
-                      <Icon name="close" size={13} />
-                    </button>
-                  </form>
-                )}
-                {state.error && (
-                  <div role="alert" {...stylex.props(styles.notice, styles.error)}>
-                    <span>{state.error}</span>
-                    <button {...stylex.props(ui.button)} onClick={() => void controller.refresh()}>
-                      Retry
-                    </button>
-                  </div>
-                )}
-                {state.notesError && (
-                  <div role="alert" {...stylex.props(styles.notice, styles.error)}>
-                    Notes: {state.notesError}
-                  </div>
-                )}
-                {orphaned.length > 0 && showNotes && (
-                  <details {...stylex.props(styles.orphanPanel)}>
-                    <summary>
-                      {orphaned.length} preserved {orphaned.length === 1 ? "note" : "notes"} outside
-                      this diff
-                    </summary>
-                    {orphaned.map((note) => (
-                      <NoteCard
-                        key={note.id}
-                        note={note}
-                        replies={notes.filter((reply) => reply.parentId === note.id)}
-                        onMutate={(mutation) => controller.mutateNote(mutation)}
-                      />
-                    ))}
-                  </details>
-                )}
-                {contextError && (
-                  <div role="alert" {...stylex.props(styles.notice, styles.error)}>
-                    <span>{contextError}</span>
-                    <button {...stylex.props(ui.button)} onClick={() => setContextError(null)}>
-                      Dismiss
-                    </button>
-                  </div>
-                )}
-                {state.review?.warnings.map((warning) => (
-                  <div key={warning} {...stylex.props(styles.notice)}>
-                    {warning}
-                  </div>
-                ))}
-                <div {...stylex.props(styles.stream)}>
-                  {findOpen && (
-                    <div {...stylex.props(styles.findWidget)}>
-                      <Icon name="search" size={14} />
-                      <input
-                        ref={findRef}
-                        value={find}
-                        onChange={(event) => {
-                          setFind(event.target.value);
-                          setFindIndex(0);
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            event.preventDefault();
-                            jumpHit(event.shiftKey ? findIndex - 1 : findIndex + 1);
-                          }
-                          if (event.key === "Escape") {
-                            event.stopPropagation();
-                            setFindOpen(false);
-                          }
-                        }}
-                        aria-label="Find in diff contents"
-                        placeholder="Find in changed hunks"
-                        {...stylex.props(styles.findInput)}
-                      />
-                      <span
-                        {...stylex.props(
-                          styles.findCount,
-                          !!find && !hits.length && styles.findEmpty,
-                        )}
-                      >
-                        {find
-                          ? hits.length
-                            ? `${Math.min(findIndex + 1, hits.length)} / ${hits.length} hunks`
-                            : "No matches"
-                          : ""}
-                      </span>
-                      <button
-                        {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
-                        aria-label="Previous match"
-                        disabled={!hits.length}
-                        onClick={() => jumpHit(findIndex - 1)}
-                      >
-                        <Icon name="arrowUp" size={14} />
-                      </button>
-                      <button
-                        {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
-                        aria-label="Next match"
-                        disabled={!hits.length}
-                        onClick={() => jumpHit(findIndex + 1)}
-                      >
-                        <Icon name="arrowDown" size={14} />
-                      </button>
-                      <button
-                        {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
-                        aria-label="Close find"
-                        onClick={() => setFindOpen(false)}
-                      >
-                        <Icon name="close" size={14} />
-                      </button>
-                    </div>
-                  )}
-                  {selection && (
                     <div
-                      data-line-selection-controls
-                      role="toolbar"
-                      aria-label="Line selection"
-                      {...stylex.props(styles.selectionbar)}
+                      {...stylex.props(styles.toolbar, zen && styles.hiddenSurface)}
+                      hidden={zen}
                     >
-                      <span {...stylex.props(styles.selectionRange)}>
-                        L{selection.range.start}
-                        {selection.range.end !== selection.range.start
-                          ? `–${selection.range.end}`
-                          : ""}
-                      </span>
-                      <span {...stylex.props(styles.selectionLabel)}>selected</span>
-                      <button
-                        {...stylex.props(
-                          ui.button,
-                          ui.primary,
-                          ui.pressable,
-                          styles.selectionAction,
+                      <ChoiceSelect
+                        label="Comparison"
+                        value={comparisonValue}
+                        choices={comparisonChoices}
+                        onChange={(value) => {
+                          if (["working", "staged", "unstaged"].includes(value))
+                            void controller.selectComparison({ kind: value } as Comparison);
+                        }}
+                      />
+                      {actionRepo &&
+                        state.status === "ready" &&
+                        state.session?.repository.git !== false && (
+                          <ComparisonActions
+                            key={`${actionRepo}:${actionHead}:${actionBranch}`}
+                            repo={actionRepo}
+                            head={actionHead}
+                            sourceBranch={actionBranch}
+                            comparison={state.comparison}
+                            onCompare={(base, head) => {
+                              fileWorkspace.select("changes");
+                              void controller.selectComparison({
+                                kind: "range",
+                                base,
+                                head,
+                                mergeBase: true,
+                              });
+                            }}
+                          />
                         )}
-                        aria-label="Add note"
-                        onClick={startNote}
-                      >
-                        <Icon name="note" size={14} />
-                        Add note
-                        <kbd {...stylex.props(styles.selectionKey)}>c</kbd>
-                      </button>
-                      <button
-                        {...stylex.props(ui.button, ui.iconButton, styles.selectionClose)}
-                        aria-label="Clear line selection"
-                        onClick={clearLineSelection}
-                      >
-                        <Icon name="close" size={14} />
-                      </button>
-                    </div>
-                  )}
-                  {items.length > 0 ? (
-                    <ReviewCodeView
-                      key={`${reviewScope}:${state.review?.id}`}
-                      ref={viewer}
-                      onScroll={onReviewScroll}
-                      items={items}
-                      selectedLines={selection}
-                      onSelectedLinesChange={setSelection}
-                      options={options}
-                      className={stylex.props(styles.codeView).className}
-                      style={diffSurfaceStyle}
-                      renderCustomHeader={renderCustomHeader}
-                      renderAnnotation={renderAnnotation}
-                      renderCodeViewFooter={renderCodeViewFooter}
-                    />
-                  ) : skipped.length && state.status !== "loading" && !state.error ? (
-                    <div style={{ overflow: "auto", height: "100%" }}>{renderMetadataRows()}</div>
-                  ) : state.status !== "loading" && !state.error ? (
-                    <div {...stylex.props(styles.emptyState)}>
-                      <span
-                        {...stylex.props(styles.emptyMark, !skipped.length && styles.emptyDone)}
-                      >
-                        <Icon name={skipped.length ? "file" : "check"} size={20} />
-                      </span>
-                      <h1 {...stylex.props(styles.emptyTitle)}>
-                        {state.filter
-                          ? "No matching diffs"
-                          : skipped.length
-                            ? "No text diff to display"
-                            : "All caught up"}
-                      </h1>
-                      {skipped.length ? (
-                        renderMetadataRows()
-                      ) : (
-                        <p {...stylex.props(styles.emptyDescription)}>
-                          {state.comparison.kind === "working"
-                            ? "Working tree clean."
-                            : "No changed text files."}
-                        </p>
+                      {state.review && (
+                        <span {...stylex.props(styles.toolbarTotals)}>
+                          <ChangeTotals
+                            files={state.review.files}
+                            range={`${shortRevision(state.review.base)} → ${shortRevision(state.review.head)}`}
+                          />
+                        </span>
+                      )}
+                      <span {...stylex.props(ui.grow)} />
+                      {files.length > 1 && (
+                        <ToolButton
+                          label={allCollapsed ? "Expand all files" : "Collapse all files"}
+                          icon={allCollapsed ? "expandAll" : "collapseAll"}
+                          aria-label={allCollapsed ? "Expand all files" : "Collapse all files"}
+                          onClick={toggleAllFiles}
+                        />
+                      )}
+                      <SegmentedControl<"split" | "unified">
+                        label="Diff layout"
+                        value={mode}
+                        onChange={setMode}
+                        options={[
+                          { value: "split", label: "Split", icon: "split" },
+                          { value: "unified", label: "Unified", icon: "unified" },
+                        ]}
+                      />
+                      <ActionTooltip label={showNotes ? "Hide comments" : "Show comments"}>
+                        <button
+                          {...stylex.props(
+                            ui.button,
+                            ui.pressable,
+                            styles.notesButton,
+                            showNotes && ui.active,
+                          )}
+                          aria-label="Toggle notes"
+                          aria-pressed={showNotes}
+                          onClick={() => setShowNotes(!showNotes)}
+                        >
+                          <Icon name="note" size={15} />
+                          {notes.length > 0 && (
+                            <span {...stylex.props(styles.notesCount)}>{notes.length}</span>
+                          )}
+                        </button>
+                      </ActionTooltip>
+                      <ActionMenu
+                        sections={[
+                          selectedFile && browseSource
+                            ? [
+                                {
+                                  label:
+                                    browseSource.kind === "worktree"
+                                      ? "Open working file"
+                                      : "Open snapshot file",
+                                  letter: "o",
+                                  onClick: () => openWorkingFile(selectedFile.path),
+                                },
+                                { label: "Show files sidebar", onClick: showFiles },
+                              ]
+                            : [],
+                          [
+                            {
+                              label: "Find in diffs",
+                              shortcut: "⌘ F",
+                              letter: "f",
+                              onClick: openFind,
+                            },
+                            ...(gitAvailable
+                              ? [
+                                  {
+                                    label: "Compare revisions…",
+                                    letter: "c",
+                                    onClick: () => setRangeOpen(!rangeOpen),
+                                  },
+                                ]
+                              : []),
+                          ],
+                          [
+                            {
+                              label: "Show comments",
+                              checked: showNotes,
+                              onClick: () => setShowNotes(!showNotes),
+                            },
+                            {
+                              label: "Wrap long lines",
+                              checked: wrap,
+                              letter: "w",
+                              onClick: () => setWrap(!wrap),
+                            },
+                          ],
+                          [
+                            { label: "Zen mode", shortcut: "⌥ Z", letter: "z", onClick: toggleZen },
+                            {
+                              label: "Refresh review",
+                              letter: "r",
+                              disabled: state.status === "loading",
+                              onClick: () => void controller.refresh(),
+                            },
+                          ],
+                        ]}
+                      />
+                      {state.status === "loading" && (
+                        <span role="presentation" {...stylex.props(styles.loadingTrack)}>
+                          <span {...stylex.props(styles.loadingBar)} />
+                        </span>
                       )}
                     </div>
-                  ) : null}
+                    {rangeOpen && (
+                      <form
+                        {...stylex.props(styles.rangeBar)}
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          if (baseRef && headRef) {
+                            void controller.selectComparison({
+                              kind: "range",
+                              base: baseRef,
+                              head: headRef,
+                            });
+                            setRangeOpen(false);
+                          }
+                        }}
+                      >
+                        <Icon name="compare" size={14} />
+                        <span>Compare</span>
+                        <input
+                          aria-label="Base revision"
+                          value={baseRef}
+                          onChange={(event) => setBaseRef(event.target.value)}
+                          {...stylex.props(ui.input, styles.revisionInput)}
+                        />
+                        <Icon name="arrowUp" size={12} style={{ transform: "rotate(90deg)" }} />
+                        <input
+                          aria-label="Head revision"
+                          value={headRef}
+                          onChange={(event) => setHeadRef(event.target.value)}
+                          {...stylex.props(ui.input, styles.revisionInput)}
+                        />
+                        <button
+                          type="submit"
+                          {...stylex.props(ui.button, ui.primary, ui.pressable)}
+                        >
+                          Review
+                        </button>
+                        <button
+                          type="button"
+                          {...stylex.props(ui.button, ui.iconButton)}
+                          aria-label="Close revision comparison"
+                          onClick={() => setRangeOpen(false)}
+                        >
+                          <Icon name="close" size={13} />
+                        </button>
+                      </form>
+                    )}
+                    {state.error && (
+                      <div role="alert" {...stylex.props(styles.notice, styles.error)}>
+                        <span>{state.error}</span>
+                        <button
+                          {...stylex.props(ui.button)}
+                          onClick={() => void controller.refresh()}
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    )}
+                    {state.notesError && (
+                      <div role="alert" {...stylex.props(styles.notice, styles.error)}>
+                        Notes: {state.notesError}
+                      </div>
+                    )}
+                    {orphaned.length > 0 && showNotes && (
+                      <details {...stylex.props(styles.orphanPanel)}>
+                        <summary>
+                          {orphaned.length} preserved {orphaned.length === 1 ? "note" : "notes"}{" "}
+                          outside this diff
+                        </summary>
+                        {orphaned.map((note) => (
+                          <NoteCard
+                            key={note.id}
+                            note={note}
+                            replies={notes.filter((reply) => reply.parentId === note.id)}
+                            onMutate={(mutation) => controller.mutateNote(mutation)}
+                          />
+                        ))}
+                      </details>
+                    )}
+                    {contextError && (
+                      <div role="alert" {...stylex.props(styles.notice, styles.error)}>
+                        <span>{contextError}</span>
+                        <button {...stylex.props(ui.button)} onClick={() => setContextError(null)}>
+                          Dismiss
+                        </button>
+                      </div>
+                    )}
+                    {state.review?.warnings.map((warning) => (
+                      <div key={warning} {...stylex.props(styles.notice)}>
+                        {warning}
+                      </div>
+                    ))}
+                    <div ref={streamRef} {...stylex.props(styles.stream)}>
+                      {findOpen && (
+                        <div {...stylex.props(styles.findWidget)}>
+                          <Icon name="search" size={14} />
+                          <input
+                            ref={findRef}
+                            value={find}
+                            onChange={(event) => {
+                              setFind(event.target.value);
+                              setFindIndex(0);
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                jumpHit(event.shiftKey ? findIndex - 1 : findIndex + 1);
+                              }
+                              if (event.key === "Escape") {
+                                event.stopPropagation();
+                                setFindOpen(false);
+                              }
+                            }}
+                            aria-label="Find in diff contents"
+                            placeholder="Find in changed hunks"
+                            {...stylex.props(styles.findInput)}
+                          />
+                          <span
+                            {...stylex.props(
+                              styles.findCount,
+                              !!find && !hits.length && styles.findEmpty,
+                            )}
+                          >
+                            {find
+                              ? hits.length
+                                ? `${Math.min(findIndex + 1, hits.length)} / ${hits.length} hunks`
+                                : "No matches"
+                              : ""}
+                          </span>
+                          <button
+                            {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
+                            aria-label="Previous match"
+                            disabled={!hits.length}
+                            onClick={() => jumpHit(findIndex - 1)}
+                          >
+                            <Icon name="arrowUp" size={14} />
+                          </button>
+                          <button
+                            {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
+                            aria-label="Next match"
+                            disabled={!hits.length}
+                            onClick={() => jumpHit(findIndex + 1)}
+                          >
+                            <Icon name="arrowDown" size={14} />
+                          </button>
+                          <button
+                            {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
+                            aria-label="Close find"
+                            onClick={() => setFindOpen(false)}
+                          >
+                            <Icon name="close" size={14} />
+                          </button>
+                        </div>
+                      )}
+                      {selection && (
+                        <div
+                          data-line-selection-controls
+                          role="toolbar"
+                          aria-label="Line selection"
+                          {...stylex.props(styles.selectionbar)}
+                        >
+                          <span {...stylex.props(styles.selectionRange)}>
+                            L{selection.range.start}
+                            {selection.range.end !== selection.range.start
+                              ? `–${selection.range.end}`
+                              : ""}
+                          </span>
+                          <span {...stylex.props(styles.selectionLabel)}>selected</span>
+                          <button
+                            {...stylex.props(
+                              ui.button,
+                              ui.primary,
+                              ui.pressable,
+                              styles.selectionAction,
+                            )}
+                            aria-label="Add note"
+                            onClick={startNote}
+                          >
+                            <Icon name="note" size={14} />
+                            Add note
+                            <kbd {...stylex.props(styles.selectionKey)}>c</kbd>
+                          </button>
+                          <button
+                            {...stylex.props(ui.button, ui.iconButton, styles.selectionClose)}
+                            aria-label="Clear line selection"
+                            onClick={clearLineSelection}
+                          >
+                            <Icon name="close" size={14} />
+                          </button>
+                        </div>
+                      )}
+                      {items.length > 0 ? (
+                        <ReviewCodeView
+                          key={`${streamScope}:${state.review?.id}`}
+                          ref={viewer}
+                          onScroll={onReviewScroll}
+                          items={items}
+                          selectedLines={selection}
+                          onSelectedLinesChange={setSelection}
+                          options={options}
+                          className={stylex.props(styles.codeView).className}
+                          style={diffSurfaceStyle}
+                          renderCustomHeader={renderCustomHeader}
+                          renderAnnotation={renderAnnotation}
+                          renderCodeViewHeader={renderCodeViewHeader}
+                          renderCodeViewFooter={renderCodeViewFooter}
+                        />
+                      ) : skipped.length && state.status !== "loading" && !state.error ? (
+                        <div style={{ overflow: "auto", height: "100%" }}>
+                          {renderMetadataRows()}
+                        </div>
+                      ) : state.status !== "loading" && !state.error ? (
+                        <div {...stylex.props(styles.emptyState)}>
+                          <span
+                            {...stylex.props(styles.emptyMark, !skipped.length && styles.emptyDone)}
+                          >
+                            <Icon name={skipped.length ? "file" : "check"} size={20} />
+                          </span>
+                          <h1 {...stylex.props(styles.emptyTitle)}>
+                            {state.filter
+                              ? "No matching diffs"
+                              : skipped.length
+                                ? "No text diff to display"
+                                : "All caught up"}
+                          </h1>
+                          {skipped.length ? (
+                            renderMetadataRows()
+                          ) : (
+                            <p {...stylex.props(styles.emptyDescription)}>
+                              {state.comparison.kind === "working"
+                                ? "Working tree clean."
+                                : "No changed text files."}
+                            </p>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
                 </div>
               </div>
               {hasNotes && briefMounted && state.savedReview && (
@@ -4274,6 +4880,57 @@ const styles = stylex.create({
     minWidth: 0,
   },
   hiddenSurface: { display: "none" },
+  // The Guide's rail beside the stream, or beside its Overview.
+  guideRow: {
+    display: "flex",
+    flex: "1",
+    minHeight: 0,
+    minWidth: 0,
+    containerType: "inline-size",
+  },
+  // A file's Viewed mark at the end of its header, as on GitHub.
+  // In a narrow pane the label and the totals give way before the file name;
+  // the box stays.
+  viewedToggle: {
+    pointerEvents: "auto",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 100,
+    minWidth: 27,
+    overflow: "hidden",
+    whiteSpace: "nowrap",
+    height: 24,
+    marginInlineStart: 4,
+    paddingInline: 7,
+    borderWidth: 0,
+    borderRadius: `calc(6px * ${tokens.round})`,
+    backgroundColor: { default: "transparent", ":hover": tokens.fill },
+    color: { default: tokens.faint, ":hover": tokens.text },
+    fontFamily: tokens.ui,
+    fontSize: 11.5,
+    cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+    outlineOffset: -1,
+  },
+  viewedOn: { color: { default: tokens.muted, ":hover": tokens.text } },
+  viewedBox: {
+    display: "inline-flex",
+    flexShrink: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    width: 13,
+    height: 13,
+    boxSizing: "border-box",
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: tokens.lineStrong,
+    borderRadius: `calc(4px * ${tokens.round})`,
+    color: tokens.canvas,
+    transitionProperty: "background-color, border-color",
+    transitionDuration: "120ms",
+  },
+  viewedBoxOn: { borderColor: tokens.green, backgroundColor: tokens.green },
   // One quiet message at a time, low in the review card, with an optional undo.
   toast: {
     position: "absolute",
@@ -4616,6 +5273,9 @@ const styles = stylex.create({
     display: "inline-flex",
     alignItems: "center",
     gap: 6,
+    flexShrink: 100,
+    minWidth: 0,
+    overflow: "hidden",
     fontFamily: tokens.code,
     fontSize: 11,
   },

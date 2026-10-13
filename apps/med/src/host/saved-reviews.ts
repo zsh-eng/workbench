@@ -52,6 +52,14 @@ import {
   type SavedReviewCreate,
   type CapturedReviewTarget,
 } from "../shared/saved-review";
+import {
+  guideError,
+  reviewGuideSchema,
+  savedCommitSchema,
+  savedGuideSchema,
+  MAX_SAVED_COMMITS,
+  type ReviewGuide,
+} from "../shared/review-guide";
 
 const REVIEW_ID = /^r_[a-f0-9]{24}$/;
 const TARGET_ID = /^t_[a-f0-9]{24}$/;
@@ -110,6 +118,8 @@ const targetSchema = z.object({
   head: text,
   captured: z.boolean(),
   commentReviewId: text.optional(),
+  commits: z.array(savedCommitSchema).max(MAX_SAVED_COMMITS).optional(),
+  moreCommits: z.boolean().optional(),
 });
 const briefSchema = z.object({ text: text.max(MAX_BRIEF_LENGTH), updatedAt: text });
 const pinsSchema = z
@@ -129,6 +139,7 @@ const savedSchema = z.object({
   pullRequestUrl: pullRequestUrlSchema.optional(),
   pullRequestTitle: text.optional(),
   brief: briefSchema.optional(),
+  guide: savedGuideSchema.optional(),
   pins: pinsSchema.optional(),
   briefComments: z
     .array(briefCommentSchema.extend({ id: z.string().regex(/^c_[a-f0-9]{12}$/) }))
@@ -142,6 +153,7 @@ const savedSchema = z.object({
         createdAt: text,
         targetIds: z.array(z.string().regex(TARGET_ID)),
         brief: briefSchema.optional(),
+        guide: savedGuideSchema.optional(),
         pins: pinsSchema.optional(),
         fresh: z.boolean().optional(),
       }),
@@ -176,6 +188,11 @@ const recordSchema = z.object({
     .max(128),
 });
 type SavedRecord = z.infer<typeof recordSchema>;
+
+/** A guide as the record keeps it: comment sides and kinds filled in. */
+function savedGuide(guide: ReviewGuide, updatedAt = new Date().toISOString()) {
+  return savedGuideSchema.parse({ ...guide, updatedAt });
+}
 
 /** Comments on the captured comparisons and on the Notes. */
 const countComments = (record: SavedRecord) =>
@@ -597,6 +614,8 @@ export class SavedReviewStore {
       base: review.base,
       head: review.head,
       captured: ["working", "staged", "unstaged"].includes(review.comparison.kind),
+      ...(result.commits?.list.length ? { commits: result.commits.list } : {}),
+      ...(result.commits?.more ? { moreCommits: true } : {}),
     });
     record.captures.push({
       targetId,
@@ -639,6 +658,7 @@ export class SavedReviewStore {
           ...(input.brief
             ? { brief: { text: input.brief, updatedAt: new Date().toISOString() } }
             : {}),
+          ...(input.guide ? { guide: savedGuide(input.guide) } : {}),
           createdAt: new Date().toISOString(),
           revision: 0,
           commentCount: 0,
@@ -659,6 +679,7 @@ export class SavedReviewStore {
             createdAt: record.saved.createdAt,
             targetIds: record.saved.targets.map((target) => target.id),
             ...(record.saved.brief ? { brief: record.saved.brief } : {}),
+            ...(record.saved.guide ? { guide: record.saved.guide } : {}),
           },
         ];
       }
@@ -710,6 +731,7 @@ export class SavedReviewStore {
         createdAt: saved.createdAt,
         targetIds: saved.targets.filter((target) => !target.commentReviewId).map((t) => t.id),
         ...(saved.brief ? { brief: saved.brief } : {}),
+        ...(saved.guide ? { guide: saved.guide } : {}),
         ...(saved.pins ? { pins: saved.pins } : {}),
       },
     ];
@@ -731,16 +753,19 @@ export class SavedReviewStore {
     }
     const now = new Date().toISOString();
     const brief = input.brief ? { text: input.brief, updatedAt: now } : undefined;
+    const guide = input.guide ? savedGuide(input.guide, now) : undefined;
     iterations.push({
       number: iterations.at(-1)!.number + 1,
       createdAt: now,
       targetIds,
       ...(brief ? { brief } : {}),
+      ...(guide ? { guide } : {}),
       ...(fresh ? { fresh } : {}),
     });
     saved.iterations = iterations;
     saved.title = input.title.trim();
     if (brief) saved.brief = brief;
+    if (guide) saved.guide = guide;
     if (input.pullRequestUrl) linkPullRequest(saved, input.pullRequestUrl, input.pullRequestTitle);
     addSessions(saved, input.sessions);
     this.fit(record);
@@ -1009,6 +1034,31 @@ export class SavedReviewStore {
       if (iteration) {
         if (record.saved.brief) iteration.brief = record.saved.brief;
         else delete iteration.brief;
+      }
+      await this.write(record, beforeCommit);
+      return this.describe(record);
+    }, beforeCommit);
+  }
+
+  /** Replace or remove the current iteration's guide. */
+  setGuide(id: string, guide: unknown, beforeCommit?: () => void): Promise<SavedReview> {
+    return this.writing(async () => {
+      const record = await this.read(id, true);
+      let next: ReturnType<typeof savedGuide> | undefined;
+      if (guide !== null) {
+        const parsed = reviewGuideSchema.safeParse(guide);
+        if (!parsed.success) throw new HostError("invalid-guide", guideError(parsed.error), 400);
+        next = savedGuide(parsed.data);
+      }
+      const owner = record.saved.iterations?.at(-1);
+      for (const holder of owner ? [record.saved, owner] : [record.saved]) {
+        if (next) holder.guide = next;
+        else delete holder.guide;
+      }
+      // Without its own guide, the review shows the latest guide an iteration still has.
+      if (!next && owner) {
+        const latest = record.saved.iterations!.findLast((entry) => entry.guide)?.guide;
+        if (latest) record.saved.guide = latest;
       }
       await this.write(record, beforeCommit);
       return this.describe(record);

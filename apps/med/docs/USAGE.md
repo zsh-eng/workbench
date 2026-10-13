@@ -215,6 +215,30 @@ latest steps, and the reply that ended its turn.
 - `Esc` goes back from the Desk to the Board, and from the Board to the
   workspace.
 
+## The Guide
+
+When an agent attaches a guide, the review opens on the **Guide** tab. A guide
+splits the change into segments that you check one at a time, like a pull
+request split into small ones.
+
+- **Overview.** The agent's summary, the segments with their size and comment
+  count, and the range's commits. **Start reviewing** opens the first segment
+  that you have not finished.
+- **A segment.** Its title, summary, and only its files, with the agent's
+  comments on their lines. A comment on an unchanged line shows under the
+  summary. Reply to a comment with your own note from its **Reply** button.
+- **Viewed.** Check **Viewed** in a file's header, or press `v` for the file at
+  the top. A viewed file folds and stays viewed until it changes. `⇧V` marks
+  the segment viewed and opens the next one. The rail at the left shows your
+  progress; it hides in a narrow window.
+- **Commits.** With two or more commits in the range, each one opens on its own,
+  with its message. **Return to review** goes back to the whole range.
+- **Move.** `j` and `k` step through the segments, or through the commits once
+  one is open.
+
+A range with several commits and no guide shows its commits in the Guide too.
+Agents pass a guide with [`--guide`](AGENT_INTEGRATION.md#attach-a-guide).
+
 ## Notes and briefs
 
 A review's **Notes** hold the agent's brief and the replies that you pin from
@@ -579,6 +603,9 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Zen mode                         | `⌥Z`          |
 | Comment on selected lines        | `c`           |
 | Paste a brief                    | `⌘V`          |
+| Next / previous guide segment    | `j` / `k`     |
+| Mark the top file viewed         | `v`           |
+| Mark the segment viewed, go on   | `⇧V`          |
 | Next / previous excerpt or reply | `]` / `[`     |
 | Resume search                    | `⌥R`          |
 | Keep the preview tab             | `⌥P`          |

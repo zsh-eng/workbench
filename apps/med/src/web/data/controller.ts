@@ -1,4 +1,5 @@
 import { codexReviewsSchema, type CodexReviewRun } from "../../shared/codex-review";
+import type { ReviewGuide } from "../../shared/review-guide";
 import { readBrowserToken } from "./auth";
 import { REVIEW_UPDATED } from "./workspaces";
 import {
@@ -120,6 +121,8 @@ export interface ReviewController {
   clearSavedComments(expectedRevision: number): Promise<void>;
   /** Replace the saved review's brief, or remove it with null. */
   setSavedBrief(text: string | null): Promise<void>;
+  /** Replace or remove the current iteration's guide. */
+  setSavedGuide(guide: ReviewGuide | null): Promise<void>;
   /** Pin an agent reply to the saved review's Notes, or remove a pin. */
   pinToReview(mutation: PinMutation): Promise<void>;
   /** New, empty Notes: the current comparisons, captured again as a new
@@ -1693,6 +1696,27 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
           next.revision >= snapshot.savedReview.revision
             ? next
             : { ...snapshot.savedReview, brief: next.brief },
+      });
+    },
+    async setSavedGuide(guide) {
+      const saved = snapshot.savedReview;
+      if (!saved) throw new Error("Open a saved review to attach a guide.");
+      const next = await api.json(
+        `/api/reviews/${encodeURIComponent(saved.id)}/guide`,
+        savedReviewSchema,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ guide }),
+        },
+      );
+      if (disposed || snapshot.savedReview?.id !== saved.id) return;
+      // A guide change does not move the comment revision. Keep newer comment counts.
+      update({
+        savedReview:
+          next.revision >= snapshot.savedReview.revision
+            ? next
+            : { ...snapshot.savedReview, guide: next.guide, iterations: next.iterations },
       });
     },
     async pinToReview(mutation) {

@@ -25,8 +25,9 @@ interface FileWorkspaceSnapshot extends Workspace {
   stale: boolean;
   error: string | null;
 }
-/** Tabs that are not files: the diff stream, a saved review's brief, and Commit. */
-export const isFileTab = (id: string) => id !== "changes" && id !== "brief" && id !== "commit";
+/** Tabs that are not files: the diff stream, a saved review's guide and brief, and Commit. */
+export const isFileTab = (id: string) =>
+  id !== "changes" && id !== "brief" && id !== "guide" && id !== "commit";
 
 export function sourceKey(source: BrowseSource) {
   return JSON.stringify(
@@ -109,7 +110,12 @@ export function createFileWorkspace(api: BrowseApi) {
     /** Show a workspace's files. `keep` is a tab that is not a file's, such as
      * the Notes of a saved review, that stays in front when the workspace
      * changes under it. */
-    configure(key: string, source: BrowseSource | null, sourceLabel: string, keep?: string) {
+    configure(
+      key: string,
+      source: BrowseSource | null,
+      sourceLabel: string,
+      keep: readonly string[] = [],
+    ) {
       if (
         snapshot.key === key &&
         JSON.stringify(snapshot.source) === JSON.stringify(source) &&
@@ -124,7 +130,7 @@ export function createFileWorkspace(api: BrowseApi) {
         source,
         sourceLabel,
         tabs: saved?.tabs ?? [],
-        active: keep && snapshot.active === keep ? keep : (saved?.active ?? "changes"),
+        active: keep.includes(snapshot.active) ? snapshot.active : (saved?.active ?? "changes"),
         recentPaths: saved?.recentPaths ?? [],
         file: null,
         loading: false,

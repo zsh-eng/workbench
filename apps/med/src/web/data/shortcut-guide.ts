@@ -86,6 +86,24 @@ export const guideContexts: GuideContext[] = [
         ],
       },
       {
+        title: "Guide",
+        description:
+          "The agent's walk through the review: an overview, then one segment or commit at a time.",
+        entries: [
+          {
+            label: "Next / previous segment",
+            keys: ["j", "k"],
+            note: "In the Guide tab; commits step the same way",
+          },
+          {
+            label: "Mark the top file viewed",
+            keys: ["v"],
+            note: "Folds it and moves to the next file",
+          },
+          { label: "Mark the segment viewed and continue", keys: ["Shift+V"] },
+        ],
+      },
+      {
         title: "Notes",
         description:
           "The agent's brief and the replies you pin to the review, with links to the cited lines.",

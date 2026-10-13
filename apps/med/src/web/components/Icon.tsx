@@ -52,6 +52,7 @@ export type IconName =
   | "focusExit"
   | "selector"
   | "brief"
+  | "guide"
   | "pin"
   | "maximize"
   | "restore"
@@ -93,6 +94,10 @@ const icons: Record<IconName, ReactNode> = {
   selector: <path d="M5.5 6.25 8 3.75l2.5 2.5M5.5 9.75 8 12.25l2.5-2.5" />,
   // Indented lines with a change bar beside one of them: Med's own mark.
   brief: <path d="M6 3.75h7.25M8 8h5.25M6 12.25h4.5M2.75 6.75v2.5" />,
+  // A signpost: one sign points on, one points back. The way through a review.
+  guide: (
+    <path d="M8 1.75v2M8 7.25v1.5M8 12.25v2M4 3.75h6.75L12.5 5.5l-1.75 1.75H4zM12 8.75H5.25L3.5 10.5l1.75 1.75H12z" />
+  ),
   // A push pin: the head, the body that widens to its collar, and the point.
   pin: <path d="M5.25 2.75h5.5M6.5 2.75v3.5L4.5 9.25h7l-2-3V2.75M8 9.25v4" />,
   // Out to the corners: fill the column. In from the corners: share it again.

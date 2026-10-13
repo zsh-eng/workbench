@@ -309,6 +309,18 @@ request URL can show GitHub comments: `GET /api/reviews/:id/pull-request` runs
 `gh api` with GET requests only and keeps the result for 30 seconds. Med never
 writes to GitHub.
 
+A bundle and each iteration can hold a guide (`src/shared/review-guide.ts`): a
+summary and segments, each with file patterns and the agent's comments on
+lines. The host checks it with the shared schema on create and on
+`POST /api/reviews/:id/guide`. For a commit range, a capture also records up to
+50 commits of `base..head`. `src/web/data/guide.ts` matches each segment's
+patterns to the captured files and places each comment on its file; files that
+no segment names form a last automatic segment. The Guide tab reuses the
+Changes stream with only the segment's files, so it keeps virtualization,
+annotations, and notes. Viewed marks (`src/web/data/viewed.ts`) are kept in
+`localStorage` for each review, keyed by path and new blob ID, so a changed
+file shows as unviewed again.
+
 A bundle records the agent sessions that worked on it. The host converts a
 session's Claude Code transcript or Codex rollout to Agent Client Protocol
 `session/update` shapes and streams them (`src/host/agent-transcripts.ts`); see

@@ -180,6 +180,85 @@ describe("agent review CLI through the production host", () => {
     ).rejects.toThrow("Invalid brief: Supply the brief text.");
   });
 
+  it("attaches a guide to a committed range with its commits, then replaces and removes it", async () => {
+    const f = await fixture();
+    const repo = f.repos[0]!;
+    const base = git(repo, "rev-parse", "HEAD");
+    git(repo, "commit", "-am", "Change the file");
+    await writeFile(join(repo, "notes.md"), "# Notes\n");
+    git(repo, "add", ".");
+    git(repo, "commit", "-m", "Add notes");
+    const head = git(repo, "rev-parse", "HEAD");
+    const guide = async (name: string, value: unknown) => {
+      const path = join(f.root, name);
+      await writeFile(path, JSON.stringify(value));
+      return path;
+    };
+    const first = {
+      summary: "Changes the file and adds notes.",
+      segments: [
+        {
+          title: "The file",
+          kind: "fix",
+          summary: "One line changes.",
+          files: ["file.txt"],
+          comments: [{ file: "file.txt", line: 1, kind: "risk", body: "Check the old callers." }],
+        },
+        { title: "Notes", summary: "New notes.", files: ["*.md"] },
+      ],
+    };
+    const bundle = await f.saved(
+      await f.run(
+        "create",
+        "--title",
+        "Guided",
+        "--key",
+        "guided",
+        "--repo",
+        repo,
+        "--base",
+        base,
+        "--head",
+        head,
+        "--guide",
+        await guide("guide.json", first),
+      ),
+    );
+    expect(bundle.guide).toMatchObject({
+      summary: first.summary,
+      segments: [
+        {
+          title: "The file",
+          comments: [{ file: "file.txt", line: 1, side: "new", kind: "risk" }],
+        },
+        { title: "Notes", files: ["*.md"] },
+      ],
+    });
+    expect(bundle.iterations[0].guide.summary).toBe(first.summary);
+    expect(bundle.targets[0].commits.map((commit: { subject: string }) => commit.subject)).toEqual([
+      "Change the file",
+      "Add notes",
+    ]);
+    expect(bundle.targets[0].moreCommits).toBeUndefined();
+
+    const second = { summary: "Second guide.", segments: [{ title: "All", files: ["**"] }] };
+    await f.run("update", "--key", "guided", "--guide", await guide("second.json", second));
+    const updated = await f.api(`/api/reviews/${bundle.id}`);
+    expect(updated.guide.summary).toBe("Second guide.");
+    expect(updated.revision).toBe(bundle.revision);
+
+    await expect(
+      f.run("update", "--key", "guided", "--guide", await guide("bad.json", { segments: [] })),
+    ).rejects.toThrow("Invalid guide at segments");
+    const removed = await fetch(`http://127.0.0.1:${f.host.port}/api/reviews/${bundle.id}/guide`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${f.host.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ guide: null }),
+    });
+    expect(removed.status).toBe(200);
+    expect((await f.api(`/api/reviews/${bundle.id}`)).guide).toBeUndefined();
+  });
+
   it("announces a review to open windows and opens its link when no window is open", async () => {
     const f = await fixture();
     const origin = `http://127.0.0.1:${f.host.port}`;

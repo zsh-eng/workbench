@@ -26,6 +26,7 @@ export function FileViewTabs({
   panelId = "file-view-panel",
   showChanges = true,
   showBrief = false,
+  showGuide = false,
   showCommit = false,
   changesCount,
   leading,
@@ -39,6 +40,8 @@ export function FileViewTabs({
   showChanges?: boolean;
   /** A saved review's brief comes first, before Changes. */
   showBrief?: boolean;
+  /** A saved review's guide comes before the brief. */
+  showGuide?: boolean;
   /** Stage, commit, and push a live checkout. */
   showCommit?: boolean;
   /** Changed-file count shown beside the Changes tab. */
@@ -66,6 +69,22 @@ export function FileViewTabs({
     >
       {leading}
       <Tabs.List aria-label="Open files" {...stylex.props(styles.list)}>
+        {showGuide && (
+          <Tabs.Tab
+            value="guide"
+            aria-controls={panelId}
+            aria-label="Guide"
+            {...stylex.props(
+              styles.tab,
+              styles.changes,
+              styles.enter,
+              active === "guide" && styles.active,
+            )}
+          >
+            <Icon name="guide" size={14} />
+            Guide
+          </Tabs.Tab>
+        )}
         {showBrief && (
           <Tabs.Tab
             value="brief"

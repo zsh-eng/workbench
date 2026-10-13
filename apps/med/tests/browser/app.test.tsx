@@ -26,6 +26,7 @@ import type {
   SavedPin,
 } from "../../src/shared/saved-review";
 import type { AgentPreset, OwnedAction, OwnedState } from "../../src/shared/owned-session";
+import type { ReviewGuide } from "../../src/shared/review-guide";
 import type { BlameLoader } from "../../src/web/data/blame";
 import type { CommitApi } from "../../src/web/data/commit";
 import { createFakeRepository } from "../../src/web/components/elements/commit-fixture";
@@ -67,6 +68,7 @@ const storedPreferences = [
   "med:pane-layout",
   "med:pane-width",
   "med:work",
+  "med:viewed:v1:saved",
 ];
 beforeEach(() => {
   for (const key of storedPreferences) localStorage.removeItem(key);
@@ -109,6 +111,8 @@ async function mountApp(
     savedReview?: boolean;
     /** Markdown brief of the saved review. */
     brief?: string;
+    /** The agent's guide to the saved review. */
+    guide?: ReviewGuide;
     readOnly?: boolean;
     noteMutation?: () => Promise<Response | undefined>;
     /** One agent iteration per brief. The first and the last own the two saved targets. */
@@ -220,6 +224,7 @@ async function mountApp(
       ? { pullRequestUrl: options.pullRequest.url, pullRequestTitle: "Read pull request threads" }
       : {}),
     ...(brief ? { brief: { text: brief, updatedAt: "2026-09-20T00:00:00Z" } } : {}),
+    ...(options.guide ? { guide: { ...options.guide, updatedAt: "2026-09-20T00:00:00Z" } } : {}),
     ...(pins.length ? { pins } : {}),
     ...(briefComments.length ? { briefComments } : {}),
     ...(options.iterationBriefs
@@ -596,7 +601,8 @@ async function mountApp(
   // A saved review with a brief opens on the Brief tab. Its hidden diff views
   // have no box, so they render when Changes shows.
   const briefFirst =
-    options.savedReview && (options.brief !== undefined || options.iterationBriefs);
+    options.savedReview &&
+    (options.brief !== undefined || options.iterationBriefs || options.guide);
   await expect
     .poll(() => document.querySelectorAll("diffs-container").length)
     .toBeGreaterThanOrEqual(briefFirst ? 0 : options.review ? 1 : 2);
@@ -2171,6 +2177,65 @@ describe("graphical review", () => {
     await row("src/web/App.tsx").click();
     await userEvent.keyboard("{Enter}");
     await expect.element(tab("App.tsx")).toHaveAttribute("aria-selected", "true");
+  });
+});
+
+describe("review guide", () => {
+  // The file headers in the diff stream, by their text.
+  const streamFiles = () =>
+    [...document.querySelectorAll("[data-stream-file]")].map((node) => node.textContent);
+
+  test("opens on the overview, reads one segment at a time with its comments, and keeps viewed marks", async () => {
+    await page.viewport(1280, 800);
+    await mountApp({
+      savedReview: true,
+      guide: {
+        summary: "Renames the **export** in two files.",
+        segments: [
+          {
+            title: "Rename alpha",
+            kind: "refactor",
+            summary: "The constant becomes `after`.",
+            files: ["src/alpha.ts"],
+            comments: [
+              {
+                file: "src/alpha.ts",
+                line: 1,
+                side: "new",
+                kind: "risk",
+                body: "Callers still import the old name.",
+              },
+            ],
+          },
+          { title: "Rename beta", summary: "The same rename.", files: ["src/beta.ts"] },
+        ],
+      },
+    });
+    await expect
+      .element(page.getByRole("tab", { name: "Guide" }))
+      .toHaveAttribute("aria-selected", "true");
+    const overview = page.getByRole("region", { name: "Guide overview" });
+    await expect.element(overview.getByText(/^Renames the/)).toBeVisible();
+    await expect.element(overview.getByRole("button", { name: /Rename alpha/ })).toBeVisible();
+
+    await userEvent.keyboard("j");
+    await expect.element(page.getByRole("heading", { name: "Rename alpha" })).toBeVisible();
+    await expect.element(page.getByText("Callers still import the old name.")).toBeVisible();
+    await expect.poll(streamFiles).toEqual([expect.stringContaining("alpha.ts")]);
+
+    const rail = page.getByRole("navigation", { name: "Guide" });
+    const alpha = rail.getByRole("checkbox", { name: "Viewed src/alpha.ts" });
+    await expect.element(alpha).toHaveAttribute("aria-checked", "false");
+    await userEvent.keyboard("v");
+    await expect.element(alpha).toHaveAttribute("aria-checked", "true");
+    await expect.element(rail.getByLabelText("1 of 2 files viewed")).toBeVisible();
+
+    await userEvent.keyboard("j");
+    await expect.element(page.getByRole("heading", { name: "Rename beta" })).toBeVisible();
+    await expect.poll(streamFiles).toEqual([expect.stringContaining("beta.ts")]);
+    await userEvent.keyboard("k");
+    await expect.poll(streamFiles).toEqual([expect.stringContaining("alpha.ts")]);
+    expect(JSON.parse(localStorage.getItem("med:viewed:v1:saved") ?? "[]")).toHaveLength(1);
   });
 });
 
