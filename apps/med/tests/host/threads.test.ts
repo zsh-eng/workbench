@@ -170,6 +170,14 @@ test("a thread starts its agent on a new branch in a worktree, and archiving can
     () => expect(threads.value!.threads.map((thread) => thread.id)).toContain(review.id),
     { timeout: 5000 },
   );
+
+  // Archiving is not work on a thread: after Undo, it keeps its time and place.
+  const time = () => threads.value!.threads.find((thread) => thread.id === second.id)?.updatedAt;
+  const before = time();
+  await api(`/api/threads/${second.id}/archive`, { archived: true });
+  await vi.waitFor(() => expect(time()).toBeUndefined(), { timeout: 5000 });
+  await api(`/api/threads/${second.id}/archive`, { archived: false });
+  await vi.waitFor(() => expect(time()).toBe(before), { timeout: 5000 });
 });
 
 test("a thread's agent hands off its work with the command that its system prompt gives", async () => {

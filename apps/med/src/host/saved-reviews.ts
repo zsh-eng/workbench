@@ -11,6 +11,7 @@ import {
   rmdir,
   stat,
   unlink,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
@@ -1055,9 +1056,12 @@ export class SavedReviewStore {
   archive(id: string, archived: boolean, beforeCommit?: () => void): Promise<SavedReview> {
     return this.writing(async () => {
       const record = await this.read(id, true);
+      const before = await stat(this.file(id)).catch(() => undefined);
       if (archived) record.saved.archivedAt = new Date().toISOString();
       else delete record.saved.archivedAt;
       await this.write(record, beforeCommit);
+      // Archiving is not work on the thread: it keeps its place in the list.
+      if (before) await utimes(this.file(id), before.atime, before.mtime).catch(() => {});
       return this.describe(record);
     }, beforeCommit);
   }
