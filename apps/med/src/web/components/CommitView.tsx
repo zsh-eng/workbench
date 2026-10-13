@@ -607,7 +607,7 @@ export default function CommitView({
     <div ref={root} {...stylex.props(styles.root)}>
       <div {...stylex.props(styles.layout)}>
         <div {...stylex.props(styles.side)}>
-          <header {...stylex.props(styles.header)}>
+          <header data-lift-row="" {...stylex.props(styles.header)}>
             <Icon name="gitBranch" size={14} />
             <span {...stylex.props(styles.branch)}>{status?.branch || "Detached HEAD"}</span>
             {status?.upstream && (

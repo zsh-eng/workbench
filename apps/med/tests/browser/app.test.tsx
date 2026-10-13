@@ -935,7 +935,7 @@ describe("graphical review", () => {
       expect(rect(row)).toMatchObject({ top: 6, bottom: 39 });
       expect(rect(commands).right).toBeLessThanOrEqual(1280 - 120 - 6);
       expect([onCard(640, 20), onCard(1220, 20), onCard(1220, 60)]).toEqual([true, false, true]);
-      const outline = card.querySelectorAll<SVGPathElement>(".med-card-tab path")[1];
+      const outline = card.querySelector<SVGPathElement>(".med-card-outline path")!;
       const drawn = ([x, y]: number[]) => {
         const point = new DOMPoint(x - rect(card).left, y - rect(card).top);
         return onCard(x, y) || outline.isPointInStroke(point);
@@ -990,19 +990,31 @@ describe("graphical review", () => {
       await page.getByRole("button", { name: "Toggle files sidebar" }).click();
       await expect.poll(() => column.checkVisibility()).toBe(false);
 
-      // Zen keeps the card in the title area with an empty tab. The sidebar
-      // and the way out start below the controls.
+      // The outline draws over the card's content, so no row covers its corners.
+      const above = (element: Element) => Number(getComputedStyle(element).zIndex) || 0;
+      expect(above(outline.ownerSVGElement!)).toBeGreaterThan(above(row));
+
+      // Zen's tab is empty, so the content rises into it: the card clips it
+      // to the tab, and the first row keeps clear of the controls on the right.
+      // The sidebar and the way out start below the controls.
       await page.getByRole("button", { name: "Enter zen mode", exact: true }).click();
       const exit = page.getByRole("button", { name: "Exit zen mode", exact: true });
       await expect.element(exit).toBeInTheDocument();
       const empty = card.querySelector(".med-card-tab + *")!;
       expect([empty.childElementCount, rect(empty).top, rect(empty).bottom]).toEqual([0, 6, 39]);
       expect([onCard(640, 20), onCard(1220, 20)]).toEqual([true, false]);
+      const panel = document.getElementById("file-view-panel")!;
+      expect(rect(panel).top).toBe(6);
+      expect(getComputedStyle(card).clipPath).toMatch(/^path\(/);
+      expect(parseFloat(getComputedStyle(card).getPropertyValue("--med-lift-end"))).toBeGreaterThan(
+        120,
+      );
       const sidebar = document.getElementById("review-sidebar")!;
       expect(rect(sidebar.firstElementChild!).bottom).toBe(39);
       expect(rect(exit.element()).top).toBeGreaterThan(39);
       await exit.click();
       await expect.element(tabs).toBeVisible();
+      expect(getComputedStyle(card).clipPath).toBe("none");
 
       // With the title bar back, the card is a plain card again.
       delete root.dataset.titlebar;

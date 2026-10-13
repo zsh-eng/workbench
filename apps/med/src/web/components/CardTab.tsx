@@ -74,14 +74,24 @@ function edge({ width, height, shoulder, start, end, radius, flare: foot }: Shap
  * with the card's corner radius, and the curve at its foot ends on the corner
  * of Chrome's box. So every curve of the card has one radius, and no part of
  * the outline is under Chrome's box.
+ *
+ * The outline draws over the card's content. The card clips its content to a
+ * curve 1px outside the outline's, so content drawn below it covered the
+ * outline at the bottom corners.
+ *
+ * With `lift` (zen mode), the content rises into the tab: the card clips it
+ * to its outline, and `--med-lift-start` and `--med-lift-end` give the first
+ * row the room that the window controls take on either side.
  */
-export function CardTab() {
+export function CardTab({ lift = false }: { lift?: boolean }) {
   const svg = useRef<SVGSVGElement>(null);
+  const line = useRef<SVGPathElement>(null);
   const probe = useRef<HTMLSpanElement>(null);
   useLayoutEffect(() => {
     const frame = svg.current!;
     const card = frame.parentElement!;
-    const [fill, outline] = frame.querySelectorAll("path");
+    const fill = frame.querySelector("path")!;
+    const outline = line.current!;
     // The outline is drawn here, not through React state, so it changes in
     // the frame that the card does.
     const update = () => {
@@ -111,6 +121,12 @@ export function CardTab() {
       card.style.setProperty("--med-card-body", `${shoulder + 1}px`);
       fill.setAttribute("d", edge(shape, 1));
       outline.setAttribute("d", edge(shape, 0.5));
+      if (lift) {
+        card.dataset.lift = "";
+        card.style.clipPath = `path("${edge(shape, 0)}")`;
+        card.style.setProperty("--med-lift-start", `${start}px`);
+        card.style.setProperty("--med-lift-end", `${end < box.width ? box.width - end : 0}px`);
+      }
     };
     update();
     const observer = new ResizeObserver(update);
@@ -120,25 +136,32 @@ export function CardTab() {
     if (row) observer.observe(row);
     return () => {
       observer.disconnect();
+      card.style.removeProperty("clip-path");
+      delete card.dataset.lift;
       for (const name of [
         "tab-before",
         "tab-after",
         "tab-inset-start",
         "tab-inset-end",
         "card-body",
+        "lift-start",
+        "lift-end",
       ])
         card.style.removeProperty(`--med-${name}`);
     };
-  }, []);
+  }, [lift]);
   const frame = stylex.props(styles.svg);
+  const above = stylex.props(styles.svg, styles.above);
   return (
     <>
       <span ref={probe} aria-hidden="true" className="med-titlebar-area" />
+      <svg aria-hidden="true" className={`med-card-outline ${above.className ?? ""}`}>
+        <path ref={line} {...stylex.props(styles.outline)} />
+      </svg>
+      {/* The fill starts inside the 1px outline, so the outline's translucent
+          line lies on the frame, as the card's box-shadow did. */}
       <svg ref={svg} aria-hidden="true" className={`med-card-tab ${frame.className ?? ""}`}>
-        {/* The fill starts inside the 1px outline, so the outline's
-            translucent line lies on the frame, as the card's box-shadow did. */}
         <path {...stylex.props(styles.fill)} />
-        <path {...stylex.props(styles.outline)} />
       </svg>
     </>
   );
@@ -167,6 +190,7 @@ const styles = stylex.create({
     overflow: "visible",
     pointerEvents: "none",
   },
+  above: { zIndex: 3 },
   fill: { fill: tokens.canvas },
   outline: { fill: "none", stroke: tokens.line, strokeWidth: 1 },
 });

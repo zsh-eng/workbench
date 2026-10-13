@@ -1423,6 +1423,9 @@ export function App({
       enableGutterUtility: true,
       unsafeCSS: `[data-utility-button]::before { inset: 0; }
         [data-separator-content] { font-size: 11.5px; letter-spacing: 0.01em; }
+        [data-diffs-header] {
+          padding-inline: calc(16px + var(--med-lift-start, 0px)) calc(16px + var(--med-lift-end, 0px));
+        }
         ${highlightRules(activeTheme, { match: "med-diff-find", current: "med-diff-find-current" })}`,
       onLineEnter(_line, context) {
         context.element?.shadowRoot
@@ -3482,9 +3485,11 @@ export function App({
             )}
             aria-label="Continuous review"
           >
-            {cardTab && <CardTab />}
-            {/* Zen's tab is empty, and joins the card without a rule. */}
-            {cardTab && zen && <div aria-hidden="true" {...stylex.props(styles.zenTab)} />}
+            {cardTab && <CardTab lift={zen} />}
+            {/* Zen's tab is empty: the content rises into it (CardTab.css). */}
+            {cardTab && zen && (
+              <div aria-hidden="true" data-zen-tab="" {...stylex.props(styles.zenTab)} />
+            )}
             {/* The review's own row heads the card, level with the sidebar's
             identity, so the sidebar keeps its place between workspaces. */}
             {state.savedReview && !zen && (
