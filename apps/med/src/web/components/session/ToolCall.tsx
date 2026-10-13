@@ -36,6 +36,8 @@ const VERBS: Record<string, [running: string, done: string]> = {
 };
 
 export const isSubagent = (call: ToolCallState) => call.tool === "Agent" || call.tool === "Task";
+/** Opens a subagent's thread in place of the session's, by the item ID of its call. */
+export const OpenAgentContext = createContext<((id: string) => void) | null>(null);
 const diffsOf = (call: ToolCallState) =>
   call.content.filter((part): part is DiffContent => part.type === "diff");
 const textOf = (call: ToolCallState) =>
@@ -148,7 +150,49 @@ export const ToolCall = memo(function ToolCall({
   const hasDetails =
     diffs.length > 0 || Boolean(output) || Boolean(command) || item.items.length > 0;
   const duration = item.endedAt !== undefined ? item.endedAt - item.at : undefined;
+  const openAgent = useContext(OpenAgentContext);
 
+  const head = (
+    <button
+      type="button"
+      aria-expanded={hasDetails ? open : undefined}
+      disabled={!hasDetails}
+      onClick={() => setOpen(!open)}
+      {...stylex.props(rowStyles.row, styles.head)}
+    >
+      <span {...stylex.props(rowStyles.icon, call.status === "failed" && styles.failedIcon)}>
+        <Icon name={subagent ? "agent" : ICONS[call.kind]} size={14} />
+      </span>
+      <span {...stylex.props(styles.label, running && motion.shimmer)}>
+        {verb && <span {...stylex.props(styles.verb)}>{verb} </span>}
+        <span {...stylex.props(verb ? styles.target : styles.plain)}>{target}</span>
+      </span>
+      <span {...stylex.props(styles.meta)}>
+        {(stat.added > 0 || stat.removed > 0) && (
+          <span {...stylex.props(styles.stat)}>
+            {stat.added > 0 && <span {...stylex.props(styles.added)}>+{stat.added}</span>}
+            {stat.removed > 0 && <span {...stylex.props(styles.removed)}>−{stat.removed}</span>}
+          </span>
+        )}
+        {call.background && running && (
+          <span {...stylex.props(styles.badge)}>
+            {call.background.kind === "agent" ? "Agent" : "Shell"} in background
+          </span>
+        )}
+        {call.status === "failed" && <span {...stylex.props(styles.failed)}>Failed</span>}
+        {running ? (
+          <span aria-label="Running" {...stylex.props(motion.spinner)} />
+        ) : (
+          duration !== undefined && duration >= 1000 && <span>{formatSeconds(duration)}</span>
+        )}
+        {hasDetails && (
+          <span {...stylex.props(styles.chevron, open && styles.chevronOpen)}>
+            <Icon name="chevron" size={12} />
+          </span>
+        )}
+      </span>
+    </button>
+  );
   return (
     <div
       {...stylex.props(styles.call)}
@@ -156,45 +200,22 @@ export const ToolCall = memo(function ToolCall({
       data-tool-kind={call.kind}
       data-status={call.status}
     >
-      <button
-        type="button"
-        aria-expanded={hasDetails ? open : undefined}
-        disabled={!hasDetails}
-        onClick={() => setOpen(!open)}
-        {...stylex.props(rowStyles.row, styles.head)}
-      >
-        <span {...stylex.props(rowStyles.icon, call.status === "failed" && styles.failedIcon)}>
-          <Icon name={subagent ? "agent" : ICONS[call.kind]} size={14} />
-        </span>
-        <span {...stylex.props(styles.label, running && motion.shimmer)}>
-          {verb && <span {...stylex.props(styles.verb)}>{verb} </span>}
-          <span {...stylex.props(verb ? styles.target : styles.plain)}>{target}</span>
-        </span>
-        <span {...stylex.props(styles.meta)}>
-          {(stat.added > 0 || stat.removed > 0) && (
-            <span {...stylex.props(styles.stat)}>
-              {stat.added > 0 && <span {...stylex.props(styles.added)}>+{stat.added}</span>}
-              {stat.removed > 0 && <span {...stylex.props(styles.removed)}>−{stat.removed}</span>}
-            </span>
-          )}
-          {call.background && running && (
-            <span {...stylex.props(styles.badge)}>
-              {call.background.kind === "agent" ? "Agent" : "Shell"} in background
-            </span>
-          )}
-          {call.status === "failed" && <span {...stylex.props(styles.failed)}>Failed</span>}
-          {running ? (
-            <span aria-label="Running" {...stylex.props(motion.spinner)} />
-          ) : (
-            duration !== undefined && duration >= 1000 && <span>{formatSeconds(duration)}</span>
-          )}
-          {hasDetails && (
-            <span {...stylex.props(styles.chevron, open && styles.chevronOpen)}>
-              <Icon name="chevron" size={12} />
-            </span>
-          )}
-        </span>
-      </button>
+      {subagent && openAgent ? (
+        <div {...stylex.props(styles.agentHead)}>
+          {head}
+          <button
+            type="button"
+            aria-label={`Open ${call.title}`}
+            title="Open the subagent's thread"
+            onClick={() => openAgent(item.id)}
+            {...stylex.props(styles.openAgent)}
+          >
+            Open
+          </button>
+        </div>
+      ) : (
+        head
+      )}
       {open && hasDetails && (
         <div {...stylex.props(styles.details)}>
           {command && (
@@ -353,6 +374,19 @@ const styles = stylex.create({
     scrollbarWidth: "thin",
     borderRadius: `calc(8px * ${tokens.round})`,
     boxShadow: `inset 0 0 0 1px ${tokens.line}`,
+  },
+  agentHead: { display: "flex", alignItems: "center", gap: 6, minWidth: 0 },
+  openAgent: {
+    flexShrink: 0,
+    height: 22,
+    paddingInline: 8,
+    borderWidth: 0,
+    borderRadius: 999,
+    backgroundColor: { default: tokens.fill, ":hover": tokens.lineStrong },
+    color: { default: tokens.muted, ":hover": tokens.text },
+    fontFamily: tokens.ui,
+    fontSize: 11.5,
+    cursor: "pointer",
   },
   nested: {
     paddingInlineStart: 12,

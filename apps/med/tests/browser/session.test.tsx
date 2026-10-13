@@ -82,7 +82,7 @@ test("the sample thread shows a plan, a failed test, and a subagent's own steps"
     .element(gallery.getByRole("button", { name: /Run the branch tests.*Failed/ }))
     .toBeVisible();
   await userEvent.click(
-    gallery.getByRole("log").getByRole("button", { name: /Find every place that fetches/ }),
+    gallery.getByRole("log").getByRole("button", { name: /^Find every place that fetches/ }),
   );
   await expect.element(gallery.getByText(/Two paths fetch/)).toBeVisible();
 });
@@ -306,6 +306,90 @@ test("the Background dock lists this turn's tasks without Med's wait, and stays 
   render();
   await expect.element(dock.getByText("2 running")).toBeVisible();
   localStorage.removeItem("med:background-hidden");
+});
+
+test("a subagent opens over the session, steps to the next one, and Escape goes back", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const text = (value: string) => ({ type: "text" as const, text: value });
+  const within = (parent: string) => ({ med: { parentToolCallId: parent } });
+  const store = longThread(0);
+  store.applyAll([
+    { at: 0, update: { sessionUpdate: "user_message_chunk", content: text("Clear the cache.") } },
+    {
+      at: 1000,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "fetches",
+        title: "Find every place that fetches",
+        kind: "other",
+        status: "in_progress",
+        _meta: { med: { tool: "Agent", background: { id: "a1", kind: "agent" } } },
+      },
+    },
+    {
+      at: 1100,
+      update: {
+        sessionUpdate: "user_message_chunk",
+        content: text("List each fetch path."),
+        _meta: within("fetches"),
+      },
+    },
+    {
+      at: 1200,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: text("Two paths fetch."),
+        _meta: within("fetches"),
+      },
+    },
+    {
+      at: 2000,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tests",
+        title: "Check the cache tests",
+        kind: "other",
+        status: "completed",
+        _meta: { med: { tool: "Agent" } },
+      },
+    },
+    {
+      at: 2100,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: text("The tests cover a stale cache."),
+        _meta: within("tests"),
+      },
+    },
+  ]);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} showWork />);
+  const thread = page.getByRole("log", { name: "Session" });
+  await userEvent.click(thread.getByRole("button", { name: "Open Find every place that fetches" }));
+  const view = page.getByRole("region", { name: "Subagent" });
+  await expect.element(view.getByText("List each fetch path.")).toBeVisible();
+  await expect.element(view.getByText("Two paths fetch.")).toBeVisible();
+  await expect.element(view.getByText("1 of 2")).toBeVisible();
+  // The session's thread waits beneath, out of reach of the keys.
+  expect(thread.element().closest("[inert]")).not.toBeNull();
+
+  await userEvent.click(view.getByRole("button", { name: "Next subagent" }));
+  await expect.element(view.getByText("The tests cover a stale cache.")).toBeVisible();
+  await expect.element(view.getByText("2 of 2")).toBeVisible();
+  await expect.element(view.getByRole("button", { name: "Next subagent" })).toBeDisabled();
+
+  await userEvent.keyboard("{Escape}");
+  await expect.element(view).not.toBeInTheDocument();
+  expect(thread.element().closest("[inert]")).toBeNull();
+  expect(document.activeElement).toBe(threadScroller());
+
+  // A subagent in the Background dock opens the same way.
+  await userEvent.click(
+    page.getByRole("region", { name: "Background tasks" }).getByRole("button", {
+      name: "Find every place that fetches",
+    }),
+  );
+  await expect.element(view.getByText("Two paths fetch.")).toBeVisible();
 });
 
 test("[ and ] step through the prompts and replies of a focused thread", async () => {

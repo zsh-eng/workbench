@@ -27,7 +27,14 @@ import { BackgroundDock } from "./BackgroundDock";
 import { SessionMarkdown } from "./SessionMarkdown";
 import { ImageThumbs } from "./ImageThumbs";
 import { promptBlocks } from "./prompt-blocks";
-import { formatSeconds, RowOpen, ToolCall, useRowOpen } from "./ToolCall";
+import {
+  formatSeconds,
+  isSubagent,
+  OpenAgentContext,
+  RowOpen,
+  ToolCall,
+  useRowOpen,
+} from "./ToolCall";
 import {
   finalReplies,
   fold,
@@ -583,6 +590,165 @@ interface Range {
  * above and below hold that space. The first unit in view keeps its place
  * when heights above it change.
  */
+/** The calls that started subagents, in thread order; a subagent's own follow it. */
+function subagentsOf(items: SessionItem[], found: ToolItem[] = []) {
+  for (const item of items) {
+    if (item.kind !== "tool") continue;
+    if (isSubagent(item.call) || item.items.length > 0) found.push(item);
+    subagentsOf(item.items, found);
+  }
+  return found;
+}
+
+/**
+ * A subagent's whole thread over the session's, as Claude Code opens one.
+ * Back or Escape returns to the session where the reader left it, and the
+ * arrows step through the session's other subagents. It follows the end of
+ * the thread while the reader is there.
+ */
+function AgentView({
+  agent,
+  agents,
+  now,
+  onOpen,
+  onClose,
+  onOpenLink,
+}: {
+  agent: ToolItem;
+  agents: ToolItem[];
+  now: number;
+  onOpen(id: string): void;
+  onClose(): void;
+  onOpenLink?(href: string): void;
+}) {
+  const view = useRef<HTMLElement>(null);
+  const back = useRef<HTMLButtonElement>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  const stuck = useRef(true);
+  const index = agents.indexOf(agent);
+  const live = agent.call.status === "pending" || agent.call.status === "in_progress";
+  const elapsed = Math.max(0, (live ? now : (agent.endedAt ?? agent.at)) - agent.at);
+  const list = useMemo(() => units(agent.items), [agent.items]);
+  const renderThread = useCallback(
+    (nested: SessionItem[]) => <Thread items={nested} live={live} onOpenLink={onOpenLink} />,
+    [live, onOpenLink],
+  );
+  useEffect(() => back.current?.focus({ preventScroll: true }), [agent.id]);
+  useEffect(() => {
+    const node = view.current;
+    if (!node) return;
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+    };
+    node.addEventListener("keydown", keydown);
+    return () => node.removeEventListener("keydown", keydown);
+  }, [onClose]);
+  useLayoutEffect(() => {
+    const node = scroller.current;
+    const inner = content.current;
+    if (!node || !inner) return;
+    stuck.current = true;
+    node.scrollTop = node.scrollHeight;
+    const observer = new ResizeObserver(() => {
+      if (stuck.current) node.scrollTop = node.scrollHeight;
+    });
+    observer.observe(inner);
+    return () => observer.disconnect();
+  }, [agent.id]);
+  const step = (offset: number) => onOpen(agents[index + offset]!.id);
+  return (
+    <section ref={view} aria-label="Subagent" {...stylex.props(styles.agentView)}>
+      <div {...stylex.props(styles.agentBar)}>
+        <button
+          ref={back}
+          type="button"
+          title="Back to the session (Escape)"
+          onClick={onClose}
+          {...stylex.props(styles.agentButton, styles.agentBack)}
+        >
+          <Icon name="arrowLeft" size={13} />
+          Session
+        </button>
+        <span {...stylex.props(rowStyles.icon, styles.agentIcon)}>
+          {live ? <span {...stylex.props(motion.spinner)} /> : <Icon name="agent" size={14} />}
+        </span>
+        <span {...stylex.props(styles.agentTitle)} title={agent.call.title}>
+          {agent.call.title}
+        </span>
+        <span
+          {...stylex.props(styles.agentState, agent.call.status === "failed" && styles.agentFailed)}
+        >
+          {agent.call.status === "failed" ? "Failed" : live ? "Working" : "Done"}
+          {elapsed >= 1000 && ` · ${formatSeconds(elapsed)}`}
+        </span>
+        {agents.length > 1 && (
+          <span {...stylex.props(styles.agentSteps)}>
+            <button
+              type="button"
+              aria-label="Previous subagent"
+              disabled={index <= 0}
+              onClick={() => step(-1)}
+              {...stylex.props(styles.agentButton, styles.agentStep)}
+            >
+              <Icon name="arrowUp" size={12} />
+            </button>
+            <span {...stylex.props(styles.agentCount)}>
+              {index + 1} of {agents.length}
+            </span>
+            <button
+              type="button"
+              aria-label="Next subagent"
+              disabled={index >= agents.length - 1}
+              onClick={() => step(1)}
+              {...stylex.props(styles.agentButton, styles.agentStep)}
+            >
+              <Icon name="arrowDown" size={12} />
+            </button>
+          </span>
+        )}
+      </div>
+      <div
+        ref={scroller}
+        // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+        tabIndex={0}
+        onScroll={(event) => {
+          const node = event.currentTarget;
+          stuck.current = node.scrollHeight - node.scrollTop - node.clientHeight < 32;
+        }}
+        {...stylex.props(styles.scroller)}
+      >
+        <div
+          ref={content}
+          role="log"
+          aria-label={agent.call.title}
+          {...stylex.props(styles.content)}
+        >
+          {list.map((unit, at) => (
+            <div key={unit.key} {...stylex.props(styles.unit)}>
+              <UnitBody
+                unit={unit}
+                last={live && at === list.length - 1}
+                final={false}
+                renderThread={renderThread}
+                onOpenLink={onOpenLink}
+              />
+            </div>
+          ))}
+          {list.length === 0 && (
+            <p {...stylex.props(styles.agentEmpty)}>
+              {live ? "The subagent is starting." : "The subagent left no steps."}
+            </p>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function SessionThread({
   snapshot,
   now,
@@ -613,6 +779,15 @@ export function SessionThread({
   const [atBottom, setAtBottom] = useState(true);
   const { active: theme } = useTheme();
   const [rows] = useState(() => new Map<string, boolean>());
+  // An open subagent covers the thread, which keeps its place beneath.
+  const [agentId, setAgentId] = useState<string | null>(null);
+  const agents = useMemo(() => subagentsOf(snapshot.items), [snapshot.items]);
+  const agent = agentId === null ? undefined : agents.find((item) => item.id === agentId);
+  const closeAgent = useCallback(() => {
+    // The thread takes focus once it is no longer inert.
+    flushSync(() => setAgentId(null));
+    scroller.current?.focus({ preventScroll: true });
+  }, []);
 
   const plain = useMemo(() => units(snapshot.items), [snapshot.items]);
   const finals = useMemo(() => finalReplies(plain, snapshot.running), [plain, snapshot.running]);
@@ -1174,118 +1349,137 @@ export function SessionThread({
   const below = metrics ? offsets[count]! - offsets[end]! : 0;
 
   return (
-    <div {...stylex.props(styles.frame)}>
-      <div {...stylex.props(styles.viewport)}>
-        <div
-          ref={scroller}
-          // A scrolling region takes focus, so keys can scroll it. Focus in the
-          // thread also gives [ and ] to its messages, not to hunks.
-          // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex
-          tabIndex={0}
-          data-message-keys=""
-          {...scrollerProps}
-          className={`${scrollerProps.className ?? ""} med-thread-scroller`}
-        >
+    <OpenAgentContext.Provider value={setAgentId}>
+      <div {...stylex.props(styles.frame)}>
+        <div inert={!!agent} {...stylex.props(styles.viewport)}>
           <div
-            ref={content}
-            {...stylex.props(styles.content)}
-            role="log"
-            aria-label="Session"
-            aria-live="polite"
-            aria-busy={snapshot.running}
+            ref={scroller}
+            // A scrolling region takes focus, so keys can scroll it. Focus in the
+            // thread also gives [ and ] to its messages, not to hunks.
+            // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+            tabIndex={0}
+            data-message-keys=""
+            {...scrollerProps}
+            className={`${scrollerProps.className ?? ""} med-thread-scroller`}
           >
-            <ThreadProbe probe={probe} />
-            {earlier ? (
-              <div {...stylex.props(styles.edge)}>
-                <button
-                  type="button"
-                  disabled={earlier.loading}
-                  onClick={() => void earlier.load()}
-                  {...stylex.props(styles.earlier)}
-                >
-                  {earlier.loading
-                    ? "Loading earlier work…"
-                    : earlier.failed
-                      ? "Earlier work did not load. Try again"
-                      : "Load earlier work"}
-                </button>
-              </div>
-            ) : (
-              before
-            )}
-            <div ref={head} {...stylex.props(styles.space(above))} />
-            <RowOpen value={rows}>
-              {all.slice(start, end).map((unit, offset) => {
-                const at = start + offset;
-                return (
-                  <div
-                    key={unit.key}
-                    ref={unitRef}
-                    data-unit={unit.key}
-                    data-rise={appended.has(unit.key) ? "" : undefined}
-                    data-message={isMessage(unit) ? unit.item.kind : undefined}
-                    data-current={unit.key === current ? "" : undefined}
-                    {...stylex.props(styles.unit)}
+            <div
+              ref={content}
+              {...stylex.props(styles.content)}
+              role="log"
+              aria-label="Session"
+              aria-live="polite"
+              aria-busy={snapshot.running}
+            >
+              <ThreadProbe probe={probe} />
+              {earlier ? (
+                <div {...stylex.props(styles.edge)}>
+                  <button
+                    type="button"
+                    disabled={earlier.loading}
+                    onClick={() => void earlier.load()}
+                    {...stylex.props(styles.earlier)}
                   >
-                    <UnitBody
-                      unit={unit}
-                      last={snapshot.running && at === count - 1}
-                      final={"item" in unit && finals.has(unit.item.id)}
-                      renderThread={renderThread}
-                      onOpenLink={onOpenLink}
-                      onWork={toggleWork}
-                    />
-                  </div>
-                );
-              })}
-            </RowOpen>
-            <div {...stylex.props(styles.space(below))} />
-            {snapshot.running ? (
-              <div {...stylex.props(rowStyles.row, styles.status)}>
-                <span {...stylex.props(rowStyles.icon)}>
-                  <span {...stylex.props(motion.spinner)} />
-                </span>
-                <span {...stylex.props(motion.shimmer)}>{thinking ? "Thinking" : "Working"}</span>
-                <span {...stylex.props(styles.elapsed)}>{formatSeconds(elapsed)}</span>
-              </div>
-            ) : (
-              snapshot.items.length > 0 &&
-              // The last turn's own row says so when its work folds.
-              !folded &&
-              !waitingMessage && (
-                <div {...stylex.props(styles.done)}>
-                  <span {...stylex.props(styles.rule)} />
-                  Worked for {formatSeconds(elapsed)}
-                  {turn.toolCalls > 0 &&
-                    ` · ${turn.toolCalls} tool ${turn.toolCalls === 1 ? "call" : "calls"}`}
-                  <span {...stylex.props(styles.rule)} />
+                    {earlier.loading
+                      ? "Loading earlier work…"
+                      : earlier.failed
+                        ? "Earlier work did not load. Try again"
+                        : "Load earlier work"}
+                  </button>
                 </div>
-              )
-            )}
+              ) : (
+                before
+              )}
+              <div ref={head} {...stylex.props(styles.space(above))} />
+              <RowOpen value={rows}>
+                {all.slice(start, end).map((unit, offset) => {
+                  const at = start + offset;
+                  return (
+                    <div
+                      key={unit.key}
+                      ref={unitRef}
+                      data-unit={unit.key}
+                      data-rise={appended.has(unit.key) ? "" : undefined}
+                      data-message={isMessage(unit) ? unit.item.kind : undefined}
+                      data-current={unit.key === current ? "" : undefined}
+                      {...stylex.props(styles.unit)}
+                    >
+                      <UnitBody
+                        unit={unit}
+                        last={snapshot.running && at === count - 1}
+                        final={"item" in unit && finals.has(unit.item.id)}
+                        renderThread={renderThread}
+                        onOpenLink={onOpenLink}
+                        onWork={toggleWork}
+                      />
+                    </div>
+                  );
+                })}
+              </RowOpen>
+              <div {...stylex.props(styles.space(below))} />
+              {snapshot.running ? (
+                <div {...stylex.props(rowStyles.row, styles.status)}>
+                  <span {...stylex.props(rowStyles.icon)}>
+                    <span {...stylex.props(motion.spinner)} />
+                  </span>
+                  <span {...stylex.props(motion.shimmer)}>{thinking ? "Thinking" : "Working"}</span>
+                  <span {...stylex.props(styles.elapsed)}>{formatSeconds(elapsed)}</span>
+                </div>
+              ) : (
+                snapshot.items.length > 0 &&
+                // The last turn's own row says so when its work folds.
+                !folded &&
+                !waitingMessage && (
+                  <div {...stylex.props(styles.done)}>
+                    <span {...stylex.props(styles.rule)} />
+                    Worked for {formatSeconds(elapsed)}
+                    {turn.toolCalls > 0 &&
+                      ` · ${turn.toolCalls} tool ${turn.toolCalls === 1 ? "call" : "calls"}`}
+                    <span {...stylex.props(styles.rule)} />
+                  </div>
+                )
+              )}
+            </div>
           </div>
+          {!atBottom && (
+            <button
+              type="button"
+              onClick={() => {
+                const node = scroller.current;
+                if (!node) return;
+                stuck.current = true;
+                setAtBottom(true);
+                node.scrollTop = node.scrollHeight;
+                list.current?.record();
+                list.current?.place(true);
+              }}
+              {...stylex.props(styles.latest)}
+            >
+              <Icon name="arrowDown" size={12} />
+              Latest
+            </button>
+          )}
         </div>
-        {!atBottom && (
-          <button
-            type="button"
-            onClick={() => {
-              const node = scroller.current;
-              if (!node) return;
-              stuck.current = true;
-              setAtBottom(true);
-              node.scrollTop = node.scrollHeight;
-              list.current?.record();
-              list.current?.place(true);
-            }}
-            {...stylex.props(styles.latest)}
-          >
-            <Icon name="arrowDown" size={12} />
-            Latest
-          </button>
+        <div inert={!!agent} {...stylex.props(styles.docks)}>
+          <BackgroundDock
+            items={snapshot.items}
+            now={now ?? snapshot.updatedAt}
+            // An agent task opens its thread; a shell's call shows in the thread.
+            onShow={(id) => (agents.some((item) => item.id === id) ? setAgentId(id) : showCall(id))}
+          />
+          {snapshot.plan.length > 0 && <PlanDock entries={snapshot.plan} />}
+        </div>
+        {agent && (
+          <AgentView
+            agent={agent}
+            agents={agents}
+            now={now ?? snapshot.updatedAt ?? agent.at}
+            onOpen={setAgentId}
+            onClose={closeAgent}
+            onOpenLink={onOpenLink}
+          />
         )}
       </div>
-      <BackgroundDock items={snapshot.items} now={now ?? snapshot.updatedAt} onShow={showCall} />
-      {snapshot.plan.length > 0 && <PlanDock entries={snapshot.plan} />}
-    </div>
+    </OpenAgentContext.Provider>
   );
 }
 
@@ -1411,6 +1605,75 @@ function ThreadProbe({ probe }: { probe: RefObject<HTMLDivElement | null> }) {
 
 const sendingPulse = stylex.keyframes({ from: { opacity: 0.35 }, to: { opacity: 1 } });
 const styles = stylex.create({
+  docks: { display: "contents" },
+  agentView: {
+    position: "absolute",
+    inset: 0,
+    zIndex: 2,
+    display: "flex",
+    flexDirection: "column",
+    minHeight: 0,
+    backgroundColor: tokens.canvas,
+  },
+  agentBar: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    flexShrink: 0,
+    minHeight: 38,
+    paddingInline: 12,
+    borderBottomWidth: 1,
+    borderBottomStyle: "solid",
+    borderBottomColor: tokens.line,
+    fontSize: 12.5,
+  },
+  agentButton: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    height: 24,
+    flexShrink: 0,
+    borderWidth: 0,
+    borderRadius: `calc(6px * ${tokens.round})`,
+    backgroundColor: { default: "transparent", ":hover:not(:disabled)": tokens.fill },
+    color: {
+      default: tokens.muted,
+      ":hover:not(:disabled)": tokens.text,
+      ":disabled": tokens.faint,
+    },
+    fontFamily: tokens.ui,
+    fontSize: 12,
+    cursor: { default: "pointer", ":disabled": "default" },
+  },
+  agentBack: { paddingInline: 6, marginInlineStart: -6 },
+  agentIcon: { color: tokens.faint },
+  agentTitle: {
+    flex: "1",
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    color: tokens.text,
+    fontWeight: 500,
+  },
+  agentState: {
+    flexShrink: 0,
+    color: tokens.faint,
+    fontSize: 11.5,
+    fontVariantNumeric: "tabular-nums",
+  },
+  agentFailed: { color: tokens.red },
+  agentSteps: { display: "flex", alignItems: "center", gap: 2, flexShrink: 0 },
+  agentStep: { width: 24, paddingInline: 0 },
+  agentCount: {
+    minWidth: 40,
+    textAlign: "center",
+    color: tokens.faint,
+    fontSize: 11.5,
+    fontVariantNumeric: "tabular-nums",
+  },
+  agentEmpty: { margin: 0, color: tokens.faint, fontSize: 12.5 },
   frame: {
     position: "relative",
     display: "flex",
