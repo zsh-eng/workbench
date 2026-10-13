@@ -46,6 +46,7 @@ under ACP's reserved `_meta` key, as `_meta.med`:
 - `durationMs`: how long a thought took, when the transcript keeps no text.
 - `tool`: the agent's own tool name, such as `Bash` or `apply_patch`.
 - `queued`: a user message waited in the queue while the agent worked.
+- `endsTurn`: the reply ended the agent's turn (Claude Code's `end_turn`).
 - On a diff: `excerpt`, when the texts are part of the file and have no line numbers.
 
 Each update also has a time (`SessionEvent.at`), for replays and elapsed times.
@@ -134,7 +135,11 @@ nothing.
   between its prompt and its final reply, except errors) folds into one
   "Worked for" unit (`fold` in `thread-model.ts`). The unit opens its turn in
   place; **Show work** in the Session pane opens every turn. The turn that
-  runs does not fold. A prompt shows each run of quoted lines as a quote,
+  runs does not fold. A turn can have more than one final reply
+  (`finalReplies`): the last reply before the next prompt, the reply before
+  the agent runs `med review wait`, and each reply that ended the agent's
+  turn, because a background task's report starts more work without a
+  prompt. A prompt shows each run of quoted lines as a quote,
   as Claude does, and hides HTML comments such as reply markers
   (`prompt-blocks.ts`). Its images are 64 px square thumbnails; a click opens
   a viewer (`ImageThumbs.tsx`). A reply's web links are pills with their site's icon,
@@ -145,7 +150,22 @@ nothing.
   its end. The view follows new items while the reader is at the bottom; only
   the reader's move up (wheel, touch, keys, or the pointer) stops it. A thread
   that gets shorter also moves the view up, and that move does not stop it.
-  The Background and Tasks docks sit under the thread.
+  The Background and Tasks docks sit under the thread. The Background dock
+  lists running tasks and the tasks that ended since the last prompt. The
+  skill's `med review wait` is not a task: its row reads "Waiting for your
+  message in Med" and does not spin. The dock stays closed as the reader left
+  it; **Hide** keeps it hidden until a new task starts.
+- A subagent is part of its parent's session, not a session of its own: the
+  host reads its transcript into the call that started it, and the Sessions
+  page counts only the parent. **Open** on a subagent's row, or its task in
+  the Background dock, shows its whole thread over the session's. Back or
+  Escape returns to the session where the reader left it; the arrows step
+  through the session's other subagents.
+- A message from the composer shows in the thread at once, with "Sending…".
+  The host keeps the browser's ID for it, so a retry after a lost answer does
+  not send it twice. A failed send keeps the text with Retry and Discard. When
+  the agent takes the message, it replaces the agent's own copy in the
+  transcript, so the turn before keeps its reply and its "Worked for" row.
 - The thread is a virtual list. Only the units within 1,200 px of the view
   render; spacers hold the height of the others. When less than 800 px stays
   rendered past an edge, the range moves in a task after the frame, so the
@@ -249,7 +269,8 @@ work.
 
 - The sidebar shows sessions recorded with saved reviews. Branch workspaces
   have no session.
-- Nested subagent threads render whole inside their call.
+- Subagent threads render whole, inside their call and in the subagent view;
+  they are not virtual lists.
 - Estimates of open edits miss Pierre's hunk separators. A wrong estimate
   costs only a move of the units below it when the edit renders.
 - Not shown yet for attached sessions: context usage, permission requests

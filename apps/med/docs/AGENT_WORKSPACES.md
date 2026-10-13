@@ -64,6 +64,10 @@ stdio --session-id <id>`, with `--model`, `--effort`, and `--permission-mode`
   change a running session; a new effort restarts it with `--resume` between
   turns. `get_context_usage` feeds the context meter. The thread reads the
   transcript and shows streamed text until the transcript has it.
+- Every agent starts without the variables of a Claude Code session or app
+  that started the Med host, such as `CLAUDE_CODE_SESSION_ID` and
+  `CLAUDE_CODE_SIMPLE`. Bare mode (`CLAUDE_CODE_SIMPLE=1`) never reads the
+  keychain login, so each new session said "Not logged in".
 - **ACP agents** (`src/host/json-rpc.ts`): `initialize`, `session/new`,
   `session/prompt`, `session/cancel`, and `session/set_config_option`. Med
   answers `session/request_permission` with the user's choice and appends the
