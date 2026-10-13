@@ -267,8 +267,14 @@ export function SessionPanel({
   pins,
   controls,
   starter,
+  title,
+  detail,
 }: {
   reviewId: string;
+  /** The thread's name for the header, in place of the session's own. */
+  title?: string;
+  /** Where the thread works, such as its repository and branch. */
+  detail?: string;
   /** Starts new sessions; without it the header has no New session menu. */
   starter?: SessionStarter;
   /** The column's pane controls, in place of the close button. */
@@ -526,8 +532,12 @@ export function SessionPanel({
     <section aria-label={`${agent} session`} {...stylex.props(styles.panel)}>
       <header {...stylex.props(styles.header)}>
         <Icon name={session.agent === "acp" ? "agent" : session.agent} size={14} />
-        <span {...stylex.props(styles.title)} title={snapshot.title ?? `${agent} session`}>
-          {snapshot.title ?? `${agent} session`}
+        <span
+          {...stylex.props(styles.title)}
+          title={title ?? snapshot.title ?? `${agent} session`}
+        >
+          {title ?? snapshot.title ?? `${agent} session`}
+          {detail && <span {...stylex.props(styles.detail)}>{detail}</span>}
         </span>
         <span {...stylex.props(styles.status)}>
           <span
@@ -659,6 +669,7 @@ const styles = stylex.create({
     fontSize: 12.5,
     fontWeight: 500,
   },
+  detail: { marginInlineStart: 8, color: tokens.faint, fontWeight: 400, fontSize: 12 },
   status: { display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: tokens.faint },
   dot: { width: 6, height: 6, borderRadius: "50%", backgroundColor: tokens.lineStrong },
   dotLive: { backgroundColor: tokens.green },

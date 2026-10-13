@@ -27,7 +27,10 @@ export function SavedReviewHeader({
   onTarget,
   sendTo,
   notesPickIteration,
+  compact = false,
 }: {
+  /** The thread beside it names the review, so the header leaves the name out. */
+  compact?: boolean;
   controller: ReviewController;
   /** The agent session that comments can go to, and how to open its message. */
   sendTo?: { name: string; icon: IconName; drafts: number; open(): void };
@@ -112,8 +115,8 @@ export function SavedReviewHeader({
     }
   };
   return (
-    <section aria-label="Saved review" {...stylex.props(styles.header)}>
-      {saved.pullRequestUrl ? (
+    <section aria-label="Saved review" {...stylex.props(styles.header, compact && styles.inline)}>
+      {compact && !saved.pullRequestUrl ? null : saved.pullRequestUrl ? (
         <a
           href={saved.pullRequestUrl}
           target="_blank"
@@ -137,7 +140,7 @@ export function SavedReviewHeader({
       {codexReviews && findingPlacement && (codexReviews.runs?.length || codexReviews.error) && (
         <CodexReviewPanel state={codexReviews} placement={findingPlacement} />
       )}
-      {target && saved.targets.length === 1 && (
+      {target && saved.targets.length === 1 && !compact && (
         <span
           title={checkoutNameFor(state.repositories, target.repo)}
           {...stylex.props(styles.comparison)}
@@ -205,7 +208,7 @@ export function SavedReviewHeader({
           onClick={onReturn}
         >
           <span>
-            Return<span {...stylex.props(styles.desktop)}> to review</span>
+            Return<span {...stylex.props(styles.desktop, compact && styles.iconOnly)}> to review</span>
           </span>
         </button>
       )}
@@ -217,7 +220,7 @@ export function SavedReviewHeader({
           onClick={sendTo.open}
         >
           <Icon name={sendTo.icon} size={14} />
-          <span {...stylex.props(styles.desktop)}>Send to {sendTo.name}</span>
+          <span {...stylex.props(styles.desktop, compact && styles.iconOnly)}>Send to {sendTo.name}</span>
           {sendTo.drafts > 0 && <span>{sendTo.drafts}</span>}
         </button>
       )}
@@ -237,7 +240,7 @@ export function SavedReviewHeader({
         }
       >
         <CopyCommentsIcon copied={copied !== null} />
-        <span {...stylex.props(styles.desktop)}>Copy comments</span>
+        <span {...stylex.props(styles.desktop, compact && styles.iconOnly)}>Copy comments</span>
         <span>{saved.commentCount}</span>
       </button>
       <Popover.Root
@@ -253,7 +256,7 @@ export function SavedReviewHeader({
           aria-disabled={busy || saved.commentCount === 0}
         >
           <Icon name="trash" size={14} />
-          <span {...stylex.props(styles.desktop)}>Clear</span>
+          <span {...stylex.props(styles.desktop, compact && styles.iconOnly)}>Clear</span>
         </Popover.Trigger>
         <Popover.Portal>
           <Popover.Positioner
@@ -377,6 +380,15 @@ const styles = stylex.create({
   },
   // The first row of the review card: the height of the sidebar's identity
   // row beside it, and the tab row's rule below.
+  // In the tab row beside a thread: no row of its own.
+  inline: {
+    containerType: "normal",
+    height: "auto",
+    minHeight: 0,
+    paddingInline: 0,
+    borderBottomWidth: 0,
+    flexShrink: 1,
+  },
   header: {
     position: "relative",
     containerType: "inline-size",
@@ -398,6 +410,7 @@ const styles = stylex.create({
   fixed: { flexShrink: 0 },
   // Labels give way to the title when the review pane is narrow.
   desktop: { display: { default: "inline", "@container (max-width: 640px)": "none" } },
+  iconOnly: { display: "none" },
   reviewTitle: {
     display: "inline-flex",
     alignItems: "center",

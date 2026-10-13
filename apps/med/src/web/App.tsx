@@ -3644,15 +3644,18 @@ export function App({
         aria-label="Open command palette"
         onClick={() => setCommandsOpen(true)}
       />
-      <ToolButton
-        ref={zenToggle}
-        label="Zen mode"
-        shortcut="⌥ Z"
-        icon="focus"
-        aria-label="Enter zen mode"
-        onClick={toggleZen}
-      />
-      {state.savedReview && (
+      {!shell && (
+        <ToolButton
+          ref={zenToggle}
+          label="Zen mode"
+          shortcut="⌥ Z"
+          icon="focus"
+          aria-label="Enter zen mode"
+          onClick={toggleZen}
+        />
+      )}
+      {/* The thread pane closes from its own header. */}
+      {state.savedReview && !sessionVisible && (
         <ToolButton
           label={sessionVisible ? "Hide agent session" : "Show agent session"}
           shortcut="⌘ ⇧ B"
@@ -3680,6 +3683,38 @@ export function App({
       <span {...stylex.props(styles.headerDivider)} />
     </>
   );
+  const savedHeader = (compact: boolean) =>
+    state.savedReview && (
+    <SavedReviewHeader
+      controller={controller}
+      state={state}
+      compact={compact}
+      notesPickIteration={hasNotes}
+      pullRequest={pullRequest}
+      threadPlacement={pullRequestThreads.placement}
+      codexReviews={codexReviews}
+      findingPlacement={codexFindings.placement}
+      sendTo={
+        replyAgent
+          ? {
+              name: replyAgent,
+              icon: leadIcon,
+              drafts: agentInbox.state?.drafts.length ?? 0,
+              open: () => showPane("session"),
+            }
+          : undefined
+      }
+      browsing={isFileTab(fileState.active)}
+      browsingSourceLabel={activeFile?.sourceLabel ?? sourceLabel}
+      onReturn={returnToReview}
+      onTarget={(id) => {
+        pendingSavedChanges.current = id;
+        pendingIteration.current = null;
+        fileWorkspace.select("changes");
+        void controller.selectSavedTarget(id);
+      }}
+    />
+    );
   const mainHeader = (controls: ReactNode) =>
     browseSource || hasNotes || hasGuide ? (
       <FileViewTabs
@@ -3688,6 +3723,7 @@ export function App({
         leading={leading}
         trailing={
           <>
+            {sessionVisible && !zen && savedHeader(true)}
             {viewControls}
             {controls}
           </>
@@ -3721,6 +3757,20 @@ export function App({
       {fileLinkError}
     </div>
   );
+  // Where the thread works: its repository, and its branch or worktree.
+  const threadTarget = state.savedReview?.targets.find((target) => !target.commentReviewId);
+  const threadRepository =
+    threadTarget &&
+    state.repositories.find(
+      (item) =>
+        item.path === threadTarget.repo ||
+        item.worktrees.some((tree) => tree.path === threadTarget.repo),
+    );
+  const threadPlace = threadTarget
+    ? [threadRepository?.name ?? threadTarget.repo.split("/").at(-1), threadTarget.branch]
+        .filter(Boolean)
+        .join(" · ")
+    : undefined;
   const sidePanes: PaneSpec[] = [
     ...(state.savedReview
       ? [
@@ -3742,6 +3792,8 @@ export function App({
                   <SessionPanel
                     key={state.savedReview!.id}
                     reviewId={state.savedReview!.id}
+                    title={state.savedReview!.pullRequestTitle ?? state.savedReview!.title}
+                    detail={threadPlace}
                     sessions={agentSessions}
                     root={state.review?.repo}
                     fetcher={sessionFetch}
@@ -3872,38 +3924,9 @@ export function App({
         {cardTab && zen && (
           <div aria-hidden="true" data-zen-tab="" {...stylex.props(styles.zenTab)} />
         )}
-        {/* The review's own row heads the card, level with the sidebar's
-        identity, so the sidebar keeps its place between workspaces. */}
-        {state.savedReview && !zen && (
-          <SavedReviewHeader
-            controller={controller}
-            state={state}
-            notesPickIteration={hasNotes}
-            pullRequest={pullRequest}
-            threadPlacement={pullRequestThreads.placement}
-            codexReviews={codexReviews}
-            findingPlacement={codexFindings.placement}
-            sendTo={
-              replyAgent
-                ? {
-                    name: replyAgent,
-                    icon: leadIcon,
-                    drafts: agentInbox.state?.drafts.length ?? 0,
-                    open: () => showPane("session"),
-                  }
-                : undefined
-            }
-            browsing={isFileTab(fileState.active)}
-            browsingSourceLabel={activeFile?.sourceLabel ?? sourceLabel}
-            onReturn={returnToReview}
-            onTarget={(id) => {
-              pendingSavedChanges.current = id;
-              pendingIteration.current = null;
-              fileWorkspace.select("changes");
-              void controller.selectSavedTarget(id);
-            }}
-          />
-        )}
+        {/* The review's own row heads the card; beside a thread, its actions
+        join the tab row. */}
+        {state.savedReview && !zen && !sessionVisible && savedHeader(false)}
         {!cardTab && linkError}
         {zen ? <ZenExit onExit={toggleZen} /> : mainHeader(controls)}
         {cardTab && linkError}
