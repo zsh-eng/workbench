@@ -160,6 +160,19 @@ provider still writes Claude Code's or Codex's format. ACP covers OpenCode,
 Codex (`codex-acp`), and other ACP agents; Claude Code uses `stream-json`.
 Attaching to another agent needs a reader for its transcript format.
 
+### Captures and live changes
+
+A thread's review holds captures: the agent's handoff (`med review create --key
+<key> --repo <checkout> --working`) adds one as a new iteration. An agent that
+does not hand off, such as Codex, changes the worktree and not the review. The
+review asks the host `GET /api/reviews/:id/targets/:target/drift` when it
+opens, and after each change event: the host compares the checkout's working
+changes with the capture (HEAD, patch, and changed files) and watches the
+checkout's files from then on. When they differ, the review shows **Refresh
+review**, which captures the current comparisons as a new iteration (`POST
+/api/reviews/:id/iterations`), and **Show live changes**, which shows the
+working changes until **Return to review**.
+
 ## Remaining work
 
 - **Compact** in the context meter's menu, and pinning a lead session.

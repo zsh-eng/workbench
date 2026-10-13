@@ -1528,21 +1528,41 @@ export function App({
     [controller, showToast],
   );
   // New notes: a new iteration of the current comparisons, which later pins go to.
-  const startNotes = useCallback(() => {
-    controller.startNotes().then(
-      (iteration) => {
-        const first = iteration?.targetIds[0];
-        if (!iteration || !first) return;
-        setBriefIteration(iteration.number);
-        pendingIteration.current = first;
-        pendingSavedChanges.current = null;
-        void controller.selectSavedTarget(first);
-        showToast(`Started the notes of iteration ${iteration.number}.`);
-      },
-      (error: unknown) =>
-        showToast(error instanceof Error ? error.message : "New notes could not start."),
-    );
-  }, [controller, showToast]);
+  // A refresh does the same for a review whose checkout changed after its capture.
+  const [refreshing, setRefreshing] = useState(false);
+  const startNotes = useCallback(
+    (refresh = false) => {
+      if (refresh) setRefreshing(true);
+      controller
+        .startNotes()
+        .then(
+          (iteration) => {
+            const first = iteration?.targetIds[0];
+            if (!iteration || !first) return;
+            setBriefIteration(iteration.number);
+            pendingIteration.current = first;
+            pendingSavedChanges.current = null;
+            void controller.selectSavedTarget(first);
+            showToast(
+              refresh
+                ? `Refreshed the review as iteration ${iteration.number}.`
+                : `Started the notes of iteration ${iteration.number}.`,
+            );
+          },
+          (error: unknown) =>
+            showToast(
+              error instanceof Error
+                ? error.message
+                : refresh
+                  ? "The review could not refresh."
+                  : "New notes could not start.",
+            ),
+        )
+        .finally(() => setRefreshing(false));
+    },
+    [controller, showToast],
+  );
+  const [dismissedDrift, setDismissedDrift] = useState<string | null>(null);
   // Delete the notes on screen: the shown iteration's, and a brief that it
   // shows from an earlier iteration.
   const deleteNotes = useCallback(
@@ -3934,6 +3954,35 @@ export function App({
           {state.savedReview && !zen && !sessionVisible && savedHeader(false)}
           {linkError}
           {zen ? <ZenExit onExit={toggleZen} /> : mainHeader(controls)}
+          {state.savedView && !zen && state.savedDrift && state.savedDrift !== dismissedDrift && (
+            <div role="status" {...stylex.props(styles.notice, styles.drift)}>
+              <span {...stylex.props(styles.driftText)}>
+                The worktree has changes that this review does not show.
+              </span>
+              <span {...stylex.props(ui.row)}>
+                <button
+                  type="button"
+                  disabled={refreshing}
+                  onClick={() => startNotes(true)}
+                  {...stylex.props(ui.button, ui.pressable, styles.driftAction)}
+                >
+                  {refreshing ? "Refreshing…" : "Refresh review"}
+                </button>
+                <button
+                  type="button"
+                  onClick={selectWorking}
+                  {...stylex.props(ui.button, ui.pressable, styles.driftAction)}
+                >
+                  Show live changes
+                </button>
+                <ToolButton
+                  label="Dismiss"
+                  icon="close"
+                  onClick={() => setDismissedDrift(state.savedDrift)}
+                />
+              </span>
+            </div>
+          )}
           <div
             id={`${idPrefix}file-view-panel`}
             role="tabpanel"
@@ -4427,7 +4476,7 @@ export function App({
                     onPaste={pasteBrief}
                     onCopy={copyNotes}
                     onRemove={removeBrief}
-                    onStartNotes={startNotes}
+                    onStartNotes={() => startNotes()}
                     onDeleteNotes={deleteNotes}
                     onUnpin={(id) => void unpin(id)}
                     notes={notes}
@@ -5080,6 +5129,14 @@ const styles = stylex.create({
     color: tokens.red,
     backgroundColor: `color-mix(in srgb, ${tokens.red} 8%, transparent)`,
   },
+  // A choice, not a fault: the review's own colors.
+  drift: {
+    color: tokens.muted,
+    backgroundColor: tokens.panel,
+    paddingInlineEnd: 6,
+  },
+  driftText: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  driftAction: { flexShrink: 0, height: 24, paddingInline: 8, fontSize: 12 },
   orphanPanel: {
     flexShrink: 0,
     padding: 12,

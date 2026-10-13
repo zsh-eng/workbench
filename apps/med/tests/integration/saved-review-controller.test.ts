@@ -26,7 +26,11 @@ const note = (text: string) => ({
 
 // The controller, HTTP routes, Git capture, parser and store are real. Delay only
 // transport delivery to reproduce races without replacing the mechanism tested.
-async function fixture({ removeWorktreeDuringOpen = false, staleCatalogue = false } = {}) {
+async function fixture({
+  removeWorktreeDuringOpen = false,
+  staleCatalogue = false,
+  events = false,
+} = {}) {
   const directory = await realpath(await mkdtemp(join(tmpdir(), "med-comment-transport-")));
   cleanup.push(() => rm(directory, { recursive: true, force: true }));
   const repo = join(directory, "repo");
@@ -114,14 +118,16 @@ async function fixture({ removeWorktreeDuringOpen = false, staleCatalogue = fals
       },
     },
   });
+  let driftChecks = 0;
   const controller = createReviewController({
     token: host.token,
     savedReviewId: saved.id,
-    events: false,
+    events,
     fetch: async (input, init) => {
       const url = new URL(String(input), origin);
       await transport.before?.(url, init);
       const response = await fetch(url, init);
+      if (url.pathname.endsWith("/drift")) driftChecks++;
       return transport.after ? transport.after(url, response) : response;
     },
   });
@@ -141,12 +147,31 @@ async function fixture({ removeWorktreeDuringOpen = false, staleCatalogue = fals
     api,
     host,
     clipboard: () => clipboard,
+    driftChecks: () => driftChecks,
   };
 }
 
 test("a review in a worktree that is newer than the repository list opens in that worktree", async () => {
   const { controller, linked } = await fixture({ staleCatalogue: true });
   expect(controller.getSnapshot().session?.repository.path).toBe(linked);
+});
+
+test("a review whose worktree changes after the capture offers a refresh", async () => {
+  const { controller, saved, repo, driftChecks } = await fixture({ events: true });
+  const working = saved.targets.find((target) => target.captured)!;
+  await vi.waitFor(() => expect(controller.getSnapshot().connection).toBe("connected"));
+  // The review as it opened matches its worktree.
+  await vi.waitFor(() => expect(driftChecks()).toBe(1));
+  expect(controller.getSnapshot().savedDrift).toBeNull();
+  // An agent that does not hand off its work edits the file again.
+  await writeFile(join(repo, "file.ts"), "export const after = 3;\n");
+  await vi.waitFor(() => expect(controller.getSnapshot().savedDrift).toBe(working.id), {
+    timeout: 10_000,
+  });
+  // A refresh captures the worktree again, as a new iteration that matches it.
+  const iteration = await controller.startNotes();
+  await controller.selectSavedTarget(iteration!.targetIds[0]!);
+  await vi.waitFor(() => expect(controller.getSnapshot().savedDrift).toBeNull());
 });
 
 test("clearing while switching targets removes the newly visible comments too", async () => {

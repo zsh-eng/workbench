@@ -29,6 +29,7 @@ import {
   type ChangeEvent,
   type Comparison,
   type Repository,
+  type ReviewResponse,
   type Session,
 } from "../shared/protocol";
 import { gitTargets, pushBranch } from "./repository/git-actions";
@@ -187,6 +188,19 @@ async function readBody(request: IncomingMessage, limit = MAX_BODY) {
   } catch {
     throw new HostError("invalid-json", "The request body must be JSON.");
   }
+}
+
+/**
+ * Whether a checkout's working changes differ from their capture: another
+ * HEAD, another patch, or another set of changed files, such as a new image.
+ */
+function captureChanged(saved: ReviewResponse, live: ReviewResponse) {
+  const files = (review: ReviewResponse) =>
+    review.files
+      .map((file) => `${file.status} ${file.path}`)
+      .sort()
+      .join("\n");
+  return saved.base !== live.base || saved.patch !== live.patch || files(saved) !== files(live);
 }
 
 function json(response: ServerResponse, status: number, body: unknown) {
@@ -1439,7 +1453,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           const savedRoute =
-            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes)|\/(feedback|clear|brief|guide|brief-comments|pins|iterations|delete-notes|details|pull-request|codex-reviews))?$/.exec(
+            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes|drift)|\/(feedback|clear|brief|guide|brief-comments|pins|iterations|delete-notes|details|pull-request|codex-reviews))?$/.exec(
               url.pathname,
             );
           if (savedRoute) {
@@ -1475,7 +1489,23 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               else if (targetAction === "source")
                 send(await savedReviews.source(id!, targetId!, url.searchParams.get("path") ?? ""));
               else if (targetAction === "notes") send(await savedReviews.notes(id!, targetId!));
-              else if (action === "feedback") send(await savedReviews.feedback(id!));
+              else if (targetAction === "drift") {
+                // Whether captured working changes still match their checkout.
+                const target = relevant[0]!;
+                if (!target.captured) send({ changed: false });
+                else {
+                  // Later edits to its files send change events, as for a working review.
+                  observe(target.repo, true);
+                  const [saved, live] = await Promise.all([
+                    savedReviews.review(id!, targetId!),
+                    reviews.load(
+                      { repo: target.repo, comparison: target.comparison },
+                      abort.signal,
+                    ),
+                  ]);
+                  send({ changed: captureChanged(saved, live) });
+                }
+              } else if (action === "feedback") send(await savedReviews.feedback(id!));
               else if (action === "pull-request") {
                 if (!bundle.pullRequestUrl)
                   throw new HostError("no-pull-request", "This review has no pull request.", 404);

@@ -96,6 +96,12 @@ first. A row shows the title, the branch, the age, and the change totals.
   it. **Archive and remove worktree** also removes the worktree that Med made;
   the branch stays, and Git keeps a worktree with changes. **Undo** brings the
   thread back.
+- A thread's review is a capture. The agent's handoff
+  (`med review create --key …`) captures its work again as a new iteration.
+  When the worktree changes after the last capture, such as by an agent that
+  does not hand off, a bar in the review lets you choose: **Refresh review**
+  captures it again, and **Show live changes** shows the working changes as
+  they are now, until **Return to review**.
 - **Repositories**, at the foot of the sidebar, lists the registered
   repositories and vaults by name. Click one to browse it without a thread;
   **+** opens the Sources page.

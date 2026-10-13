@@ -116,6 +116,8 @@ async function mountApp(
     noteMutation?: () => Promise<Response | undefined>;
     /** One agent iteration per brief. The first and the last own the two saved targets. */
     iterationBriefs?: string[];
+    /** The first target's worktree changed after its capture. */
+    drift?: boolean;
     /** Both iterations are commits on the main branch of one repository. */
     oneBranch?: boolean;
     /** Replaces the two small files with these, as path and unified patch. */
@@ -347,6 +349,10 @@ async function mountApp(
         pullRequestReads.push(url.search);
         return Response.json(options.pullRequest);
       }
+      if (/^\/api\/reviews\/saved\/targets\/[^/]+\/drift$/.test(url.pathname))
+        return Response.json({
+          changed: !!options.drift && url.pathname.includes("/target-0/"),
+        });
       if (url.pathname === "/api/reviews/saved/iterations" && init?.method === "POST") {
         const id = `target-${savedTargets.length}`;
         savedTargets.push({
@@ -2257,6 +2263,27 @@ describe("review brief", () => {
     await page.getByRole("button", { name: "Iteration 2" }).click();
     await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
     await expect.poll(() => controller.getSnapshot().savedTargetId).toBe("target-1");
+  });
+
+  test("a review whose worktree changed offers a refresh or the live changes", async () => {
+    await page.viewport(1280, 800);
+    const { controller } = await mountApp({
+      savedReview: true,
+      iterationBriefs: ["# Only round\n"],
+      drift: true,
+    });
+    const bar = page.getByRole("status").filter({ hasText: "The worktree has changes" });
+    await expect.element(bar).toBeVisible();
+    // The live changes replace the capture until Return to review.
+    await bar.getByRole("button", { name: "Show live changes" }).click();
+    await expect.poll(() => controller.getSnapshot().savedView).toBe(false);
+    expect(controller.getSnapshot().comparison.kind).toBe("working");
+    await page.getByRole("button", { name: "Return to review" }).click();
+    await expect.element(bar).toBeVisible();
+    // A refresh captures the worktree again, as a new iteration that matches it.
+    await bar.getByRole("button", { name: "Refresh review" }).click();
+    await expect.poll(() => controller.getSnapshot().savedTargetId).toBe("target-2");
+    await expect.element(bar).not.toBeInTheDocument();
   });
 
   test("Start new notes makes an empty iteration of the current comparison, and Delete removes it", async () => {

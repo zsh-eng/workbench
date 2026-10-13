@@ -62,10 +62,16 @@ import { browserFetch } from "./live";
 import { readServerEvents } from "./sse";
 
 export type { ParsedReviewFile } from "../../shared/review";
+const driftSchema = z.object({ changed: z.boolean() });
 export interface ReviewControllerSnapshot {
   savedReview: SavedReview | null;
   savedTargetId: string | null;
   savedView: boolean;
+  /**
+   * The captured target of the saved review's latest iteration whose checkout
+   * has changed since the capture, such as by an agent that did not hand off.
+   */
+  savedDrift: string | null;
   session: Session | null;
   repositories: RegisteredRepository[];
   activeRepositoryId: string | null;
@@ -277,6 +283,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     savedReview: null,
     savedTargetId: null,
     savedView: false,
+    savedDrift: null,
     session: null,
     repositories: [],
     activeRepositoryId: null,
@@ -784,12 +791,47 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
   }
 
   /** Reload what live updates would have changed: sources, branches, and a
-   * mutable comparison. */
+   * mutable comparison. A saved review checks its capture instead. */
   function reconcile() {
     update({ sourceRevision: snapshot.sourceRevision + 1 });
     void loadBranches(true);
-    if (!snapshot.savedView && !immutableComparison(snapshot.comparison))
+    if (snapshot.savedView) void checkDrift();
+    else if (!immutableComparison(snapshot.comparison))
       void selectComparison(snapshot.comparison, true, true);
+  }
+
+  let driftAbort: AbortController | undefined;
+  /** Whether the checkout of the latest captured target changed after its
+   * capture. The answer shows as `savedDrift`; a failed check shows nothing. */
+  async function checkDrift() {
+    driftAbort?.abort();
+    const saved = snapshot.savedReview;
+    const latest = new Set(
+      saved?.iterations?.at(-1)?.targetIds ??
+        saved?.targets.filter((target) => !target.commentReviewId).map((target) => target.id),
+    );
+    const target = saved?.targets.find(
+      (entry) =>
+        entry.captured && latest.has(entry.id) && entry.repo === snapshot.session?.repository.path,
+    );
+    if (!saved || !target || !snapshot.savedView) {
+      if (snapshot.savedDrift) update({ savedDrift: null });
+      return;
+    }
+    const abort = new AbortController();
+    driftAbort = abort;
+    try {
+      const { changed } = await api.json(
+        `/api/reviews/${encodeURIComponent(saved.id)}/targets/${encodeURIComponent(target.id)}/drift`,
+        driftSchema,
+        { signal: abort.signal },
+      );
+      if (abort.signal.aborted || disposed || snapshot.savedReview?.id !== saved.id) return;
+      const next = changed ? target.id : null;
+      if (snapshot.savedDrift !== next) update({ savedDrift: next });
+    } catch {
+      /* The check runs again with the next change. */
+    }
   }
 
   function startEvents() {
@@ -1228,6 +1270,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       performance.now() - savedReadAt > SAVED_FRESH_MS
     )
       await refreshSavedMetadata().catch(() => {});
+    if (!disposed && snapshot.savedTargetId === id) void checkDrift();
   }
 
   async function loadSources(path: string): Promise<SourceResponse> {
