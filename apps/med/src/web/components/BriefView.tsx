@@ -426,8 +426,9 @@ export default function BriefView({
   }, [active]);
 
   // Selected text of a note offers a comment on that passage.
+  const commentable = !!onCommentBrief;
   useEffect(() => {
-    if (!active || !onCommentBrief) return;
+    if (!active || !commentable) return;
     let frame = 0;
     const update = () => {
       cancelAnimationFrame(frame);
@@ -457,7 +458,7 @@ export default function BriefView({
       document.removeEventListener("selectionchange", update);
       setPassage(null);
     };
-  }, [active, onCommentBrief]);
+  }, [active, commentable]);
   const startPassage = useCallback((found: Passage) => {
     const block = blockOf(found.range.endContainer);
     if (block === undefined) return;

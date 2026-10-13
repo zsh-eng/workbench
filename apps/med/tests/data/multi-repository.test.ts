@@ -215,7 +215,6 @@ describe("multi-repository targets", () => {
       activeRepositoryId: null,
       review: null,
       files: [],
-      history: [],
       status: "idle",
     });
     await controller.addRepository("/one");

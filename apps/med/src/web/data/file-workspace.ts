@@ -102,7 +102,7 @@ export function createFileWorkspace(api: BrowseApi, { persist = false } = {}) {
     }
     pending.clear();
   };
-  if (persist) addEventListener("pagehide", flush);
+  if (persist) globalThis.addEventListener?.("pagehide", flush);
   const listeners = new Set<() => void>();
   let snapshot: FileWorkspaceSnapshot = {
     key: "",
@@ -361,7 +361,7 @@ export function createFileWorkspace(api: BrowseApi, { persist = false } = {}) {
     refresh: load,
     dispose() {
       flush();
-      removeEventListener("pagehide", flush);
+      globalThis.removeEventListener?.("pagehide", flush);
       disposed = true;
       cancel();
       listeners.clear();

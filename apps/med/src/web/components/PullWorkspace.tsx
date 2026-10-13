@@ -1,10 +1,8 @@
 import * as stylex from "@stylexjs/stylex";
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { parsePullUrl, type PullJob, type PullStep } from "../../shared/pull-workspace";
 import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
-import { TitleRow } from "./TitleRow";
-import { useTitleBarOverlay } from "../data/title-bar";
 import { formatSeconds } from "./session/ToolCall";
 import { motion } from "./session/session-styles";
 
@@ -203,29 +201,20 @@ export function PullProgress({
   );
 }
 
-/** A pull request's workspace while the host opens it: the window's
- * workspace list, and the progress in place of the review. */
+/** A pull request's workspace while the host opens it: the progress in
+ * place of the review. */
 export function PullWorkspaceView({
   url,
   state,
-  list,
   onRetry,
 }: {
   url: string;
   state: PullState;
-  /** The window's workspace list. */
-  list: ReactNode;
   onRetry(): void;
 }) {
-  const titleRow = useTitleBarOverlay();
   return (
     <div {...stylex.props(styles.frame)}>
-      {titleRow && <TitleRow />}
       <div {...stylex.props(styles.workspace)}>
-        <aside {...stylex.props(styles.sidebar)}>
-          {!titleRow && <div {...stylex.props(styles.sidebarHeader)} />}
-          {list}
-        </aside>
         <main aria-label="Pull request" {...stylex.props(styles.main)}>
           <PullProgress url={url} state={state} onRetry={onRetry} />
         </main>
@@ -248,9 +237,6 @@ const styles = stylex.create({
     WebkitFontSmoothing: "antialiased",
   },
   workspace: { display: "flex", flex: "1", minHeight: 0, gap: 6, padding: 6 },
-  // As the review's sidebar: 300 pixels, and narrower in a narrow window.
-  sidebar: { display: "flex", flexDirection: "column", flexShrink: 1, width: 300, minWidth: 180 },
-  sidebarHeader: { height: 38, flexShrink: 0 },
   main: {
     minWidth: 0,
     flex: "1",

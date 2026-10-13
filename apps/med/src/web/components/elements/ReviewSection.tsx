@@ -4,7 +4,6 @@ import { tokens } from "../../theme.stylex";
 import { ChangeTotals } from "../ChangeTotals";
 import { CommitCard } from "../CommitCard";
 import { DiffStat } from "../DiffStat";
-import { HistoryPanel } from "../HistoryPanel";
 import { NoteCard } from "../NoteCard";
 import {
   CodexFindingCard,
@@ -20,49 +19,11 @@ import {
   codexReview,
   commitDetails,
   commits,
-  loadCommitDetails,
   notes,
   pullRequest,
   relativeTimePatch,
 } from "./fixtures";
 import { Section, Specimen } from "./Specimen";
-
-function History() {
-  const [selected, setSelected] = useState(commits[3]!.id);
-  const [range, setRange] = useState<{ base: string; head: string }>();
-  const [working, setWorking] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
-  return (
-    // The panel takes 43% of the app's sidebar; this frame shows that share.
-    <div {...stylex.props(styles.historyFrame)}>
-      <div {...stylex.props(styles.history)}>
-        <HistoryPanel
-          commits={commits}
-          selected={working ? undefined : selected}
-          selectedRange={working ? undefined : range}
-          loading={false}
-          hasMore={false}
-          error={null}
-          onSelect={(id) => {
-            setWorking(false);
-            setRange(undefined);
-            setSelected(id);
-          }}
-          onSelectRange={(base, head) => {
-            setWorking(false);
-            setRange({ base, head });
-          }}
-          onLoadMore={() => {}}
-          onWorking={() => setWorking(true)}
-          working={working}
-          collapsed={collapsed}
-          onCollapsedChange={setCollapsed}
-          loadDetails={loadCommitDetails}
-        />
-      </div>
-    </div>
-  );
-}
 
 export function ReviewSection() {
   const [now] = useState(Date.now);
@@ -70,20 +31,11 @@ export function ReviewSection() {
     <Section
       id="review"
       title="Review parts"
-      lede="History, comments, and change totals with sample data. They are the components the review uses, so changes here show in the app."
+      lede="Commits, comments, and change totals with sample data. They are the components the review uses, so changes here show in the app."
     >
       <Specimen
-        title="History"
-        note="Hover a commit for its card. Shift-click selects a range."
-        surface="panel"
-        span="half"
-        padded={false}
-      >
-        <History />
-      </Specimen>
-      <Specimen
         title="Commit card"
-        note="Opens on a history row. The avatar and type chip take the commit's graph-lane color."
+        note="Opens on a blame line. The avatar and type chip take the commit's color."
         surface="panel"
         span="half"
       >
@@ -215,18 +167,10 @@ export function ReviewSection() {
 }
 
 const styles = stylex.create({
-  historyFrame: { height: 420, overflow: "hidden" },
-  history: {
-    display: "flex",
-    flexDirection: "column",
-    height: 977,
-    paddingTop: 4,
-    backgroundColor: tokens.panel,
-  },
   row: { display: "flex", alignItems: "center", gap: 16 },
   panel: { width: "min(460px, 100%)" },
   cards: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 16 },
-  // The same surface as the history tooltip.
+  // The same surface as the blame tooltip.
   card: {
     backgroundColor: tokens.raised,
     borderWidth: 1,

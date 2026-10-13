@@ -2,10 +2,10 @@ import * as stylex from "@stylexjs/stylex";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { AgentPreset, OwnedState } from "../../../shared/owned-session";
 import type { AgentInbox } from "../../data/agent-inbox";
-import type { AgentStatus } from "../../../shared/agent-status";
-import type { Workspace } from "../../data/workspaces";
+import type { Thread } from "../../../shared/threads";
+import type { WorkspaceSnapshot } from "../../data/workspaces";
 import { tokens } from "../../theme.stylex";
-import { WorkspaceListPreview } from "../Workspaces";
+import { ThreadSidebar, type SidebarSource } from "../shell/ThreadSidebar";
 import { PermissionCard, SessionComposer } from "../session/SessionComposer";
 import { SessionPanel, SessionStart } from "../session/SessionPanel";
 import { createDemoAgent, createLongSession, demoAgents } from "./owned-fixture";
@@ -79,46 +79,62 @@ const settings = (status: OwnedState["status"]): OwnedState => ({
   turns: 3,
 });
 
-const LIST: Workspace[] = [
-  { id: "w1", kind: "repository", home: true, branch: "main", title: "main", detail: "3" },
+const NOW = Date.UTC(2026, 9, 13, 21, 0);
+const THREADS: Thread[] = [
   {
-    id: "w2",
-    kind: "review",
-    reviewId: "r1",
+    id: "r1",
     title: "Weeks in relative times",
-    sessions: [{ agent: "claude", id: "s1", cwd: "/work/trail-notes" }],
-  },
-  { id: "w3", kind: "review", reviewId: "r2", title: "Durations in the export" },
-  {
-    id: "w4",
-    kind: "review",
-    reviewId: "r3",
-    title: "Club summary layout",
-    unread: true,
-    sessions: [{ agent: "codex", id: "s3", cwd: "/work/trail-notes" }],
+    createdAt: "2026-10-13T20:00:00Z",
+    updatedAt: NOW - 20_000,
+    repository: { id: "trail", name: "trail-notes", path: "/work/trail-notes" },
+    branch: "relative-weeks",
+    agent: "claude",
+    state: "working",
+    changes: { files: 3, additions: 42, deletions: 9 },
   },
   {
-    id: "w5",
-    kind: "review",
-    reviewId: "r4",
-    title: "Theme tokens",
-    detail: "5",
-    sessions: [{ agent: "claude", id: "s4", cwd: "/work/trail-notes" }],
-  },
-];
-const STATUSES: AgentStatus[] = [
-  { reviewId: "r1", sessionId: "s1", agent: "claude", state: "working", updatedAt: 3 },
-  {
-    reviewId: "r2",
-    sessionId: "s2",
+    id: "r2",
+    title: "Durations in the export",
+    createdAt: "2026-10-13T19:00:00Z",
+    updatedAt: NOW - 6 * 60_000,
+    repository: { id: "trail", name: "trail-notes", path: "/work/trail-notes" },
+    branch: "export-durations",
     agent: "acp",
-    name: "OpenCode",
     state: "waiting",
-    updatedAt: 2,
+    changes: { files: 2, additions: 18, deletions: 4 },
   },
-  { reviewId: "r3", sessionId: "s3", agent: "codex", state: "idle", updatedAt: 2 },
-  { reviewId: "r4", sessionId: "s4", agent: "claude", state: "idle", updatedAt: 1 },
+  {
+    id: "r3",
+    title: "Club summary layout",
+    createdAt: "2026-10-13T18:00:00Z",
+    updatedAt: NOW - 25 * 60_000,
+    repository: { id: "trail", name: "trail-notes", path: "/work/trail-notes" },
+    branch: "summary-layout",
+    agent: "codex",
+    state: "idle",
+    changes: { files: 4, additions: 61, deletions: 30 },
+  },
+  {
+    id: "r4",
+    title: "Theme tokens",
+    createdAt: "2026-10-12T18:00:00Z",
+    updatedAt: NOW - 26 * 3600_000,
+    repository: { id: "site", name: "club-site", path: "/work/club-site" },
+    branch: "main",
+    agent: "claude",
+    state: "idle",
+  },
 ];
+const SOURCES: SidebarSource[] = [
+  { kind: "repository", id: "trail", name: "trail-notes", path: "/work/trail-notes" },
+  { kind: "repository", id: "site", name: "club-site", path: "/work/club-site" },
+  { kind: "vault", id: "notes", name: "Club notes" },
+];
+const SNAPSHOT: WorkspaceSnapshot = {
+  workspaces: [{ id: "w1", kind: "review", reviewId: "r1", title: "Weeks in relative times" }],
+  active: "w1",
+  recent: ["w1"],
+};
 
 /** The real Session pane on a session of 600 turns. */
 function LongSession() {
@@ -200,13 +216,22 @@ export function AgentsSection() {
         </div>
       </Specimen>
       <Specimen
-        title="Workspace list"
-        note="Each saved review shows its lead session: working, Needs you, or new when a turn ended while you looked elsewhere. Read rows show their changed files."
+        title="Thread list"
+        note="Every thread, by repository: a turning arc while its agent works, a pulsing dot when it needs you, and a dot when a turn ended while you looked elsewhere. Each row names its branch and its changed lines."
         span="half"
         padded={false}
       >
         <div {...stylex.props(styles.sidebar)}>
-          <WorkspaceListPreview workspaces={LIST} statuses={STATUSES} />
+          <ThreadSidebar
+            threads={THREADS}
+            sources={SOURCES}
+            snapshot={SNAPSHOT}
+            loaded
+            onOpen={() => {}}
+            onNewThread={() => {}}
+            onHide={() => {}}
+            onSources={() => {}}
+          />
         </div>
       </Specimen>
       <Specimen title="Permission requests" note="Claude Code, then an ACP agent." span="half">

@@ -22,7 +22,6 @@ import { z } from "zod";
 import type { FileDiffMetadata } from "@pierre/diffs";
 import type {
   Branch,
-  Commit,
   CommitDetails,
   Comparison,
   NoteMutation,
@@ -50,7 +49,6 @@ import {
   createApi,
   eventSchema,
   commitDetailsSchema,
-  historySchema,
   pullRequestCommentsSchema,
   revealSchema,
   HttpError,
@@ -76,10 +74,6 @@ export interface ReviewControllerSnapshot {
   activeBranch: string | null;
   historyRef: string | null;
   sourceRevision: number;
-  history: Commit[];
-  historyHasMore: boolean;
-  historyLoading: boolean;
-  historyError: string | null;
   review: ReviewResponse | null;
   files: ParsedReviewFile[];
   visibleFiles: ParsedReviewFile[];
@@ -143,7 +137,6 @@ export interface ReviewController {
   suspend(): void;
   /** Restart live updates and reconcile what changed while hidden. */
   resume(): void;
-  loadMoreHistory(): Promise<void>;
   loadCommitDetails(id: string, signal?: AbortSignal): Promise<CommitDetails>;
   /** Shows a working-tree file in the system file manager. */
   revealPath(repo: string, path: string): Promise<void>;
@@ -230,10 +223,6 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     activeBranch: null,
     historyRef: null,
     sourceRevision: 0,
-    history: [],
-    historyHasMore: false,
-    historyLoading: false,
-    historyError: null,
     review: null,
     files: [],
     visibleFiles: [],
@@ -284,8 +273,6 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
   let suspended = false;
   let workspaceGeneration = 0;
   let reviewGeneration = 0;
-  let historyGeneration = 0;
-  let historyCursor: string | null = null;
   let reviewAbort: AbortController | undefined;
   // A saved review's first diff loads and parses while the repository checks run.
   let prefetched: {
@@ -295,7 +282,6 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     work: ReturnType<typeof fetchSavedTarget>;
   } | null = null;
   let sessionAbort: AbortController | undefined;
-  let historyAbort: AbortController | undefined;
   let eventAbort: AbortController | undefined;
   let eventTimer: ReturnType<typeof setTimeout> | undefined;
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
@@ -540,51 +526,6 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     }
   }
 
-  /** `quiet` reloads the first page in the background: no loading state, and
-   * no update when the commits are the same. */
-  async function loadHistory(reset: boolean, quiet = false): Promise<void> {
-    const repo = snapshot.session?.repository.path;
-    if (snapshot.session?.repository.git === false) return;
-    if (!repo || disposed || (!reset && (snapshot.historyLoading || !snapshot.historyHasMore)))
-      return;
-    const generation = ++historyGeneration;
-    historyAbort?.abort();
-    historyAbort = new AbortController();
-    if (!quiet) update({ historyLoading: true, historyError: null });
-    try {
-      const args: Record<string, string> = { repo, limit: "50" };
-      if (snapshot.historyRef) args.ref = snapshot.historyRef;
-      if (!reset && historyCursor) args.cursor = historyCursor;
-      const page = await api.json(`/api/history?${query(args)}`, historySchema, {
-        signal: historyAbort.signal,
-      });
-      if (disposed || generation !== historyGeneration) return;
-      const existing = reset ? [] : snapshot.history;
-      const ids = new Set(existing.map((commit) => commit.id));
-      const history = [...existing, ...page.commits.filter((commit) => !ids.has(commit.id))];
-      const hasMore = page.hasMore && page.cursor !== null;
-      // The loaded pages and their cursor stay when the first page is the same.
-      if (
-        quiet &&
-        !snapshot.historyError &&
-        JSON.stringify(history) === JSON.stringify(snapshot.history.slice(0, history.length)) &&
-        (snapshot.history.length > history.length || snapshot.historyHasMore === hasMore)
-      ) {
-        if (snapshot.historyLoading) update({ historyLoading: false });
-        return;
-      }
-      historyCursor = page.cursor;
-      update({
-        history,
-        historyHasMore: hasMore,
-        historyLoading: false,
-      });
-    } catch (error) {
-      if (!disposed && generation === historyGeneration)
-        update({ historyError: message(error), historyLoading: false });
-    }
-  }
-
   async function loadBranches(refreshSession = false): Promise<void> {
     const repo = snapshot.session?.repository.path;
     if (!repo || snapshot.session?.repository.git === false || disposed) return;
@@ -731,17 +672,14 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     ++workspaceGeneration;
     ++branchGeneration;
     ++reviewGeneration;
-    ++historyGeneration;
     sessionAbort?.abort();
     branchAbort?.abort();
     reviewAbort?.abort();
-    historyAbort?.abort();
     cancelSources();
     stopEvents();
     sourceCache.clear();
     activeTarget = undefined;
     restoreFilePath = null;
-    historyCursor = null;
     update({
       session: null,
       activeRepositoryId: null,
@@ -749,10 +687,6 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       historyRef: null,
       branches: [],
       branchesError: null,
-      history: [],
-      historyHasMore: false,
-      historyLoading: false,
-      historyError: null,
       review: null,
       files: [],
       visibleFiles: [],
@@ -774,11 +708,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     if (snapshot.savedView && snapshot.savedTargetId)
       return selectSavedTarget(snapshot.savedTargetId);
     update({ sourceRevision: snapshot.sourceRevision + 1 });
-    await Promise.all([
-      selectComparison(snapshot.comparison, true),
-      loadHistory(true),
-      loadBranches(true),
-    ]);
+    await Promise.all([selectComparison(snapshot.comparison, true), loadBranches(true)]);
   }
 
   function stopEvents() {
@@ -788,11 +718,10 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     clearTimeout(refreshTimer);
   }
 
-  /** Reload what live updates would have changed: sources, history, branches,
-   * and a mutable comparison. */
+  /** Reload what live updates would have changed: sources, branches, and a
+   * mutable comparison. */
   function reconcile() {
     update({ sourceRevision: snapshot.sourceRevision + 1 });
-    void loadHistory(true, true);
     void loadBranches(true);
     if (!snapshot.savedView && !immutableComparison(snapshot.comparison))
       void selectComparison(snapshot.comparison, true, true);
@@ -906,15 +835,12 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     ++branchGeneration;
     branchAbort?.abort();
     ++reviewGeneration;
-    ++historyGeneration;
     sessionAbort?.abort();
     sessionAbort = new AbortController();
     reviewAbort?.abort();
-    historyAbort?.abort();
     cancelSources();
     stopEvents();
     sourceCache.clear();
-    historyCursor = null;
     update({
       session: null,
       savedView: Boolean(savedTarget),
@@ -930,10 +856,6 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       sourceRevision: snapshot.sourceRevision + 1,
       status: "loading",
       error: null,
-      history: [],
-      historyHasMore: false,
-      historyLoading: false,
-      historyError: null,
       review: null,
       files: [],
       visibleFiles: [],
@@ -1002,7 +924,6 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       startEvents();
       await Promise.all([
         savedTarget ? loadSavedTarget(savedTarget) : selectComparison(comparison),
-        loadHistory(true),
         loadBranches(),
       ]);
     } catch (error) {
@@ -1892,7 +1813,6 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       if (snapshot.savedReview) refreshSavedOnFocus();
       reconcile();
     },
-    loadMoreHistory: () => loadHistory(false),
     async loadCommitDetails(id, signal) {
       const repo = snapshot.session?.repository.path;
       if (!repo) throw new Error("Open a repository first.");
@@ -1963,10 +1883,8 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       branchAbort?.abort();
       ++workspaceGeneration;
       ++reviewGeneration;
-      ++historyGeneration;
       sessionAbort?.abort();
       reviewAbort?.abort();
-      historyAbort?.abort();
       iterationAbort?.abort();
       stopEvents();
       cancelSources();

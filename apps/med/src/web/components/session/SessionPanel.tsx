@@ -160,10 +160,15 @@ export function SessionStart({
   starter,
   controls,
   repo,
+  title,
+  detail,
 }: {
   starter: SessionStarter;
   controls?: ReactNode;
   repo?: string;
+  /** The thread's name and place, as in the session's own header. */
+  title?: string;
+  detail?: string;
 }) {
   const [starting, setStarting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -172,7 +177,10 @@ export function SessionStart({
     <section aria-label="Start a session" {...stylex.props(styles.panel)}>
       <header {...stylex.props(styles.header)}>
         <Icon name="agent" size={14} />
-        <span {...stylex.props(styles.title)}>Session</span>
+        <span {...stylex.props(styles.title)}>
+          {title ?? "Session"}
+          {detail && <span {...stylex.props(styles.detail)}>{detail}</span>}
+        </span>
         {controls}
       </header>
       <div {...stylex.props(styles.start)}>
@@ -532,10 +540,7 @@ export function SessionPanel({
     <section aria-label={`${agent} session`} {...stylex.props(styles.panel)}>
       <header {...stylex.props(styles.header)}>
         <Icon name={session.agent === "acp" ? "agent" : session.agent} size={14} />
-        <span
-          {...stylex.props(styles.title)}
-          title={title ?? snapshot.title ?? `${agent} session`}
-        >
+        <span {...stylex.props(styles.title)} title={title ?? snapshot.title ?? `${agent} session`}>
           {title ?? snapshot.title ?? `${agent} session`}
           {detail && <span {...stylex.props(styles.detail)}>{detail}</span>}
         </span>

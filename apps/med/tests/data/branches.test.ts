@@ -16,7 +16,6 @@ function fixture() {
   ];
   let linkedBranch = "feature";
   const reviews: { repo: string; comparison: Comparison }[] = [];
-  const history: URL[] = [];
   const controller = createReviewController({
     events: false,
     parsePatch: async () => [],
@@ -38,10 +37,6 @@ function fixture() {
           worktrees,
         });
       if (url.pathname === "/api/branches") return Response.json(branches);
-      if (url.pathname === "/api/history") {
-        history.push(url);
-        return Response.json({ commits: [], cursor: null, hasMore: false });
-      }
       if (url.pathname === "/api/review") {
         const input = JSON.parse(String(init?.body));
         reviews.push(input);
@@ -72,7 +67,6 @@ function fixture() {
   return {
     controller,
     reviews,
-    history,
     setLinkedBranch: (name: string) => {
       linkedBranch = name;
     },
@@ -92,7 +86,7 @@ describe("branch targets", () => {
     expect(f.reviews.at(-1)).toEqual({ repo: "/linked", comparison: { kind: "working" } });
     await f.controller.selectBranch("topic");
     expect(f.reviews.at(-1)).toEqual({ repo: "/repo", comparison: { kind: "commit", commit: C } });
-    expect(f.history.at(-1)?.searchParams.get("ref")).toBe("refs/heads/topic");
+    expect(f.controller.getSnapshot().historyRef).toBe("refs/heads/topic");
     const count = f.reviews.length;
     await f.controller.selectComparison({ kind: "working" });
     expect(f.reviews).toHaveLength(count);
@@ -106,7 +100,7 @@ describe("branch targets", () => {
     await f.controller.selectBranch("feature");
     expect(f.reviews.at(-1)?.comparison).toEqual({ kind: "commit", commit: B });
     expect(f.controller.getSnapshot().activeBranch).toBe("feature");
-    expect(f.history.at(-1)?.searchParams.get("ref")).toBe("refs/heads/feature");
+    expect(f.controller.getSnapshot().historyRef).toBe("refs/heads/feature");
     f.controller.dispose();
   });
   test("refresh discovers detached worktrees and keeps detached selection distinct", async () => {

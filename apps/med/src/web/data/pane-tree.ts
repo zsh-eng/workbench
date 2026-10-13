@@ -40,8 +40,8 @@ export interface Gutter {
 export const isSplit = (node: PaneNode): node is PaneSplit => "axis" in node;
 
 /** The smallest pane, in pixels, along each axis. */
-export const MIN_WIDTH = 260;
-export const MIN_HEIGHT = 140;
+export const MIN_WIDTH = 220;
+export const MIN_HEIGHT = 120;
 
 export function leaves(node: PaneNode | null): string[] {
   if (!node) return [];
@@ -50,6 +50,48 @@ export function leaves(node: PaneNode | null): string[] {
 
 export function has(node: PaneNode | null, id: string) {
   return leaves(node).includes(id);
+}
+
+/** The smallest box that shows every pane of `node` at its smallest. */
+export function minimum(node: PaneNode, gap: number): { width: number; height: number } {
+  if (!isSplit(node)) return { width: MIN_WIDTH, height: MIN_HEIGHT };
+  const children = node.children.map((child) => minimum(child, gap));
+  const gaps = gap * (children.length - 1);
+  return node.axis === "row"
+    ? {
+        width: children.reduce((sum, child) => sum + child.width, gaps),
+        height: Math.max(...children.map((child) => child.height)),
+      }
+    : {
+        width: Math.max(...children.map((child) => child.width)),
+        height: children.reduce((sum, child) => sum + child.height, gaps),
+      };
+}
+
+/**
+ * The panes that fit in `box`. Panes leave in `order` until the rest fit at
+ * their smallest; the panes in `keep` stay. When the kept panes do not fit
+ * either, only `last` shows, as on a phone.
+ */
+export function fit(
+  root: PaneNode | null,
+  box: Rect,
+  gap: number,
+  keep: readonly string[],
+  last: string | null,
+): PaneNode | null {
+  const fits = (node: PaneNode) => {
+    const size = minimum(node, gap);
+    return size.width <= box.width && size.height <= box.height;
+  };
+  if (!root || box.width <= 0 || fits(root)) return root;
+  let tree: PaneNode | null = root;
+  for (const id of leaves(root)) {
+    if (keep.includes(id)) continue;
+    tree = remove(tree, id);
+    if (!tree || fits(tree)) return tree;
+  }
+  return tree && fits(tree) ? tree : last && has(root, last) ? { id: last } : tree;
 }
 
 const sideAxis = (side: Side): Axis => (side === "left" || side === "right" ? "row" : "column");
@@ -158,7 +200,9 @@ function replaceAt(root: PaneNode, path: number[], next: PaneNode): PaneNode {
   const [index, ...rest] = path;
   return {
     ...root,
-    children: root.children.map((child, at) => (at === index ? replaceAt(child, rest, next) : child)),
+    children: root.children.map((child, at) =>
+      at === index ? replaceAt(child, rest, next) : child,
+    ),
   };
 }
 
@@ -173,15 +217,21 @@ export function resize(
   index: number,
   delta: number,
   length: number,
+  gap = 0,
 ): PaneNode {
   const split = splitAt(root, path);
   if (!split || index < 0 || index + 1 >= split.children.length || length <= 0) return root;
-  const min = (split.axis === "row" ? MIN_WIDTH : MIN_HEIGHT) / length;
+  // A child that is a split keeps room for each of its panes.
+  const min = (child: PaneNode) => {
+    const size = minimum(child, gap);
+    return (split.axis === "row" ? size.width : size.height) / length;
+  };
   const a = split.sizes[index]!;
   const b = split.sizes[index + 1]!;
   const pair = a + b;
-  const lowest = Math.min(min, pair / 2);
-  const next = Math.max(lowest, Math.min(pair - lowest, a + delta / length));
+  const lowest = Math.min(min(split.children[index]!), pair / 2);
+  const highest = pair - Math.min(min(split.children[index + 1]!), pair / 2);
+  const next = Math.max(lowest, Math.min(highest, a + delta / length));
   const sizes = [...split.sizes];
   sizes[index] = next;
   sizes[index + 1] = pair - next;
@@ -212,6 +262,24 @@ export function balanced(node: PaneNode | null): boolean {
   return node.sizes.every((size) => Math.abs(size - even) < 0.01) && node.children.every(balanced);
 }
 
+/** A split's sizes in pixels. A child below its smallest size grows to it, and
+ * the others give up the room in proportion to what they have above theirs. */
+function fitted(node: PaneSplit, length: number, gap: number) {
+  const along = (child: PaneNode) => {
+    const size = minimum(child, gap);
+    return node.axis === "row" ? size.width : size.height;
+  };
+  const mins = node.children.map(along);
+  const sizes = node.children.map((_, index) => length * (node.sizes[index] ?? 0));
+  const deficit = sizes.reduce((sum, size, index) => sum + Math.max(0, mins[index]! - size), 0);
+  const spare = sizes.reduce((sum, size, index) => sum + Math.max(0, size - mins[index]!), 0);
+  if (deficit <= 0 || spare <= 0) return sizes;
+  const taken = Math.min(deficit, spare);
+  return sizes.map((size, index) =>
+    size < mins[index]! ? mins[index]! : size - ((size - mins[index]!) / spare) * taken,
+  );
+}
+
 /** Each pane's rectangle and each gutter in `box`, with `gap` pixels between panes. */
 export function layout(root: PaneNode | null, box: Rect, gap: number) {
   const panes = new Map<string, Rect>();
@@ -224,12 +292,13 @@ export function layout(root: PaneNode | null, box: Rect, gap: number) {
     const row = node.axis === "row";
     const total = row ? rect.width : rect.height;
     const length = Math.max(0, total - gap * (node.children.length - 1));
+    const sizes = fitted(node, length, gap);
     let offset = row ? rect.x : rect.y;
     const end = offset + total;
     node.children.forEach((child, index) => {
       const last = index === node.children.length - 1;
       // Whole pixels; the last child takes what rounding left.
-      const size = last ? end - offset : Math.round(length * (node.sizes[index] ?? 0));
+      const size = last ? end - offset : Math.round(sizes[index]!);
       const childRect = row
         ? { x: offset, y: rect.y, width: size, height: rect.height }
         : { x: rect.x, y: offset, width: rect.width, height: size };
@@ -285,8 +354,7 @@ export function parseTree(value: unknown, known?: (id: string) => boolean): Pane
   const read = (node: unknown, depth: number): PaneNode | null => {
     if (!node || typeof node !== "object" || depth > 8) return null;
     const entry = node as Record<string, unknown>;
-    if (typeof entry.id === "string")
-      return !known || known(entry.id) ? { id: entry.id } : null;
+    if (typeof entry.id === "string") return !known || known(entry.id) ? { id: entry.id } : null;
     if (
       (entry.axis !== "row" && entry.axis !== "column") ||
       !Array.isArray(entry.children) ||

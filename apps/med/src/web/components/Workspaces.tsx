@@ -1,7 +1,5 @@
-import type { AgentStatus } from "../../shared/agent-status";
-import { finishedUnseen, readSeen, useAgentStatuses, writeSeen } from "../data/agent-status";
+import type { Thread } from "../../shared/threads";
 import * as stylex from "@stylexjs/stylex";
-import { ContextMenu } from "@base-ui/react/context-menu";
 import {
   Activity,
   createContext,
@@ -14,9 +12,7 @@ import {
   useState,
   useSyncExternalStore,
   type ReactNode,
-  type RefObject,
 } from "react";
-import { createPortal } from "react-dom";
 import {
   createReviewController,
   type ReviewController,
@@ -26,11 +22,8 @@ import {
   createWorkspaceStore,
   orderedWorkspaces,
   overlayAddress,
-  lazygitCommand,
   pinned,
-  resumeCommand,
   REVIEW_UPDATED,
-  showSessions,
   workspaceUrl,
   type PullWorkspace,
   type RepositoryWorkspace,
@@ -41,7 +34,7 @@ import {
   type WorkspaceSnapshot,
 } from "../data/workspaces";
 import { z } from "zod";
-import { picked, tokens, ui } from "../theme.stylex";
+import { tokens, ui } from "../theme.stylex";
 import { Icon, type IconName } from "./Icon";
 import { ShortcutKeys } from "./ShortcutKeys";
 import { ActionTooltip } from "./ToolButton";
@@ -54,12 +47,10 @@ import { renderBrief } from "../markdown/brief-render";
 import { themeController } from "../themes";
 import { parsePullUrl } from "../../shared/pull-workspace";
 import { startPull, usePullJob } from "../data/pull-jobs";
-import { PullWorkspaceView, pullTitle, SettlingText, type PullState } from "./PullWorkspace";
-import { checkoutNameFor } from "../data/checkout-names";
+import { PullWorkspaceView, pullTitle, type PullState } from "./PullWorkspace";
 import { useThreads } from "../data/threads";
 import { ThreadSidebar, type SidebarSource } from "./shell/ThreadSidebar";
 import { NewThread } from "./shell/NewThread";
-import type { RegisteredRepository } from "../../shared/protocol";
 
 /** Workspaces kept mounted, most recently shown first. Older ones reload. */
 const MOUNTED = 4;
@@ -96,27 +87,27 @@ interface WorkspaceActions {
   getSnapshot(): WorkspaceSnapshot;
 }
 
+const NARROW = "(max-width: 760px)";
+const isNarrow = () => typeof matchMedia === "function" && matchMedia(NARROW).matches;
+const subscribeNarrow = (listener: () => void) => {
+  if (typeof matchMedia !== "function") return () => {};
+  const query = matchMedia(NARROW);
+  query.addEventListener("change", listener);
+  return () => query.removeEventListener("change", listener);
+};
+
 const Actions = createContext<WorkspaceActions | null>(null);
 const Snapshot = createContext<WorkspaceSnapshot | null>(null);
 /** The lead session's state of each saved review, by review ID. */
-const Statuses = createContext<ReadonlyMap<string, AgentStatus>>(new Map());
+const Statuses = createContext<ReadonlyMap<string, Thread>>(new Map());
 const Current = createContext<string | null>(null);
 /** Why the host refused a pull request link, by workspace. */
 const PullErrors = createContext<ReadonlyMap<string, string>>(new Map());
 const HostFetch = createContext<typeof fetch>(browserFetch);
 const LOST = "Med restarted before it opened this pull request.";
 const removedSchema = z.object({ removed: z.literal(true) });
-const DEMO_KEPT = "It has changed or untracked files. Commit or discard them, then try again.";
 /** Disposers that run when a workspace closes or leaves memory. */
 const Lifetime = createContext<Set<() => void> | null>(null);
-/** Moves the window's one workspace list into a sidebar. */
-const ListSlot = createContext<((slot: HTMLElement, owner: ListOwner) => () => void) | null>(null);
-/** What the sidebar that holds the list gives it. */
-interface ListOwner {
-  onNew?: () => void;
-  /** Registered repositories, to name a checkout without its absolute path. */
-  repositories?: RegisteredRepository[];
-}
 
 /** The workspace that renders this App, with the host's actions. Outside a
  * host, such as in a test of App alone, it is null. */
@@ -613,33 +604,13 @@ export function WorkspaceHost({
     return () => window.removeEventListener("keydown", keydown, true);
   }, [rememberFocus, show, store]);
 
-  // Agents' states for the saved reviews in the list. A turn that ends while
-  // its review is not shown marks the review unread, as new mail does.
-  const reviewIds = useMemo(
-    () =>
-      snapshot.workspaces.flatMap((workspace) =>
-        workspace.kind === "review" ? [workspace.reviewId] : [],
-      ),
-    [snapshot.workspaces],
-  );
-  const statuses = useAgentStatuses(reviewIds, fetcher);
-  useEffect(() => {
-    if (!statuses.size) return;
-    const reviews = snapshot.workspaces.flatMap((workspace) =>
-      workspace.kind === "review"
-        ? [{ reviewId: workspace.reviewId, active: workspace.id === snapshot.active }]
-        : [],
-    );
-    const { seen, finished } = finishedUnseen(statuses, reviews, readSeen());
-    writeSeen(seen);
-    for (const reviewId of finished) {
-      const workspace = store.match({ kind: "review", reviewId });
-      if (workspace) store.setUnread(workspace, true);
-    }
-  }, [statuses, snapshot.workspaces, snapshot.active, store]);
-
   // The sidebar lists every thread the host keeps and the repositories.
   const threadList = useThreads(fetcher);
+  // The switcher shows each thread's agent state from the same list.
+  const statuses = useMemo(
+    () => new Map((threadList?.threads ?? []).map((thread) => [thread.id, thread])),
+    [threadList],
+  );
   const sources = useMemo<SidebarSource[]>(
     () => [
       ...(threadList?.repositories ?? []).map((repository) => ({
@@ -663,15 +634,49 @@ export function WorkspaceHost({
     const timer = setTimeout(() => writeStored(SIDEBAR_WIDTH_KEY, String(sidebarWidth)), 200);
     return () => clearTimeout(timer);
   }, [sidebarWidth]);
-  const toggleSidebar = useCallback(
-    () =>
-      setSidebarVisible((visible) => {
-        writeStored(SIDEBAR_KEY, visible ? "hidden" : "shown");
-        return !visible;
-      }),
-    [],
+  // In a narrow window the sidebar opens over the workspace, and a choice closes it.
+  const narrow = useSyncExternalStore(subscribeNarrow, isNarrow);
+  const [overlay, setOverlay] = useState(false);
+  if (overlay && !narrow) setOverlay(false);
+  const showsSidebar = narrow ? overlay : sidebarVisible;
+  const toggleSidebar = useCallback(() => {
+    if (isNarrow()) return setOverlay((open) => !open);
+    setSidebarVisible((visible) => {
+      writeStored(SIDEBAR_KEY, visible ? "hidden" : "shown");
+      return !visible;
+    });
+  }, [setOverlay, setSidebarVisible]);
+  useEffect(() => {
+    if (!overlay) return;
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      setOverlay(false);
+    };
+    window.addEventListener("keydown", keydown);
+    return () => window.removeEventListener("keydown", keydown);
+  }, [overlay]);
+  const shell = useMemo(
+    () => ({ sidebarVisible: showsSidebar, toggleSidebar }),
+    [showsSidebar, toggleSidebar],
   );
-  const shell = useMemo(() => ({ sidebarVisible, toggleSidebar }), [sidebarVisible, toggleSidebar]);
+  // An archived thread's workspace closes; its worktree can go with it.
+  const archiveThread = useCallback(
+    async (thread: Thread, archived: boolean, removeWorktree: boolean) => {
+      await createApi(fetcher, readBrowserToken()).json(
+        `/api/threads/${thread.id}/archive`,
+        z.object({}).passthrough(),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ archived, removeWorktree }),
+        },
+      );
+      const workspace = archived && store.match({ kind: "review", reviewId: thread.id });
+      if (workspace) actions.close(workspace);
+    },
+    [actions, fetcher, store],
+  );
   // A new thread covers the workspaces until it starts or the reader leaves.
   const [newThread, setNewThread] = useState(false);
   const activeEntry = snapshot.workspaces.find((entry) => entry.id === snapshot.active);
@@ -719,12 +724,21 @@ export function WorkspaceHost({
               ))}
               <ShellContext value={shell}>
                 <div {...stylex.props(styles.shell)}>
-                  {sidebarVisible && (
+                  {showsSidebar && narrow && (
+                    <div
+                      aria-hidden="true"
+                      onPointerDown={() => setOverlay(false)}
+                      {...stylex.props(styles.shellScrim)}
+                    />
+                  )}
+                  {showsSidebar && (
                     <>
                       <aside
                         aria-label="Sidebar"
-                        style={{ width: sidebarWidth }}
-                        {...stylex.props(styles.shellSidebar)}
+                        {...stylex.props(
+                          styles.shellSidebar,
+                          narrow ? styles.shellOverlay : styles.width(sidebarWidth),
+                        )}
                       >
                         <ThreadSidebar
                           threads={threadList?.threads ?? []}
@@ -733,48 +747,53 @@ export function WorkspaceHost({
                           loaded={!!threadList}
                           onOpen={(input) => {
                             setNewThread(false);
+                            setOverlay(false);
                             actions.open(input);
                           }}
-                          onNewThread={() => setNewThread(true)}
+                          onNewThread={() => {
+                            setOverlay(false);
+                            setNewThread(true);
+                          }}
                           newThread={newThread}
                           onHide={toggleSidebar}
                           onSources={() => {
                             history.pushState(null, "", "/sources");
                             window.dispatchEvent(new PopStateEvent("popstate"));
                           }}
+                          onArchive={archiveThread}
                         />
                       </aside>
-                      <div
-                        role="separator"
-                        aria-label="Resize sidebar"
-                        aria-orientation="vertical"
-                        aria-valuenow={sidebarWidth}
-                        aria-valuemin={SIDEBAR_MIN}
-                        aria-valuemax={SIDEBAR_MAX}
-                        tabIndex={0}
-                        {...stylex.props(styles.shellGutter, stylex.defaultMarker())}
-                        onKeyDown={(event) => {
-                          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-                          event.preventDefault();
-                          resizeSidebar(sidebarWidth + (event.key === "ArrowLeft" ? -16 : 16));
-                        }}
-                        onPointerDown={(event) =>
-                          event.currentTarget.setPointerCapture(event.pointerId)
-                        }
-                        onPointerMove={(event) => {
-                          if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
-                          resizeSidebar(event.clientX);
-                        }}
-                        onDoubleClick={() => resizeSidebar(SIDEBAR_WIDTH)}
-                      >
-                        <span {...stylex.props(styles.shellGutterLine)} />
-                      </div>
+                      {!narrow && (
+                        <div
+                          role="separator"
+                          aria-label="Resize sidebar"
+                          aria-orientation="vertical"
+                          aria-valuenow={sidebarWidth}
+                          aria-valuemin={SIDEBAR_MIN}
+                          aria-valuemax={SIDEBAR_MAX}
+                          tabIndex={0}
+                          {...stylex.props(styles.shellGutter, stylex.defaultMarker())}
+                          onKeyDown={(event) => {
+                            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                            event.preventDefault();
+                            resizeSidebar(sidebarWidth + (event.key === "ArrowLeft" ? -16 : 16));
+                          }}
+                          onPointerDown={(event) =>
+                            event.currentTarget.setPointerCapture(event.pointerId)
+                          }
+                          onPointerMove={(event) => {
+                            if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+                            resizeSidebar(event.clientX);
+                          }}
+                          onDoubleClick={() => resizeSidebar(SIDEBAR_WIDTH)}
+                        >
+                          <span {...stylex.props(styles.shellGutterLine)} />
+                        </div>
+                      )}
                     </>
                   )}
-                  <div
-                    {...stylex.props(styles.shellViews, !sidebarVisible && styles.shellViewsAlone)}
-                  >
-                    {!sidebarVisible && (
+                  <div {...stylex.props(styles.shellViews)}>
+                    {(!showsSidebar || narrow) && (
                       <div {...stylex.props(styles.shellShow)}>
                         <ActionTooltip label="Show sidebar" shortcut="Mod+B">
                           <button
@@ -799,7 +818,11 @@ export function WorkspaceHost({
                         onCancel={() => setNewThread(false)}
                         onStarted={(review) => {
                           setNewThread(false);
-                          actions.open({ kind: "review", reviewId: review.id, title: review.title });
+                          actions.open({
+                            kind: "review",
+                            reviewId: review.id,
+                            title: review.title,
+                          });
                         }}
                       />
                     )}
@@ -1034,7 +1057,6 @@ function PullView({ workspace }: { workspace: PullWorkspace }) {
     <PullWorkspaceView
       url={workspace.url}
       state={state}
-      list={<WorkspaceList />}
       onRetry={() => actions?.retryPull(workspace.id)}
     />
   );
@@ -1089,8 +1111,6 @@ function KeepScroll({ children }: { children: ReactNode }) {
   );
 }
 
-/** Claude's terracotta, so an agent's reviews read at a glance. */
-const agentColor = (icon: IconName) => (icon === "claude" ? { color: "#d97757" } : undefined);
 function iconFor(workspace: Workspace): IconName {
   // An agent's review shows the agent that made it.
   const agent = workspace.sessions?.at(-1)?.agent;
@@ -1121,94 +1141,8 @@ function qualifiers(rows: Workspace[]) {
     names.size > 1 && workspace.kind === "repository" ? workspace.repository : undefined;
 }
 
-/**
- * The place of the open workspaces, at the top of a sidebar. The window has
- * one list; the sidebar on screen holds it, and its "New workspace" button
- * runs `onNew`. Outside a workspace host, it is empty.
- */
-export function WorkspaceList({
-  onNew,
-  repositories,
-}: {
-  onNew?(): void;
-  repositories?: RegisteredRepository[];
-}) {
-  const claim = use(ListSlot);
-  const slot = useRef<HTMLDivElement>(null);
-  const latest = useRef(onNew);
-  useLayoutEffect(() => {
-    latest.current = onNew;
-  });
-  const canAdd = !!onNew;
-  // Effects run only in the workspace on screen, so the last one shown holds
-  // the list. It moves before the frame paints.
-  useLayoutEffect(
-    () =>
-      claim?.(slot.current!, {
-        onNew: canAdd ? () => latest.current?.() : undefined,
-        repositories,
-      }),
-    [claim, canAdd, repositories],
-  );
-  return claim && <div ref={slot} {...stylex.props(styles.slot)} />;
-}
-
-const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
-/** Plays an entrance once, when the element mounts. A CSS animation would
- * play again each time a hidden workspace shows or the list moves. */
-function useEntrance<T extends HTMLElement>(
-  keyframes: Keyframe[],
-  duration: number,
-  ref: RefObject<T | null>,
-) {
-  useLayoutEffect(() => {
-    if (!reducedMotion())
-      ref.current?.animate(keyframes, { duration, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
-    // Only the first mount plays it.
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-}
-const agentLabel = (status: AgentStatus) =>
-  status.agent === "claude"
-    ? "Claude"
-    : status.agent === "codex"
-      ? "Codex"
-      : (status.name ?? "The agent");
-
-/**
- * The Sessions page's row, at the head of the list while a review has an
- * agent session: how many sessions need the user, or a turning arc while
- * agents work.
- */
-function SessionsEntry({ statuses }: { statuses: ReadonlyMap<string, AgentStatus> }) {
-  const all = [...statuses.values()];
-  const waiting = all.filter((status) => status.state === "waiting").length;
-  const working = all.filter((status) => status.state === "working").length;
-  const needs = `${waiting} ${waiting === 1 ? "needs" : "need"} you`;
-  return (
-    <div {...stylex.props(styles.entry)}>
-      <button
-        type="button"
-        aria-label={`Sessions${waiting ? `, ${needs}` : working ? `, ${working} working` : ""}`}
-        onClick={showSessions}
-        {...stylex.props(styles.row)}
-      >
-        <Icon name="sessions" size={14} />
-        <span {...stylex.props(styles.name)}>Sessions</span>
-        {waiting > 0 ? (
-          <span {...stylex.props(styles.detail, styles.needsYou)}>{needs}</span>
-        ) : (
-          working > 0 && (
-            <WorkingMark
-              label={`${working} ${working === 1 ? "session works" : "sessions work"}`}
-              hides={false}
-            />
-          )
-        )}
-      </button>
-    </div>
-  );
-}
+const agentLabel = (thread: Thread) =>
+  thread.agent === "claude" ? "Claude" : thread.agent === "codex" ? "Codex" : "The agent";
 
 /** A small turning arc while the review's agent works. */
 function WorkingMark({ label, hides }: { label: string; hides: boolean }) {
@@ -1220,411 +1154,6 @@ function WorkingMark({ label, hides }: { label: string; hides: boolean }) {
     />
   );
 }
-/** A pull request's row: a turning arc while the host opens it, or Failed. */
-function PullMark({ workspace, hides }: { workspace: PullWorkspace; hides: boolean }) {
-  const errors = use(PullErrors);
-  const job = usePullJob(workspace.jobId, use(HostFetch));
-  const failed =
-    job === "lost" || errors.has(workspace.id) || (job !== undefined && job.status === "failed");
-  return failed ? (
-    <span {...stylex.props(styles.detail, styles.failed, hides && styles.detailHides)}>Failed</span>
-  ) : (
-    <>
-      <span {...stylex.props(styles.hidden)}>, opening</span>
-      <WorkingMark label="Opening the pull request" hides={hides} />
-    </>
-  );
-}
-function UnreadDot({ hides }: { hides: boolean }) {
-  const dot = useRef<HTMLSpanElement>(null);
-  useEntrance(
-    [
-      { opacity: 0, transform: "scale(0.4)" },
-      { opacity: 1, transform: "scale(1.25)", offset: 0.6 },
-      { opacity: 1, transform: "scale(1)" },
-    ],
-    320,
-    dot,
-  );
-  return (
-    <span ref={dot} aria-hidden="true" {...stylex.props(styles.dot, hides && styles.detailHides)} />
-  );
-}
-function WorkspaceNav({ children }: { children: ReactNode }) {
-  const nav = useRef<HTMLElement>(null);
-  useEntrance(
-    [
-      { opacity: 0, transform: "translateY(-3px)" },
-      { opacity: 1, transform: "none" },
-    ],
-    180,
-    nav,
-  );
-  return (
-    <nav ref={nav} aria-label="Workspaces" {...stylex.props(styles.list)}>
-      {children}
-    </nav>
-  );
-}
-
-/**
- * The open workspaces. They appear with the second workspace; one workspace
- * needs no list.
- */
-function WorkspaceRows({
-  onNew,
-  repositories = [],
-}: {
-  onNew?(): void;
-  repositories?: RegisteredRepository[];
-}) {
-  const snapshot = use(Snapshot);
-  const actions = use(Actions);
-  const statuses = use(Statuses);
-  // The row whose resume command was just copied says so for a moment.
-  const [copied, setCopied] = useState<string | null>(null);
-  const copiedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  // The row whose worktree Med removes now, or why Git kept it.
-  const [removal, setRemoval] = useState<{ id: string; problem?: string } | null>(null);
-  const removalTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  if (!snapshot || !actions) return null;
-  const removeWorktree = (id: string) => {
-    clearTimeout(removalTimer.current);
-    setRemoval({ id });
-    actions.removeWorktree(id).then(
-      () => setRemoval(null),
-      (error: unknown) => {
-        setRemoval({
-          id,
-          problem: error instanceof Error ? error.message : "Git kept this worktree.",
-        });
-        removalTimer.current = setTimeout(() => setRemoval(null), 8000);
-      },
-    );
-  };
-  const rows = orderedWorkspaces(snapshot);
-  if (rows.length < 2) return null;
-  const qualifier = qualifiers(rows);
-  return (
-    <WorkspaceNav>
-      {statuses.size > 0 && <SessionsEntry statuses={statuses} />}
-      <div {...stylex.props(styles.heading)}>
-        <span {...stylex.props(ui.label)}>Workspaces</span>
-        {onNew && (
-          <ActionTooltip label="New workspace" shortcut="Mod+Enter">
-            <button
-              type="button"
-              aria-label="New workspace"
-              onClick={onNew}
-              {...stylex.props(styles.add)}
-            >
-              <Icon name="plus" size={12} />
-            </button>
-          </ActionTooltip>
-        )}
-      </div>
-      <ul {...stylex.props(styles.rows)}>
-        {rows.map((workspace, index) => {
-          const current = workspace.id === snapshot.active;
-          const label = labelFor(workspace);
-          const repository = qualifier(workspace);
-          const closable = !pinned(workspace);
-          const status = workspace.kind === "review" ? statuses.get(workspace.reviewId) : undefined;
-          const agentState = status && status.state !== "idle" ? status.state : undefined;
-          // The home workspace stays, so its worktree stays too.
-          const removable =
-            closable &&
-            !!workspace.worktree &&
-            !rows.some((entry) => pinned(entry) && entry.worktree === workspace.worktree);
-          const removing = removal?.id === workspace.id && !removal.problem;
-          const problem = removal?.id === workspace.id ? removal.problem : undefined;
-          return (
-            <WorkspaceMenu
-              key={workspace.id}
-              workspace={workspace}
-              label={label}
-              closable={closable}
-              onRemoveWorktree={removable ? () => removeWorktree(workspace.id) : undefined}
-              removing={removing}
-              copied={copied === workspace.id}
-              onCopy={(command) => {
-                void navigator.clipboard.writeText(command).then(() => {
-                  setCopied(workspace.id);
-                  clearTimeout(copiedTimer.current);
-                  copiedTimer.current = setTimeout(() => setCopied(null), 1600);
-                });
-              }}
-            >
-              <button
-                type="button"
-                aria-current={current ? "page" : undefined}
-                aria-keyshortcuts={index < 9 ? `Meta+${index + 1} Control+${index + 1}` : undefined}
-                title={
-                  workspace.kind === "repository" && workspace.path
-                    ? `${label}\n${checkoutNameFor(repositories, workspace.path)}`
-                    : undefined
-                }
-                onClick={() => actions.activate(workspace.id)}
-                onKeyDown={(event) => {
-                  if (closable && (event.key === "Delete" || event.key === "Backspace")) {
-                    event.preventDefault();
-                    actions.close(workspace.id);
-                  }
-                }}
-                {...stylex.props(styles.row, current && styles.current)}
-              >
-                <Icon name={iconFor(workspace)} size={14} style={agentColor(iconFor(workspace))} />
-                <span {...stylex.props(styles.name, workspace.unread && styles.unreadName)}>
-                  {repository && <span {...stylex.props(styles.repository)}>{repository} / </span>}
-                  {workspace.kind === "pull" ? <SettlingText text={label} /> : label}
-                  {agentState && (
-                    <span {...stylex.props(styles.hidden)}>
-                      , {agentState === "waiting" ? "needs you" : "working"}
-                    </span>
-                  )}
-                  {workspace.unread && <span {...stylex.props(styles.hidden)}>, new</span>}
-                </span>
-                {copied === workspace.id || removing ? (
-                  <span
-                    role="status"
-                    {...stylex.props(styles.detail, closable && styles.clearClose)}
-                  >
-                    {removing ? "Removing" : "Copied"}
-                  </span>
-                ) : workspace.kind === "pull" ? (
-                  <PullMark workspace={workspace} hides={closable} />
-                ) : agentState === "waiting" ? (
-                  <span
-                    aria-hidden="true"
-                    title={`${agentLabel(status!)} needs you`}
-                    {...stylex.props(
-                      styles.detail,
-                      styles.needsYou,
-                      closable && styles.detailHides,
-                    )}
-                  >
-                    Needs you
-                  </span>
-                ) : agentState === "working" ? (
-                  <WorkingMark label={`${agentLabel(status!)} is working`} hides={closable} />
-                ) : workspace.unread ? (
-                  <UnreadDot hides={closable} />
-                ) : (
-                  workspace.detail && (
-                    <span {...stylex.props(styles.detail, closable && styles.detailHides)}>
-                      {workspace.detail}
-                      <span {...stylex.props(styles.hidden)}> changed files</span>
-                    </span>
-                  )
-                )}
-              </button>
-              {closable && (
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  aria-label={`Close ${label}`}
-                  title={`Close ${label}`}
-                  onClick={() => actions.close(workspace.id)}
-                  {...stylex.props(styles.close)}
-                >
-                  <Icon name="close" size={12} />
-                </button>
-              )}
-              {problem && (
-                <p role="alert" {...stylex.props(styles.problem)}>
-                  Kept the worktree. {problem}
-                </p>
-              )}
-            </WorkspaceMenu>
-          );
-        })}
-      </ul>
-    </WorkspaceNav>
-  );
-}
-
-/** The workspace list on given workspaces and agent states, for the Elements
- * page. A click shows a row as read, as in the app; the rows follow the
- * props, as a demo changes them. */
-export function WorkspaceListPreview({
-  workspaces,
-  statuses,
-  fetch: fetcher = browserFetch,
-}: {
-  workspaces: Workspace[];
-  statuses: AgentStatus[];
-  /** Answers the jobs of pull request rows. */
-  fetch?: typeof fetch;
-}) {
-  const [view, setView] = useState<{ active?: string; marks: ReadonlyMap<string, boolean> }>({
-    marks: new Map(),
-  });
-  const snapshot = useMemo<WorkspaceSnapshot>(
-    () => ({
-      workspaces: workspaces.map((workspace) =>
-        view.marks.has(workspace.id)
-          ? ({ ...workspace, unread: view.marks.get(workspace.id) || undefined } as Workspace)
-          : workspace,
-      ),
-      active:
-        view.active && workspaces.some((workspace) => workspace.id === view.active)
-          ? view.active
-          : workspaces[0]!.id,
-      recent: workspaces.map((workspace) => workspace.id),
-    }),
-    [workspaces, view],
-  );
-  const latest = useRef(snapshot);
-  useLayoutEffect(() => {
-    latest.current = snapshot;
-  });
-  const actions = useMemo<WorkspaceActions>(() => {
-    const mark = (id: string, unread: boolean) =>
-      setView((current) => ({ ...current, marks: new Map(current.marks).set(id, unread) }));
-    return {
-      activate(id) {
-        mark(id, false);
-        setView((current) => ({ ...current, active: id }));
-      },
-      setUnread: mark,
-      close() {},
-      open() {},
-      match: () => undefined,
-      closeRepository() {},
-      update() {},
-      openSwitcher() {},
-      openPull() {},
-      retryPull() {},
-      // Git keeps the demo's worktree, as it keeps one with changed files.
-      removeWorktree: () =>
-        new Promise((_, reject) => setTimeout(() => reject(new Error(DEMO_KEPT)), 900)),
-      subscribe: () => () => {},
-      getSnapshot: () => latest.current,
-    };
-  }, []);
-  const byReview = useMemo(
-    () => new Map(statuses.map((status) => [status.reviewId, status])),
-    [statuses],
-  );
-  return (
-    <Actions value={actions}>
-      <Snapshot value={snapshot}>
-        <Statuses value={byReview}>
-          <HostFetch value={fetcher}>
-            <WorkspaceRows />
-          </HostFetch>
-        </Statuses>
-      </Snapshot>
-    </Actions>
-  );
-}
-
-const folderName = (path: string) => path.split("/").filter(Boolean).at(-1) ?? path;
-
-/** A workspace row with its right-click menu: resume its agent sessions in a
- * terminal, mark it unread or read, or close it, with its worktree if it has one. */
-function WorkspaceMenu({
-  workspace,
-  label,
-  closable,
-  onRemoveWorktree,
-  removing,
-  copied,
-  onCopy,
-  children,
-}: {
-  workspace: Workspace;
-  label: string;
-  closable: boolean;
-  /** Set when the workspace works in a linked worktree that it can remove. */
-  onRemoveWorktree?(): void;
-  removing: boolean;
-  copied: boolean;
-  onCopy(command: string): void;
-  children: ReactNode;
-}) {
-  const actions = use(Actions)!;
-  const sessions = workspace.sessions ?? [];
-  const checkout = workspace.kind === "repository" ? workspace.path : undefined;
-  const item = (state: { highlighted: boolean }, ...extra: stylex.StyleXStyles[]) =>
-    stylex.props(ui.menuItem, ...extra, state.highlighted && [ui.menuHighlighted, picked])
-      .className;
-  const agentName = (agent: "claude" | "codex") => (agent === "claude" ? "Claude Code" : "Codex");
-  return (
-    <ContextMenu.Root>
-      <ContextMenu.Trigger
-        render={<li data-copied={copied || undefined} />}
-        {...stylex.props(styles.item, stylex.defaultMarker())}
-      >
-        {children}
-      </ContextMenu.Trigger>
-      <ContextMenu.Portal>
-        <ContextMenu.Positioner {...stylex.props(styles.menuPositioner)}>
-          <ContextMenu.Popup
-            aria-label={`${label} actions`}
-            {...stylex.props(ui.popup, styles.menu)}
-          >
-            <ContextMenu.Item
-              onClick={() => actions.activate(workspace.id)}
-              className={(state) => item(state)}
-            >
-              Open
-            </ContextMenu.Item>
-            {(sessions.length > 0 || checkout) && (
-              <ContextMenu.Separator {...stylex.props(styles.separator)} />
-            )}
-            {checkout && (
-              <ContextMenu.Item
-                onClick={() => onCopy(lazygitCommand(checkout))}
-                className={(state) => item(state)}
-              >
-                <span {...stylex.props(styles.menuLabel)}>
-                  <Icon name="command" size={13} />
-                  Copy lazygit command
-                </span>
-              </ContextMenu.Item>
-            )}
-            {[...sessions].reverse().map((session) => (
-              <ContextMenu.Item
-                key={`${session.agent}:${session.id}`}
-                onClick={() => onCopy(resumeCommand(session))}
-                className={(state) => item(state)}
-              >
-                <span {...stylex.props(styles.menuLabel)}>
-                  <Icon name={session.agent} size={13} style={agentColor(session.agent)} />
-                  Copy {agentName(session.agent)} resume command
-                </span>
-                <span {...stylex.props(styles.menuHint)}>{session.id.slice(0, 8)}</span>
-              </ContextMenu.Item>
-            ))}
-            <ContextMenu.Separator {...stylex.props(styles.separator)} />
-            <ContextMenu.Item
-              onClick={() => actions.setUnread(workspace.id, !workspace.unread)}
-              className={(state) => item(state)}
-            >
-              {workspace.unread ? "Mark as read" : "Mark as unread"}
-            </ContextMenu.Item>
-            {closable && (
-              <ContextMenu.Item
-                onClick={() => actions.close(workspace.id)}
-                className={(state) => item(state)}
-              >
-                Close workspace
-              </ContextMenu.Item>
-            )}
-            {onRemoveWorktree && workspace.worktree && !removing && (
-              <ContextMenu.Item onClick={onRemoveWorktree} className={(state) => item(state)}>
-                Close and remove worktree
-                <span {...stylex.props(styles.menuHint)}>{folderName(workspace.worktree)}</span>
-              </ContextMenu.Item>
-            )}
-          </ContextMenu.Popup>
-        </ContextMenu.Positioner>
-      </ContextMenu.Portal>
-    </ContextMenu.Root>
-  );
-}
-
 /**
  * Recent workspaces, most recent first. Held ⌃Tab steps through them and
  * releasing Control shows the selection, as an app switcher does. From the
@@ -1789,6 +1318,7 @@ const styles = stylex.create({
     fontSize: 12,
     WebkitFontSmoothing: "antialiased",
   },
+  width: (width: number) => ({ width }),
   shellSidebar: {
     display: "flex",
     flexShrink: 0,
@@ -1834,15 +1364,27 @@ const styles = stylex.create({
     minHeight: 0,
     marginTop: "var(--med-titlebar-height)",
   },
-  // With the sidebar hidden, a workspace starts below the button that shows it.
-  shellViewsAlone: {},
+  shellOverlay: {
+    position: "absolute",
+    zIndex: 41,
+    insetBlock: 0,
+    left: 0,
+    width: "min(320px, 86vw)",
+    backgroundColor: tokens.panel,
+    boxShadow: `1px 0 0 ${tokens.line}, 12px 0 32px -12px #00000066`,
+  },
+  shellScrim: {
+    position: "absolute",
+    zIndex: 40,
+    inset: 0,
+    backgroundColor: "#00000040",
+  },
   shellLayer: { position: "absolute", inset: 0 },
   shellShow: {
     position: "fixed",
     zIndex: 20,
-    top: "calc(var(--med-titlebar-height) / 2 - 14px)",
+    top: "max(calc(var(--med-titlebar-height) / 2 - 14px), 8px)",
     left: "max(calc(var(--med-titlebar-left) + 4px), 8px)",
-    ":is(html:not([data-titlebar]) *)": { top: 8 },
   },
   slot: { display: "contents" },
   // The list sits under the sidebar's identity row and above History. It

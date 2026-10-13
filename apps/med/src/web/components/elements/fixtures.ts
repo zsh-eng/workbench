@@ -119,24 +119,6 @@ const details: Record<string, Omit<CommitDetails, "id">> = {
   },
 };
 
-/** Commit details after a short delay, like the host's /api/commit. */
-export function loadCommitDetails(id: string, signal: AbortSignal): Promise<CommitDetails> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(
-      () =>
-        resolve({
-          id,
-          ...(details[id] ?? { body: "", coAuthors: [], files: 2, additions: 12, deletions: 3 }),
-        }),
-      120,
-    );
-    signal.addEventListener("abort", () => {
-      clearTimeout(timer);
-      reject(signal.reason);
-    });
-  });
-}
-
 export function commitDetails(id: string): CommitDetails {
   return { id, ...details[id]! };
 }

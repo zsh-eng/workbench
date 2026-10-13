@@ -5,10 +5,7 @@ import { App } from "../../src/web/App";
 import { WorkspaceHost, WorkspaceViews } from "../../src/web/components/Workspaces";
 import { createBrowseApi } from "../../src/web/data/browse";
 import type { Comparison } from "../../src/shared/protocol";
-import type { AgentStatus } from "../../src/shared/agent-status";
-import type { SessionSummary } from "../../src/shared/session-summary";
-import { SessionsRoute } from "../../src/web/components/sessions/SessionsPage";
-import { showSessions } from "../../src/web/data/workspaces";
+import type { Thread } from "../../src/shared/threads";
 import { initializeTheme, themeController } from "../../src/web/themes";
 
 const head = "a".repeat(40);
@@ -46,12 +43,15 @@ let address = "";
 const STORAGE_KEY = "med:workspaces:v1";
 const WINDOW_KEY = "med:window";
 
-beforeEach(() => {
+beforeEach(async () => {
+  // Wide enough for the sidebar beside the workspace.
+  await page.viewport(1280, 800);
   address = location.pathname + location.search;
   localStorage.removeItem(STORAGE_KEY);
   localStorage.removeItem(WINDOW_KEY);
   localStorage.removeItem("med:zen");
-  localStorage.removeItem("med:agent-seen");
+  for (const key of ["med:thread-seen", "med:thread-seen-since", "med:new-thread", "med:sidebar"])
+    localStorage.removeItem(key);
 });
 afterEach(() => {
   root?.unmount();
@@ -123,28 +123,21 @@ function createHost() {
     const chunk = new TextEncoder().encode(`event: review\ndata: ${JSON.stringify(data)}\n\n`);
     for (const window of windows) window.enqueue(chunk);
   };
-  // The lead session states that the host sends for the listed reviews.
-  let agentStatuses: AgentStatus[] = [];
-  const statusStreams = new Set<ReadableStreamDefaultController<Uint8Array>>();
-  const statusFrame = () =>
+  // The threads that the host lists, and the requests that change them.
+  let threads: Thread[] = [];
+  const threadStreams = new Set<ReadableStreamDefaultController<Uint8Array>>();
+  const threadFrame = () =>
     new TextEncoder().encode(
-      `event: state\ndata: ${JSON.stringify({ statuses: agentStatuses })}\n\n`,
+      `event: state\ndata: ${JSON.stringify({
+        threads,
+        repositories: [{ id: "repo-0", name: "fixture", path: "/test/repo" }],
+      })}\n\n`,
     );
-  const setStatuses = (statuses: AgentStatus[]) => {
-    agentStatuses = statuses;
-    for (const stream of statusStreams) stream.enqueue(statusFrame());
+  const setThreads = (next: Thread[]) => {
+    threads = next;
+    for (const stream of threadStreams) stream.enqueue(threadFrame());
   };
-  // The Sessions page's summaries, and the answers sent to sessions that Med runs.
-  let sessionSummaries: SessionSummary[] = [];
-  const summaryStreams = new Set<ReadableStreamDefaultController<Uint8Array>>();
-  const summaryFrame = () =>
-    new TextEncoder().encode(
-      `event: state\ndata: ${JSON.stringify({ sessions: sessionSummaries })}\n\n`,
-    );
-  const setSummaries = (summaries: SessionSummary[]) => {
-    sessionSummaries = summaries;
-    for (const stream of summaryStreams) stream.enqueue(summaryFrame());
-  };
+  const threadRequests: { path: string; body: unknown }[] = [];
   const answers: { path: string; body: unknown }[] = [];
   // The pull request jobs that the host runs; the test moves the latest one.
   const pulls: { id: string; url: string }[] = [];
@@ -175,6 +168,16 @@ function createHost() {
             { status: 409 },
           )
         : Response.json({ removed: true });
+    }
+    if (url.pathname === "/api/threads" && init?.method === "POST") {
+      threadRequests.push({ path: url.pathname, body: JSON.parse(String(init.body)) });
+      return Response.json({ review: savedReview("agent") });
+    }
+    const archive = /^\/api\/threads\/(\w+)\/archive$/.exec(url.pathname);
+    if (archive) {
+      const body = JSON.parse(String(init?.body)) as { archived: boolean };
+      threadRequests.push({ path: url.pathname, body });
+      return Response.json({ review: savedReview(archive[1]!) });
     }
     if (url.pathname === "/api/pulls") {
       const id = `job-${pulls.length + 1}`;
@@ -252,8 +255,10 @@ function createHost() {
         });
       case "/api/branches":
         return Response.json(branches);
-      case "/api/history":
-        return Response.json({ commits: [], cursor: null, hasMore: false });
+      case "/api/agents":
+        return Response.json({
+          agents: [{ id: "claude", name: "Claude Code", kind: "claude", available: true }],
+        });
       case "/api/review": {
         const body = JSON.parse(String(init?.body)) as { comparison: Comparison; repo: string };
         return Response.json(reviewFor(body.repo, body.comparison));
@@ -278,26 +283,13 @@ function createHost() {
         });
         return new Response(body, { headers: { "content-type": "text/event-stream" } });
       }
-      case "/api/agent-status/events": {
+      case "/api/threads/events": {
         const body = new ReadableStream<Uint8Array>({
           start(controller) {
-            statusStreams.add(controller);
-            controller.enqueue(statusFrame());
+            threadStreams.add(controller);
+            controller.enqueue(threadFrame());
             init?.signal?.addEventListener("abort", () => {
-              statusStreams.delete(controller);
-              controller.error(new DOMException("Aborted", "AbortError"));
-            });
-          },
-        });
-        return new Response(body, { headers: { "content-type": "text/event-stream" } });
-      }
-      case "/api/sessions/events": {
-        const body = new ReadableStream<Uint8Array>({
-          start(controller) {
-            summaryStreams.add(controller);
-            controller.enqueue(summaryFrame());
-            init?.signal?.addEventListener("abort", () => {
-              summaryStreams.delete(controller);
+              threadStreams.delete(controller);
               controller.error(new DOMException("Aborted", "AbortError"));
             });
           },
@@ -342,8 +334,8 @@ function createHost() {
     streams,
     windows,
     announce,
-    setStatuses,
-    setSummaries,
+    setThreads,
+    threadRequests,
     answers,
     pulls,
     setPull,
@@ -360,11 +352,9 @@ function render(host: ReturnType<typeof createHost>) {
   const browse = createBrowseApi(host.fetcher, "fixture");
   root.render(
     <WorkspaceHost fetch={host.fetcher}>
-      <SessionsRoute>
-        <WorkspaceViews options={{ fetch: host.fetcher }}>
-          {(controller) => <App controller={controller} browseApi={browse} />}
-        </WorkspaceViews>
-      </SessionsRoute>
+      <WorkspaceViews options={{ fetch: host.fetcher }}>
+        {(controller) => <App controller={controller} browseApi={browse} />}
+      </WorkspaceViews>
     </WorkspaceHost>,
   );
 }
@@ -374,30 +364,33 @@ const shown = () =>
   [...document.querySelectorAll<HTMLElement>("[data-review-status]")].find(
     (element) => element.getClientRects().length > 0,
   );
-const workspaceRows = () =>
-  [...document.querySelectorAll('nav[aria-label="Workspaces"]')]
-    .find((element) => element.getClientRects().length > 0)
-    ?.querySelectorAll("li > button:first-child") ?? [];
-/** Each row as its name and changed-file count, marking the current one. */
-const rowLabels = () =>
-  [...workspaceRows()].map((row) => {
-    const [name, count] = row.querySelectorAll(":scope > span");
-    return [
-      name?.textContent,
-      count?.firstChild?.textContent,
+/** Each thread row's name, with its state, and whether it is the one shown. */
+const threadRows = () =>
+  [...document.querySelectorAll<HTMLElement>("[data-thread]")].map((row) =>
+    [
+      row.children[1]?.firstElementChild?.firstElementChild?.textContent,
+      row.lastElementChild?.textContent,
       row.getAttribute("aria-current") && "(current)",
     ]
       .filter(Boolean)
-      .join(" ");
-  });
+      .join(""),
+  );
+const thread = (id: string, patch: Partial<Thread> = {}): Thread => ({
+  id,
+  title: savedTitles[id] ?? id,
+  createdAt: "2026-10-01T00:00:00Z",
+  updatedAt: Date.now() - 60_000,
+  repository: { id: "repo-0", name: "fixture", path: "/test/repo" },
+  checkout: "/test/repo",
+  branch: "main",
+  ...patch,
+});
 
-test("keeps branch workspaces live, switches by shortcut, and restores the list", async () => {
+test("keeps branch workspaces live, switches by shortcut, and restores them", async () => {
   const host = createHost();
   render(host);
   await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-  // The registered vault is pinned first.
-  await expect.poll(rowLabels).toEqual(["notes", "main 2 (current)"]);
   const mainView = shown();
   const mainDiffs = () => [...mainView!.querySelectorAll("diffs-container")];
   await expect.poll(() => mainDiffs().length).toBe(2);
@@ -409,7 +402,6 @@ test("keeps branch workspaces live, switches by shortcut, and restores the list"
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
   await expect.poll(() => shown()?.dataset.selectedBranch).toBe("feature");
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-  await expect.poll(rowLabels).toEqual(["notes", "main 2", "feature 1 (current)"]);
   // The new branch loads once, at its worktree.
   expect(host.sessions.filter((repo) => repo === "/test/feature")).toHaveLength(1);
   expect(host.sessions).toHaveLength(2);
@@ -419,8 +411,8 @@ test("keeps branch workspaces live, switches by shortcut, and restores the list"
     .poll(() => [...host.streams].map((key) => key.split("#")[0]))
     .toEqual(["/test/feature"]);
 
-  // ⌃2 shows the second row. The same review returns, not a reload; it
-  // catches up on changes it missed and listens again.
+  // ⌃2 shows the second workspace, after the pinned vault. The same review
+  // returns, not a reload; it catches up on changes it missed and listens again.
   await userEvent.keyboard("{Control>}2{/Control}");
   await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
   expect(shown()).toBe(mainView);
@@ -429,12 +421,6 @@ test("keeps branch workspaces live, switches by shortcut, and restores the list"
     true,
     true,
   ]);
-  // The window has one workspace list. It moves to the sidebar on screen and
-  // does not play its entrance again.
-  const lists = document.querySelectorAll('nav[aria-label="Workspaces"]');
-  expect(lists).toHaveLength(1);
-  expect(mainView!.contains(lists[0]!)).toBe(true);
-  expect(lists[0]!.getAnimations({ subtree: true })).toEqual([]);
   // Files still open after the review was hidden and shown again.
   await page.getByRole("treeitem", { name: /alpha.ts/ }).dblClick();
   await expect.poll(() => shown()?.dataset.activeFile).toBe("src/alpha.ts");
@@ -449,260 +435,203 @@ test("keeps branch workspaces live, switches by shortcut, and restores the list"
   await expect.poll(() => shown()?.dataset.selectedBranch).toBe("feature");
   expect(history.state).toMatchObject({ workspace: expect.any(String) });
 
-  // A new page restores the list and opens the active branch directly.
+  // A new page restores the workspaces and opens the active branch directly.
   root!.unmount();
   mount!.remove();
   const next = createHost();
   render(next);
   await expect.poll(() => shown()?.dataset.selectedBranch).toBe("feature");
-  await expect.poll(rowLabels).toEqual(["notes", "main 2", "feature 1 (current)"]);
   expect(next.sessions).toEqual(["/test/feature"]);
 
   // Closing the active workspace shows the most recent other one.
-  await page.getByRole("button", { name: "Close feature" }).click();
+  await userEvent.keyboard("{Control>}k{/Control}");
+  await page.getByRole("combobox", { name: "Search commands" }).fill("Close workspace");
+  await userEvent.keyboard("{Enter}");
   await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
-  await expect.poll(rowLabels).toEqual(["notes", "main 2 (current)"]);
+  expect(document.querySelectorAll("[data-review-status]")).toHaveLength(1);
 });
 
-test("lists reviews that agents announce and shows them in the window used last", async () => {
+test("the sidebar lists every thread by repository with its agent's state", async () => {
   const host = createHost();
   render(host);
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-  await expect.poll(() => host.windows.size).toBe(1);
+  host.setThreads([
+    thread("agent", { agent: "claude", state: "working", updatedAt: Date.now() }),
+    thread("second", {
+      agent: "codex",
+      state: "waiting",
+      branch: "export",
+      changes: { files: 2, additions: 12, deletions: 3 },
+    }),
+  ]);
+  const sidebar = page.getByRole("navigation", { name: "Threads" });
+  await expect.element(sidebar.getByRole("region", { name: "fixture" })).toBeVisible();
+  await expect.poll(threadRows).toEqual(["Agent review, working", "Second review, needs you"]);
+  await expect.element(sidebar.getByText("Needs you", { exact: true })).toBeVisible();
+  await expect.element(sidebar.getByText("+12")).toBeVisible();
 
-  // Another window was used last: this one lists the review as new and keeps
-  // its own workspace on screen.
-  localStorage.setItem(WINDOW_KEY, "window-elsewhere");
-  host.announce({ id: "agent", open: true });
-  await expect.poll(rowLabels).toEqual(["notes", "main 2 (current)", "Agent review, new"]);
-  expect(shown()?.dataset.selectedBranch).toBe("main");
-
-  // Showing it marks it read, and the click makes this the window used last.
+  // A row opens its thread.
   await page.getByRole("button", { name: /^Agent review/ }).click();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("agent-target");
-  await expect.poll(() => rowLabels()[2]).toMatch(/^Agent review \d+ \(current\)$/);
+  await expect.poll(() => location.pathname).toBe("/review/agent");
+  await expect.poll(() => threadRows()[0]).toBe("Agent review, working(current)");
 
-  // Now this window shows the next review that opens.
-  await page.getByRole("button", { name: /^main/ }).click();
-  await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
-  host.announce({ id: "second", open: true });
+  // A turn that ends while another thread shows marks that thread new; a
+  // look at it marks it read.
+  await page.getByRole("button", { name: /^Second review/ }).click();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("second-target");
-  await expect.poll(() => rowLabels()[3]).toMatch(/^Second review( \d+)? \(current\)$/);
+  host.setThreads([
+    thread("agent", { agent: "claude", state: "idle", updatedAt: Date.now() }),
+    thread("second", { agent: "codex", state: "idle", branch: "export" }),
+  ]);
+  await expect.poll(() => threadRows()[0]).toBe("Agent review, new");
+  await page.getByRole("button", { name: /^Agent review/ }).click();
+  await expect.poll(() => threadRows()[0]).toBe("Agent review(current)");
+
+  // The registered repositories open as workspaces of their own.
+  await sidebar.getByRole("button", { name: /^Repositories/ }).click();
+  await sidebar.getByRole("button", { name: "fixture", exact: true }).click();
+  await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
+  await expect.poll(() => threadRows()[0]).toBe("Agent review");
+
+  // A narrow window hides the sidebar; it opens over the workspace, and a
+  // choice closes it.
+  await page.viewport(600, 800);
+  await expect.element(sidebar).not.toBeInTheDocument();
+  await page.getByRole("button", { name: "Show sidebar" }).click();
+  await page.getByRole("button", { name: /^Second review/ }).click();
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("second-target");
+  await expect.element(sidebar).not.toBeInTheDocument();
 });
 
-test("a workspace's menu copies its agent's resume command and marks it unread", async () => {
+test("a thread's menu copies its resume command, marks it unread, and archives it", async () => {
   const host = createHost();
   render(host);
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-  await expect.poll(() => host.windows.size).toBe(1);
-  host.announce({
-    id: "agent",
-    open: false,
-    sessions: [{ agent: "claude", id: "abc-123", cwd: "/work/it's here" }],
-  });
-  await expect.poll(() => rowLabels()[2]).toBe("Agent review, new");
-  const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+  host.setThreads([
+    thread("agent", {
+      agent: "claude",
+      state: "idle",
+      checkout: "/test/feature",
+      linked: true,
+      branch: "feature",
+      sessions: [{ agent: "claude", id: "abc-123", cwd: "/work/it's here" }],
+    }),
+    thread("second"),
+  ]);
+  await expect.poll(threadRows).toEqual(["Agent review", "Second review"]);
   const row = page.getByRole("button", { name: /^Agent review/ });
+  const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
   await row.click({ button: "right" });
   await page.getByRole("menuitem", { name: /Copy Claude Code resume command/ }).click();
   // The directory is quoted for the shell, so the command pastes as is.
   expect(copy).toHaveBeenCalledWith(`cd '/work/it'\\''s here' && claude --resume abc-123`);
-  const copied = page.getByRole("status").filter({ hasText: "Copied" });
-  await expect.element(copied).toBeVisible();
-  await expect.element(copied, { timeout: 3000 }).not.toBeInTheDocument();
-  await row.click({ button: "right" });
-  await page.getByRole("menuitem", { name: "Mark as read" }).click();
-  await expect.poll(() => rowLabels()[2]).toBe("Agent review");
+  await expect.element(page.getByRole("status").filter({ hasText: "Copied" })).toBeVisible();
+  copy.mockRestore();
+
   await row.click({ button: "right" });
   await page.getByRole("menuitem", { name: "Mark as unread" }).click();
-  await expect.poll(() => rowLabels()[2]).toBe("Agent review, new");
-  copy.mockRestore();
-});
-
-test("a workspace in a linked worktree closes and removes it, unless Git keeps it", async () => {
-  const host = createHost();
-  render(host);
-  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-  // The main checkout is not a linked worktree.
-  await page.getByRole("button", { name: /^main/ }).click({ button: "right" });
-  await expect.element(page.getByRole("menuitem", { name: "Mark as unread" })).toBeVisible();
-  expect(document.body.textContent).not.toContain("Close and remove worktree");
-  await userEvent.keyboard("{Escape}");
-
-  await page.getByRole("button", { name: "Open branch", exact: true }).click();
-  await page.getByRole("combobox", { name: "Search branches" }).fill("feature");
-  await userEvent.keyboard("{Control>}{Enter}{/Control}");
-  await expect.poll(rowLabels).toEqual(["notes", "main 2", "feature 1 (current)"]);
-  const row = page.getByRole("button", { name: /^feature/ });
-  const remove = page.getByRole("menuitem", { name: "Close and remove worktree feature" });
+  await expect.poll(() => threadRows()[0]).toBe("Agent review, new");
   await row.click({ button: "right" });
-  await remove.click();
-  // Git keeps it: the row stays and says why.
-  await expect
-    .element(page.getByRole("alert"))
-    .toHaveTextContent(
-      "Kept the worktree. It has changed or untracked files. Commit or discard them, then try again.",
-    );
-  expect(rowLabels()).toEqual(["notes", "main 2", "feature 1 (current)"]);
+  await page.getByRole("menuitem", { name: "Mark as read" }).click();
+  await expect.poll(() => threadRows()[0]).toBe("Agent review");
+
+  // Archive leaves the list at once, with its worktree; Undo brings the thread back.
   await row.click({ button: "right" });
-  await remove.click();
-  await expect.poll(rowLabels).toEqual(["notes", "main 2 (current)"]);
-  expect(host.removals).toEqual(["/test/feature", "/test/feature"]);
-  await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
-  expect(document.querySelector('[role="alert"]')).toBeNull();
-});
-
-test("rows show what each review's agent does, and a turn that ends unseen marks it unread", async () => {
-  const host = createHost();
-  render(host);
-  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-  await expect.poll(() => host.windows.size).toBe(1);
-  host.announce({ id: "agent", open: false, sessions: [{ agent: "claude", id: "s1", cwd: "/w" }] });
-  host.announce({ id: "second", open: false });
-  const agentRow = page.getByRole("button", { name: /^Agent review/ });
-  const secondRow = page.getByRole("button", { name: /^Second review/ });
-  await expect.element(secondRow).toBeVisible();
-  for (const row of [agentRow, secondRow]) {
-    await row.click({ button: "right" });
-    await page.getByRole("menuitem", { name: "Mark as read" }).click();
-  }
-
-  const status = (reviewId: string, state: AgentStatus["state"], updatedAt: number) =>
-    ({ reviewId, sessionId: `${reviewId}-s`, agent: "claude", state, updatedAt }) as const;
-  host.setStatuses([status("agent", "working", 1000), status("second", "waiting", 1000)]);
-  await expect
-    .poll(() => rowLabels().slice(2))
-    .toEqual(["Agent review, working", "Second review, needs you Needs you"]);
-  await expect.element(page.getByTitle("Claude is working")).toBeVisible();
-  await expect.element(page.getByText("Needs you", { exact: true })).toBeVisible();
-
-  // The turn ends while another workspace is on screen: the review is new again.
-  host.setStatuses([status("agent", "idle", 2000), status("second", "waiting", 1000)]);
-  await expect.poll(() => rowLabels()[2]).toBe("Agent review, new");
-  // Seen once, the same turn does not mark it again.
-  await agentRow.click();
-  await expect.poll(() => shown()?.dataset.reviewId).toBe("agent-target");
-  await page.getByRole("button", { name: /^main/ }).click();
-  await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
-  host.setStatuses([status("agent", "idle", 2000), status("second", "idle", 1000)]);
-  // Read rows show their changed-file count again.
-  await expect.poll(() => rowLabels()[3]).toMatch(/^Second review( \d+)?$/);
-  expect(rowLabels()[2]).toMatch(/^Agent review( \d+)?$/);
-});
-
-test("Sessions shows each review's session on a board, answers it there, and opens it", async () => {
-  const host = createHost();
-  render(host);
-  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-  await expect.poll(() => host.windows.size).toBe(1);
-  host.announce({ id: "agent", open: false, sessions: [{ agent: "claude", id: "s1", cwd: "/w" }] });
-  await expect.element(page.getByRole("button", { name: /^Agent review/ })).toBeVisible();
-  const status: AgentStatus = {
-    reviewId: "agent",
-    sessionId: "agent-s",
-    agent: "acp",
-    name: "OpenCode",
-    state: "waiting",
-    updatedAt: Date.now(),
-  };
-  host.setStatuses([status]);
-  host.setSummaries([
-    {
-      ...status,
-      title: "Agent review",
-      repository: "repo",
-      branch: "main",
-      sessions: [{ agent: "acp", name: "OpenCode", id: "agent-s", cwd: "/test/repo" }],
-      prompt: "Rename the export command.",
-      steps: [
-        {
-          id: "e1",
-          kind: "edit",
-          title: "Edit src/alpha.ts",
-          status: "done",
-          added: 3,
-          removed: 1,
-        },
-      ],
-      ask: {
-        kind: "permission",
-        permission: {
-          id: "p1",
-          title: "Run the export tests?",
-          detail: "bun test",
-          options: [
-            { id: "once", name: "Allow once", kind: "allow_once" },
-            { id: "deny", name: "Deny", kind: "reject_once" },
-          ],
-        },
-      },
-    },
+  await page.getByRole("menuitem", { name: /^Archive and remove worktree/ }).click();
+  await expect.poll(threadRows).toEqual(["Second review"]);
+  expect(host.threadRequests).toEqual([
+    { path: "/api/threads/agent/archive", body: { archived: true, removeWorktree: true } },
   ]);
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect.poll(threadRows).toEqual(["Agent review", "Second review"]);
+  expect(host.threadRequests.at(-1)).toEqual({
+    path: "/api/threads/agent/archive",
+    body: { archived: false, removeWorktree: false },
+  });
 
-  // The workspace list counts the sessions that need you, and opens the page.
-  await page.getByRole("button", { name: "Sessions, 1 needs you" }).click();
-  await expect.poll(() => location.pathname).toBe("/sessions");
-  const board = page.getByRole("main", { name: "Sessions" });
-  const pane = board.getByRole("article", { name: "Agent review" });
-  await expect.element(pane.getByText("Needs you", { exact: true })).toBeVisible();
-  await expect.element(pane.getByText("Edit src/alpha.ts")).toBeVisible();
-  await expect.element(pane.getByText("repo / main")).toBeVisible();
-  // The review stays mounted beneath the page, hidden.
-  expect(shown()).toBeUndefined();
+  // The second has no linked worktree, so its menu only archives.
+  await page.getByRole("button", { name: /^Second review/ }).click({ button: "right" });
+  await expect.element(page.getByRole("menuitem", { name: "Archive" })).toBeVisible();
+  expect(document.body.textContent).not.toContain("Archive and remove worktree");
+});
 
-  // A question takes its answer in the pane.
-  await pane.getByRole("button", { name: "Allow once" }).click();
+test("a new thread starts its agent in a new worktree and opens", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  await userEvent.keyboard("{Alt>}n{/Alt}");
+  const dialog = page.getByRole("dialog", { name: "New thread" });
+  await expect.element(dialog).toBeVisible();
   await expect
-    .poll(() => host.answers)
+    .element(dialog.getByRole("radio", { name: "New worktree" }))
+    .toHaveAttribute("aria-checked", "true");
+  await dialog.getByRole("textbox", { name: "Task" }).fill("Show each result's age in the list");
+  // The hint names the branch that Med creates.
+  await expect.element(dialog.getByText("show-each-results-age-list")).toBeVisible();
+  await userEvent.keyboard("{Control>}{Enter}{/Control}");
+  await expect
+    .poll(() => host.threadRequests)
     .toEqual([
       {
-        path: "/api/reviews/agent/owned/agent-s",
-        body: { action: "permission", id: "p1", option: "once" },
+        path: "/api/threads",
+        body: {
+          repositoryId: "repo-0",
+          prompt: "Show each result's age in the list",
+          preset: "claude",
+          worktree: true,
+        },
       },
     ]);
-
-  // A pane opens the Desk; Escape returns to the Board with that pane in focus.
-  await pane.getByRole("button", { name: "Agent review" }).click();
-  await expect.poll(() => location.search).toBe("?review=agent");
-  await expect
-    .element(board.getByRole("option", { name: /^Agent review/ }))
-    .toHaveAttribute("aria-selected", "true");
-  await expect.poll(() => document.activeElement?.getAttribute("data-session")).toBe("agent");
-  await expect.element(board.getByRole("button", { name: /^Open review/ })).toBeVisible();
-  await userEvent.keyboard("{Escape}");
-  await expect.poll(() => location.search).toBe("");
-  await expect.poll(() => document.activeElement?.getAttribute("data-pane")).toBe("agent");
-
-  // From the Desk, ⌘↵ opens the session's review in its workspace.
-  await pane.getByRole("button", { name: "Agent review" }).click();
-  await expect.element(board.getByRole("listbox", { name: "Sessions" })).toBeVisible();
-  await board.getByRole("option", { name: /^Agent review/ }).click();
-  await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
-  await expect.poll(() => location.pathname).toBe("/review/agent");
+  await expect.element(dialog).not.toBeInTheDocument();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("agent-target");
 
-  // Escape on the Board leaves the page for the workspace that was on screen.
-  showSessions();
-  await expect.element(board).toBeVisible();
+  // Escape leaves a new thread that has not started.
+  await userEvent.keyboard("{Alt>}n{/Alt}");
+  await expect.element(dialog).toBeVisible();
   await userEvent.keyboard("{Escape}");
-  await expect.poll(() => location.pathname).toBe("/review/agent");
+  await expect.element(dialog).not.toBeInTheDocument();
+  expect(shown()?.dataset.reviewId).toBe("agent-target");
+});
+
+test("reviews that agents announce show in the window used last", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  await expect.poll(() => host.windows.size).toBe(1);
+
+  // Another window was used last: this one keeps its own workspace on screen.
+  localStorage.setItem(WINDOW_KEY, "window-elsewhere");
+  host.announce({ id: "agent", open: true });
+  host.setThreads([thread("agent", { updatedAt: Date.now() + 1000 })]);
+  await expect.poll(threadRows).toEqual(["Agent review, new"]);
+  expect(shown()?.dataset.selectedBranch).toBe("main");
+
+  // A click shows it and makes this the window used last.
+  await page.getByRole("button", { name: /^Agent review/ }).click();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("agent-target");
+
+  // Now this window shows the next review that opens.
+  await userEvent.keyboard("{Control>}{Tab}{/Control}");
+  await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
+  host.announce({ id: "second", open: true });
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("second-target");
 });
 
 test("a pasted pull request link opens a workspace at once, which becomes its review", async () => {
   const host = createHost();
   render(host);
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-  await page.getByRole("button", { name: "New workspace" }).click();
+  await userEvent.keyboard("{Control>}k{/Control}");
+  await page.getByRole("combobox", { name: "Search commands" }).fill("New workspace");
+  await userEvent.keyboard("{Enter}");
   await page
     .getByRole("combobox", { name: "Search branches" })
     .fill("https://github.com/acme/trails/pull/7/files");
   await expect.element(page.getByRole("option", { name: /Open pull request #7/ })).toBeVisible();
   await userEvent.keyboard("{Enter}");
 
-  // The workspace shows at once, with a placeholder name, and its progress.
-  const row = page.getByRole("button", { name: /^acme\/trails #7\s?, opening/ });
-  await expect.element(row).toBeVisible();
+  // The workspace shows at once, with its progress.
   const progress = page.getByRole("region", { name: "Opening the pull request" });
   await expect.element(progress).toBeVisible();
   expect(host.pulls).toEqual([{ id: "job-1", url: "https://github.com/acme/trails/pull/7" }]);
@@ -722,13 +651,9 @@ test("a pasted pull request link opens a workspace at once, which becomes its re
   await expect.poll(() => host.pulls.length).toBe(2);
   await expect.poll(problem).toBeUndefined();
 
-  // The title replaces the placeholder; the saved review takes the workspace's place.
+  // The saved review takes the workspace's place.
   host.setPull({ title: "Add durations" });
-  await expect
-    .element(page.getByRole("button", { name: /^#7 Add durations\s?, opening/ }))
-    .toBeVisible();
   host.setPull({ status: "done", reviewId: "agent" });
   await expect.poll(() => shown()?.dataset.reviewId).toBe("agent-target");
   expect(location.pathname).toBe("/review/agent");
-  await expect.poll(rowLabels).toEqual(["notes", "main 2", "Agent review 2 (current)"]);
 });

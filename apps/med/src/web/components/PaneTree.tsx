@@ -6,11 +6,13 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import {
   balance as balanceTree,
   balanced,
+  fit,
   has,
   insert,
   isSplit,
@@ -98,6 +100,28 @@ function load(key: string | undefined, initial: () => PaneNode | null): Stored {
  * which one has focus, and which one fills the room (zoom). The layout
  * persists for each workspace `key`, so a workspace opens as it was left.
  */
+interface PaneView {
+  focused: string | null;
+  entering: string | null;
+}
+function createPaneView() {
+  let value: PaneView = { focused: null, entering: null };
+  const listeners = new Set<() => void>();
+  return {
+    get: () => value,
+    set(change: Partial<PaneView>) {
+      const next = { ...value, ...change };
+      if (next.focused === value.focused && next.entering === value.entering) return;
+      value = next;
+      for (const listener of listeners) listener();
+    },
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
+  };
+}
+
 export function usePaneTree({
   key,
   initial,
@@ -117,9 +141,10 @@ export function usePaneTree({
     setState(current);
   }
   const { root, zoom } = current;
-  const [focused, setFocused] = useState<string | null>(() => leaves(root)[0] ?? null);
-  // The pane that just opened settles in; panes that only move do not animate.
-  const [entering, setEntering] = useState<string | null>(null);
+  // The pane the reader chose last, and the pane that just opened and settles
+  // in. Only the tree reads them, so a click in another pane renders the tree
+  // alone, not the workspace.
+  const [view] = useState(createPaneView);
   // A pane stays mounted once shown, so it keeps its scroll and its stream.
   const [mounted, setMounted] = useState<ReadonlySet<string>>(() => new Set(leaves(root)));
   const open = useMemo(() => leaves(root), [root]);
@@ -148,29 +173,26 @@ export function usePaneTree({
   );
 
   const show = useCallback(
-    (
-      id: string,
-      place: { near?: string; side?: Side; share?: number; quiet?: boolean } = {},
-    ) => {
+    (id: string, place: { near?: string; side?: Side; share?: number; quiet?: boolean } = {}) => {
       update(({ root, zoom }) => {
         if (has(root, id)) return { zoom: zoom && zoom !== id ? null : zoom };
         // A quiet show, such as a pane that follows the main view, takes only free room.
         if (place.quiet && leaves(root).length >= 3) return {};
         return { root: insert(root, id, place), zoom: null };
       });
-      if (!open.includes(id) && !(place.quiet && open.length >= 3)) setEntering(id);
-      if (!place.quiet) setFocused(id);
+      if (!open.includes(id) && !(place.quiet && open.length >= 3)) view.set({ entering: id });
+      if (!place.quiet) view.set({ focused: id });
     },
-    [update, open],
+    [update, open, view],
   );
   const close = useCallback(
     (id: string) => {
       update(({ root, zoom }) =>
         has(root, id) ? { root: remove(root, id), zoom: zoom === id ? null : zoom } : {},
       );
-      setFocused((value) => (value === id ? null : value));
+      if (view.get().focused === id) view.set({ focused: null });
     },
-    [update],
+    [update, view],
   );
   const isOpen = useCallback((id: string) => open.includes(id), [open]);
   const toggle = useCallback(
@@ -189,7 +211,9 @@ export function usePaneTree({
   );
   const resize = useCallback(
     (path: number[], index: number, delta: number, length: number) =>
-      update(({ root }) => ({ root: root && resizeTree(root, path, index, delta, length) })),
+      update(({ root }) => ({
+        root: root && resizeTree(root, path, index, delta, length, PANE_GAP),
+      })),
     [update],
   );
   const setSizes = useCallback(
@@ -201,23 +225,29 @@ export function usePaneTree({
     () => update(({ root }) => ({ root: root && balanceTree(root), zoom: null })),
     [update],
   );
-  const reset = useCallback(() => update(() => ({ root: initial(), zoom: null })), [update, initial]);
+  const reset = useCallback(
+    () => update(() => ({ root: initial(), zoom: null })),
+    [update, initial],
+  );
 
   return useMemo(
     () => ({
       root,
       zoom: zoom && open.includes(zoom) ? zoom : null,
       open,
-      focused: focused && open.includes(focused) ? focused : (open[0] ?? null),
+      view,
+      /** The focused pane now: the chosen one, else the first. */
+      focused: () => {
+        const chosen = view.get().focused;
+        return chosen && open.includes(chosen) ? chosen : (open[0] ?? null);
+      },
       mounted,
-      entering,
-      settle: setEntering,
       isOpen,
       show,
       close,
       toggle,
       toggleZoom,
-      focus: setFocused,
+      focus: (id: string | null) => view.set({ focused: id }),
       resize,
       setSizes,
       balance,
@@ -228,9 +258,8 @@ export function usePaneTree({
       root,
       zoom,
       open,
-      focused,
+      view,
       mounted,
-      entering,
       isOpen,
       show,
       close,
@@ -343,14 +372,33 @@ export function PaneTree({
 }) {
   const [element, setElement] = useState<HTMLDivElement | null>(null);
   const box = useBox(element);
+  const view = useSyncExternalStore(state.view.subscribe, state.view.get);
+  const chosen = view.focused && state.open.includes(view.focused) ? view.focused : null;
+  const focusedId = chosen ?? state.open[0] ?? null;
+  // In a small window, panes that do not fit leave from the left; the chosen
+  // pane and the fixed one stay. When those do not fit either, one shows.
+  const fixed = panes.find((pane) => pane.fixed)?.id ?? null;
+  const shownTree = useMemo(
+    () =>
+      fit(
+        state.root,
+        box,
+        PANE_GAP,
+        [chosen, fixed].filter((id): id is string => !!id),
+        chosen ?? fixed,
+      ),
+    [state.root, chosen, fixed, box],
+  );
   const { panes: rects, gutters } = useMemo(
-    () => layout(state.root, box, PANE_GAP),
-    [state.root, box],
+    () => layout(shownTree, box, PANE_GAP),
+    [shownTree, box],
   );
   const zoomed = state.zoom;
-  const several = state.open.length > 1;
+  const several = rects.size > 1;
   const rectsRef = useRef(rects);
-  rectsRef.current = rects;
+  useLayoutEffect(() => {
+    rectsRef.current = rects;
+  }, [rects]);
 
   // Keys that act on the focused pane, from anywhere in the workspace.
   useEffect(() => {
@@ -367,7 +415,7 @@ export function PaneTree({
       if (mod && !key.altKey && !key.shiftKey && key.key.toLowerCase() === "e") {
         if (state.open.length < 2) return;
         key.preventDefault();
-        state.toggleZoom(state.zoom ?? state.focused);
+        state.toggleZoom(state.zoom ?? state.focused());
         return;
       }
       const arrows: Record<string, Direction> = {
@@ -377,8 +425,9 @@ export function PaneTree({
         ArrowDown: "below",
       };
       const direction = arrows[key.key];
-      if (mod && key.altKey && !key.shiftKey && direction && state.focused && !state.zoom) {
-        const next = neighbor(rectsRef.current, state.focused, direction);
+      const from = state.focused();
+      if (mod && key.altKey && !key.shiftKey && direction && from && !state.zoom) {
+        const next = neighbor(rectsRef.current, from, direction);
         if (!next) return;
         key.preventDefault();
         state.focus(next);
@@ -406,7 +455,7 @@ export function PaneTree({
         const rect = zoomed ? (zoomed === pane.id ? full : rects.get(pane.id)) : rects.get(pane.id);
         const behind = !!zoomed && zoomed !== pane.id && open;
         const shown = open && !!rect && box.width > 0;
-        const focused = several && state.focused === pane.id && !zoomed;
+        const focused = several && focusedId === pane.id && !zoomed;
         return (
           <section
             key={pane.id}
@@ -414,22 +463,18 @@ export function PaneTree({
             data-pane={pane.id}
             data-focused={focused || undefined}
             onAnimationEnd={(event) =>
-              event.target === event.currentTarget && state.settle(null)
+              event.target === event.currentTarget && state.view.set({ entering: null })
             }
             hidden={!shown}
             inert={behind || undefined}
             tabIndex={-1}
-            onPointerDownCapture={() => state.focused !== pane.id && state.focus(pane.id)}
-            onFocusCapture={() => state.focused !== pane.id && state.focus(pane.id)}
-            style={
-              rect
-                ? { left: rect.x, top: rect.y, width: rect.width, height: rect.height }
-                : undefined
-            }
+            onPointerDownCapture={() => chosen !== pane.id && state.focus(pane.id)}
+            onFocusCapture={() => chosen !== pane.id && state.focus(pane.id)}
             {...stylex.props(
               styles.pane,
+              rect && styles.rect(rect.x, rect.y, rect.width, rect.height),
               !shown && styles.hidden,
-              state.entering === pane.id && styles.entering,
+              view.entering === pane.id && styles.entering,
               behind && styles.behind,
               zoomed === pane.id && styles.zoomed,
             )}
@@ -489,7 +534,8 @@ function PaneGutter({
   const { rect } = gutter;
   const size = (node: PaneNode | null) => {
     let split: PaneNode | null = node;
-    for (const index of gutter.path) split = split && isSplit(split) ? split.children[index]! : null;
+    for (const index of gutter.path)
+      split = split && isSplit(split) ? split.children[index]! : null;
     return split && isSplit(split) ? split.sizes : [];
   };
   const sizes = size(state.root);
@@ -504,9 +550,9 @@ function PaneGutter({
       aria-valuemax={100}
       tabIndex={0}
       data-pane-gutter=""
-      style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
       {...stylex.props(
         styles.gutter,
+        styles.rect(rect.x, rect.y, rect.width, rect.height),
         row ? styles.gutterRow : styles.gutterColumn,
         stylex.defaultMarker(),
       )}
@@ -526,7 +572,9 @@ function PaneGutter({
         active.frame = requestAnimationFrame(() =>
           state.setSizes(
             gutter.path,
-            size(resizeTree(active.root, gutter.path, gutter.index, delta, gutter.length)),
+            size(
+              resizeTree(active.root, gutter.path, gutter.index, delta, gutter.length, PANE_GAP),
+            ),
           ),
         );
       }}
@@ -579,7 +627,7 @@ const styles = stylex.create({
     minWidth: 0,
     minHeight: 0,
     // A drag never selects text or lets a pane take the pointer.
-    ":is(html[data-pane-resizing] *)": { userSelect: "none" },
+    userSelect: { default: null, ":is(html[data-pane-resizing] *)": "none" },
   },
   pane: {
     position: "absolute",
@@ -599,6 +647,12 @@ const styles = stylex.create({
     contain: "strict",
     pointerEvents: { default: null, ":is(html[data-pane-resizing] *)": "none" },
   },
+  rect: (left: number, top: number, width: number, height: number) => ({
+    left,
+    top,
+    width,
+    height,
+  }),
   hidden: { display: "none" },
   entering: {
     animationName: { default: enter, [reduced]: "none" },

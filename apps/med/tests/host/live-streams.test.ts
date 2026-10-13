@@ -67,6 +67,7 @@ test("a page reads all its event streams over one connection", async () => {
     `/api/agent-status/events?reviews=${review.id}`,
     `/api/reviews/${review.id}/agent/events`,
     `/api/reviews/${review.id}/agent/events`,
+    "/api/threads/events",
   ];
   const opened = await Promise.all(paths.map(open));
   await vi.waitFor(() => {
@@ -80,8 +81,14 @@ test("a page reads all its event streams over one connection", async () => {
     "state",
     "state",
     "state",
+    "state",
   ]);
   expect(JSON.parse(opened[5]!.events[0]!.data)).toEqual({ messages: [], waiting: [], drafts: [] });
+  // The thread list names the saved review and the repository.
+  expect(JSON.parse(opened[7]!.events[0]!.data)).toMatchObject({
+    threads: [{ id: review.id, title: "Live", checkout: directory }],
+    repositories: [{ path: directory }],
+  });
   expect(requests.filter((request) => request.startsWith("GET"))).toEqual(["GET /api/live"]);
 
   // Later events reach their channels; a closed channel stops on the host.
@@ -103,4 +110,44 @@ test("a page reads all its event streams over one connection", async () => {
   await host.close();
   hosts.splice(0);
   await Promise.all(opened.slice(1).map((stream) => stream.done));
+});
+
+test("the live stream takes a WebSocket from the page, with its cookie, and refuses others", async () => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), "med socket ")));
+  directories.push(directory);
+  execFileSync("git", ["init", "-q", "-b", "main"], { cwd: directory });
+  const host = await startHost({ repo: directory, repos: [directory], port: 0 });
+  hosts.push(host);
+  const url = `ws://127.0.0.1:${host.port}/api/live`;
+  const origin = `http://127.0.0.1:${host.port}`;
+  const cookie = `med_session_${host.port}=${host.token}`;
+  // Node's WebSocket takes headers that a page's browser sends for it.
+  const connect = (headers: Record<string, string>) =>
+    new Promise<{ messages: string[]; socket: WebSocket } | "refused">((resolve) => {
+      const socket = new WebSocket(url, { headers } as unknown as string[]);
+      const messages: string[] = [];
+      socket.onmessage = (event) => {
+        messages.push(String(event.data));
+        resolve({ messages, socket });
+      };
+      socket.onerror = () => resolve("refused");
+    });
+
+  const page = await connect({ origin, cookie });
+  if (page === "refused") throw new Error("The host refused the page's WebSocket.");
+  const { id } = JSON.parse(/^data: (.*)$/m.exec(page.messages[0]!)![1]!) as { id: string };
+  // A channel opened over HTTP sends its events down the socket.
+  const response = await fetch(`${origin}/api/live/${id}`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${host.token}`, "content-type": "application/json" },
+    body: JSON.stringify({ open: [{ key: "c1", path: "/api/threads/events" }], close: [] }),
+  });
+  expect(await response.json()).toEqual({ channels: [{ key: "c1", status: 200 }] });
+  await vi.waitFor(() =>
+    expect(page.messages.some((message) => message.startsWith("event: c1:state\n"))).toBe(true),
+  );
+  page.socket.close();
+
+  expect(await connect({ origin })).toBe("refused");
+  expect(await connect({ origin: "http://example.com", cookie })).toBe("refused");
 });

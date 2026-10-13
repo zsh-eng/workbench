@@ -211,6 +211,8 @@ export const savedReviewSchema = z.object({
   commentCount: z.number().int().nonnegative(),
   targets: z.array(savedReviewTargetSchema),
   sessions: z.array(agentSessionSchema).optional(),
+  /** Set when the thread is archived: the thread list leaves it out. */
+  archivedAt: z.string().optional(),
   /** Present once a key is used; the last one is current. */
   iterations: z.array(savedIterationSchema).optional(),
   totals: z

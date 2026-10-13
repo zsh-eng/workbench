@@ -208,7 +208,8 @@ export function SavedReviewHeader({
           onClick={onReturn}
         >
           <span>
-            Return<span {...stylex.props(styles.desktop, compact && styles.iconOnly)}> to review</span>
+            Return
+            <span {...stylex.props(styles.desktop, compact && styles.iconOnly)}> to review</span>
           </span>
         </button>
       )}
@@ -220,7 +221,9 @@ export function SavedReviewHeader({
           onClick={sendTo.open}
         >
           <Icon name={sendTo.icon} size={14} />
-          <span {...stylex.props(styles.desktop, compact && styles.iconOnly)}>Send to {sendTo.name}</span>
+          <span {...stylex.props(styles.desktop, compact && styles.iconOnly)}>
+            Send to {sendTo.name}
+          </span>
           {sendTo.drafts > 0 && <span>{sendTo.drafts}</span>}
         </button>
       )}

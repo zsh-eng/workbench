@@ -164,6 +164,7 @@ const savedSchema = z.object({
   revision: natural,
   commentCount: natural,
   targets: z.array(targetSchema).min(1).max(128),
+  archivedAt: text.optional(),
 });
 const recordSchema = z.object({
   version: z.literal(1),
@@ -1047,6 +1048,17 @@ export class SavedReviewStore {
       record.saved.commentCount = countComments(record);
       await this.write(record, beforeCommit);
       return target.notes;
+    }, beforeCommit);
+  }
+
+  /** Archive the review, which leaves the thread list, or bring it back. */
+  archive(id: string, archived: boolean, beforeCommit?: () => void): Promise<SavedReview> {
+    return this.writing(async () => {
+      const record = await this.read(id, true);
+      if (archived) record.saved.archivedAt = new Date().toISOString();
+      else delete record.saved.archivedAt;
+      await this.write(record, beforeCommit);
+      return this.describe(record);
     }, beforeCommit);
   }
 

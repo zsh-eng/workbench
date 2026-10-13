@@ -48,11 +48,16 @@ function openStream(token: string): Promise<ReadableStream<Uint8Array> | undefin
     });
     return response.ok && response.body ? response.body : undefined;
   };
-  if (typeof WebSocket !== "function") return eventStream();
-  return new Promise((resolve) => {
-    const socket = new WebSocket(
+  if (typeof WebSocket !== "function" || typeof location === "undefined") return eventStream();
+  let socket: WebSocket;
+  try {
+    socket = new WebSocket(
       `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/api/live`,
     );
+  } catch {
+    return eventStream();
+  }
+  return new Promise((resolve) => {
     let opened = false;
     const body = new ReadableStream<Uint8Array>({
       start(controller) {

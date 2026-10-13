@@ -281,11 +281,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   /** Every thread, newest first, with the repositories that threads start in. */
   const listThreads = async (): Promise<ThreadList> => {
     const repositories = registry.snapshot();
-    const reviews = await savedReviews.list();
+    const reviews = (await savedReviews.list()).filter((review) => !review.archivedAt);
     const threads = await Promise.all(
       reviews.map(async (review): Promise<Thread> => {
-        const target =
-          review.targets.find((entry) => !entry.commentReviewId) ?? review.targets[0];
+        const target = review.targets.find((entry) => !entry.commentReviewId) ?? review.targets[0];
         const family = repositories.find((entry) => entry.id === target?.repositoryId);
         const status = review.sessions?.length
           ? await reviewStatus(review.id, review.sessions).catch(() => undefined)
@@ -299,8 +298,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             repository: { id: family.id, name: family.name, path: family.path },
           }),
           ...(target && { checkout: target.repo }),
+          ...(family?.worktrees.some((tree) => tree.path === target?.repo && tree.linked) && {
+            linked: true,
+          }),
           ...(target?.branch && { branch: target.branch }),
           ...(status && { agent: status.agent, state: status.state }),
+          ...(review.sessions?.length && { sessions: review.sessions }),
           ...(review.totals && {
             changes: {
               files: review.totals.files,
@@ -392,6 +395,23 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     reviews.removeRepositories(paths);
     notes.removeRepositories(paths);
   });
+  /** Removes a linked worktree with `git worktree remove`. Git keeps one with
+   * changes; an agent that works there keeps it too. */
+  const removeLinkedWorktree = async (input: string, signal: AbortSignal) => {
+    // Not requireRepo: the request ends after the path leaves the registry.
+    const { path } = await registry.require(input, signal);
+    const agents = ownedSessions.within(path);
+    if (agents.some((runner) => runner.state().status !== "idle"))
+      throw new HostError(
+        "worktree-busy",
+        "An agent is working in this worktree. Stop it, then try again.",
+        409,
+      );
+    await removeWorktree(path, signal);
+    for (const runner of agents) runner.stop();
+    await forgetCheckouts(new Set([path]));
+    await registry.refreshOwner(path, signal);
+  };
   // GitHub pull requests that open as workspaces. A job saves its review and
   // starts its agent through this host's own API.
   const pullJobs = new PullJobs({
@@ -1335,9 +1355,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               await mkdir(folder, { recursive: true });
               const base = await realpath(folder);
               const branches = new Set(
-                (await git(["branch", "--format=%(refname:short)"])).stdout
-                  .toString()
-                  .split("\n"),
+                (await git(["branch", "--format=%(refname:short)"])).stdout.toString().split("\n"),
               );
               let name = slug;
               for (let n = 2; branches.has(name) || existsSync(join(base, name)); n++)
@@ -1996,20 +2014,43 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             const input = z
               .object({ path: z.string().min(1).max(8192) })
               .parse(await readBody(request));
-            // Not requireRepo: the request ends after the path leaves the registry.
-            const { path } = await registry.require(input.path, abort.signal);
-            const agents = ownedSessions.within(path);
-            if (agents.some((runner) => runner.state().status !== "idle"))
-              throw new HostError(
-                "worktree-busy",
-                "An agent is working in this worktree. Stop it, then try again.",
-                409,
-              );
-            await removeWorktree(path, abort.signal);
-            for (const runner of agents) runner.stop();
-            await forgetCheckouts(new Set([path]));
-            await registry.refreshOwner(path, abort.signal);
+            await removeLinkedWorktree(input.path, abort.signal);
             send({ removed: true });
+            return;
+          }
+          // Archiving a thread can remove the worktree that Med made for it.
+          const archive = /^\/api\/threads\/(r_[a-f0-9]{24})\/archive$/.exec(url.pathname);
+          if (archive && request.method === "POST") {
+            const input = z
+              .object({ archived: z.boolean(), removeWorktree: z.boolean().default(false) })
+              .parse(await readBody(request));
+            const id = archive[1]!;
+            if (input.archived && input.removeWorktree) {
+              const review = await savedReviews.get(id);
+              const path = (
+                review.targets.find((entry) => !entry.commentReviewId) ?? review.targets[0]
+              )?.repo;
+              const linked =
+                !!path &&
+                registry.owner(path)?.worktrees.some((tree) => tree.path === path && tree.linked);
+              if (linked) {
+                // Another thread that works there keeps the worktree.
+                const others = (await savedReviews.list()).filter(
+                  (entry) =>
+                    entry.id !== id &&
+                    !entry.archivedAt &&
+                    entry.targets.some((target) => target.repo === path),
+                );
+                if (others.length)
+                  throw new HostError(
+                    "worktree-shared",
+                    `"${others[0]!.title}" works in this worktree too.`,
+                    409,
+                  );
+                await removeLinkedWorktree(path, abort.signal);
+              }
+            }
+            send({ review: await savedReviews.archive(id, input.archived, assertRequestAccess) });
             return;
           }
           if (url.pathname === "/api/reveal" && request.method === "POST") {
@@ -2191,7 +2232,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       (!request.headers.origin || request.headers.origin === `http://${host}`) &&
       url.pathname === "/api/live" &&
       lives.size < 32 &&
-      timingSafeEqual(tokenDigest, createHash("sha256").update(cookie ?? "").digest());
+      timingSafeEqual(
+        tokenDigest,
+        createHash("sha256")
+          .update(cookie ?? "")
+          .digest(),
+      );
     const peer = allowed ? acceptWebSocket(request, socket) : undefined;
     if (!peer) {
       socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");

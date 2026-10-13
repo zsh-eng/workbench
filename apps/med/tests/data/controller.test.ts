@@ -114,9 +114,7 @@ describe("review request ownership", () => {
       expect(controller.getSnapshot().comparison).toEqual(comparison);
       expect(controller.getSnapshot().review?.comparison).toEqual(comparison);
       expect(controller.getSnapshot().session?.repository.git).toBe(false);
-      expect(controller.getSnapshot().historyHasMore).toBe(false);
       expect(controller.getSnapshot().status).toBe("ready");
-      await controller.loadMoreHistory();
       await controller.refresh();
       expect(calls.filter((call) => call.url.startsWith("/api/history"))).toHaveLength(0);
       expect(calls.filter((call) => call.url === "/api/review")).toHaveLength(2);
@@ -189,7 +187,6 @@ describe("review request ownership", () => {
     });
     await controller.initialize();
     expect(controller.getSnapshot().review?.id).toBe(A);
-    expect(calls.filter((call) => call.url.startsWith("/api/history"))).toHaveLength(1);
     expect(calls.filter((call) => call.url === "/api/review")).toHaveLength(1);
     controller.dispose();
   });
@@ -340,7 +337,7 @@ describe("review request ownership", () => {
 });
 
 describe("live event reconciliation", () => {
-  test("refreshes history on changes but refetches only mutable comparisons", async () => {
+  test("refreshes branches on changes but refetches only mutable comparisons", async () => {
     let writer!: ReadableStreamDefaultController<Uint8Array>;
     const { controller, calls } = fixture({
       events: () =>
@@ -360,7 +357,7 @@ describe("live event reconciliation", () => {
     await controller.selectComparison({ kind: "commit", commit: A });
     send(1);
     await vi.waitFor(() =>
-      expect(calls.filter((call) => call.url.startsWith("/api/history"))).toHaveLength(2),
+      expect(calls.filter((call) => call.url.startsWith("/api/branches"))).toHaveLength(2),
     );
     expect(calls.filter((call) => call.url === "/api/review")).toHaveLength(2);
     await controller.selectComparison({ kind: "working" });
@@ -393,7 +390,7 @@ describe("live event reconciliation", () => {
     writer.close();
     await vi.waitFor(() => expect(connections).toBe(2), { timeout: 2000 });
     await vi.waitFor(() =>
-      expect(calls.filter((call) => call.url.startsWith("/api/history"))).toHaveLength(2),
+      expect(calls.filter((call) => call.url.startsWith("/api/branches"))).toHaveLength(2),
     );
     controller.dispose();
   });

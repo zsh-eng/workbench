@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { page, userEvent } from "vitest/browser";
-import { useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { App } from "../../src/web/App";
@@ -11,9 +10,7 @@ import type {
   PullRequestComments,
   ReviewResponse,
 } from "../../src/shared/protocol";
-import { HistoryPanel } from "../../src/web/components/HistoryPanel";
 import { initializeTheme, themeController } from "../../src/web/themes";
-import { layoutHistory } from "../../src/web/components/history-layout";
 import { createBrowseApi } from "../../src/web/data/browse";
 import type { BrowseSource } from "../../src/shared/browse";
 import type { AgentInboxState } from "../../src/shared/agent-inbox";
@@ -70,7 +67,9 @@ const storedPreferences = [
   "med:work",
   "med:viewed:v1:saved",
 ];
-beforeEach(() => {
+beforeEach(async () => {
+  // A desktop window: the review and its side panes fit beside each other.
+  await page.viewport(1280, 800);
   for (const key of storedPreferences) localStorage.removeItem(key);
 });
 afterEach(() => {
@@ -635,22 +634,14 @@ async function mountApp(
 }
 
 async function openBranch(name: string) {
-  await page.getByRole("button", { name: "Open branch", exact: true }).click();
+  window.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "G", metaKey: true, shiftKey: true, bubbles: true }),
+  );
   await page.getByRole("combobox", { name: "Search branches" }).fill(name);
   await page.getByRole("option", { name: new RegExp(`^${name} `) }).click();
 }
 
 describe("graphical review", () => {
-  test("commit dates use the host's millisecond timestamp without converting it again", async () => {
-    await mountApp();
-    const row = document.getElementById(`commit-${firstCommit}`)!;
-    const date = row.querySelector("time")!;
-    expect(date.dateTime).toBe("2026-09-20T13:08:05.000Z");
-    expect(date.textContent).toMatch(
-      /^(?:just now|\d+ (?:min|hr|days?|mo|yr) ago|in \d+ (?:min|hr|days?|mo|yr))$/,
-    );
-    expect(date.title).toBe("");
-  });
   test("zen mode moves a saved review's header actions to the command palette", async () => {
     await mountApp({ savedReview: true, branches: true });
     await page.getByRole("link", { name: "src/alpha.ts", exact: true }).click();
@@ -884,7 +875,8 @@ describe("graphical review", () => {
   test("zen mode hides every bar and leaves the sidebars as they are", async () => {
     await page.viewport(1400, 850);
     await mountApp({ branches: true });
-    const sidebar = () => document.getElementById("review-sidebar")?.checkVisibility() ?? false;
+    const sidebar = () =>
+      document.querySelector('[data-pane="changed"]')?.checkVisibility() ?? false;
     const files = () =>
       document.querySelector('[aria-label="Workspace files"]')?.checkVisibility() ?? false;
     const bars = () =>
@@ -921,133 +913,6 @@ describe("graphical review", () => {
     await exit.click();
     await expect.poll(bars).toBe(true);
     expect(document.activeElement?.getAttribute("aria-label")).toBe("Enter zen mode");
-  });
-
-  test("with the title bar hidden, the review card's first row is a tab between the window controls", async () => {
-    await page.viewport(1280, 800);
-    // The free area that Chrome gives an installed app between its window controls.
-    const root = document.documentElement;
-    const area = {
-      "--med-titlebar-height": "38px",
-      "--med-titlebar-left": "78px",
-      "--med-titlebar-right": "120px",
-    };
-    for (const [name, value] of Object.entries(area)) root.style.setProperty(name, value);
-    root.dataset.titlebar = "overlay";
-    try {
-      await mountApp({ branches: true });
-      const toggle = page.getByRole("button", { name: "Toggle sidebar" });
-      const tabs = page.getByRole("tablist", { name: "Open files" });
-      await expect.element(tabs).toBeVisible();
-      const row = tabs.element().parentElement!;
-      const card = document.querySelector("main")!;
-      const rect = (element: Element) => element.getBoundingClientRect();
-      const centre = (element: Element) => rect(element).top + rect(element).height / 2;
-      // Whether a point of the window is on the card, as its outline draws it.
-      const onCard = (x: number, y: number) =>
-        card
-          .querySelector<SVGPathElement>(".med-card-tab path")!
-          .isPointInFill(new DOMPoint(x - rect(card).left, y - rect(card).top));
-      const changes = page.getByRole("tab", { name: "Changes" }).element();
-      const commands = page.getByRole("button", { name: "Open command palette" }).element();
-
-      // The row rises to the top of the window as the card's tab, and it ends
-      // before the controls on the right, where the card steps down. Chrome
-      // paints over the area of its controls, so nothing of the card is there.
-      expect(rect(row)).toMatchObject({ top: 6, bottom: 39 });
-      expect(rect(commands).right).toBeLessThanOrEqual(1280 - 120 - 6);
-      expect([onCard(640, 20), onCard(1220, 20), onCard(1220, 60)]).toEqual([true, false, true]);
-      const outline = card.querySelector<SVGPathElement>(".med-card-outline path")!;
-      const drawn = ([x, y]: number[]) => {
-        const point = new DOMPoint(x - rect(card).left, y - rect(card).top);
-        return onCard(x, y) || outline.isPointInStroke(point);
-      };
-      const controls = [
-        ...Array.from({ length: 38 }, (_, y) => [1160.5, y + 0.5]),
-        ...Array.from({ length: 120 }, (_, x) => [1160 + x + 0.5, 37.5]),
-      ];
-      expect(controls.filter(drawn)).toEqual([]);
-      // The identity heads the sidebar, level with the tab, after the controls on the left.
-      expect(rect(toggle.element()).left).toBeGreaterThanOrEqual(78);
-      expect(Math.abs(centre(toggle.element()) - centre(changes))).toBeLessThanOrEqual(1);
-      // The tab and the identity's row move the window; their controls take clicks.
-      const region = (element: Element) =>
-        getComputedStyle(element).getPropertyValue("-webkit-app-region");
-      const head = toggle.element().closest(".med-title-row")!;
-      expect([row, head, changes, toggle.element()].map(region)).toEqual([
-        "drag",
-        "drag",
-        "no-drag",
-        "no-drag",
-      ]);
-
-      // Without the sidebar, the identity leads the tab, and the card steps
-      // down under the controls on the left too. The outline changes in the
-      // frame that the card does, so it never shows the card's old size.
-      const fits: boolean[] = [];
-      const watch = new ResizeObserver(() => {
-        const box = card.querySelector<SVGPathElement>(".med-card-tab path")!.getBBox();
-        fits.push(Math.round(box.x * 2 + box.width) === Math.round(rect(card).width));
-      });
-      watch.observe(card);
-      await toggle.click();
-      await expect
-        .poll(() => document.getElementById("review-sidebar")?.checkVisibility())
-        .toBe(false);
-      watch.disconnect();
-      expect(fits.length).toBeGreaterThan(1);
-      expect(fits.every(Boolean)).toBe(true);
-      expect(row.contains(toggle.element())).toBe(true);
-      expect(rect(toggle.element()).left).toBeGreaterThanOrEqual(78 + 6);
-      expect([onCard(40, 20), onCard(40, 60)]).toEqual([false, true]);
-      await toggle.click();
-
-      // The side panes start below the tab; the controls are over them, so
-      // the tab spans the card.
-      await page.getByRole("button", { name: "Toggle files sidebar" }).click();
-      const column = document.querySelector("[data-pane-layout]")!;
-      await expect.poll(() => column.checkVisibility()).toBe(true);
-      expect(rect(column).top).toBe(39);
-      await expect.poll(() => onCard(rect(card).right - 12, 20)).toBe(true);
-      await page.getByRole("button", { name: "Toggle files sidebar" }).click();
-      await expect.poll(() => column.checkVisibility()).toBe(false);
-
-      // The outline draws over the card's content, so no row covers its corners.
-      const above = (element: Element) => Number(getComputedStyle(element).zIndex) || 0;
-      expect(above(outline.ownerSVGElement!)).toBeGreaterThan(above(row));
-
-      // Zen's tab is empty, so the content rises into it: the card clips it
-      // to the tab, and the first row keeps clear of the controls on the right.
-      // The sidebar and the way out start below the controls.
-      await page.getByRole("button", { name: "Enter zen mode", exact: true }).click();
-      const exit = page.getByRole("button", { name: "Exit zen mode", exact: true });
-      await expect.element(exit).toBeInTheDocument();
-      const empty = card.querySelector(".med-card-tab + *")!;
-      expect([empty.childElementCount, rect(empty).top, rect(empty).bottom]).toEqual([0, 6, 39]);
-      expect([onCard(640, 20), onCard(1220, 20)]).toEqual([true, false]);
-      const panel = document.getElementById("file-view-panel")!;
-      expect(rect(panel).top).toBe(6);
-      expect(getComputedStyle(card).clipPath).toMatch(/^path\(/);
-      expect(parseFloat(getComputedStyle(card).getPropertyValue("--med-lift-end"))).toBeGreaterThan(
-        120,
-      );
-      const sidebar = document.getElementById("review-sidebar")!;
-      expect(rect(sidebar.firstElementChild!).bottom).toBe(39);
-      expect(rect(exit.element()).top).toBeGreaterThan(39);
-      await exit.click();
-      await expect.element(tabs).toBeVisible();
-      expect(getComputedStyle(card).clipPath).toBe("none");
-
-      // With the title bar back, the card is a plain card again.
-      delete root.dataset.titlebar;
-      await expect.poll(() => card.querySelector(".med-card-tab")).toBeNull();
-      expect(rect(tabs.element().parentElement!).height).toBe(38);
-      expect(toggle.element().closest(".med-title-row")).toBeNull();
-      expect(toggle.element().closest("#review-sidebar")).not.toBeNull();
-    } finally {
-      delete root.dataset.titlebar;
-      for (const name of Object.keys(area)) root.style.removeProperty(name);
-    }
   });
 
   test("a single branch needs no tab strip; Command Shift G opens another beside it", async () => {
@@ -1178,8 +1043,8 @@ describe("graphical review", () => {
   });
   test("opens working contents from a historical diff and keeps the diff mounted", async () => {
     await page.viewport(1400, 850);
-    const { fileRequests } = await mountApp({ branches: true });
-    await page.getByRole("option", { name: /Add the initial renderer/ }).click();
+    const { controller, fileRequests } = await mountApp({ branches: true });
+    await controller.selectComparison({ kind: "commit", commit: secondCommit });
     const diffHost = document.querySelector("diffs-container");
     await page.getByRole("treeitem", { name: /alpha.ts/ }).dblClick();
     await expect
@@ -1266,7 +1131,7 @@ describe("graphical review", () => {
             document.querySelector('[aria-label="Workspace files"]')?.checkVisibility() ?? false,
         )
         .toBe(visible);
-      expect(document.getElementById("review-sidebar")).not.toBeNull();
+      expect(document.querySelector('[data-pane="changed"]')?.checkVisibility()).toBe(true);
     }
     window.dispatchEvent(
       new KeyboardEvent("keydown", {
@@ -1280,52 +1145,52 @@ describe("graphical review", () => {
       .element(page.getByRole("combobox", { name: "Find file", exact: true }))
       .toBeVisible();
   });
-  test("side panes share one column: Files and the Markdown preview stack", async () => {
+  test("side panes tile beside the review: zoom, resize, balance, and close", async () => {
     await page.viewport(1280, 800);
     await mountApp();
     await page.getByRole("button", { name: "Toggle files sidebar" }).click();
-    const files = page.getByRole("complementary", { name: "Workspace files", exact: true });
+    const files = page.getByRole("region", { name: "Workspace files", exact: true });
     await files.getByRole("treeitem", { name: "GUIDE.md", exact: true }).click();
     await page.getByRole("button", { name: "Toggle Markdown preview" }).click();
 
-    // The preview opens below Files, and the source keeps the view's width.
-    const preview = page.getByRole("complementary", { name: "Markdown preview" });
+    // The preview opens beside the review, and the source keeps the view's width.
+    const preview = page.getByRole("region", { name: "Markdown preview" });
     await expect.element(preview.getByRole("heading", { name: "Guide" })).toBeVisible();
     expect(document.querySelector(".med-markdown-shell")?.getAttribute("data-preview")).toBe(
       "false",
     );
-    const heights = () =>
-      [...document.querySelectorAll<HTMLElement>("[data-pane]:not([hidden])")].map(
-        (pane) => [pane.dataset.pane, Math.round(pane.getBoundingClientRect().height)] as const,
-      );
-    expect(heights().map(([id]) => id)).toEqual(["files", "preview"]);
-
-    // Maximize leaves the other pane as its header.
-    await files.getByRole("button", { name: "Maximize files" }).click();
-    // The header and the line above it.
-    await expect.poll(() => heights()[1]?.[1]).toBe(41);
-    await files.getByRole("button", { name: "Restore files" }).click();
-    await expect.poll(() => (heights()[1]?.[1] ?? 0) > 100).toBe(true);
-
-    // ⌘⌃⇧← and ⌘⌃⇧→ move the column's edge; ⌘⌃= makes it as wide as the
-    // review, and again gives back the width from before.
-    const divider = page.getByRole("separator", { name: "Resize side panes" });
-    const width = () => Number(divider.element().getAttribute("aria-valuenow"));
-    const start = width();
-    await userEvent.keyboard("{Meta>}{Control>}{Shift>}{ArrowLeft}{/Shift}{/Control}{/Meta}");
-    await expect.poll(width).toBe(start + 40);
-    await userEvent.keyboard("{Meta>}{Control>}{Shift>}{ArrowRight}{/Shift}{/Control}{/Meta}");
-    await expect.poll(width).toBe(start);
-    await userEvent.keyboard("{Meta>}{Control>}={/Control}{/Meta}");
-    const column = document.querySelector<HTMLElement>("[data-pane-layout]")!;
-    const main = document.querySelector("main")!;
+    const panes = () =>
+      [...document.querySelectorAll<HTMLElement>("[data-pane]:not([hidden])")]
+        .map((pane) => [pane.dataset.pane!, pane.getBoundingClientRect()] as const)
+        .sort((a, b) => a[1].left - b[1].left);
     await expect
-      .poll(() =>
-        Math.abs(column.getBoundingClientRect().width - main.getBoundingClientRect().width),
-      )
-      .toBeLessThan(2);
+      .poll(() => panes().map(([id]) => id))
+      .toEqual(["changed", "review", "preview", "files"]);
+
+    // Zoom gives one pane the whole tree; the others wait behind it, inert.
+    const tree = document.querySelector("[data-pane-tree]")!.getBoundingClientRect();
+    await files.getByRole("button", { name: "Zoom files" }).click();
+    const filesPane = document.querySelector<HTMLElement>('[data-pane="files"]')!;
+    await expect.poll(() => filesPane.getBoundingClientRect().width).toBe(tree.width);
+    expect(document.querySelector<HTMLElement>('[data-pane="review"]')!.inert).toBe(true);
+    await files.getByRole("button", { name: "Restore files" }).click();
+    await expect.poll(() => filesPane.getBoundingClientRect().width).toBeLessThan(tree.width / 2);
+
+    // A gutter's arrow keys move the edge between two panes; ⌘⌃= gives each
+    // pane the same width.
+    const gutter = page.getByRole("separator", { name: "Resize Preview and Files" });
+    const share = () => Number(gutter.element().getAttribute("aria-valuenow"));
+    const start = share();
+    (gutter.element() as HTMLElement).focus();
+    await userEvent.keyboard("{ArrowLeft}");
+    await expect.poll(share).toBeLessThan(start);
     await userEvent.keyboard("{Meta>}{Control>}={/Control}{/Meta}");
-    await expect.poll(width).toBe(start);
+    await expect
+      .poll(() => {
+        const widths = panes().map(([, rect]) => rect.width);
+        return Math.max(...widths) - Math.min(...widths);
+      })
+      .toBeLessThanOrEqual(2);
 
     // Closing the preview is remembered, as the toggle in the file view was.
     await preview.getByRole("button", { name: "Close preview" }).click();
@@ -1349,7 +1214,7 @@ describe("graphical review", () => {
     );
     expect(preparedHost?.checkVisibility()).toBe(false);
     await toggle();
-    const sidebar = page.getByRole("complementary", { name: "Workspace files", exact: true });
+    const sidebar = page.getByRole("region", { name: "Workspace files", exact: true });
     const folder = sidebar.getByRole("treeitem", { name: "src", exact: true });
     await expect.element(folder).toHaveAttribute("aria-expanded", "true");
     await folder.click();
@@ -1379,32 +1244,34 @@ describe("graphical review", () => {
     await expect
       .poll(() => controller.getSnapshot().session?.repository.path)
       .toBe("/test/feature");
+    // A new branch name rolls in; moving the switch with the sidebar does not replay it.
+    const name = () =>
+      page.getByRole("button", { name: "Open branch" }).getByText("release", { exact: true });
     await openBranch("release");
+    await expect.poll(() => name().element().getAnimations().length).toBeGreaterThan(0);
     await expect.poll(() => controller.getSnapshot().historyRef).toBe("refs/heads/release");
     expect(controller.getSnapshot().comparison).toEqual({ kind: "commit", commit: secondCommit });
     await expect
       .element(page.getByRole("button", { name: "Working changes", exact: true }))
       .not.toBeInTheDocument();
-    const sidebar = () => document.getElementById("review-sidebar")?.checkVisibility() ?? false;
-    const panel = document.querySelector("#review-sidebar section");
+    const sidebar = () =>
+      document.querySelector('[data-pane="changed"]')?.checkVisibility() ?? false;
+    const panel = document.querySelector('[data-pane="changed"] > *');
     expect(panel).not.toBeNull();
-    // A new branch name rolls in; moving the switch with the sidebar does not replay it.
-    const name = () =>
-      page.getByRole("button", { name: "Open branch" }).getByText("release", { exact: true });
-    expect(name().element().getAnimations().length).toBeGreaterThan(0);
+    await expect.poll(() => name().element().getAnimations()).toEqual([]);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "b", metaKey: true, bubbles: true }));
     await expect.poll(sidebar).toBe(false);
     expect(name().element().getAnimations()).toEqual([]);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "b", metaKey: true, bubbles: true }));
     await expect.poll(sidebar).toBe(true);
     expect(name().element().getAnimations()).toEqual([]);
-    // The sidebar comes back as it was, without building its panels again.
-    expect(document.querySelector("#review-sidebar section")).toBe(panel);
+    // The pane comes back as it was, without building its content again.
+    expect(document.querySelector('[data-pane="changed"] > *')).toBe(panel);
   });
 
   test("mounts real Pierre stream, changes theme and reviews commits without dropping other files", async () => {
     await page.viewport(1280, 800);
-    const { requests } = await mountApp();
+    const { controller, requests } = await mountApp();
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
     await page.getByRole("combobox", { name: "Search commands" }).fill("Change theme");
     await page.getByRole("option", { name: /Change theme/ }).click();
@@ -1413,7 +1280,7 @@ describe("graphical review", () => {
     await expect
       .poll(() => document.querySelector("[data-file-count]")?.getAttribute("data-file-count"))
       .toBe("2");
-    await page.getByRole("option", { name: /Improve the review stream/ }).click();
+    await controller.selectComparison({ kind: "commit", commit: firstCommit });
     await expect
       .poll(() =>
         document.querySelector("[data-selected-commit]")?.getAttribute("data-selected-commit"),
@@ -1423,7 +1290,7 @@ describe("graphical review", () => {
       .poll(() => document.querySelectorAll("diffs-container").length)
       .toBeGreaterThanOrEqual(2);
     await expect.poll(() => document.body.textContent).toContain("ms frame");
-    await page.getByRole("option", { name: /Add the initial renderer/ }).click();
+    await controller.selectComparison({ kind: "commit", commit: secondCommit });
     await expect
       .poll(() =>
         document.querySelector("[data-selected-commit]")?.getAttribute("data-selected-commit"),
@@ -1650,32 +1517,6 @@ describe("graphical review", () => {
     await userEvent.keyboard("i_{Escape}");
     await expect.poll(cursorLine).toBe("export const _workingContents = true;");
     await expect.poll(() => document.activeElement).toBe(editor.element());
-  });
-
-  test("shift-click selects an inclusive commit range and a plain click resets it", async () => {
-    const { controller } = await mountApp();
-    const history = page.getByRole("listbox", { name: "Commits" });
-    await history.getByRole("option").nth(0).click();
-    await history
-      .getByRole("option")
-      .nth(1)
-      .click({ modifiers: ["Shift"] });
-    await expect
-      .poll(() => controller.getSnapshot().comparison)
-      .toEqual({ kind: "range", base: secondCommit, head: firstCommit, includeBase: true });
-    await expect
-      .element(history.getByRole("option").nth(0))
-      .toHaveAttribute("aria-selected", "true");
-    await expect
-      .element(history.getByRole("option").nth(1))
-      .toHaveAttribute("aria-selected", "true");
-    await history.getByRole("option").nth(1).click();
-    await expect
-      .poll(() => controller.getSnapshot().comparison)
-      .toEqual({ kind: "commit", commit: secondCommit });
-    await expect
-      .element(history.getByRole("option").nth(0))
-      .toHaveAttribute("aria-selected", "false");
   });
 
   test("dismisses selected lines with the draft and moves an open composer to a new range", async () => {
@@ -1961,60 +1802,6 @@ describe("graphical review", () => {
       .element(page.getByRole("textbox", { name: "Review note text" }))
       .toHaveValue("Keep my draft");
     expect(controller.getSnapshot().notes?.notes).toHaveLength(0);
-  });
-
-  test("advances each keyboard event when a navigation burst is batched", async () => {
-    const manyCommits = Array.from({ length: 30 }, (_, index) => ({
-      ...commits[0],
-      id: index.toString(16).padStart(40, "0"),
-      subject: `Commit ${index}`,
-      parents: index < 29 ? [(index + 1).toString(16).padStart(40, "0")] : [],
-    }));
-    const selected: string[] = [];
-    mount = document.createElement("div");
-    document.body.append(mount);
-    root = createRoot(mount);
-    function HistoryHarness() {
-      const [current, setCurrent] = useState(manyCommits[0].id);
-      return (
-        <HistoryPanel
-          commits={manyCommits}
-          selected={current}
-          loading={false}
-          hasMore={false}
-          error={null}
-          working={false}
-          onSelect={(id) => {
-            selected.push(id);
-            setCurrent(id);
-          }}
-          onLoadMore={() => {}}
-          onWorking={() => {}}
-        />
-      );
-    }
-    root.render(<HistoryHarness />);
-    await expect.element(page.getByRole("listbox", { name: "Commits" })).toBeVisible();
-    const listbox = document.querySelector('[role="listbox"]')!;
-    for (let index = 0; index < 21; index++)
-      listbox.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
-    expect(selected).toEqual(manyCommits.slice(1, 22).map((commit) => commit.id));
-  });
-
-  test("routes merge parents and preserves pending lanes across appended history pages", () => {
-    const history = [
-      { ...commits[0], id: "merge", parents: ["left", "right"] },
-      { ...commits[0], id: "left", parents: ["base"] },
-      { ...commits[0], id: "right", parents: ["base"] },
-      { ...commits[0], id: "base", parents: [] },
-    ];
-    const prefix = layoutHistory(history.slice(0, 2));
-    const full = layoutHistory(history);
-    expect(full.slice(0, 2)).toEqual(prefix);
-    expect(full[0].edges).toHaveLength(2);
-    expect(full[2].incoming).toBe(true);
-    expect(full[3].edges).toHaveLength(0);
-    expect(full.every((row) => row.edges.every((edge) => edge.to >= 0))).toBe(true);
   });
 
   test("opens a standalone patch without exposing Git controls", async () => {
@@ -2471,7 +2258,7 @@ describe("review brief", () => {
     await expect.element(page.getByRole("heading", { name: "Round 12" })).toBeVisible();
     await expect.element(page.getByRole("button", { name: "Earlier iterations" })).toBeVisible();
     // A narrow pane keeps fewer keys; the label stays on one line.
-    await page.viewport(700, 800);
+    await page.viewport(600, 800);
     await expect.poll(() => keys.getByRole("button").elements().length).toBeLessThan(7);
     expect(header.scrollWidth).toBeLessThanOrEqual(header.clientWidth);
     const label = header.firstElementChild!.getBoundingClientRect();
@@ -2643,11 +2430,17 @@ describe("review brief", () => {
 
   test("⌘⇧B shows and hides the agent session; the files sidebar has a folder button", async () => {
     await mountApp({ savedReview: true });
+    // The toggle shows while the pane is closed; the pane closes from its header.
     const session = page.getByRole("button", { name: "Toggle agent session" });
+    const pane = page.getByRole("region", { name: "Agent session" });
     await expect.element(session).toHaveAttribute("aria-pressed", "false");
     await userEvent.keyboard("{Control>}{Shift>}B{/Shift}{/Control}");
-    await expect.element(session).toHaveAttribute("aria-pressed", "true");
+    await expect.element(pane).toBeVisible();
+    await expect.element(session).not.toBeInTheDocument();
     await userEvent.keyboard("{Control>}{Shift>}B{/Shift}{/Control}");
+    await expect
+      .poll(() => document.querySelector('[data-pane="session"]')?.checkVisibility() ?? false)
+      .toBe(false);
     await expect.element(session).toHaveAttribute("aria-pressed", "false");
     await expect
       .element(page.getByRole("button", { name: "Toggle files sidebar" }))
@@ -2749,29 +2542,6 @@ test("collapses every file from the Changes toolbar, then expands them again", a
   await expect.element(header("Collapse", "src/beta.ts")).toBeVisible();
 });
 
-test("collapses history to a heading that names the selection, and remembers it", async () => {
-  await mountApp();
-  const toggle = page.getByRole("button", { name: /^History/ });
-  await expect.element(toggle).toHaveAttribute("aria-expanded", "true");
-  await toggle.click();
-  await expect.element(toggle).toHaveAttribute("aria-expanded", "false");
-  await expect.element(toggle).toHaveTextContent("HistoryWorking changes");
-  const body = toggle.element().getAttribute("aria-controls")!;
-  expect(document.getElementById(body)!.inert).toBe(true);
-  expect(localStorage.getItem("med:history")).toBe("closed");
-
-  root!.unmount();
-  mount!.remove();
-  await mountApp();
-  const restored = page.getByRole("button", { name: /^History/ });
-  await expect.element(restored).toHaveAttribute("aria-expanded", "false");
-  await restored.click();
-  await expect.element(restored).toHaveAttribute("aria-expanded", "true");
-  await expect
-    .element(page.getByRole("option", { name: /Improve the review stream/ }))
-    .toBeVisible();
-});
-
 describe("agent session", () => {
   test("a saved review shows its agent's session beside the review and opens files from it", async () => {
     const events = [
@@ -2806,7 +2576,7 @@ describe("agent session", () => {
       session: `event: reset\ndata: ${JSON.stringify({ events, idle: true, modifiedAt: 0, truncated: false })}\n\n`,
     });
     await page.getByRole("button", { name: "Toggle agent session" }).click();
-    const panel = page.getByRole("complementary", { name: "Agent session" });
+    const panel = page.getByRole("region", { name: "Agent session" });
     await expect.element(panel.getByText("Rename the export.")).toBeVisible();
     // The finished turn's work folds into one row; Show work opens it, and stays on.
     await expect
@@ -2845,7 +2615,7 @@ describe("agent session", () => {
       savedReview: true,
       session: `event: reset\ndata: ${JSON.stringify({ events, idle: true, modifiedAt: 0, truncated: false })}\n\n`,
     });
-    const panel = page.getByRole("complementary", { name: "Agent session" });
+    const panel = page.getByRole("region", { name: "Agent session" });
     // Once the review is idle, the thread streams and renders in a hidden pane.
     await expect
       .poll(() => document.querySelector('[aria-label="Session"]')?.textContent ?? "")
@@ -2905,7 +2675,7 @@ describe("agent session", () => {
       },
     });
     await page.getByRole("button", { name: "Toggle agent session" }).click();
-    const panel = page.getByRole("complementary", { name: "Agent session" });
+    const panel = page.getByRole("region", { name: "Agent session" });
     // A short thread reaches its top at once, so the earlier page loads.
     await expect.element(panel.getByText("First prompt")).toBeVisible();
     expect(pageReads).toEqual(["4096"]);
@@ -2955,7 +2725,7 @@ describe("agent session", () => {
       },
     });
     await page.getByRole("button", { name: "Send comments to Claude" }).click();
-    const panel = page.getByRole("complementary", { name: "Agent session" });
+    const panel = page.getByRole("region", { name: "Agent session" });
     await expect.element(panel.getByText("Claude is waiting for your review")).toBeVisible();
     await expect.element(panel.getByText("Waiting for you")).toBeVisible();
 
@@ -3140,7 +2910,7 @@ describe("agent session", () => {
     await expect.element(notes.getByRole("region", { name: /^Note 1/ })).not.toBeInTheDocument();
 
     await page.getByRole("button", { name: "Toggle agent session" }).click();
-    const panel = page.getByRole("complementary", { name: "Agent session" });
+    const panel = page.getByRole("region", { name: "Agent session" });
     await panel.getByRole("button", { name: "Pin to review" }).click();
     await expect.element(page.getByText("Pinned to the review's Notes.")).toBeVisible();
     const pinned = notes.getByRole("region", { name: "Note 2 of 2" });

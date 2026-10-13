@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { agentStatusSchema } from "./agent-status";
+import { agentSessionSchema } from "./saved-review";
 
 /**
  * A thread: one task with its agent sessions and its changes. Each saved
@@ -16,10 +17,14 @@ export const threadSchema = z.object({
   repository: z.object({ id: z.string(), name: z.string(), path: z.string() }).optional(),
   /** The checkout the thread works in, such as a linked worktree. */
   checkout: z.string().optional(),
+  /** The checkout is a linked worktree, which Git can remove. */
+  linked: z.boolean().optional(),
   branch: z.string().optional(),
   /** The lead session's agent and state, when the thread has a session. */
   agent: agentStatusSchema.shape.agent.optional(),
   state: agentStatusSchema.shape.state.optional(),
+  /** The agent sessions, oldest first, to resume one in a terminal. */
+  sessions: z.array(agentSessionSchema).optional(),
   changes: z
     .object({
       files: z.number().int().nonnegative(),
@@ -49,11 +54,27 @@ export const threadStartSchema = z.object({
 });
 export type ThreadStart = z.infer<typeof threadStartSchema>;
 
-const SMALL_WORDS = new Set(["a", "an", "the", "to", "of", "for", "and", "in", "on", "with", "please"]);
+const SMALL_WORDS = new Set([
+  "a",
+  "an",
+  "the",
+  "to",
+  "of",
+  "for",
+  "and",
+  "in",
+  "on",
+  "with",
+  "please",
+]);
 
 /** A short name for a task: its first line, cut at a word near 48 characters. */
 export function threadTitle(prompt: string) {
-  const line = prompt.trim().split("\n")[0]!.replace(/[.!?:;,]+$/, "").trim();
+  const line = prompt
+    .trim()
+    .split("\n")[0]!
+    .replace(/[.!?:;,]+$/, "")
+    .trim();
   if (line.length <= 52) return line || "New thread";
   // A clause that ends early enough makes the best name.
   const clause = /^(.{16,52}?)[,;:(—–]/.exec(line)?.[1]?.trim();

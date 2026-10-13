@@ -60,9 +60,27 @@ export function NewThread({
   const agent = agents?.find((entry) => entry.id === choice.preset) ?? agents?.[0];
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
   const [error, setError] = useState<string | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   useEffect(() => input.current?.focus(), []);
+  // Escape leaves, as it closes other views over the workspaces.
+  const leave = useRef(onCancel);
+  useEffect(() => {
+    leave.current = onCancel;
+  });
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || busyRef.current) return;
+      event.preventDefault();
+      leave.current();
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, []);
   const remember = (next: Partial<Choice>) => {
     const value = { ...choice, ...next };
     setChoice(value);
@@ -102,17 +120,7 @@ export function NewThread({
 
   const branch = prompt.trim() ? threadSlug(threadTitle(prompt)) : "a-new-branch";
   return (
-    <div
-      role="dialog"
-      aria-label="New thread"
-      {...stylex.props(styles.page)}
-      onKeyDown={(event) => {
-        if (event.key === "Escape" && !busy) {
-          event.preventDefault();
-          onCancel();
-        }
-      }}
-    >
+    <div role="dialog" aria-label="New thread" {...stylex.props(styles.page)}>
       <div {...stylex.props(styles.column)}>
         <h1 {...stylex.props(styles.heading)}>What should the agent do?</h1>
         <div {...stylex.props(styles.card)}>
@@ -140,7 +148,11 @@ export function NewThread({
               options={repositories.map((entry) => ({ value: entry.id, label: entry.name }))}
               onChange={(value) => remember({ repositoryId: value })}
             />
-            <div role="radiogroup" aria-label="Where the agent works" {...stylex.props(styles.segments)}>
+            <div
+              role="radiogroup"
+              aria-label="Where the agent works"
+              {...stylex.props(styles.segments)}
+            >
               {[
                 { value: true, label: "New worktree", icon: "gitWorktree" as const },
                 { value: false, label: "Checkout", icon: "folder" as const },
@@ -188,11 +200,14 @@ export function NewThread({
           ) : choice.worktree ? (
             <>
               Med creates the branch <code {...stylex.props(styles.code)}>{branch}</code> in a new
-              worktree of {repository?.name ?? "the repository"}, so this task stays apart from
-              your checkout.
+              worktree of {repository?.name ?? "the repository"}, so this task stays apart from your
+              checkout.
             </>
           ) : (
-            <>The agent works in {repository?.name ?? "the repository"}'s checkout, on its current branch.</>
+            <>
+              The agent works in {repository?.name ?? "the repository"}'s checkout, on its current
+              branch.
+            </>
           )}
         </p>
       </div>
