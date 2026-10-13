@@ -471,7 +471,7 @@ function ReadOnlyFileView({
       data-file-plain={plain}
     >
       {!compact && (
-        <header {...stylex.props(styles.header)}>
+        <header data-lift-row="" {...stylex.props(styles.header)}>
           <Icon name="file" size={15} />
           <span {...stylex.props(styles.path)} title={displayPath}>
             {displayPath}

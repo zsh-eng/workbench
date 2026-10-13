@@ -10,6 +10,8 @@
 #                       (MED_NO_MODIFY_PATH=1).
 #   --force             Install again when this version is already installed.
 set -eu
+# Keep this file ASCII. Under a UTF-8 locale, macOS /bin/sh (bash 3.2) reads
+# bytes such as the first byte of an ellipsis as letters of a variable name.
 
 repo="zsh-eng/workbench"
 # Tests point these at a local server.
@@ -30,7 +32,7 @@ fail() {
 while [ $# -gt 0 ]; do
   case "$1" in
     --version)
-      [ $# -ge 2 ] || fail "--version needs a value, such as --version 0.2.1."
+      [ $# -ge 2 ] || fail "--version needs a value, such as --version 0.2.2."
       version="$2"
       shift 2
       ;;
@@ -92,7 +94,7 @@ else
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/med-install.XXXXXX")
   trap 'rm -rf "$tmp"' EXIT
   trap 'exit 1' INT TERM
-  say "Downloading Med $version…"
+  say "Downloading Med ${version}..."
   curl -fsSL -o "$tmp/$name.tar.gz" "$base/$name.tar.gz" || fail "could not download $base/$name.tar.gz"
   curl -fsSL -o "$tmp/SHA256SUMS" "$base/SHA256SUMS" || fail "could not download $base/SHA256SUMS"
   expected=$(awk -v file="$name.tar.gz" '$2 == file || $2 == "*" file { print $1 }' "$tmp/SHA256SUMS")

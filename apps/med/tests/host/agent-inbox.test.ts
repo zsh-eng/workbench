@@ -136,14 +136,20 @@ test("a message reaches a waiting Claude session through med review wait", async
   expect(state.drafts).toEqual([]);
 });
 
-test("a message to a Codex session goes to its queue", async () => {
+test("a message to a Codex session goes to its queue once", async () => {
   const { api, saved, commentId, queued } = await fixture();
-  const sent = await api(`/api/reviews/${saved.id}/agent/messages`, {
+  const message = {
+    id: "8d7e3f0a-5b2c-4e1d-9a6f-0c1b2d3e4f5a",
     sessionId: codex,
     text: "Use minutes.",
     noteIds: [commentId],
+  };
+  const sent = await api(`/api/reviews/${saved.id}/agent/messages`, message);
+  expect(sent.data).toMatchObject({
+    message: { id: message.id, agent: "codex", delivery: "queued" },
   });
-  expect(sent.data).toMatchObject({ message: { agent: "codex", delivery: "queued" } });
+  // Med sends again with the same ID when it lost the answer; the agent gets it once.
+  expect((await api(`/api/reviews/${saved.id}/agent/messages`, message)).status).toBe(200);
   expect(queued).toHaveLength(1);
   expect(queued[0]![0]).toBe(codex);
   expect(queued[0]![1]).toContain("Round to minutes instead.");

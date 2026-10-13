@@ -72,6 +72,8 @@ it.skipIf(process.platform !== "darwin" || process.arch !== "arm64")(
       HOME: home,
       PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
       SHELL: "/bin/zsh",
+      // A Terminal's usual locale; under it /bin/sh reads non-ASCII bytes as name characters.
+      LANG: "en_US.UTF-8",
       TMPDIR: root,
       MED_INSTALL_API: origin,
       MED_INSTALL_DOWNLOADS: origin,

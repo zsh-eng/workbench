@@ -13,7 +13,8 @@ import {
 } from "react";
 import type { AgentPreset } from "../../../shared/owned-session";
 import { agentName, type AgentSession, type PinMutation } from "../../../shared/saved-review";
-import { withSentMessages, type AgentInbox } from "../../data/agent-inbox";
+import type { AgentMessageInput, SentComment } from "../../../shared/agent-inbox";
+import { withSentMessages, type AgentInbox, type SentMessage } from "../../data/agent-inbox";
 import { useOwnedSession } from "../../data/owned-session";
 import { createSessionStore, type SessionItem } from "../../data/session-store";
 import {
@@ -40,6 +41,16 @@ export interface SessionPins {
   pinned: ReadonlyMap<string, string>;
   pin(source: PinSource, text: string): Promise<void>;
   show(pinId: string): void;
+}
+
+/** A message that the browser sent, until the host has it. */
+interface Outgoing {
+  id: string;
+  input: AgentMessageInput;
+  createdAt: string;
+  /** The comments as they read when sent, to show at once. */
+  comments: SentComment[];
+  error?: string;
 }
 
 /** Agents that Med can start in the review's repository. */
@@ -411,8 +422,72 @@ export function SessionPanel({
   const waiting = inbox?.state?.waiting.includes(session.id) ?? false;
   const messages = inbox?.state?.messages;
   const streaming = ownedState?.streaming;
+  // Messages on their way to the host show at once, as in a chat app. The
+  // host keeps the browser's ID, so the row stays when its answer comes.
+  const [outgoing, setOutgoing] = useState<Outgoing[]>([]);
+  const post = (message: Outgoing) => {
+    setOutgoing((list) =>
+      list.map((entry) => (entry.id === message.id ? { ...entry, error: undefined } : entry)),
+    );
+    inbox!.send({ ...message.input, id: message.id }).then(
+      () => setOutgoing((list) => list.filter((entry) => entry.id !== message.id)),
+      (reason: unknown) =>
+        setOutgoing((list) =>
+          list.map((entry) =>
+            entry.id === message.id
+              ? { ...entry, error: reason instanceof Error ? reason.message : "Not sent." }
+              : entry,
+          ),
+        ),
+    );
+  };
+  const send = (input: Omit<AgentMessageInput, "sessionId">) => {
+    const drafts = inbox?.state?.drafts ?? [];
+    const message: Outgoing = {
+      id: crypto.randomUUID(),
+      input: { sessionId: session.id, ...input },
+      createdAt: new Date().toISOString(),
+      comments: input.noteIds.flatMap((id) =>
+        drafts
+          .filter((draft) => draft.id === id)
+          .map(({ id: _id, replies: _replies, ...comment }) => comment),
+      ),
+    };
+    setOutgoing((list) => [...list, message]);
+    post(message);
+  };
+  const sending = new Set(outgoing.flatMap((message) => message.input.noteIds));
   const shown = useMemo(() => {
-    const sent = messages?.filter((message) => message.sessionId === session.id) ?? [];
+    const sent: SentMessage[] = [
+      ...(messages?.filter(
+        (message) =>
+          message.sessionId === session.id && !outgoing.some((entry) => entry.id === message.id),
+      ) ?? []),
+      ...outgoing
+        .filter((message) => message.input.sessionId === session.id)
+        .map((message): SentMessage => {
+          const { input } = message;
+          return {
+            id: message.id,
+            sessionId: input.sessionId,
+            agent: session.agent,
+            text: input.text,
+            noteIds: input.noteIds,
+            ...(message.comments.length ? { comments: message.comments } : {}),
+            attachmentCount: input.attachments?.length ?? 0,
+            createdAt: message.createdAt,
+            delivery: message.error ? "failed" : "sending",
+            ...(message.error
+              ? {
+                  error: message.error,
+                  retry: () => post(message),
+                  discard: () =>
+                    setOutgoing((list) => list.filter((entry) => entry.id !== message.id)),
+                }
+              : {}),
+          };
+        }),
+    ];
     const items = withStreaming(
       sent.length ? withSentMessages(snapshot.items, sent) : snapshot.items,
       streaming,
@@ -420,7 +495,9 @@ export function SessionPanel({
     return items === snapshot.items && snapshot.running === running
       ? snapshot
       : { ...snapshot, items, running };
-  }, [snapshot, messages, session.id, streaming, running]);
+    // post changes each render; the rows take it when the list changes.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot, messages, outgoing, session.id, session.agent, streaming, running]);
   const needsYou = !!ownedState?.permission;
   const zen = useContext(ZenContext);
   const status = ownedState
@@ -538,10 +615,10 @@ export function SessionPanel({
             agent={session.agent}
             name={agent}
             waiting={waiting}
-            drafts={inbox.state?.drafts ?? []}
+            drafts={(inbox.state?.drafts ?? []).filter((draft) => !sending.has(draft.id))}
             attachments={attachments}
             onRemoveAttachment={(id) => onRemoveAttachment?.(id)}
-            onSend={(message) => inbox.send({ sessionId: session.id, ...message })}
+            onSend={send}
             owned={ownedState ? { state: ownedState, act: owned.act } : undefined}
           />
         )

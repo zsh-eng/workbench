@@ -74,6 +74,8 @@ export interface MedMeta {
     tool?: string;
     /** A user message that waited in the queue while the agent worked. */
     queued?: boolean;
+    /** The agent's message ended its turn (Claude Code's `end_turn`). */
+    endsTurn?: boolean;
     model?: string;
   };
 }

@@ -9,7 +9,7 @@ import {
   type ToolCallStatus,
   type ToolKind,
 } from "../../shared/agent-session";
-import type { AgentMessage } from "../../shared/agent-inbox";
+import type { SentMessage } from "./agent-inbox";
 
 export interface ToolCallState {
   toolCallId: string;
@@ -34,9 +34,16 @@ export type SessionItem =
       content: ContentBlock[];
       queued?: boolean;
       /** A message that the user sent from Med, and how far it got. */
-      sent?: AgentMessage;
+      sent?: SentMessage;
     }
-  | { kind: "agent"; id: string; at: number; text: string }
+  | {
+      kind: "agent";
+      id: string;
+      at: number;
+      text: string;
+      /** The message ended the agent's turn; later work came without a prompt. */
+      endsTurn?: boolean;
+    }
   | { kind: "thought"; id: string; at: number; text: string; durationMs?: number }
   | {
       kind: "tool";
@@ -157,7 +164,11 @@ export function createSessionStore() {
     if (current && current.kind === kind) {
       if (current.kind === "user") setItem({ ...current, content: [...current.content, block] });
       else if (current.kind === "agent")
-        setItem({ ...current, text: current.text + textOf(block) });
+        setItem({
+          ...current,
+          text: current.text + textOf(block),
+          ...(meta?.endsTurn ? { endsTurn: true } : {}),
+        });
       else if (current.kind === "thought")
         setItem({
           ...current,
@@ -169,7 +180,14 @@ export function createSessionStore() {
     const id = messageId ?? nameOf(kind, at);
     if (kind === "user")
       append(thread, { kind, id, at, content: [block], ...(meta?.queued ? { queued: true } : {}) });
-    else if (kind === "agent") append(thread, { kind, id, at, text: textOf(block) });
+    else if (kind === "agent")
+      append(thread, {
+        kind,
+        id,
+        at,
+        text: textOf(block),
+        ...(meta?.endsTurn ? { endsTurn: true } : {}),
+      });
     else
       append(thread, {
         kind,

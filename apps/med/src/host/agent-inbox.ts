@@ -124,6 +124,8 @@ export class AgentInbox {
     reviewId: string,
     session: AgentSession,
     message: {
+      /** The client's ID; a message with this ID is not sent again. */
+      id?: string;
       text: string;
       noteIds: string[];
       comments?: SentComment[];
@@ -133,8 +135,12 @@ export class AgentInbox {
     /** Sends to a session that Med owns, as its next prompt. */
     deliver?: (body: string) => Promise<void>,
   ): Promise<AgentMessage> {
+    if (message.id) {
+      const sent = (await this.messages(reviewId)).find((entry) => entry.id === message.id);
+      if (sent) return sent;
+    }
     const stored: StoredMessage = {
-      id: randomUUID(),
+      id: message.id ?? randomUUID(),
       sessionId: session.id,
       agent: session.agent,
       text: message.text,

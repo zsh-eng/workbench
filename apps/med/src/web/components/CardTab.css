@@ -25,3 +25,21 @@
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
+/* Zen's tab is empty: the content rises into it, and the tab keeps only its
+   shape. The window controls stay clickable beside it. */
+.med-card-tab + [data-zen-tab] {
+  margin-bottom: calc(5px - max(var(--med-titlebar-height), 38px));
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+/* The first row of a lifted view keeps clear of the window controls, past
+   its own inset. */
+[data-lift] [data-lift-row] {
+  padding-inline: calc(12px + var(--med-lift-start)) calc(12px + var(--med-lift-end));
+}
+[data-lift] .med-editor-header {
+  padding-inline: calc(8px + var(--med-lift-start)) calc(8px + var(--med-lift-end));
+}
+[data-lift] .med-media-header {
+  padding-inline: calc(10px + var(--med-lift-start)) calc(10px + var(--med-lift-end));
+}

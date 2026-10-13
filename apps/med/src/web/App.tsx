@@ -1743,6 +1743,9 @@ export function App({
       enableGutterUtility: true,
       unsafeCSS: `[data-utility-button]::before { inset: 0; }
         [data-separator-content] { font-size: 11.5px; letter-spacing: 0.01em; }
+        [data-diffs-header] {
+          padding-inline: calc(16px + var(--med-lift-start, 0px)) calc(16px + var(--med-lift-end, 0px));
+        }
         ${highlightRules(activeTheme, { match: "med-diff-find", current: "med-diff-find-current" })}`,
       onLineEnter(_line, context) {
         context.element?.shadowRoot
@@ -2021,9 +2024,9 @@ export function App({
         return;
       }
       const optionKey = event.code || `Key${event.key.toUpperCase()}`;
-      // These Alt keys also work from the editor, so ⌥W, ⌥Z, and ⌥1–9 do not type there.
+      // These Alt keys also work from the editor, so ⌥W, ⌥P, ⌥Z, and ⌥1–9 do not type there.
       const fromEditor =
-        (optionKey === "KeyW" || optionKey === "KeyZ" || /^Digit[1-9]$/.test(optionKey)) &&
+        (["KeyW", "KeyP", "KeyZ"].includes(optionKey) || /^Digit[1-9]$/.test(optionKey)) &&
         event
           .composedPath()
           .some((node) => node instanceof HTMLElement && node.classList.contains("cm-content"));
@@ -2184,6 +2187,32 @@ export function App({
         event.preventDefault();
         event.stopPropagation();
         openFind();
+        return;
+      }
+      // In a file, / starts Vim's search also when the file does not have
+      // focus, such as after a click on its tab. The side panes keep the key.
+      if (
+        event.key === "/" &&
+        !editing &&
+        !modal &&
+        !visibleElement('[role="dialog"]') &&
+        fileState.active !== "changes" &&
+        fileState.file?.kind === "text" &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event
+          .composedPath()
+          .some(
+            (node) =>
+              node instanceof HTMLElement &&
+              (node.matches('[data-file-pane="main"][tabindex="0"]') ||
+                node.hasAttribute("data-pane")),
+          )
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        fileNavigation.current?.("/");
         return;
       }
       if (
@@ -4030,9 +4059,11 @@ export function App({
             )}
             aria-label="Continuous review"
           >
-            {cardTab && <CardTab />}
-            {/* Zen's tab is empty, and joins the card without a rule. */}
-            {cardTab && zen && <div aria-hidden="true" {...stylex.props(styles.zenTab)} />}
+            {cardTab && <CardTab lift={zen} />}
+            {/* Zen's tab is empty: the content rises into it (CardTab.css). */}
+            {cardTab && zen && (
+              <div aria-hidden="true" data-zen-tab="" {...stylex.props(styles.zenTab)} />
+            )}
             {/* The review's own row heads the card, level with the sidebar's
             identity, so the sidebar keeps its place between workspaces. */}
             {state.savedReview && !zen && (

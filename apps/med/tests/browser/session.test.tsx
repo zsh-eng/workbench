@@ -4,6 +4,7 @@ import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { SessionSection } from "../../src/web/components/elements/SessionSection";
 import { SessionThread } from "../../src/web/components/session/SessionThread";
+import { withSentMessages, type SentMessage } from "../../src/web/data/agent-inbox";
 import { createSessionStore } from "../../src/web/data/session-store";
 import "../../src/web/pierre-theme";
 import { initializeTheme } from "../../src/web/themes";
@@ -81,7 +82,7 @@ test("the sample thread shows a plan, a failed test, and a subagent's own steps"
     .element(gallery.getByRole("button", { name: /Run the branch tests.*Failed/ }))
     .toBeVisible();
   await userEvent.click(
-    gallery.getByRole("log").getByRole("button", { name: /Find every place that fetches/ }),
+    gallery.getByRole("log").getByRole("button", { name: /^Find every place that fetches/ }),
   );
   await expect.element(gallery.getByText(/Two paths fetch/)).toBeVisible();
 });
@@ -247,6 +248,202 @@ test("a task in the Background dock scrolls a long thread to its call", async ()
   );
   await expect.poll(() => document.querySelector('[data-unit="server"]')).not.toBeNull();
   await expect.poll(() => Math.round(topOf("server"))).toBe(16);
+});
+
+test("the Background dock lists this turn's tasks without Med's wait, and stays hidden until a new task", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  localStorage.removeItem("med:background-hidden");
+  const shell = (at: number, id: string, title: string, command: string, running = false) => ({
+    at,
+    update: {
+      sessionUpdate: "tool_call" as const,
+      toolCallId: id,
+      title,
+      kind: "execute" as const,
+      status: running ? ("in_progress" as const) : ("completed" as const),
+      rawInput: { command },
+      _meta: { med: { background: { id, kind: "shell" as const } } },
+    },
+  });
+  const prompt = (at: number, text: string) => ({
+    at,
+    update: {
+      sessionUpdate: "user_message_chunk" as const,
+      content: { type: "text" as const, text },
+    },
+  });
+  const store = longThread(0);
+  store.applyAll([
+    prompt(0, "Format the durations."),
+    shell(100, "server", "Start the dev server", "bun run dev", true),
+    shell(200, "old", "Build the old bundle", "bun run build"),
+    prompt(5000, "Use minutes."),
+    shell(6000, "tests", "Run the tests", "bun test"),
+    shell(6500, "wait", "Wait for the review", "med review wait --key durations", true),
+  ]);
+  const render = () => root!.render(<SessionThread snapshot={store.getSnapshot()} showWork />);
+  render();
+  const dock = page.getByRole("region", { name: "Background tasks" });
+  await expect.element(dock.getByText("1 running")).toBeVisible();
+  await expect.element(dock.getByRole("button", { name: "Start the dev server" })).toBeVisible();
+  await expect.element(dock.getByRole("button", { name: "Run the tests" })).toBeVisible();
+  // A task from an earlier turn has left; the agent's wait for the reader is not a task.
+  await expect.element(dock.getByText("Build the old bundle")).not.toBeInTheDocument();
+  await expect.element(dock.getByText("Wait for the review")).not.toBeInTheDocument();
+  await expect.element(page.getByRole("log").getByText("for your message in Med")).toBeVisible();
+
+  await userEvent.click(dock.getByRole("button", { name: "Hide background tasks" }));
+  await expect.element(dock).not.toBeInTheDocument();
+  // The thread opens again, and the dock stays hidden.
+  root!.unmount();
+  root = createRoot(mount!);
+  render();
+  await expect.element(page.getByRole("log").getByText("Run the tests")).toBeVisible();
+  await expect.element(dock).not.toBeInTheDocument();
+  // A new task shows it again.
+  store.applyAll([shell(7000, "styles", "Watch the styles", "bun run watch", true)]);
+  render();
+  await expect.element(dock.getByText("2 running")).toBeVisible();
+  localStorage.removeItem("med:background-hidden");
+});
+
+test("a subagent opens over the session, steps to the next one, and Escape goes back", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const text = (value: string) => ({ type: "text" as const, text: value });
+  const within = (parent: string) => ({ med: { parentToolCallId: parent } });
+  const store = longThread(0);
+  store.applyAll([
+    { at: 0, update: { sessionUpdate: "user_message_chunk", content: text("Clear the cache.") } },
+    {
+      at: 1000,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "fetches",
+        title: "Find every place that fetches",
+        kind: "other",
+        status: "in_progress",
+        _meta: { med: { tool: "Agent", background: { id: "a1", kind: "agent" } } },
+      },
+    },
+    {
+      at: 1100,
+      update: {
+        sessionUpdate: "user_message_chunk",
+        content: text("List each fetch path."),
+        _meta: within("fetches"),
+      },
+    },
+    {
+      at: 1200,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: text("Two paths fetch."),
+        _meta: within("fetches"),
+      },
+    },
+    {
+      at: 2000,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tests",
+        title: "Check the cache tests",
+        kind: "other",
+        status: "completed",
+        _meta: { med: { tool: "Agent" } },
+      },
+    },
+    {
+      at: 2100,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: text("The tests cover a stale cache."),
+        _meta: within("tests"),
+      },
+    },
+  ]);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} showWork />);
+  const thread = page.getByRole("log", { name: "Session" });
+  await userEvent.click(thread.getByRole("button", { name: "Open Find every place that fetches" }));
+  const view = page.getByRole("region", { name: "Subagent" });
+  await expect.element(view.getByText("List each fetch path.")).toBeVisible();
+  await expect.element(view.getByText("Two paths fetch.")).toBeVisible();
+  await expect.element(view.getByText("1 of 2")).toBeVisible();
+  // The session's thread waits beneath, out of reach of the keys.
+  expect(thread.element().closest("[inert]")).not.toBeNull();
+
+  await userEvent.click(view.getByRole("button", { name: "Next subagent" }));
+  await expect.element(view.getByText("The tests cover a stale cache.")).toBeVisible();
+  await expect.element(view.getByText("2 of 2")).toBeVisible();
+  await expect.element(view.getByRole("button", { name: "Next subagent" })).toBeDisabled();
+
+  await userEvent.keyboard("{Escape}");
+  await expect.element(view).not.toBeInTheDocument();
+  expect(thread.element().closest("[inert]")).toBeNull();
+  expect(document.activeElement).toBe(threadScroller());
+
+  // A subagent in the Background dock opens the same way.
+  await userEvent.click(
+    page.getByRole("region", { name: "Background tasks" }).getByRole("button", {
+      name: "Find every place that fetches",
+    }),
+  );
+  await expect.element(view.getByText("Two paths fetch.")).toBeVisible();
+});
+
+test("hidden work keeps each reply: the one before med review wait, and one that ended a turn", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const text = (value: string) => ({ type: "text" as const, text: value });
+  const prompt = (at: number, value: string) => ({
+    at,
+    update: { sessionUpdate: "user_message_chunk" as const, content: text(value) },
+  });
+  const reply = (at: number, id: string, value: string, endsTurn = false) => ({
+    at,
+    update: {
+      sessionUpdate: "agent_message_chunk" as const,
+      messageId: id,
+      content: text(value),
+      ...(endsTurn ? { _meta: { med: { endsTurn: true } } } : {}),
+    },
+  });
+  const run = (at: number, id: string, title: string, command: string, background = false) => ({
+    at,
+    update: {
+      sessionUpdate: "tool_call" as const,
+      toolCallId: id,
+      title,
+      kind: "execute" as const,
+      status: background ? ("in_progress" as const) : ("completed" as const),
+      rawInput: { command },
+      ...(background ? { _meta: { med: { background: { id, kind: "shell" as const } } } } : {}),
+    },
+  });
+  const store = longThread(0);
+  store.applyAll([
+    prompt(0, "Format the durations."),
+    run(1000, "build", "Build the summary", "bun run build"),
+    reply(2000, "summary", "Durations read in minutes now."),
+    run(2500, "wait", "Wait for the review", "med review wait --key durations", true),
+    reply(2600, "waiting", "Waiting for your review.", true),
+    prompt(10_000, "Start the server."),
+    run(11_000, "server", "Start the server", "bun run dev"),
+    reply(12_000, "up", "The server is up.", true),
+    // A background task's report starts more work without a prompt.
+    run(15_000, "log", "Read the server log", "tail server.log"),
+    reply(16_000, "clean", "The log is clean.", true),
+  ]);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  const thread = page.getByRole("log", { name: "Session" });
+  await expect.element(thread.getByText("Durations read in minutes now.")).toBeVisible();
+  await expect.element(thread.getByText("Waiting for your review.")).toBeVisible();
+  await expect.element(thread.getByText("The server is up.")).toBeVisible();
+  await expect.element(thread.getByText("The log is clean.")).toBeVisible();
+  // The work itself folds.
+  await expect.element(thread.getByText("Read the server log")).not.toBeInTheDocument();
+  expect(thread.getByRole("button", { name: /^Worked for/ }).elements()).toHaveLength(2);
 });
 
 test("[ and ] step through the prompts and replies of a focused thread", async () => {
@@ -510,6 +707,67 @@ test("a finished turn's work folds into one row that opens in place, and Show wo
   await expect.element(page.getByText("Then the docs.")).toBeVisible();
   await expect.element(page.getByRole("button", { name: /Run the tests 2/ })).toBeVisible();
   expect(rows.elements()).toHaveLength(2);
+});
+
+test("a message from Med joins the thread where the agent took it, so the turn before keeps its reply", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  const text = (sessionUpdate: string, value: string, at: number, messageId?: string) => ({
+    at,
+    update: {
+      sessionUpdate,
+      ...(messageId ? { messageId } : {}),
+      content: { type: "text", text: value },
+    },
+  });
+  store.applyAll([
+    text("user_message_chunk", "Fix the export.", 0),
+    text("agent_message_chunk", "Looking at the export.", 1000, "a"),
+    {
+      at: 2000,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "test",
+        title: "Run the tests",
+        kind: "execute",
+        status: "completed",
+      },
+    },
+    text("agent_message_chunk", "The export keeps the old format.", 8000, "b"),
+  ] as Parameters<typeof store.applyAll>[0]);
+  // Sent while the agent worked; the agent took it once it waited again.
+  const message = (delivery: SentMessage["delivery"]): SentMessage => ({
+    id: "m1",
+    sessionId: "s1",
+    agent: "claude",
+    text: "Also check the import.",
+    noteIds: [],
+    attachmentCount: 0,
+    createdAt: new Date(4000).toISOString(),
+    delivery,
+    ...(delivery === "delivered" ? { deliveredAt: new Date(9000).toISOString() } : {}),
+  });
+  const render = (delivery: SentMessage["delivery"]) => {
+    const snapshot = store.getSnapshot();
+    root!.render(
+      <SessionThread
+        snapshot={{ ...snapshot, items: withSentMessages(snapshot.items, [message(delivery)]) }}
+      />,
+    );
+  };
+  for (const delivery of ["pending", "delivered"] as const) {
+    render(delivery);
+    await expect.element(page.getByText("Also check the import.")).toBeVisible();
+    // The turn's work folds, and its reply stays in view above the message.
+    await expect.element(page.getByText("The export keeps the old format.")).toBeVisible();
+    await expect.element(page.getByRole("button", { name: /^Worked for 8\.0s/ })).toBeVisible();
+    expect(page.getByText("Looking at the export.").query()).toBeNull();
+    const reply = page.getByText("The export keeps the old format.").element();
+    const sent = page.getByText("Also check the import.").element();
+    expect(reply.compareDocumentPosition(sent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  }
+  await expect.element(page.getByText("Waiting for Claude to take it")).not.toBeInTheDocument();
 });
 
 test("the units in view keep their place as earlier work loads above them", async () => {

@@ -132,6 +132,8 @@ async function mountApp(
     session?: string;
     /** The saved review's messages to its agent: drafts and who waits. */
     inbox?: AgentInboxState;
+    /** Each message waits for its own call; a call with an error fails the send. */
+    answerAgentMessages?: boolean;
     /** Agents that Med can start; a started one runs as session o1. */
     agents?: AgentPreset[];
     /** Session s1's earlier page and its prompts. The session stream stays open. */
@@ -169,6 +171,8 @@ async function mountApp(
   const pullRequestReads: string[] = [];
   let inbox = options.inbox;
   const agentMessages: unknown[] = [];
+  // The host's answers to the messages that wait, in order.
+  const agentAnswers: ((error?: string) => void)[] = [];
   const savedRepositories = savedTargets.slice(0, options.oneBranch ? 1 : 2).map((target) => ({
     id: target.repositoryId,
     path: target.repo,
@@ -308,10 +312,21 @@ async function mountApp(
           headers: { "content-type": "text/event-stream" },
         });
       if (url.pathname === "/api/reviews/saved/agent/messages" && inbox) {
-        const input = JSON.parse(String(init?.body)) as { text: string; noteIds: string[] };
+        const input = JSON.parse(String(init?.body)) as {
+          id?: string;
+          text: string;
+          noteIds: string[];
+        };
+        if (options.answerAgentMessages) {
+          const error = await new Promise<string | undefined>((answer) =>
+            agentAnswers.push(answer),
+          );
+          if (error)
+            return Response.json({ error: { code: "busy", message: error } }, { status: 503 });
+        }
         agentMessages.push(input);
         const message: AgentInboxState["messages"][number] = {
-          id: `m${agentMessages.length}`,
+          id: input.id ?? `m${agentMessages.length}`,
           sessionId: "s1",
           agent: "claude",
           text: input.text,
@@ -612,6 +627,7 @@ async function mountApp(
     fileRequests,
     pullRequestReads,
     agentMessages,
+    agentAnswers,
     setOwned,
     ownedActions,
     pageReads,
@@ -941,7 +957,7 @@ describe("graphical review", () => {
       expect(rect(row)).toMatchObject({ top: 6, bottom: 39 });
       expect(rect(commands).right).toBeLessThanOrEqual(1280 - 120 - 6);
       expect([onCard(640, 20), onCard(1220, 20), onCard(1220, 60)]).toEqual([true, false, true]);
-      const outline = card.querySelectorAll<SVGPathElement>(".med-card-tab path")[1];
+      const outline = card.querySelector<SVGPathElement>(".med-card-outline path")!;
       const drawn = ([x, y]: number[]) => {
         const point = new DOMPoint(x - rect(card).left, y - rect(card).top);
         return onCard(x, y) || outline.isPointInStroke(point);
@@ -996,19 +1012,31 @@ describe("graphical review", () => {
       await page.getByRole("button", { name: "Toggle files sidebar" }).click();
       await expect.poll(() => column.checkVisibility()).toBe(false);
 
-      // Zen keeps the card in the title area with an empty tab. The sidebar
-      // and the way out start below the controls.
+      // The outline draws over the card's content, so no row covers its corners.
+      const above = (element: Element) => Number(getComputedStyle(element).zIndex) || 0;
+      expect(above(outline.ownerSVGElement!)).toBeGreaterThan(above(row));
+
+      // Zen's tab is empty, so the content rises into it: the card clips it
+      // to the tab, and the first row keeps clear of the controls on the right.
+      // The sidebar and the way out start below the controls.
       await page.getByRole("button", { name: "Enter zen mode", exact: true }).click();
       const exit = page.getByRole("button", { name: "Exit zen mode", exact: true });
       await expect.element(exit).toBeInTheDocument();
       const empty = card.querySelector(".med-card-tab + *")!;
       expect([empty.childElementCount, rect(empty).top, rect(empty).bottom]).toEqual([0, 6, 39]);
       expect([onCard(640, 20), onCard(1220, 20)]).toEqual([true, false]);
+      const panel = document.getElementById("file-view-panel")!;
+      expect(rect(panel).top).toBe(6);
+      expect(getComputedStyle(card).clipPath).toMatch(/^path\(/);
+      expect(parseFloat(getComputedStyle(card).getPropertyValue("--med-lift-end"))).toBeGreaterThan(
+        120,
+      );
       const sidebar = document.getElementById("review-sidebar")!;
       expect(rect(sidebar.firstElementChild!).bottom).toBe(39);
       expect(rect(exit.element()).top).toBeGreaterThan(39);
       await exit.click();
       await expect.element(tabs).toBeVisible();
+      expect(getComputedStyle(card).clipPath).toBe("none");
 
       // With the title bar back, the card is a plain card again.
       delete root.dataset.titlebar;
@@ -1125,6 +1153,16 @@ describe("graphical review", () => {
     // From alpha.ts's editor too, where Option+3 would otherwise type £.
     const editor = page.getByRole("textbox", { name: "Edit src/alpha.ts", exact: true });
     await expect.element(editor).toBeVisible();
+    // Option+P keeps the preview tab, also from its editor, where it would type π.
+    key({ key: "π", code: "KeyP", altKey: true }, editor.element());
+    await expect.poll(() => title("alpha.ts")).toMatch(/^src\/alpha\.ts(?!.*Preview)/);
+    expect(editor.element().textContent).not.toContain("π");
+    // / starts Vim's search in the file, also from outside it.
+    (document.activeElement as HTMLElement | null)?.blur();
+    key({ key: "/", code: "Slash" });
+    await expect.element(page.getByRole("textbox", { name: "Edit src/alpha.ts" })).toBeVisible();
+    await expect.poll(() => document.activeElement?.closest(".cm-vim-panel")).not.toBeNull();
+    key({ key: "Escape", code: "Escape" }, document.activeElement!);
     key({ key: "£", code: "Digit3", altKey: true }, editor.element());
     await selected("beta.ts");
     key({ key: "¡", code: "Digit1", altKey: true });
@@ -2899,9 +2937,14 @@ describe("agent session", () => {
   });
 
   test("comments go to the waiting agent from the review", async () => {
-    const { agentMessages } = await mountApp({
+    const reply = (at: number, sessionUpdate: string, text: string) => ({
+      at,
+      update: { sessionUpdate, content: { type: "text", text } },
+    });
+    const { agentMessages, agentAnswers } = await mountApp({
       savedReview: true,
-      session: `event: reset\ndata: ${JSON.stringify({ events: [], idle: true, modifiedAt: 0, truncated: false })}\n\n`,
+      answerAgentMessages: true,
+      session: `event: reset\ndata: ${JSON.stringify({ events: [reply(1000, "user_message_chunk", "Check the durations."), reply(5000, "agent_message_chunk", "They read in seconds.")], idle: true, modifiedAt: 0, truncated: false })}\n\n`,
       inbox: {
         messages: [],
         waiting: ["s1"],
@@ -2923,17 +2966,38 @@ describe("agent session", () => {
     await panel.getByRole("textbox", { name: "Message Claude" }).fill("Use minutes.");
     await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
 
+    // The message and its comment show at once, before the host answers, and
+    // the composer is ready for the next one. The turn before keeps its time.
+    await expect.element(panel.getByText("Use minutes.")).toBeVisible();
+    await expect.element(panel.getByText("Sending…")).toBeVisible();
+    await expect.element(panel.getByText("Rename it.")).toBeVisible();
+    await expect.element(panel.getByRole("textbox", { name: "Message Claude" })).toHaveValue("");
+    await expect.element(panel.getByRole("button", { name: "1 comment" })).toBeVisible();
+    expect(panel.element().textContent).not.toMatch(/Worked for -/);
+
+    // A send that fails stays, and goes again with the same ID.
+    await expect.poll(() => agentAnswers.length).toBe(1);
+    agentAnswers.shift()!("The host is busy.");
+    await expect.element(panel.getByText("Not sent: The host is busy.")).toBeVisible();
+    await panel.getByRole("button", { name: "Retry" }).click();
+    await expect.poll(() => agentAnswers.length).toBe(1);
+    agentAnswers.shift()!();
     await expect
       .poll(() => agentMessages)
       .toEqual([
-        { sessionId: "s1", text: "Use minutes.", noteIds: ["n1"], attachments: [], images: [] },
+        {
+          id: expect.stringMatching(/^[0-9a-f-]{36}$/),
+          sessionId: "s1",
+          text: "Use minutes.",
+          noteIds: ["n1"],
+          attachments: [],
+          images: [],
+        },
       ]);
-    await expect.element(panel.getByText("Use minutes.")).toBeVisible();
-    await expect
-      .element(panel.getByText("Sent from Med · 1 comment · Claude took it"))
-      .toBeVisible();
-    await expect.element(panel.getByRole("textbox", { name: "Message Claude" })).toHaveValue("");
-    await expect.element(panel.getByRole("button", { name: "1 comment" })).toBeVisible();
+    // Claude took it: the thread goes on below it, without a status.
+    await expect.element(panel.getByText("Sending…")).not.toBeInTheDocument();
+    await expect.element(panel.getByText("Not sent", { exact: false })).not.toBeInTheDocument();
+    expect(panel.getByText("Use minutes.").elements()).toHaveLength(1);
   });
 
   test("a saved review starts an agent in the Session pane, and the composer drives it", async () => {

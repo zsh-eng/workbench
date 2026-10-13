@@ -148,6 +148,9 @@ async function fixture() {
 }
 
 test("Med starts Claude Code, sends review messages as prompts, and answers its questions", async () => {
+  // A host that a Claude Code session started has the session's variables,
+  // such as its bare mode; Claude Code that Med starts uses the user's login.
+  vi.stubEnv("CLAUDE_CODE_SIMPLE", "1");
   const { api, review, stateDir, thread, start } = await fixture();
   const agents = await api<{ agents: unknown[] }>("/api/agents");
   expect(agents.data.agents).toEqual([

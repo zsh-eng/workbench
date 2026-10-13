@@ -5,6 +5,7 @@ import { tokens } from "../../theme.stylex";
 import { Icon } from "../Icon";
 import { ZenContext } from "../ZenExit";
 import { motion, rowStyles } from "./session-styles";
+import { isMedWait } from "./thread-model";
 import { formatSeconds } from "./ToolCall";
 
 type ToolItem = Extract<SessionItem, { kind: "tool" }>;
@@ -13,13 +14,40 @@ type ToolItem = Extract<SessionItem, { kind: "tool" }>;
 const ADDRESS =
   /\bhttps?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]|[\w-]+\.localhost)(?::\d{2,5})?\/?[^\s"'`)]*/;
 
-function backgroundTasks(items: SessionItem[], found: ToolItem[] = []) {
+const isRunning = (item: ToolItem) =>
+  item.call.status === "pending" || item.call.status === "in_progress";
+
+/** Running tasks, and tasks that ended after `since`. Med's own wait is not a task. */
+function backgroundTasks(items: SessionItem[], since: number, found: ToolItem[] = []) {
   for (const item of items) {
     if (item.kind !== "tool") continue;
-    if (item.call.background) found.push(item);
-    backgroundTasks(item.items, found);
+    if (
+      item.call.background &&
+      !isMedWait(item.call) &&
+      (isRunning(item) || (item.endedAt ?? item.at) >= since)
+    )
+      found.push(item);
+    backgroundTasks(item.items, since, found);
   }
   return found;
+}
+
+/** Tasks that the reader hid the dock over; a new task shows it again. */
+const HIDDEN = "med:background-hidden";
+function readHidden(): string[] {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(HIDDEN) ?? "[]");
+    return Array.isArray(value) ? value.filter((id) => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+function store(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* Storage can be unavailable. */
+  }
 }
 
 function addressOf(item: ToolItem) {
@@ -33,8 +61,10 @@ function addressOf(item: ToolItem) {
 
 /**
  * Shells and agents that run in the background, as Claude Desktop lists
- * them: running ones first, with the local address a dev server printed.
- * A task's name scrolls the thread to the call that started it.
+ * them: running ones first, with the local address a dev server printed,
+ * then the ones that ended since the last prompt. A task's name scrolls the
+ * thread to the call that started it. The dock stays closed or hidden as the
+ * reader left it; a hidden dock comes back for a new task.
  */
 export function BackgroundDock({
   items,
@@ -46,39 +76,66 @@ export function BackgroundDock({
   /** Scrolls the thread to the call, which a long thread may not have rendered. */
   onShow?(id: string): void;
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem("med:background") !== "closed";
+    } catch {
+      return true;
+    }
+  });
+  const [hidden, setHidden] = useState(readHidden);
   const zen = useContext(ZenContext);
-  const tasks = backgroundTasks(items);
+  let since = 0;
+  for (const item of items) if (item.kind === "user") since = item.at;
+  const tasks = backgroundTasks(items, since);
+  const ids = tasks.map((item) => item.call.background!.id);
   // Zen leaves the waiting to the session's status.
-  if (zen || !tasks.length) return null;
-  const isRunning = (item: ToolItem) =>
-    item.call.status === "pending" || item.call.status === "in_progress";
+  if (zen || ids.every((id) => hidden.includes(id))) return null;
   const running = tasks.filter(isRunning);
   const ordered = [...running, ...tasks.filter((item) => !isRunning(item)).reverse()];
+  const hide = () => {
+    const next = [...new Set([...ids, ...hidden])].slice(0, 200);
+    setHidden(next);
+    store(HIDDEN, JSON.stringify(next));
+  };
   return (
     <section aria-label="Background tasks" {...stylex.props(styles.dock)}>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-        {...stylex.props(rowStyles.row, styles.head)}
-      >
-        <span {...stylex.props(rowStyles.icon)}>
-          {running.length ? (
-            <span {...stylex.props(motion.spinner)} />
-          ) : (
-            <Icon name="terminal" size={14} />
-          )}
-        </span>
-        <span {...stylex.props(styles.label)}>Background</span>
-        <span {...stylex.props(styles.count)}>
-          {running.length ? `${running.length} running` : `${tasks.length} done`}
-        </span>
-        <span {...stylex.props(styles.grow)} />
-        <span {...stylex.props(styles.chevron, open ? styles.chevronOpen : styles.chevronUp)}>
-          <Icon name="chevron" size={12} />
-        </span>
-      </button>
+      <div {...stylex.props(styles.top)}>
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => {
+            setOpen(!open);
+            store("med:background", open ? "closed" : "open");
+          }}
+          {...stylex.props(rowStyles.row, styles.head)}
+        >
+          <span {...stylex.props(rowStyles.icon)}>
+            {running.length ? (
+              <span {...stylex.props(motion.spinner)} />
+            ) : (
+              <Icon name="terminal" size={14} />
+            )}
+          </span>
+          <span {...stylex.props(styles.label)}>Background</span>
+          <span {...stylex.props(styles.count)}>
+            {running.length ? `${running.length} running` : `${tasks.length} done`}
+          </span>
+          <span {...stylex.props(styles.grow)} />
+          <span {...stylex.props(styles.chevron, open ? styles.chevronOpen : styles.chevronUp)}>
+            <Icon name="chevron" size={12} />
+          </span>
+        </button>
+        <button
+          type="button"
+          aria-label="Hide background tasks"
+          title="Hide until a new task starts"
+          onClick={hide}
+          {...stylex.props(styles.hide)}
+        >
+          <Icon name="close" size={12} />
+        </button>
+      </div>
       {open && (
         <ul {...stylex.props(styles.list)}>
           {ordered.map((item) => {
@@ -141,7 +198,22 @@ const styles = stylex.create({
     backgroundColor: tokens.canvas,
     boxShadow: `inset 0 0 0 1px ${tokens.line}`,
   },
-  head: { cursor: "pointer", gap: 8 },
+  top: { display: "flex", alignItems: "center", gap: 4 },
+  head: { flex: "1", cursor: "pointer", gap: 8 },
+  hide: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    width: 20,
+    height: 20,
+    padding: 0,
+    borderWidth: 0,
+    borderRadius: `calc(5px * ${tokens.round})`,
+    backgroundColor: { default: "transparent", ":hover": tokens.fill },
+    color: { default: tokens.faint, ":hover": tokens.text },
+    cursor: "pointer",
+  },
   label: { color: tokens.text, fontWeight: 500 },
   count: { color: tokens.faint, fontVariantNumeric: "tabular-nums" },
   grow: { flex: "1" },
