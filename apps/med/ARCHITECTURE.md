@@ -12,34 +12,29 @@ Related: [file browsing](docs/FILE_BROWSING.md), [agent sessions](docs/SESSIONS.
 ## Layout
 
 ```text
-┌ Repository / branch ⌄   Brief · Changes · file tabs              ┐
-├───────────────────┬──────────────────────────────────────────────┤
-│ Workspaces     +  │ Comparison title        Split / Unified      │
-│ ▤ notes           │                                              │
-│ ⑂ main        12  │                                              │
-├───────────────────┤                                              │
-│ Commit graph      │                         Find · Wrap · Notes  │
-│ Paged history     │                                              │
-├───────────────────┼──────────────────────────────────────────────┤
-│ Changed files     │ File A header                                │
-│ Path filter       │ Hunks · source selection · context · notes   │
-│ Tree and counts   │ File B header                                │
-│                   │ Hunks …                                      │
-│                   │ File C …                 One scroll surface  │
-├───────────────────┴──────────────────────────────────────────────┤
-│ Connection · file totals · request / parse / first-frame timing  │
-└──────────────────────────────────────────────────────────────────┘
+┌ Threads ──────────┬ Changes ──────┬ Review ─────────────────────────────┐
+│ New thread     ⌥N │ Path filter   │ Title · branch · range              │
+│ workbench         │ Tree and      │ Changes · Commit · file tabs        │
+│   Task A  +12 −3  │ counts        │ File A header                       │
+│   Task B  ◌       │               │ Hunks · source selection · notes    │
+│ blog              │               │ File B …         One scroll surface │
+│   Task C          │               ├ Session ────────────────────────────┤
+│                   │               │ Prompts, replies, tool calls        │
+│ Repositories   10 │               │ Message box                         │
+├───────────────────┴───────────────┴─────────────────────────────────────┤
+│ Connection · file totals · request / parse / first-frame timing         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
+
+The sidebar lists threads: each saved review that the host keeps, by
+repository, with its lead session's state. The workspace beside it is a tree of
+panes ([panes](#panes)): the review, and Changes, Session, Files, and Preview
+around it.
 
 All changed paths stay in the tree. Selecting a path shows it in the one
 continuous diff stream. Binary files, oversized files, and entries without a
 text patch get metadata rows; Med does not invent empty patches. Pierre's
 virtualizer mounts only nearby rows.
-
-The graph shows the ancestry of the selected worktree's HEAD or branch, in
-topological order, paged from a resolved tip. A merge shows its first-parent
-diff, and a root commit compares with the empty tree. A missing parent at a
-shallow boundary gives a clear error.
 
 Branch tabs map local refs to the worktrees that Git reports. An attached
 branch opens its working changes; a branch without a worktree opens its
@@ -84,7 +79,7 @@ flowchart TB
 | Selectors, menus, dialogs, tooltips          | `@base-ui/react`                                                                       |
 | Layout, themes, focus, density               | StyleX and a small CSS reset                                                           |
 | Markdown                                     | unified, remark, and rehype in a worker; KaTeX and Mermaid on demand                   |
-| Commit graph, separators, status elements    | Local React, HTML, and SVG                                                             |
+| Separators and status elements               | Local React, HTML, and SVG                                                             |
 | Browser state                                | Local controllers and React external-store subscriptions                               |
 | Review semantics                             | Pinned Hunk source ([Hunk provenance](#hunk-provenance))                               |
 | Runtime schemas                              | Zod                                                                                    |
@@ -93,7 +88,7 @@ flowchart TB
 | HTTP and SSE                                 | Native Node HTTP and browser fetch                                                     |
 
 Med needs no Hono, Express, query framework, router, generic state store,
-splitter library, daemon broker, or desktop framework. The installed app serves
+splitter or pane library, daemon broker, or desktop framework. The installed app serves
 its compiled assets. It never loads the reviewed repository's Vite config or
 runs its scripts. [Dependencies](../../docs/DEPENDENCIES.md) says when to build
 our own code and when to take a dependency.
@@ -152,7 +147,7 @@ sequenceDiagram
   participant G as Git
   participant W as Patch worker
   participant V as Pierre stream
-  U->>C: Select commit
+  U->>C: Select comparison
   C->>C: Cancel old fetch and parse; check bounded cache
   C->>H: Review request with comparison
   H->>G: Resolve objects and obtain bounded patch / metadata
@@ -165,7 +160,7 @@ sequenceDiagram
   H-->>V: Matching immutable bytes, or stale error
   G-->>H: Worktree or metadata watch hint
   H-->>C: Revision event
-  C->>C: Refresh affected mutable view and history
+  C->>C: Refresh affected mutable view
 ```
 
 The first request sends one bounded patch and all file metadata. A latest-only
@@ -187,8 +182,8 @@ captured file and index signature before Med returns it. File pairs use frozen
 byte snapshots; standalone patches do not claim full-source authority. A stale
 source request fails; it does not mix current contents with an old patch.
 
-Watch events are hints, not content. Commit browsing watches Git metadata only;
-working views watch the worktree. Med coalesces events, and periodic status
+Watch events are hints, not content. Commit comparisons watch Git metadata
+only; working views watch the worktree. Med coalesces events, and periodic status
 reconciliation finds missed changes. A reconnect refreshes, also when a
 revision repeats. A refresh can replace the whole patch.
 
@@ -219,23 +214,66 @@ is the home and cannot close. A branch change in a workspace cancels old
 requests, restores that branch's navigation, and reloads mutable content.
 
 `WorkspaceHost` (`components/Workspaces.tsx`) owns the store, the address,
-`⌘1`–`⌘9`, and the `⌃Tab` switcher. Each workspace has its own review controller
-and `App`. The four most recently shown stay mounted in React `<Activity>`;
-older ones are disposed and load again when shown. Activity runs effect
-cleanups when it hides a workspace, so objects that live as long as the
-workspace register with `useDisposeOnClose`. `tools/pierre-keep-alive.ts` and
-`StableFileTree` keep Pierre's views and trees while a workspace is hidden.
-When the browser is idle, the pool mounts the next workspace in advance.
+the thread sidebar, `⌘1`–`⌘9` (the threads in sidebar order), and the `⌃Tab`
+switcher. Each workspace has its own review controller and `App`. The six most
+recently shown stay mounted in React `<Activity>`; older ones are disposed and
+load again when shown. Activity runs effect cleanups when it hides a
+workspace, so objects that live as long as the workspace register with
+`useDisposeOnClose`. `tools/pierre-keep-alive.ts` and `StableFileTree` keep
+Pierre's views and trees while a workspace is hidden. When the browser is idle,
+the pool mounts the next workspace in advance.
+
+A pointer that rests on a thread row for 60 ms reads the thread's saved review
+and its diff (`prefetchSavedReview` in `data/controller.ts`). The controller
+takes that read when the thread opens, if it is less than 10 seconds old, and
+does not read the saved review again within 2 seconds. The host lists
+repositories in parallel and shares one listing among concurrent callers.
 
 Only the workspace on screen keeps its live-update stream; `resume()`
-reconciles without clearing the screen. This keeps one stream per window in
-the browser's limit of six connections per origin. Agents announce new reviews
-on `GET /api/windows`. One window holds that stream under a Web Lock and passes
-reviews to the other windows on a `BroadcastChannel`.
+reconciles without clearing the screen. Every event stream of a page is a
+channel of one live stream (`data/live.ts`): a WebSocket at `/api/live`, or an
+event stream where a WebSocket cannot open. A WebSocket does not count toward
+the browser's six connections to one host, so windows and tabs do not starve
+each other's requests. Agents announce new reviews on `GET /api/windows`. One
+window holds that stream under a Web Lock and passes reviews to the other
+windows on a `BroadcastChannel`.
 
 The address follows the active workspace: `/review/<id>`, `/vault/<id>`, or `/`
 with the workspace ID in `history.state`. Back and Forward move between
 workspaces.
+
+### Threads
+
+`GET /api/threads/events` sends the thread list and the registered
+repositories, and sends them again when they change; the host checks every
+1.5 seconds. A thread is a saved review that is not archived; its state comes
+from its lead session (`src/host/agent-status.ts`).
+
+`POST /api/threads` starts a thread. With a worktree, the default, the host
+names a branch for the task (with `-2`, `-3`, … when the name is taken), adds a
+linked worktree for it in the state directory
+(`worktrees/<repository>-<id>/<branch>`), saves the review on its working
+changes, and starts the agent there on the task. `POST /api/threads/:id/archive`
+sets or clears `archivedAt`. With `removeWorktree`, it also runs `git worktree
+remove` without force, so Git keeps a worktree with changes and the host
+returns 409; it refuses a worktree that another thread uses. The branch stays.
+
+### Panes
+
+`data/pane-tree.ts` holds the layout as pure functions over a tree: a leaf is
+a pane ID, and a split has an axis, children, and sizes. They insert, remove,
+move, swap, resize, balance, and lay out panes. A pane has a minimum of
+220 × 120 pixels: `fitted` raises a child below its minimum and takes the room
+from its siblings in proportion, and `fit` leaves out panes in tree order,
+except the focused and fixed ones, until the rest fit.
+
+`components/PaneTree.tsx` places each pane at its rectangle with absolute
+positions, so a new layout moves panes and does not mount them again. Focus
+and the entering pane live in a small external store, so a focus change does
+not render `App` again. A drag of a pane's grip shows the drop zone on the
+pane under the pointer: a side places the pane there, and the middle swaps the
+two. Each workspace saves its tree and zoom in `localStorage`
+(`med:panes:v1:<key>`).
 
 A theme is a whole look (`Aesthetic` in `themes.ts`): fonts, corners,
 hairlines, selection, buttons, label case, and shadows, as `--med-*` variables.

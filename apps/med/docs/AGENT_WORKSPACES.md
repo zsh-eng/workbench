@@ -95,16 +95,12 @@ model. Med finds the links itself: the session ran `med review create`, its
 working directory is in the workspace, or it edited files there. The newest
 linked session that is still working is the lead.
 
-The workspace list shows each lead's state from `GET
-/api/agent-status/events` (`src/host/agent-status.ts`): a turning mark for
-**Working**, **Needs you** when the session waits in `med review wait` or on a
-permission, and an unread dot for **Done**. The browser keeps the last update
-that you saw (`med:agent-seen`). An attached Claude session cannot show a
-waiting permission prompt, because the transcript does not record it.
-
-The list's **Sessions** row opens the
-[Sessions page](SESSIONS.md#sessions-page): every lead on one Board, with its
-current turn, and a Desk to read and answer one beside the others.
+The thread list shows each lead's state from `GET /api/threads/events`
+(`src/host/agent-status.ts` reads it): a turning mark for **Working**,
+**Needs you** when the session waits in `med review wait` or on a permission,
+and an unread dot for **Done**. The browser keeps the last update that you saw
+(`med:thread-seen`). An attached Claude session cannot show a waiting
+permission prompt, because the transcript does not record it.
 
 ## Replies
 

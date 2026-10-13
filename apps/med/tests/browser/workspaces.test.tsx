@@ -415,9 +415,9 @@ test("keeps branch workspaces live, switches by shortcut, and restores them", as
     .poll(() => [...host.streams].map((key) => key.split("#")[0]))
     .toEqual(["/test/feature"]);
 
-  // ⌃2 shows the second workspace, after the pinned vault. The same review
-  // returns, not a reload; it catches up on changes it missed and listens again.
-  await userEvent.keyboard("{Control>}2{/Control}");
+  // A tap of ⌃Tab shows the previous workspace. The same review returns, not a
+  // reload; it catches up on changes it missed and listens again.
+  await userEvent.keyboard("{Control>}{Tab}{/Control}");
   await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
   expect(shown()).toBe(mainView);
   // Its diffs stay rendered while hidden; showing it does not build them again.
@@ -434,7 +434,7 @@ test("keeps branch workspaces live, switches by shortcut, and restores them", as
     .poll(() => [...host.streams].map((key) => key.split("#")[0]))
     .toEqual(["/test/repo"]);
 
-  // A tap of ⌃Tab returns to the previous workspace.
+  // Another tap returns.
   await userEvent.keyboard("{Control>}{Tab}{/Control}");
   await expect.poll(() => shown()?.dataset.selectedBranch).toBe("feature");
   expect(history.state).toMatchObject({ workspace: expect.any(String) });
@@ -473,6 +473,10 @@ test("the sidebar lists every thread by repository with its agent's state", asyn
   await expect.poll(threadRows).toEqual(["Agent review, working", "Second review, needs you"]);
   await expect.element(sidebar.getByText("Needs you", { exact: true })).toBeVisible();
   await expect.element(sidebar.getByText("+12")).toBeVisible();
+
+  // ⌃2 (⌘2 on a Mac) opens the second thread in the list.
+  await userEvent.keyboard("{Control>}2{/Control}");
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("second-target");
 
   // A pointer that rests on a row reads its thread ahead, and the click uses
   // that read.

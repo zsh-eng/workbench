@@ -73,59 +73,54 @@ the same remote. On the **Sources** page, a row's **⋯** menu can index a vault
 again, copy the path, or remove the source. Removing a source keeps its folder.
 See [notes and vaults](VAULTS.md) for vaults.
 
-## Workspaces
+## Threads
 
-A workspace is one task: a branch or worktree, a saved review, or a vault.
-Each keeps its own comparison, open files, notes, and scroll position.
+A thread is one task: an agent's work and its changes, as a saved review. The
+sidebar lists every thread that the host keeps, by repository. The repository
+with the newest work comes first, and each group shows its newest thread
+first. A row shows the title, the branch, the age, and the change totals.
 
-The branch switcher at the top of the sidebar (`⌘⇧G`) searches the branches
-and worktrees of every registered repository. `↵` opens a branch in the
-current workspace; `⌘↵` or a ⌘-click opens it as a new workspace. To add a
-repository, enter its path in the switcher. Removing one there closes its
-views; it does not delete files or branches. History, files, search, and
-symbols use the workspace's repository and branch.
-
-- The **Workspaces** list at the top of the sidebar appears when two are open.
-  Vaults come first, then the home workspace on the default branch. Each row
-  shows its number of changed files.
-- `⌘1`–`⌘9` show the workspace at that place. `⌃Tab` shows recent workspaces:
-  hold Control, press Tab to step, and release to go. **Switch workspace…** in
-  the palette does the same.
-- **+**, or **New workspace…** in the palette, opens the branch switcher. A
-  saved review link adds a workspace for that review. `Delete` or **×** closes
-  a row; vaults and the home workspace stay.
-- A review that an agent creates joins the list in every Med window, with an
-  accent dot until you open it.
-- A review with an agent session shows the session's state: a turning mark
-  while the agent works, **Needs you** while it waits for a permission answer
-  or for your review, and the accent dot when a turn ended while you were
-  elsewhere.
-- **Sessions**, at the head of the list, or **Show agent sessions** in the
-  palette, opens the [Sessions page](#sessions-page).
+- **New thread** (`⌥N`) asks for the task, the repository, where the agent
+  works, and the agent. **New worktree**, the default, makes a branch named
+  for the task in a new linked worktree, so the work stays apart from your
+  checkout. **Checkout** works on the checkout's current branch. `⌘↵` starts
+  the agent on the task at once.
+- A turning mark shows while the agent works, **Needs you** while it waits for
+  a permission answer or for your review, and a dot when a turn ended while
+  you were elsewhere.
+- `⌘1`–`⌘9` open the thread at that place in the list. `⌃Tab` shows recent
+  workspaces: hold Control, press Tab to step, and release to go.
+- Rest the pointer on a row, and Med reads the thread before you click.
 - Right-click a row to open it, copy a command that resumes the agent's
-  session, mark it read or unread, or close it. On a branch row, **Copy lazygit
-  command** copies a command that opens lazygit in that checkout, for Git work
-  that the [Commit tab](#commit-and-push) does not do.
+  session or opens lazygit in its checkout, mark it read or unread, or archive
+  it. **Archive and remove worktree** also removes the worktree that Med made;
+  the branch stays, and Git keeps a worktree with changes. **Undo** brings the
+  thread back.
+- **Repositories**, at the foot of the sidebar, lists the registered
+  repositories and vaults by name. Click one to browse it without a thread;
+  **+** opens the Sources page.
+- `⌘B` shows or hides the sidebar. In a window narrower than 760 pixels, the
+  sidebar opens over the workspace, and a choice closes it.
 
-The four most recent workspaces stay loaded, so a switch is immediate. Only
+The branch switcher (`⌘⇧G`) searches the branches and worktrees of every
+registered repository. `↵` opens a branch in the current workspace; `⌘↵` opens
+it as a new workspace.
+
+The six most recent workspaces stay loaded, so a switch back is immediate. Only
 the workspace on screen gets live updates; the others catch up when you
-return. Windows share the list, but each shows its own workspace. A saved
-review keeps its `/review/…` address, and Back and Forward move between
-workspaces. In a browser tab, which keeps `⌘1`–`⌘9`, use `Ctrl+1`–`Ctrl+9`,
-the installed app, or the palette.
+return. A thread keeps its `/review/…` address, and Back and Forward move
+between workspaces. In a browser tab, which keeps `⌘1`–`⌘9`, use
+`Ctrl+1`–`Ctrl+9` or the installed app.
 
 ## Review changes
 
-1. Select a commit or the working changes in the history panel. A commit
-   compares with its first parent. Hover a commit for its author, message,
-   refs, and change counts. Click **History** to fold the panel to one line.
+1. Choose working, staged, or unstaged changes in the comparison menu above
+   the diff. **Compare against** compares with the base branch, and **Compare
+   revisions…** in the review's menu chooses a range. A range compares
+   snapshots; it does not add patches across merged branches.
 2. Select a changed path to go to it in the diff. Double-click it to open the
    whole file.
-3. Shift-click another commit to compare a range, from the oldest commit's
-   first parent to the newest commit. Shift+Up and Shift+Down extend it; a
-   plain click resets it. A range compares snapshots; it does not add patches
-   across merged branches.
-4. Open unchanged files from the file picker or the Files pane. A preview does
+3. Open unchanged files from the file picker or the Files pane. A preview does
    not replace your review until you open it. A branch without a worktree opens
    its committed content.
 
@@ -200,20 +195,6 @@ Codex open themselves; Med keeps the copies for 30 days. Med stops its agents wh
 
 Saved reviews persist in the state folder. Notes on a branch last until the
 server stops.
-
-### Sessions page
-
-The Sessions page shows the agent session of each saved review in the
-workspace list. It opens on the **Board**: one pane for each session, with the
-sessions that need you first. A pane shows the session's last prompt, its
-latest steps, and the reply that ended its turn.
-
-- Answer a permission request with the buttons in its pane.
-- Click a pane to open the **Desk**: the sessions in a list, and the chosen one
-  in its Session pane, where you can reply. `↑` `↓` or `j` `k` move in the list.
-- `⌘↵` opens the session's review.
-- `Esc` goes back from the Desk to the Board, and from the Board to the
-  workspace.
 
 ## The Guide
 
@@ -557,24 +538,32 @@ markers until you refresh.
 
 ## Layout
 
-### Side panes
+### Panes
 
-One column at the right holds **Session** (`⌘⇧B`), **Files** (the folder
-button), and **Preview** (`⌘⇧V`). Drag its left edge to resize it, or press
-`⌘⌃⇧←` and `⌘⌃⇧→`, as Ghostty resizes a split. `⌘⌃=` makes the column as wide
-as the review; press it again for the width before. It shows the
-two latest panes, one above the other; a third closes the oldest. **Maximize**
-gives one pane the column, and **Restore** shares it again. **Show side panes
-as tabs** shows one pane at a time, and **Stack side panes** goes back. Both
-layouts are prototypes.
+A workspace is a set of tiled panes: the review, and **Changes** (the changed
+files), **Session** (`⌘⇧B`), **Files** (the folder button), and **Preview**
+(`⌘⇧V`) beside it. Each thread keeps its own layout.
+
+- Drag a pane's grip onto a side of another pane to place it there, or onto
+  the middle to swap the two. Escape leaves it where it was.
+- `⌘⌥←→↑↓` moves the focus to the next pane; with `⇧`, the focused pane moves
+  past its neighbor.
+- Drag a gap between panes to resize them, or focus the gap and press the
+  arrow keys. Double-click a gap, or press `⌘⌃=`, to give the panes equal room.
+- `⌘E` zooms the focused pane to the whole workspace; press it again to
+  restore the others.
+- A pane does not get narrower than 220 pixels or lower than 120. When the
+  window is too small for all of them, Med hides panes until the rest fit, and
+  shows them again when there is room.
+- A review narrower than 760 pixels shows unified diffs.
 
 ### Zen mode
 
 `⌥Z`, the focus button at the top right, or **Enter zen mode** hides every
 bar: the tabs, the Changes toolbar, and the status bar. It also hides the saved
-review's header, the sidebar's workspaces, the session's controls, and the
-reply and background bars. The sidebar keeps the history and files, and the
-session keeps its thread and message box; a folded turn still opens.
+review's header, the session's controls, and the reply and background bars.
+The panes stay, and the session keeps its thread and message box; a folded
+turn still opens.
 
 In zen mode, the command palette has the review's actions: **Send comments
 to** the agent, **Copy comments**, and **Return to review**. `⌘B` and `⌘⇧B`
@@ -597,11 +586,14 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Symbols in this file             | `⌘O`          |
 | Symbols in the project           | `⌘⇧O`         |
 | Open a branch or worktree        | `⌘⇧G`         |
-| Show workspace 1–9               | `⌘1`–`⌘9`     |
+| Open thread 1–9                  | `⌘1`–`⌘9`     |
 | Switch to a recent workspace     | `⌃Tab`        |
 | Toggle the sidebar / session     | `⌘B` / `⌘⇧B`  |
-| Widen / narrow the side panes    | `⌘⌃⇧←` / `→`  |
-| Side panes as wide as the review | `⌘⌃=`         |
+| New thread                       | `⌥N`          |
+| Focus the next pane              | `⌘⌥←`         |
+| Move the focused pane            | `⌘⌥⇧←`        |
+| Zoom the focused pane            | `⌘E`          |
+| Balance the panes                | `⌘⌃=`         |
 | Zen mode                         | `⌥Z`          |
 | Comment on selected lines        | `c`           |
 | Paste a brief                    | `⌘V`          |

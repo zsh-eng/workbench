@@ -10,7 +10,7 @@ _Bun · Tokyo Night_
 
 ## Work across repositories
 
-Keep repositories, branches, and worktrees in one window. Each tab has its own history, files, and search scope.
+Keep repositories, branches, worktrees, and agent threads in one window. Each workspace has its own panes, files, and search scope.
 
 ![Open branch picker showing the Bun and med repositories in Vitesse Light](docs/screenshots/repositories-vitesse-light.png)
 

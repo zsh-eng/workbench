@@ -36,7 +36,6 @@ import {
 import { z } from "zod";
 import { tokens, ui } from "../theme.stylex";
 import { Icon, type IconName } from "./Icon";
-import { ShortcutKeys } from "./ShortcutKeys";
 import { ActionTooltip } from "./ToolButton";
 import { visibleElement } from "../data/palette-focus";
 import { createApi } from "../data/api";
@@ -48,7 +47,7 @@ import { themeController } from "../themes";
 import { parsePullUrl } from "../../shared/pull-workspace";
 import { startPull, usePullJob } from "../data/pull-jobs";
 import { PullWorkspaceView, pullTitle, type PullState } from "./PullWorkspace";
-import { useThreads } from "../data/threads";
+import { groupThreads, useThreads } from "../data/threads";
 import { ThreadSidebar, type SidebarSource } from "./shell/ThreadSidebar";
 import { NewThread } from "./shell/NewThread";
 import { prefetchSavedReview } from "../data/controller";
@@ -586,21 +585,13 @@ export function WorkspaceHost({
     };
   }, []);
 
-  // ⌘1–9 shows a workspace by its place in the list; ⌃Tab opens the switcher.
+  // ⌃Tab opens the switcher of recent workspaces.
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || event.altKey) return;
       if (overlayAddress(location.pathname) || visibleElement('[role="dialog"]')) return;
-      const rows = orderedWorkspaces(store.getSnapshot());
-      if (rows.length < 2) return;
-      const digit = /^Digit([1-9])$/.exec(event.code)?.[1];
-      if (digit && (event.metaKey || event.ctrlKey) && !event.shiftKey) {
-        const target = rows[Number(digit) - 1];
-        if (!target) return;
-        event.preventDefault();
-        event.stopPropagation();
-        show(target.id);
-      } else if (event.key === "Tab" && event.ctrlKey && !event.metaKey) {
+      if (orderedWorkspaces(store.getSnapshot()).length < 2) return;
+      if (event.key === "Tab" && event.ctrlKey && !event.metaKey) {
         event.preventDefault();
         event.stopPropagation();
         rememberFocus();
@@ -609,7 +600,7 @@ export function WorkspaceHost({
     };
     window.addEventListener("keydown", keydown, true);
     return () => window.removeEventListener("keydown", keydown, true);
-  }, [rememberFocus, show, store]);
+  }, [rememberFocus, store]);
 
   // The sidebar lists every thread the host keeps and the repositories.
   const threadList = useThreads(fetcher);
@@ -688,6 +679,27 @@ export function WorkspaceHost({
   );
   // A new thread covers the workspaces until it starts or the reader leaves.
   const [newThread, setNewThread] = useState(false);
+  // ⌘1–⌘9 open the thread at that place in the sidebar.
+  const threadOrder = useMemo(
+    () => groupThreads(threadList?.threads ?? []).flatMap((group) => group.threads),
+    [threadList],
+  );
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || event.altKey || event.shiftKey) return;
+      const digit = /^Digit([1-9])$/.exec(event.code)?.[1];
+      if (!digit || !(event.metaKey || event.ctrlKey)) return;
+      if (overlayAddress(location.pathname) || visibleElement('[role="dialog"]')) return;
+      const thread = threadOrder[Number(digit) - 1];
+      if (!thread) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setNewThread(false);
+      actions.open({ kind: "review", reviewId: thread.id, title: thread.title });
+    };
+    window.addEventListener("keydown", keydown, true);
+    return () => window.removeEventListener("keydown", keydown, true);
+  }, [actions, threadOrder]);
   const activeEntry = snapshot.workspaces.find((entry) => entry.id === snapshot.active);
   const activeRepositoryId =
     activeEntry?.kind === "repository"
@@ -1252,7 +1264,6 @@ function WorkspaceSwitcher({
           {...stylex.props(styles.switchList)}
         >
           {rows.map((workspace, position) => {
-            const place = ordered.indexOf(workspace);
             const repository = qualifier(workspace);
             return (
               <div
@@ -1289,7 +1300,6 @@ function WorkspaceSwitcher({
                 {workspace.id === snapshot.active && (
                   <span {...stylex.props(styles.here)}>Current</span>
                 )}
-                {place < 9 && <ShortcutKeys value={`Mod+${place + 1}`} />}
               </div>
             );
           })}

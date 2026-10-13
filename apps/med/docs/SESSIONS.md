@@ -156,11 +156,10 @@ nothing.
   message in Med" and does not spin. The dock stays closed as the reader left
   it; **Hide** keeps it hidden until a new task starts.
 - A subagent is part of its parent's session, not a session of its own: the
-  host reads its transcript into the call that started it, and the Sessions
-  page counts only the parent. **Open** on a subagent's row, or its task in
-  the Background dock, shows its whole thread over the session's. Back or
-  Escape returns to the session where the reader left it; the arrows step
-  through the session's other subagents.
+  host reads its transcript into the call that started it. **Open** on a
+  subagent's row, or its task in the Background dock, shows its whole thread
+  over the session's. Back or Escape returns to the session where the reader
+  left it; the arrows step through the session's other subagents.
 - A message from the composer shows in the thread at once, with "Sending…".
   The host keeps the browser's ID for it, so a retry after a lost answer does
   not send it twice. A failed send keeps the text with Retry and Discard. When
@@ -201,26 +200,6 @@ nothing.
   partial text is not cached.
 - `SessionPanel.tsx` is the sidebar: the stream, the status, and links. A link
   such as `src/summary.ts:5` opens the file in the review.
-
-## Sessions page
-
-`/sessions` (`components/sessions/`) shows the lead session of each saved
-review in the window's workspace list. The workspaces stay mounted and hidden
-beneath it, so a review keeps its place.
-
-- `GET /api/sessions/events?reviews=` (`src/host/session-summaries.ts`) sends a
-  summary of each lead session: its state, the current turn's prompt, its last
-  six steps, the reply that ended it, and what it waits for (a permission
-  request of a session that Med runs, or `med review wait`). The host reads the
-  last 256 KiB of the transcript, and reads it again only when the file
-  changes. It checks every 1.5 s, as the status stream does, and sends only
-  changes. The stream is a channel of `/api/live`.
-- The **Board** shows each summary as a pane. A permission answer goes to
-  `POST /api/reviews/:id/owned/:session`.
-- The **Desk** lists the sessions and shows the chosen one in the review's
-  Session pane, with its replies. Its address is `/sessions?review=<id>`, so
-  Back returns to the Board.
-- `components/elements/SessionsSection.tsx` shows the page on sample sessions.
 
 ## Replays and fixtures
 
