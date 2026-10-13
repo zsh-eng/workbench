@@ -51,9 +51,10 @@ import { PullWorkspaceView, pullTitle, type PullState } from "./PullWorkspace";
 import { useThreads } from "../data/threads";
 import { ThreadSidebar, type SidebarSource } from "./shell/ThreadSidebar";
 import { NewThread } from "./shell/NewThread";
+import { prefetchSavedReview } from "../data/controller";
 
 /** Workspaces kept mounted, most recently shown first. Older ones reload. */
-const MOUNTED = 4;
+const MOUNTED = 6;
 
 type ControllerOptions = Omit<ReviewControllerOptions, "savedReviewId" | "start">;
 /** A patch parser keeps only its latest request, so each workspace has its own:
@@ -761,6 +762,7 @@ export function WorkspaceHost({
                             window.dispatchEvent(new PopStateEvent("popstate"));
                           }}
                           onArchive={archiveThread}
+                          onPrefetch={(thread) => prefetchSavedReview(thread.id, fetcher)}
                         />
                       </aside>
                       {!narrow && (

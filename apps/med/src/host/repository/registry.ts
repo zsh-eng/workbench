@@ -28,6 +28,7 @@ export class RepositoryRegistry {
   // A checkout keeps its common directory while its .git entry is the same
   // file, so most requests check one stat instead of starting Git.
   private checkouts = new Map<string, { marker: string; commonDir: string }>();
+  private listing: Promise<ReturnType<RepositoryRegistry["snapshot"]>> | undefined;
   constructor(
     private searchOptions?: SearchOptions,
     private onRemove?: (id: string, paths: ReadonlySet<string>) => Promise<void>,
@@ -179,25 +180,42 @@ export class RepositoryRegistry {
     });
   }
 
+  /**
+   * Every repository with its branches and worktrees, read again from Git.
+   * Callers that ask while a read runs share it, as windows that open at
+   * once do; each repository reads at the same time as the others.
+   */
   list(signal?: AbortSignal) {
-    return this.serialize(async () => {
-      for (const entry of this.entries.values()) {
-        try {
-          await this.refresh(entry, signal);
-        } catch (error) {
-          signal?.throwIfAborted();
-          entry.paths.clear();
-          await entry.search?.close();
-          entry.search = undefined;
-          entry.catalogue = {
-            ...entry.catalogue,
-            branches: [],
-            worktrees: [],
-            error: error instanceof Error ? error.message : "This repository is unavailable.",
-          };
-        }
-      }
+    this.listing ??= this.serialize(async () => {
+      await Promise.all(
+        [...this.entries.values()].map(async (entry) => {
+          try {
+            await this.refresh(entry);
+          } catch (error) {
+            entry.paths.clear();
+            await entry.search?.close();
+            entry.search = undefined;
+            entry.catalogue = {
+              ...entry.catalogue,
+              branches: [],
+              worktrees: [],
+              error: error instanceof Error ? error.message : "This repository is unavailable.",
+            };
+          }
+        }),
+      );
       return this.snapshot();
+    }).finally(() => {
+      this.listing = undefined;
+    });
+    const listing = this.listing;
+    if (!signal) return listing;
+    // One caller that leaves does not stop the read for the others.
+    return new Promise<ReturnType<RepositoryRegistry["snapshot"]>>((resolve, reject) => {
+      const abort = () => reject(signal.reason);
+      if (signal.aborted) return abort();
+      signal.addEventListener("abort", abort, { once: true });
+      listing.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
     });
   }
 

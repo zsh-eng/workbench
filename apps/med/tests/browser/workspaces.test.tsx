@@ -151,8 +151,11 @@ function createHost() {
   };
   // Worktrees that the host was asked to remove; Git keeps the first one.
   const removals: string[] = [];
+  // Each request's path, in order.
+  const requested: string[] = [];
   const fetcher: typeof fetch = async (input, init) => {
     const url = new URL(String(input), "http://localhost");
+    requested.push(url.pathname);
     const repo = url.searchParams.get("repo") || "/test/repo";
     if (url.pathname === "/api/worktrees/remove") {
       removals.push(JSON.parse(String(init?.body)).path);
@@ -336,6 +339,7 @@ function createHost() {
     announce,
     setThreads,
     threadRequests,
+    requested,
     answers,
     pulls,
     setPull,
@@ -470,9 +474,16 @@ test("the sidebar lists every thread by repository with its agent's state", asyn
   await expect.element(sidebar.getByText("Needs you", { exact: true })).toBeVisible();
   await expect.element(sidebar.getByText("+12")).toBeVisible();
 
-  // A row opens its thread.
+  // A pointer that rests on a row reads its thread ahead, and the click uses
+  // that read.
+  const reads = (path: string) => host.requested.filter((entry) => entry === path).length;
+  await page.getByRole("button", { name: /^Agent review/ }).hover();
+  await expect.poll(() => reads("/api/reviews/agent/targets/agent-target/review")).toBe(1);
+  expect(reads("/api/reviews/agent")).toBe(1);
   await page.getByRole("button", { name: /^Agent review/ }).click();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("agent-target");
+  expect(reads("/api/reviews/agent")).toBe(1);
+  expect(reads("/api/reviews/agent/targets/agent-target/review")).toBe(1);
   await expect.poll(() => location.pathname).toBe("/review/agent");
   await expect.poll(() => threadRows()[0]).toBe("Agent review, working(current)");
 

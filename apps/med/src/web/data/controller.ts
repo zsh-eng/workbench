@@ -186,6 +186,53 @@ export function currentTargets(saved: SavedReview) {
   return ids ? own.filter((target) => ids.includes(target.id)) : own;
 }
 
+/** The repository list that a window reads now; windows that open with it share it. */
+const catalogues = new WeakMap<typeof fetch, Promise<z.infer<typeof repositoriesSchema>>>();
+
+/** Reads that a pointer on a thread starts before the click, by address. */
+const WARM_MS = 10_000;
+/** A saved review read this recently is current enough to open a target. */
+const SAVED_FRESH_MS = 2000;
+const warmed = new WeakMap<typeof fetch, Map<string, { at: number; value: Promise<unknown> }>>();
+/** A warm read of `path`, which its schema already checked, or undefined. */
+function takeWarm<T>(fetcher: typeof fetch, path: string) {
+  const known = warmed.get(fetcher)?.get(path);
+  warmed.get(fetcher)?.delete(path);
+  return known && performance.now() - known.at < WARM_MS ? (known.value as Promise<T>) : undefined;
+}
+
+/**
+ * Reads a saved review, its first diff, and the repository list ahead of its
+ * window, such as while the pointer rests on its thread. The window that
+ * opens next uses them.
+ */
+export function prefetchSavedReview(reviewId: string, fetcher: typeof fetch = browserFetch) {
+  let paths = warmed.get(fetcher);
+  if (!paths) warmed.set(fetcher, (paths = new Map()));
+  const path = `/api/reviews/${encodeURIComponent(reviewId)}`;
+  const known = paths.get(path);
+  if (known && performance.now() - known.at < WARM_MS) return;
+  const api = createApi(fetcher, readBrowserToken());
+  const at = performance.now();
+  const saved = api.json(path, savedReviewSchema);
+  saved.catch(() => paths.delete(path));
+  paths.set(path, { at, value: saved });
+  void saved.then(
+    (review) => {
+      const first = currentTargets(review)[0] ?? review.targets[0];
+      if (!first) return;
+      const target = `${path}/targets/${encodeURIComponent(first.id)}/review`;
+      const value = api.json(target, reviewSchema);
+      value.catch(() => paths.delete(target));
+      paths.set(target, { at, value });
+    },
+    () => {},
+  );
+  const catalogue = api.json("/api/repositories", repositoriesSchema);
+  catalogue.catch(() => paths.delete("/api/repositories"));
+  paths.set("/api/repositories", { at, value: catalogue });
+}
+
 export function createReviewController(options: ReviewControllerOptions = {}): ReviewController {
   const token = options.token ?? readBrowserToken();
   // A workspace names its review or branch; otherwise the page address does.
@@ -194,7 +241,22 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     (options.start || typeof location === "undefined"
       ? undefined
       : /^\/review\/([^/]+)\/?$/.exec(location.pathname)?.[1]);
-  const api = createApi(options.fetch ?? browserFetch, token);
+  const fetcher = options.fetch ?? browserFetch;
+  const api = createApi(fetcher, token);
+  /** The repository list: a warm read, the read another window waits for, or a new one. */
+  const readCatalogue = () => {
+    const known =
+      takeWarm<z.infer<typeof repositoriesSchema>>(fetcher, "/api/repositories") ??
+      catalogues.get(fetcher);
+    if (known) return known;
+    const value = api.json("/api/repositories", repositoriesSchema);
+    catalogues.set(fetcher, value);
+    const forget = () => {
+      if (catalogues.get(fetcher) === value) catalogues.delete(fetcher);
+    };
+    value.then(forget, forget);
+    return value;
+  };
   const parse =
     options.parsePatch ??
     (async (patch: string) => {
@@ -275,6 +337,8 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
   let reviewGeneration = 0;
   let reviewAbort: AbortController | undefined;
   // A saved review's first diff loads and parses while the repository checks run.
+  /** When the window last read its saved review. */
+  let savedReadAt = -Infinity;
   let prefetched: {
     reviewId: string;
     targetId: string;
@@ -324,6 +388,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     // writes settle, and discard a response if another write started meanwhile.
     if (!id || disposed || writingNotes) return;
     const writeEpoch = noteWriteEpoch;
+    savedReadAt = performance.now();
     const savedReview = await api.json(`/api/reviews/${encodeURIComponent(id)}`, savedReviewSchema);
     if (
       !disposed &&
@@ -988,11 +1053,9 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     mayParse = () => true,
   ) {
     const start = performance.now();
-    const response = await api.json(
-      `/api/reviews/${encodeURIComponent(reviewId)}/targets/${encodeURIComponent(targetId)}/review`,
-      reviewSchema,
-      { signal },
-    );
+    const path = `/api/reviews/${encodeURIComponent(reviewId)}/targets/${encodeURIComponent(targetId)}/review`;
+    const response = await (takeWarm<ReviewResponse>(fetcher, path) ??
+      api.json(path, reviewSchema, { signal }));
     if (!mayParse()) throw new DOMException("A review load needs the parser.", "AbortError");
     const parseStart = performance.now();
     const parsed = await parse(response.patch);
@@ -1145,7 +1208,13 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     )
       await loadSavedTarget(target);
     else await openWorkspace(checkout, branch, target.repositoryId, target);
-    if (!disposed && snapshot.savedTargetId === id) await refreshSavedMetadata().catch(() => {});
+    // The review that the window just read needs no second read.
+    if (
+      !disposed &&
+      snapshot.savedTargetId === id &&
+      performance.now() - savedReadAt > SAVED_FRESH_MS
+    )
+      await refreshSavedMetadata().catch(() => {});
   }
 
   async function loadSources(path: string): Promise<SourceResponse> {
@@ -1502,7 +1571,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         // catalogue comes first.
         if (start?.branch)
           try {
-            const result = await api.json("/api/repositories", repositoriesSchema);
+            const result = await readCatalogue();
             if (disposed) return;
             hasRepositoryCatalogue = true;
             update({ repositories: result.repositories });
@@ -1518,10 +1587,10 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         return openWorkspace(start?.path, undefined, start?.repositoryId);
       }
       try {
-        const savedReview = await api.json(
-          `/api/reviews/${encodeURIComponent(savedReviewId)}`,
-          savedReviewSchema,
-        );
+        const savedPath = `/api/reviews/${encodeURIComponent(savedReviewId)}`;
+        savedReadAt = performance.now();
+        const savedReview = await (takeWarm<SavedReview>(fetcher, savedPath) ??
+          api.json(savedPath, savedReviewSchema));
         if (disposed) return;
         update({ savedReview });
         const first = currentTargets(savedReview)[0] ?? savedReview.targets[0];
@@ -1531,7 +1600,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
           work.catch(() => {});
           prefetched = { reviewId: savedReview.id, targetId: first.id, abort, work };
         }
-        const result = await api.json("/api/repositories", repositoriesSchema);
+        const result = await readCatalogue();
         if (disposed) return;
         hasRepositoryCatalogue = true;
         update({ repositories: result.repositories });

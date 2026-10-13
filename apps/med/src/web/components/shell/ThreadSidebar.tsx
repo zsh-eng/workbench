@@ -96,6 +96,7 @@ export function ThreadSidebar({
   onHide,
   onSources,
   onArchive,
+  onPrefetch,
 }: {
   /** The New thread view shows. */
   newThread?: boolean;
@@ -109,6 +110,8 @@ export function ThreadSidebar({
   onSources(): void;
   /** Archives the thread or brings it back; it can remove the thread's worktree. */
   onArchive?(thread: Thread, archived: boolean, removeWorktree: boolean): Promise<void>;
+  /** Reads a thread ahead of a click, such as while the pointer rests on it. */
+  onPrefetch?(thread: Thread): void;
 }) {
   const active = newThread
     ? undefined
@@ -273,6 +276,7 @@ export function ThreadSidebar({
                   onCopy={(text) => copy(thread, text)}
                   onUnread={(unread) => setUnread(thread, unread)}
                   onArchive={onArchive && ((removeWorktree) => archive(thread, removeWorktree))}
+                  onPrefetch={onPrefetch && (() => onPrefetch(thread))}
                 />
               ))}
             </ul>
@@ -361,6 +365,7 @@ function ThreadRow({
   onCopy,
   onUnread,
   onArchive,
+  onPrefetch,
 }: {
   thread: Thread;
   current: boolean;
@@ -371,7 +376,11 @@ function ThreadRow({
   onCopy(text: string): void;
   onUnread(unread: boolean): void;
   onArchive?(removeWorktree: boolean): void;
+  onPrefetch?(): void;
 }) {
+  // A pointer that rests on the row, or a press, reads the thread ahead.
+  const rest = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(rest.current), []);
   const branch = thread.branch ?? thread.checkout?.split("/").at(-1);
   const sessions = (thread.sessions ?? []).flatMap((session) =>
     session.agent === "acp" ? [] : [{ ...session, agent: session.agent }],
@@ -388,6 +397,14 @@ function ThreadRow({
           data-thread={thread.id}
           aria-current={current ? "page" : undefined}
           onClick={onOpen}
+          onPointerEnter={() => {
+            if (current || !onPrefetch) return;
+            clearTimeout(rest.current);
+            rest.current = setTimeout(onPrefetch, 60);
+          }}
+          onPointerLeave={() => clearTimeout(rest.current)}
+          onPointerDown={() => !current && onPrefetch?.()}
+          onFocus={() => !current && onPrefetch?.()}
           {...stylex.props(
             styles.row,
             styles.thread,

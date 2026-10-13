@@ -1198,6 +1198,17 @@ describe("graphical review", () => {
       .poll(() => document.querySelector('[data-pane="preview"]')?.checkVisibility())
       .toBe(false);
     expect(localStorage.getItem("med-markdown-preview")).toBe("false");
+
+    // A window too small for every pane hides them from the left; the pane in
+    // use and the review stay. Smaller still, one shows: the pane in use, or
+    // else the review.
+    const ids = () => panes().map(([id]) => id);
+    await page.viewport(640, 800);
+    await expect.poll(ids).toEqual(["review", "files"]);
+    await page.viewport(400, 800);
+    await expect.poll(ids).toEqual(["review"]);
+    await page.viewport(1280, 800);
+    await expect.poll(ids).toEqual(["changed", "review", "files"]);
   });
   test("files sidebar retains its tree and collapsed folders across toggles", async () => {
     await page.viewport(1280, 800);
