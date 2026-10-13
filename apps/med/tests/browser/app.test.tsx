@@ -1169,7 +1169,8 @@ describe("graphical review", () => {
 
     // Zoom gives one pane the whole tree; the others wait behind it, inert.
     const tree = document.querySelector("[data-pane-tree]")!.getBoundingClientRect();
-    await files.getByRole("button", { name: "Zoom files" }).click();
+    // A double-click on a pane's header zooms it, as on a window's title bar.
+    await userEvent.dblClick(files.getByText("Files", { exact: true }));
     const filesPane = document.querySelector<HTMLElement>('[data-pane="files"]')!;
     await expect.poll(() => filesPane.getBoundingClientRect().width).toBe(tree.width);
     expect(document.querySelector<HTMLElement>('[data-pane="review"]')!.inert).toBe(true);
@@ -1210,7 +1211,7 @@ describe("graphical review", () => {
     await page.viewport(1280, 800);
     await expect.poll(ids).toEqual(["changed", "review", "files"]);
   });
-  test("a pane's grip drags it beside another pane or swaps the two; Escape keeps it", async () => {
+  test("a pane's header drags it beside another pane or swaps the two; Escape keeps it", async () => {
     await page.viewport(1280, 800);
     await mountApp();
     await page.getByRole("button", { name: "Toggle files sidebar" }).click();
@@ -1222,9 +1223,9 @@ describe("graphical review", () => {
     await expect.poll(order).toEqual(["changed", "review", "files"]);
     const rect = (id: string) =>
       document.querySelector(`[data-pane="${id}"]`)!.getBoundingClientRect();
-    const grip = () => page.getByRole("button", { name: "Drag to move files" }).element();
+    const grip = () => document.querySelector('[data-pane="files"] [data-pane-handle]')!;
     const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
-    /** Drags the Files grip to a point, then drops it or presses Escape. */
+    /** Drags the Files header to a point, then drops it or presses Escape. */
     const dragTo = async (x: number, y: number, end: "drop" | "escape" = "drop") => {
       const handle = grip();
       const start = handle.getBoundingClientRect();
@@ -2655,7 +2656,10 @@ describe("agent session", () => {
       .element(panel.getByRole("button", { name: "Worked for 2.0s · 1 tool call" }))
       .toBeVisible();
     expect(panel.getByRole("button", { name: /Run the tests/ }).query()).toBeNull();
-    await panel.getByRole("button", { name: "Show work" }).click();
+    // The session's menu, named for its agent, holds Show work.
+    await panel.getByRole("button", { name: "Claude session menu" }).click();
+    await page.getByRole("menuitemcheckbox", { name: "Show work" }).click();
+    await userEvent.keyboard("{Escape}");
     await expect.element(panel.getByRole("button", { name: /Run the tests/ })).toBeVisible();
     expect(localStorage.getItem("med:work")).toBe("shown");
     await expect.element(panel.getByText("Idle")).toBeVisible();
@@ -2765,17 +2769,18 @@ describe("agent session", () => {
       .element(panel.getByText("The session is long", { exact: false }))
       .not.toBeInTheDocument();
 
-    // The index lists the prompts, newest first.
-    await panel.getByRole("button", { name: "Turns" }).click();
-    const menu = page.getByRole("menu");
-    await expect.element(menu.getByRole("menuitem", { name: /First prompt/ })).toBeVisible();
+    // The session menu's Turns lists the prompts, newest first.
+    await panel.getByRole("button", { name: "Claude session menu" }).click();
+    await page.getByRole("menuitem", { name: "Turns" }).click();
+    const first = page.getByRole("menuitem", { name: /First prompt/ });
+    await expect.element(first).toBeVisible();
     expect(
-      [...document.querySelectorAll('[role="menu"] [role="menuitem"] > span:last-child')].map(
-        (text) => text.textContent,
-      ),
+      [
+        ...first.element().parentElement!.querySelectorAll('[role="menuitem"] > span:last-child'),
+      ].map((text) => text.textContent),
     ).toEqual(["Second prompt", "First prompt"]);
-    await menu.getByRole("menuitem", { name: /First prompt/ }).click();
-    await expect.element(menu).not.toBeInTheDocument();
+    await first.click();
+    await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
   });
 
   test("comments go to the waiting agent from the review", async () => {

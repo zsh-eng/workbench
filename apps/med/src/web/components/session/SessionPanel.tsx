@@ -27,9 +27,9 @@ import {
 } from "../../data/session-stream";
 import { picked, tokens, ui } from "../../theme.stylex";
 import { ActionTooltip } from "../ToolButton";
-import { ActionMenu, ChoiceSelect } from "../Controls";
 import { Icon } from "../Icon";
 import { ToolButton } from "../ToolButton";
+import { paneHandle } from "../PaneTree";
 import { ZenContext } from "../ZenExit";
 import { SessionComposer, type ComposerAttachment } from "./SessionComposer";
 import { ReplyActionsContext, SessionThread, type ReplyActions } from "./SessionThread";
@@ -76,79 +76,146 @@ function withStreaming(items: SessionItem[], streaming?: { id: string; text: str
 const turnTime = (at: number) =>
   new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-/** The session's prompts, newest first; choosing one shows that turn. */
-function TurnMenu({
-  load,
+/**
+ * The session's menu, named for its agent, in place of a row of icons: the
+ * review's sessions, Show work, the turns to go to, and new sessions.
+ */
+function SessionMenu({
+  agent,
+  sessions,
+  current,
   onChoose,
+  showWork,
+  onToggleWork,
+  loadTurns,
+  onTurn,
+  starter,
 }: {
-  load(): Promise<SessionTurn[]>;
-  onChoose(turn: SessionTurn): void;
+  agent: string;
+  sessions: AgentSession[];
+  current: string;
+  onChoose(id: string): void;
+  showWork: boolean;
+  onToggleWork(): void;
+  /** The session's prompts; without it the menu has no Turns. */
+  loadTurns?(): Promise<SessionTurn[]>;
+  onTurn(turn: SessionTurn): void;
+  starter?: SessionStarter;
 }) {
   const [turns, setTurns] = useState<SessionTurn[] | null>(null);
   const [error, setError] = useState(false);
+  const available = starter?.agents?.filter((entry) => entry.available) ?? [];
+  const item = (state: { highlighted: boolean }) =>
+    stylex.props(ui.menuItem, styles.menuItem, state.highlighted && [ui.menuHighlighted, picked])
+      .className;
+  const check = (indicator: ReactNode) => <span {...stylex.props(styles.check)}>{indicator}</span>;
   return (
-    <Menu.Root
-      onOpenChange={(open) => {
-        if (!open) return;
-        setError(false);
-        load().then(setTurns, () => setError(true));
-      }}
-    >
-      <ActionTooltip label="Turns">
-        <Menu.Trigger aria-label="Turns" {...stylex.props(ui.button, ui.iconButton)}>
-          <Icon name="history" size={15} />
+    <Menu.Root>
+      <ActionTooltip label="Sessions, work, and turns">
+        <Menu.Trigger
+          aria-label={`${agent} session menu`}
+          {...stylex.props(ui.button, ui.pressable, styles.menuTrigger)}
+        >
+          {agent}
+          <Icon name="chevron" size={12} />
         </Menu.Trigger>
       </ActionTooltip>
       <Menu.Portal>
         <Menu.Positioner align="end" sideOffset={6} {...stylex.props(styles.menuPositioner)}>
-          <Menu.Popup {...stylex.props(ui.popup, ui.pop, styles.turns)}>
-            {turns === null || error ? (
-              <p {...stylex.props(styles.turnsNote)}>
-                {error ? "The turns did not load." : "Reading the session…"}
-              </p>
-            ) : turns.length === 0 ? (
-              <p {...stylex.props(styles.turnsNote)}>No prompts yet.</p>
-            ) : (
-              [...turns].reverse().map((turn) => (
-                <Menu.Item
-                  key={turn.offset}
-                  onClick={() => onChoose(turn)}
-                  className={(state) =>
-                    stylex.props(
-                      ui.menuItem,
-                      styles.turn,
-                      state.highlighted && [ui.menuHighlighted, picked],
-                    ).className
-                  }
-                >
-                  <span {...stylex.props(styles.turnTime)}>{turnTime(turn.at)}</span>
-                  <span {...stylex.props(styles.turnText)}>{turn.text}</span>
-                </Menu.Item>
-              ))
+          <Menu.Popup {...stylex.props(ui.popup, ui.pop, styles.menu)}>
+            {sessions.length > 1 && (
+              <>
+                <Menu.RadioGroup value={current} onValueChange={(id) => onChoose(String(id))}>
+                  {[...sessions].reverse().map((entry, index) => (
+                    <Menu.RadioItem key={entry.id} value={entry.id} className={item}>
+                      {check(
+                        <Menu.RadioItemIndicator {...stylex.props(styles.indicator)}>
+                          <Icon name="check" size={14} />
+                        </Menu.RadioItemIndicator>,
+                      )}
+                      <span {...stylex.props(styles.menuLabel)}>
+                        {agentName(entry)} {index === 0 ? "· latest" : `· ${entry.id.slice(0, 8)}`}
+                      </span>
+                    </Menu.RadioItem>
+                  ))}
+                </Menu.RadioGroup>
+                <Menu.Separator {...stylex.props(ui.separator)} />
+              </>
+            )}
+            <Menu.CheckboxItem checked={showWork} onCheckedChange={onToggleWork} className={item}>
+              {check(
+                <Menu.CheckboxItemIndicator {...stylex.props(styles.indicator)}>
+                  <Icon name="check" size={14} />
+                </Menu.CheckboxItemIndicator>,
+              )}
+              <span {...stylex.props(styles.menuLabel)}>Show work</span>
+            </Menu.CheckboxItem>
+            {loadTurns && (
+              <Menu.SubmenuRoot
+                onOpenChange={(open) => {
+                  if (!open) return;
+                  setError(false);
+                  loadTurns().then(setTurns, () => setError(true));
+                }}
+              >
+                <Menu.SubmenuTrigger className={item}>
+                  {check(null)}
+                  <span {...stylex.props(styles.menuLabel)}>Turns</span>
+                  <span {...stylex.props(styles.submenuArrow)}>
+                    <Icon name="chevron" size={12} />
+                  </span>
+                </Menu.SubmenuTrigger>
+                <Menu.Portal>
+                  <Menu.Positioner sideOffset={4} {...stylex.props(styles.menuPositioner)}>
+                    <Menu.Popup {...stylex.props(ui.popup, ui.pop, styles.turns)}>
+                      {turns === null || error ? (
+                        <p {...stylex.props(styles.turnsNote)}>
+                          {error ? "The turns did not load." : "Reading the session…"}
+                        </p>
+                      ) : turns.length === 0 ? (
+                        <p {...stylex.props(styles.turnsNote)}>No prompts yet.</p>
+                      ) : (
+                        [...turns].reverse().map((turn) => (
+                          <Menu.Item
+                            key={turn.offset}
+                            onClick={() => onTurn(turn)}
+                            className={(state) =>
+                              stylex.props(
+                                ui.menuItem,
+                                styles.turn,
+                                state.highlighted && [ui.menuHighlighted, picked],
+                              ).className
+                            }
+                          >
+                            <span {...stylex.props(styles.turnTime)}>{turnTime(turn.at)}</span>
+                            <span {...stylex.props(styles.turnText)}>{turn.text}</span>
+                          </Menu.Item>
+                        ))
+                      )}
+                    </Menu.Popup>
+                  </Menu.Positioner>
+                </Menu.Portal>
+              </Menu.SubmenuRoot>
+            )}
+            {available.length > 0 && (
+              <>
+                <Menu.Separator {...stylex.props(ui.separator)} />
+                {available.map((entry) => (
+                  <Menu.Item
+                    key={entry.id}
+                    onClick={() => void starter!.start(entry.id).catch(() => {})}
+                    className={item}
+                  >
+                    {check(null)}
+                    <span {...stylex.props(styles.menuLabel)}>New {entry.name} session</span>
+                  </Menu.Item>
+                ))}
+              </>
             )}
           </Menu.Popup>
         </Menu.Positioner>
       </Menu.Portal>
     </Menu.Root>
-  );
-}
-
-/** The menu that starts a new session with an installed agent. */
-function NewSessionMenu({ starter }: { starter: SessionStarter }) {
-  const available = starter.agents?.filter((agent) => agent.available) ?? [];
-  if (!available.length) return null;
-  return (
-    <ActionMenu
-      label="New session"
-      sections={[
-        available.map((agent) => ({
-          label: `New ${agent.name} session`,
-          onClick: () => void starter.start(agent.id).catch(() => {}),
-        })),
-      ]}
-    >
-      <Icon name="plus" size={15} />
-    </ActionMenu>
   );
 }
 
@@ -175,8 +242,7 @@ export function SessionStart({
   const agents = starter.agents;
   return (
     <section aria-label="Start a session" {...stylex.props(styles.panel)}>
-      <header {...stylex.props(styles.header)}>
-        <Icon name="agent" size={14} />
+      <header {...paneHandle} {...stylex.props(styles.header)}>
         <span {...stylex.props(styles.title)}>
           {title ?? "Session"}
           {detail && <span {...stylex.props(styles.detail)}>{detail}</span>}
@@ -549,8 +615,7 @@ export function SessionPanel({
       data-pending={(state.status === "connecting" && !snapshot.items.length) || undefined}
       {...stylex.props(styles.panel)}
     >
-      <header {...stylex.props(styles.header)}>
-        <Icon name={session.agent === "acp" ? "agent" : session.agent} size={14} />
+      <header {...paneHandle} {...stylex.props(styles.header)}>
         <span {...stylex.props(styles.title)} title={title ?? snapshot.title ?? `${agent} session`}>
           {title ?? snapshot.title ?? `${agent} session`}
           {detail && <span {...stylex.props(styles.detail)}>{detail}</span>}
@@ -566,33 +631,19 @@ export function SessionPanel({
           {status}
         </span>
         {/* Zen keeps the agent and its status; a folded turn still opens. */}
-        {!zen && sessions.length > 1 && (
-          <ChoiceSelect
-            label="Session"
-            value={session.id}
-            choices={[...sessions].reverse().map((entry, index) => ({
-              value: entry.id,
-              label: `${agentName(entry)} ${index === 0 ? "· latest" : `· ${entry.id.slice(0, 8)}`}`,
-            }))}
-            onChange={setChosen}
-          />
-        )}
         {!zen && (
-          <ToolButton
-            icon="expandAll"
-            label="Show work"
-            active={showWork}
-            aria-pressed={showWork}
-            onClick={toggleWork}
+          <SessionMenu
+            agent={agent}
+            sessions={sessions}
+            current={session.id}
+            onChoose={setChosen}
+            showWork={showWork}
+            onToggleWork={toggleWork}
+            loadTurns={pageable ? () => loadSessionTurns(reviewId, session.id, fetcher) : undefined}
+            onTurn={(turn) => void showTurn(turn).catch(() => {})}
+            starter={starter}
           />
         )}
-        {!zen && pageable && (
-          <TurnMenu
-            load={() => loadSessionTurns(reviewId, session.id, fetcher)}
-            onChoose={(turn) => void showTurn(turn).catch(() => {})}
-          />
-        )}
-        {!zen && starter && <NewSessionMenu starter={starter} />}
         {!zen &&
           (controls ?? (
             <ToolButton
@@ -692,6 +743,13 @@ const styles = stylex.create({
   dotWaiting: { backgroundColor: tokens.accent },
   thread: { flex: "1", minHeight: 0 },
   menuPositioner: { zIndex: 100, outline: "none" },
+  menuTrigger: { flexShrink: 0, gap: 4, height: 24, paddingInline: 8, fontSize: 12 },
+  menu: { minWidth: 220 },
+  menuItem: { justifyContent: "flex-start", gap: 8 },
+  menuLabel: { flex: "1", minWidth: 0 },
+  check: { display: "inline-flex", flexShrink: 0, width: 14, color: tokens.accent },
+  indicator: { display: "inline-flex", color: tokens.accent },
+  submenuArrow: { display: "inline-flex", transform: "rotate(-90deg)", color: tokens.faint },
   turns: { width: 340, maxWidth: "calc(100vw - 32px)" },
   turnsNote: { margin: 0, padding: 10, color: tokens.faint, fontSize: 12 },
   turn: { justifyContent: "flex-start", gap: 10, minWidth: 0 },

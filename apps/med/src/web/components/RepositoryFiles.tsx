@@ -14,7 +14,7 @@ import {
 import type { BrowseEntry } from "../../shared/browse";
 import { tokens, ui } from "../theme.stylex";
 import { treeIcons } from "./tree-icons";
-import { Icon } from "./Icon";
+import { paneHandle } from "./PaneTree";
 import { PathContextMenu, treeRowPath, type PathActions } from "./PathMenu";
 
 export interface RepositoryFilesProps {
@@ -122,8 +122,7 @@ export const RepositoryFiles = memo(function RepositoryFiles(props: RepositoryFi
       aria-label={props.label ?? "Repository files"}
     >
       {controls !== undefined ? (
-        <div {...stylex.props(styles.paneHeading)}>
-          <Icon name="folder" size={14} />
+        <div {...paneHandle} {...stylex.props(styles.paneHeading)}>
           <span {...stylex.props(styles.paneTitle)}>Files</span>
           <span {...stylex.props(ui.grow)} />
           <ToolButton label="Refresh files" icon="refresh" onClick={onRefresh} />

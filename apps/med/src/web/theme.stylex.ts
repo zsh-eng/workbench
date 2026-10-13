@@ -192,8 +192,12 @@ export const ui = stylex.create({
     borderRadius: `calc(6px * ${tokens.round})`,
     cursor: "default",
     outline: "none",
-    backgroundColor: { default: "transparent", ":hover": tokens.fillStrong },
-    color: tokens.text,
+    backgroundColor: {
+      default: "transparent",
+      ":hover": tokens.fillStrong,
+      ":is([data-disabled])": "transparent",
+    },
+    color: { default: tokens.text, ":is([data-disabled])": tokens.faint },
     fontSize: 12,
   },
   // With `picked` on the same element, so the row's secondary text follows.

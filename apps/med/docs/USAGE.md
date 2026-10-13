@@ -154,6 +154,9 @@ line numbers, and nearby source, for any agent. **Send to Claude** or **Send to
 Codex** sends them to the review's own agent; see
 [sending comments](AGENT_INTEGRATION.md#send-comments-to-the-agent). **Clear**
 clears the review's comments after you confirm. Copying does not clear them.
+Beside a thread, the review's header keeps only its tabs: **Send to** shows
+when there are comments to send, and **Copy comments**, **Clear all
+comments**, **Commands**, and **Files** are in its **⋯** menu.
 
 The review's bar shows its title, or its pull request's title as a link. Hover
 the title for the time Med saved the review and its repository. See
@@ -166,8 +169,11 @@ toolbar, and **Show agent session** in the palette. Both open the Session pane:
 prompts, replies, thoughts, tool calls with output and diffs, the plan, and
 background shells and agents. It follows the session live.
 
+- The session's menu has the agent's name, such as **Claude**. It holds the
+  review's sessions, **Show work**, **Turns**, and a new session with each
+  installed agent.
 - A long session opens on its latest work. Scroll up for earlier work, or jump
-  to a prompt from **Turns** (the clock).
+  to a prompt from **Turns**.
 - A finished turn shows its prompt and final reply; its other work folds into
   one **Worked for** row. Click the row to open that turn, or **Show work** to
   open every turn.
@@ -544,14 +550,15 @@ A workspace is a set of tiled panes: the review, and **Changes** (the changed
 files), **Session** (`⌘⇧B`), **Files** (the folder button), and **Preview**
 (`⌘⇧V`) beside it. Each thread keeps its own layout.
 
-- Drag a pane's grip onto a side of another pane to place it there, or onto
-  the middle to swap the two. Escape leaves it where it was.
+- A pane's header acts as a window's title bar. Drag it onto a side of another
+  pane to place the pane there, or onto the middle to swap the two; Escape
+  leaves it where it was. Double-click it to zoom the pane.
 - `⌘⌥←→↑↓` moves the focus to the next pane; with `⇧`, the focused pane moves
   past its neighbor.
 - Drag a gap between panes to resize them, or focus the gap and press the
   arrow keys. Double-click a gap, or press `⌘⌃=`, to give the panes equal room.
-- `⌘E` zooms the focused pane to the whole workspace; press it again to
-  restore the others.
+- `⌘E` zooms the focused pane to the whole workspace. Press it again, or click
+  **Restore** in the pane's header, to show the others.
 - A pane does not get narrower than 220 pixels or lower than 120. When the
   window is too small for all of them, Med hides panes until the rest fit, and
   shows them again when there is room.

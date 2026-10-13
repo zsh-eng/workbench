@@ -58,12 +58,7 @@ function SessionBody({ controls }: { controls: ReactNode }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   return (
     <>
-      <PaneHeader
-        icon="claude"
-        title="Session"
-        detail="Weeks in relative times"
-        controls={controls}
-      />
+      <PaneHeader title="Session" detail="Weeks in relative times" controls={controls} />
       <div {...stylex.props(styles.body)}>
         <SessionThread snapshot={snapshot} />
       </div>
@@ -81,7 +76,7 @@ function demoPanes(): PaneSpec[] {
       fixed: true,
       render: (controls) => (
         <>
-          <PaneHeader icon="diff" title="Changes" detail="4 files" controls={controls} />
+          <PaneHeader title="Changes" detail="4 files" controls={controls} />
           <div {...stylex.props(styles.lines)} aria-hidden="true">
             {[72, 56, 88, 40, 64, 80, 52].map((width, index) => (
               <span key={index} {...stylex.props(styles.line(width))} />
@@ -104,12 +99,7 @@ function demoPanes(): PaneSpec[] {
       icon: "folder",
       render: (controls) => (
         <>
-          <PaneHeader
-            icon="folder"
-            title="Files"
-            detail="Working files · main"
-            controls={controls}
-          />
+          <PaneHeader title="Files" detail="Working files · main" controls={controls} />
           <ul {...stylex.props(styles.files)}>
             {files.map((path) => (
               <li key={path} {...stylex.props(styles.file)}>
@@ -131,7 +121,7 @@ function demoPanes(): PaneSpec[] {
       icon: "preview",
       render: (controls) => (
         <>
-          <PaneHeader icon="preview" title="Preview" detail="README.md" controls={controls} />
+          <PaneHeader title="Preview" detail="README.md" controls={controls} />
           <div {...stylex.props(styles.body, styles.scroll)}>
             <div {...stylex.props(styles.prose)}>
               <div className="med-md-prose">

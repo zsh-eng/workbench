@@ -4,6 +4,7 @@ import { Tabs } from "@base-ui/react/tabs";
 import { distinctLabels } from "../data/tab-labels";
 import { tokens } from "../theme.stylex";
 import { Icon } from "./Icon";
+import { paneHandle } from "./PaneTree";
 import { PathContextMenu, type PathActions } from "./PathMenu";
 
 export interface FileViewTab {
@@ -65,6 +66,7 @@ export function FileViewTabs({
     <Tabs.Root
       value={active}
       onValueChange={(value) => onSelect(String(value))}
+      {...paneHandle}
       {...stylex.props(styles.root)}
     >
       {leading}
@@ -81,7 +83,6 @@ export function FileViewTabs({
               active === "guide" && styles.active,
             )}
           >
-            <Icon name="guide" size={14} />
             Guide
           </Tabs.Tab>
         )}
@@ -97,7 +98,6 @@ export function FileViewTabs({
               active === "brief" && styles.active,
             )}
           >
-            <Icon name="brief" size={14} />
             Notes
           </Tabs.Tab>
         )}
@@ -108,7 +108,6 @@ export function FileViewTabs({
             aria-label="Changes"
             {...stylex.props(styles.tab, styles.changes, active === "changes" && styles.active)}
           >
-            <Icon name="diff" size={14} />
             Changes
             {changesCount !== undefined && (
               <span {...stylex.props(styles.count)}>{changesCount.toLocaleString()}</span>
@@ -123,7 +122,6 @@ export function FileViewTabs({
             title="Stage, commit, and push (q)"
             {...stylex.props(styles.tab, styles.changes, active === "commit" && styles.active)}
           >
-            <Icon name="commit" size={14} />
             Commit
           </Tabs.Tab>
         )}
@@ -151,7 +149,6 @@ export function FileViewTabs({
                 active === tab.id && styles.active,
               )}
             >
-              <Icon name="file" size={14} />
               <span {...stylex.props(styles.name)}>{labels[index]}</span>
               {tab.dirty && (
                 <span

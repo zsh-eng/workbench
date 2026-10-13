@@ -4,6 +4,8 @@ import * as stylex from "@stylexjs/stylex";
 import type { ReviewController, ReviewControllerSnapshot } from "../data/controller";
 import { tokens, ui } from "../theme.stylex";
 import { checkoutNameFor } from "../data/checkout-names";
+import { ActionMenu, type MenuAction } from "./Controls";
+import { paneHandle } from "./PaneTree";
 import { Icon, type IconName } from "./Icon";
 import {
   CodexReviewPanel,
@@ -28,9 +30,15 @@ export function SavedReviewHeader({
   sendTo,
   notesPickIteration,
   compact = false,
+  more = [],
 }: {
-  /** The thread beside it names the review, so the header leaves the name out. */
+  /**
+   * The thread beside it names the review, so the header leaves the name out,
+   * and its actions go in one menu with `more`, as a title bar keeps few.
+   */
   compact?: boolean;
+  /** The review pane's own actions, at the end of the compact header's menu. */
+  more?: MenuAction[];
   controller: ReviewController;
   /** The agent session that comments can go to, and how to open its message. */
   sendTo?: { name: string; icon: IconName; drafts: number; open(): void };
@@ -49,6 +57,7 @@ export function SavedReviewHeader({
   notesPickIteration?: boolean;
 }) {
   const saved = state.savedReview!;
+  const header = useRef<HTMLElement>(null);
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
   const [operation, setOperation] = useState<"copy" | "clear" | null>(null);
   const inFlight = useRef(false);
@@ -115,7 +124,12 @@ export function SavedReviewHeader({
     }
   };
   return (
-    <section aria-label="Saved review" {...stylex.props(styles.header, compact && styles.inline)}>
+    <section
+      ref={header}
+      aria-label="Saved review"
+      {...(compact ? {} : paneHandle)}
+      {...stylex.props(styles.header, compact && styles.inline)}
+    >
       {compact && !saved.pullRequestUrl ? null : saved.pullRequestUrl ? (
         <a
           href={saved.pullRequestUrl}
@@ -209,60 +223,96 @@ export function SavedReviewHeader({
         >
           <span>
             Return
-            <span {...stylex.props(styles.desktop, compact && styles.iconOnly)}> to review</span>
+            <span {...stylex.props(styles.desktop, compact && styles.short)}> to review</span>
           </span>
         </button>
       )}
-      {sendTo && (
+      {/* Beside the thread, Send shows when there are comments to send. */}
+      {sendTo && (!compact || sendTo.drafts > 0) && (
         <button
           {...stylex.props(ui.button, ui.pressable, styles.fixed)}
           aria-label={`Send comments to ${sendTo.name}`}
           title="Write to the agent with your comments"
           onClick={sendTo.open}
         >
-          <Icon name={sendTo.icon} size={14} />
-          <span {...stylex.props(styles.desktop, compact && styles.iconOnly)}>
-            Send to {sendTo.name}
-          </span>
-          {sendTo.drafts > 0 && <span>{sendTo.drafts}</span>}
+          {!compact && <Icon name={sendTo.icon} size={14} />}
+          <span {...stylex.props(!compact && styles.desktop)}>Send to {sendTo.name}</span>
+          {sendTo.drafts > 0 && <span {...stylex.props(styles.count)}>{sendTo.drafts}</span>}
         </button>
       )}
+      {compact && (
+        <ActionMenu
+          label="More actions"
+          trigger={[ui.button, ui.iconButton, styles.fixed]}
+          sections={[
+            [
+              {
+                label:
+                  saved.commentCount > 0
+                    ? `Copy ${saved.commentCount} ${saved.commentCount === 1 ? "comment" : "comments"}`
+                    : "Copy comments",
+                disabled: busy || saved.commentCount === 0,
+                onClick: () =>
+                  void run("copy", async () => {
+                    const comments = await controller.copyFeedback();
+                    setCopied({ count: comments.count });
+                    return `Copied ${comments.count} ${comments.count === 1 ? "comment" : "comments"}`;
+                  }),
+              },
+              {
+                label: "Clear all comments…",
+                disabled: busy || saved.commentCount === 0,
+                onClick: () => setClearRevision(saved.revision),
+              },
+            ],
+            more,
+          ]}
+        >
+          <Icon name="more" size={15} />
+        </ActionMenu>
+      )}
       {/* During copy, handlers block actions without native disabled dimming both buttons. */}
-      <button
-        {...stylex.props(ui.button, ui.pressable, styles.fixed)}
-        aria-label="Copy comments"
-        data-copied={copied !== null}
-        disabled={operation === "clear" || saved.commentCount === 0}
-        aria-disabled={busy || saved.commentCount === 0}
-        aria-busy={operation === "copy"}
-        onClick={() =>
-          void run("copy", async () => {
-            const comments = await controller.copyFeedback();
-            setCopied({ count: comments.count });
-          })
-        }
-      >
-        <CopyCommentsIcon copied={copied !== null} />
-        <span {...stylex.props(styles.desktop, compact && styles.iconOnly)}>Copy comments</span>
-        <span>{saved.commentCount}</span>
-      </button>
+      {!compact && (
+        <button
+          {...stylex.props(ui.button, ui.pressable, styles.fixed)}
+          aria-label="Copy comments"
+          data-copied={copied !== null}
+          disabled={operation === "clear" || saved.commentCount === 0}
+          aria-disabled={busy || saved.commentCount === 0}
+          aria-busy={operation === "copy"}
+          onClick={() =>
+            void run("copy", async () => {
+              const comments = await controller.copyFeedback();
+              setCopied({ count: comments.count });
+            })
+          }
+        >
+          <CopyCommentsIcon copied={copied !== null} />
+          <span {...stylex.props(styles.desktop)}>Copy comments</span>
+          <span>{saved.commentCount}</span>
+        </button>
+      )}
       <Popover.Root
         open={clearRevision !== null}
         onOpenChange={(open) => {
           if (!busy) setClearRevision(open ? saved.revision : null);
         }}
       >
-        <Popover.Trigger
-          {...stylex.props(ui.button, ui.pressable, styles.fixed)}
-          aria-label="Clear all comments"
-          disabled={operation === "clear" || saved.commentCount === 0}
-          aria-disabled={busy || saved.commentCount === 0}
-        >
-          <Icon name="trash" size={14} />
-          <span {...stylex.props(styles.desktop, compact && styles.iconOnly)}>Clear</span>
-        </Popover.Trigger>
+        {!compact && (
+          <Popover.Trigger
+            {...stylex.props(ui.button, ui.pressable, styles.fixed)}
+            aria-label="Clear all comments"
+            disabled={operation === "clear" || saved.commentCount === 0}
+            aria-disabled={busy || saved.commentCount === 0}
+          >
+            <Icon name="trash" size={14} />
+            <span {...stylex.props(styles.desktop)}>Clear</span>
+          </Popover.Trigger>
+        )}
         <Popover.Portal>
           <Popover.Positioner
+            // From the menu, the question opens below the header's end.
+            anchor={compact ? header : undefined}
             align="end"
             sideOffset={5}
             {...stylex.props(styles.positioner, ui.instant)}
@@ -413,7 +463,8 @@ const styles = stylex.create({
   fixed: { flexShrink: 0 },
   // Labels give way to the title when the review pane is narrow.
   desktop: { display: { default: "inline", "@container (max-width: 640px)": "none" } },
-  iconOnly: { display: "none" },
+  short: { display: "none" },
+  count: { color: tokens.muted, fontVariantNumeric: "tabular-nums" },
   reviewTitle: {
     display: "inline-flex",
     alignItems: "center",

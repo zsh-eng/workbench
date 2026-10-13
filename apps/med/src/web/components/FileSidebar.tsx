@@ -5,6 +5,7 @@ import { memo, useEffect, useLayoutEffect, useRef, type CSSProperties } from "re
 import type { ParsedReviewFile } from "../data/controller";
 import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
+import { paneHandle } from "./PaneTree";
 import { PathContextMenu, treeRowPath, type PathActions } from "./PathMenu";
 import { treeIcons } from "./tree-icons";
 
@@ -102,7 +103,7 @@ export const FileSidebar = memo(function FileSidebar({
   }, [selected, files, model]);
   return (
     <section {...stylex.props(styles.panel)} aria-label="Changed files">
-      <div {...stylex.props(styles.heading)}>
+      <div {...(controls ? paneHandle : {})} {...stylex.props(styles.heading)}>
         <span {...stylex.props(ui.label)}>Changes</span>
         <span {...stylex.props(styles.count)}>{filter ? `${files.length} / ${total}` : total}</span>
         {controls && <span {...stylex.props(styles.controls)}>{controls}</span>}

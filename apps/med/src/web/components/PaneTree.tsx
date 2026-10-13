@@ -34,7 +34,7 @@ import {
 } from "../data/pane-tree";
 import { tokens, ui } from "../theme.stylex";
 import { Icon, type IconName } from "./Icon";
-import { ToolButton } from "./ToolButton";
+import { ActionTooltip, ToolButton } from "./ToolButton";
 
 /** The room between panes and around them, in pixels. */
 export const PANE_GAP = 6;
@@ -397,21 +397,35 @@ export function usePaneTree({
 }
 export type PaneTreeState = ReturnType<typeof usePaneTree>;
 
-/** A plain pane header: an icon, a title, a detail, and the pane controls. */
+/**
+ * Marks a pane's header. Like a window's title bar, its empty space and its
+ * text move the pane by a drag, and zoom it by a double-click.
+ */
+export const paneHandle = { "data-pane-handle": "" } as const;
+/** Controls in a header: they keep their own clicks and drags. */
+const INTERACTIVE =
+  "button, a, input, select, textarea, label, [role=tab], [role=button], [role=menuitem], [contenteditable]";
+/** Whether an event started on a pane's header, outside its controls. */
+function onHandle(target: EventTarget | null) {
+  return (
+    target instanceof Element &&
+    !!target.closest("[data-pane-handle]") &&
+    !target.closest(INTERACTIVE)
+  );
+}
+
+/** A plain pane header: a title, a detail, and the pane controls. */
 export function PaneHeader({
-  icon,
   title,
   detail,
   controls,
 }: {
-  icon: IconName;
   title: string;
   detail?: ReactNode;
   controls: ReactNode;
 }) {
   return (
-    <header {...stylex.props(styles.header)}>
-      <Icon name={icon} size={14} />
+    <header {...paneHandle} {...stylex.props(styles.header)}>
       <span {...stylex.props(styles.title)}>{title}</span>
       {detail !== undefined && <span {...stylex.props(styles.detail)}>{detail}</span>}
       <span {...stylex.props(styles.grow)} />
@@ -420,43 +434,35 @@ export function PaneHeader({
   );
 }
 
-/** Zoom and Close at the end of a pane's header. */
+/**
+ * The end of a pane's header: Restore while the pane is zoomed, and Close. The
+ * header itself moves the pane and zooms it (see paneHandle), as ⌘E does.
+ */
 export function PaneControls({
   label,
-  zoomable,
   zoomed,
   onZoom,
   onClose,
-  onMove,
 }: {
   label: string;
-  zoomable: boolean;
   zoomed: boolean;
   onZoom(): void;
   onClose?(): void;
-  /** Starts a drag that moves the pane. */
-  onMove?(event: ReactPointerEvent<HTMLElement>): void;
 }) {
   const name = label.toLowerCase();
   return (
     <>
-      {onMove && (
-        <ToolButton
-          label={`Drag to move ${name}`}
-          shortcut="Mod+Alt+Shift+Right"
-          icon="grip"
-          onPointerDown={onMove}
-          {...stylex.props(ui.button, ui.iconButton, ui.pressable, styles.grip)}
-        />
-      )}
-      {zoomable && (
-        <ToolButton
-          label={zoomed ? `Restore ${name}` : `Zoom ${name}`}
-          shortcut="Mod+E"
-          icon={zoomed ? "restore" : "maximize"}
-          aria-pressed={zoomed}
-          onClick={onZoom}
-        />
+      {zoomed && (
+        <ActionTooltip label="Restore the other panes" shortcut="Mod+E">
+          <button
+            type="button"
+            aria-label={`Restore ${name}`}
+            onClick={onZoom}
+            {...stylex.props(ui.button, ui.pressable, styles.restore)}
+          >
+            Restore
+          </button>
+        </ActionTooltip>
       )}
       {onClose && <ToolButton label={`Close ${name}`} icon="close" onClick={onClose} />}
     </>
@@ -584,24 +590,29 @@ export function PaneTree({
 
   const byId = new Map(panes.map((pane) => [pane.id, pane]));
 
-  // A pane's grip drags it onto a side of another pane, or onto its middle to
-  // swap the two. Escape leaves it where it was.
+  // A pane's header drags it onto a side of another pane, or onto its middle
+  // to swap the two. Escape leaves it where it was. A press that does not move
+  // stays a click, so a double-click still zooms.
   const startMove = (id: string, event: ReactPointerEvent<HTMLElement>) => {
     if (event.button !== 0 || !element) return;
-    event.preventDefault();
     const handle = event.currentTarget;
-    try {
-      handle.setPointerCapture(event.pointerId);
-    } catch {
-      /* A pointer that the browser does not track, as in a test, moves without capture. */
-    }
+    const pointerId = event.pointerId;
     const origin = { x: event.clientX, y: event.clientY };
     let started = false;
     let frame = 0;
     let done = false;
     const follow = (pointer: PointerEvent) => {
+      if (pointer.pointerId !== pointerId) return;
       if (!started && Math.hypot(pointer.clientX - origin.x, pointer.clientY - origin.y) < 4)
         return;
+      if (!started) {
+        try {
+          handle.setPointerCapture(pointerId);
+        } catch {
+          /* A pointer that the browser does not track, as in a test, moves without capture. */
+        }
+        getSelection()?.removeAllRanges();
+      }
       started = true;
       document.documentElement.dataset.paneMoving = "";
       cancelAnimationFrame(frame);
@@ -616,9 +627,9 @@ export function PaneTree({
       if (done) return;
       done = true;
       cancelAnimationFrame(frame);
-      handle.removeEventListener("pointermove", follow);
-      handle.removeEventListener("pointerup", drop);
-      handle.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("pointermove", follow, true);
+      window.removeEventListener("pointerup", drop, true);
+      window.removeEventListener("pointercancel", cancel, true);
       window.removeEventListener("keydown", escape, true);
       delete document.documentElement.dataset.paneMoving;
       const target = drag.get()?.target;
@@ -630,14 +641,14 @@ export function PaneTree({
     const drop = () => finish(true);
     const cancel = () => finish(false);
     const escape = (key: KeyboardEvent) => {
-      if (key.key !== "Escape") return;
+      if (key.key !== "Escape" || !started) return;
       key.preventDefault();
       key.stopPropagation();
       finish(false);
     };
-    handle.addEventListener("pointermove", follow);
-    handle.addEventListener("pointerup", drop);
-    handle.addEventListener("pointercancel", cancel);
+    window.addEventListener("pointermove", follow, true);
+    window.addEventListener("pointerup", drop, true);
+    window.addEventListener("pointercancel", cancel, true);
     window.addEventListener("keydown", escape, true);
   };
   const full: Rect = { x: 0, y: 0, width: box.width, height: box.height };
@@ -658,6 +669,9 @@ export function PaneTree({
         const shown = open && !!rect && box.width > 0;
         const focused = several && focusedId === pane.id && !zoomed;
         return (
+          // The header's drag and double-click have keys of their own: ⌘⌥⇧ and
+          // an arrow move the pane, and ⌘E zooms it.
+          // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
           <section
             key={pane.id}
             aria-label={pane.ariaLabel}
@@ -671,6 +685,12 @@ export function PaneTree({
             tabIndex={-1}
             onPointerDownCapture={() => chosen !== pane.id && state.focus(pane.id)}
             onFocusCapture={() => chosen !== pane.id && state.focus(pane.id)}
+            onPointerDown={(event) => {
+              if (several && !zoomed && onHandle(event.target)) startMove(pane.id, event);
+            }}
+            onDoubleClick={(event) => {
+              if (several && onHandle(event.target)) state.toggleZoom(pane.id);
+            }}
             {...stylex.props(
               styles.pane,
               rect && styles.rect(rect.x, rect.y, rect.width, rect.height),
@@ -683,10 +703,8 @@ export function PaneTree({
             {pane.render(
               <PaneControls
                 label={pane.label}
-                zoomable={several}
                 zoomed={zoomed === pane.id}
                 onZoom={() => state.toggleZoom(pane.id)}
-                onMove={several && !zoomed ? (event) => startMove(pane.id, event) : undefined}
                 onClose={
                   pane.fixed
                     ? undefined
@@ -912,20 +930,7 @@ const styles = stylex.create({
     height,
   }),
   hidden: { display: "none" },
-  // The grip shows while the pointer is on its pane, as a tab shows its close
-  // button; a screen without hover always shows it.
-  grip: {
-    cursor: { default: "grab", ":active": "grabbing" },
-    touchAction: "none",
-    opacity: {
-      default: 0,
-      ":is([data-pane]:hover *)": 1,
-      ":is([data-pane]:focus-within *)": 1,
-      "@media (hover: none)": 1,
-    },
-    transitionProperty: "opacity",
-    transitionDuration: "120ms",
-  },
+  restore: { flexShrink: 0, height: 24, paddingInline: 8, fontSize: 12 },
   veil: {
     position: "absolute",
     zIndex: 3,

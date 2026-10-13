@@ -33,6 +33,7 @@ import {
   ChoiceSelect,
   CommandDialog,
   SegmentedControl,
+  type MenuAction,
   type ReviewCommand,
 } from "./components/Controls";
 import { DiffStat } from "./components/DiffStat";
@@ -54,7 +55,13 @@ import { agentName, type AgentSession } from "../shared/saved-review";
 import { createBrowseApi, useBrowseFiles, type BrowseApi } from "./data/browse";
 import { createFileWorkspace, isFileTab, sourceKey, useFileWorkspace } from "./data/file-workspace";
 import { RepositoryFiles } from "./components/RepositoryFiles";
-import { PaneHeader, PaneTree, usePaneTree, type PaneSpec } from "./components/PaneTree";
+import {
+  PaneHeader,
+  PaneTree,
+  paneHandle,
+  usePaneTree,
+  type PaneSpec,
+} from "./components/PaneTree";
 import type { PaneNode, Side } from "./data/pane-tree";
 import { FilePicker } from "./components/FilePicker";
 import { SymbolPicker } from "./components/SymbolPicker";
@@ -3677,12 +3684,21 @@ export function App({
       <span {...stylex.props(styles.headerDivider)} />
     </>
   );
+  // Beside the thread, the review pane's own actions join the header's menu.
+  const moreActions: MenuAction[] = [
+    { label: "Commands", shortcut: "Mod+K", onClick: () => setCommandsOpen(true) },
+    ...(!shell ? [{ label: "Zen mode", shortcut: "Alt+Z", onClick: toggleZen }] : []),
+    ...(browseSource
+      ? [{ label: "Files", checked: rightVisible, choice: true, onClick: toggleFilesSidebar }]
+      : []),
+  ];
   const savedHeader = (compact: boolean) =>
     state.savedReview && (
       <SavedReviewHeader
         controller={controller}
         state={state}
         compact={compact}
+        more={compact ? moreActions : undefined}
         notesPickIteration={hasNotes}
         pullRequest={pullRequest}
         threadPlacement={pullRequestThreads.placement}
@@ -3721,7 +3737,7 @@ export function App({
         trailing={
           <>
             {sessionVisible && !zen && savedHeader(true)}
-            {viewControls}
+            {!(sessionVisible && !zen && state.savedReview) && viewControls}
             {controls}
           </>
         }
@@ -3741,7 +3757,7 @@ export function App({
         onPin={fileWorkspace.pin}
       />
     ) : (
-      <header {...stylex.props(styles.mainHeader)}>
+      <header {...paneHandle} {...stylex.props(styles.mainHeader)}>
         {leading}
         <span {...stylex.props(ui.grow)} />
         {viewControls}
@@ -3851,7 +3867,6 @@ export function App({
       render: (controls: ReactNode) => (
         <>
           <PaneHeader
-            icon="preview"
             title="Preview"
             detail={previewable ? activeFile?.path.split("/").at(-1) : undefined}
             controls={controls}
