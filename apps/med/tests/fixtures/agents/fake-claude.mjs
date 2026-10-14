@@ -15,8 +15,7 @@ const sessionId = flag("--session-id") ?? flag("--resume");
 const project = join(process.env.MED_HOME_DIR, ".claude", "projects", "-fake-repo");
 mkdirSync(project, { recursive: true });
 const transcript = join(project, `${sessionId}.jsonl`);
-// A test reads the arguments, such as the system prompt that Med appends, and
-// the variables that Med sets.
+// A test reads the arguments and the variables that Med sets.
 writeFileSync(join(project, `${sessionId}.args.json`), JSON.stringify(args));
 writeFileSync(
   join(project, `${sessionId}.env.json`),

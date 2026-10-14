@@ -76,13 +76,12 @@ stdio --session-id <id>`, with `--model`, `--effort`, and `--permission-mode`
 
 ### What a thread's agent knows
 
-An agent that Med starts in a thread (a review with a key) gets the thread's
-instructions from `src/host/thread-agents.ts`: where it works, how to hand off
-work with `med review create --working --title "<2-4 words>" --guide -`, a
-short guide format, and not to run `med review wait`. Claude Code takes them
-with `--append-system-prompt`. ACP has no system prompt, so Med sends them as a
-text block before the first prompt; the thread shows only the user's prompt,
-and Med drops the agent's echo of both.
+Med adds nothing to an agent's prompt. The user keeps short instructions in
+their own CLAUDE.md or AGENTS.md (`med skills instructions` prints them, from
+`skills/thread-instructions.md`), so they can edit them. The instructions say
+how to hand off work with `med review create --working --title "<2-4 words>"
+--guide -` and not to run `med review wait`; the med skill gives the guide's
+format.
 
 Every agent that Med starts also gets these variables:
 

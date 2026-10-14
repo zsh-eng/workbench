@@ -108,7 +108,7 @@ import {
   type SavedReviewCreate,
 } from "../shared/saved-review";
 import { getPersistentToken, publishConnection } from "./runtime/connection";
-import { ownedEnvironment, threadInstructions, writeMedCommand } from "./thread-agents";
+import { ownedEnvironment, writeMedCommand } from "./thread-agents";
 
 import type { ServiceManager } from "./service/manager";
 
@@ -937,7 +937,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             const cwd = await requireRepo(target.repo).catch(() => requireRepo(entry.path));
             assertRequestAccess();
             const runner = await ownedSessions.start(input.preset, cwd, {
-              ...(bundle.key ? { systemPrompt: threadInstructions(bundle.title, cwd) } : {}),
               env: agentEnvironment(bundle.key, cwd),
             });
             const review = await savedReviews.details(
@@ -1332,7 +1331,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             }
             assertRequestAccess();
             const runner = await ownedSessions.start(input.preset, cwd, {
-              systemPrompt: threadInstructions(title, cwd),
               env: agentEnvironment(key, cwd),
             });
             const review = await savedReviews.create(

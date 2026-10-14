@@ -21,11 +21,19 @@ it("installs the Med skill for each agent present, keeps other skills, and remov
   const claude = join(home, ".claude", "skills", "med", "SKILL.md");
   const codex = join(home, ".agents", "skills", "med", "SKILL.md");
 
-  // Only Claude Code is set up, so only it gets the skill.
+  const instructions = await readFile(resolve("skills/thread-instructions.md"), "utf8");
+
+  // Only Claude Code is set up, so only it gets the skill. A first install
+  // also shows the lines for the user's CLAUDE.md or AGENTS.md.
   await mkdir(join(home, ".claude"));
-  expect(await med("install")).toBe(
-    "Installed the Med skill for Claude Code: ~/.claude/skills/med/SKILL.md\n",
+  const first = await med("install");
+  expect(first).toMatch(
+    /^Installed the Med skill for Claude Code: ~\/\.claude\/skills\/med\/SKILL\.md\n\nAdd these lines to ~\/\.claude\/CLAUDE\.md/,
   );
+  expect(first.endsWith(instructions)).toBe(true);
+  expect(await med("instructions")).toBe(instructions);
+  // The setup guide shows the same lines.
+  expect(await readFile(resolve("docs/AGENT_INTEGRATION.md"), "utf8")).toContain(instructions);
   expect(await readFile(claude, "utf8")).toBe(skill);
   await expect(readFile(codex)).rejects.toThrow("ENOENT");
   expect(await med("install")).toContain("is up to date");

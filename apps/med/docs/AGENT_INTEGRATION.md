@@ -12,10 +12,25 @@ med skills install
 
 This writes a Med skill for Claude Code (`~/.claude/skills/med`) and Codex
 (`~/.agents/skills/med`). The skill is a short version of this guide, and an
-agent reads it only when it hands off changes, so it costs little context. With
-the skill, AGENTS.md needs no Med guidance. `med skills show` prints the skill,
-and `med skills uninstall` removes it. Install it again after you update Med.
-For agents without skills, see [AGENTS.md guidance](#agentsmd-guidance).
+agent reads it only when it hands off changes, so it costs little context.
+`med skills show` prints the skill, and `med skills uninstall` removes it.
+Install it again after you update Med. For agents without skills, see
+[AGENTS.md guidance](#agentsmd-guidance).
+
+For threads that Med starts, add these lines to your CLAUDE.md or AGENTS.md,
+such as `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md`. The first install prints
+them, and `med skills instructions` prints them again. Edit them as you like;
+Med adds nothing to an agent's prompt.
+
+```markdown
+## Med
+
+When `MED_THREAD_KEY` is set, Med started you in a thread. When a piece of work
+is ready for review, run `med review create --working --title "<2-4 words>"
+--guide -` with a JSON guide on standard input; the med skill and
+`med docs agents` give the guide's format. Med sends the user's messages to you
+as new turns, so do not run `med review wait`.
+```
 
 Review commands talk to the running server, so start Med with `med web`. They
 find it through a private connection file in the state folder,

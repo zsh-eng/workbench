@@ -198,10 +198,11 @@ background shells and agents. It follows the session live.
 A Session pane without a session lists the agents that Med found, and its **+**
 menu starts one. Med starts Claude Code, OpenCode, Codex (`codex-acp`), or
 Gemini CLI in the review's repository, with your own sign-in; it does not
-install them. A thread's agent learns how to hand off its work to the thread
-with a guide, and gets your messages from Med as new turns. The message box has
-model, effort, and mode pickers, a context meter, `/` commands, and **Stop**
-(or `Esc`). A tool call that needs an answer shows **Allow** and **Deny**.
+install them. To have a thread's agent hand off its work with a guide, add the
+lines from `med skills instructions` to your CLAUDE.md or AGENTS.md. The agent
+gets your messages from Med as new turns. The message box has model, effort,
+and mode pickers, a context meter, `/` commands, and **Stop** (or `Esc`). A
+tool call that needs an answer shows **Allow** and **Deny**.
 
 Paste or drop images into the message box, or use its image button. Claude
 Code and ACP agents that take images get them with the message, up to ten of 5
