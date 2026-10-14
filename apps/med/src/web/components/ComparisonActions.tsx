@@ -1,7 +1,16 @@
 import * as stylex from "@stylexjs/stylex";
 import { Menu } from "@base-ui/react/menu";
 import { Dialog } from "@base-ui/react/dialog";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useId,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type Ref,
+  type RefObject,
+} from "react";
 import type { Comparison } from "../../shared/protocol";
 import { gitTargetsSchema, pushResultSchema, type GitTargets } from "../../shared/git-actions";
 import { createApi } from "../data/api";
@@ -11,18 +20,35 @@ import { Icon } from "./Icon";
 import { ActionTooltip } from "./ToolButton";
 import { picked, tokens, ui } from "../theme.stylex";
 
+/** Opens the actions from elsewhere, such as a menu or ⌘K. */
+export interface ComparisonActionsHandle {
+  /** The base branch menu, below `anchor`. */
+  openCompare(): void;
+  /** The push dialog; it does nothing without a commit to push or before the
+   * remotes load. */
+  openPush(): void;
+}
+
 export function ComparisonActions({
   repo,
   head,
   sourceBranch,
   comparison,
   onCompare,
+  triggers = true,
+  anchor,
+  ref,
 }: {
   repo: string;
   head: string;
   sourceBranch: string;
   comparison: Comparison;
   onCompare(base: string, head: string): void;
+  /** Without them, the menu and the dialog open only through `ref`. */
+  triggers?: boolean;
+  /** Where the base branch menu opens without its own trigger. */
+  anchor?: RefObject<HTMLElement | null>;
+  ref?: Ref<ComparisonActionsHandle>;
 }) {
   const branchList = useId();
   const api = useMemo(() => createApi(fetch, readBrowserToken()), []);
@@ -76,41 +102,71 @@ export function ComparisonActions({
       setPushing(false);
     }
   };
+  const [compareOpen, setCompareOpen] = useState(false);
+  const changeCompare = (open: boolean) => {
+    if (open) setQuery("");
+    setCompareOpen(open);
+  };
+  const changePush = (open: boolean) => {
+    if (pushBusy.current) return;
+    if (open) {
+      setError("");
+      setPublished("");
+      setPushHead(commitHead);
+      setRemote(targets?.remotes[0]?.name ?? "");
+      setBranch(sourceBranch);
+    }
+    setPushOpen(open);
+  };
+  useImperativeHandle(ref, () => ({
+    openCompare: () => changeCompare(true),
+    openPush: () => {
+      if (commitHead && targets) changePush(true);
+    },
+  }));
   return (
     <>
       <Menu.Root
-        onOpenChange={(open) => {
-          if (open) setQuery("");
-        }}
+        open={compareOpen}
+        onOpenChange={changeCompare}
         onOpenChangeComplete={(open) => {
           if (open) filterRef.current?.focus();
         }}
       >
-        <Menu.Trigger
-          {...stylex.props(
-            ui.button,
-            styles.trigger,
-            comparison.kind === "range" && comparison.mergeBase && ui.strong,
-          )}
-          aria-label="Compare against base branch"
-        >
-          {comparison.kind === "range" && comparison.mergeBase ? (
-            <>
-              <span {...stylex.props(styles.baseLabel)}>Base</span>
-              <span {...stylex.props(styles.label)}>
-                {comparison.base.replace(/^refs\/(heads|remotes)\//, "")}
-              </span>
-            </>
-          ) : (
-            <span {...stylex.props(styles.label)}>Compare against</span>
-          )}
-          <span {...stylex.props(styles.chevron)}>
-            <Icon name="chevron" size={14} />
-          </span>
-        </Menu.Trigger>
+        {triggers && (
+          <Menu.Trigger
+            {...stylex.props(
+              ui.button,
+              styles.trigger,
+              comparison.kind === "range" && comparison.mergeBase && ui.strong,
+            )}
+            aria-label="Compare against base branch"
+          >
+            {comparison.kind === "range" && comparison.mergeBase ? (
+              <>
+                <span {...stylex.props(styles.baseLabel)}>Base</span>
+                <span {...stylex.props(styles.label)}>
+                  {comparison.base.replace(/^refs\/(heads|remotes)\//, "")}
+                </span>
+              </>
+            ) : (
+              <span {...stylex.props(styles.label)}>Compare against</span>
+            )}
+            <span {...stylex.props(styles.chevron)}>
+              <Icon name="chevron" size={14} />
+            </span>
+          </Menu.Trigger>
+        )}
         <Menu.Portal>
-          <Menu.Positioner sideOffset={6} {...stylex.props(styles.positioner)}>
-            <Menu.Popup {...stylex.props(ui.popup, ui.pop, styles.menu)}>
+          <Menu.Positioner
+            sideOffset={6}
+            {...(triggers ? {} : { anchor, align: "start" as const })}
+            {...stylex.props(styles.positioner)}
+          >
+            <Menu.Popup
+              {...(triggers ? {} : { finalFocus: anchor })}
+              {...stylex.props(ui.popup, ui.pop, styles.menu)}
+            >
               <div {...stylex.props(styles.filter)}>
                 <Icon name="search" size={14} />
                 <input
@@ -185,29 +241,18 @@ export function ComparisonActions({
           </Menu.Positioner>
         </Menu.Portal>
       </Menu.Root>
-      <Dialog.Root
-        open={pushOpen}
-        onOpenChange={(open) => {
-          if (pushBusy.current) return;
-          if (open) {
-            setError("");
-            setPublished("");
-            setPushHead(commitHead);
-            setRemote(targets?.remotes[0]?.name ?? "");
-            setBranch(sourceBranch);
-          }
-          setPushOpen(open);
-        }}
-      >
-        <ActionTooltip label="Push to remote">
-          <Dialog.Trigger
-            {...stylex.props(ui.button, ui.iconButton, ui.pressable)}
-            aria-label="Push"
-            disabled={!commitHead || !targets}
-          >
-            <Icon name="push" size={15} />
-          </Dialog.Trigger>
-        </ActionTooltip>
+      <Dialog.Root open={pushOpen} onOpenChange={changePush}>
+        {triggers && (
+          <ActionTooltip label="Push to remote">
+            <Dialog.Trigger
+              {...stylex.props(ui.button, ui.iconButton, ui.pressable)}
+              aria-label="Push"
+              disabled={!commitHead || !targets}
+            >
+              <Icon name="push" size={15} />
+            </Dialog.Trigger>
+          </ActionTooltip>
+        )}
         <Dialog.Portal>
           <Dialog.Backdrop {...stylex.props(ui.scrim, styles.backdrop)} />
           <Dialog.Popup {...stylex.props(styles.dialog)}>

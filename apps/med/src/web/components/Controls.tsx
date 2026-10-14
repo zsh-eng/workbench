@@ -4,7 +4,7 @@ import * as stylex from "@stylexjs/stylex";
 import { Menu } from "@base-ui/react/menu";
 import { Select } from "@base-ui/react/select";
 import { Dialog } from "@base-ui/react/dialog";
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import { ShortcutKeys } from "./ShortcutKeys";
 export { ShortcutKeys } from "./ShortcutKeys";
 import { Icon, type IconName } from "./Icon";
@@ -28,6 +28,12 @@ export interface MenuAction {
   letter?: string;
   onClick(): void;
 }
+/** Items that open beside their item, such as a menu's view options. */
+export interface MenuSubmenu {
+  label: string;
+  items: MenuAction[];
+}
+export type MenuEntry = MenuAction | MenuSubmenu;
 export interface ReviewCommand {
   managesFocus?: boolean;
   id: string;
@@ -37,6 +43,9 @@ export interface ReviewCommand {
   run(): void;
 }
 
+/** A value that no choice has: an action's item in a ChoiceSelect. */
+const ACTION = "\u0000action:";
+
 export function ChoiceSelect({
   value,
   choices,
@@ -45,6 +54,8 @@ export function ChoiceSelect({
   icon,
   trigger,
   disabled,
+  actions = [],
+  triggerRef,
 }: {
   value: string;
   choices: Choice[];
@@ -54,17 +65,23 @@ export function ChoiceSelect({
   /** The trigger's look, in place of a toolbar button. */
   trigger?: stylex.StyleXStyles;
   disabled?: boolean;
+  /** Items after the choices, below a rule, that act and keep the value. */
+  actions?: { label: string; onSelect(): void }[];
+  triggerRef?: Ref<HTMLButtonElement>;
 }) {
   return (
     <Select.Root
       value={value}
       onValueChange={(next) => {
-        if (next !== null) onChange(next);
+        if (next === null) return;
+        if (next.startsWith(ACTION)) actions[Number(next.slice(ACTION.length))]?.onSelect();
+        else onChange(next);
       }}
       items={choices}
       disabled={disabled}
     >
       <Select.Trigger
+        ref={triggerRef}
         {...stylex.props(ui.button, ui.strong, styles.trigger, trigger)}
         aria-label={label}
       >
@@ -111,6 +128,25 @@ export function ChoiceSelect({
                   </span>
                 </Select.Item>
               ))}
+              {actions.length > 0 && <Select.Separator {...stylex.props(ui.separator)} />}
+              {actions.map((action, index) => (
+                <Select.Item
+                  key={action.label}
+                  value={`${ACTION}${index}`}
+                  className={(state) =>
+                    stylex.props(
+                      ui.menuItem,
+                      styles.choice,
+                      state.highlighted && [ui.menuHighlighted, picked],
+                    ).className
+                  }
+                >
+                  <span {...stylex.props(styles.check)} />
+                  <Select.ItemText {...stylex.props(styles.choiceLabel)}>
+                    {action.label}
+                  </Select.ItemText>
+                </Select.Item>
+              ))}
             </Select.List>
           </Select.Popup>
         </Select.Positioner>
@@ -129,24 +165,24 @@ export function ActionMenu({
   children?: ReactNode;
   label?: string;
   /** Groups of related actions, separated by rules. */
-  sections: MenuAction[][];
+  sections: MenuEntry[][];
   /** The trigger's look, in place of a toolbar button. */
   trigger?: stylex.StyleXStyles;
   align?: "start" | "end";
 }) {
-  const toggles = sections.some((section) =>
-    section.some((action) => action.checked !== undefined),
-  );
   const [open, setOpen] = useState(false);
-  // While the menu is open, a letter chooses its item as a click does; a
-  // toggle keeps the menu open. The key goes to the menu wherever focus is,
-  // as focus moves into the menu a moment after it opens.
+  // While the menu is open, a letter chooses its item as a click does, also
+  // in a submenu; a toggle keeps the menu open. The key goes to the menu
+  // wherever focus is, as focus moves into the menu a moment after it opens.
   useEffect(() => {
     if (!open) return;
     const choose = (event: globalThis.KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey || event.key.length !== 1) return;
       const key = event.key.toLowerCase();
-      const action = sections.flat().find((entry) => entry.letter === key && !entry.disabled);
+      const action = sections
+        .flat()
+        .flatMap((entry) => ("items" in entry ? entry.items : [entry]))
+        .find((entry) => entry.letter === key && !entry.disabled);
       if (!action) return;
       event.preventDefault();
       event.stopPropagation();
@@ -169,65 +205,93 @@ export function ActionMenu({
       <Menu.Portal>
         <Menu.Positioner align={align} sideOffset={6} {...stylex.props(styles.positioner)}>
           <Menu.Popup {...stylex.props(ui.popup, ui.pop, styles.menu)}>
-            {sections
-              .filter((section) => section.length)
-              .map((section, index) => (
-                <Fragment key={section.map((action) => action.label).join()}>
-                  {index > 0 && <Menu.Separator {...stylex.props(ui.separator)} />}
-                  <Menu.Group>
-                    {section.map((action) => {
-                      const content = (
-                        <>
-                          <span {...stylex.props(ui.row)}>
-                            {toggles && (
-                              <span {...stylex.props(styles.check)}>
-                                {action.checked !== undefined && (
-                                  <Menu.CheckboxItemIndicator {...stylex.props(styles.indicator)}>
-                                    <Icon name="check" size={14} />
-                                  </Menu.CheckboxItemIndicator>
-                                )}
-                              </span>
-                            )}
-                            <Lettered label={action.label} letter={action.letter} />
-                          </span>
-                          <ShortcutKeys value={action.shortcut} />
-                        </>
-                      );
-                      const className = (state: { highlighted: boolean }) =>
-                        stylex.props(ui.menuItem, state.highlighted && [ui.menuHighlighted, picked])
-                          .className;
-                      return action.checked === undefined ? (
-                        <Menu.Item
-                          key={action.label}
-                          aria-keyshortcuts={action.letter}
-                          onClick={action.onClick}
-                          disabled={action.disabled}
-                          className={className}
-                        >
-                          {content}
-                        </Menu.Item>
-                      ) : (
-                        <Menu.CheckboxItem
-                          key={action.label}
-                          aria-keyshortcuts={action.letter}
-                          disabled={action.disabled}
-                          checked={action.checked}
-                          closeOnClick={action.choice}
-                          onCheckedChange={action.onClick}
-                          className={className}
-                        >
-                          {content}
-                        </Menu.CheckboxItem>
-                      );
-                    })}
-                  </Menu.Group>
-                </Fragment>
-              ))}
+            <MenuSections sections={sections} />
           </Menu.Popup>
         </Menu.Positioner>
       </Menu.Portal>
     </Menu.Root>
   );
+}
+
+/** A menu's groups of items, with a check column when any item toggles. */
+function MenuSections({ sections }: { sections: MenuEntry[][] }) {
+  const toggles = sections.some((section) =>
+    section.some((action) => !("items" in action) && action.checked !== undefined),
+  );
+  const className = (state: { highlighted: boolean }) =>
+    stylex.props(ui.menuItem, state.highlighted && [ui.menuHighlighted, picked]).className;
+  const check = (indicator: ReactNode) =>
+    toggles && <span {...stylex.props(styles.check)}>{indicator}</span>;
+  return sections
+    .filter((section) => section.length)
+    .map((section, index) => (
+      <Fragment key={section.map((action) => action.label).join()}>
+        {index > 0 && <Menu.Separator {...stylex.props(ui.separator)} />}
+        <Menu.Group>
+          {section.map((action) => {
+            if ("items" in action)
+              return (
+                <Menu.SubmenuRoot key={action.label}>
+                  <Menu.SubmenuTrigger className={className}>
+                    <span {...stylex.props(ui.row)}>
+                      {check(null)}
+                      {action.label}
+                    </span>
+                    <span {...stylex.props(styles.submenuArrow)}>
+                      <Icon name="chevron" size={12} />
+                    </span>
+                  </Menu.SubmenuTrigger>
+                  <Menu.Portal>
+                    <Menu.Positioner sideOffset={4} {...stylex.props(styles.positioner)}>
+                      <Menu.Popup {...stylex.props(ui.popup, ui.pop, styles.menu)}>
+                        <MenuSections sections={[action.items]} />
+                      </Menu.Popup>
+                    </Menu.Positioner>
+                  </Menu.Portal>
+                </Menu.SubmenuRoot>
+              );
+            const content = (
+              <>
+                <span {...stylex.props(ui.row)}>
+                  {check(
+                    action.checked !== undefined && (
+                      <Menu.CheckboxItemIndicator {...stylex.props(styles.indicator)}>
+                        <Icon name="check" size={14} />
+                      </Menu.CheckboxItemIndicator>
+                    ),
+                  )}
+                  <Lettered label={action.label} letter={action.letter} />
+                </span>
+                <ShortcutKeys value={action.shortcut} />
+              </>
+            );
+            return action.checked === undefined ? (
+              <Menu.Item
+                key={action.label}
+                aria-keyshortcuts={action.letter}
+                onClick={action.onClick}
+                disabled={action.disabled}
+                className={className}
+              >
+                {content}
+              </Menu.Item>
+            ) : (
+              <Menu.CheckboxItem
+                key={action.label}
+                aria-keyshortcuts={action.letter}
+                disabled={action.disabled}
+                checked={action.checked}
+                closeOnClick={action.choice}
+                onCheckedChange={action.onClick}
+                className={className}
+              >
+                {content}
+              </Menu.CheckboxItem>
+            );
+          })}
+        </Menu.Group>
+      </Fragment>
+    ));
 }
 
 /** A label with its letter underlined: the first at the start of a word, or
@@ -443,6 +507,7 @@ const styles = stylex.create({
   positioner: { zIndex: 100, outline: "none" },
   check: { display: "inline-flex", flexShrink: 0, width: 14, color: tokens.accent },
   indicator: { display: "inline-flex", color: tokens.accent },
+  submenuArrow: { display: "inline-flex", transform: "rotate(-90deg)", color: tokens.faint },
   letter: {
     textDecorationLine: "underline",
     textDecorationThickness: 1,
