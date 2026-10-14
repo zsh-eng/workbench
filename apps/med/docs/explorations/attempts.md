@@ -197,9 +197,6 @@ test`, `vitest`, `tsc`, `cargo test`, and others). A project's own script,
    does not start, the others stay and the page says which one failed.
 7. **Names.** The kept thread keeps its `-b` branch. Renaming the branch on
    Keep is possible.
-8. **The experiments table.** `docs/explorations/README.md` lists experiment 7
-   as "Instant start". I did not change that shared file; the table needs a
-   row for Attempts.
 
 ## Recommendation
 
