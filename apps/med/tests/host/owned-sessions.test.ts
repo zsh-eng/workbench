@@ -1,5 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { once } from "node:events";
 import { appendFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -40,7 +41,7 @@ async function fixture() {
   await mkdir(home);
   vi.stubEnv("MED_HOME_DIR", home);
   const stateDir = join(directory, "state");
-  const host = await startHost({
+  const options: Parameters<typeof startHost>[0] = {
     repo,
     repos: [repo],
     stateDir,
@@ -64,8 +65,17 @@ async function fixture() {
       },
       { id: "missing", name: "Missing", kind: "acp", available: false, command: "x", args: [] },
     ],
-  });
+  };
+  let host = await startHost(options);
   hosts.push(host);
+  /** Closes the host and starts it again on the same state, as a restart does. */
+  const restart = async () => {
+    await host.close();
+    hosts.splice(hosts.indexOf(host), 1);
+    host = await startHost(options);
+    hosts.push(host);
+    return host;
+  };
   const api = async <T>(path: string, body?: unknown) => {
     const response = await fetch(`http://127.0.0.1:${host.port}${path}`, {
       method: body === undefined ? "GET" : "POST",
@@ -143,7 +153,7 @@ async function fixture() {
     ).catch(() => {});
     return latest;
   };
-  return { api, repo, home, review, stateDir, thread, start, threads };
+  return { api, repo, home, review, stateDir, thread, start, threads, restart };
 }
 
 test("Med starts Claude Code, sends review messages as prompts, and answers its questions", async () => {
@@ -261,6 +271,65 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
   expect(waited.data.message).toContain("Compare with this.");
   expect(path?.startsWith(join(stateDir, "images"))).toBe(true);
   expect((await readFile(path!)).toString("base64")).toBe(PNG);
+});
+
+test("the sessions that Med started come back after the host restarts: Claude Code resumes, others stay stopped", async () => {
+  const { api, home, review, thread, start, restart } = await fixture();
+  const kept = await start("claude");
+  await kept.until((state) => state.status === "idle" && state.settings.length > 0);
+  await kept.act({ action: "setting", id: "effort", value: "high" });
+  await kept.until((state) => state.status === "idle");
+  await kept.act({ action: "setting", id: "mode", value: "plan" });
+  await kept.act({ action: "prompt", text: "Format the durations." });
+  const replies = await thread(kept.id);
+  await vi.waitFor(() =>
+    expect(replies()).toEqual(["Model opus, effort high, mode plan: Format the durations."]),
+  );
+  const ended = await start("claude");
+  await ended.until((state) => state.status === "idle");
+  await ended.act({ action: "stop" });
+  const acp = await start("fake");
+  await acp.until((state) => state.status === "idle");
+
+  const host = await restart();
+  // Claude Code waits without a process, with the choices it had.
+  const back = await kept.until((state) => state.settings.length === 3);
+  expect(back.status).toBe("idle");
+  expect(back.settings.map((setting) => [setting.id, setting.value])).toEqual([
+    ["model", "opus"],
+    ["effort", "high"],
+    ["mode", "plan"],
+  ]);
+  // The user stopped one, and an ACP agent cannot resume: both stay stopped.
+  expect((await ended.state()).status).toBe("exited");
+  expect((await acp.state()).status).toBe("exited");
+
+  // While another Claude Code process runs the session, as in a terminal,
+  // Med does not start a second one.
+  const send = (text: string) =>
+    api<{ message: { delivery: string; error?: string } }>(
+      `/api/reviews/${review.id}/agent/messages`,
+      { sessionId: kept.id, text, noteIds: [] },
+    );
+  const other = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)", "claude", kept.id]);
+  await once(other, "spawn");
+  const busy = await send("Are you there?");
+  other.kill();
+  expect(busy.data.message).toMatchObject({ delivery: "failed" });
+  expect(busy.data.message.error).toContain("Another Claude Code process runs this session");
+  await once(other, "exit");
+
+  // The next message resumes the session in a new process, on the new port.
+  const again = await thread(kept.id);
+  expect((await send("Check the summary.")).data.message.delivery).toBe("delivered");
+  await vi.waitFor(() =>
+    expect(again().at(-1)).toBe("Model opus, effort high, mode plan: Check the summary."),
+  );
+  const project = join(home, ".claude", "projects", "-fake-repo");
+  const args = JSON.parse(await readFile(join(project, `${kept.id}.args.json`), "utf8"));
+  expect(args).toEqual(expect.arrayContaining(["--resume", kept.id, "--effort", "high"]));
+  const env = JSON.parse(await readFile(join(project, `${kept.id}.env.json`), "utf8"));
+  expect(env.MED_PORT).toBe(String(host.port));
 });
 
 test("Med runs an ACP agent and keeps its thread", async () => {

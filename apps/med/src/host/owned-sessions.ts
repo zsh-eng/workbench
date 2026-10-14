@@ -21,6 +21,7 @@ import type { AgentSession } from "../shared/saved-review";
 import { compactUpdate } from "./agent-transcripts";
 import { createJsonRpc, RpcError, type JsonRpc } from "./json-rpc";
 import { HostError } from "./runtime/errors";
+import { runProcess } from "./runtime/process";
 import { userHome } from "./service/discover";
 import type { PromptImage } from "../shared/agent-inbox";
 
@@ -34,6 +35,9 @@ export interface RunnableAgent extends AgentPreset {
 export interface OwnedRunner {
   readonly session: AgentSession;
   state(): OwnedState;
+  /** A session from before the host restarted, whose agent starts again
+   * with its next prompt. */
+  dormant(): boolean;
   /** Updates that Med keeps for an ACP session; Claude Code writes a transcript. */
   readonly log?: SessionLog;
   prompt(text: string, images?: PromptImage[]): Promise<void>;
@@ -138,6 +142,23 @@ function createState(initial: OwnedState) {
 }
 
 const lastLines = (text: string) => text.trim().split("\n").slice(-3).join("\n").slice(-600);
+
+/** Whether another process names the session, such as Claude Code that the
+ * user resumed in a terminal. Two processes on one transcript would mix it. */
+async function runsElsewhere(sessionId: string) {
+  try {
+    const { stdout } = await runProcess("ps", ["-A", "-o", "args="], {
+      cwd: "/",
+      timeoutMs: 5000,
+    });
+    return stdout
+      .toString()
+      .split("\n")
+      .some((line) => line.includes(sessionId) && /claude/i.test(line));
+  } catch {
+    return false;
+  }
+}
 
 /** A short line for a tool call's input: its command, path, or URL. */
 function inputSummary(input: Record<string, unknown> | undefined) {
@@ -263,10 +284,14 @@ export function startClaude(
   cwd: string,
   options: {
     sessionId?: string;
-    env?: Record<string, string>;
+    /** The variables to add, read when the process starts. */
+    env?: () => Record<string, string>;
     /** The model and effort to start with, where `models` offers them. */
     choices?: AgentChoices;
-    models?: ClaudeModel[];
+    models?: ClaudeModel[] | Promise<ClaudeModel[]>;
+    /** The session exists: it continues with `--resume` at its next prompt,
+     * with the model, effort, and mode it had. */
+    resume?: { model?: string; effort?: string; mode?: string };
   } = {},
 ): OwnedRunner {
   const sessionId = options.sessionId ?? randomUUID();
@@ -281,18 +306,28 @@ export function startClaude(
     turns: 0,
     images: true,
   });
-  let child: ChildProcessWithoutNullStreams;
+  // No process until a restored session's next prompt.
+  let child: ChildProcessWithoutNullStreams | undefined;
+  let waking: Promise<void> | undefined;
+  // Claude Code has the session's transcript: a new process resumes it.
+  let exists = !!options.resume;
   let stopping = false;
   let sequence = 0;
   const pending = new Map<string, (response: { error?: string; value?: unknown }) => void>();
   let ask: { id: string; input: unknown; suggestions?: unknown[] } | undefined;
-  let models = options.models ?? [];
-  let chosen = { ...claudeChoices(models, options.choices ?? {}), mode: "default" };
+  let models = Array.isArray(options.models) ? options.models : [];
+  let chosen = options.resume
+    ? {
+        model: options.resume.model ?? "default",
+        effort: options.resume.effort ?? "default",
+        mode: options.resume.mode ?? "default",
+      }
+    : { ...claudeChoices(models, options.choices ?? {}), mode: "default" };
   let streamTimer: ReturnType<typeof setTimeout> | undefined;
   let streaming: OwnedState["streaming"];
 
   const write = (message: object) => {
-    if (child.stdin.writable) child.stdin.write(`${JSON.stringify(message)}\n`);
+    if (child?.stdin.writable) child.stdin.write(`${JSON.stringify(message)}\n`);
   };
   const control = (request: object) =>
     new Promise<unknown>((resolve, reject) => {
@@ -459,7 +494,7 @@ export function startClaude(
     ];
     const current = spawn(agent.command, [...agent.args, ...args], {
       cwd,
-      env: agentEnvironment(options.env),
+      env: agentEnvironment(options.env?.()),
       stdio: ["pipe", "pipe", "pipe"],
     });
     child = current;
@@ -515,15 +550,38 @@ export function startClaude(
         store.set({ error: error instanceof Error ? error.message : String(error) }),
       );
   };
-  launch(false);
+  /** Starts a restored session's process, unless another one runs it. */
+  const wake = async () => {
+    if (await runsElsewhere(sessionId))
+      throw new HostError(
+        "session-busy",
+        `Another ${agent.name} process runs this session, such as one in a terminal. End it, then send again.`,
+        409,
+      );
+    if (!child && !stopping) launch(true);
+  };
+  if (options.resume) {
+    store.set({ status: "idle", settings: settings() });
+    // The models come from a probe; until then, only the mode shows.
+    void Promise.resolve(options.models).then((offered) => {
+      if (models.length || !offered?.length) return;
+      models = offered;
+      store.set({ settings: settings() });
+    });
+  } else launch(false);
 
   return {
     session,
     state: store.get,
+    dormant: () => !child,
     subscribe: store.subscribe,
     async prompt(text, images = []) {
       if (store.get().status === "exited")
         throw new HostError("session-stopped", "This session has stopped.", 409);
+      if (!child)
+        await (waking ??= wake().finally(() => {
+          waking = undefined;
+        }));
       // Images go first, as Claude Code puts pasted images before the text.
       const content = images.length
         ? [
@@ -535,6 +593,7 @@ export function startClaude(
           ]
         : text;
       write({ type: "user", message: { role: "user", content } });
+      exists = true;
       store.set({ status: "working", turns: store.get().turns + 1, error: undefined });
     },
     answer(id, option) {
@@ -557,13 +616,16 @@ export function startClaude(
       store.set({ permission: undefined });
     },
     interrupt() {
-      void control({ subtype: "interrupt" }).catch(() => {});
+      if (child) void control({ subtype: "interrupt" }).catch(() => {});
     },
     async set(id, value) {
       const setting = store.get().settings.find((entry) => entry.id === id);
       if (!setting || !setting.options.some((option) => option.value === value))
         throw new HostError("invalid-setting", "The agent does not offer this choice.", 400);
-      if (id === "model") {
+      // Without a process, the choice waits for the next start.
+      if (!child) {
+        if (id === "model" || id === "effort" || id === "mode") chosen[id] = value;
+      } else if (id === "model") {
         await control({ subtype: "set_model", ...(value === "default" ? {} : { model: value }) });
         chosen.model = value;
       } else if (id === "mode") {
@@ -577,16 +639,44 @@ export function startClaude(
         const previous = child;
         for (const done of pending.values()) done({ error: "Claude Code started again." });
         pending.clear();
-        launch(store.get().turns > 0);
+        launch(exists);
         previous.kill("SIGTERM");
       }
       store.set({ settings: settings() });
     },
     stop() {
       stopping = true;
-      child.kill("SIGTERM");
+      child?.kill("SIGTERM");
       store.set({ status: "exited", permission: undefined, streaming: undefined });
     },
+  };
+}
+
+/** A session that stopped before the host restarted, such as an ACP session:
+ * its thread stays readable, and a new session continues the work. */
+function stoppedRunner(session: AgentSession, preset: string, name: string): OwnedRunner {
+  const state: OwnedState = {
+    sessionId: session.id,
+    preset,
+    name,
+    status: "exited",
+    settings: [],
+    commands: [],
+    turns: 0,
+  };
+  const stopped = () => {
+    throw new HostError("session-stopped", "This session has stopped.", 409);
+  };
+  return {
+    session,
+    state: () => state,
+    dormant: () => false,
+    subscribe: () => () => {},
+    prompt: async () => stopped(),
+    answer() {},
+    interrupt() {},
+    set: async () => stopped(),
+    stop() {},
   };
 }
 
@@ -880,6 +970,7 @@ export function startAcp(
     session,
     log,
     state: store.get,
+    dormant: () => false,
     subscribe: store.subscribe,
     async prompt(text, images = []) {
       await ready;
@@ -1059,6 +1150,37 @@ export async function findAgents(stateDir?: string, home = userHome()): Promise<
   return found;
 }
 
+/** What Med keeps of a session that it started, so that the session
+ * continues after the host restarts. */
+const recordSchema = z.object({
+  preset: z.string(),
+  kind: z.enum(["claude", "acp"]),
+  name: z.string(),
+  cwd: z.string(),
+  /** The thread's key, for the agent's environment. */
+  key: z.string().optional(),
+  choices: z.object({ model: z.string(), effort: z.string(), mode: z.string() }).partial(),
+  /** The user stopped it. */
+  stopped: z.boolean().optional(),
+  updatedAt: z.number(),
+});
+type SessionRecord = z.infer<typeof recordSchema>;
+/** Records kept at most; the oldest go first. */
+const MAX_RECORDS = 200;
+
+/** The model, effort, and mode that a session's settings show now. */
+function chosenSettings(state: OwnedState): SessionRecord["choices"] {
+  const chosen: SessionRecord["choices"] = {};
+  for (const setting of state.settings)
+    if (
+      setting.category === "model" ||
+      setting.category === "effort" ||
+      setting.category === "mode"
+    )
+      chosen[setting.category] = setting.value;
+  return chosen;
+}
+
 /** The sessions that this Med host started, by session ID. */
 export class OwnedSessions {
   private runners = new Map<string, OwnedRunner>();
@@ -1067,6 +1189,8 @@ export class OwnedSessions {
   private claudeModels = new Map<string, Promise<ClaudeModel[]>>();
   /** What each ACP agent offered in its last new session. */
   private offered: Promise<Record<string, OwnedSetting[]>> | undefined;
+  private records: Record<string, SessionRecord> = {};
+  private writing: Promise<void> = Promise.resolve();
   constructor(
     private options: {
       agents: () => Promise<RunnableAgent[]>;
@@ -1074,6 +1198,10 @@ export class OwnedSessions {
       logDirectory?: string;
       /** Where Med keeps what each ACP agent offered, for the next new session. */
       offersFile?: string;
+      /** Where Med keeps the sessions it started, for after a restart. */
+      recordsFile?: string;
+      /** The variables of an agent in a thread with `key`, working in `cwd`. */
+      environment?: (key: string | undefined, cwd: string) => Record<string, string>;
     },
   ) {}
   async agents(): Promise<AgentPreset[]> {
@@ -1160,36 +1288,116 @@ export class OwnedSessions {
     };
     return { ...pick("model"), ...pick("effort") };
   }
+  private environment(key: string | undefined, cwd: string) {
+    return this.options.environment?.(key, cwd) ?? {};
+  }
   /**
-   * Starts an agent in `cwd`, with `env` added to its environment, and the
-   * chosen model and effort, or Med's defaults, where the agent offers them.
+   * Starts an agent in `cwd`, for the thread with `key`, and the chosen model
+   * and effort, or Med's defaults, where the agent offers them.
    */
   async start(
     presetId: string,
     cwd: string,
-    { env, choices }: { env?: Record<string, string>; choices?: AgentChoices } = {},
+    { key, choices }: { key?: string; choices?: AgentChoices } = {},
   ): Promise<OwnedRunner> {
     const agent = await this.agent(presetId);
     const wanted = { ...AGENT_DEFAULTS[presetId], ...choices };
     const runner =
       agent.kind === "claude"
         ? startClaude(agent, cwd, {
-            ...(env ? { env } : {}),
+            env: () => this.environment(key, cwd),
             choices: wanted,
             models: await this.models(agent),
           })
         : startAcp(agent, cwd, {
             ...(this.options.logDirectory ? { logDirectory: this.options.logDirectory } : {}),
-            ...(env ? { env } : {}),
+            env: this.environment(key, cwd),
             choices: wanted,
             onOffer: (settings) => void this.remember(presetId, settings),
           });
+    this.track(runner, {
+      preset: presetId,
+      kind: agent.kind,
+      name: agent.name,
+      cwd,
+      ...(key ? { key } : {}),
+      choices: {},
+      updatedAt: Date.now(),
+    });
+    return runner;
+  }
+  /**
+   * Brings back the sessions that this host started before it restarted. A
+   * Claude Code session waits without a process and resumes with its next
+   * prompt; other sessions show as stopped, with their threads.
+   */
+  async restore() {
+    const file = this.options.recordsFile;
+    if (!file) return;
+    try {
+      this.records = z
+        .record(z.string(), recordSchema)
+        .parse(JSON.parse(await readFile(file, "utf8")));
+    } catch {
+      return;
+    }
+    const agents = await this.options.agents();
+    for (const [id, record] of Object.entries(this.records)) {
+      if (this.runners.has(id) || !/^[A-Za-z0-9_-]{1,128}$/.test(id)) continue;
+      const agent = agents.find((entry) => entry.id === record.preset);
+      const session: AgentSession = {
+        agent: record.kind,
+        ...(record.kind === "acp" ? { name: record.name } : {}),
+        id,
+        cwd: record.cwd,
+      };
+      const runner =
+        agent?.kind === "claude" && agent.available && !record.stopped
+          ? startClaude(agent, record.cwd, {
+              sessionId: id,
+              env: () => this.environment(record.key, record.cwd),
+              resume: record.choices,
+              models: this.models(agent),
+            })
+          : stoppedRunner(session, record.preset, record.name);
+      this.track(runner, record, false);
+    }
+  }
+  /** Keeps a runner, and its record up to date with its choices. */
+  private track(runner: OwnedRunner, record: SessionRecord, save = true) {
     const id = runner.session.id;
     this.runners.set(id, runner);
     this.updated.set(id, Date.now());
-    runner.subscribe(() => this.updated.set(id, Date.now()));
+    this.records[id] = record;
+    if (save) this.save();
+    runner.subscribe(() => {
+      this.updated.set(id, Date.now());
+      const current = this.records[id];
+      if (!current) return;
+      const choices = { ...current.choices, ...chosenSettings(runner.state()) };
+      if (JSON.stringify(choices) === JSON.stringify(current.choices)) return;
+      this.records[id] = { ...current, choices, updatedAt: Date.now() };
+      this.save();
+    });
     runner.log?.subscribe(() => this.updated.set(id, Date.now()));
-    return runner;
+  }
+  private save() {
+    const file = this.options.recordsFile;
+    if (!file) return;
+    const kept = Object.entries(this.records)
+      .sort(([, a], [, b]) => b.updatedAt - a.updatedAt)
+      .slice(0, MAX_RECORDS);
+    this.records = Object.fromEntries(kept);
+    const text = JSON.stringify(this.records);
+    this.writing = this.writing.then(() => writeFile(file, text)).catch(() => {});
+  }
+  /** Stops a session for the user: it stays stopped after a restart. */
+  end(runner: OwnedRunner) {
+    runner.stop();
+    const record = this.records[runner.session.id];
+    if (!record || record.stopped) return;
+    this.records[runner.session.id] = { ...record, stopped: true, updatedAt: Date.now() };
+    this.save();
   }
   get(sessionId: string) {
     return this.runners.get(sessionId);
@@ -1205,15 +1413,17 @@ export class OwnedSessions {
     if (!this.options.logDirectory || !/^[A-Za-z0-9_-]+$/.test(sessionId)) return [];
     return SessionLog.read(join(this.options.logDirectory, `${sessionId}.jsonl`));
   }
-  /** Sessions that still run in a folder or below it. */
+  /** Sessions that still run, or wait to resume, in a folder or below it. */
   within(folder: string) {
     return [...this.runners.values()].filter((runner) => {
       const inside = relative(folder, runner.session.cwd);
       return runner.state().status !== "exited" && !inside.startsWith("..") && !isAbsolute(inside);
     });
   }
-  stopAll() {
+  /** Stops every process as the host closes; the sessions resume after it starts. */
+  async stopAll() {
     for (const runner of this.runners.values())
       if (runner.state().status !== "exited") runner.stop();
+    await this.writing;
   }
 }

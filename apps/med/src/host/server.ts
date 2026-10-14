@@ -275,12 +275,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       ...(bin ? { bin } : {}),
       ...(key ? { thread: { key, repo } } : {}),
     });
-  // Sessions that Med starts. ACP sessions keep their updates in the state directory.
+  // Sessions that Med starts. ACP sessions keep their updates in the state
+  // directory, and the sessions from before a restart come back first.
   const ownedSessions = new OwnedSessions({
     agents: options.agents ?? (() => findAgents(options.stateDir)),
     logDirectory: join(options.stateDir ?? temporaryState!, "sessions"),
     offersFile: join(options.stateDir ?? temporaryState!, "agent-offers.json"),
+    recordsFile: join(options.stateDir ?? temporaryState!, "owned-sessions.json"),
+    environment: agentEnvironment,
   });
+  await ownedSessions.restore();
   const ownedStreams = new Set<ServerResponse>();
   const codexReviews = new CodexReviews();
   const reviewStatus = createAgentStatus({
@@ -430,7 +434,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         409,
       );
     await removeWorktree(path, signal);
-    for (const runner of agents) runner.stop();
+    for (const runner of agents) ownedSessions.end(runner);
     await forgetCheckouts(new Set([path]));
     await registry.refreshOwner(path, signal);
   };
@@ -974,7 +978,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             const cwd = await requireRepo(target.repo).catch(() => requireRepo(entry.path));
             assertRequestAccess();
             const runner = await ownedSessions.start(input.preset, cwd, {
-              env: agentEnvironment(bundle.key, cwd),
+              ...(bundle.key ? { key: bundle.key } : {}),
               ...(input.choices ? { choices: input.choices } : {}),
             });
             const review = await savedReviews.details(
@@ -1019,7 +1023,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             else if (action.action === "permission") runner.answer(action.id, action.option);
             else if (action.action === "interrupt") runner.interrupt();
             else if (action.action === "setting") await runner.set(action.id, action.value);
-            else runner.stop();
+            else ownedSessions.end(runner);
             send(runner.state());
             return;
           }
@@ -1402,7 +1406,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             }
             assertRequestAccess();
             const runner = await ownedSessions.start(input.preset, cwd, {
-              env: agentEnvironment(key, cwd),
+              key,
               ...(input.choices ? { choices: input.choices } : {}),
             });
             const review = await savedReviews.create(
@@ -2354,7 +2358,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       if (closing) return;
       closing = true;
       clearInterval(heartbeat);
-      ownedSessions.stopAll();
+      await ownedSessions.stopAll();
       closeTranscripts();
       for (const abort of activeRequests.keys()) abort.abort();
       for (const stream of [...streams.keys(), ...windows]) stream.end();

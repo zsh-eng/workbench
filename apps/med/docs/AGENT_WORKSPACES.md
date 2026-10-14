@@ -73,6 +73,15 @@ stdio --session-id <id>`, with `--model`, `--effort`, and `--permission-mode`
   answers `session/request_permission` with the user's choice and appends the
   updates to `sessions/<id>.jsonl` in the state directory. A turn that ends
   with no reply gets a notice.
+- **After a restart**: the host keeps the sessions it started in
+  `owned-sessions.json` in the state directory, with the thread's key and the
+  model, effort, and mode that each one has now. When it starts again, a Claude
+  Code session comes back idle without a process, and its next prompt starts
+  `claude` with `--resume` and those choices. Med does not resume a session
+  that another Claude Code process names, such as one that the user resumed in
+  a terminal; the message fails with that reason. A session that the user
+  stopped stays stopped, and an ACP session shows as stopped, with its log, so
+  the prompt box offers a new session.
 
 ### What a thread's agent knows
 
@@ -212,9 +221,8 @@ reader chooses **Return to review**, the empty capture stays, with the bar.
 ## Remaining work
 
 - **Compact** in the context meter's menu, and pinning a lead session.
-- Resume an owned session after the host restarts. Today the host stops its
-  agents; the transcript or ACP log keeps the thread readable, and the prompt
-  box goes back to `med review wait`.
+- Resume an ACP session after the host restarts with `session/load`, for
+  agents that offer it; Med would keep the agent's own session ID.
 - Offset checkpoints, and a jump that loads only the pages around a turn.
 - Choose stacked panes or tabs.
 - Check whether Claude Desktop lists sessions that Med starts, and whether
