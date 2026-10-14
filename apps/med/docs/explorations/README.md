@@ -32,8 +32,8 @@ with its own write-up, so you can keep it, change it, or drop it alone.
 | 3   | Turn blame | [turn-blame.md](turn-blame.md) | In progress |
 | 4   | Change map | [change-map.md](change-map.md) | In progress |
 | 5   | Land | [land.md](land.md) | Built |
-| 6   | Quieter chrome | [quiet.md](quiet.md) | Planned |
-| 7   | Attempts | [attempts.md](attempts.md) | In progress |
+| 6   | Quieter chrome | [quiet.md](quiet.md) | Built |
+| 7   | Attempts | [attempts.md](attempts.md) | Built |
 | —   | Architecture review | [architecture.md](architecture.md) | Written, with two proofs of concept |
 
 ## Watch and try
