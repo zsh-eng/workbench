@@ -74,13 +74,14 @@ export function NewThread({
   onCancel(): void;
 }) {
   const [choice, setChoice] = useState(readChoice);
+  // The repository chosen here, which wins over the one on screen.
+  const [picked, setPicked] = useState<string>();
   const agents = useAgentPresets(true, fetcher)?.filter((agent) => agent.available);
   const repositories = list?.repositories ?? [];
   const repository =
-    repositories.find((entry) => entry.id === (suggested ?? choice.repositoryId)) ??
-    repositories.find((entry) => entry.id === choice.repositoryId) ??
-    repositories.find((entry) => entry.id === list?.threads[0]?.repository?.id) ??
-    repositories[0];
+    [picked, suggested, choice.repositoryId, list?.threads[0]?.repository?.id]
+      .map((id) => repositories.find((entry) => entry.id === id))
+      .find(Boolean) ?? repositories[0];
   const agent = agents?.find((entry) => entry.id === choice.preset) ?? agents?.[0];
   const options = useAgentOptions(agent?.id, fetcher);
   const { model, effort, efforts } = sessionChoices(options, agent && choice.agents?.[agent.id]);
@@ -173,7 +174,10 @@ export function NewThread({
               icon="gitBranch"
               value={repository?.id ?? ""}
               options={repositories.map((entry) => ({ value: entry.id, label: entry.name }))}
-              onChange={(value) => remember({ repositoryId: value })}
+              onChange={(value) => {
+                setPicked(value);
+                remember({ repositoryId: value });
+              }}
             />
             <div
               role="radiogroup"

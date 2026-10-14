@@ -125,16 +125,15 @@ function createHost() {
   };
   // The threads that the host lists, and the requests that change them.
   let threads: Thread[] = [];
+  let threadRepositories = [{ id: "repo-0", name: "fixture", path: "/test/repo" }];
   const threadStreams = new Set<ReadableStreamDefaultController<Uint8Array>>();
   const threadFrame = () =>
     new TextEncoder().encode(
-      `event: state\ndata: ${JSON.stringify({
-        threads,
-        repositories: [{ id: "repo-0", name: "fixture", path: "/test/repo" }],
-      })}\n\n`,
+      `event: state\ndata: ${JSON.stringify({ threads, repositories: threadRepositories })}\n\n`,
     );
-  const setThreads = (next: Thread[]) => {
+  const setThreads = (next: Thread[], repositories = threadRepositories) => {
     threads = next;
+    threadRepositories = repositories;
     for (const stream of threadStreams) stream.enqueue(threadFrame());
   };
   const threadRequests: { path: string; body: unknown }[] = [];
@@ -699,6 +698,26 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
   await userEvent.keyboard("{Escape}");
   await expect.element(dialog).not.toBeInTheDocument();
   expect(shown()?.dataset.reviewId).toBe("agent-target");
+
+  // A repository chosen here wins over the repository on screen.
+  host.setThreads(
+    [thread("agent")],
+    [
+      { id: "repo-0", name: "fixture", path: "/test/repo" },
+      { id: "repo-1", name: "other", path: "/test/other" },
+    ],
+  );
+  await userEvent.keyboard("{Alt>}n{/Alt}");
+  const repository = dialog.getByRole("combobox", { name: "Repository" });
+  await expect.element(repository).toHaveValue("repo-0");
+  await repository.selectOptions("other");
+  await expect.element(repository).toHaveValue("repo-1");
+  await dialog.getByRole("textbox", { name: "Task" }).fill("Rank results by age");
+  await expect.element(dialog.getByText(/in a new worktree of other/)).toBeVisible();
+  await dialog.getByRole("button", { name: /^Start/ }).click();
+  await expect
+    .poll(() => host.threadRequests.at(-1)?.body)
+    .toMatchObject({ repositoryId: "repo-1", prompt: "Rank results by age" });
 });
 
 test("reviews that agents announce show in the window used last", async () => {
