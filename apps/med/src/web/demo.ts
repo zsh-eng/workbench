@@ -794,7 +794,8 @@ const scroller = (node: Element | null) => {
 /** Types into a field as a person does, one character at a time. */
 const type = async (field: HTMLTextAreaElement | HTMLInputElement, text: string, ms: number) => {
   const set = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
-  for (let length = 1; length <= text.length; length += 1) {
+  // An empty text clears the field.
+  for (let length = text ? 1 : 0; length <= text.length; length += 1) {
     set.call(field, text.slice(0, length));
     field.dispatchEvent(new Event("input", { bubbles: true }));
     await pause(ms);
@@ -999,10 +1000,17 @@ const plays: Record<string, () => Promise<void>> = {
     all<HTMLButtonElement>("button")
       .find((button) => button.textContent?.includes("Commit…") && !button.disabled)
       ?.click();
-    await until(() => visible("textarea[aria-label='Commit message']"));
-    const field = visible("textarea[aria-label='Commit message']") as HTMLTextAreaElement;
-    const message = field.value;
-    if (message) await type(field, message, 28);
+    await until(() => visible("input[aria-label='Commit summary']"));
+    // The recorded draft fills the fields; the scene writes it out again.
+    const summary = visible("input[aria-label='Commit summary']") as HTMLInputElement;
+    const body = visible("textarea[aria-label='Commit description']") as HTMLTextAreaElement;
+    const [title, text] = [summary.value, body.value];
+    await type(body, "", 0);
+    await type(summary, "", 0);
+    if (title) await type(summary, title, 28);
+    await pause(300);
+    body.focus();
+    if (text) await type(body, text, 18);
     await pause(1100);
     all<HTMLButtonElement>("[role='dialog'] button")
       .find((button) => /^Commit\b/.test(button.textContent ?? "") && !button.disabled)

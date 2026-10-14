@@ -222,7 +222,8 @@ export default function CommitView({
   const [commitError, setCommitError] = useState<string | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
-  const field = useRef<HTMLTextAreaElement>(null);
+  const field = useRef<HTMLInputElement>(null);
+  const bodyField = useRef<HTMLTextAreaElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const confirmButton = useRef<HTMLButtonElement>(null);
   const viewer = useRef<CodeViewHandle<undefined, undefined>>(null);
@@ -248,6 +249,13 @@ export default function CommitView({
   );
   const focusedFile = shown.find((file) => file.path === focused) ?? shown[0] ?? null;
   const stagedCount = files.filter((file) => file.staged && file.staged !== "conflicted").length;
+  // With nothing staged, a commit takes every change, as `git commit -a`
+  // would, unless a conflict needs a choice first.
+  const commitAll =
+    !stagedCount &&
+    files.length > 0 &&
+    !files.some((file) => file.staged === "conflicted" || file.unstaged === "conflicted");
+  const commitCount = stagedCount || (commitAll ? files.length : 0);
 
   const accept = useCallback((next: WorkingStatus) => {
     latest.current = next;
@@ -404,17 +412,25 @@ export default function CommitView({
     return stage(filter ? shown.flatMap(rowPaths) : null, stageShown);
   }, [filter, shown, stage, stageShown]);
   const compose = useCallback(() => {
+    if (!commitCount) return;
     setCommitError(null);
     setComposing(true);
-  }, []);
+  }, [commitCount]);
+  const { summary, body } = splitMessage(text);
   const commit = useCallback(() => {
-    if (!status || !text.trim() || !stagedCount) return;
-    const summary = text;
+    if (!status || !splitMessage(text).summary.trim() || !commitCount) return;
+    const written = text;
+    const all = commitAll;
     setCommitError(null);
     return run("commit", async () => {
       try {
+        if (all) {
+          writes.current += 1;
+          accept(await api.stage(null, true));
+          writes.current += 1;
+        }
         // Queued stages have finished; commit what Git last reported.
-        const result = await api.commit(summary, latest.current!.indexKey);
+        const result = await api.commit(written, latest.current!.indexKey);
         setText("");
         setComposing(false);
         await Promise.all([readStatus(), readDiff()]);
@@ -425,7 +441,7 @@ export default function CommitView({
         await readStatus().catch(() => {});
       }
     });
-  }, [api, readDiff, readStatus, run, stagedCount, status, text]);
+  }, [accept, api, commitAll, commitCount, readDiff, readStatus, run, status, text]);
   const push = useCallback(
     (track = false) => {
       if (!status?.head || !status.branch) return;
@@ -615,8 +631,8 @@ export default function CommitView({
     : status?.pushRemote && status.branch
       ? `${status.pushRemote}/${status.branch}`
       : null;
-  const rows = Math.min(16, Math.max(6, text.split("\n").length + 1));
-  const summaryLength = text.split("\n", 1)[0]!.trim().length;
+  const bodyRows = Math.min(14, Math.max(4, body.split("\n").length + 1));
+  const summaryLength = summary.trim().length;
   return (
     <div ref={root} {...stylex.props(styles.root)}>
       <div {...stylex.props(styles.layout)}>
@@ -792,8 +808,12 @@ export default function CommitView({
                 </button>
                 <button
                   type="button"
-                  disabled={busy !== null || !stagedCount}
-                  title="Write the message and commit (c)"
+                  disabled={busy !== null || !commitCount}
+                  title={
+                    commitAll
+                      ? "Nothing is staged: write the message and commit every change (c)"
+                      : "Write the message and commit (c)"
+                  }
                   onClick={compose}
                   {...stylex.props(ui.button, ui.primary, styles.action)}
                 >
@@ -920,49 +940,98 @@ export default function CommitView({
         <Dialog.Portal>
           <Dialog.Backdrop {...stylex.props(ui.scrim, styles.backdrop)} />
           <Dialog.Popup initialFocus={field} finalFocus={list} {...stylex.props(styles.dialog)}>
-            <Dialog.Title {...stylex.props(styles.dialogTitle)}>
-              <Icon name="commit" size={15} />
-              Commit {stagedCount} {stagedCount === 1 ? "file" : "files"}
+            <header {...stylex.props(styles.dialogHead)}>
+              <Dialog.Title {...stylex.props(styles.dialogTitle)}>
+                {commitAll ? "Commit all" : "Commit"} {commitCount}{" "}
+                {commitCount === 1 ? "file" : "files"}
+              </Dialog.Title>
               {status?.branch && (
-                <span {...stylex.props(styles.dialogBranch)}>to {status.branch}</span>
+                <span {...stylex.props(styles.dialogBranch)}>
+                  <Icon name="branch" size={13} />
+                  {status.branch}
+                </span>
               )}
-            </Dialog.Title>
-            <textarea
-              ref={field}
-              aria-label="Commit message"
-              placeholder="Summary, then a blank line and the body"
-              value={text}
-              rows={rows}
-              spellCheck
-              onChange={(event) => setText(event.target.value)}
-              onKeyDown={(event) => {
-                if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                  event.preventDefault();
-                  void commit();
-                }
-              }}
-              {...stylex.props(ui.input, styles.message)}
-            />
+            </header>
+            {commitAll && (
+              <p {...stylex.props(styles.dialogNote)}>
+                Nothing is staged, so the commit takes every change.
+              </p>
+            )}
+            <div {...stylex.props(styles.composer)}>
+              <div {...stylex.props(styles.summaryRow)}>
+                <input
+                  ref={field}
+                  aria-label="Commit summary"
+                  placeholder="Summary"
+                  value={summary}
+                  spellCheck
+                  autoComplete="off"
+                  onChange={(event) => setText(joinMessage(event.target.value, body))}
+                  onPaste={(event) => {
+                    // A whole message pasted into an empty summary fills both fields.
+                    const pasted = event.clipboardData.getData("text/plain");
+                    if (!pasted.includes("\n") || summary || body) return;
+                    event.preventDefault();
+                    setText(joinMessage(splitMessage(pasted).summary, splitMessage(pasted).body));
+                  }}
+                  onKeyDown={(event) => {
+                    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                      event.preventDefault();
+                      void commit();
+                    } else if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                      event.preventDefault();
+                      bodyField.current?.focus();
+                    }
+                  }}
+                  {...stylex.props(styles.summary)}
+                />
+                {summaryLength > 50 && (
+                  <span
+                    title="Characters in the summary. Git tools cut summaries after 72."
+                    {...stylex.props(styles.count, summaryLength > 72 && styles.countLong)}
+                  >
+                    {summaryLength}
+                  </span>
+                )}
+              </div>
+              <textarea
+                ref={bodyField}
+                aria-label="Commit description"
+                placeholder="Description"
+                value={body}
+                rows={bodyRows}
+                spellCheck
+                onChange={(event) => setText(joinMessage(summary, event.target.value))}
+                onKeyDown={(event) => {
+                  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                    event.preventDefault();
+                    void commit();
+                  } else if (
+                    event.key === "Backspace" &&
+                    !body &&
+                    event.currentTarget.selectionStart === 0
+                  ) {
+                    event.preventDefault();
+                    field.current?.focus();
+                  }
+                }}
+                {...stylex.props(styles.body)}
+              />
+            </div>
             {commitError && (
               <p role="alert" {...stylex.props(styles.dialogError)}>
                 {commitError}
               </p>
             )}
             <div {...stylex.props(styles.dialogActions)}>
-              <span
-                title="Characters in the summary line"
-                {...stylex.props(styles.count, summaryLength > 72 && styles.countLong)}
-              >
-                {summaryLength > 0 && summaryLength}
-              </span>
               <Dialog.Close {...stylex.props(ui.button)} disabled={busy === "commit"}>
                 Cancel
               </Dialog.Close>
               <button
                 type="button"
-                disabled={busy !== null || !stagedCount || !text.trim()}
+                disabled={busy !== null || !commitCount || !summary.trim()}
                 onClick={() => void commit()}
-                {...stylex.props(ui.button, ui.primary, styles.action)}
+                {...stylex.props(ui.button, ui.primary, styles.commitButton)}
               >
                 {busy === "commit" ? "Committing…" : "Commit"}
                 <ShortcutKeys value="Mod+Enter" />
@@ -976,6 +1045,16 @@ export default function CommitView({
 }
 
 const rowId = (path: string) => `commit-row-${encodeURIComponent(path)}`;
+
+/** A commit message as its two fields: the summary line, and the description
+ * after the blank line. */
+function splitMessage(text: string) {
+  const cut = text.indexOf("\n");
+  return cut < 0
+    ? { summary: text, body: "" }
+    : { summary: text.slice(0, cut), body: text.slice(cut + 1).replace(/^\n/, "") };
+}
+const joinMessage = (summary: string, body: string) => (body ? `${summary}\n\n${body}` : summary);
 
 function ChangeLetter({ kind }: { kind: Change }) {
   return (
@@ -1158,15 +1237,13 @@ const styles = stylex.create({
   backdrop: { zIndex: 110 },
   dialog: {
     position: "fixed",
-    top: "24vh",
+    top: "22vh",
     left: "50%",
     transform: "translateX(-50%)",
     display: "flex",
     flexDirection: "column",
-    gap: 12,
-    width: "min(620px, 92vw)",
+    width: "min(560px, 92vw)",
     boxSizing: "border-box",
-    padding: 16,
     borderRadius: `calc(12px * ${tokens.round})`,
     backgroundColor: tokens.raised,
     color: tokens.text,
@@ -1181,25 +1258,83 @@ const styles = stylex.create({
     animationDuration: "180ms",
     animationTimingFunction: tokens.easeOut,
   },
-  dialogTitle: {
+  dialogHead: {
     display: "flex",
     alignItems: "center",
-    gap: 8,
-    margin: 0,
-    fontSize: 13.5,
-    fontWeight: 550,
+    gap: 10,
+    paddingTop: 16,
+    paddingBottom: 12,
+    paddingInline: 18,
   },
-  dialogBranch: { color: tokens.muted, fontWeight: 400 },
-  message: {
-    height: "auto",
+  dialogTitle: { margin: 0, fontSize: 14, fontWeight: 600 },
+  dialogBranch: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    minWidth: 0,
+    color: tokens.muted,
+    fontSize: 12.5,
+  },
+  dialogNote: {
+    marginTop: -4,
+    marginBottom: 12,
+    marginInline: 18,
+    color: tokens.muted,
+    fontSize: 12,
+  },
+  // One surface for the summary and the description, as one message.
+  composer: {
+    marginInline: 14,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: { default: tokens.line, ":focus-within": tokens.accentLine },
+    borderRadius: `calc(9px * ${tokens.round})`,
+    backgroundColor: tokens.canvas,
+    boxShadow: { default: "none", ":focus-within": `0 0 0 3px ${tokens.accentSoft}` },
+    overflow: "hidden",
+  },
+  summaryRow: {
+    display: "flex",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomStyle: "solid",
+    borderBottomColor: tokens.line,
+  },
+  summary: {
+    flex: "1",
+    minWidth: 0,
+    height: 42,
+    paddingInline: 12,
+    borderWidth: 0,
+    outline: "none",
+    backgroundColor: "transparent",
+    color: tokens.text,
+    fontFamily: tokens.ui,
+    fontSize: 14,
+    fontWeight: 500,
+    "::placeholder": { color: tokens.faint, fontWeight: 400 },
+  },
+  body: {
+    display: "block",
+    width: "100%",
+    boxSizing: "border-box",
+    paddingTop: 10,
+    paddingBottom: 12,
+    paddingInline: 12,
+    borderWidth: 0,
+    outline: "none",
     resize: "none",
-    paddingBlock: 8,
-    fontFamily: tokens.code,
+    backgroundColor: "transparent",
+    color: tokens.text,
+    fontFamily: tokens.ui,
     fontSize: 13,
-    lineHeight: 1.5,
+    lineHeight: 1.55,
+    "::placeholder": { color: tokens.faint },
   },
   dialogError: {
-    margin: 0,
+    marginTop: 10,
+    marginBottom: 0,
+    marginInline: 14,
     maxHeight: 200,
     overflowY: "auto",
     whiteSpace: "pre-wrap",
@@ -1207,8 +1342,22 @@ const styles = stylex.create({
     fontFamily: tokens.code,
     fontSize: 11.5,
   },
-  dialogActions: { display: "flex", alignItems: "center", gap: 8 },
-  count: { flex: "1", color: tokens.faint, fontFamily: tokens.code, fontSize: 11.5 },
+  dialogActions: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 6,
+    padding: 14,
+  },
+  commitButton: { gap: 8, paddingInline: 14 },
+  count: {
+    flexShrink: 0,
+    paddingInlineEnd: 12,
+    color: tokens.faint,
+    fontFamily: tokens.code,
+    fontSize: 11,
+    fontVariantNumeric: "tabular-nums",
+  },
   countLong: { color: tokens.warning },
   stream: { flex: "1", minHeight: 0, display: "flex", flexDirection: "column" },
   codeView: { flex: "1", minHeight: 0, height: "100%", overflow: "auto", scrollbarWidth: "thin" },

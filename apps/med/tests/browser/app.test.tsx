@@ -2256,20 +2256,25 @@ describe("graphical review", () => {
       .element(row("scripts/obsolete-check.mjs"))
       .toHaveAttribute("aria-selected", "true");
 
-    // c opens the message in a dialog. A failed hook keeps the message and
-    // shows its output there.
+    // c opens the message in a dialog: a summary, and Enter goes on to the
+    // description. A failed hook keeps the message and shows its output there.
     await expect
-      .element(page.getByRole("textbox", { name: "Commit message" }))
+      .element(page.getByRole("textbox", { name: "Commit summary" }))
       .not.toBeInTheDocument();
     await userEvent.keyboard("c");
-    const message = page.getByRole("textbox", { name: "Commit message" });
-    await expect.element(message).toHaveFocus();
+    const summary = page.getByRole("textbox", { name: "Commit summary" });
+    const description = page.getByRole("textbox", { name: "Commit description" });
+    await expect.element(summary).toHaveFocus();
     await userEvent.keyboard("docs: explain the Commit tab");
+    await userEvent.keyboard("{Enter}");
+    await expect.element(description).toHaveFocus();
+    await userEvent.keyboard("It lists what each key does.");
     await userEvent.keyboard("{Control>}{Enter}{/Control}");
     await expect
       .element(page.getByRole("alert").filter({ hasText: "lint-staged" }))
       .toMatchTextContent("Missing semicolon");
-    await expect.element(message).toHaveValue("docs: explain the Commit tab");
+    await expect.element(summary).toHaveValue("docs: explain the Commit tab");
+    await expect.element(description).toHaveValue("It lists what each key does.");
     repository.configure({
       upstream: false,
       hookFails: false,

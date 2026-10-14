@@ -421,9 +421,11 @@ async function record(browser: Browser, token: string, path: string) {
   await page.getByRole("button", { name: "Stage all", exact: true }).click();
   await page.getByRole("button", { name: "Unstage all" }).waitFor();
   await page.getByRole("button").filter({ hasText: "Commit…" }).first().click();
+  const [summary, ...body] = commitMessage.split("\n\n");
+  await page.getByRole("textbox", { name: "Commit summary" }).fill(summary!);
   await page
-    .getByRole("textbox", { name: "Commit message" })
-    .fill(commitMessage);
+    .getByRole("textbox", { name: "Commit description" })
+    .fill(body.join("\n\n"));
   await page.waitForTimeout(400);
   await page.getByRole("button", { name: "Cancel" }).click();
   await page.getByRole("button", { name: "Unstage all" }).click();

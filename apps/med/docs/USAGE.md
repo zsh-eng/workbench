@@ -366,9 +366,11 @@ files, commit them, and push the branch. Press `q` again to go back.
   it.
 - **Stage.** `Space`, or a click on the mark, stages or unstages a whole file.
   `a` stages every file shown, or unstages them all when all are staged.
-- **Commit.** `c` or **Commit…** opens the message, and `⌘↵` commits the staged
-  files. `Esc` keeps the message as a draft. Hooks run; if a hook stops the
-  commit, its output shows under the message.
+- **Commit.** `c` or **Commit…** opens the message: a summary, and `Enter`
+  goes on to the description. `⌘↵` commits the staged files. With nothing
+  staged, the commit takes every change, unless a file has a conflict. `Esc`
+  keeps the message as a draft. Hooks run; if a hook stops the commit, its
+  output shows under the message.
 - **Push.** `⇧P` pushes to the upstream. For a branch without one, Med asks,
   then pushes to the push remote (usually `origin`) and tracks it. Med never
   force-pushes.
