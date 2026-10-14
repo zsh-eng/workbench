@@ -5294,6 +5294,8 @@ const styles = stylex.create({
   // In a narrow pane the label and the totals give way before the file name;
   // the box stays.
   viewedToggle: {
+    // Above the header's fold button, as the other header parts are.
+    position: "relative",
     pointerEvents: "auto",
     display: "inline-flex",
     alignItems: "center",
