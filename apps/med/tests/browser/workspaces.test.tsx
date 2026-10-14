@@ -519,6 +519,36 @@ test("the sidebar lists every thread by repository with its agent's state", asyn
   await expect.element(sidebar).not.toBeInTheDocument();
 });
 
+test("each repository folds threads that have been quiet for three days", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  const days = (count: number) => Date.now() - count * 24 * 60 * 60 * 1000;
+  host.setThreads([
+    thread("agent", { agent: "claude", state: "idle", updatedAt: Date.now() }),
+    // An agent that waits for the reader stays in view, however old its thread.
+    thread("second", { agent: "codex", state: "waiting", updatedAt: days(10) }),
+    thread("third", { updatedAt: days(5) }),
+    thread("fourth", { updatedAt: days(20) }),
+  ]);
+  const ids = () =>
+    [...document.querySelectorAll<HTMLElement>("[data-thread]")].map((row) => row.dataset.thread);
+  const fold = page.getByRole("button", { name: "2 older" });
+  await expect.poll(ids).toEqual(["agent", "second"]);
+  await expect.element(fold).toHaveAttribute("aria-expanded", "false");
+
+  // ⌃2 (⌘2 on a Mac) counts only the threads in view.
+  await userEvent.keyboard("{Control>}2{/Control}");
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("second-target");
+
+  // The fold opens below the threads in view, which keep their places.
+  await fold.click();
+  await expect.poll(ids).toEqual(["agent", "second", "third", "fourth"]);
+  await expect.element(fold).toHaveAttribute("aria-expanded", "true");
+  await fold.click();
+  await expect.poll(ids).toEqual(["agent", "second"]);
+});
+
 test("a thread's menu copies its resume command, marks it unread, and archives it", async () => {
   const host = createHost();
   render(host);

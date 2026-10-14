@@ -47,7 +47,7 @@ import { themeController } from "../themes";
 import { parsePullUrl } from "../../shared/pull-workspace";
 import { startPull, usePullJob } from "../data/pull-jobs";
 import { PullWorkspaceView, pullTitle, type PullState } from "./PullWorkspace";
-import { groupThreads, useThreads } from "../data/threads";
+import { groupThreads, isRecent, useThreads } from "../data/threads";
 import { ThreadSidebar, type SidebarSource } from "./shell/ThreadSidebar";
 import { NewThread } from "./shell/NewThread";
 import { prefetchSavedReview } from "../data/controller";
@@ -686,7 +686,8 @@ export function WorkspaceHost({
   );
   // A new thread covers the workspaces until it starts or the reader leaves.
   const [newThread, setNewThread] = useState(false);
-  // ⌘1–⌘9 open the thread at that place in the sidebar.
+  // ⌘1–⌘9 open the thread at that place among the threads in view; older
+  // threads fold in the sidebar.
   const threadOrder = useMemo(
     () => groupThreads(threadList?.threads ?? []).flatMap((group) => group.threads),
     [threadList],
@@ -697,7 +698,8 @@ export function WorkspaceHost({
       const digit = /^Digit([1-9])$/.exec(event.code)?.[1];
       if (!digit || !(event.metaKey || event.ctrlKey)) return;
       if (overlayAddress(location.pathname) || visibleElement('[role="dialog"]')) return;
-      const thread = threadOrder[Number(digit) - 1];
+      const now = Date.now();
+      const thread = threadOrder.filter((entry) => isRecent(entry, now))[Number(digit) - 1];
       if (!thread) return;
       event.preventDefault();
       event.stopPropagation();

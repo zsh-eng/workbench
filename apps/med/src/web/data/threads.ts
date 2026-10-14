@@ -77,6 +77,17 @@ export function groupThreads(threads: readonly Thread[]): ThreadGroup[] {
   );
 }
 
+/** Threads that changed within this time stay in view; older ones fold. */
+export const RECENT_MS = 3 * 24 * 60 * 60 * 1000;
+
+/** Whether a thread stays in view: its agent works or waits for the reader,
+ * or it changed in the last three days. */
+export function isRecent(thread: Thread, now: number) {
+  return (
+    thread.state === "working" || thread.state === "waiting" || now - thread.updatedAt < RECENT_MS
+  );
+}
+
 /** A short age: now, 4m, 3h, 2d, then the date. */
 export function shortAge(at: number, now: number) {
   const seconds = Math.max(0, Math.round((now - at) / 1000));

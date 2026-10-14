@@ -2,7 +2,7 @@ import { ContextMenu } from "@base-ui/react/context-menu";
 import * as stylex from "@stylexjs/stylex";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Thread } from "../../../shared/threads";
-import { groupThreads, shortAge } from "../../data/threads";
+import { groupThreads, isRecent, shortAge } from "../../data/threads";
 import {
   lazygitCommand,
   resumeCommand,
@@ -82,8 +82,10 @@ export interface SidebarSource {
 }
 
 /**
- * The window's sidebar: every thread, grouped by repository, and the
- * repositories and vaults to browse without a thread.
+ * The window's sidebar: the threads in view, grouped by repository, and the
+ * repositories and vaults to browse without a thread. A thread stays in view
+ * while its agent works or waits, while it is open, and for three days after
+ * it changed; each repository folds its older threads into one row.
  */
 export function ThreadSidebar({
   threads,
@@ -135,6 +137,14 @@ export function ThreadSidebar({
     [threads, archiving],
   );
   const groups = useMemo(() => groupThreads(listed), [listed]);
+  // Repositories whose older threads show.
+  const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set());
+  const toggleOlder = (key: string) =>
+    setUnfolded((value) => {
+      const next = new Set(value);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
   const [copied, setCopied] = useState<string | null>(null);
   useEffect(() => {
     if (!copied) return;
@@ -258,30 +268,56 @@ export function ThreadSidebar({
             off its work with <code {...stylex.props(styles.code)}>med review</code>.
           </p>
         )}
-        {groups.map((group) => (
-          <section key={group.key} aria-label={group.name} {...stylex.props(styles.group)}>
-            <h2 {...stylex.props(ui.label, styles.groupName)}>{group.name}</h2>
-            <ul {...stylex.props(styles.list)}>
-              {group.threads.map((thread) => (
-                <ThreadRow
-                  key={thread.id}
-                  thread={thread}
-                  current={thread.id === currentThread}
-                  unread={isUnread(thread)}
-                  copied={copied === thread.id}
-                  now={now}
-                  onOpen={() =>
-                    onOpen({ kind: "review", reviewId: thread.id, title: thread.title })
-                  }
-                  onCopy={(text) => copy(thread, text)}
-                  onUnread={(unread) => setUnread(thread, unread)}
-                  onArchive={onArchive && ((removeWorktree) => archive(thread, removeWorktree))}
-                  onPrefetch={onPrefetch && (() => onPrefetch(thread))}
-                />
-              ))}
-            </ul>
-          </section>
-        ))}
+        {groups.map((group) => {
+          const open = unfolded.has(group.key);
+          // The open thread stays in view; in an unfolded list it keeps its place.
+          const recent = group.threads.filter(
+            (thread) => isRecent(thread, now) || (!open && thread.id === currentThread),
+          );
+          const older = group.threads.filter((thread) => !recent.includes(thread));
+          const row = (thread: Thread) => (
+            <ThreadRow
+              key={thread.id}
+              thread={thread}
+              current={thread.id === currentThread}
+              unread={isUnread(thread)}
+              copied={copied === thread.id}
+              now={now}
+              onOpen={() => onOpen({ kind: "review", reviewId: thread.id, title: thread.title })}
+              onCopy={(text) => copy(thread, text)}
+              onUnread={(unread) => setUnread(thread, unread)}
+              onArchive={onArchive && ((removeWorktree) => archive(thread, removeWorktree))}
+              onPrefetch={onPrefetch && (() => onPrefetch(thread))}
+            />
+          );
+          return (
+            <section key={group.key} aria-label={group.name} {...stylex.props(styles.group)}>
+              <h2 {...stylex.props(ui.label, styles.groupName)}>{group.name}</h2>
+              <ul {...stylex.props(styles.list)}>
+                {recent.map(row)}
+                {older.length > 0 && (
+                  <li>
+                    <button
+                      type="button"
+                      data-sidebar-row=""
+                      aria-expanded={open}
+                      onClick={() => toggleOlder(group.key)}
+                      {...stylex.props(styles.row, styles.older)}
+                    >
+                      <span {...stylex.props(styles.mark)} aria-hidden="true">
+                        <span {...stylex.props(styles.chevron, open && styles.chevronOpen)}>
+                          <Icon name="chevron" size={12} />
+                        </span>
+                      </span>
+                      <span {...stylex.props(styles.title)}>{older.length} older</span>
+                    </button>
+                  </li>
+                )}
+                {open && older.map(row)}
+              </ul>
+            </section>
+          );
+        })}
       </div>
       {notice && (
         <div
@@ -600,6 +636,7 @@ const styles = stylex.create({
   newRow: { height: 32, color: { default: tokens.text, ":hover": tokens.text }, marginTop: 2 },
   thread: { alignItems: "flex-start", paddingBlock: 7 },
   source: { height: 30 },
+  older: { height: 28, color: { default: tokens.faint, ":hover": tokens.text } },
   current: {
     color: { default: tokens.text, ":hover": tokens.text },
     backgroundColor: { default: tokens.pick, ":hover": tokens.pick },

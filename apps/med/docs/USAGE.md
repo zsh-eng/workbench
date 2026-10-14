@@ -76,9 +76,14 @@ See [notes and vaults](VAULTS.md) for vaults.
 ## Threads
 
 A thread is one task: an agent's work and its changes, as a saved review. The
-sidebar lists every thread that the host keeps, by repository. The repository
-with the newest work comes first, and each group shows its newest thread
-first. A row shows the title, the branch, the age, and the change totals.
+sidebar lists threads by repository. The repository with the newest work comes
+first, and each group shows its newest thread first. A row shows the title, the
+branch, the age, and the change totals.
+
+A thread stays in view while its agent works or waits for you, while it is
+open, and for three days after its last change. Each repository folds its
+older threads into one **N older** row, which opens them below. `⌘1`–`⌘9` count
+only the threads in view. Nothing is archived on its own.
 
 - **New thread** (`⌥N`) asks for the task, the repository, where the agent
   works, and the agent. **New worktree**, the default, makes a branch named
