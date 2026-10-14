@@ -151,12 +151,28 @@ async function mountApp(
       page: { events: unknown[]; start: number };
       turns: unknown[];
     };
+    /** A registered vault, notes, with a plan that links to a target note. */
+    vault?: boolean;
   } = {},
 ) {
   initializeTheme();
   themeController.commit("graphite-dark");
   const requests: Comparison[] = [];
   const fileRequests: { source: BrowseSource; path: string }[] = [];
+  const vaultWrites: { path: string; text: string }[] = [];
+  const vaultNote = (path: string, text?: string) => {
+    text ??=
+      path === "Target.md" ? "# Target\n\nLinked from the plan.\n" : "# Plan\n\nSee [[Target]].\n";
+    return {
+      source: { kind: "local", path: `/test/notes/${path}` },
+      path: `/test/notes/${path}`,
+      kind: "text",
+      size: text.length,
+      identity: text,
+      text,
+      vault: { id: "notes-0", path },
+    };
+  };
   let notes = options.notes ?? [];
   let revision = 0;
   const savedTargets = (
@@ -656,6 +672,24 @@ async function mountApp(
         notes,
       });
     }
+    if (url.pathname === "/api/service/status")
+      return Response.json({
+        sources: options.vault
+          ? [{ id: "notes-0", name: "notes", path: "/test/notes", kind: "vault" }]
+          : [],
+      });
+    if (options.vault && url.pathname === "/api/service/files")
+      return Response.json({ files: [{ path: "Projects/Plan.md" }, { path: "Target.md" }] });
+    if (options.vault && url.pathname === "/api/service/read")
+      return Response.json(vaultNote(JSON.parse(String(init?.body)).path));
+    if (options.vault && url.pathname === "/api/service/resolve")
+      return Response.json({ path: "Target.md" });
+    if (options.vault && url.pathname === "/api/local-files/write") {
+      const { path, text } = JSON.parse(String(init?.body));
+      vaultWrites.push({ path, text });
+      const saved = vaultNote(path.slice("/test/notes/".length), text);
+      return Response.json({ ...saved, vault: undefined });
+    }
     throw new Error(`Unexpected request: ${url.pathname}`);
   };
   const controller = createReviewController({
@@ -698,6 +732,7 @@ async function mountApp(
     controller,
     requests,
     fileRequests,
+    vaultWrites,
     pullRequestReads,
     agentMessages,
     agentAnswers,
@@ -1395,6 +1430,45 @@ describe("graphical review", () => {
     await page.getByRole("button", { name: "Read" }).click();
     await expect.element(reading.getByRole("heading", { name: "Guide" })).toBeVisible();
     expect(document.querySelector('[data-pane="preview"]')).toBeNull();
+  });
+  test("Find file opens a vault's note in the workspace's tabs; its links stay in the vault", async () => {
+    await page.viewport(1280, 800);
+    const { vaultWrites } = await mountApp({ vault: true });
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "K", metaKey: true, shiftKey: true, bubbles: true }),
+    );
+    const find = page.getByRole("combobox", { name: "Find file", exact: true });
+    await find.fill("notes");
+    await expect.element(page.getByRole("option", { name: "Vault notes" })).toBeVisible();
+    await userEvent.keyboard("{Tab}");
+    await expect
+      .element(page.getByRole("button", { name: "Back to current repository" }))
+      .toHaveTextContent("notes");
+    // A space finds words that a hyphen or a slash separates.
+    await find.fill("projects plan");
+    await expect.element(page.getByRole("option", { name: /Plan.md/ })).toBeVisible();
+    await userEvent.keyboard("{Enter}");
+
+    const reading = page.getByRole("region", { name: "Markdown preview" });
+    await expect.element(reading.getByRole("heading", { name: "Plan" })).toBeVisible();
+    await expect.element(page.getByText("notes · Projects/Plan.md", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("Reading file", { exact: true })).toBeVisible();
+    await reading.getByRole("link", { name: "Target" }).click();
+    await expect.element(page.getByRole("tab", { name: /Target.md/ })).toBeVisible();
+    await expect.element(reading.getByRole("heading", { name: "Target" })).toBeVisible();
+
+    // Its source saves to the vault's file.
+    await page.getByRole("button", { name: "Edit source" }).click();
+    const editor = page.getByRole("textbox", { name: "Edit /test/notes/Target.md", exact: true });
+    await expect.element(editor).toBeVisible();
+    await userEvent.click(editor);
+    await userEvent.keyboard("ggA again{Escape}:w{Enter}");
+    await expect
+      .poll(() => vaultWrites)
+      .toEqual([
+        { path: "/test/notes/Target.md", text: "# Target again\n\nLinked from the plan.\n" },
+      ]);
+    await expect.element(page.getByRole("img", { name: "Saved", exact: true })).toBeVisible();
   });
   test("a pane's header drags it beside another pane or swaps the two; Escape keeps it", async () => {
     await page.viewport(1280, 800);

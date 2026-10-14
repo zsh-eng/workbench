@@ -9,6 +9,17 @@ import {
 import { createApi } from "./api";
 import { symbolSearchSchema } from "../../shared/symbols";
 import { browseSearchResponseSchema } from "../../shared/inspect";
+import { localReadSchema, type LocalRead } from "../../shared/local-file";
+import { z } from "zod";
+
+const vaultStatusSchema = z.object({
+  sources: z.array(
+    z.object({ id: z.string(), name: z.string(), path: z.string(), kind: z.string() }),
+  ),
+});
+const vaultFilesSchema = z.object({ files: z.array(z.object({ path: z.string() })) });
+const vaultLinkSchema = z.object({ path: z.string(), fragment: z.string().optional() });
+export type Vault = { id: string; name: string; path: string };
 
 export function browseSourceKey(source: BrowseSource): string {
   return JSON.stringify(
@@ -111,6 +122,79 @@ export function createBrowseApi(fetcher: typeof fetch, token: string) {
         throw new Error("The saved file belongs to another workspace.");
       return result;
     },
+    /** The registered vaults. */
+    async vaults(signal?: AbortSignal) {
+      const result = await api.json("/api/service/status", vaultStatusSchema, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+        signal,
+      });
+      return result.sources
+        .filter((source) => source.kind === "vault")
+        .map(({ id, name, path }) => ({ id, name, path }));
+    },
+    /** A vault's files, by their paths in the vault. */
+    async vaultFiles(vault: string, signal?: AbortSignal) {
+      const result = await api.json("/api/service/files", vaultFilesSchema, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: vault }),
+        signal,
+      });
+      return result.files.map((file) => file.path);
+    },
+    /** A vault's file by its path in the vault. */
+    async readVault(vault: string, path: string, signal?: AbortSignal) {
+      const result = await api.json("/api/service/read", localReadSchema, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: vault, path }),
+        signal,
+      });
+      if (result.vault?.id !== vault || result.vault.path !== path)
+        throw new Error("The file belongs to another vault.");
+      return result;
+    },
+    /** Where a note's wiki or Markdown link goes in its vault, and the line of
+     * the heading that it names, if any. */
+    async followVaultLink(
+      vault: string,
+      document: string,
+      link: { href: string; syntax: string },
+    ): Promise<{ path: string; line?: number }> {
+      const target = await api.json("/api/service/resolve", vaultLinkSchema, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: vault, path: document, ...link }),
+      });
+      if (!target.fragment) return { path: target.path };
+      const heading = decodeURIComponent(target.fragment).toLowerCase();
+      const read = await api.json("/api/service/read", localReadSchema, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: vault, path: target.path }),
+      });
+      const index = (read.text ?? "").split("\n").findIndex(
+        (text) =>
+          /^#{1,6}\s+/.test(text) &&
+          text
+            .replace(/^#{1,6}\s+/, "")
+            .trim()
+            .toLowerCase() === heading,
+      );
+      return { path: target.path, ...(index >= 0 ? { line: index + 1 } : {}) };
+    },
+    /** Saves a vault's file, if it has not changed on disk since it was read. */
+    async writeVault(file: LocalRead, text: string): Promise<LocalRead> {
+      const result = await api.json("/api/local-files/write", localReadSchema, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: file.path, expectedIdentity: file.identity, text }),
+      });
+      if (result.path !== file.path) throw new Error("The saved file is another file.");
+      return { ...result, vault: file.vault };
+    },
     async read(source: BrowseSource, path: string, signal?: AbortSignal) {
       const result = await api.json("/api/browse/read", browseReadResponseSchema, {
         method: "POST",
@@ -125,8 +209,18 @@ export function createBrowseApi(fetcher: typeof fetch, token: string) {
   };
 }
 type CompleteBrowseApi = ReturnType<typeof createBrowseApi>;
-export type BrowseApi = Omit<CompleteBrowseApi, "search" | "symbols" | "write" | "changes"> &
-  Partial<Pick<CompleteBrowseApi, "search" | "symbols" | "write" | "changes">>;
+type OptionalBrowse =
+  | "search"
+  | "symbols"
+  | "write"
+  | "changes"
+  | "vaults"
+  | "vaultFiles"
+  | "readVault"
+  | "followVaultLink"
+  | "writeVault";
+export type BrowseApi = Omit<CompleteBrowseApi, OptionalBrowse> &
+  Partial<Pick<CompleteBrowseApi, OptionalBrowse>>;
 
 export function createDefaultBrowseApi(): BrowseApi {
   const token =
@@ -213,4 +307,69 @@ export function useBrowseFiles(
     setIgnored,
     refresh,
   };
+}
+
+/** A vault's files as entries, listed again each time `enabled` turns on. */
+export function useVaultFiles(
+  api: BrowseApi | undefined,
+  vault: string | undefined,
+  enabled: boolean,
+) {
+  const key = enabled && vault && api?.vaultFiles ? vault : "";
+  const [state, setState] = useState<{ key: string; entries: BrowseEntry[]; error: string | null }>(
+    { key: "", entries: emptyEntries, error: null },
+  );
+  useEffect(() => {
+    if (!key || !api?.vaultFiles) return;
+    const controller = new AbortController();
+    api.vaultFiles(key, controller.signal).then(
+      (paths) => {
+        if (!controller.signal.aborted)
+          setState({ key, entries: paths.map((path) => ({ path, kind: "file" })), error: null });
+      },
+      (cause: unknown) => {
+        if (!controller.signal.aborted)
+          setState({
+            key,
+            entries: emptyEntries,
+            error: cause instanceof Error ? cause.message : "Could not list the vault.",
+          });
+      },
+    );
+    return () => controller.abort();
+  }, [api, key]);
+  return state.key === key
+    ? { entries: state.entries, loading: false, error: state.error }
+    : { entries: emptyEntries, loading: !!key, error: null };
+}
+
+const vaultLists = new WeakMap<BrowseApi, { at: number; list: Promise<Vault[]> }>();
+/** The registered vaults while `enabled`, read again at most every ten seconds. */
+export function useVaults(api: BrowseApi, enabled: boolean) {
+  const [vaults, setVaults] = useState<readonly Vault[]>([]);
+  useEffect(() => {
+    if (!enabled || !api.vaults) return;
+    let cached = vaultLists.get(api);
+    if (!cached || Date.now() - cached.at > 10_000) {
+      cached = { at: Date.now(), list: api.vaults() };
+      vaultLists.set(api, cached);
+    }
+    const { list } = cached;
+    let live = true;
+    list.then(
+      (next) => {
+        if (live)
+          setVaults((previous) =>
+            JSON.stringify(previous) === JSON.stringify(next) ? previous : next,
+          );
+      },
+      () => {
+        if (vaultLists.get(api)?.list === list) vaultLists.delete(api);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [api, enabled]);
+  return vaults;
 }

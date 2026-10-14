@@ -8,7 +8,14 @@ import type { BrowseEntry, BrowseSource } from "../../shared/browse";
 import { picked, tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
 import { FullFileView } from "./FullFileView";
-import { browseSourceKey, useBrowseFiles, type BrowseApi } from "../data/browse";
+import {
+  browseSourceKey,
+  useBrowseFiles,
+  useVaultFiles,
+  type BrowseApi,
+  type Vault,
+} from "../data/browse";
+import type { TabSource, VaultSource } from "../data/file-workspace";
 import { usePickerPreview, type FilePreviewReader } from "../data/picker-preview";
 import { setFilePreviewShown, useFilePreviewShown } from "../data/picker-preferences";
 import type { BrowseSearch } from "../../shared/inspect";
@@ -17,14 +24,33 @@ import type { RegisteredRepository } from "../../shared/protocol";
 import { isTestFile, matchesFileFilters, parsePickerFilters } from "../data/file-filters";
 import { checkoutName, repositoryLocation } from "../data/checkout-names";
 
-/** A registered worktree. Only its source holds the absolute path: the picker
- * shows and matches the short name and the repository-relative location. */
-type RepositoryScope = { id: string; name: string; location: string; source: BrowseSource };
+/** A registered worktree, or a vault. Only a worktree's source holds its
+ * absolute path: the picker shows and matches the short name and the
+ * repository-relative location. */
+type RepositoryScope = { id: string; name: string; location: string; source: TabSource };
+const isVault = (scope?: RepositoryScope): scope is RepositoryScope & { source: VaultSource } =>
+  scope?.source.kind === "vault";
 function scopeLabel(scope: RepositoryScope) {
   return checkoutName(scope.name, scope.location);
 }
+const vaultReaders = new WeakMap<BrowseApi, Map<string, FilePreviewReader>>();
+/** One preview reader for each vault, so a preview does not read again on each render. */
+function vaultReader(api: BrowseApi | undefined, vault: string) {
+  const read = api?.readVault;
+  if (!api || !read) return undefined;
+  let readers = vaultReaders.get(api);
+  if (!readers) vaultReaders.set(api, (readers = new Map()));
+  let reader = readers.get(vault);
+  if (!reader) {
+    reader = { scope: `vault:${vault}`, read: (path, signal) => read(vault, path, signal) };
+    readers.set(vault, reader);
+  }
+  return reader;
+}
 export interface FilePickerProps {
   repositories?: RegisteredRepository[];
+  /** Registered vaults, whose files open in this workspace's tabs. */
+  vaults?: readonly Vault[];
   repositoryScopes?: RepositoryScope[];
   scopedRepository?: RepositoryScope;
   onRepository?(scope?: RepositoryScope, query?: string): void;
@@ -39,7 +65,7 @@ export interface FilePickerProps {
   onOpen(
     path: string,
     line?: number,
-    source?: BrowseSource,
+    source?: TabSource,
     keep?: boolean,
     sourceLabel?: string,
   ): void;
@@ -73,6 +99,8 @@ function matchScore(path: string, query: string): number {
   let cursor = 0;
   let gap = 0;
   for (const character of query) {
+    // A space separates words, as a hyphen or a slash does in a path.
+    if (character === " ") continue;
     const index = value.indexOf(character, cursor);
     if (index < 0) return -Infinity;
     gap += index - cursor;
@@ -140,42 +168,76 @@ export function FilePicker(props: FilePickerProps) {
             ...repo.worktrees.filter((tree) => !tree.bare).map((tree) => tree.path),
           ]),
         ];
-        return paths.map((path) => ({
+        return paths.map<RepositoryScope>((path) => ({
           id: `${repo.id}:${path}`,
           name: repo.name,
           location: repositoryLocation(repo.path, path),
-          source: { kind: "worktree" as const, repo: path },
+          source: { kind: "worktree", repo: path },
         }));
       }),
     [props.repositories],
   );
-  const selectedRepository = repositoryScopes.find((entry) => entry.id === repository?.id);
+  const vaultScopes = useMemo(
+    () =>
+      (props.vaults ?? []).map<RepositoryScope>((vault) => ({
+        id: `vault:${vault.id}`,
+        name: vault.name,
+        location: "",
+        source: { kind: "vault", id: vault.id },
+      })),
+    [props.vaults],
+  );
+  const scopes = useMemo(
+    () => [...repositoryScopes, ...vaultScopes],
+    [repositoryScopes, vaultScopes],
+  );
+  const selectedRepository = scopes.find((entry) => entry.id === repository?.id);
+  const vault = isVault(selectedRepository) ? selectedRepository : undefined;
+  const otherSource: BrowseSource | null =
+    selectedRepository && selectedRepository.source.kind !== "vault"
+      ? selectedRepository.source
+      : null;
   const remote =
-    !!selectedRepository &&
-    (!props.source || browseSourceKey(selectedRepository.source) !== browseSourceKey(props.source));
+    !!otherSource &&
+    (!props.source || browseSourceKey(otherSource) !== browseSourceKey(props.source));
   const files = useBrowseFiles(
-    remote ? selectedRepository.source : null,
+    remote ? otherSource : null,
     props.open && remote,
     props.sourceRevision,
     { api: props.api },
   );
-  const effective = selectedRepository
+  const vaultFiles = useVaultFiles(props.api, vault?.source.id, props.open);
+  const effective = vault
     ? {
         ...props,
-        source: remote ? selectedRepository.source : props.source,
-        sourceLabel: `Working files · ${scopeLabel(selectedRepository)}`,
-        ...(remote
-          ? {
-              entries: files.entries,
-              loading: files.loading,
-              error: files.error,
-              openPaths: [],
-              recentPaths: [],
-              previewReader: undefined,
-            }
-          : {}),
+        // A vault has no Git source: no content search, and its own preview.
+        source: null,
+        api: undefined,
+        sourceLabel: vault.name,
+        entries: vaultFiles.entries,
+        loading: vaultFiles.loading,
+        error: vaultFiles.error,
+        openPaths: [],
+        recentPaths: [],
+        previewReader: vaultReader(props.api, vault.source.id),
       }
-    : props;
+    : selectedRepository
+      ? {
+          ...props,
+          source: remote ? otherSource : props.source,
+          sourceLabel: `Working files · ${scopeLabel(selectedRepository)}`,
+          ...(remote
+            ? {
+                entries: files.entries,
+                loading: files.loading,
+                error: files.error,
+                openPaths: [],
+                recentPaths: [],
+                previewReader: undefined,
+              }
+            : {}),
+        }
+      : props;
   const [sessions] = useState(() => new Map<string, PickerSession>());
   const [lastModes] = useState(() => new Map<string, PickerMode>());
   const scope = effective.source ? browseSourceKey(effective.source) : effective.sourceLabel;
@@ -187,12 +249,14 @@ export function FilePicker(props: FilePickerProps) {
     },
     [lastModes, scope],
   );
-  const mode = (props.resume ? lastModes.get(scope) : undefined) ?? props.initialMode ?? "files";
+  const mode = vault
+    ? "files"
+    : ((props.resume ? lastModes.get(scope) : undefined) ?? props.initialMode ?? "files");
   return props.open ? (
     <PickerSessionView
       key={`${scope}:${mode}:${selectedRepository?.id ?? "current"}`}
       {...effective}
-      repositoryScopes={repositoryScopes}
+      repositoryScopes={scopes}
       scopedRepository={selectedRepository}
       onRepository={(scope, query) => {
         setScopeQuery(query ?? "");
@@ -429,7 +493,9 @@ function PickerContents({
     }
     if (busy || failure) return;
     accepted.current = true;
-    if (resultSource) onOpen(entry.path, entry.line, resultSource, keep);
+    if (isVault(scopedRepository))
+      onOpen(entry.path, entry.line, scopedRepository.source, keep, scopedRepository.name);
+    else if (resultSource) onOpen(entry.path, entry.line, resultSource, keep);
     else if (source && scopedRepository) onOpen(entry.path, entry.line, source, keep, sourceLabel);
     else onOpen(entry.path, entry.line, undefined, keep);
     onOpenChange(false);
@@ -484,7 +550,7 @@ function PickerContents({
                 <button
                   type="button"
                   {...stylex.props(ui.button, styles.scope, repositoryMode && styles.scopeOpen)}
-                  title="Search another registered repository"
+                  title="Search another registered repository or vault"
                   aria-label="Choose repository"
                   aria-pressed={repositoryMode}
                   onClick={() => {
@@ -574,7 +640,7 @@ function PickerContents({
                     inputRef.current?.focus();
                   }}
                 >
-                  <Icon name="branch" size={13} />
+                  <Icon name={isVault(scopedRepository) ? "vault" : "branch"} size={13} />
                   <span {...stylex.props(styles.tokenName)}>{scopedRepository.name}</span>
                   <span aria-hidden="true" {...stylex.props(styles.tokenClose)}>
                     <Icon name="close" size={12} />
@@ -589,7 +655,7 @@ function PickerContents({
                   mode === "files"
                     ? scopedRepository
                       ? `Find a file in ${scopedRepository.name}`
-                      : "Find a file, or type a repository and press Tab"
+                      : "Find a file, or type a repository or vault and press Tab"
                     : "Search committed text"
                 }
                 onKeyDown={(event) => {
@@ -735,7 +801,7 @@ function PickerContents({
                             disabled={busy && !entry.repository}
                             aria-label={
                               entry.repository
-                                ? `Repository ${scopeLabel(entry.repository)}`
+                                ? `${isVault(entry.repository) ? "Vault" : "Repository"} ${scopeLabel(entry.repository)}`
                                 : undefined
                             }
                             className={(state) =>
@@ -753,7 +819,9 @@ function PickerContents({
                               aria-hidden="true"
                               title={
                                 entry.repository
-                                  ? "Repository"
+                                  ? isVault(entry.repository)
+                                    ? "Vault"
+                                    : "Repository"
                                   : isTestFile(entry.path)
                                     ? "Test file"
                                     : "File"
@@ -762,7 +830,9 @@ function PickerContents({
                               <Icon
                                 name={
                                   entry.repository
-                                    ? "branch"
+                                    ? isVault(entry.repository)
+                                      ? "vault"
+                                      : "branch"
                                     : isTestFile(entry.path)
                                       ? "testFile"
                                       : "file"
@@ -778,7 +848,9 @@ function PickerContents({
                                 </span>
                                 <span {...stylex.props(styles.path)}>
                                   {entry.repository
-                                    ? entry.path
+                                    ? isVault(entry.repository)
+                                      ? "Vault"
+                                      : entry.path
                                     : slash >= 0
                                       ? entry.path.slice(0, slash)
                                       : ""}
@@ -828,7 +900,10 @@ function PickerContents({
                     />
                   ) : selectedResult?.repository ? (
                     <div {...stylex.props(styles.repositoryPreview)}>
-                      <Icon name="branch" size={18} />
+                      <Icon
+                        name={isVault(selectedResult.repository) ? "vault" : "branch"}
+                        size={18}
+                      />
                       <p {...stylex.props(styles.repositoryName)}>
                         {selectedResult.repository.name}
                       </p>

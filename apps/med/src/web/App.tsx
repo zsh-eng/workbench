@@ -60,7 +60,8 @@ import { setFilePreviewShown, useFilePreviewShown } from "./data/picker-preferen
 import { BranchPicker } from "./components/BranchPicker";
 import type { BrowseSource } from "../shared/browse";
 import { agentName, type AgentSession } from "../shared/saved-review";
-import { createBrowseApi, useBrowseFiles, type BrowseApi } from "./data/browse";
+import { createBrowseApi, useBrowseFiles, useVaults, type BrowseApi } from "./data/browse";
+import { isBrowseFile, type FileRead } from "../shared/local-file";
 import { createFileWorkspace, isFileTab, sourceKey, useFileWorkspace } from "./data/file-workspace";
 import { RepositoryFiles } from "./components/RepositoryFiles";
 import { PaneTree, paneHandle, usePaneTree, type PaneSpec } from "./components/PaneTree";
@@ -529,6 +530,13 @@ export function App({
     [browseSource, prefetch, workerPool],
   );
   const activeFile = fileState.tabs.find((tab) => tab.id === fileState.active);
+  // Registered vaults: Find file reaches their files, and their tabs name their folders.
+  const vaultTab = fileState.tabs.some((tab) => tab.source.kind === "vault");
+  const vaults = useVaults(browseApi, filePickerOpen || vaultTab);
+  const vaultRoots = useMemo(
+    () => new Map(vaults.map((vault) => [vault.id, vault.path])),
+    [vaults],
+  );
   if (blameTab !== null && blameTab !== activeFile?.id) setBlameTab(null);
   const blameEnabled = !!activeFile && blameTab === activeFile.id;
   const toggleBlame = useCallback(
@@ -566,7 +574,7 @@ export function App({
   const goToDefinition = useCallback(
     (name: string) => {
       const file = fileState.file;
-      if (!file || file.kind !== "text" || !name) return;
+      if (!file || !isBrowseFile(file) || file.kind !== "text" || !name) return;
       definitionRequest.current?.abort();
       const request = new AbortController();
       definitionRequest.current = request;
@@ -2635,6 +2643,7 @@ export function App({
   );
   const activeSourceMatches =
     activeFile &&
+    activeFile.source.kind !== "vault" &&
     activeFile.source.repo === state.review?.repo &&
     (activeFile.source.kind === "worktree" ||
       activeFile.source.oid === state.review.base ||
@@ -2672,13 +2681,20 @@ export function App({
   const activeSourceLabel = activeFile?.sourceLabel;
   const fileEditor = useMemo(
     () =>
-      activeSource?.kind === "worktree" && activePath !== undefined && browseApi.write
+      activePath !== undefined &&
+      ((activeSource?.kind === "worktree" && browseApi.write) ||
+        (activeSource?.kind === "vault" && browseApi.writeVault))
         ? {
             drafts: editorDrafts,
             key: JSON.stringify([activeSource, activePath]),
-            write: async (file: import("../shared/local-file").FileRead, text: string) => {
-              if (file.source.kind !== "worktree") throw new Error("Read-only source");
-              const saved = await browseApi.write!(file.source, file.path, file.identity, text);
+            write: async (file: FileRead, text: string) => {
+              const saved =
+                file.source.kind === "worktree"
+                  ? await browseApi.write!(file.source, file.path, file.identity, text)
+                  : file.source.kind === "local" && "vault" in file && file.vault
+                    ? await browseApi.writeVault!(file, text)
+                    : undefined;
+              if (!saved) throw new Error("Read-only source");
               fileWorkspace.acceptWrite(saved);
               return saved;
             },
@@ -2705,6 +2721,37 @@ export function App({
       fileWorkspace.open(path, true, line, activeSource, activeSourceLabel),
     [activeSource, activeSourceLabel, fileWorkspace],
   );
+  // A vault file's wiki and Markdown links resolve in its vault, as in the vault's workspace.
+  const activeVault = activeSource?.kind === "vault" ? activeSource.id : undefined;
+  useEffect(() => {
+    if (!activeVault || activePath === undefined || !browseApi.followVaultLink) return;
+    let live = true;
+    const follow = (event: Event) => {
+      // Hidden workspaces stay mounted; only the window's own workspace follows.
+      if (document.querySelector("[data-standalone-files]") || !shown()) return;
+      const link = (event as CustomEvent<{ href: string; syntax: string }>).detail;
+      browseApi.followVaultLink!(activeVault, activePath, link).then(
+        (target) => {
+          if (live)
+            fileWorkspace.open(
+              target.path,
+              true,
+              target.line,
+              { kind: "vault", id: activeVault },
+              activeSourceLabel,
+            );
+        },
+        (error: unknown) => {
+          if (live) showToast(error instanceof Error ? error.message : "Cannot follow this link.");
+        },
+      );
+    };
+    window.addEventListener("med-vault-navigate", follow);
+    return () => {
+      live = false;
+      window.removeEventListener("med-vault-navigate", follow);
+    };
+  }, [activeVault, activePath, activeSourceLabel, browseApi, fileWorkspace, showToast, shown]);
   // A primitive copy, so the callbacks below do not depend on a mutable file object.
   const activeDiffPath = activeDiffFile ? `${activeDiffFile.path}` : undefined;
   const openBeforeVersion = useCallback(() => {
@@ -3951,8 +3998,12 @@ export function App({
         showCommit={!!commitApi}
         tabs={fileState.tabs.map((tab) => ({
           ...tab,
-          sourcePath: tab.source.repo,
-          sourceName: checkoutNameFor(state.repositories, tab.source.repo),
+          ...(tab.source.kind === "vault"
+            ? { sourcePath: vaultRoots.get(tab.source.id), sourceName: tab.sourceLabel }
+            : {
+                sourcePath: tab.source.repo,
+                sourceName: checkoutNameFor(state.repositories, tab.source.repo),
+              }),
           dirty: !!editorDrafts.get(JSON.stringify([tab.source, tab.path]))?.dirty,
         }))}
         active={fileState.active}
@@ -4736,7 +4787,12 @@ export function App({
               <FullFileView
                 editor={fileEditor}
                 file={fileState.file}
-                path={activeFile.path}
+                // A vault's file names its vault: the workspace names only its checkout.
+                path={
+                  activeFile.source.kind === "vault"
+                    ? `${activeFile.sourceLabel} · ${activeFile.path}`
+                    : activeFile.path
+                }
                 loading={fileState.loading}
                 error={fileState.error}
                 stale={fileState.stale}
@@ -4882,10 +4938,16 @@ export function App({
           onOpenChange={setSymbolPickerOpen}
           mode={symbolMode}
           onModeChange={setSymbolMode}
-          source={symbolMode === "file" ? (activeFile?.source ?? null) : browseSource}
+          source={
+            symbolMode === "file"
+              ? activeFile && activeFile.source.kind !== "vault"
+                ? activeFile.source
+                : null
+              : browseSource
+          }
           path={activeFile?.path}
           identity={fileState.file?.kind === "text" ? fileState.file.identity : undefined}
-          currentFile={fileState.file}
+          currentFile={fileState.file && isBrowseFile(fileState.file) ? fileState.file : null}
           sourceRevision={state.sourceRevision}
           sourceLabel={
             symbolMode === "file" ? (activeFile?.sourceLabel ?? sourceLabel) : sourceLabel
@@ -4904,6 +4966,7 @@ export function App({
         />
         <FilePicker
           repositories={state.repositories}
+          vaults={vaults}
           open={filePickerOpen && !!browseSource}
           onOpenChange={setFilePickerOpen}
           entries={repositoryFiles.entries}

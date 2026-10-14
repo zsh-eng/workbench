@@ -1,12 +1,17 @@
 import { useSyncExternalStore } from "react";
-import type { BrowseRead, BrowseSource } from "../../shared/browse";
+import type { BrowseSource } from "../../shared/browse";
+import type { FileRead } from "../../shared/local-file";
 import type { BrowseApi } from "./browse";
+
+/** A registered vault, whose files a tab names by their paths in the vault. */
+export type VaultSource = { kind: "vault"; id: string };
+export type TabSource = BrowseSource | VaultSource;
 
 export interface OpenFileTab {
   id: string;
   path: string;
   pinned: boolean;
-  source: BrowseSource;
+  source: TabSource;
   sourceLabel: string;
   line?: number;
   column?: number;
@@ -20,7 +25,7 @@ interface FileWorkspaceSnapshot extends Workspace {
   key: string;
   source: BrowseSource | null;
   sourceLabel: string;
-  file: BrowseRead | null;
+  file: FileRead | null;
   loading: boolean;
   stale: boolean;
   error: string | null;
@@ -29,16 +34,38 @@ interface FileWorkspaceSnapshot extends Workspace {
 export const isFileTab = (id: string) =>
   id !== "changes" && id !== "brief" && id !== "guide" && id !== "commit";
 
-export function sourceKey(source: BrowseSource) {
+export function sourceKey(source: TabSource) {
   return JSON.stringify(
-    source.kind === "commit" ? [source.kind, source.repo, source.oid] : [source.kind, source.repo],
+    source.kind === "vault"
+      ? [source.kind, source.id]
+      : source.kind === "commit"
+        ? [source.kind, source.repo, source.oid]
+        : [source.kind, source.repo],
   );
 }
+/** The tab source that a read file came from. */
+function readSourceKey(file: FileRead) {
+  if ("vault" in file && file.vault) return sourceKey({ kind: "vault", id: file.vault.id });
+  return file.source.kind === "worktree" || file.source.kind === "commit"
+    ? sourceKey(file.source)
+    : "";
+}
+/** A file's path as its tab names it: in its vault, or in its repository. */
+const readPath = (file: FileRead) => ("vault" in file && file.vault ? file.vault.path : file.path);
 
 const STORAGE = "med:files:v1:";
 const STORAGE_INDEX = "med:files:v1";
 /** Workspaces whose open files outlast the window, most recent last. */
 const STORED = 48;
+
+function storedSource(value: unknown) {
+  const source = value as Partial<{ kind: string; repo: string; oid: string; id: string }> | null;
+  if (source?.kind === "vault") return typeof source.id === "string";
+  return (
+    typeof source?.repo === "string" &&
+    (source.kind === "worktree" || (source.kind === "commit" && typeof source.oid === "string"))
+  );
+}
 
 function readStored(key: string): Workspace | undefined {
   try {
@@ -50,9 +77,7 @@ function readStored(key: string): Workspace | undefined {
         typeof tab.id === "string" &&
         typeof tab.path === "string" &&
         typeof tab.sourceLabel === "string" &&
-        typeof tab.source?.repo === "string" &&
-        (tab.source.kind === "worktree" ||
-          (tab.source.kind === "commit" && typeof tab.source.oid === "string")),
+        storedSource(tab.source),
     );
     const active =
       !isFileTab(value.active) || tabs.some((tab) => tab.id === value.active)
@@ -164,9 +189,13 @@ export function createFileWorkspace(api: BrowseApi, { persist = false } = {}) {
     abort = new AbortController();
     publish({ file: null, loading: true, stale: false, error: null });
     try {
-      const file = await api.read(tab.source, tab.path, abort.signal);
+      const file: FileRead =
+        tab.source.kind === "vault"
+          ? await (api.readVault?.(tab.source.id, tab.path, abort.signal) ??
+              Promise.reject(new Error("Vault files are not available here.")))
+          : await api.read(tab.source, tab.path, abort.signal);
       if (disposed || current !== generation) return;
-      if (file.path !== tab.path || sourceKey(file.source) !== sourceKey(tab.source))
+      if (readPath(file) !== tab.path || readSourceKey(file) !== sourceKey(tab.source))
         throw new Error("The file response does not match the selected source.");
       publish({ file, loading: false });
     } catch (error) {
@@ -223,7 +252,7 @@ export function createFileWorkspace(api: BrowseApi, { persist = false } = {}) {
       path: string,
       options: boolean | { pinned?: boolean; background?: boolean } = false,
       line?: number,
-      source = snapshot.source,
+      source: TabSource | null = snapshot.source,
       label = snapshot.sourceLabel,
       column?: number,
     ) {
@@ -330,9 +359,13 @@ export function createFileWorkspace(api: BrowseApi, { persist = false } = {}) {
         });
       }
     },
-    acceptWrite(file: BrowseRead) {
+    acceptWrite(file: FileRead) {
       const current = snapshot.file;
-      if (current?.path === file.path && sourceKey(current.source) === sourceKey(file.source)) {
+      if (
+        current &&
+        readPath(current) === readPath(file) &&
+        readSourceKey(current) === readSourceKey(file)
+      ) {
         staleCheck?.abort();
         publish({ file, stale: false });
       }

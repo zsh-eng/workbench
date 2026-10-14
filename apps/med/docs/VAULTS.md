@@ -37,6 +37,9 @@ with unsaved changes does not close until you save or discard them.
   it in the Vim editor, with explicit saves and the unsaved dot; see
   [Read and edit Markdown](USAGE.md#read-and-edit-markdown).
 
+To read a note from a repository or a thread, open **Find file** (`⌘⇧K`), type
+the vault's name, and press **Tab**. The note opens in that workspace's tabs.
+
 Registering and indexing never change your notes; only a save does.
 
 ### Obsidian syntax

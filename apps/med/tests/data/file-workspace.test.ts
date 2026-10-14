@@ -162,10 +162,12 @@ describe("file workspace", () => {
     expect(workspace.getSnapshot().file?.identity).toBe("/second:same.ts");
     pending[0]!.resolve(result(A, "same.ts"));
     await settle();
-    expect(workspace.getSnapshot().file?.source.repo).toBe("/second");
+    expect((workspace.getSnapshot().file?.source as BrowseSource | undefined)?.repo).toBe(
+      "/second",
+    );
     workspace.configure("first", A, "First");
     expect(workspace.getSnapshot().tabs[0]!.pinned).toBe(true);
-    expect(workspace.getSnapshot().tabs[0]!.source.repo).toBe("/first");
+    expect((workspace.getSnapshot().tabs[0]!.source as BrowseSource).repo).toBe("/first");
     expect(workspace.getSnapshot().file).toBeNull();
     pending[2]!.resolve(result(A, "same.ts"));
     await settle();
@@ -225,7 +227,9 @@ describe("file workspace", () => {
     expect(workspace.getSnapshot().file).toBeNull();
     pending.at(-1)!.resolve(result(source, "same.ts"));
     await settle();
-    expect(workspace.getSnapshot().file?.source.repo).toBe("/repo-0");
+    expect((workspace.getSnapshot().file?.source as BrowseSource | undefined)?.repo).toBe(
+      "/repo-0",
+    );
     workspace.dispose();
   });
   test("selecting Changes and disposal cancel reads and prevent stale errors", async () => {
