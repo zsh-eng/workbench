@@ -8,6 +8,7 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, utimes, writeFile, appendFile, realpath } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { buildWeekView, registerWeekView } from "./week-view.mjs";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -882,13 +883,22 @@ export async function buildWorld(root, now = Date.now()) {
     "# 0.3\n\n- Heights with one decimal.\n- The prediction model in the README.\n",
   );
 
+  // A larger change with no session, for the change map (experiment 4).
+  const weekTree = await buildWeekView({ repo, trees, now, helpers: { git, put, dated } });
+
   const world = {
     root,
     home,
     state,
     repo,
     vault,
-    trees: { search: searchTree, dst: dstTree, glossary: glossaryTree, feet: feetTree },
+    trees: {
+      search: searchTree,
+      dst: dstTree,
+      glossary: glossaryTree,
+      feet: feetTree,
+      week: weekTree,
+    },
     sessions: {
       model: { agent: "claude", id: modelSession.id, path: modelSession.path, cwd: repo },
       search: { agent: "claude", id: searchSession.id, path: searchSession.path, cwd: searchTree },
@@ -961,6 +971,7 @@ export async function buildWorld(root, now = Date.now()) {
       ],
       { CLAUDE_CODE_SESSION_ID: dstSession.id },
     );
+    registerWeekView(cli, weekTree);
   };
 
   /** The glossary agent's next step, as it works during a recording. */
