@@ -39,7 +39,7 @@ import {
 import { DiffStat } from "./components/DiffStat";
 import { ChangeTotals } from "./components/ChangeTotals";
 import { FileSidebar } from "./components/FileSidebar";
-import { NoteCard, NoteComposer, type NoteTarget } from "./components/NoteCard";
+import { NoteCard, NoteComposer, sameTarget, type NoteTarget } from "./components/NoteCard";
 import { Icon, type IconName } from "./components/Icon";
 import "./pierre-theme";
 import { useTheme } from "./themes";
@@ -984,7 +984,8 @@ export function App({
   // The controller publishes the saved note before its save promise completes.
   // Replace that draft in the same render so the diff never reserves two cards.
   const draftSaved =
-    submitted?.target === draft &&
+    !!submitted &&
+    sameTarget(submitted.target, draft) &&
     submitted.reviewId === state.review?.id &&
     notes.some(
       (note) =>
@@ -1280,12 +1281,14 @@ export function App({
     if (!onLines(note)) return;
     setShowNotes(true);
     setSelection(null);
-    setDraft({
+    const target: NoteTarget = {
       path: note.path,
       side: note.side,
       line: note.line,
       ...(note.endLine ? { endLine: note.endLine } : {}),
-    });
+    };
+    // A box that is open on these lines stays as it is.
+    setDraft((current) => (sameTarget(current, target) ? current : target));
   }, []);
   // A file to show once its segment's stream mounts.
   const [pendingGuideFile, setPendingGuideFile] = useState<string | null>(null);
@@ -3431,10 +3434,14 @@ export function App({
           key={JSON.stringify(annotation.metadata.draft)}
           target={annotation.metadata.draft}
           initialText={
-            pendingDraft?.target === annotation.metadata.draft ? pendingDraft.note.text : undefined
+            sameTarget(pendingDraft?.target, annotation.metadata.draft)
+              ? pendingDraft!.note.text
+              : undefined
           }
           initialError={
-            pendingDraft?.target === annotation.metadata.draft ? pendingDraft.error : undefined
+            sameTarget(pendingDraft?.target, annotation.metadata.draft)
+              ? pendingDraft!.error
+              : undefined
           }
           onSave={async (note) => {
             const submission = {
@@ -3460,11 +3467,11 @@ export function App({
           }}
           onCancel={() => {
             const target = annotation.metadata!.draft!;
-            if (draftRef.current === target) {
+            if (sameTarget(draftRef.current, target)) {
               setDraft(null);
               setSelection(null);
             }
-            setPendingDraft((current) => (current?.target === target ? null : current));
+            setPendingDraft((current) => (sameTarget(current?.target, target) ? null : current));
           }}
         />
       ) : annotation.metadata?.thread ? (

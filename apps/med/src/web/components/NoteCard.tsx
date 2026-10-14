@@ -13,6 +13,19 @@ export interface NoteTarget {
   endLine?: number;
 }
 
+/** Two targets on the same lines. A reply opens a new target object for the
+ * same lines, so targets compare by place, not by object. */
+export function sameTarget(a: NoteTarget | null | undefined, b: NoteTarget | null | undefined) {
+  return (
+    !!a &&
+    !!b &&
+    a.path === b.path &&
+    a.side === b.side &&
+    a.line === b.line &&
+    (a.endLine ?? a.line) === (b.endLine ?? b.line)
+  );
+}
+
 function lineLabel(target: NoteTarget) {
   const side = target.side === "old" ? "L" : "R";
   return target.endLine && target.endLine !== target.line

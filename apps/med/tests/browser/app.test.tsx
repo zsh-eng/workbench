@@ -2169,6 +2169,43 @@ describe("review guide", () => {
   });
 });
 
+describe("review guide comments", () => {
+  test("Cancel closes the box that Reply opens on the agent's comment, also after a second Reply", async () => {
+    await page.viewport(1280, 800);
+    await mountApp({
+      savedReview: true,
+      guide: {
+        summary: "Renames the export.",
+        segments: [
+          {
+            title: "Rename alpha",
+            files: ["src/alpha.ts"],
+            comments: [
+              {
+                file: "src/alpha.ts",
+                line: 1,
+                side: "new",
+                kind: "risk",
+                body: "Callers still import the old name.",
+              },
+            ],
+          },
+        ],
+      },
+    });
+    await userEvent.keyboard("j");
+    await expect.element(page.getByText("Callers still import the old name.")).toBeVisible();
+    const reply = page.getByRole("button", { name: "Reply with a note" });
+    const box = page.getByPlaceholder("Add a comment…");
+    await userEvent.click(reply);
+    await expect.element(box).toBeVisible();
+    await userEvent.click(reply);
+    expect(box.elements()).toHaveLength(1);
+    await userEvent.click(page.getByRole("button", { name: "Cancel" }));
+    await expect.element(box).not.toBeInTheDocument();
+  });
+});
+
 describe("review brief", () => {
   const excerptText = () =>
     [...document.querySelectorAll("[data-brief-excerpt] diffs-container")]
