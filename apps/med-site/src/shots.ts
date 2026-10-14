@@ -14,7 +14,7 @@ const chapter =
 
 export const shots = {
   review: {
-    alt: "Med with the saved review Search filters at iteration 2. A split diff of SearchBar.tsx shows a reviewer comment under line 29. At the right, the Claude session pane shows the agent's last round and a message box with 1 comment, while Claude waits for the review.",
+    alt: "Med with the thread Search filters, on main in trailhead, in its sidebar. Claude's session shows the task, the agent's first round, and a message box with 1 comment, while Claude waits for the review. At the right, the diff of index.ts shows a reviewer comment under line 16.",
     sizes: wide,
     priority: true,
   },
@@ -29,7 +29,7 @@ export const shots = {
     priority: false,
   },
   session: {
-    alt: "Claude's session: its last tool calls, its reply with a review link, a background command that waits for the review, and a message box with 1 comment. The status line says that Claude is waiting for your review.",
+    alt: "Claude's session: the reviewer's message, the agent's reply, which cites the changed lines and links to the review, and a message box with 1 comment. The status line says that Claude is waiting for your review.",
     sizes: chapter,
     priority: false,
   },

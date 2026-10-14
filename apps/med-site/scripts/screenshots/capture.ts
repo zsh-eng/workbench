@@ -10,6 +10,7 @@
 //
 //   MED_CLI=/path/to/apps/med/dist/cli.js bun run screenshots
 //   bun run screenshots --demo    # the demo recording only
+//   bun run screenshots --shots   # the captures only, from the recording there
 //
 // Med runs on MED_PORT (default 4310) with a temporary home, state, and
 // repository; the vault's Med and the demo use the next two ports. It never
@@ -48,6 +49,7 @@ if ([port, port + 1, port + 2].includes(6330))
 const origin = `http://127.0.0.1:${port}`;
 const output = join(site, "public/screenshots");
 const demoOnly = process.argv.includes("--demo");
+const shotsOnly = process.argv.includes("--shots");
 
 // The demo's scenes, at the size of Med in each window, and display widths
 // for srcset. A shot captures at `scale` times its CSS size, 2 by default. A
@@ -542,7 +544,8 @@ async function drawDiagrams(browser: Browser) {
     // A diagram draws when it comes near the view.
     const blocks = page.locator("pre[data-mermaid]");
     await blocks.first().waitFor();
-    for (const block of await blocks.all()) await block.scrollIntoViewIfNeeded();
+    for (const block of await blocks.all())
+      await block.scrollIntoViewIfNeeded();
     const drawn = page.locator(".med-md-diagram > svg");
     await drawn.first().waitFor({ state: "attached" });
     await expectCount(drawn, sources.length);
@@ -574,7 +577,9 @@ async function expectCount(locator: Locator, count: number) {
     if ((await locator.count()) === count) return;
     await Bun.sleep(100);
   }
-  throw new Error(`Expected ${count} diagrams, found ${await locator.count()}.`);
+  throw new Error(
+    `Expected ${count} diagrams, found ${await locator.count()}.`,
+  );
 }
 
 type Entry = {
@@ -609,7 +614,9 @@ async function save(page: Page, name: string, path: string) {
     zero === undefined
       ? {
           ...entry,
-          ...(chunks ? { text: chunks.map((chunk) => chunk.text).join("") } : {}),
+          ...(chunks
+            ? { text: chunks.map((chunk) => chunk.text).join("") }
+            : {}),
         }
       : {
           ...entry,
@@ -708,77 +715,95 @@ async function encode(shot: Shot, scheme: Scheme, png: Buffer) {
       .webp({ quality: 82, effort: 5 })
       .toFile(`${base}.webp`);
   }
-  return { width: Math.round(width / scale), height: Math.round(height / scale) };
+  return {
+    width: Math.round(width / scale),
+    height: Math.round(height / scale),
+  };
 }
 
-// Image work stays on one thread, so other work on the machine keeps its share.
-sharp.concurrency(1);
-const version = med(["--version"]).trim();
-createRepository(repo);
-applyRound(repo, 0);
-createVault(vault);
-const transcript = new Transcript(env.HOME, repo);
-transcript.start();
-const { server, token } = await startMed();
-// The vault runs on a second Med server, as `med add` starts one: the Notes
-// screenshot opens it there.
-const vaultServer = ["--port", String(port + 1), "--state-dir", vaultState];
+// The vault's source and its Med's address, once `med add` registers it.
 let vaultId = "";
 let vaultUrl = "";
-const browser = await chromium.launch();
-let waiter: ReturnType<typeof wait> | undefined;
-let demo: ReturnType<typeof Bun.serve> | undefined;
-try {
-  vaultId = (
-    JSON.parse(med(["add", vault, "--wait", ...vaultServer])) as {
-      source: { id: string };
-    }
-  ).source.id;
-  vaultUrl = med(["web", "--no-open", ...vaultServer]).trim();
 
-  // Round one: the agent hands over the review and waits; the reviewer
-  // comments on the first file.
-  let review = createReview(0);
-  transcript.first(review.link);
-  waiter = wait();
-  let page = await open(browser, token, review.path);
-  const first = comments[0]!;
-  await addComment(page, first.file, first.line, first.text);
-  await page.context().close();
+/** Records the demo: the hero's timeline, the review, and the vault, from a
+ * real Med on the fixture. */
+async function recordDemo(browser: Browser) {
+  createRepository(repo);
+  applyRound(repo, 0);
+  createVault(vault);
+  const transcript = new Transcript(env.HOME, repo);
+  transcript.start();
+  const { server, token } = await startMed();
+  // The vault runs on a second Med server, as `med add` starts one: the Notes
+  // screenshot opens it there.
+  const vaultServer = ["--port", String(port + 1), "--state-dir", vaultState];
+  let waiter: ReturnType<typeof wait> | undefined;
+  try {
+    vaultId = (
+      JSON.parse(med(["add", vault, "--wait", ...vaultServer])) as {
+        source: { id: string };
+      }
+    ).source.id;
+    vaultUrl = med(["web", "--no-open", ...vaultServer]).trim();
 
-  // The hero: the reviewer sends the comment, and round two answers it while
-  // Med records, one file at a time, and hands over the next review.
-  await recordHero(browser, token, review.path, async () => {
-    await waiter!.exited;
-    await transcript.second({
-      pause: (ms) => Bun.sleep(ms),
-      write: (files) => write(repo, files),
-      handoff: () => {
-        review = createReview(1);
-        return review.link;
-      },
-    });
+    // Round one: the agent hands over the review and waits; the reviewer
+    // comments on the first file.
+    let review = createReview(0);
+    transcript.first(review.link);
     waiter = wait();
-  });
+    let page = await open(browser, token, review.path);
+    const first = comments[0]!;
+    await addComment(page, first.file, first.line, first.text);
+    await page.context().close();
 
-  // The reviewer comments on round two, for the other windows.
-  const { path } = review;
-  page = await open(browser, token, path);
-  const second = comments[1]!;
-  await addComment(page, second.file, second.line, second.text);
-  await page.context().close();
+    // The hero: the reviewer sends the comment, and round two answers it while
+    // Med records, one file at a time, and hands over the next review.
+    await recordHero(browser, token, review.path, async () => {
+      await waiter!.exited;
+      await transcript.second({
+        pause: (ms) => Bun.sleep(ms),
+        write: (files) => write(repo, files),
+        handoff: () => {
+          review = createReview(1);
+          return review.link;
+        },
+      });
+      waiter = wait();
+    });
 
-  await record(browser, token, path);
-  await recordVault(browser);
-  await drawDiagrams(browser);
-  if (!demoOnly) {
-    demo = serveDemo();
-    // Encode into a staging folder; replace public/screenshots only on success.
+    // The reviewer comments on round two, for the other windows.
+    const { path } = review;
+    page = await open(browser, token, path);
+    const second = comments[1]!;
+    await addComment(page, second.file, second.line, second.text);
+    await page.context().close();
+
+    await record(browser, token, path);
+    await recordVault(browser);
+    await drawDiagrams(browser);
+  } finally {
+    waiter?.kill();
+    server.kill();
+    await server.exited;
+    try {
+      med(["stop", ...vaultServer]);
+    } catch {
+      // The vault server did not start.
+    }
+  }
+}
+
+/** Captures each scene of the demo in both schemes. The captures replace
+ * public/screenshots only when all of them succeed. */
+async function captureScenes(browser: Browser) {
+  const version = med(["--version"]).trim();
+  const demo = serveDemo();
+  try {
     mkdirSync(staging);
     const manifest: Record<string, unknown> = { med: version };
     for (const shot of Object.keys(shots) as Shot[]) {
       for (const scheme of ["dark", "light"] as const) {
-        page = await scene(browser, shot, scheme);
+        const page = await scene(browser, shot, scheme);
         // Set SCREENSHOT_PNGS to a directory to keep the full-size captures.
         const keep = (name: string, png: Buffer) => {
           const dir = process.env.SCREENSHOT_PNGS;
@@ -799,17 +824,18 @@ try {
       join(site, "src/screenshots.json"),
       `${JSON.stringify(manifest, null, 2)}\n`,
     );
+  } finally {
+    await demo.stop(true);
   }
+}
+
+// Image work stays on one thread, so other work on the machine keeps its share.
+sharp.concurrency(1);
+const browser = await chromium.launch();
+try {
+  if (!shotsOnly) await recordDemo(browser);
+  if (!demoOnly) await captureScenes(browser);
 } finally {
   await browser.close();
-  await demo?.stop(true);
-  waiter?.kill();
-  server.kill();
-  await server.exited;
-  try {
-    med(["stop", ...vaultServer]);
-  } catch {
-    // The vault server did not start.
-  }
   rmSync(scratch, { recursive: true, force: true });
 }

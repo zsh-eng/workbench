@@ -102,10 +102,13 @@ window. It writes AVIF and WebP files to
 `public/screenshots` and their sizes to `src/screenshots.json`. It never reads
 your repositories, Git identity, or Med state, and it fails if a local path is
 on screen or in a recording. `--demo` records only, without captures.
+`--shots` captures only, from the recordings in `public/demo`: use it when
+Med's interface changes but its API answers do not.
 
 ```sh
 MED_CLI=/path/to/workbench/apps/med/dist/cli.js bun run screenshots
 MED_CLI=/path/to/workbench/apps/med/dist/cli.js bun run screenshots --demo
+bun run screenshots --shots
 ```
 
 Set `MED_PORT` to use another port (never 6330, the Med service, nor the two
@@ -166,12 +169,15 @@ the features. The scene sets the panes, opens the tab or note, scrolls to the
 comment, and then marks the page ready. The `review` scene replays `hero.json`,
 the `notes` scene replays `vault.json`, and the others replay `recording.json`.
 
-The product window shows Med in zen mode: the sidebar's history and files, the
-diff with the comment, and the agent's session, without other bars and
-buttons. It renders at 1309 by 818, so its text is 10% larger than in a 1440
-by 900 window. When most of the window is in view, the demo starts the
-hero's clock, types the message, and sends it. The agent's edits stream in, and the
-demo opens the edited search bar when the next iteration arrives. In the
+The product window shows Med in zen mode: the thread in the sidebar, the
+agent's session, and the diff with the comment, without other bars and
+buttons. The demo makes the thread list from the recorded review and the
+agent's recorded state. It renders at 1309 by 818, so its text is 10% larger
+than in a 1440 by 900 window. When most of the window is in view, the demo
+starts the hero's clock, types the message, and sends it. The agent's edits
+stream in, and when it answers, the demo opens the edited search bar from the
+agent's citation. A feature's part fills its window over the rest of Med; on a
+phone, Med shows one pane, so the `session` scene chooses the session pane. In the
 `commit` scene, the demo stages the remaining files, commits, and pushes,
 slowly enough to follow. That window renders at 760 px, because Med's Commit
 tab stacks its columns below 720 px. A live window has a button that starts

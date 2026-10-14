@@ -79,10 +79,15 @@ test("every window runs Med on a wide screen, and the page still scrolls", async
   await page.mouse.wheel(0, 300);
   await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(top);
 
-  // A file opens from its header with its recorded source.
+  // Med lists the review as its thread, and a file opens from its header
+  // with its recorded source.
   await show();
   const med = page.frameLocator(".product .live");
-  await med.getByRole("treeitem", { name: "query.ts", exact: true }).click();
+  await expect(
+    med
+      .getByRole("navigation", { name: "Threads" })
+      .getByText("Search filters"),
+  ).toBeVisible();
   await med
     .getByRole("link", { name: "src/search/query.ts", exact: true })
     .first()
@@ -91,12 +96,12 @@ test("every window runs Med on a wide screen, and the page still scrolls", async
     med.getByText("export function parseQuery").first(),
   ).toBeVisible();
 
-  // In view, the hero sends the comment and the agent edits; Replay starts it
-  // again from its first moment.
+  // In view, the hero sends the comment and the agent answers; Replay starts
+  // it again from its first moment.
   const edited = () =>
     page
       .frameLocator(".product .live:last-of-type")
-      .getByText("Edited src/search/filters.ts");
+      .getByText("I'll list them under the input.");
   await show();
   await expect(edited().first()).toBeVisible({ timeout: 20_000 });
   await page.getByRole("button", { name: "Replay", exact: true }).click();

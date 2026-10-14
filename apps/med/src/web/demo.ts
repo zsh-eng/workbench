@@ -16,8 +16,10 @@
 // screenshots.
 
 import type { AgentInboxState, AgentMessage } from "../shared/agent-inbox";
-import type { Note, NoteMutation, NoteState } from "../shared/protocol";
+import type { AgentStatus } from "../shared/agent-status";
+import type { Note, NoteMutation, NoteState, RegisteredRepository } from "../shared/protocol";
 import type { SavedReview } from "../shared/saved-review";
+import type { ThreadList } from "../shared/threads";
 import type { WorkingStatus } from "../shared/git-actions";
 import { addDrawing, type Drawing } from "./demo-diagrams";
 
@@ -203,12 +205,9 @@ function changeReview(id: string, change: (saved: SavedReview) => void): SavedRe
   return saved;
 }
 
-/** The agent's inbox: the messages sent from Med, and the comments not sent yet. */
-function inbox(id: string): AgentInboxState {
-  const path = `/api/reviews/${id}/agent`;
-  if (kept.has(key("GET", path))) return read<AgentInboxState>(path)!;
-  // The last state that the recorded stream had sent by now.
-  const entry = pick(answers.get(key("GET", `${path}/events`)));
+/** The last state that a recorded event stream had sent by now. */
+function streamed<T>(path: string): T | undefined {
+  const entry = pick(answers.get(key("GET", path)));
   const text =
     entry?.chunks
       ?.filter((chunk) => chunk.at <= elapsed())
@@ -223,9 +222,75 @@ function inbox(id: string): AgentInboxState {
     ?.split("\n")
     .find((line) => line.startsWith("data: "))
     ?.slice(6);
-  return data
-    ? (JSON.parse(data) as AgentInboxState)
-    : (read<AgentInboxState>(path) ?? { messages: [], waiting: [], drafts: [] });
+  return data ? (JSON.parse(data) as T) : undefined;
+}
+
+/** The agent's inbox: the messages sent from Med, and the comments not sent yet. */
+function inbox(id: string): AgentInboxState {
+  const path = `/api/reviews/${id}/agent`;
+  if (kept.has(key("GET", path))) return read<AgentInboxState>(path)!;
+  return (
+    streamed<AgentInboxState>(`${path}/events`) ??
+    read<AgentInboxState>(path) ?? { messages: [], waiting: [], drafts: [] }
+  );
+}
+
+/** The sidebar's threads: the recorded review is the one thread, with its
+ * agent's state at this moment of the recording. */
+function threadList(): ThreadList {
+  const repositories = (
+    read<{ repositories: RegisteredRepository[] }>("/api/repositories")?.repositories ?? []
+  ).map(({ id, name, path }) => ({ id, name, path }));
+  const id = /^\/review\/([^/?]+)/.exec(recording.path)?.[1];
+  const saved = id ? read<SavedReview>(`/api/reviews/${id}`) : undefined;
+  if (!saved) return { threads: [], repositories };
+  const target = saved.targets.at(-1);
+  const repository = repositories.find((entry) => entry.id === target?.repositoryId);
+  const status = streamed<{ statuses: AgentStatus[] }>("/api/agent-status/events")?.statuses.find(
+    (entry) => entry.reviewId === saved.id,
+  );
+  const thread: ThreadList["threads"][number] = {
+    id: saved.id,
+    title: saved.title,
+    createdAt: saved.createdAt,
+    updatedAt: status?.updatedAt ?? Date.parse(saved.createdAt),
+    ...(repository && { repository }),
+    ...(target && { checkout: target.repo }),
+    ...(target?.branch && { branch: target.branch }),
+    ...(status && { agent: status.agent, state: status.state }),
+    ...(saved.sessions && { sessions: saved.sessions }),
+    ...(saved.totals && {
+      changes: {
+        files: saved.totals.files,
+        additions: saved.totals.additions,
+        deletions: saved.totals.deletions,
+      },
+    }),
+  };
+  return { threads: [thread], repositories };
+}
+
+/** The thread list's stream: the list now, and again when the agent's state
+ * changes on the timeline. */
+function threadStream(): Response {
+  const changes = pick(answers.get(key("GET", "/api/agent-status/events")))?.chunks ?? [];
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const push = () => {
+        try {
+          controller.enqueue(
+            encoder.encode(`event: state\ndata: ${JSON.stringify(threadList())}\n\n`),
+          );
+        } catch {
+          // Med closed it.
+        }
+      };
+      push();
+      const now = elapsed();
+      for (const change of changes) if (change.at > now) at(change.at, push);
+    },
+  });
+  return new Response(body, { headers: { "content-type": "text/event-stream" } });
 }
 function setInbox(id: string, state: AgentInboxState) {
   keep(`/api/reviews/${id}/agent`, state);
@@ -549,6 +614,7 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   // recording keeps each one by its path.
   if (url.pathname === "/api/live") return new Response(null, { status: 404 });
   const { method } = request;
+  if (method === "GET" && url.pathname === "/api/threads/events") return threadStream();
   const body = typeof init?.body === "string" ? init.body : undefined;
   const path = url.pathname + url.search;
   const changed = kept.get(key(method, path, body));
@@ -744,11 +810,20 @@ const toComment = async () => {
   }
   visible("[data-comment-card]")?.scrollIntoView({ block: "center" });
 };
-/** The review, with only the parts that a scene names. */
+/** The review, with only the parts that a scene names. The thread sidebar
+ * folds away by itself in a narrow window. */
 const review = async (panes: { sidebar: boolean; session: boolean }, name: string) => {
   await until(() => visible("diffs-container"));
-  toggle("Toggle sidebar", panes.sidebar);
-  toggle("Toggle agent session", panes.session);
+  if (!panes.sidebar) visible("button[aria-label='Hide sidebar']")?.click();
+  // ⌘⇧B shows the session at any width. A phone shows the chosen pane only:
+  // there the session is open without room, so it closes, then opens chosen.
+  for (let press = 0; panes.session && press < 2 && !visible(session); press += 1) {
+    dispatchEvent(
+      new KeyboardEvent("keydown", { key: "B", code: "KeyB", metaKey: true, shiftKey: true }),
+    );
+    await pause(300);
+  }
+  if (!panes.session) visible("button[aria-label='Close session']")?.click();
   tab(name);
 };
 const session = "section[aria-label='Claude session']";
@@ -757,15 +832,10 @@ const marks = (action: "stage" | "unstage") =>
   all<HTMLElement>(`[aria-label='Changed files'] [title$='click to ${action}']`).filter((node) =>
     node.checkVisibility(),
   );
-/** A file in the sidebar's tree, which renders in its own shadow root. */
-const treeFile = (path: string) =>
-  all("file-tree-container")
-    .map((tree) => tree.shadowRoot?.querySelector<HTMLElement>(`[data-item-path='${path}']`))
-    .find((node) => node?.checkVisibility());
 
 const scenes: Record<string, () => Promise<void>> = {
-  // Med in zen mode: the sidebar, the diff with the reviewer's comment on the
-  // first file, and the agent's session waiting for the review.
+  // Med in zen mode: the thread in the sidebar, the agent's session waiting
+  // for the review, and the diff with the reviewer's comment on the first file.
   async review() {
     await review({ sidebar: true, session: true }, "Changes");
     if (!visible("[data-zen-exit]"))
@@ -857,6 +927,14 @@ if (find) {
     [data-demo-part="session"] > header {
       display: none !important;
     }
+    /* A pane contains its layout, which would hold the part inside it. */
+    :has([data-demo-part]) {
+      contain: none !important;
+    }
+    /* The narrow window's sidebar button floats over every pane. */
+    button[aria-label="Show sidebar"] {
+      display: none !important;
+    }
     /* Dialogs, such as the commit message, open over the part. */
     body > :has([role="dialog"]) {
       position: relative;
@@ -905,10 +983,14 @@ const plays: Record<string, () => Promise<void>> = {
     await pause(400);
     start();
     visible(`${session} button[aria-label='Send']`)?.click();
-    // When the agent's next review opens, the reviewer goes to its edits.
-    await until(() => treeFile("src/ui/SearchBar.tsx"));
+    // When the agent answers, the reviewer opens the edit that it cites.
+    const cited = () =>
+      all<HTMLAnchorElement>(`${session} a`).findLast(
+        (link) => link.textContent === "SearchBar.tsx:28-34",
+      );
+    await until(cited);
     await pause(1200);
-    treeFile("src/ui/SearchBar.tsx")?.click();
+    cited()?.click();
   },
   // Slow enough to follow: each file, the message, the commit, the push.
   async commit() {
