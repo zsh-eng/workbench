@@ -21,9 +21,12 @@ import {
   type FoundUpdate,
 } from "../shared/found-sessions";
 import type { RegisteredRepository } from "../shared/protocol";
+import type { SessionEvent } from "../shared/agent-session";
+import type { ThreadTurn } from "../shared/agent-status";
 import type { AgentSession } from "../shared/saved-review";
 import { threadTitle, type Thread } from "../shared/threads";
 import { findTranscript } from "./agent-transcripts";
+import { summarizeTurn } from "./thread-turns";
 import { git } from "./runtime/process";
 import { userHome } from "./service/discover";
 
@@ -115,10 +118,13 @@ interface SessionFile {
   name?: string;
   summary?: string;
   idle: boolean;
+  /** The last turn, from the tail (thread-turns.ts). */
+  turn?: ThreadTurn;
 }
 
-/** Each title the lines give, the last one first, and the directory. */
-function scanLines(agent: FoundAgent, lines: readonly string[]) {
+/** Each title the lines give, the last one first, and the directory; with
+ * `turn`, also what the last turn does or said. */
+function scanLines(agent: FoundAgent, lines: readonly string[], turn = false) {
   const reader = agent === "codex" ? createCodexRolloutReader() : createClaudeTranscriptReader();
   const found: {
     cwd?: string;
@@ -128,6 +134,7 @@ function scanLines(agent: FoundAgent, lines: readonly string[]) {
     summary?: string;
     id?: string;
   } = {};
+  const updates: SessionEvent[] = [];
   for (const line of lines) {
     const entry = parse(line);
     if (!entry) continue;
@@ -147,6 +154,7 @@ function scanLines(agent: FoundAgent, lines: readonly string[]) {
     if (entry.type === "summary") found.summary = text(entry.summary) ?? found.summary;
     // The reader sees every line, so it knows whether the turn has ended.
     const events = reader.line(line);
+    if (turn) updates.push(...events);
     if (found.prompt) continue;
     for (const event of events) {
       const update = event.update;
@@ -159,7 +167,8 @@ function scanLines(agent: FoundAgent, lines: readonly string[]) {
       break;
     }
   }
-  return { ...found, idle: reader.idle() };
+  const idle = reader.idle();
+  return { ...found, idle, ...(turn && { turn: summarizeTurn(updates, idle) }) };
 }
 
 async function readSession(
@@ -179,7 +188,7 @@ async function readSession(
           : read,
       );
   const first = head ? scanLines(agent, head.lines) : undefined;
-  const tail = scanLines(agent, (await readEdge(path, "tail", TAIL_BYTES)).lines);
+  const tail = scanLines(agent, (await readEdge(path, "tail", TAIL_BYTES)).lines, true);
   const name = basename(path, ".jsonl");
   const id =
     agent === "claude"
@@ -204,6 +213,7 @@ async function readSession(
       : {}),
     // A tail that starts in a turn has seen its prompt only when it is short.
     idle: tail.idle,
+    ...(tail.turn && { turn: tail.turn }),
   };
 }
 
@@ -577,6 +587,7 @@ export function createFoundSessions(options: {
           state: working ? "working" : "idle",
           sessions: [{ agent: session.agent, id: session.id, cwd: session.cwd }],
           ...(counts ? { changes: counts } : {}),
+          ...(session.turn && { turn: session.turn }),
           found: true,
         };
       });

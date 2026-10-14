@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { agentStatusSchema } from "./agent-status";
+import { agentStatusSchema, threadTurnSchema } from "./agent-status";
 import { agentChoicesSchema } from "./owned-session";
 import { agentSessionSchema } from "./saved-review";
 
@@ -37,6 +37,26 @@ export const threadSchema = z.object({
   /** A session that Med found by itself (src/host/found-sessions.ts): no
    * saved review names it, and its ID is not a review's. */
   found: z.boolean().optional(),
+  /** The lead session's last turn, from its transcript's tail. */
+  turn: threadTurnSchema.optional(),
+  /** The newest message that the user sent from Med to the thread's agents. */
+  replied: z
+    .object({
+      at: z.number(),
+      text: z.string().max(200),
+      delivery: z.enum(["pending", "delivered", "queued", "failed"]),
+    })
+    .optional(),
+  /** The checkout's work that its base branch does not have yet
+   * (src/host/checkout-work.ts): commits ahead of the base, and, for a thread
+   * on working changes, uncommitted changes. */
+  unlanded: z
+    .object({
+      base: z.string(),
+      ahead: z.number().int().nonnegative(),
+      uncommitted: z.boolean(),
+    })
+    .optional(),
 });
 export type Thread = z.infer<typeof threadSchema>;
 

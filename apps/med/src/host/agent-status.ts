@@ -1,11 +1,14 @@
 import { stat } from "node:fs/promises";
-import type { AgentStatus } from "../shared/agent-status";
+import type { AgentStatus, ThreadTurn } from "../shared/agent-status";
 import type { OwnedState } from "../shared/owned-session";
 import type { AgentSession } from "../shared/saved-review";
-import { findTranscript, transcriptIdle } from "./agent-transcripts";
+import { findTranscript, transcriptTurn } from "./agent-transcripts";
 
 /** A turn whose transcript has not changed for this long has stopped. */
 const STALE_MS = 5 * 60_000;
+
+/** What one read of a transcript's tail says. */
+type TranscriptRead = { modifiedAt: number; idle: boolean; turn?: ThreadTurn };
 
 /**
  * The states of saved reviews' sessions, from what the host knows: the
@@ -19,11 +22,11 @@ export function createAgentStatus(sources: {
   logPath?(sessionId: string): string;
 }) {
   const paths = new Map<string, string>();
-  const reads = new Map<string, { modifiedAt: number; idle: boolean }>();
+  const reads = new Map<string, TranscriptRead>();
   const modifiedAt = async (path?: string) =>
     path ? ((await stat(path).catch(() => undefined))?.mtimeMs ?? 0) : 0;
 
-  const transcript = async (session: AgentSession) => {
+  const transcript = async (session: AgentSession): Promise<TranscriptRead | undefined> => {
     if (session.agent === "acp") return undefined;
     let path = paths.get(session.id);
     if (!path) {
@@ -34,9 +37,9 @@ export function createAgentStatus(sources: {
     const modified = await modifiedAt(path);
     const known = reads.get(path);
     if (known?.modifiedAt === modified) return known;
-    const read = {
+    const read: TranscriptRead = {
       modifiedAt: modified,
-      idle: await transcriptIdle(session, path).catch(() => true),
+      ...(await transcriptTurn(session, path).catch(() => ({ idle: true }))),
     };
     reads.set(path, read);
     return read;
@@ -60,8 +63,15 @@ export function createAgentStatus(sources: {
       owned?.updatedAt ?? 0,
       session.agent === "acp" ? await modifiedAt(sources.logPath?.(session.id)) : 0,
     );
+    const turn = read?.turn;
     if (owned) {
       const { status, permission } = owned.state;
+      // A permission request is what the turn waits on now.
+      const asked = permission && {
+        ...turn,
+        activity: `Asks for permission: ${permission.title}`.slice(0, 200),
+      };
+      const shown = asked || turn;
       return {
         ...base,
         state: permission
@@ -70,11 +80,15 @@ export function createAgentStatus(sources: {
             ? "working"
             : "idle",
         updatedAt,
+        ...(shown && { turn: shown }),
       };
     }
-    if (waiting.has(session.id)) return { ...base, state: "waiting", updatedAt };
+    // The open `med review wait` call is not work: the turn shows what the
+    // agent said before it.
+    if (waiting.has(session.id))
+      return { ...base, state: "waiting", updatedAt, turn: { ...turn, activity: undefined } };
     const working = read && !read.idle && Date.now() - read.modifiedAt < STALE_MS;
-    return { ...base, state: working ? "working" : "idle", updatedAt };
+    return { ...base, state: working ? "working" : "idle", updatedAt, ...(turn && { turn }) };
   };
 
   /** The lead session's state; undefined for a review without sessions. */

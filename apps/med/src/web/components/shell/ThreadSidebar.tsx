@@ -3,7 +3,7 @@ import * as stylex from "@stylexjs/stylex";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Thread } from "../../../shared/threads";
 import { foundSessionThread, threadInput } from "../../data/found-threads";
-import { groupThreads, isRecent, shortAge } from "../../data/threads";
+import { groupThreads, isRecent, needsYou, shortAge } from "../../data/threads";
 import {
   lazygitCommand,
   resumeCommand,
@@ -438,6 +438,9 @@ function ThreadRow({
   const item = (state: { highlighted: boolean }) =>
     stylex.props(ui.menuItem, state.highlighted && [ui.menuHighlighted, picked]).className;
   const busy = thread.state === "working";
+  const asking = needsYou(thread);
+  // A turn that runs shows what it does now in place of its branch.
+  const activity = busy && !asking ? thread.turn?.activity : undefined;
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger render={<li />}>
@@ -464,10 +467,10 @@ function ThreadRow({
           )}
         >
           <span {...stylex.props(styles.mark)} aria-hidden="true">
-            {thread.state === "working" ? (
+            {asking ? (
+              <span {...stylex.props(styles.dot, thread.state === "waiting" && styles.waiting)} />
+            ) : thread.state === "working" ? (
               <span {...stylex.props(styles.working)} />
-            ) : thread.state === "waiting" ? (
-              <span {...stylex.props(styles.waiting)} />
             ) : unread ? (
               <span {...stylex.props(styles.dot)} />
             ) : thread.agent ? (
@@ -482,17 +485,23 @@ function ThreadRow({
                   Copied
                 </span>
               ) : (
-                <span {...stylex.props(styles.age, thread.state === "waiting" && styles.needsYou)}>
-                  {thread.state === "working"
-                    ? "Working"
-                    : thread.state === "waiting"
-                      ? "Needs you"
+                <span {...stylex.props(styles.age, asking && styles.needsYou)}>
+                  {asking
+                    ? "Needs you"
+                    : thread.state === "working"
+                      ? "Working"
                       : shortAge(thread.updatedAt, now)}
                 </span>
               )}
             </span>
             <span {...stylex.props(styles.detailLine)}>
-              {branch && <span {...stylex.props(styles.branch)}>{branch}</span>}
+              {activity ? (
+                <span title={activity} {...stylex.props(styles.activity)}>
+                  {activity}
+                </span>
+              ) : (
+                branch && <span {...stylex.props(styles.branch)}>{branch}</span>
+              )}
               {thread.changes && thread.changes.files > 0 && (
                 <span {...stylex.props(styles.changes)}>
                   <span {...stylex.props(styles.added)}>+{thread.changes.additions}</span>
@@ -502,10 +511,10 @@ function ThreadRow({
             </span>
           </span>
           <span {...stylex.props(styles.hidden)}>
-            {thread.state === "working"
-              ? ", working"
-              : thread.state === "waiting"
-                ? ", needs you"
+            {asking
+              ? ", needs you"
+              : thread.state === "working"
+                ? ", working"
                 : unread
                   ? ", new"
                   : ""}
@@ -689,6 +698,13 @@ const styles = stylex.create({
     color: tokens.faint,
     fontSize: 11,
     lineHeight: "15px",
+  },
+  activity: {
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    color: tokens.muted,
   },
   branch: {
     minWidth: 0,

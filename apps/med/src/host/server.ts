@@ -83,6 +83,7 @@ import { AgentInbox } from "./agent-inbox";
 import { findAgents, OwnedSessions, type RunnableAgent } from "./owned-sessions";
 import { createAgentStatus } from "./agent-status";
 import { createFoundSessions } from "./found-sessions";
+import { createCheckoutWork } from "./checkout-work";
 import { foundUpdateSchema } from "../shared/found-sessions";
 import { ownedActionSchema, ownedStartSchema } from "../shared/owned-session";
 import {
@@ -305,6 +306,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     settingsFile: join(options.stateDir ?? temporaryState!, "found-sessions.json"),
   });
   await found.restore();
+  // Each thread's work that its base branch does not have yet.
+  const checkoutWork = createCheckoutWork();
   /** Every thread, newest first, with the repositories that threads start in. */
   const listThreads = async (): Promise<ThreadList> => {
     const repositories = registry.snapshot();
@@ -316,6 +319,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         const family = repositories.find((entry) => entry.id === target?.repositoryId);
         const status = review.sessions?.length
           ? await reviewStatus(review.id, review.sessions).catch(() => undefined)
+          : undefined;
+        const reply = review.sessions?.length
+          ? await inbox.last(review.id).catch(() => undefined)
           : undefined;
         return {
           id: review.id,
@@ -331,6 +337,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           }),
           ...(target?.branch && { branch: target.branch }),
           ...(status && { agent: status.agent, state: status.state }),
+          ...(status?.turn && { turn: status.turn }),
+          ...(reply && {
+            replied: {
+              at: Date.parse(reply.createdAt),
+              text: (reply.text || `${reply.noteIds.length} comments`).slice(0, 200),
+              delivery: reply.delivery,
+            },
+          }),
           ...(review.sessions?.length && { sessions: review.sessions }),
           ...(review.totals && {
             changes: {
@@ -345,8 +359,17 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     );
     threads.push(...found.threads(saved));
     threads.sort((a, b) => b.updatedAt - a.updatedAt);
+    const onWorking = new Set(
+      reviews
+        .filter((review) => review.targets.some((entry) => entry.comparison.kind === "working"))
+        .map((review) => review.id),
+    );
     return {
-      threads,
+      threads: checkoutWork.annotate(
+        threads,
+        repositories,
+        (thread) => !!thread.found || onWorking.has(thread.id),
+      ),
       repositories: repositories.map(({ id, name, path }) => ({ id, name, path })),
       found: found.settings(),
     };
@@ -2390,6 +2413,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       await ownedSessions.stopAll();
       closeTranscripts();
       found.close();
+      checkoutWork.close();
       for (const abort of activeRequests.keys()) abort.abort();
       for (const stream of [...streams.keys(), ...windows]) stream.end();
       // A channel's handler stops when its response closes. Bun does not emit

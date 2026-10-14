@@ -42,6 +42,8 @@ export class AgentInbox {
   private polled = new Map<string, number>();
   private listeners = new Map<string, Set<() => void>>();
   private writes = new Map<string, Promise<unknown>>();
+  /** Each review's newest message, read once after each change. */
+  private newest = new Map<string, AgentMessage | null>();
 
   constructor(
     private readonly directory: string,
@@ -90,6 +92,7 @@ export class AgentInbox {
     this.writes.set(reviewId, next);
     return next.finally(() => {
       if (this.writes.get(reviewId) === next) this.writes.delete(reviewId);
+      this.newest.delete(reviewId);
       this.notify(reviewId);
     });
   }
@@ -116,6 +119,16 @@ export class AgentInbox {
   async messages(reviewId: string): Promise<AgentMessage[]> {
     await this.writes.get(reviewId)?.catch(() => {});
     return (await this.read(reviewId)).map(({ body: _body, ...message }) => message);
+  }
+
+  /** The review's newest message, for the thread list; it reads the file
+   * only after a change. */
+  async last(reviewId: string): Promise<AgentMessage | undefined> {
+    if (!this.newest.has(reviewId)) {
+      if (this.newest.size > 512) this.newest.clear();
+      this.newest.set(reviewId, (await this.messages(reviewId)).at(-1) ?? null);
+    }
+    return this.newest.get(reviewId) ?? undefined;
   }
 
   /** Sessions whose agent waits for a message now. */

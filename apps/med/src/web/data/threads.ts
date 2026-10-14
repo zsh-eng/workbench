@@ -91,6 +91,14 @@ export function isRecent(thread: Thread, now: number) {
   );
 }
 
+/** The user sent a message from Med after the turn ended. */
+const answered = (thread: Thread) =>
+  !!thread.replied && thread.replied.at > (thread.turn?.endedAt ?? 0);
+
+/** A permission request, `med review wait`, or a question that waits for an answer. */
+export const needsYou = (thread: Thread) =>
+  thread.state === "waiting" || (!!thread.turn?.asks && !answered(thread));
+
 /** A short age: now, 4m, 3h, 2d, then the date. */
 export function shortAge(at: number, now: number) {
   const seconds = Math.max(0, Math.round((now - at) / 1000));

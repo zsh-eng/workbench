@@ -5,6 +5,7 @@ import { createClaudeTranscriptReader } from "../shared/agent-session-claude";
 import { createCodexRolloutReader } from "../shared/agent-session-codex";
 import type { AgentSession } from "../shared/saved-review";
 import { userHome } from "./service/discover";
+import { summarizeTurn } from "./thread-turns";
 
 /** The first view reads at most this much of the end of a transcript. Claude
  * Code transcripts of long sessions reach hundreds of megabytes. */
@@ -178,9 +179,11 @@ async function readStatusTail(session: Pick<AgentSession, "agent" | "id">, path:
   return { events, idle: reader.idle() };
 }
 
-/** Whether the session's last turn has ended, from its transcript's tail. */
-export async function transcriptIdle(session: Pick<AgentSession, "agent" | "id">, path: string) {
-  return (await readStatusTail(session, path)).idle;
+/** Whether the session's last turn has ended, and what it does or said, from
+ * one read of its transcript's tail. */
+export async function transcriptTurn(session: Pick<AgentSession, "agent" | "id">, path: string) {
+  const { events, idle } = await readStatusTail(session, path);
+  return { idle, turn: summarizeTurn(events, idle) };
 }
 
 /** The updates in the transcript's tail, without its subagents. */

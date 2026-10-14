@@ -704,6 +704,37 @@ test("the sidebar lists every thread by repository with its agent's state", asyn
   await expect.element(sidebar).not.toBeInTheDocument();
 });
 
+test("a thread's row says what its agent does now and whether its turn asks you", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  const ended = Date.now() - 120_000;
+  host.setThreads([
+    thread("agent", {
+      agent: "claude",
+      state: "working",
+      updatedAt: Date.now(),
+      turn: { activity: "Running bun test" },
+    }),
+    thread("second", { agent: "codex", state: "idle", turn: { endedAt: ended, asks: true } }),
+    // A message sent from Med after the turn ended answers its question.
+    thread("third", {
+      agent: "claude",
+      state: "idle",
+      updatedAt: Date.now() - 90_000,
+      turn: { endedAt: ended, asks: true },
+      replied: { at: ended + 1000, text: "Yes", delivery: "delivered" },
+    }),
+  ]);
+  const sidebar = page.getByRole("navigation", { name: "Threads" });
+  await expect
+    .poll(threadRows)
+    .toEqual(["Agent review, working", "Second review, needs you", "Third review"]);
+  // The activity shows in place of the branch.
+  await expect.element(sidebar.getByText("Running bun test")).toBeVisible();
+  await expect.element(sidebar.getByText("Needs you", { exact: true })).toBeVisible();
+});
+
 test("each repository folds threads that have been quiet for three days", async () => {
   const host = createHost();
   render(host);
