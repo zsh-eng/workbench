@@ -32,6 +32,8 @@ interface Payload {
   modifiedAt: number;
   truncated?: boolean;
   start?: number;
+  /** In a reset: the parts of the first view, this one included. */
+  parts?: number;
 }
 
 const pause = (ms: number, signal: AbortSignal) =>
@@ -69,7 +71,11 @@ export async function followSession(
     store.setRunning(sessionRunning(state));
   };
   let delay = 1000;
+  // The first view, while its parts come. The store takes it in one step, so
+  // the thread does not render and grow after each part.
+  let first: { reset: Payload; events: SessionEvent[]; left: number } | undefined;
   while (!signal.aborted) {
+    first = undefined;
     try {
       const response = await api.stream(
         `/api/reviews/${encodeURIComponent(reviewId)}/sessions/${encodeURIComponent(sessionId)}/events`,
@@ -96,15 +102,23 @@ export async function followSession(
           } catch {
             return;
           }
-          if (event.event === "reset") {
-            store.replace(payload.events);
+          if (event.event === "reset")
+            first = { reset: payload, events: [...payload.events], left: (payload.parts ?? 1) - 1 };
+          else if (first) {
+            first.events.push(...payload.events);
+            first.left--;
+          } else store.applyAll(payload.events);
+          if (first && first.left <= 0) {
+            const { reset, events } = first;
+            first = undefined;
+            store.replace(events);
             set({
               status: "live",
               generation: (state.generation ?? 0) + 1,
-              truncated: payload.truncated ?? false,
-              ...(payload.start !== undefined ? { start: payload.start } : {}),
+              truncated: reset.truncated ?? false,
+              ...(reset.start !== undefined ? { start: reset.start } : {}),
             });
-          } else store.applyAll(payload.events);
+          }
           set({ idle: payload.idle, modifiedAt: payload.modifiedAt });
         },
         signal,

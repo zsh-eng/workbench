@@ -586,6 +586,8 @@ export function SessionPanel({
   }, [snapshot, messages, outgoing, session.id, session.agent, streaming, running]);
   const needsYou = !!ownedState?.permission;
   const zen = useContext(ZenContext);
+  // The first view has not come, and no earlier thread stays meanwhile.
+  const loading = state.status === "connecting" && !snapshot.items.length;
   const status = ownedState
     ? needsYou
       ? "Needs you"
@@ -612,7 +614,7 @@ export function SessionPanel({
     <section
       aria-label={`${agent} session`}
       // A workspace shows once this has its thread (see WorkspaceViews).
-      data-pending={(state.status === "connecting" && !snapshot.items.length) || undefined}
+      data-pending={loading || undefined}
       {...stylex.props(styles.panel)}
     >
       <header {...paneHandle} {...stylex.props(styles.header)}>
@@ -661,6 +663,7 @@ export function SessionPanel({
           <ReplyActionsContext.Provider value={replyActions}>
             <SessionThread
               snapshot={shown}
+              loading={loading}
               earlier={earlier}
               reveal={reveal}
               showWork={showWork}

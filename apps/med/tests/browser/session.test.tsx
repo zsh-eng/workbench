@@ -89,6 +89,8 @@ test("the sample thread shows a plan, a failed test, and a subagent's own steps"
 
 test("scrolling up stops following, and Latest returns to the newest item", async () => {
   const replay = await setup();
+  // The thread shows once its replies have their Markdown.
+  await expect.element(replay.getByRole("log")).toBeVisible();
   const scroller = replay.getByRole("log").element().parentElement!;
   await expect
     .poll(() => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight)

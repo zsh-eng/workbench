@@ -105,7 +105,9 @@ written to both formats.
    4 MiB when you scroll to its top, and **Turns** jumps to any prompt
    ([long sessions](AGENT_WORKSPACES.md#long-sessions-load-earlier-work)).
 3. It sends a `reset` event with the updates, `idle`, and the file's
-   modification time, in parts of up to 1 MiB.
+   modification time, in parts of up to 1 MiB. The `reset` gives the number
+   of parts, and the browser applies them in one step, so the thread does not
+   grow after each part.
 4. Every 400 ms it reads new complete lines from the transcript and from each
    subagent transcript it found, and sends `updates` events.
 
@@ -147,7 +149,10 @@ nothing.
   developer sites and matches a link by its host, or a self-hosted server by a
   word in its name, such as `github` or `sourcegraph`. Other sites show a
   globe. The thread opens at
-  its end. The view follows new items while the reader is at the bottom; only
+  its end, in one step: it stays pending until its newest replies have their
+  Markdown and their heights. Meanwhile a new workspace stays out of sight and
+  the last one stays on screen (`WorkspaceViews`, at most 600 ms); a thread in
+  the workspace on screen stays hidden. The view follows new items while the reader is at the bottom; only
   the reader's move up (wheel, touch, keys, or the pointer) stops it. A thread
   that gets shorter also moves the view up, and that move does not stop it.
   The Background and Tasks docks sit under the thread. The Background dock

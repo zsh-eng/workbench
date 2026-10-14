@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionEvent } from "../../src/shared/agent-session";
 import { startHost, type RunningHost } from "../../src/host/server";
+import { createSessionStore } from "../../src/web/data/session-store";
+import { followSession } from "../../src/web/data/session-stream";
 import { readServerEvents } from "../../src/web/data/sse";
 
 const directories: string[] = [];
@@ -61,8 +63,15 @@ async function fixture() {
       }),
     })
   ).json()) as { id: string };
+  // The browser's own client, with the host's token.
+  const fetcher = ((path: string, init: RequestInit = {}) => {
+    const headers = new Headers(init.headers);
+    headers.set("authorization", `Bearer ${host.token}`);
+    return fetch(`http://127.0.0.1:${host.port}${path}`, { ...init, headers });
+  }) as typeof fetch;
   return {
     api,
+    fetcher,
     saved,
     transcript: join(project, `${session}.jsonl`),
     subagents: join(project, session, "subagents"),
@@ -184,7 +193,7 @@ test("a session the review does not record, or without a transcript, is not foun
 });
 
 test("a long session pages back from its tail, and its prompts form a turn index", async () => {
-  const { api, saved, transcript } = await fixture();
+  const { api, fetcher, saved, transcript } = await fixture();
   const user = (second: number, content: unknown) => ({
     type: "user",
     timestamp: at(second),
@@ -224,6 +233,19 @@ test("a long session pages back from its tail, and its prompts form a turn index
     ),
   );
   expect(JSON.stringify(tail())).not.toContain("First prompt");
+
+  // The first view comes in parts, and the browser's thread takes it in one step.
+  expect((received[0] as unknown as { parts: number }).parts).toBeGreaterThan(1);
+  const store = createSessionStore();
+  const counts: number[] = [];
+  store.subscribe(() => counts.push(store.getSnapshot().items.length));
+  const browser = new AbortController();
+  streams.push(browser);
+  void followSession(saved.id, session, store, () => {}, browser.signal, fetcher);
+  await vi.waitFor(() => expect(store.getSnapshot().items.length).toBeGreaterThan(700));
+  expect(new Set(counts.filter((count) => count > 0))).toEqual(
+    new Set([store.getSnapshot().items.length]),
+  );
 
   const page = (await (
     await api(`/api/reviews/${saved.id}/sessions/${session}/page?before=${first.start}`)

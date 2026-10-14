@@ -809,7 +809,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             path = await findTranscript(session);
           }
           if (!path) return;
-          // The first view goes in parts, so no event is larger than the client reads.
+          // The first view goes in parts, so no event is larger than the client
+          // reads. The reset says how many there are, so the thread takes them
+          // in one step.
           const parts = (events: SessionEvent[]) => {
             const result: SessionEvent[][] = [[]];
             let size = 0;
@@ -828,10 +830,17 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             session as Parameters<typeof followTranscript>[0],
             path,
             {
-              onFeed: ({ events, ...state }) =>
-                parts(events).forEach((part, index) =>
-                  write(index ? "updates" : "reset", { ...state, events: part }),
-                ),
+              onFeed: ({ events, ...state }) => {
+                const all = parts(events);
+                all.forEach((part, index) =>
+                  write(
+                    index ? "updates" : "reset",
+                    index
+                      ? { ...state, events: part }
+                      : { ...state, events: part, parts: all.length },
+                  ),
+                );
+              },
               onEvents: (events, state) =>
                 parts(events).forEach((part) => write("updates", { ...state, events: part })),
             },

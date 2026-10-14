@@ -807,10 +807,13 @@ export function SessionThread({
   before,
   earlier,
   reveal,
+  loading = false,
   showWork = false,
   onOpenLink,
 }: {
   snapshot: SessionSnapshot;
+  /** The first view has not come yet. */
+  loading?: boolean;
   /** Shown above the first item, such as a note that earlier work is left out. */
   before?: ReactNode;
   /** Loads the page before the first update, while the host has earlier work. */
@@ -1372,6 +1375,35 @@ export function SessionThread({
         );
   }, [all, start, end, metrics, theme.pierreTheme]);
 
+  // A thread that opens is pending until its newest units have their Markdown
+  // and their heights, and shows at its end in one step. A new workspace
+  // stays out of sight meanwhile (see WorkspaceViews); in a workspace on
+  // screen, the thread itself does.
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    if (settled || loading || !metrics) return;
+    let live = true;
+    const texts = all
+      .slice(start, end)
+      .flatMap((unit) =>
+        "item" in unit && unit.item.kind === "agent" && !(snapshot.running && unit === all.at(-1))
+          ? [unit.item.text]
+          : [],
+      );
+    void Promise.all(
+      texts.map((text) =>
+        renderBrief(theme.pierreTheme, text, true, { cache: "session" }).catch(() => {}),
+      ),
+    ).then(() => {
+      // The replies took their Markdown first, so they render in the same
+      // update, and the list measures them before the thread shows.
+      if (live) setSettled(true);
+    });
+    return () => {
+      live = false;
+    };
+  }, [settled, loading, metrics, all, start, end, snapshot.running, theme.pierreTheme]);
+
   const renderThread = useCallback(
     (nested: SessionItem[]) => (
       <Thread items={nested} live={snapshot.running} onOpenLink={onOpenLink} />
@@ -1402,7 +1434,7 @@ export function SessionThread({
 
   return (
     <OpenAgentContext.Provider value={setAgentId}>
-      <div {...stylex.props(styles.frame)}>
+      <div data-pending={!settled || undefined} {...stylex.props(styles.frame)}>
         {agents.length > 0 && (
           <AgentTabs
             agents={agents}
@@ -1424,7 +1456,7 @@ export function SessionThread({
             >
               <div
                 ref={content}
-                {...stylex.props(styles.content)}
+                {...stylex.props(styles.content, !settled && styles.unsettled)}
                 role="log"
                 aria-label="Session"
                 aria-live="polite"
@@ -1776,6 +1808,7 @@ const styles = stylex.create({
     paddingBlock: 20,
     paddingInline: 18,
   },
+  unsettled: { visibility: "hidden" },
   edge: { display: "flex", justifyContent: "center", paddingBottom: 6 },
   space: (height: number) => ({ height }),
   probe: {
