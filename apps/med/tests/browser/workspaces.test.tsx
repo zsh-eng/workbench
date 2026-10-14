@@ -655,6 +655,11 @@ test("the sidebar lists every thread by repository with its agent's state", asyn
   // ⌃2 (⌘2 on a Mac) opens the second thread in the list.
   await userEvent.keyboard("{Control>}2{/Control}");
   await expect.poll(() => shown()?.dataset.reviewId).toBe("second-target");
+  // The title band names the checkout that the thread works in.
+  const band = page.getByRole("banner", { name: "Workspace" });
+  await expect
+    .element(band.getByRole("button", { name: "fixture, export. Copy path" }))
+    .toBeVisible();
 
   // A pointer that rests on a row reads its thread ahead, and the click uses
   // that read.
@@ -691,7 +696,7 @@ test("the sidebar lists every thread by repository with its agent's state", asyn
   // choice closes it.
   await page.viewport(600, 800);
   await expect.element(sidebar).not.toBeInTheDocument();
-  await page.getByRole("button", { name: "Show sidebar" }).click();
+  await band.getByRole("button", { name: "Show sidebar" }).click();
   await page.getByRole("button", { name: /^Second review/ }).click();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("second-target");
   await expect.element(sidebar).not.toBeInTheDocument();

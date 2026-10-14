@@ -36,9 +36,8 @@ import {
   type WorkspaceSnapshot,
 } from "../data/workspaces";
 import { z } from "zod";
-import { tokens, ui } from "../theme.stylex";
+import { tokens } from "../theme.stylex";
 import { Icon, type IconName } from "./Icon";
-import { ActionTooltip } from "./ToolButton";
 import { visibleElement } from "../data/palette-focus";
 import { createApi } from "../data/api";
 import { browserFetch } from "../data/live";
@@ -51,6 +50,7 @@ import { parsePullUrl } from "../../shared/pull-workspace";
 import { startPull, usePullJob } from "../data/pull-jobs";
 import { PullWorkspaceView, pullTitle, type PullState } from "./PullWorkspace";
 import { groupThreads, isRecent, useThreads } from "../data/threads";
+import { barContext, WorkspaceBar } from "./shell/WorkspaceBar";
 import { ThreadSidebar, type SidebarSource } from "./shell/ThreadSidebar";
 import { NewThread } from "./shell/NewThread";
 import { SEARCH_PATH, SearchPage, readSearchAddress, type SearchOpen } from "./SearchPage";
@@ -593,6 +593,14 @@ export function WorkspaceHost({
   // The search page covers the workspaces while the address names it. The
   // page keeps its query in the address, so only a new opening remounts it.
   const [search, setSearch] = useState(readSearchAddress);
+  // A page that covers the workspaces, such as Sources or Search, has no
+  // checkout for the title band to name.
+  const [pathname, setPathname] = useState(() => location.pathname);
+  useEffect(() => {
+    const follow = () => setPathname(location.pathname);
+    window.addEventListener("popstate", follow);
+    return () => window.removeEventListener("popstate", follow);
+  }, []);
   const searchShown = useRef(!!search);
   useEffect(() => {
     const follow = () => {
@@ -984,55 +992,51 @@ export function WorkspaceHost({
                       )}
                     </>
                   )}
-                  <div {...stylex.props(styles.shellViews)}>
-                    {(!showsSidebar || narrow) && (
-                      <div {...stylex.props(styles.shellShow)}>
-                        <ActionTooltip label="Show sidebar" shortcut="Mod+B">
-                          <button
-                            type="button"
-                            aria-label="Show sidebar"
-                            onClick={toggleSidebar}
-                            {...stylex.props(ui.button, ui.iconButton, ui.pressable)}
-                          >
-                            <Icon name="panelLeft" size={15} />
-                          </button>
-                        </ActionTooltip>
+                  <div {...stylex.props(styles.shellMain)}>
+                    <WorkspaceBar
+                      context={
+                        newThread || overlayAddress(pathname)
+                          ? undefined
+                          : barContext(activeEntry, threadList ?? null)
+                      }
+                      showSidebar={!showsSidebar || narrow ? toggleSidebar : undefined}
+                    />
+                    <div {...stylex.props(styles.shellViews)}>
+                      <div
+                        inert={newThread || !!search || undefined}
+                        {...stylex.props(styles.shellLayer)}
+                      >
+                        <Warm value={warm}>{children}</Warm>
                       </div>
-                    )}
-                    <div
-                      inert={newThread || !!search || undefined}
-                      {...stylex.props(styles.shellLayer)}
-                    >
-                      <Warm value={warm}>{children}</Warm>
+                      {search && (
+                        <SearchPage
+                          key={search.key}
+                          repositories={threadList?.repositories ?? []}
+                          loaded={!!threadList}
+                          origin={search.origin}
+                          initialQuery={search.query}
+                          fetcher={fetcher}
+                          onBack={leaveSearch}
+                          onOpen={openMatch}
+                        />
+                      )}
+                      {newThread && (
+                        <NewThread
+                          list={threadList}
+                          fetcher={fetcher}
+                          repositoryId={activeRepositoryId}
+                          onCancel={() => setNewThread(false)}
+                          onStarted={(review) => {
+                            setNewThread(false);
+                            actions.open({
+                              kind: "review",
+                              reviewId: review.id,
+                              title: review.title,
+                            });
+                          }}
+                        />
+                      )}
                     </div>
-                    {search && (
-                      <SearchPage
-                        key={search.key}
-                        repositories={threadList?.repositories ?? []}
-                        loaded={!!threadList}
-                        origin={search.origin}
-                        initialQuery={search.query}
-                        fetcher={fetcher}
-                        onBack={leaveSearch}
-                        onOpen={openMatch}
-                      />
-                    )}
-                    {newThread && (
-                      <NewThread
-                        list={threadList}
-                        fetcher={fetcher}
-                        repositoryId={activeRepositoryId}
-                        onCancel={() => setNewThread(false)}
-                        onStarted={(review) => {
-                          setNewThread(false);
-                          actions.open({
-                            kind: "review",
-                            reviewId: review.id,
-                            title: review.title,
-                          });
-                        }}
-                      />
-                    )}
                   </div>
                 </div>
               </ShellContext>
@@ -1840,13 +1844,19 @@ const styles = stylex.create({
       [stylex.when.ancestor(":active")]: "0ms",
     },
   },
-  // Below the window controls' band, which stays free to drag the window.
+  // The title band, then the workspace below it.
+  shellMain: {
+    display: "flex",
+    flexDirection: "column",
+    flex: "1",
+    minWidth: 0,
+    minHeight: 0,
+  },
   shellViews: {
     position: "relative",
     flex: "1",
     minWidth: 0,
     minHeight: 0,
-    marginTop: "var(--med-titlebar-height)",
   },
   shellOverlay: {
     position: "absolute",
@@ -1864,12 +1874,6 @@ const styles = stylex.create({
     backgroundColor: "#00000040",
   },
   shellLayer: { position: "absolute", inset: 0 },
-  shellShow: {
-    position: "fixed",
-    zIndex: 20,
-    top: "max(calc(var(--med-titlebar-height) / 2 - 14px), 8px)",
-    left: "max(calc(var(--med-titlebar-left) + 4px), 8px)",
-  },
   slot: { display: "contents" },
   // The list sits under the sidebar's identity row and above History. It
   // appears with the second workspace, so it settles in rather than sliding.

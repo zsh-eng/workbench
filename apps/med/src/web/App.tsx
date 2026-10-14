@@ -4013,7 +4013,8 @@ export function App({
       {fileLinkError}
     </div>
   );
-  // Where the thread works: its repository, and its branch or worktree.
+  // Where the thread works: its repository, and its branch or worktree. The
+  // window's title band names it; without the shell, the session header does.
   const threadTarget = state.savedReview?.targets.find((target) => !target.commentReviewId);
   const threadRepository =
     threadTarget &&
@@ -4051,14 +4052,14 @@ export function App({
                     controls={controls}
                     repo={state.review?.repo}
                     title={state.savedReview!.pullRequestTitle ?? state.savedReview!.title}
-                    detail={threadPlace}
+                    detail={shell ? undefined : threadPlace}
                   />
                 ) : (
                   <SessionPanel
                     key={state.savedReview!.id}
                     reviewId={state.savedReview!.id}
                     title={state.savedReview!.pullRequestTitle ?? state.savedReview!.title}
-                    detail={threadPlace}
+                    detail={shell ? undefined : threadPlace}
                     sessions={agentSessions}
                     root={state.review?.repo}
                     fetcher={sessionFetch}

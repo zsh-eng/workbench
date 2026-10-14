@@ -931,10 +931,6 @@ if (find) {
     :has([data-demo-part]) {
       contain: none !important;
     }
-    /* The narrow window's sidebar button floats over every pane. */
-    button[aria-label="Show sidebar"] {
-      display: none !important;
-    }
     /* Dialogs, such as the commit message, open over the part. */
     body > :has([role="dialog"]) {
       position: relative;

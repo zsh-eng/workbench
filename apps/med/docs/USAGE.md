@@ -117,6 +117,11 @@ only the threads in view. Nothing is archived on its own.
   **+** opens the Sources page.
 - `⌘B` shows or hides the sidebar. In a window narrower than 760 pixels, the
   sidebar opens over the workspace, and a choice closes it.
+- The band above the workspace names the checkout that it shows: the
+  repository, the branch, and a linked worktree's folder. Click it to copy the
+  checkout's path. With the installed app's title bar hidden, the band is the
+  title bar, beside the window controls; while the sidebar is hidden, the band
+  starts with **Show sidebar**.
 
 The branch switcher (`⌘⇧G`) searches the branches and worktrees of every
 registered repository. `↵` opens a branch in the current workspace; `⌘↵` opens
