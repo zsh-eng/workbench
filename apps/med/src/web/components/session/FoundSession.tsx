@@ -5,7 +5,7 @@ import { resumeCommand, type WorkspaceSession } from "../../data/workspaces";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon } from "../Icon";
 import { ActionTooltip } from "../ToolButton";
-import { useShell, useThreadList, useWorkspace, useWorkspaceEntry } from "../Workspaces";
+import { useShell, useThread, useWorkspace, useWorkspaceEntry } from "../Workspaces";
 import { SessionPanel } from "./SessionPanel";
 
 const agentNames = { claude: "Claude Code", codex: "Codex" } as const;
@@ -36,7 +36,7 @@ export function FoundSessionPane({
   const entry = useWorkspaceEntry();
   const shell = useShell();
   const threadId = foundSessionThread(session);
-  const thread = useThreadList().find((item) => item.id === threadId);
+  const thread = useThread(threadId);
   const checkout = entry?.kind === "repository" ? entry.path : undefined;
   const title = thread?.title ?? entry?.title;
   // The window's title band names the checkout; without the shell, the header does.

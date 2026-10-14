@@ -179,6 +179,13 @@ export function useThreadState(reviewId: string | undefined) {
   return useSyncExternalStore(store.subscribe, () => store.get().get(reviewId ?? "")?.state);
 }
 
+/** One thread of the window's list, by ID. It renders again only when that
+ * thread changes. */
+export function useThread(id: string | undefined) {
+  const store = use(Threads);
+  return useSyncExternalStore(store.subscribe, () => store.get().get(id ?? ""));
+}
+
 /** Reads the window's threads, the most recently changed first, when called.
  * A component that lists them on demand, as @ does, does not render again
  * for each change. Outside a host, none. */
