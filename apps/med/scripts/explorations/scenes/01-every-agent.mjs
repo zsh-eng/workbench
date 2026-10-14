@@ -17,11 +17,9 @@ export default async function scene(stage) {
   );
   await stage.key("Escape", 200);
   // Copy writes the resume command to the clipboard.
-  await page
-    .context()
-    .grantPermissions(["clipboard-read", "clipboard-write"], {
-      origin: new URL(page.url()).origin,
-    });
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: new URL(page.url()).origin,
+  });
   const sidebar = page.locator("aside").first();
   const glossary = sidebar.locator('[data-found] >> text="README glossary"').first();
   const feet = sidebar
