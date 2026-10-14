@@ -840,6 +840,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             }
             return result;
           };
+          // A thread kept in the browser names the updates it has.
+          const feed = url.searchParams.get("feed") ?? "";
+          const count = Number(url.searchParams.get("count"));
+          const has =
+            /^[\w-]{1,64}$/.test(feed) && Number.isSafeInteger(count) && count >= 0
+              ? { feed, count }
+              : undefined;
           void followTranscript(
             session as Parameters<typeof followTranscript>[0],
             path,
@@ -859,6 +866,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 parts(events).forEach((part) => write("updates", { ...state, events: part })),
             },
             abort.signal,
+            has,
           ).catch(() => response.end());
           return;
         }

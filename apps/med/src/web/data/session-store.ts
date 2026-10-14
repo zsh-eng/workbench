@@ -374,6 +374,8 @@ export function createSessionStore() {
       return () => listeners.delete(listener);
     },
     getSnapshot: () => snapshot,
+    /** How many updates the thread holds, to tell whether it changed. */
+    size: () => events.length,
     apply(event: SessionEvent) {
       events.push(event);
       apply(event);

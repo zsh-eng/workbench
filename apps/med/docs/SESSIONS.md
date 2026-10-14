@@ -115,7 +115,12 @@ Updates keep a command but no other raw tool input or output. Text longer than
 64 KiB and diffs over 512 KiB are cut or replaced. Images from tools stay on
 this computer, because the thread does not show them; tool screenshots were
 most of a first view's bytes. A prompt's images go with the prompt. At most 8
-session streams are open. A reconnect starts with a new `reset`.
+session streams are open. A reconnect starts with a new `reset`. A `reset`
+names its follower (`feed`). A thread that the browser keeps unchanged since
+its last stream asks for `?feed=<id>&count=<n>`, and the `reset` then has only
+the later updates (`resumed`): a click after a read ahead, or a revisit, does
+not take and build the first view again. A pane waits for a read ahead of its
+session that runs, then asks.
 
 Streams of one transcript share one follower (`createTranscriptFeeds`). A new
 stream gets the first view and the updates since from memory, so a click after
@@ -218,7 +223,15 @@ nothing.
   in four themes; the sum is within 0.4%. Open edits are the weak part: 66%
   are exact, because the estimate does not know Pierre's hunks and
   separators. Edits are closed until the reader opens one, so this error
-  stays small.
+  stays small. Only the units within 2,500 px of the end, where the thread
+  opens, measure their text before the first render; the others have a
+  quick estimate from the font size until idle time measures them, newest
+  first. A prompt with more source lines than the fold shows its first
+  lines, so it does not measure them. In a long session this took the
+  first render's estimates from about 50 ms to a few.
+- Replies render their Markdown in one worker, which takes several replies
+  in one message and answers each, so the replies in view do not wait for
+  the page between them (`brief-render.ts`).
 - Items without an ID take one from their kind and time, so they keep it
   when an earlier page builds the thread again.
 - Once the review is idle, the Session pane mounts hidden: the thread

@@ -287,7 +287,9 @@ const FEED_LINGER_MS = 30_000;
 const IDLE_FEEDS = 6;
 
 type FeedHandlers = {
-  onFeed(feed: Omit<TranscriptFeed, "end">): void;
+  /** `feed` names the follower; `resumed` marks the updates after what a
+   * stream already has, rather than a first view. */
+  onFeed(feed: Omit<TranscriptFeed, "end"> & { feed: string; resumed?: true }): void;
   onEvents(events: SessionEvent[], state: { idle: boolean; modifiedAt: number }): void;
 };
 
@@ -301,6 +303,7 @@ type FeedHandlers = {
  */
 export function createTranscriptFeeds(linger = FEED_LINGER_MS) {
   interface Feed {
+    id: string;
     view: Promise<TranscriptFeed>;
     /** Resolves when the follower stops, and rejects if it fails. */
     done: Promise<void>;
@@ -345,6 +348,7 @@ export function createTranscriptFeeds(linger = FEED_LINGER_MS) {
       stop.signal,
     );
     const feed: Feed = {
+      id: crypto.randomUUID(),
       // A follower that fails before its first view fails its streams.
       view: Promise.race([view, done.then(() => view)]),
       done,
@@ -357,12 +361,17 @@ export function createTranscriptFeeds(linger = FEED_LINGER_MS) {
     return feed;
   };
   return {
-    /** Follows a transcript until `signal` aborts, as `followTranscript` does. */
+    /**
+     * Follows a transcript until `signal` aborts, as `followTranscript` does.
+     * A stream that `has` the first `count` updates of this follower, as a
+     * thread kept in the browser does, gets only the later ones.
+     */
     async follow(
       session: Pick<AgentSession, "agent" | "id">,
       path: string,
       handlers: FeedHandlers,
       signal: AbortSignal,
+      has?: { feed: string; count: number },
     ) {
       if (signal.aborted) return;
       let feed = feeds.get(path);
@@ -376,7 +385,13 @@ export function createTranscriptFeeds(linger = FEED_LINGER_MS) {
         const view = await feed.view;
         if (signal.aborted) return;
         const { end: _end, ...state } = view;
-        handlers.onFeed({ ...state, events: [...view.events] });
+        const resumed = has?.feed === feed.id && has.count <= view.events.length;
+        handlers.onFeed({
+          ...state,
+          events: view.events.slice(resumed ? has.count : 0),
+          feed: feed.id,
+          ...(resumed ? { resumed: true as const } : {}),
+        });
         feed.listeners.add(handlers.onEvents);
         try {
           await Promise.race([

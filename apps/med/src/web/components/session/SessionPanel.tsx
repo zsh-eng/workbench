@@ -20,6 +20,7 @@ import type { SessionItem } from "../../data/session-store";
 import {
   followSession,
   keptSessionStore,
+  readAhead,
   loadSessionPage,
   loadSessionTurns,
   sessionRunning,
@@ -385,12 +386,18 @@ export function SessionPanel({
   const [now, setNow] = useState(() => Date.now());
 
   // A hidden workspace stops its stream, and showing it again connects anew.
-  // Each session keeps its thread (keptSessionStore) until the stream's first
-  // view replaces it in one step, so a revisit, or a thread read ahead of the
-  // click, never shows an empty pane.
+  // Each session keeps its thread (keptSessionStore), so a revisit, or a
+  // thread read ahead of the click, never shows an empty pane. The stream
+  // then takes only the updates after the ones the thread holds, or a new
+  // first view in one step. A read ahead that runs, as from the click that
+  // opened the thread, ends first.
   useEffect(() => {
     const controller = new AbortController();
-    void followSession(reviewId, session.id, store, setState, controller.signal, fetcher);
+    void (async () => {
+      await readAhead(reviewId, session.id);
+      if (controller.signal.aborted) return;
+      await followSession(reviewId, session.id, store, setState, controller.signal, fetcher);
+    })();
     return () => controller.abort();
   }, [reviewId, session.id, store, fetcher]);
 

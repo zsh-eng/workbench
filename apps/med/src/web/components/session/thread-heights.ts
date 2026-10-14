@@ -663,12 +663,32 @@ function promptParts(item: Extract<SessionItem, { kind: "user" }>, m: ThreadMetr
   return { thumbs: thumbsHeight(images, m.user.width), images, parts };
 }
 
+/** Whether a prompt's parts have more lines than a fold shows, without
+ * measuring them: each line of the source is at least one line on screen. */
+function folds(parts: { text: string }[]) {
+  let lines = 0;
+  for (const part of parts)
+    for (let at = part.text.indexOf("\n"); ; at = part.text.indexOf("\n", at + 1)) {
+      if (++lines > PROMPT_FOLD) return true;
+      if (at < 0) break;
+    }
+  return false;
+}
+
 function userHeight(
   item: Extract<SessionItem, { kind: "user" }>,
   m: ThreadMetrics,
   open?: boolean,
 ) {
   const { thumbs, images, parts } = promptParts(item, m);
+  // A folded prompt shows its first lines, whatever the rest measures.
+  if (!open && folds(parts))
+    return (
+      m.user.chrome +
+      thumbs +
+      promptText((PROMPT_FOLD + 1) * m.user.text.lineHeight, m.user.text.lineHeight) +
+      (item.queued || item.sent ? 19 : 0)
+    );
   let text = 0;
   parts.forEach((part, index) => {
     const width = part.quote ? m.user.quoteWidth : m.user.width;

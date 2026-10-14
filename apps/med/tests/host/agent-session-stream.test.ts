@@ -267,6 +267,57 @@ test("a second stream of a session starts with its updates so far, without tool 
   );
 });
 
+test("a kept thread's next stream takes only the updates after the ones it has", async () => {
+  const { saved, transcript, fetcher } = await fixture();
+  await writeFile(
+    transcript,
+    line({
+      type: "user",
+      timestamp: at(0),
+      cwd: "/work/repo",
+      message: { role: "user", content: "Format the durations." },
+    }) + line(assistant(1, "a1", { type: "text", text: "Durations read as minutes." }, "end_turn")),
+  );
+  const store = createSessionStore();
+  const requests: string[] = [];
+  const watched = ((path: string, init?: RequestInit) => {
+    requests.push(path);
+    return fetcher(path, init);
+  }) as typeof fetch;
+  // Follows the session until its thread is live, as a pane that shows it.
+  const follow = async () => {
+    const controller = new AbortController();
+    streams.push(controller);
+    await new Promise<void>((live) =>
+      followSession(
+        saved.id,
+        session,
+        store,
+        (state) => state.status === "live" && live(),
+        controller.signal,
+        watched,
+      ),
+    );
+    return controller;
+  };
+  (await follow()).abort();
+  const first = store.getSnapshot().items;
+  expect(first.map((item) => item.kind)).toEqual(["user", "agent"]);
+
+  await appendFile(
+    transcript,
+    line(assistant(2, "a2", { type: "text", text: "Zero rounds to 0 min." }, "end_turn")),
+  );
+  await follow();
+  // The stream names what the thread has; the thread keeps its items and
+  // adds the new reply.
+  expect(requests[1]).toMatch(/\/events\?feed=[\w-]+&count=\d+$/);
+  await vi.waitFor(() =>
+    expect(store.getSnapshot().items.map((item) => item.kind)).toEqual(["user", "agent", "agent"]),
+  );
+  expect(store.getSnapshot().items[0]).toBe(first[0]);
+});
+
 test("a session the review does not record, or without a transcript, is not found", async () => {
   const { api, saved } = await fixture();
   expect((await api(`/api/reviews/${saved.id}/sessions/other-session/events`)).status).toBe(404);

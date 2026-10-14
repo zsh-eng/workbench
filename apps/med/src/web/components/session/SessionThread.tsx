@@ -600,8 +600,9 @@ const LEAD = 800;
 const MARGIN = 400;
 /** The newest units render before the thread has a size, as in a hidden pane. */
 const UNSIZED = 24;
-/** The newest units measure their text at once; the others in idle time. */
-const EXACT = 150;
+/** The newest units within this height of the end measure their text at
+ * once, so the thread opens on exact heights; the others in idle time. */
+const EXACT_PX = 2500;
 /** Replies past each end of the rendered range render their Markdown ahead. */
 const AHEAD = 8;
 /** The view loads the page before the first update within this many screens of it. */
@@ -946,7 +947,7 @@ export function SessionThread({
     const index = new Map<string, number>();
     // Units with a quick height, which wait for idle time to measure their text.
     let rough = 0;
-    const heightOf = (unit: Unit, m: ThreadMetrics, at: number) => {
+    const heightOf = (unit: Unit, m: ThreadMetrics, exact: boolean) => {
       const source = sourceOf(unit);
       const seen = heights.measured.get(unit.key);
       // A rendered unit's height is the one on screen, even before it
@@ -957,7 +958,7 @@ export function SessionThread({
       const known = heights.estimates.get(source);
       if (known && known.metrics === m && known.open === open && known.final === final)
         return known.height;
-      if (at < all.length - EXACT) {
+      if (!exact) {
         rough++;
         return roughUnit(unit, m, { open, final });
       }
@@ -965,10 +966,16 @@ export function SessionThread({
       heights.estimates.set(source, { metrics: m, open, final, height });
       return height;
     };
+    // From the end, where the thread opens: the units in its first view and
+    // their overscan measure their text.
+    const sizes = new Float64Array(all.length);
+    let below = 0;
+    if (metrics)
+      for (let at = all.length - 1; at >= 0; at--)
+        below += sizes[at] = heightOf(all[at]!, metrics, below < EXACT_PX);
     for (let at = 0; at < all.length; at++) {
-      const unit = all[at]!;
-      index.set(unit.key, at);
-      offsets[at + 1] = offsets[at]! + (metrics ? heightOf(unit, metrics, at) : 0);
+      index.set(all[at]!.key, at);
+      offsets[at + 1] = offsets[at]! + sizes[at]!;
     }
     // Units in folded work are at their row, as for a view anchored in them.
     for (let at = 0; at < all.length; at++) {

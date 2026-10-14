@@ -14,9 +14,20 @@ const results: Record<RenderCache, Map<string, MarkdownResult>> = {
   session: new Map(),
 };
 const waiting = new Map<string, Promise<MarkdownResult>>();
-// The worker keeps only its latest message, so tasks go one at a time. A brief
-// on screen goes before the ones rendered ahead.
-const queue: { key: string; text: string; theme: string; run(): void }[] = [];
+// Tasks go to the worker in batches, which it renders in order with a reply
+// to each, so a thread's replies do not wait for the page between them. A
+// brief on screen goes before the ones rendered ahead.
+interface Task {
+  key: string;
+  text: string;
+  theme: string;
+  cache: RenderCache;
+  keep: boolean;
+  resolve(result: MarkdownResult): void;
+  reject(error: unknown): void;
+}
+const queue: Task[] = [];
+const BATCH = 8;
 let worker: Worker | undefined;
 let busy = false;
 let sequence = 0;
@@ -46,12 +57,7 @@ export function renderBrief(
   const existing = waiting.get(key);
   if (existing) return existing;
   const promise = new Promise<MarkdownResult>((resolve, reject) => {
-    const task = {
-      key,
-      text,
-      theme,
-      run: () => void send(text, theme, cache, keep).then(resolve, reject),
-    };
+    const task = { key, text, theme, cache, keep, resolve, reject };
     if (urgent) queue.unshift(task);
     else queue.push(task);
   });
@@ -62,41 +68,60 @@ export function renderBrief(
 }
 
 function next() {
-  if (busy) return;
-  const task = queue.shift();
-  if (!task) return;
+  if (busy || !queue.length) return;
   busy = true;
-  task.run();
-}
-
-async function send(text: string, themeName: string, cache: RenderCache, keep: boolean) {
-  try {
-    const theme = await resolveTheme(themeName);
-    worker ??= createWorker();
-    const id = ++sequence;
-    const data = await new Promise<MarkdownResult & { error?: string }>((resolve) => {
-      replies.set(id, resolve);
-      // Replies show web links as pills with their site's icon.
-      worker!.postMessage({ id, text, theme, briefLinks: true, webLinks: cache === "session" });
-    });
-    if (data.error) throw new Error(data.error);
-    const result = {
-      blocks: data.blocks,
-      headings: data.headings,
-      milliseconds: data.milliseconds,
-    };
-    if (keep) {
-      const key = keyOf(themeName, text);
-      const kept = results[cache];
-      kept.delete(key);
-      kept.set(key, result);
-      while (kept.size > MAX_RESULTS[cache]) kept.delete(kept.keys().next().value!);
-    }
-    return result;
-  } finally {
+  void send(queue.splice(0, BATCH)).finally(() => {
     busy = false;
     next();
+  });
+}
+
+async function send(tasks: Task[]) {
+  const themes = new Map<string, ReturnType<typeof resolveTheme>>();
+  const sent: { task: Task; id: number; theme: Awaited<ReturnType<typeof resolveTheme>> }[] = [];
+  for (const task of tasks) {
+    if (!themes.has(task.theme)) themes.set(task.theme, resolveTheme(task.theme));
+    try {
+      sent.push({ task, id: ++sequence, theme: await themes.get(task.theme)! });
+    } catch (error) {
+      task.reject(error);
+    }
   }
+  if (!sent.length) return;
+  worker ??= createWorker();
+  const done = sent.map(
+    ({ task, id }) =>
+      new Promise<void>((settle) =>
+        replies.set(id, (data) => {
+          settle();
+          if (data.error) return task.reject(new Error(data.error));
+          const result = {
+            blocks: data.blocks,
+            headings: data.headings,
+            milliseconds: data.milliseconds,
+          };
+          if (task.keep) {
+            const key = keyOf(task.theme, task.text);
+            const kept = results[task.cache];
+            kept.delete(key);
+            kept.set(key, result);
+            while (kept.size > MAX_RESULTS[task.cache]) kept.delete(kept.keys().next().value!);
+          }
+          task.resolve(result);
+        }),
+      ),
+  );
+  // Replies show web links as pills with their site's icon.
+  worker.postMessage({
+    batch: sent.map(({ task, id, theme }) => ({
+      id,
+      text: task.text,
+      theme,
+      briefLinks: true,
+      webLinks: task.cache === "session",
+    })),
+  });
+  await Promise.all(done);
 }
 
 function createWorker() {

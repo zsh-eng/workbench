@@ -34,7 +34,17 @@ interface Payload {
   start?: number;
   /** In a reset: the parts of the first view, this one included. */
   parts?: number;
+  /** In a reset: the host's follower of the transcript. */
+  feed?: string;
+  /** In a reset: the updates after the ones the thread has, not a first view. */
+  resumed?: boolean;
 }
+
+/** The updates of a host follower that each kept thread holds, and the
+ * thread's size then. A stream that opens while the thread is unchanged asks
+ * only for later updates, so a click after a read ahead, or a revisit, does
+ * not take and build the first view again. */
+const held = new WeakMap<SessionStore, { feed: string; count: number; size: number }>();
 
 const pause = (ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve) => {
@@ -76,9 +86,15 @@ export async function followSession(
   let first: { reset: Payload; events: SessionEvent[]; left: number } | undefined;
   while (!signal.aborted) {
     first = undefined;
+    const has = held.get(store);
+    const resume = has?.size === store.size() ? has : undefined;
     try {
       const response = await api.stream(
-        `/api/reviews/${encodeURIComponent(reviewId)}/sessions/${encodeURIComponent(sessionId)}/events`,
+        `/api/reviews/${encodeURIComponent(reviewId)}/sessions/${encodeURIComponent(sessionId)}/events${
+          resume
+            ? `?${new URLSearchParams({ feed: resume.feed, count: String(resume.count) })}`
+            : ""
+        }`,
         signal,
       );
       if (response.status === 404) {
@@ -107,11 +123,29 @@ export async function followSession(
           else if (first) {
             first.events.push(...payload.events);
             first.left--;
-          } else store.applyAll(payload.events);
+          } else {
+            store.applyAll(payload.events);
+            const mark = held.get(store);
+            if (mark)
+              held.set(store, {
+                ...mark,
+                count: mark.count + payload.events.length,
+                size: store.size(),
+              });
+          }
           if (first && first.left <= 0) {
             const { reset, events } = first;
             first = undefined;
-            store.replace(events);
+            const resumed = reset.resumed && resume;
+            if (resumed) store.applyAll(events);
+            else store.replace(events);
+            if (reset.feed)
+              held.set(store, {
+                feed: reset.feed,
+                count: (resumed ? resumed.count : 0) + events.length,
+                size: store.size(),
+              });
+            else held.delete(store);
             set({
               status: "live",
               generation: (state.generation ?? 0) + 1,
@@ -138,7 +172,13 @@ export async function followSession(
  * view then replaces it in one step. */
 const KEPT = 12;
 const kept = new Map<string, SessionStore>();
-const reading = new Set<string>();
+const reading = new Map<string, Promise<void>>();
+
+/** Resolves when a read ahead of the session ends. A stream that waits for
+ * it then asks only for the updates after the read's first view. */
+export function readAhead(reviewId: string, sessionId: string) {
+  return reading.get(`${reviewId}\0${sessionId}`) ?? Promise.resolve();
+}
 
 export function keptSessionStore(reviewId: string, sessionId: string) {
   const key = `${reviewId}\0${sessionId}`;
@@ -163,9 +203,8 @@ export async function prefetchSession(
   const key = `${reviewId}\0${sessionId}`;
   const store = keptSessionStore(reviewId, sessionId);
   if (store.getSnapshot().items.length || reading.has(key)) return;
-  reading.add(key);
   const controller = new AbortController();
-  await followSession(
+  const read = followSession(
     reviewId,
     sessionId,
     store,
@@ -177,6 +216,8 @@ export async function prefetchSession(
     controller.signal,
     fetcher,
   ).finally(() => reading.delete(key));
+  reading.set(key, read);
+  await read;
 }
 
 /** The updates before byte offset `before`, and where they start. */

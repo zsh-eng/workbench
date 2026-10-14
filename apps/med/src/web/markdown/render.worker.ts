@@ -37,16 +37,21 @@ type Task = {
   /** Web links are pills with their site's icon, as in an agent's replies. */
   webLinks?: boolean;
 };
+// A preview keeps only its latest task. A batch, as of a thread's replies,
+// renders each task in order and replies to each.
 let latest: Task | undefined;
+const queue: Task[] = [];
 let running = false;
-self.onmessage = (event: MessageEvent<Task>) => {
-  latest = event.data;
+self.onmessage = (event: MessageEvent<Task | { batch: Task[] }>) => {
+  if ("batch" in event.data) queue.push(...event.data.batch);
+  else latest = event.data;
   if (!running) void drain();
 };
 async function drain() {
   running = true;
-  while (latest) {
-    const task = latest;
+  while (latest || queue.length) {
+    const queued = !latest;
+    const task = latest ?? queue.shift()!;
     latest = undefined;
     try {
       const started = performance.now();
@@ -215,7 +220,7 @@ async function drain() {
           .use(katex, { trust: false, strict: "ignore", maxExpand: 500, maxSize: 20 })
           .run(tree)) as Root;
       }
-      if (latest) continue;
+      if (latest && !queued) continue;
       let previousEnd = 0;
       const blocks: MarkdownBlock[] = tree.children
         .filter((node) => node.type !== "text" || node.value.trim())
