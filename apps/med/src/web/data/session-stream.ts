@@ -4,7 +4,7 @@ import { apiErrorMessage } from "../../shared/protocol";
 import { readBrowserToken } from "./auth";
 import { createApi, HttpError } from "./api";
 import { browserFetch } from "./live";
-import type { SessionStore } from "./session-store";
+import { createSessionStore, type SessionStore } from "./session-store";
 import { readServerEvents } from "./sse";
 
 /** A session counts as working until its agent ends the turn, or until the
@@ -131,6 +131,52 @@ export async function followSession(
     await pause(delay, signal);
     delay = Math.min(delay * 2, 30_000);
   }
+}
+
+/** Each recent session keeps its thread, so a workspace that mounts again,
+ * or a thread read ahead of a click, shows it at once. The stream's first
+ * view then replaces it in one step. */
+const KEPT = 12;
+const kept = new Map<string, SessionStore>();
+const reading = new Set<string>();
+
+export function keptSessionStore(reviewId: string, sessionId: string) {
+  const key = `${reviewId}\0${sessionId}`;
+  const store = kept.get(key) ?? createSessionStore();
+  kept.delete(key);
+  kept.set(key, store);
+  if (kept.size > KEPT) kept.delete(kept.keys().next().value!);
+  return store;
+}
+
+/**
+ * Reads a session's first view into its kept store and stops, as while the
+ * pointer rests on its thread. `onReady` gets the store, such as to render
+ * the newest replies' Markdown ahead. Resolves when the read ends.
+ */
+export async function prefetchSession(
+  reviewId: string,
+  sessionId: string,
+  onReady?: (store: SessionStore) => void,
+  fetcher: typeof fetch = browserFetch,
+) {
+  const key = `${reviewId}\0${sessionId}`;
+  const store = keptSessionStore(reviewId, sessionId);
+  if (store.getSnapshot().items.length || reading.has(key)) return;
+  reading.add(key);
+  const controller = new AbortController();
+  await followSession(
+    reviewId,
+    sessionId,
+    store,
+    (state) => {
+      if (state.status === "connecting" || controller.signal.aborted) return;
+      controller.abort();
+      if (state.status === "live") onReady?.(store);
+    },
+    controller.signal,
+    fetcher,
+  ).finally(() => reading.delete(key));
 }
 
 /** The updates before byte offset `before`, and where they start. */

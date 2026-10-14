@@ -16,9 +16,10 @@ import { agentName, type AgentSession, type PinMutation } from "../../../shared/
 import type { AgentMessageInput, SentComment } from "../../../shared/agent-inbox";
 import { withSentMessages, type AgentInbox, type SentMessage } from "../../data/agent-inbox";
 import { useOwnedSession } from "../../data/owned-session";
-import { createSessionStore, type SessionItem } from "../../data/session-store";
+import type { SessionItem } from "../../data/session-store";
 import {
   followSession,
+  keptSessionStore,
   loadSessionPage,
   loadSessionTurns,
   sessionRunning,
@@ -374,7 +375,7 @@ export function SessionPanel({
   const setChosen = (id: string) => setPick({ latest, id });
   const session = sessions.find((entry) => entry.id === chosen) ?? sessions.at(-1)!;
   const owned = useOwnedSession(reviewId, session.id, fetcher);
-  const [store] = useState(createSessionStore);
+  const store = useMemo(() => keptSessionStore(reviewId, session.id), [reviewId, session.id]);
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [state, setState] = useState<SessionStreamState>({
     status: "connecting",
@@ -384,14 +385,11 @@ export function SessionPanel({
   const [now, setNow] = useState(() => Date.now());
 
   // A hidden workspace stops its stream, and showing it again connects anew.
-  // The thread stays until the stream's first view replaces it in one step,
-  // so a revisit never shows an empty pane; another session starts empty.
-  const followed = useRef<string | null>(null);
+  // Each session keeps its thread (keptSessionStore) until the stream's first
+  // view replaces it in one step, so a revisit, or a thread read ahead of the
+  // click, never shows an empty pane.
   useEffect(() => {
     const controller = new AbortController();
-    const key = `${reviewId}:${session.id}`;
-    if (followed.current !== key) store.reset();
-    followed.current = key;
     void followSession(reviewId, session.id, store, setState, controller.signal, fetcher);
     return () => controller.abort();
   }, [reviewId, session.id, store, fetcher]);

@@ -152,7 +152,12 @@ nothing.
   its end, in one step: it stays pending until its newest replies have their
   Markdown and their heights. Meanwhile a new workspace stays out of sight and
   the last one stays on screen (`WorkspaceViews`, at most 600 ms); a thread in
-  the workspace on screen stays hidden. The view follows new items while the reader is at the bottom; only
+  the workspace on screen stays hidden. The 12 most recent sessions keep
+  their threads (`keptSessionStore`), and Med reads a session's first view
+  ahead while the pointer rests on its thread, and for the open workspaces
+  that load in the background. A first visit then shows the thread with the
+  workspace, and the stream's own first view replaces it in one step. The
+  view follows new items while the reader is at the bottom; only
   the reader's move up (wheel, touch, keys, or the pointer) stops it. A thread
   that gets shorter also moves the view up, and that move does not stop it.
   The Background and Tasks docks sit under the thread. The Background dock

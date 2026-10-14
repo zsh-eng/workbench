@@ -791,7 +791,11 @@ export function WorkspaceHost({
                             window.dispatchEvent(new PopStateEvent("popstate"));
                           }}
                           onArchive={archiveThread}
-                          onPrefetch={(thread) => prefetchSavedReview(thread.id, fetcher)}
+                          onPrefetch={(thread) => {
+                            prefetchSavedReview(thread.id, fetcher);
+                            const session = thread.sessions?.at(-1);
+                            if (session) prefetchThreadSession(thread.id, session.id, fetcher);
+                          }}
                         />
                       </aside>
                       {!narrow && (
@@ -947,6 +951,7 @@ export function WorkspaceViews({
 }) {
   const snapshot = use(Snapshot);
   if (!snapshot) throw new Error("WorkspaceViews needs a WorkspaceHost.");
+  const fetcher = use(HostFetch);
   const [pool] = useState(() => createControllerPool(options, createParser));
   const [mounted, setMounted] = useState<string[]>([]);
   const active = snapshot.workspaces.find((entry) => entry.id === snapshot.active);
@@ -1056,6 +1061,29 @@ export function WorkspaceViews({
       for (const stop of stops) stop();
     };
   }, [mounted, onScreen, pool, snapshot.workspaces]);
+  // Its newest session reads ahead too, one at a time while the browser is
+  // idle, so a first visit shows the thread with the review.
+  useEffect(() => {
+    const queue = mounted.flatMap((id) => {
+      const workspace = snapshot.workspaces.find((entry) => entry.id === id);
+      return id !== onScreen && workspace?.kind === "review" && workspace.sessions?.length
+        ? [workspace]
+        : [];
+    });
+    let cancel: (() => void) | undefined;
+    const next = () => {
+      const workspace = queue.shift();
+      if (workspace)
+        cancel = whenIdle(() =>
+          prefetchThreadSession(workspace.reviewId, workspace.sessions!.at(-1)!.id, fetcher, next),
+        );
+    };
+    next();
+    return () => {
+      queue.length = 0;
+      cancel?.();
+    };
+  }, [mounted, onScreen, snapshot.workspaces, fetcher]);
   useEffect(() => {
     const leave = () => pool.dispose();
     window.addEventListener("pagehide", leave, { once: true });
@@ -1065,7 +1093,10 @@ export function WorkspaceViews({
     };
   }, [pool]);
 
-  return mounted.flatMap((id) => {
+  // Slots keep one order: `mounted` is most recent first, and a slot that
+  // moved in the DOM would lose its scroll offsets, as a thread that jumps to
+  // its top while the next workspace prepares.
+  return mounted.toSorted().flatMap((id) => {
     const workspace = snapshot.workspaces.find((entry) => entry.id === id);
     if (!workspace || workspace.kind === "vault") return [];
     if (workspace.kind === "pull")
@@ -1135,6 +1166,35 @@ function PullView({ workspace }: { workspace: PullWorkspace }) {
 }
 
 /** Runs once the page is idle, or after two seconds. Returns a cancel. */
+/** A thread's session, read ahead with its newest replies' Markdown, so the
+ * thread shows with the workspace's first frame. */
+function prefetchThreadSession(
+  reviewId: string,
+  sessionId: string,
+  fetcher: typeof fetch,
+  onDone?: () => void,
+) {
+  void import("../data/session-stream")
+    .then(({ prefetchSession }) =>
+      prefetchSession(
+        reviewId,
+        sessionId,
+        (store) => {
+          const theme = themeController.getSnapshot().active.pierreTheme;
+          const replies = store
+            .getSnapshot()
+            .items.slice(-40)
+            .filter((item) => item.kind === "agent");
+          for (const reply of replies.slice(-8))
+            renderBrief(theme, reply.text, false, { cache: "session" }).catch(() => {});
+        },
+        fetcher,
+      ),
+    )
+    .catch(() => {})
+    .finally(() => onDone?.());
+}
+
 export function whenIdle(run: () => void) {
   if (!("requestIdleCallback" in globalThis)) {
     const timer = setTimeout(run, 300);
