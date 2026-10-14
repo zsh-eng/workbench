@@ -668,6 +668,25 @@ still show or hide the sidebar and the session. Press `⌥Z` again or click
 **Leave zen** to leave. Escape does not leave zen mode, so it stays free for
 search, Vim, and dialogs.
 
+### Quiet chrome
+
+Quiet chrome is on by default. Each pane has one row, and each thing shows
+once: the sidebar names the thread (the title band does while the sidebar is
+hidden), the title band names its branch, the review's row names what the diff
+compares, and the session's row names the agent and its state.
+
+- The review's row has its tabs, the comparison, **Live** or **Return to
+  review**, and **⋯**. The comparison menu also has **Compare against a
+  branch…** and **Compare two revisions…**.
+- **⋯** has the comments, **Find in diffs**, the panes, **Zen mode**, **Push…**,
+  and **Refresh review**. Its **View** menu has the diff's layout, comments,
+  wrapping, the files and commits rail, and **Collapse all files**.
+- There is no Changes toolbar and no status bar. While the page reconnects to
+  the server, a notice shows at the lower right of the workspace.
+- Every action stays in `⌘K` and keeps its shortcut. **Use full chrome** in
+  `⌘K` brings back the toolbar, the status bar, and the review's header; **Use
+  quiet chrome** goes back. Med keeps the choice for every window.
+
 ## Keyboard shortcuts
 
 Press `?` for the shortcuts of where you are: Review, File, Editor, or Pickers.

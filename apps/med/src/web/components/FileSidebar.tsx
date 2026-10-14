@@ -233,9 +233,10 @@ const styles = stylex.create({
     backgroundPosition: "12px 0",
     backgroundRepeat: "no-repeat",
   },
+  // A pane's row: 38 pixels, as the review's tab row.
   heading: {
-    height: 36,
-    minHeight: 36,
+    height: 38,
+    minHeight: 38,
     display: "flex",
     alignItems: "center",
     gap: 8,

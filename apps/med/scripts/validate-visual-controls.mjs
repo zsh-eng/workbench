@@ -76,6 +76,14 @@ try {
     viewport: { width: 1280, height: 800 },
     deviceScaleFactor: 2,
   });
+  // The toolbar's Push and View options buttons; quiet chrome keeps them in ⋯.
+  await context.addInitScript(() => {
+    try {
+      localStorage.setItem("med:chrome:v1", "full");
+    } catch {
+      /* A page without storage, such as a blank one. */
+    }
+  });
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));

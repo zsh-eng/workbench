@@ -245,6 +245,13 @@ process.stdout.write(process.env.MED_TEST_PR);
   await context.addInitScript(() => {
     window.shown = (selector) =>
       [...document.querySelectorAll(selector)].find((element) => element.checkVisibility());
+    // The saved review's header and the diff toolbar have the buttons that
+    // this check uses; quiet chrome keeps them in ⋯ and ⌘K.
+    try {
+      localStorage.setItem("med:chrome:v1", "full");
+    } catch {
+      /* A page without storage, such as a blank one. */
+    }
   });
   const pageErrors = [];
   context.on("page", (page) => page.on("pageerror", (error) => pageErrors.push(error.message)));

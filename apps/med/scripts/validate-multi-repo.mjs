@@ -82,6 +82,15 @@ try {
   });
   browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  // The branch switch beside the tabs; quiet chrome leaves the branch to the
+  // title band, and ⌘⇧G opens another.
+  await context.addInitScript(() => {
+    try {
+      localStorage.setItem("med:chrome:v1", "full");
+    } catch {
+      /* A page without storage, such as a blank one. */
+    }
+  });
   const page = await context.newPage();
   const pageErrors = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));

@@ -17,6 +17,7 @@ import { agentName, type AgentSession, type PinMutation } from "../../../shared/
 import type { AgentMessageInput, SentComment } from "../../../shared/agent-inbox";
 import { withSentMessages, type AgentInbox, type SentMessage } from "../../data/agent-inbox";
 import { useOwnedSession } from "../../data/owned-session";
+import { useQuietChrome } from "../../data/chrome";
 import type { SessionItem } from "../../data/session-store";
 import {
   followSession,
@@ -93,6 +94,7 @@ function SessionMenu({
   loadTurns,
   onTurn,
   starter,
+  leads = false,
 }: {
   agent: string;
   sessions: AgentSession[];
@@ -104,6 +106,8 @@ function SessionMenu({
   loadTurns?(): Promise<SessionTurn[]>;
   onTurn(turn: SessionTurn): void;
   starter?: SessionStarter;
+  /** The menu starts the header and names the pane, as quiet chrome has it. */
+  leads?: boolean;
 }) {
   const [turns, setTurns] = useState<SessionTurn[] | null>(null);
   const [error, setError] = useState(false);
@@ -117,14 +121,23 @@ function SessionMenu({
       <ActionTooltip label="Sessions, work, and turns">
         <Menu.Trigger
           aria-label={`${agent} session menu`}
-          {...stylex.props(ui.button, ui.pressable, styles.menuTrigger)}
+          {...stylex.props(
+            ui.button,
+            ui.pressable,
+            styles.menuTrigger,
+            leads && styles.leadTrigger,
+          )}
         >
           {agent}
           <Icon name="chevron" size={12} />
         </Menu.Trigger>
       </ActionTooltip>
       <Menu.Portal>
-        <Menu.Positioner align="end" sideOffset={6} {...stylex.props(styles.menuPositioner)}>
+        <Menu.Positioner
+          align={leads ? "start" : "end"}
+          sideOffset={6}
+          {...stylex.props(styles.menuPositioner)}
+        >
           <Menu.Popup {...stylex.props(ui.popup, ui.pop, styles.menu)}>
             {sessions.length > 1 && (
               <>
@@ -242,12 +255,14 @@ export function SessionStart({
 }) {
   const [starting, setStarting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Quiet chrome names the thread once, in the sidebar or the title band.
+  const quiet = useQuietChrome();
   const agents = starter.agents;
   return (
     <section aria-label="Start a session" {...stylex.props(styles.panel)}>
       <header {...paneHandle} {...stylex.props(styles.header)}>
         <span {...stylex.props(styles.title)}>
-          {title ?? "Session"}
+          {quiet ? "Session" : (title ?? "Session")}
           {detail && <span {...stylex.props(styles.detail)}>{detail}</span>}
         </span>
         {controls}
@@ -605,6 +620,7 @@ export function SessionPanel({
   }, [snapshot, messages, outgoing, session.id, session.agent, streaming, running]);
   const needsYou = !!ownedState?.permission;
   const zen = useContext(ZenContext);
+  const quiet = useQuietChrome();
   // The first view has not come, and no earlier thread stays meanwhile.
   const loading = state.status === "connecting" && !snapshot.items.length;
   const status = ownedState
@@ -628,6 +644,21 @@ export function SessionPanel({
             : waiting
               ? "Waiting for you"
               : "Idle";
+  // Zen keeps the agent and its status; a folded turn still opens.
+  const menu = !zen && (
+    <SessionMenu
+      agent={agent}
+      sessions={sessions}
+      current={session.id}
+      onChoose={setChosen}
+      showWork={showWork}
+      onToggleWork={toggleWork}
+      loadTurns={pageable ? () => loadSessionTurns(reviewId, session.id, fetcher) : undefined}
+      onTurn={(turn) => void showTurn(turn).catch(() => {})}
+      starter={starter}
+      leads={quiet}
+    />
+  );
 
   return (
     <section
@@ -637,11 +668,21 @@ export function SessionPanel({
       data-lead={lead || undefined}
       {...stylex.props(styles.panel)}
     >
-      <header {...paneHandle} {...stylex.props(styles.header)}>
-        <span {...stylex.props(styles.title)} title={title ?? snapshot.title ?? `${agent} session`}>
-          {title ?? snapshot.title ?? `${agent} session`}
-          {detail && <span {...stylex.props(styles.detail)}>{detail}</span>}
-        </span>
+      <header {...paneHandle} {...stylex.props(styles.header, quiet && styles.quietHeader)}>
+        {/* Quiet chrome names the thread in the sidebar or the title band; the
+            agent's menu names the pane. */}
+        {quiet ? (
+          zen && <span {...stylex.props(styles.zenAgent)}>{agent}</span>
+        ) : (
+          <span
+            {...stylex.props(styles.title)}
+            title={title ?? snapshot.title ?? `${agent} session`}
+          >
+            {title ?? snapshot.title ?? `${agent} session`}
+            {detail && <span {...stylex.props(styles.detail)}>{detail}</span>}
+          </span>
+        )}
+        {quiet && menu}
         <span {...stylex.props(styles.status)}>
           <span
             {...stylex.props(
@@ -652,20 +693,7 @@ export function SessionPanel({
           />
           {status}
         </span>
-        {/* Zen keeps the agent and its status; a folded turn still opens. */}
-        {!zen && (
-          <SessionMenu
-            agent={agent}
-            sessions={sessions}
-            current={session.id}
-            onChoose={setChosen}
-            showWork={showWork}
-            onToggleWork={toggleWork}
-            loadTurns={pageable ? () => loadSessionTurns(reviewId, session.id, fetcher) : undefined}
-            onTurn={(turn) => void showTurn(turn).catch(() => {})}
-            starter={starter}
-          />
-        )}
+        {quiet ? <span {...stylex.props(styles.grow)} /> : menu}
         {!zen &&
           (controls ?? (
             <ToolButton
@@ -739,11 +767,12 @@ const styles = stylex.create({
     minHeight: 0,
     backgroundColor: tokens.canvas,
   },
+  // A pane's row: 38 pixels, as the review's tab row.
   header: {
     display: "flex",
     alignItems: "center",
     gap: 8,
-    height: 40,
+    height: 38,
     flexShrink: 0,
     paddingInlineStart: 14,
     paddingInlineEnd: 6,
@@ -751,6 +780,21 @@ const styles = stylex.create({
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
     borderBottomColor: tokens.line,
+  },
+  // The menu's label starts where the review's first tab label does.
+  quietHeader: { gap: 6, paddingInlineStart: 6 },
+  // The agent's name, without its menu, in zen mode.
+  zenAgent: {
+    paddingInlineStart: 8,
+    color: tokens.text,
+    fontSize: 12.5,
+    fontWeight: 500,
+  },
+  grow: { flex: "1" },
+  leadTrigger: {
+    color: { default: tokens.text, ":hover:not(:disabled)": tokens.text },
+    fontSize: 12.5,
+    fontWeight: 500,
   },
   title: {
     flex: "1",

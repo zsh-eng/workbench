@@ -108,6 +108,8 @@ const url = await new Promise((resolveUrl, reject) => {
 function instrument({ workspaces }) {
   try {
     localStorage.setItem("med:welcomed", "1");
+    // The files pane's own button, as in earlier runs; quiet chrome keeps it in ⋯.
+    localStorage.setItem("med:chrome:v1", "full");
     if (!localStorage.getItem("med:workspaces:v1"))
       localStorage.setItem("med:workspaces:v1", JSON.stringify(workspaces));
   } catch {

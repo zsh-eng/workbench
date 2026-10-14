@@ -112,6 +112,14 @@ try {
   assert.equal((await api("backlinks", { id: added.id, path: "Target.md" })).backlinks.length, 1);
   browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
+  // The files pane's own button; quiet chrome keeps it in ⋯.
+  await page.addInitScript(() => {
+    try {
+      localStorage.setItem("med:chrome:v1", "full");
+    } catch {
+      /* A page without storage, such as a blank one. */
+    }
+  });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(url);

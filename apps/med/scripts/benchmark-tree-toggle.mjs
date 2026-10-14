@@ -31,6 +31,14 @@ const url = await new Promise((resolve, reject) => {
 const browser = await chromium.launch({ headless: true });
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  // The files pane's own button, as in earlier runs; quiet chrome keeps it in ⋯.
+  await page.addInitScript(() => {
+    try {
+      localStorage.setItem("med:chrome:v1", "full");
+    } catch {
+      /* A page without storage, such as a blank one. */
+    }
+  });
   const requests = [];
   let listRequests = 0;
   const errors = [];

@@ -91,12 +91,14 @@ import {
   type ThreadPlacement,
 } from "./components/PullRequestComments";
 import type { CodexFinding, CodexReviewRun } from "../shared/codex-review";
-import { SavedReviewHeader } from "./components/SavedReviewHeader";
+import { SavedReviewHeader, type SavedReviewActions } from "./components/SavedReviewHeader";
+import { ConnectionNotice, useQuietMenu } from "./components/QuietChrome";
+import { setChromeMode, useQuietChrome } from "./data/chrome";
 import { ShortcutGuide } from "./components/ShortcutGuide";
 import { ZenContext, ZenExit, ZenHint } from "./components/ZenExit";
 import { platform } from "./data/keys";
 import type { GuideContextId } from "./data/shortcut-guide";
-import { ComparisonActions } from "./components/ComparisonActions";
+import { ComparisonActions, type ComparisonActionsHandle } from "./components/ComparisonActions";
 import {
   createBlameLoader,
   createCommitLoader,
@@ -230,6 +232,13 @@ function shortRevision(revision: string) {
   return /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(revision) ? revision.slice(0, 7) : revision;
 }
 
+/** A range by its endpoints: branch names whole, object IDs short. */
+function rangeLabel(base: string, head: string) {
+  return [base, head]
+    .map((ref) => shortRevision(ref.replace(/^refs\/(heads|remotes)\//, "")))
+    .join(" → ");
+}
+
 function readPreference<T extends string>(key: string, fallback: T, values: readonly T[]): T {
   try {
     const value = localStorage.getItem(`med:${key}`);
@@ -346,6 +355,18 @@ export function App({
   }, [retiredPreview, closeRetired]);
   // Zen hides every bar. The sidebars keep their own state in and out of zen.
   const [zen, setZenState] = useState(() => readPreference("zen", "off", ["on", "off"]) === "on");
+  // Quiet chrome: one row for the review pane, its rare actions in ⋯ and ⌘K.
+  const quiet = useQuietChrome();
+  const comparisonActions = useRef<ComparisonActionsHandle>(null);
+  const comparisonTrigger = useRef<HTMLButtonElement>(null);
+  const savedActions = useRef<SavedReviewActions>(null);
+  // The base branch menu opens below the comparison once the select closes.
+  const openCompare = useCallback(
+    () => requestAnimationFrame(() => comparisonActions.current?.openCompare()),
+    [],
+  );
+  const openPush = useCallback(() => comparisonActions.current?.openPush(), []);
+  const clearComments = useCallback(() => savedActions.current?.clearComments(), []);
   const filePreviewShown = useFilePreviewShown();
   const focusBeforeZen = useRef<Element | null>(null);
   const setZen = useCallback((next: boolean | ((value: boolean) => boolean)) => {
@@ -2865,6 +2886,25 @@ export function App({
     fileWorkspace.select("changes");
     void controller.returnToSavedReview();
   };
+  const actionRepo = state.review?.repo ?? state.session?.repository.path;
+  const actionBranch = state.savedView
+    ? (state.savedReview?.targets.find((target) => target.id === state.savedTargetId)?.branch ?? "")
+    : (state.activeBranch ?? "");
+  const actionHead =
+    state.savedView || state.comparison.kind === "commit" || state.comparison.kind === "range"
+      ? (state.review?.head ?? "")
+      : (state.branches.find((branch) => branch.name === state.activeBranch)?.head ??
+        state.session?.repository.head ??
+        "");
+  // The base branch menu and Push (ComparisonActions), with or without their buttons.
+  const comparisonActionsShown =
+    !!actionRepo && state.status === "ready" && state.session?.repository.git !== false;
+  const pushable = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(actionHead);
+  const compareAgainst = () => {
+    fileWorkspace.select("changes");
+    // The menu opens below the comparison, once the Changes tab shows it.
+    openCompare();
+  };
   const commands: ReviewCommand[] = [
     {
       id: "render-diagnostics",
@@ -3317,6 +3357,28 @@ export function App({
       shortcut: "⌥ Z",
       run: toggleZen,
     },
+    {
+      id: "chrome",
+      label: quiet ? "Use full chrome" : "Use quiet chrome",
+      run: () => setChromeMode(quiet ? "full" : "quiet"),
+    },
+    ...(comparisonActionsShown && !zen
+      ? [
+          {
+            id: "compare-base",
+            managesFocus: true,
+            label: "Compare against a base branch…",
+            run: compareAgainst,
+          },
+          {
+            id: "push",
+            managesFocus: true,
+            label: "Push to remote…",
+            disabled: !pushable,
+            run: openPush,
+          },
+        ]
+      : []),
     // The saved review's own actions, for zen mode, which hides its header.
     ...(state.savedReview && replyAgent
       ? [
@@ -3338,6 +3400,17 @@ export function App({
                 (error: unknown) =>
                   showToast(error instanceof Error ? error.message : "The request failed."),
               ),
+          },
+        ]
+      : []),
+    // The question opens under the review's header, which zen hides.
+    ...(state.savedReview?.commentCount && !zen
+      ? [
+          {
+            id: "clear-comments",
+            managesFocus: true,
+            label: "Clear all comments…",
+            run: () => clearComments(),
           },
         ]
       : []),
@@ -3420,7 +3493,10 @@ export function App({
                   ? "Patch review"
                   : state.comparison.kind === "files"
                     ? "File comparison"
-                    : "Revision range",
+                    : // Quiet chrome names the range here, and only here.
+                      quiet && state.comparison.kind === "range"
+                      ? rangeLabel(state.comparison.base, state.comparison.head)
+                      : "Revision range",
             description:
               state.comparison.kind === "commit"
                 ? "This commit against its first parent"
@@ -3478,16 +3554,6 @@ export function App({
     fileWorkspace,
     controller,
   ]);
-  const actionRepo = state.review?.repo ?? state.session?.repository.path;
-  const actionBranch = state.savedView
-    ? (state.savedReview?.targets.find((target) => target.id === state.savedTargetId)?.branch ?? "")
-    : (state.activeBranch ?? "");
-  const actionHead =
-    state.savedView || state.comparison.kind === "commit" || state.comparison.kind === "range"
-      ? (state.review?.head ?? "")
-      : (state.branches.find((branch) => branch.name === state.activeBranch)?.head ??
-        state.session?.repository.head ??
-        "");
   const skipped = useMemo(
     () => streamFiles.filter((file) => !file.metadata || mediaType(file.path)?.kind === "image"),
     [streamFiles],
@@ -3964,7 +4030,8 @@ export function App({
       )}
     </span>
   );
-  const leading = !state.savedReview && (
+  // Quiet chrome leaves the branch to the title band, which names the checkout.
+  const leading = !state.savedReview && !(quiet && shell) && (
     <>
       {identity}
       <span {...stylex.props(styles.headerDivider)} />
@@ -3989,13 +4056,178 @@ export function App({
         ]
       : []),
   ];
+  // The diff's controls: in the toolbar above it, or in the review's one row
+  // with quiet chrome, while the diff shows.
+  const streamChrome = streamShown && !zen;
+  const comparisonSelect = (
+    <ChoiceSelect
+      label="Comparison"
+      value={comparisonValue}
+      choices={comparisonChoices}
+      onChange={(value) => {
+        if (["working", "staged", "unstaged"].includes(value))
+          void controller.selectComparison({
+            kind: value,
+          } as Comparison);
+      }}
+      {...(quiet && {
+        // One control says what the diff compares, and changes it.
+        triggerRef: comparisonTrigger,
+        trigger: styles.rowComparisonTrigger,
+        actions: [
+          ...(comparisonActionsShown
+            ? [
+                {
+                  label: "Compare against a branch…",
+                  onSelect: openCompare,
+                },
+              ]
+            : []),
+          ...(gitAvailable
+            ? [{ label: "Compare two revisions…", onSelect: () => setRangeOpen(true) }]
+            : []),
+        ],
+      })}
+    />
+  );
+  const comparisonActionsElement = comparisonActionsShown && actionRepo && (
+    <ComparisonActions
+      key={`${actionRepo}:${actionHead}:${actionBranch}`}
+      ref={comparisonActions}
+      triggers={!quiet}
+      anchor={comparisonTrigger}
+      repo={actionRepo}
+      head={actionHead}
+      sourceBranch={actionBranch}
+      comparison={state.comparison}
+      onCompare={(base, head) => {
+        fileWorkspace.select("changes");
+        void controller.selectComparison({
+          kind: "range",
+          base,
+          head,
+          mergeBase: true,
+        });
+      }}
+    />
+  );
+  const totals = state.review && (
+    <span {...stylex.props(styles.toolbarTotals)}>
+      <ChangeTotals
+        files={state.review.files}
+        range={`${shortRevision(state.review.base)} → ${shortRevision(state.review.head)}`}
+      />
+    </span>
+  );
+  const notesToggle = (
+    <ActionTooltip label={showNotes ? "Hide comments" : "Show comments"}>
+      <button
+        {...stylex.props(ui.button, ui.pressable, styles.notesButton, showNotes && ui.active)}
+        aria-label="Toggle notes"
+        aria-pressed={showNotes}
+        onClick={() => setShowNotes(!showNotes)}
+      >
+        <Icon name="note" size={15} />
+        {notes.length > 0 && <span {...stylex.props(styles.notesCount)}>{notes.length}</span>}
+      </button>
+    </ActionTooltip>
+  );
+  const viewSections: MenuAction[][] = [
+    selectedFile && browseSource
+      ? [
+          {
+            label: browseSource.kind === "worktree" ? "Open working file" : "Open snapshot file",
+            letter: "o",
+            onClick: () => openWorkingFile(selectedFile.path),
+          },
+          {
+            label: "Show files sidebar",
+            onClick: showFiles,
+          },
+        ]
+      : [],
+    [
+      {
+        label: "Find in diffs",
+        shortcut: "⌘ F",
+        letter: "f",
+        onClick: openFind,
+      },
+      ...(gitAvailable
+        ? [
+            {
+              label: "Compare revisions…",
+              letter: "c",
+              onClick: () => setRangeOpen(!rangeOpen),
+            },
+          ]
+        : []),
+    ],
+    [
+      {
+        label: "Show comments",
+        checked: showNotes,
+        onClick: () => setShowNotes(!showNotes),
+      },
+      {
+        label: "Wrap long lines",
+        checked: wrap,
+        letter: "w",
+        onClick: () => setWrap(!wrap),
+      },
+    ],
+    [
+      {
+        label: "Zen mode",
+        shortcut: "⌥ Z",
+        letter: "z",
+        onClick: toggleZen,
+      },
+      {
+        label: "Refresh review",
+        letter: "r",
+        disabled: state.status === "loading",
+        onClick: () => void controller.refresh(),
+      },
+    ],
+  ];
+  const quietSections = useQuietMenu({
+    diff: streamChrome
+      ? {
+          find: openFind,
+          layout: { mode, canSplit: roomy, set: setMode },
+          comments: { on: showNotes, toggle: () => setShowNotes(!showNotes) },
+          wrap: { on: wrap, toggle: () => setWrap(!wrap) },
+          rail: changesRail ? { on: railShown, toggle: toggleRail } : undefined,
+          collapse:
+            files.length > 1 ? { collapsed: allCollapsed, toggle: toggleAllFiles } : undefined,
+          push: comparisonActionsShown ? { disabled: !pushable, open: openPush } : undefined,
+          refresh: { disabled: state.status === "loading", run: () => void controller.refresh() },
+        }
+      : undefined,
+    workingFile:
+      streamChrome && selectedFile && browseSource
+        ? {
+            label: browseSource.kind === "worktree" ? "Open working file" : "Open snapshot file",
+            open: () => openWorkingFile(selectedFile.path),
+          }
+        : undefined,
+    session: state.savedReview || found ? { on: sessionVisible, toggle: toggleSession } : undefined,
+    files: browseSource ? { on: rightVisible, toggle: toggleFilesSidebar } : undefined,
+    openBranch:
+      !state.savedReview && gitAvailable && shell ? () => openBranchPicker(false) : undefined,
+    zen: toggleZen,
+    commands: () => setCommandsOpen(true),
+    shortcuts: () => setHelpOpen(true),
+  });
   const savedHeader = (compact: boolean) =>
     state.savedReview && (
       <SavedReviewHeader
+        ref={savedActions}
         controller={controller}
         state={state}
         compact={compact}
-        more={compact ? moreActions : undefined}
+        more={compact ? (quiet ? quietSections : [moreActions]) : undefined}
         notesPickIteration={hasNotes}
         pullRequest={pullRequest}
         threadPlacement={pullRequestThreads.placement}
@@ -4026,18 +4258,47 @@ export function App({
   // The tabs stay while a workspace loads, so the branch switch in them does
   // not mount again; only a review without Git has a plain header.
   const plainHeader = state.session?.repository.git === false && !hasNotes && !hasGuide;
+  // Quiet chrome's row, after the tabs: what the diff compares and the few
+  // controls that stay in view, then the ⋯ menu (in a saved review's header).
+  const quietTrailing = quiet && (
+    <>
+      {streamChrome && <span {...stylex.props(styles.rowComparison)}>{comparisonSelect}</span>}
+      {streamChrome && roomy && totals}
+      {comparisonActionsElement}
+      {streamChrome && notes.length > 0 && notesToggle}
+      {state.savedReview ? (
+        savedHeader(true)
+      ) : (
+        <ActionMenu
+          label="More actions"
+          trigger={[ui.button, ui.iconButton]}
+          sections={quietSections}
+        >
+          <Icon name="more" size={15} />
+        </ActionMenu>
+      )}
+    </>
+  );
   const mainHeader = (controls: ReactNode) =>
     !plainHeader ? (
       <FileViewTabs
         panelId={`${idPrefix}file-view-panel`}
         pathActions={pathActions}
         leading={leading}
+        keepTabs={quiet}
         trailing={
-          <>
-            {sessionVisible && !zen && savedHeader(true)}
-            {!(sessionVisible && !zen && state.savedReview) && viewControls}
-            {controls}
-          </>
+          quiet ? (
+            <>
+              {quietTrailing}
+              {controls}
+            </>
+          ) : (
+            <>
+              {sessionVisible && !zen && savedHeader(true)}
+              {!(sessionVisible && !zen && state.savedReview) && viewControls}
+              {controls}
+            </>
+          )
         }
         showBrief={hasNotes}
         showGuide={hasGuide}
@@ -4062,7 +4323,7 @@ export function App({
       <header {...paneHandle} {...stylex.props(styles.mainHeader)}>
         {leading}
         <span {...stylex.props(ui.grow)} />
-        {viewControls}
+        {quiet ? quietTrailing : viewControls}
         {controls}
       </header>
     );
@@ -4249,9 +4510,14 @@ export function App({
         <main ref={setMainElement} {...stylex.props(styles.main)} aria-label="Continuous review">
           {/* The review's own row heads the card; beside a thread, its actions
         join the tab row. */}
-          {state.savedReview && !zen && !sessionVisible && savedHeader(false)}
+          {state.savedReview && !zen && !sessionVisible && !quiet && savedHeader(false)}
           {linkError}
           {zen ? <ZenExit onExit={toggleZen} /> : mainHeader(controls)}
+          {quiet && state.status === "loading" && (
+            <span role="presentation" {...stylex.props(styles.loadingTrack, styles.rowLoading)}>
+              <span {...stylex.props(styles.loadingBar)} />
+            </span>
+          )}
           {state.savedView &&
             !zen &&
             !agentWorking &&
@@ -4384,168 +4650,58 @@ export function App({
                   />
                 )}
                 <div {...stylex.props(styles.reviewSurface, guideOverview && styles.hiddenSurface)}>
-                  <div {...stylex.props(styles.toolbar, zen && styles.hiddenSurface)} hidden={zen}>
-                    {changesRail && (
-                      <ToolButton
-                        label={railShown ? "Hide files and commits" : "Show files and commits"}
-                        icon="panelLeft"
-                        aria-pressed={railShown}
-                        active={railShown}
-                        onClick={toggleRail}
-                      />
-                    )}
-                    <ChoiceSelect
-                      label="Comparison"
-                      value={comparisonValue}
-                      choices={comparisonChoices}
-                      onChange={(value) => {
-                        if (["working", "staged", "unstaged"].includes(value))
-                          void controller.selectComparison({
-                            kind: value,
-                          } as Comparison);
-                      }}
-                    />
-                    {actionRepo &&
-                      state.status === "ready" &&
-                      state.session?.repository.git !== false && (
-                        <ComparisonActions
-                          key={`${actionRepo}:${actionHead}:${actionBranch}`}
-                          repo={actionRepo}
-                          head={actionHead}
-                          sourceBranch={actionBranch}
-                          comparison={state.comparison}
-                          onCompare={(base, head) => {
-                            fileWorkspace.select("changes");
-                            void controller.selectComparison({
-                              kind: "range",
-                              base,
-                              head,
-                              mergeBase: true,
-                            });
-                          }}
+                  {/* Quiet chrome puts the toolbar's controls in the review's row and ⋯. */}
+                  {!quiet && (
+                    <div
+                      {...stylex.props(styles.toolbar, zen && styles.hiddenSurface)}
+                      hidden={zen}
+                    >
+                      {changesRail && (
+                        <ToolButton
+                          label={railShown ? "Hide files and commits" : "Show files and commits"}
+                          icon="panelLeft"
+                          aria-pressed={railShown}
+                          active={railShown}
+                          onClick={toggleRail}
                         />
                       )}
-                    {state.review && (
-                      <span {...stylex.props(styles.toolbarTotals)}>
-                        <ChangeTotals
-                          files={state.review.files}
-                          range={`${shortRevision(state.review.base)} → ${shortRevision(state.review.head)}`}
+                      {comparisonSelect}
+                      {comparisonActionsElement}
+                      {totals}
+                      <span {...stylex.props(ui.grow)} />
+                      {files.length > 1 && (
+                        <ToolButton
+                          label={allCollapsed ? "Expand all files" : "Collapse all files"}
+                          icon={allCollapsed ? "expandAll" : "collapseAll"}
+                          aria-label={allCollapsed ? "Expand all files" : "Collapse all files"}
+                          onClick={toggleAllFiles}
                         />
-                      </span>
-                    )}
-                    <span {...stylex.props(ui.grow)} />
-                    {files.length > 1 && (
-                      <ToolButton
-                        label={allCollapsed ? "Expand all files" : "Collapse all files"}
-                        icon={allCollapsed ? "expandAll" : "collapseAll"}
-                        aria-label={allCollapsed ? "Expand all files" : "Collapse all files"}
-                        onClick={toggleAllFiles}
+                      )}
+                      <SegmentedControl<"split" | "unified">
+                        label="Diff layout"
+                        value={mode}
+                        onChange={setMode}
+                        options={[
+                          roomy
+                            ? { value: "split", label: "Split", icon: "split" }
+                            : {
+                                value: "split",
+                                label: "Split needs a wider pane",
+                                icon: "split",
+                                disabled: true,
+                              },
+                          { value: "unified", label: "Unified", icon: "unified" },
+                        ]}
                       />
-                    )}
-                    <SegmentedControl<"split" | "unified">
-                      label="Diff layout"
-                      value={mode}
-                      onChange={setMode}
-                      options={[
-                        roomy
-                          ? { value: "split", label: "Split", icon: "split" }
-                          : {
-                              value: "split",
-                              label: "Split needs a wider pane",
-                              icon: "split",
-                              disabled: true,
-                            },
-                        { value: "unified", label: "Unified", icon: "unified" },
-                      ]}
-                    />
-                    <ActionTooltip label={showNotes ? "Hide comments" : "Show comments"}>
-                      <button
-                        {...stylex.props(
-                          ui.button,
-                          ui.pressable,
-                          styles.notesButton,
-                          showNotes && ui.active,
-                        )}
-                        aria-label="Toggle notes"
-                        aria-pressed={showNotes}
-                        onClick={() => setShowNotes(!showNotes)}
-                      >
-                        <Icon name="note" size={15} />
-                        {notes.length > 0 && (
-                          <span {...stylex.props(styles.notesCount)}>{notes.length}</span>
-                        )}
-                      </button>
-                    </ActionTooltip>
-                    <ActionMenu
-                      sections={[
-                        selectedFile && browseSource
-                          ? [
-                              {
-                                label:
-                                  browseSource.kind === "worktree"
-                                    ? "Open working file"
-                                    : "Open snapshot file",
-                                letter: "o",
-                                onClick: () => openWorkingFile(selectedFile.path),
-                              },
-                              {
-                                label: "Show files sidebar",
-                                onClick: showFiles,
-                              },
-                            ]
-                          : [],
-                        [
-                          {
-                            label: "Find in diffs",
-                            shortcut: "⌘ F",
-                            letter: "f",
-                            onClick: openFind,
-                          },
-                          ...(gitAvailable
-                            ? [
-                                {
-                                  label: "Compare revisions…",
-                                  letter: "c",
-                                  onClick: () => setRangeOpen(!rangeOpen),
-                                },
-                              ]
-                            : []),
-                        ],
-                        [
-                          {
-                            label: "Show comments",
-                            checked: showNotes,
-                            onClick: () => setShowNotes(!showNotes),
-                          },
-                          {
-                            label: "Wrap long lines",
-                            checked: wrap,
-                            letter: "w",
-                            onClick: () => setWrap(!wrap),
-                          },
-                        ],
-                        [
-                          {
-                            label: "Zen mode",
-                            shortcut: "⌥ Z",
-                            letter: "z",
-                            onClick: toggleZen,
-                          },
-                          {
-                            label: "Refresh review",
-                            letter: "r",
-                            disabled: state.status === "loading",
-                            onClick: () => void controller.refresh(),
-                          },
-                        ],
-                      ]}
-                    />
-                    {state.status === "loading" && (
-                      <span role="presentation" {...stylex.props(styles.loadingTrack)}>
-                        <span {...stylex.props(styles.loadingBar)} />
-                      </span>
-                    )}
-                  </div>
+                      {notesToggle}
+                      <ActionMenu sections={viewSections} />
+                      {state.status === "loading" && (
+                        <span role="presentation" {...stylex.props(styles.loadingTrack)}>
+                          <span {...stylex.props(styles.loadingBar)} />
+                        </span>
+                      )}
+                    </div>
+                  )}
                   {rangeOpen && (
                     <form
                       {...stylex.props(styles.rangeBar)}
@@ -5071,17 +5227,24 @@ export function App({
           {...stylex.props(
             styles.workspace,
             (!!workspace || branches.visible.length < 2) && styles.workspaceTop,
-            zen && styles.zenWorkspace,
+            (zen || quiet) && styles.zenWorkspace,
           )}
           id={`${idPrefix}review-workspace`}
           role="tabpanel"
           aria-label={`${state.activeBranch ?? "Workspace"} review`}
         >
           <PaneTree state={panes} panes={workspacePanes} label="Workspace panes" />
+          {quiet && !zen && <ConnectionNotice connection={state.connection} />}
         </div>
+        {/* Quiet chrome has no status bar: the comparison names the review, a
+            file's header its path, and ⋯ and ⌘K have the rest. */}
         <footer
-          {...stylex.props(styles.statusbar, stylex.defaultMarker(), zen && styles.hiddenSurface)}
-          hidden={zen}
+          {...stylex.props(
+            styles.statusbar,
+            stylex.defaultMarker(),
+            (zen || quiet) && styles.hiddenSurface,
+          )}
+          hidden={zen || quiet}
         >
           <span {...stylex.props(styles.statusItem)}>
             <span
@@ -5258,7 +5421,7 @@ const styles = stylex.create({
   },
   emptyAction: { marginTop: 14, paddingInline: 12 },
   // The frame holds both sidebars; the review sits on one inset card.
-  workspace: { display: "flex", flex: "1", minHeight: 0, paddingInline: 6 },
+  workspace: { position: "relative", display: "flex", flex: "1", minHeight: 0, paddingInline: 6 },
   // Without the strip, the frame's own inset is the top margin.
   workspaceTop: { paddingTop: 6 },
   zenWorkspace: { paddingBottom: 6 },
@@ -5426,6 +5589,16 @@ const styles = stylex.create({
     animationDuration: "200ms",
     animationDelay: "300ms",
     animationFillMode: "forwards",
+  },
+  // Quiet chrome has no toolbar: the bar runs on the rule below the review's row.
+  rowLoading: { top: 36, bottom: "auto", zIndex: 2 },
+  // The comparison gives way first in a narrow row, and keeps a few letters.
+  rowComparison: { display: "flex", flexGrow: 0, flexShrink: 1000, minWidth: 64 },
+  // Quiet as a tab is: the row's text, not the toolbar's strong label.
+  rowComparisonTrigger: {
+    width: "100%",
+    color: { default: tokens.muted, ":hover:not(:disabled)": tokens.text },
+    fontWeight: 450,
   },
   loadingBar: {
     display: "block",

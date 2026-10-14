@@ -12,6 +12,7 @@ import type {
 } from "../../src/shared/protocol";
 import { initializeTheme, themeController } from "../../src/web/themes";
 import { createBrowseApi } from "../../src/web/data/browse";
+import { setChromeMode } from "../../src/web/data/chrome";
 import type { BrowseSource } from "../../src/shared/browse";
 import type { AgentInboxState } from "../../src/shared/agent-inbox";
 import type { CodexReviewRun } from "../../src/shared/codex-review";
@@ -57,6 +58,15 @@ const commits = [
 let root: Root | undefined;
 let mount: HTMLDivElement | undefined;
 
+// Test files share the page's storage. A chrome that another file stores does
+// not reach these tests.
+window.addEventListener(
+  "storage",
+  (event) => {
+    if (event.key === "med:chrome:v1") event.stopImmediatePropagation();
+  },
+  true,
+);
 const storedPreferences = [
   "med:vim",
   "med:zen",
@@ -71,6 +81,9 @@ beforeEach(async () => {
   // A desktop window: the review and its side panes fit beside each other.
   await page.viewport(1280, 800);
   for (const key of storedPreferences) localStorage.removeItem(key);
+  // The review without the window's shell has the full chrome's toolbar and
+  // status bar, which these tests use. The workspace tests cover quiet chrome.
+  setChromeMode("full", false);
 });
 afterEach(() => {
   root?.unmount();

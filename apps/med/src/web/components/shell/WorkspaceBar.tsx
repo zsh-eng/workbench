@@ -2,6 +2,7 @@ import * as stylex from "@stylexjs/stylex";
 import { useEffect, useState } from "react";
 import type { ThreadList } from "../../../shared/threads";
 import type { Workspace } from "../../data/workspaces";
+import { useQuietChrome } from "../../data/chrome";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon, type IconName } from "../Icon";
 import { ActionTooltip, ToolButton } from "../ToolButton";
@@ -12,9 +13,17 @@ const basename = (path: string) =>
     .split(/[\\/]/)
     .at(-1) ?? path;
 
-/** What the band names: a checkout, or a vault or pull request by its title. */
+/** What the band names: a checkout, or a vault or pull request by its title. A
+ * thread's checkout also carries the thread's title. */
 export type BarContext =
-  | { kind: "checkout"; repository: string; branch?: string; path: string; linked: boolean }
+  | {
+      kind: "checkout";
+      repository: string;
+      branch?: string;
+      path: string;
+      linked: boolean;
+      title?: string;
+    }
   | { kind: "label"; icon: IconName; text: string };
 
 /** A thread names the checkout it works in; a repository workspace, the one
@@ -32,6 +41,7 @@ export function barContext(workspace: Workspace | undefined, list: ThreadList | 
       branch: thread.branch,
       path: thread.checkout,
       linked: !!thread.linked,
+      title: thread.title,
     } as const;
   }
   if (workspace.kind === "pull")
@@ -46,6 +56,8 @@ export function barContext(workspace: Workspace | undefined, list: ThreadList | 
     branch: workspace.branch,
     path: workspace.path,
     linked: !!workspace.worktree,
+    // A session that Med found is a thread, and its workspace has its title.
+    title: workspace.found ? workspace.title : undefined,
   } as const;
 }
 
@@ -54,6 +66,9 @@ export function barContext(workspace: Workspace | undefined, list: ThreadList | 
  * out, and Show sidebar while the sidebar is hidden. With the installed app's
  * title bar hidden, the band is the title bar beside the window controls; it
  * moves the window, and its controls take clicks.
+ *
+ * With quiet chrome, the band is the one place for the thread's branch. While
+ * the sidebar, which lists the thread, is hidden, the band names the thread too.
  */
 export function WorkspaceBar({
   context,
@@ -63,6 +78,8 @@ export function WorkspaceBar({
   /** The sidebar is hidden or covers the workspace: the band starts with its toggle. */
   showSidebar?: () => void;
 }) {
+  const quiet = useQuietChrome();
+  const title = quiet && showSidebar && context?.kind === "checkout" ? context.title : undefined;
   return (
     <header
       aria-label="Workspace"
@@ -77,7 +94,12 @@ export function WorkspaceBar({
           onClick={showSidebar}
         />
       )}
-      {context?.kind === "checkout" && <Checkout {...context} />}
+      {title && (
+        <span data-thread-title="" {...stylex.props(styles.title)}>
+          {title}
+        </span>
+      )}
+      {context?.kind === "checkout" && <Checkout {...context} quiet={quiet} after={!!title} />}
       {context?.kind === "label" && (
         <span {...stylex.props(styles.checkout)}>
           <Icon name={context.icon} size={14} />
@@ -90,7 +112,14 @@ export function WorkspaceBar({
 
 /** The repository, the branch, and a linked worktree's folder. A click copies
  * the checkout's path. */
-function Checkout({ repository, branch, path, linked }: Extract<BarContext, { kind: "checkout" }>) {
+function Checkout({
+  repository,
+  branch,
+  path,
+  linked,
+  quiet,
+  after,
+}: Extract<BarContext, { kind: "checkout" }> & { quiet: boolean; after: boolean }) {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
@@ -110,12 +139,13 @@ function Checkout({ repository, branch, path, linked }: Extract<BarContext, { ki
         }
         {...stylex.props(ui.button, ui.pressable, styles.checkout, styles.copy)}
       >
-        <span {...stylex.props(styles.name)}>{repository}</span>
+        <span {...stylex.props(styles.name, after && styles.nameAfter)}>{repository}</span>
         <span {...stylex.props(styles.part)}>
           <Icon name="branch" size={13} />
           <span {...stylex.props(styles.ellipsis)}>{branch ?? "Detached HEAD"}</span>
         </span>
-        {linked && (
+        {/* Quiet chrome leaves out a worktree folder that has the branch's name. */}
+        {linked && !(quiet && basename(path) === branch) && (
           <span {...stylex.props(styles.part, styles.worktree)}>
             <Icon name="folder" size={13} />
             <span {...stylex.props(styles.ellipsis)}>{basename(path)}</span>
@@ -160,6 +190,22 @@ const styles = stylex.create({
     cursor: "default",
   },
   name: { color: tokens.text, fontWeight: 500 },
+  // After the thread's title, the repository is secondary.
+  nameAfter: { color: tokens.muted },
+  // The thread's name, as its sidebar row has it, while the sidebar is hidden.
+  title: {
+    flexShrink: 1,
+    minWidth: 0,
+    margin: 0,
+    paddingInline: 8,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    color: tokens.text,
+    fontFamily: tokens.ui,
+    fontSize: 13,
+    fontWeight: 500,
+  },
   part: { display: "inline-flex", alignItems: "center", gap: 5, minWidth: 0 },
   worktree: { color: tokens.faint },
   ellipsis: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" },

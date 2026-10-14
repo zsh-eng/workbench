@@ -33,7 +33,10 @@ export function FileViewTabs({
   leading,
   trailing,
   pathActions,
+  keepTabs = false,
 }: {
+  /** The tabs keep their width, and the trailing controls give way first. */
+  keepTabs?: boolean;
   pathActions?: PathActions;
   tabs: FileViewTab[];
   active: string;
@@ -70,7 +73,7 @@ export function FileViewTabs({
       {...stylex.props(styles.root)}
     >
       {leading}
-      <Tabs.List aria-label="Open files" {...stylex.props(styles.list)}>
+      <Tabs.List aria-label="Open files" {...stylex.props(styles.list, keepTabs && styles.keep)}>
         {showGuide && (
           <Tabs.Tab
             value="guide"
@@ -201,6 +204,9 @@ const styles = stylex.create({
     overflowX: "auto",
     scrollbarWidth: "none",
   },
+  // Longhands win over the list's flex shorthand. In a narrow row the tabs
+  // scroll before the row's last controls shrink.
+  keep: { flexBasis: "auto", flexShrink: 100 },
   item: { position: "relative", display: "flex", alignItems: "center", flexShrink: 0 },
   tab: {
     display: "flex",

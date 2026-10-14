@@ -33,6 +33,14 @@ const url = await new Promise((resolveUrl, reject) => {
 const browser = await chromium.launch({ headless: true });
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  // The toolbar's Split and Unified, as in earlier runs; quiet chrome keeps them in ⋯.
+  await page.addInitScript(() => {
+    try {
+      localStorage.setItem("med:chrome:v1", "full");
+    } catch {
+      /* A page without storage, such as a blank one. */
+    }
+  });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   page.on("console", (e) => {

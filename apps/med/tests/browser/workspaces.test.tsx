@@ -59,6 +59,7 @@ afterEach(() => {
   root = mount = undefined;
   localStorage.removeItem(STORAGE_KEY);
   localStorage.removeItem(WINDOW_KEY);
+  localStorage.removeItem("med:chrome:v1");
   // Workspaces move the address; the test page keeps its own.
   history.replaceState(null, "", address);
 });
@@ -503,8 +504,8 @@ test("keeps branch workspaces live, switches by shortcut, and restores them", as
   await expect.poll(() => mainDiffs().length).toBe(2);
   const renderedDiffs = mainDiffs();
 
-  // ⌘↵ in the branch picker opens the branch as a new workspace.
-  await page.getByRole("button", { name: "Open branch", exact: true }).click();
+  // ⌘↵ in the branch picker (⌘⇧G) opens the branch as a new workspace.
+  await userEvent.keyboard("{Control>}{Shift>}g{/Shift}{/Control}");
   await page.getByRole("combobox", { name: "Search branches" }).fill("feature");
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
   await expect.poll(() => shown()?.dataset.selectedBranch).toBe("feature");
@@ -633,6 +634,75 @@ test("a thread with its session on screen shows its session first, and its diff 
   await expect.element(thread_.getByText("Rename the export.")).toBeVisible();
   await expect.element(thread_.getByText("alpha", { exact: true })).toBeVisible();
   expect(status()).toBe("ready");
+});
+
+test("quiet chrome says each thing once, keeps rare actions in ⋯, and full chrome brings back the bars", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  host.setThreads([thread("talk", { agent: "claude", state: "idle", sessions: [talkSession] })]);
+  host.releaseSession();
+  await page.getByRole("button", { name: /^Talk review/ }).click();
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("talk-target");
+  const session = page.getByRole("region", { name: "Claude session" });
+  await expect.element(session.getByText("Rename the export.")).toBeVisible();
+  const band = page.getByRole("banner", { name: "Workspace" });
+  const viewOptions = page.getByRole("button", { name: "View options", exact: true });
+  const statusBar = () =>
+    [...document.querySelectorAll("[data-connection]")].some((dot) => dot.checkVisibility());
+  const command = async (name: string) => {
+    await userEvent.keyboard("{Control>}k{/Control}");
+    await page.getByRole("combobox", { name: "Search commands" }).fill(name);
+    await page.getByRole("option", { name: new RegExp(`^${name}`) }).click();
+  };
+
+  // Quiet by default: the sidebar names the thread, the band its branch, and
+  // the review's one row what it compares. No toolbar or status bar.
+  await expect
+    .element(band.getByRole("button", { name: "fixture, main. Copy path" }))
+    .toBeVisible();
+  await expect.element(session.getByText("Talk review")).not.toBeInTheDocument();
+  await expect.element(page.getByRole("combobox", { name: "Comparison" })).toBeVisible();
+  await expect.element(viewOptions).not.toBeInTheDocument();
+  expect(statusBar()).toBe(false);
+  // The ⋯ menu has the header's and the toolbar's actions; View has the diff's.
+  await page.getByRole("button", { name: "More actions", exact: true }).click();
+  for (const name of ["Copy comments", "Clear all comments…", "Find in diffs", "Commands"])
+    await expect
+      .element(page.getByRole("menuitem", { name: new RegExp(`^${name}`) }))
+      .toBeVisible();
+  await expect
+    .element(page.getByRole("menuitemcheckbox", { name: /^Agent session/ }))
+    .toBeChecked();
+  await page.getByRole("menuitem", { name: "View", exact: true }).click();
+  await expect
+    .element(page.getByRole("menuitemcheckbox", { name: "Wrap long lines" }))
+    .toBeVisible();
+  // Escape closes the submenu, then the menu.
+  await userEvent.keyboard("{Escape}{Escape}");
+  await expect.element(page.getByRole("menu").first()).not.toBeInTheDocument();
+  // ⌘K has what the toolbar's buttons did.
+  await userEvent.keyboard("{Control>}k{/Control}");
+  await page.getByRole("combobox", { name: "Search commands" }).fill("Compare against");
+  await expect
+    .element(page.getByRole("option", { name: /^Compare against a base branch/ }))
+    .toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  // With the sidebar hidden, the band names the thread.
+  await userEvent.keyboard("{Control>}b{/Control}");
+  await expect.element(band.getByText("Talk review", { exact: true })).toBeVisible();
+  await userEvent.keyboard("{Control>}b{/Control}");
+  await expect.element(band.getByText("Talk review", { exact: true })).not.toBeInTheDocument();
+
+  // Full chrome: the session's header names the thread, and the toolbar and
+  // the status bar come back.
+  await command("Use full chrome");
+  await expect.element(viewOptions).toBeVisible();
+  await expect.element(session.getByText("Talk review")).toBeVisible();
+  expect(statusBar()).toBe(true);
+  await command("Use quiet chrome");
+  await expect.element(viewOptions).not.toBeInTheDocument();
+  expect(statusBar()).toBe(false);
 });
 
 test("the sidebar lists every thread by repository with its agent's state", async () => {

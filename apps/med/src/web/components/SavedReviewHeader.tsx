@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { Popover } from "@base-ui/react/popover";
 import * as stylex from "@stylexjs/stylex";
 import type { ReviewController, ReviewControllerSnapshot } from "../data/controller";
 import { tokens, ui } from "../theme.stylex";
 import { checkoutNameFor } from "../data/checkout-names";
-import { ActionMenu, type MenuAction } from "./Controls";
+import { ActionMenu, type MenuEntry } from "./Controls";
 import { paneHandle } from "./PaneTree";
 import { Icon, type IconName } from "./Icon";
 import {
@@ -15,6 +15,12 @@ import {
   type PullRequestState,
   type ThreadPlacement,
 } from "./PullRequestComments";
+
+/** The header's actions for ⌘K. */
+export interface SavedReviewActions {
+  /** Asks to clear every comment, under the header's end. */
+  clearComments(): void;
+}
 
 export function SavedReviewHeader({
   controller,
@@ -32,14 +38,16 @@ export function SavedReviewHeader({
   notesPickIteration,
   compact = false,
   more = [],
+  ref,
 }: {
   /**
    * The thread beside it names the review, so the header leaves the name out,
    * and its actions go in one menu with `more`, as a title bar keeps few.
    */
   compact?: boolean;
-  /** The review pane's own actions, at the end of the compact header's menu. */
-  more?: MenuAction[];
+  /** The review pane's own actions, in groups after the compact header's own. */
+  more?: MenuEntry[][];
+  ref?: Ref<SavedReviewActions>;
   controller: ReviewController;
   /** The agent session that comments can go to, and how to open its message. */
   sendTo?: { name: string; icon: IconName; drafts: number; open(): void };
@@ -67,6 +75,15 @@ export function SavedReviewHeader({
   const busy = operation !== null;
   const [copied, setCopied] = useState<{ count: number } | null>(null);
   const [clearRevision, setClearRevision] = useState<number | null>(null);
+  useImperativeHandle(
+    ref,
+    () => ({
+      clearComments: () => {
+        if (!busy && saved.commentCount > 0) setClearRevision(saved.revision);
+      },
+    }),
+    [busy, saved.commentCount, saved.revision],
+  );
   const target = saved.targets.find((entry) => entry.id === state.savedTargetId);
   const outside = !state.savedView || browsing;
   const iterations = saved.iterations ?? [];
@@ -281,7 +298,7 @@ export function SavedReviewHeader({
                 onClick: () => setClearRevision(saved.revision),
               },
             ],
-            more,
+            ...more,
           ]}
         >
           <Icon name="more" size={15} />

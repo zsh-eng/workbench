@@ -84,8 +84,13 @@ try {
     await page.getByRole("link", { name: "Samples", exact: true }).waitFor();
   };
   await showPreview();
-  // The files pane has only its button; ⌘⇧B toggles the agent session.
-  await page.getByRole("button", { name: "Toggle files sidebar", exact: true }).click();
+  // Quiet chrome keeps the files pane's toggle in ⋯; ⌘⇧B toggles the agent
+  // session.
+  await page
+    .getByRole("button", { name: "More actions", exact: true })
+    .filter({ visible: true })
+    .click();
+  await page.getByRole("menuitemcheckbox", { name: "Files", exact: true }).click();
   const filesSidebar = page.getByRole("region", { name: "Workspace files", exact: true });
   await filesSidebar.waitFor();
   const sidebarBox = await filesSidebar.boundingBox();
@@ -150,7 +155,8 @@ try {
   ]);
   assert.equal((await response.json()).kind, "missing");
   // A branch with no worktree must keep links pinned to its displayed commit.
-  await page.getByRole("button", { name: "Open branch", exact: true }).click();
+  // The title band names the branch; ⌘⇧G opens another.
+  await page.keyboard.press("Meta+Shift+g");
   await page.getByRole("combobox", { name: "Search branches" }).fill("snapshot");
   await page.getByRole("dialog", { name: "Open branch" }).getByRole("option").click();
   await page.locator('[data-review-status="ready"]').waitFor();
