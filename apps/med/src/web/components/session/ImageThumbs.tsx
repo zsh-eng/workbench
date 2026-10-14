@@ -28,10 +28,6 @@ export interface ThumbImage {
  */
 export function ImageThumbs({ images }: { images: ThumbImage[] }) {
   const [shown, setShown] = useState<number | null>(null);
-  const source = (image: ThumbImage) => `data:${image.mimeType};base64,${image.data}`;
-  const current = shown === null ? undefined : images[shown];
-  const step = (by: number) =>
-    setShown((at) => (at === null ? at : (at + by + images.length) % images.length));
   return (
     <>
       <div {...stylex.props(styles.thumbs)}>
@@ -43,59 +39,79 @@ export function ImageThumbs({ images }: { images: ThumbImage[] }) {
             onClick={() => setShown(index)}
             {...stylex.props(styles.thumb)}
           >
-            <img alt="" src={source(image)} {...stylex.props(styles.thumbImage)} />
+            <img alt="" src={imageSource(image)} {...stylex.props(styles.thumbImage)} />
           </button>
         ))}
       </div>
-      <Dialog.Root open={!!current} onOpenChange={(open) => !open && setShown(null)}>
-        <Dialog.Portal>
-          <Dialog.Backdrop {...stylex.props(ui.scrim, styles.backdrop, ui.instant)} />
-          <Dialog.Popup
-            {...stylex.props(styles.viewer, ui.instant)}
-            onKeyDown={(event) => {
-              if (images.length < 2) return;
-              if (event.key === "ArrowRight") step(1);
-              else if (event.key === "ArrowLeft") step(-1);
-              else return;
-              event.preventDefault();
-            }}
-          >
-            <Dialog.Title {...stylex.props(styles.hidden)}>
-              {images.length > 1 ? `Image ${(shown ?? 0) + 1} of ${images.length}` : "Image"}
-            </Dialog.Title>
-            {current && <img alt="" src={source(current)} {...stylex.props(styles.full)} />}
-            <div {...stylex.props(styles.bar)}>
-              {images.length > 1 && (
-                <>
-                  <button
-                    type="button"
-                    aria-label="Previous image"
-                    onClick={() => step(-1)}
-                    {...stylex.props(ui.button, ui.iconButton)}
-                  >
-                    <Icon name="arrowLeft" size={15} />
-                  </button>
-                  <span {...stylex.props(styles.count)}>
-                    {(shown ?? 0) + 1} of {images.length}
-                  </span>
-                  <button
-                    type="button"
-                    aria-label="Next image"
-                    onClick={() => step(1)}
-                    {...stylex.props(ui.button, ui.iconButton, styles.next)}
-                  >
-                    <Icon name="arrowLeft" size={15} />
-                  </button>
-                </>
-              )}
-              <Dialog.Close aria-label="Close" {...stylex.props(ui.button, ui.iconButton)}>
-                <Icon name="close" size={15} />
-              </Dialog.Close>
-            </div>
-          </Dialog.Popup>
-        </Dialog.Portal>
-      </Dialog.Root>
+      <ImageViewer images={images} shown={shown} onShow={setShown} />
     </>
+  );
+}
+
+export const imageSource = (image: ThumbImage) => `data:${image.mimeType};base64,${image.data}`;
+
+/** One of `images` at full size, over the page; arrow keys step through the others. */
+export function ImageViewer({
+  images,
+  shown,
+  onShow,
+}: {
+  images: ThumbImage[];
+  shown: number | null;
+  onShow(index: number | null): void;
+}) {
+  const current = shown === null ? undefined : images[shown];
+  const step = (by: number) =>
+    shown !== null && onShow((shown + by + images.length) % images.length);
+  return (
+    <Dialog.Root open={!!current} onOpenChange={(open) => !open && onShow(null)}>
+      <Dialog.Portal>
+        <Dialog.Backdrop {...stylex.props(ui.scrim, styles.backdrop, ui.instant)} />
+        <Dialog.Popup
+          {...stylex.props(styles.viewer, ui.instant)}
+          onKeyDown={(event) => {
+            if (images.length < 2) return;
+            if (event.key === "ArrowRight") step(1);
+            else if (event.key === "ArrowLeft") step(-1);
+            else return;
+            event.preventDefault();
+          }}
+        >
+          <Dialog.Title {...stylex.props(styles.hidden)}>
+            {images.length > 1 ? `Image ${(shown ?? 0) + 1} of ${images.length}` : "Image"}
+          </Dialog.Title>
+          {current && <img alt="" src={imageSource(current)} {...stylex.props(styles.full)} />}
+          <div {...stylex.props(styles.bar)}>
+            {images.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  aria-label="Previous image"
+                  onClick={() => step(-1)}
+                  {...stylex.props(ui.button, ui.iconButton)}
+                >
+                  <Icon name="arrowLeft" size={15} />
+                </button>
+                <span {...stylex.props(styles.count)}>
+                  {(shown ?? 0) + 1} of {images.length}
+                </span>
+                <button
+                  type="button"
+                  aria-label="Next image"
+                  onClick={() => step(1)}
+                  {...stylex.props(ui.button, ui.iconButton, styles.next)}
+                >
+                  <Icon name="arrowLeft" size={15} />
+                </button>
+              </>
+            )}
+            <Dialog.Close aria-label="Close" {...stylex.props(ui.button, ui.iconButton)}>
+              <Icon name="close" size={15} />
+            </Dialog.Close>
+          </div>
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 

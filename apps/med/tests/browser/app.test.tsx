@@ -3338,7 +3338,13 @@ describe("agent session", () => {
       }),
     );
     const images = composer.getByRole("list", { name: "Images to send" });
-    await expect.element(images.getByRole("img", { name: "Attachment 1" })).toBeVisible();
+    // A click on the thumbnail shows the image at full size.
+    await images.getByRole("button", { name: "Show attachment 1" }).click();
+    const viewer = page.getByRole("dialog", { name: "Image" });
+    await expect.element(viewer).toBeVisible();
+    expect(viewer.element().querySelector("img")?.getAttribute("src")).toContain(png);
+    await userEvent.keyboard("{Escape}");
+    await expect.element(viewer).not.toBeInTheDocument();
     await userEvent.click(input);
     await userEvent.keyboard("Why?{Meta>}{Enter}{/Meta}");
     await expect

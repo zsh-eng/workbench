@@ -17,6 +17,7 @@ import type {
 import { tokens, ui } from "../../theme.stylex";
 import { ChoiceSelect } from "../Controls";
 import { Icon } from "../Icon";
+import { ImageViewer, imageSource } from "./ImageThumbs";
 
 export interface ComposerAttachment {
   id: string;
@@ -168,6 +169,7 @@ export function SessionComposer({
 }) {
   const [text, setText] = useState("");
   const [images, setImages] = useState<(PromptImage & { id: string })[]>([]);
+  const [shownImage, setShownImage] = useState<number | null>(null);
   const imageInput = useRef<HTMLInputElement>(null);
   const [left, setLeft] = useState<ReadonlySet<string>>(new Set());
   const [open, setOpen] = useState(false);
@@ -297,11 +299,14 @@ export function SessionComposer({
           <div aria-label="Images to send" role="list" {...stylex.props(styles.images)}>
             {images.map((image, index) => (
               <span key={image.id} role="listitem" {...stylex.props(styles.image)}>
-                <img
-                  alt={`Attachment ${index + 1}`}
-                  src={`data:${image.mimeType};base64,${image.data}`}
-                  {...stylex.props(styles.imagePreview)}
-                />
+                <button
+                  type="button"
+                  aria-label={`Show attachment ${index + 1}`}
+                  onClick={() => setShownImage(index)}
+                  {...stylex.props(styles.imageShow)}
+                >
+                  <img alt="" src={imageSource(image)} {...stylex.props(styles.imagePreview)} />
+                </button>
                 <button
                   type="button"
                   aria-label={`Remove attachment ${index + 1}`}
@@ -314,6 +319,7 @@ export function SessionComposer({
             ))}
           </div>
         )}
+        <ImageViewer images={images} shown={shownImage} onShow={setShownImage} />
         {(drafts.length > 0 || attachments.length > 0) && (
           <div {...stylex.props(styles.chips)}>
             {drafts.length > 0 && (
@@ -566,13 +572,26 @@ const styles = stylex.create({
   },
   chips: { display: "flex", flexWrap: "wrap", gap: 4 },
   images: { display: "flex", flexWrap: "wrap", gap: 6, paddingTop: 2 },
-  image: { position: "relative", display: "block", width: 48, height: 48 },
+  // As large as a sent message's thumbnails (THUMB in ImageThumbs).
+  image: { position: "relative", display: "block", width: 64, height: 64 },
+  imageShow: {
+    display: "block",
+    width: "100%",
+    height: "100%",
+    padding: 0,
+    borderWidth: 0,
+    borderRadius: `calc(8px * ${tokens.round})`,
+    backgroundColor: tokens.panel,
+    cursor: "zoom-in",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+    outlineOffset: 2,
+  },
   imagePreview: {
     display: "block",
     width: "100%",
     height: "100%",
     objectFit: "cover",
-    borderRadius: `calc(7px * ${tokens.round})`,
+    borderRadius: `calc(8px * ${tokens.round})`,
     boxShadow: `0 0 0 1px ${tokens.line}`,
   },
   imageRemove: {
