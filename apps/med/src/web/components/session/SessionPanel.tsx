@@ -1,3 +1,4 @@
+import type { MentionSources } from "../../data/mentions";
 import * as stylex from "@stylexjs/stylex";
 import { Menu } from "@base-ui/react/menu";
 import {
@@ -346,8 +347,13 @@ export function SessionPanel({
   title,
   detail,
   lead,
+  mentions,
+  onMentionsWanted,
 }: {
   reviewId: string;
+  /** What @ can name in a message. */
+  mentions?: MentionSources;
+  onMentionsWanted?(): void;
   /** The pane is on screen, so a new workspace shows once this has its
    * thread, before its review loads (see WorkspaceViews). */
   lead?: boolean;
@@ -710,6 +716,8 @@ export function SessionPanel({
             onRemoveAttachment={(id) => onRemoveAttachment?.(id)}
             onSend={send}
             owned={ownedState ? { state: ownedState, act: owned.act } : undefined}
+            mentions={mentions}
+            onMentionsWanted={onMentionsWanted}
           />
         )
       )}

@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { savedReviewSchema, type SavedReview } from "../../../shared/saved-review";
 import { threadSlug, threadTitle, type ThreadList } from "../../../shared/threads";
@@ -10,6 +10,10 @@ import { useAgentOptions, useAgentPresets } from "../../data/owned-session";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon, type IconName } from "../Icon";
 import { ShortcutKeys } from "../ShortcutKeys";
+import { useMentions } from "../Mentions";
+import { createBrowseApi, useBrowseFiles, useVaults } from "../../data/browse";
+import { useMentionSources } from "../../data/mentions";
+import type { BrowseSource } from "../../../shared/browse";
 
 const PLACE_KEY = "med:new-thread";
 
@@ -86,13 +90,41 @@ export function NewThread({
   const options = useAgentOptions(agent?.id, fetcher);
   const { model, effort, efforts } = sessionChoices(options, agent && choice.agents?.[agent.id]);
   const [prompt, setPrompt] = useState("");
+  const input = useRef<HTMLTextAreaElement>(null);
+  // @ names the repository's files, the vaults' notes, and other threads.
+  const api = useMemo(() => createBrowseApi(fetcher, readBrowserToken()), [fetcher]);
+  const [mentionRound, setMentionRound] = useState(0);
+  const wantMentions = useCallback(() => setMentionRound((round) => round + 1), []);
+  const root = repository?.path;
+  const checkout = useMemo<BrowseSource | null>(
+    () => (root ? { kind: "worktree", repo: root } : null),
+    [root],
+  );
+  const listed = useBrowseFiles(checkout, mentionRound > 0, 0, { api });
+  const files = useMemo(
+    () => (root ? { root, entries: listed.entries } : undefined),
+    [root, listed.entries],
+  );
+  const threads = useMemo(
+    () => [...(list?.threads ?? [])].sort((a, b) => b.updatedAt - a.updatedAt),
+    [list],
+  );
+  const vaults = useVaults(api, mentionRound > 0);
+  const mentionSources = useMentionSources(api, files, threads, vaults, mentionRound);
+  const mentions = useMentions({
+    text: prompt,
+    setText: setPrompt,
+    sources: mentionSources,
+    onWanted: wantMentions,
+    input: styles.input,
+    area: input,
+  });
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   useEffect(() => {
     busyRef.current = busy;
   }, [busy]);
   const [error, setError] = useState<string | null>(null);
-  const input = useRef<HTMLTextAreaElement>(null);
   useEffect(() => input.current?.focus(), []);
   // Escape leaves, as it closes other views over the workspaces.
   const leave = useRef(onCancel);
@@ -132,7 +164,9 @@ export function NewThread({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             repositoryId: repository.id,
-            prompt,
+            // The agent gets each mention's absolute path; the title keeps its short name.
+            prompt: await mentions.expand(prompt),
+            title: threadTitle(prompt),
             preset: agent.id,
             worktree: choice.worktree,
             choices: { model, effort },
@@ -152,22 +186,33 @@ export function NewThread({
       <div {...stylex.props(styles.column)}>
         <h1 {...stylex.props(styles.heading)}>What should the agent do?</h1>
         <div {...stylex.props(styles.card)}>
-          <textarea
-            ref={input}
-            value={prompt}
-            disabled={busy}
-            rows={5}
-            placeholder="Describe the task. The agent starts on it at once."
-            aria-label="Task"
-            onChange={(event) => setPrompt(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                event.preventDefault();
-                void start();
-              }
-            }}
-            {...stylex.props(styles.input)}
-          />
+          {mentions.field(
+            <textarea
+              {...mentions.textarea}
+              value={prompt}
+              disabled={busy}
+              rows={5}
+              placeholder="Describe the task, and @ to name files, notes, or threads. The agent starts on it at once."
+              aria-label="Task"
+              role="combobox"
+              aria-controls={mentions.textarea["aria-controls"]}
+              aria-expanded={mentions.open}
+              aria-autocomplete="list"
+              onChange={(event) => {
+                setPrompt(event.target.value);
+                mentions.changed(event.target.selectionStart);
+              }}
+              onKeyDown={(event) => {
+                if (mentions.onKeyDown(event)) return;
+                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault();
+                  void start();
+                }
+              }}
+              {...stylex.props(styles.input, mentions.over)}
+            />,
+          )}
+          {mentions.menu && <div {...stylex.props(styles.mentions)}>{mentions.menu}</div>}
           <div {...stylex.props(styles.controls)}>
             <Select
               label="Repository"
@@ -357,6 +402,8 @@ const styles = stylex.create({
     transitionProperty: "box-shadow",
     transitionDuration: "150ms",
   },
+  // Level with the task's text.
+  mentions: { paddingInline: 16, paddingBottom: 4 },
   input: {
     boxSizing: "border-box",
     width: "100%",

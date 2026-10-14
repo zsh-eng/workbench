@@ -48,6 +48,7 @@ import { BranchStrip, BranchSwitch, useBranchTabs } from "./components/BranchTab
 import {
   useDisposeOnClose,
   useShell,
+  useThreadList,
   useThreadState,
   useWorkspace,
   useWorkspaceEntry,
@@ -61,6 +62,7 @@ import { BranchPicker } from "./components/BranchPicker";
 import type { BrowseSource } from "../shared/browse";
 import { agentName, type AgentSession } from "../shared/saved-review";
 import { createBrowseApi, useBrowseFiles, useVaults, type BrowseApi } from "./data/browse";
+import { useMentionSources } from "./data/mentions";
 import { isBrowseFile, type FileRead } from "../shared/local-file";
 import { createFileWorkspace, isFileTab, sourceKey, useFileWorkspace } from "./data/file-workspace";
 import { RepositoryFiles } from "./components/RepositoryFiles";
@@ -532,7 +534,30 @@ export function App({
   const activeFile = fileState.tabs.find((tab) => tab.id === fileState.active);
   // Registered vaults: Find file reaches their files, and their tabs name their folders.
   const vaultTab = fileState.tabs.some((tab) => tab.source.kind === "vault");
-  const vaults = useVaults(browseApi, filePickerOpen || vaultTab);
+  // Each @ in a message to the agent lists the vaults' notes again.
+  const [mentionRound, setMentionRound] = useState(0);
+  const wantMentions = useCallback(() => setMentionRound((round) => round + 1), []);
+  const vaults = useVaults(browseApi, filePickerOpen || vaultTab || mentionRound > 0);
+  const allThreads = useThreadList();
+  const ownThread = state.savedReview?.id;
+  const otherThreads = useMemo(
+    () => allThreads.filter((thread) => thread.id !== ownThread),
+    [allThreads, ownThread],
+  );
+  const checkoutFiles = useMemo(
+    () =>
+      browseSource?.kind === "worktree"
+        ? { root: browseSource.repo, entries: repositoryFiles.entries }
+        : undefined,
+    [browseSource, repositoryFiles.entries],
+  );
+  const mentionSources = useMentionSources(
+    browseApi,
+    checkoutFiles,
+    otherThreads,
+    vaults,
+    mentionRound,
+  );
   const vaultRoots = useMemo(
     () => new Map(vaults.map((vault) => [vault.id, vault.path])),
     [vaults],
@@ -4087,6 +4112,8 @@ export function App({
                     controls={controls}
                     starter={sessionStarter}
                     lead={sessionVisible}
+                    mentions={mentionSources}
+                    onMentionsWanted={wantMentions}
                   />
                 )}
               </Suspense>

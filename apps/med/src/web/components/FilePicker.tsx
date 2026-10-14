@@ -21,7 +21,12 @@ import { setFilePreviewShown, useFilePreviewShown } from "../data/picker-prefere
 import type { BrowseSearch } from "../../shared/inspect";
 
 import type { RegisteredRepository } from "../../shared/protocol";
-import { isTestFile, matchesFileFilters, parsePickerFilters } from "../data/file-filters";
+import {
+  isTestFile,
+  matchScore,
+  matchesFileFilters,
+  parsePickerFilters,
+} from "../data/file-filters";
 import { checkoutName, repositoryLocation } from "../data/checkout-names";
 
 /** A registered worktree, or a vault. Only a worktree's source holds its
@@ -84,29 +89,6 @@ export function parseFileQuery(query: string): { text: string; line?: number } {
   const match = /^(.*?):([1-9]\d*)(?::[1-9]\d*)?$/.exec(query.trim());
   if (!match || !Number.isSafeInteger(Number(match[2]))) return { text: query.trim() };
   return { text: match[1]!, line: Number(match[2]) };
-}
-
-function matchScore(path: string, query: string): number {
-  if (!query) return 0;
-  const smartCase = query !== query.toLowerCase();
-  const value = smartCase ? path : path.toLowerCase();
-  const name = value.slice(value.lastIndexOf("/") + 1);
-  if (name === query) return 10_000;
-  if (name.startsWith(query)) return 8_000 - name.length;
-  const direct = name.indexOf(query);
-  if (direct >= 0) return 6_000 - direct - name.length;
-  if (value.includes(query)) return 4_000 - value.length;
-  let cursor = 0;
-  let gap = 0;
-  for (const character of query) {
-    // A space separates words, as a hyphen or a slash does in a path.
-    if (character === " ") continue;
-    const index = value.indexOf(character, cursor);
-    if (index < 0) return -Infinity;
-    gap += index - cursor;
-    cursor = index + 1;
-  }
-  return 2_000 - gap - value.length;
 }
 
 export function findFiles(

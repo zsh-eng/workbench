@@ -451,4 +451,8 @@ test("a long session pages back from its tail, and its prompts form a turn index
     "Second prompt",
     "Third prompt",
   ]);
+  // Another agent reads the session from its transcript's path.
+  expect(
+    await (await api(`/api/reviews/${saved.id}/sessions/${session}/transcript`)).json(),
+  ).toEqual({ path: transcript });
 });

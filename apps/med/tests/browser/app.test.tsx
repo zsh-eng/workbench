@@ -3247,6 +3247,50 @@ describe("agent session", () => {
     await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
   });
 
+  test("@ names a file or a vault's note, and the agent gets its absolute path", async () => {
+    const { agentMessages } = await mountApp({
+      savedReview: true,
+      vault: true,
+      session: `event: reset\ndata: ${JSON.stringify({ events: [], idle: true, modifiedAt: 0, truncated: false })}\n\n`,
+      inbox: { messages: [], waiting: ["s1"], drafts: [] },
+    });
+    await page.getByRole("button", { name: "Toggle agent session" }).click();
+    const panel = page.getByRole("region", { name: "Agent session" });
+    const input = panel.getByRole("combobox", { name: "Message Claude" });
+    await input.click();
+    await userEvent.keyboard("Read @alp");
+    const mentions = panel.getByRole("listbox", { name: "Mentions" });
+    await expect
+      .element(
+        mentions.getByRole("group", { name: "Files" }).getByRole("option", { name: /alpha\.ts/ }),
+      )
+      .toBeVisible();
+    await userEvent.keyboard("{Enter}and @plan");
+    await expect
+      .element(
+        mentions.getByRole("group", { name: "Notes" }).getByRole("option", { name: /Plan\.md/ }),
+      )
+      .toBeVisible();
+    await userEvent.keyboard("{Tab}");
+    await expect.element(mentions).not.toBeInTheDocument();
+    // The box keeps short tokens, marked as chips.
+    await expect.element(input).toHaveValue("Read @alpha.ts and @Plan.md ");
+    expect([...document.querySelectorAll("form mark")].map((mark) => mark.textContent)).toEqual([
+      "@alpha.ts",
+      "@Plan.md",
+    ]);
+    // Escape keeps a typed @ as text.
+    await userEvent.keyboard("@be");
+    await expect.element(mentions).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    await expect.element(mentions).not.toBeInTheDocument();
+    await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
+    await expect
+      .poll(() => agentMessages)
+      .toMatchObject([
+        { text: "Read /test/repo/src/alpha.ts and /test/notes/Projects/Plan.md @be" },
+      ]);
+  });
   test("comments go to the waiting agent from the review", async () => {
     const reply = (at: number, sessionUpdate: string, text: string) => ({
       at,
@@ -3286,7 +3330,7 @@ describe("agent session", () => {
     await panel.getByRole("button", { name: "2 comments" }).click();
     await panel.getByRole("checkbox", { name: /beta\.ts:2/ }).click();
     await expect.element(panel.getByRole("button", { name: "1 of 2 comments" })).toBeVisible();
-    await panel.getByRole("textbox", { name: "Message Claude" }).fill("Use minutes.");
+    await panel.getByRole("combobox", { name: "Message Claude" }).fill("Use minutes.");
     await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
 
     // The message and its comment show at once, before the host answers, and
@@ -3294,7 +3338,7 @@ describe("agent session", () => {
     await expect.element(panel.getByText("Use minutes.")).toBeVisible();
     await expect.element(panel.getByText("Sending…")).toBeVisible();
     await expect.element(panel.getByText("Rename it.")).toBeVisible();
-    await expect.element(panel.getByRole("textbox", { name: "Message Claude" })).toHaveValue("");
+    await expect.element(panel.getByRole("combobox", { name: "Message Claude" })).toHaveValue("");
     await expect.element(panel.getByRole("button", { name: "1 comment" })).toBeVisible();
     expect(panel.element().textContent).not.toMatch(/Worked for -/);
 

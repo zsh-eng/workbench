@@ -185,6 +185,14 @@ export function createBrowseApi(fetcher: typeof fetch, token: string) {
       );
       return { path: target.path, ...(index >= 0 ? { line: index + 1 } : {}) };
     },
+    /** The transcript of a thread's agent session, which names it to another agent. */
+    async transcript(review: string, session: string) {
+      const result = await api.json(
+        `/api/reviews/${encodeURIComponent(review)}/sessions/${encodeURIComponent(session)}/transcript`,
+        z.object({ path: z.string() }),
+      );
+      return result.path;
+    },
     /** Saves a vault's file, if it has not changed on disk since it was read. */
     async writeVault(file: LocalRead, text: string): Promise<LocalRead> {
       const result = await api.json("/api/local-files/write", localReadSchema, {
@@ -218,6 +226,7 @@ type OptionalBrowse =
   | "vaultFiles"
   | "readVault"
   | "followVaultLink"
+  | "transcript"
   | "writeVault";
 export type BrowseApi = Omit<CompleteBrowseApi, OptionalBrowse> &
   Partial<Pick<CompleteBrowseApi, OptionalBrowse>>;
@@ -372,4 +381,27 @@ export function useVaults(api: BrowseApi, enabled: boolean) {
     };
   }, [api, enabled]);
   return vaults;
+}
+
+/** Every vault's files, listed again for each new `round`; round 0 lists none. */
+export function useVaultsFiles(api: BrowseApi, vaults: readonly Vault[], round: number) {
+  const [lists, setLists] = useState<readonly { vault: Vault; entries: BrowseEntry[] }[]>([]);
+  useEffect(() => {
+    const list = api.vaultFiles;
+    if (!round || !list || !vaults.length) return;
+    const controller = new AbortController();
+    void Promise.all(
+      vaults.map(async (vault) => ({
+        vault,
+        entries: (await list(vault.id, controller.signal).catch(() => [])).map((path) => ({
+          path,
+          kind: "file" as const,
+        })),
+      })),
+    ).then((next) => {
+      if (!controller.signal.aborted) setLists(next);
+    });
+    return () => controller.abort();
+  }, [api, vaults, round]);
+  return lists;
 }

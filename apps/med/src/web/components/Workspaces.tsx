@@ -149,6 +149,15 @@ export function useThreadState(reviewId: string | undefined) {
   return use(Statuses).get(reviewId ?? "")?.state;
 }
 
+/** The window's threads, the most recently changed first. Outside a host, none. */
+export function useThreadList() {
+  const statuses = use(Statuses);
+  return useMemo(
+    () => [...statuses.values()].sort((a, b) => b.updatedAt - a.updatedAt),
+    [statuses],
+  );
+}
+
 /** The workspace that renders this App, with the host's actions. Outside a
  * host, such as in a test of App alone, it is null. */
 export function useWorkspace() {

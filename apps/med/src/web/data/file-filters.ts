@@ -80,3 +80,31 @@ export function changeKind(path: string): ChangeKind {
   if (docs.test(path)) return "docs";
   return code.test(path) ? "code" : "other";
 }
+
+/** How well a path matches a query: its name exactly, then its name's start,
+ * a part of its name or path, each of its words, then its characters in order. */
+export function matchScore(path: string, query: string): number {
+  if (!query) return 0;
+  const smartCase = query !== query.toLowerCase();
+  const value = smartCase ? path : path.toLowerCase();
+  const name = value.slice(value.lastIndexOf("/") + 1);
+  if (name === query) return 10_000;
+  if (name.startsWith(query)) return 8_000 - name.length;
+  const direct = name.indexOf(query);
+  if (direct >= 0) return 6_000 - direct - name.length;
+  if (value.includes(query)) return 4_000 - value.length;
+  const words = query.split(/\s+/).filter(Boolean);
+  if (words.length > 1)
+    return words.every((word) => value.includes(word))
+      ? (words.every((word) => name.includes(word)) ? 5_000 : 3_000) - value.length
+      : -Infinity;
+  let cursor = 0;
+  let gap = 0;
+  for (const character of query.trim()) {
+    const index = value.indexOf(character, cursor);
+    if (index < 0) return -Infinity;
+    gap += index - cursor;
+    cursor = index + 1;
+  }
+  return 2_000 - gap - value.length;
+}

@@ -291,6 +291,8 @@ function createHost() {
           service: "med",
           sources: [{ id: "vault-0", name: "notes", kind: "vault", path: "/test/notes" }],
         });
+      case "/api/service/files":
+        return Response.json({ files: [{ path: "Plans/Ages.md" }, { path: "Plans/diagram.png" }] });
       case "/api/repositories":
         return Response.json({ repositories });
       case "/api/session":
@@ -794,7 +796,7 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
   await expect
     .element(dialog.getByRole("radio", { name: "New worktree" }))
     .toHaveAttribute("aria-checked", "true");
-  await dialog.getByRole("textbox", { name: "Task" }).fill("Show each result's age in the list");
+  await dialog.getByRole("combobox", { name: "Task" }).fill("Show each result's age in the list");
   // The hint names the branch that Med creates.
   await expect.element(dialog.getByText("show-each-results-age-list")).toBeVisible();
   // Med chooses Opus at medium effort; a choice stays for the next thread.
@@ -803,7 +805,7 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
   await expect.element(model).toHaveValue("opus");
   await expect.element(effort).toHaveValue("medium");
   await effort.selectOptions("high");
-  await dialog.getByRole("textbox", { name: "Task" }).click();
+  await dialog.getByRole("combobox", { name: "Task" }).click();
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
   await expect
     .poll(() => host.threadRequests)
@@ -813,6 +815,7 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
         body: {
           repositoryId: "repo-0",
           prompt: "Show each result's age in the list",
+          title: "Show each result's age in the list",
           preset: "claude",
           worktree: true,
           choices: { model: "opus", effort: "high" },
@@ -848,12 +851,27 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
   await expect.element(repository).toHaveValue("repo-0");
   await repository.selectOptions("other");
   await expect.element(repository).toHaveValue("repo-1");
-  await dialog.getByRole("textbox", { name: "Task" }).fill("Rank results by age");
+  await dialog.getByRole("combobox", { name: "Task" }).fill("Rank results by age");
   await expect.element(dialog.getByText(/in a new worktree of other/)).toBeVisible();
   await dialog.getByRole("button", { name: /^Start/ }).click();
   await expect
     .poll(() => host.threadRequests.at(-1)?.body)
     .toMatchObject({ repositoryId: "repo-1", prompt: "Rank results by age" });
+
+  // @ names a vault's note: the agent gets its path, and the title its name.
+  await userEvent.keyboard("{Alt>}n{/Alt}");
+  const task = dialog.getByRole("combobox", { name: "Task" });
+  await task.click();
+  await userEvent.keyboard("Follow @ages");
+  await expect
+    .element(dialog.getByRole("group", { name: "Notes" }).getByRole("option", { name: /Ages\.md/ }))
+    .toBeVisible();
+  await userEvent.keyboard("{Enter}");
+  await expect.element(task).toHaveValue("Follow @Ages.md ");
+  await userEvent.keyboard("{Control>}{Enter}{/Control}");
+  await expect
+    .poll(() => host.threadRequests.at(-1)?.body)
+    .toMatchObject({ prompt: "Follow /test/notes/Plans/Ages.md ", title: "Follow @Ages.md" });
 });
 
 test("reviews that agents announce show in the window used last", async () => {

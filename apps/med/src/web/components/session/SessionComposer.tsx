@@ -18,6 +18,8 @@ import { tokens, ui } from "../../theme.stylex";
 import { ChoiceSelect } from "../Controls";
 import { Icon } from "../Icon";
 import { ImageViewer, imageSource } from "./ImageThumbs";
+import { useMentions } from "../Mentions";
+import type { MentionSources } from "../../data/mentions";
 
 export interface ComposerAttachment {
   id: string;
@@ -148,7 +150,13 @@ export function SessionComposer({
   onRemoveAttachment,
   onSend,
   owned,
+  mentions: mentionSources,
+  onMentionsWanted,
 }: {
+  /** What @ can name: files, vault notes, and threads. Without it, @ is text. */
+  mentions?: MentionSources;
+  /** @ opened: the workspace reads again what it can name. */
+  onMentionsWanted?(): void;
   /** Med runs this session: pickers, the `/` menu, Stop, and permission requests. */
   owned?: OwnedControls;
   agent: AgentMessage["agent"];
@@ -209,6 +217,14 @@ export function SessionComposer({
   const slash = owned && !menuClosed ? /^\/(\S*)$/.exec(text) : null;
   const matches = slash ? matchCommands(owned!.state.commands, slash[1]!) : [];
   const active = Math.min(highlight, Math.max(0, matches.length - 1));
+  const mentions = useMentions({
+    text,
+    setText,
+    sources: mentionSources,
+    onWanted: onMentionsWanted,
+    input: styles.input,
+    off: matches.length > 0,
+  });
   const act = (action: OwnedAction) =>
     owned
       ?.act(action)
@@ -223,22 +239,25 @@ export function SessionComposer({
     setHighlight(0);
   };
 
-  const send = () => {
+  const send = async () => {
     if (empty || working || stopped) return;
     setError(null);
     onSend({
-      text: text.trim(),
+      // Each mention reaches the agent as its absolute path.
+      text: await mentions.expand(text.trim()),
       noteIds: chosen.map((draft) => draft.id),
       attachments: attachments.map(({ label, text }) => ({ label, text })),
       images: images.map(({ mimeType, data }) => ({ mimeType, data })),
     });
     setText("");
+    mentions.clear();
     setImages([]);
     setLeft(new Set());
     setOpen(false);
     for (const attachment of attachments) onRemoveAttachment(attachment.id);
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentions.onKeyDown(event)) return;
     if (matches.length) {
       const move = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
       if (move) {
@@ -260,7 +279,7 @@ export function SessionComposer({
     }
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
-      send();
+      void send();
     } else if (event.key === "Escape" && working) {
       // As in Claude Code, Escape stops the turn.
       event.preventDefault();
@@ -291,7 +310,7 @@ export function SessionComposer({
         aria-label={`Message ${name}`}
         onSubmit={(event) => {
           event.preventDefault();
-          send();
+          void send();
         }}
         {...stylex.props(styles.box)}
       >
@@ -412,45 +431,56 @@ export function SessionComposer({
             ))}
           </div>
         )}
-        <textarea
-          aria-label={`Message ${name}`}
-          placeholder={
-            owned?.state.commands.length
-              ? `Message ${name}, or / for commands…`
-              : `Message ${name}…`
-          }
-          value={text}
-          rows={2}
-          role={owned ? "combobox" : undefined}
-          aria-expanded={owned ? matches.length > 0 : undefined}
-          aria-controls={matches.length ? menuId : undefined}
-          aria-activedescendant={matches.length ? `${menuId}-${active}` : undefined}
-          aria-autocomplete={owned ? "list" : undefined}
-          onChange={(event) => {
-            setText(event.target.value);
-            setHighlight(0);
-            if (!event.target.value.startsWith("/")) setMenuClosed(false);
-          }}
-          onKeyDown={onKeyDown}
-          onDragOver={(event) => {
-            if (event.dataTransfer.types.includes("Files")) event.preventDefault();
-          }}
-          onDrop={(event) => {
-            const files = [...event.dataTransfer.files];
-            if (files.some((file) => file.type.startsWith("image/"))) {
-              event.preventDefault();
-              void addImages(files);
+        {mentions.menu}
+        {mentions.field(
+          <textarea
+            {...mentions.textarea}
+            aria-label={`Message ${name}`}
+            placeholder={
+              owned?.state.commands.length
+                ? `Message ${name}, @ to mention, or / for commands…`
+                : mentionSources
+                  ? `Message ${name}, or @ to mention…`
+                  : `Message ${name}…`
             }
-          }}
-          onPaste={(event) => {
-            const files = [...event.clipboardData.files];
-            if (files.some((file) => file.type.startsWith("image/"))) {
-              event.preventDefault();
-              void addImages(files);
+            value={text}
+            rows={2}
+            role={owned || mentionSources ? "combobox" : undefined}
+            aria-expanded={
+              owned || mentionSources ? matches.length > 0 || mentions.open : undefined
             }
-          }}
-          {...stylex.props(styles.input)}
-        />
+            aria-controls={matches.length ? menuId : mentions.textarea["aria-controls"]}
+            aria-activedescendant={
+              matches.length ? `${menuId}-${active}` : mentions.textarea["aria-activedescendant"]
+            }
+            aria-autocomplete={owned || mentionSources ? "list" : undefined}
+            onChange={(event) => {
+              setText(event.target.value);
+              mentions.changed(event.target.selectionStart);
+              setHighlight(0);
+              if (!event.target.value.startsWith("/")) setMenuClosed(false);
+            }}
+            onKeyDown={onKeyDown}
+            onDragOver={(event) => {
+              if (event.dataTransfer.types.includes("Files")) event.preventDefault();
+            }}
+            onDrop={(event) => {
+              const files = [...event.dataTransfer.files];
+              if (files.some((file) => file.type.startsWith("image/"))) {
+                event.preventDefault();
+                void addImages(files);
+              }
+            }}
+            onPaste={(event) => {
+              const files = [...event.clipboardData.files];
+              if (files.some((file) => file.type.startsWith("image/"))) {
+                event.preventDefault();
+                void addImages(files);
+              }
+            }}
+            {...stylex.props(styles.input, mentions.over)}
+          />,
+        )}
         {owned && ownedStatus && (
           <span
             role="status"

@@ -221,6 +221,13 @@ gets your messages from Med as new turns. The message box has model, effort,
 and mode pickers, a context meter, `/` commands, and **Stop** (or `Esc`). A
 tool call that needs an answer shows **Allow** and **Deny**.
 
+Type `@` in the message box, or in a new thread's task, to name a file in the
+checkout, a note in a registered vault, or another thread. A query can have
+spaces, as note names do. The best match comes first; `↵` or `Tab` adds it, and
+`Esc` keeps the `@` as text. The box shows a short name as a chip,
+and the agent gets the absolute path, which it reads itself: a file's or a
+note's path, or another thread's session transcript.
+
 Paste or drop images into the message box, or use its image button. Claude
 Code and ACP agents that take images get them with the message, up to ten of 5
 MB each. Other agents get the paths of saved copies, which Claude Code and
@@ -424,7 +431,7 @@ empty field, **Clear filters**, or the scope button goes back.
 A vault is a scope too: type its name and press **Tab** to find a note, such as
 a plan that an agent works from. The note opens in this workspace's tabs, beside
 the thread, rendered to read; its wiki links stay in the vault, and `⌘⇧V` edits
-and saves it in place. A space in the query matches the words of a name, so
+and saves it in place. With spaces, a query matches each of its words, so
 `study plan` finds `study-plan.md`.
 
 Combine **Code**, **Tests**, and **Docs**, or type filters such as

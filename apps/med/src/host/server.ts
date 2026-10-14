@@ -743,9 +743,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           return;
         }
         // Earlier work of a long session: a page before a byte offset, and the
-        // index of its prompts.
+        // index of its prompts. Its transcript's path names it to another agent.
         const sessionPage =
-          /^\/api\/reviews\/([A-Za-z0-9_-]+)\/sessions\/([A-Za-z0-9_-]+)\/(page|turns)$/.exec(
+          /^\/api\/reviews\/([A-Za-z0-9_-]+)\/sessions\/([A-Za-z0-9_-]+)\/(page|turns|transcript)$/.exec(
             url.pathname,
           );
         if (sessionPage && request.method === "GET") {
@@ -760,6 +760,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             );
           if (sessionPage[3] === "turns") {
             send({ turns: await transcriptTurns(session, path) });
+            return;
+          }
+          if (sessionPage[3] === "transcript") {
+            send({ path });
             return;
           }
           const before = Number(url.searchParams.get("before"));
