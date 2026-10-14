@@ -6,8 +6,17 @@
 // HOME for the host and the CLI is <root>/home, so Med shows ~/code/tide.
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, utimes, writeFile, appendFile, realpath } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import {
+  appendFile,
+  chmod,
+  mkdir,
+  readFile,
+  realpath,
+  rm,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
+import { delimiter, dirname, join } from "node:path";
 import { buildWeekView, registerWeekView } from "./week-view.mjs";
 
 const MINUTE = 60_000;
@@ -485,12 +494,19 @@ class ClaudeTranscript {
     });
   }
   async step(step, at) {
-    const tool = (name, input, result, extra) => {
+    const tool = (name, input, result, extra, error = false) => {
       const id = `toolu_${randomUUID().replace(/-/g, "").slice(0, 24)}`;
       this.assistant(at, [{ type: "tool_use", id, name, input }], "tool_use");
       this.user(
         at + 900,
-        [{ tool_use_id: id, type: "tool_result", content: result }],
+        [
+          {
+            tool_use_id: id,
+            type: "tool_result",
+            content: result,
+            ...(error && { is_error: true }),
+          },
+        ],
         extra ? { toolUseResult: extra } : {},
       );
     };
@@ -540,11 +556,13 @@ class ClaudeTranscript {
         },
       });
     } else if (step.bash) {
+      // A failed command (`error: true`) is an error result, as Claude Code writes it.
       tool(
         "Bash",
         { command: step.bash, description: step.description ?? "Run a command" },
-        step.output ?? "",
+        step.error ? `Exit code 1\n${step.output ?? ""}` : (step.output ?? ""),
         { stdout: step.output ?? "", stderr: "", interrupted: false, isImage: false },
+        step.error,
       );
     } else if (step.commit) {
       git(this.cwd, ["add", "-A"]);
@@ -776,6 +794,479 @@ export function formatHeight(metres: number, unit: "m" | "ft" = "m") {
   return { id, path };
 }
 
+// ------------------------------------------------- attempts (experiment 7)
+
+/** One task that Claude and Codex both did, each in its own worktree. */
+export const WEEK_TITLE = "Show a week of tides in the CLI";
+const weekPrompt =
+  "Add a --week option to the CLI: seven days of tides for a station, one block for each day with the date as its heading.";
+const cliBody0 = `const [query = "", date] = process.argv.slice(2);
+const day = date ? new Date(date) : new Date();
+for (const station of findStations(query)) {
+  console.log(station.name);
+  for (const tide of predict(station, day))
+    console.log(\`  \${tide.kind.padEnd(4)} \${formatTime(tide.at, station.timeZone)}  \${formatHeight(tide.height)}\`);
+}
+`;
+const readmeUsage0 = "```sh\ntide brest 2026-10-15\n```\n";
+
+/** Attempt A: Claude Code with Opus. A week module, a day format, and padded
+ * heights, which break a test that it reports. */
+const weekClaude = [
+  { user: weekPrompt },
+  {
+    think:
+      "The CLI prints one day. A week is seven calls to predict(), so a small week() helper and a day heading are enough.",
+  },
+  { read: "src/cli.ts" },
+  {
+    write: "src/week.ts",
+    content: `import type { Station } from "./stations";
+import { predict, type Tide } from "./tides";
+
+const DAY = 24 * 60 * 60 * 1000;
+
+/** Seven days of tides for a station, from \`start\`. */
+export function week(station: Station, start: Date): { day: Date; tides: Tide[] }[] {
+  return Array.from({ length: 7 }, (_, offset) => {
+    const day = new Date(start.getTime() + offset * DAY);
+    return { day, tides: predict(station, day) };
+  });
+}
+`,
+  },
+  {
+    edit: "src/format.ts",
+    old: `/** A height in metres with one decimal, such as 3.7 m. */
+export function formatHeight(metres: number) {
+  return \`\${metres.toFixed(1)} m\`;
+}`,
+    new: `/** A height in metres with one decimal, padded so that columns line up. */
+export function formatHeight(metres: number) {
+  return \`\${metres.toFixed(1).padStart(4)} m\`;
+}
+
+/** A day at a station, such as Thu 15 Oct. */
+export function formatDay(day: Date, timeZone: string) {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  }).format(day);
+}`,
+  },
+  {
+    edit: "src/cli.ts",
+    old: `import { formatHeight, formatTime } from "./format";
+
+${cliBody0}`,
+    new: `import { formatDay, formatHeight, formatTime } from "./format";
+import { week } from "./week";
+
+const args = process.argv.slice(2);
+const weekly = args.includes("--week");
+const [query = "", date] = args.filter((arg) => arg !== "--week");
+const day = date ? new Date(date) : new Date();
+for (const station of findStations(query)) {
+  console.log(station.name);
+  const days = weekly ? week(station, day) : [{ day, tides: predict(station, day) }];
+  for (const entry of days) {
+    if (weekly) console.log(\`  \${formatDay(entry.day, station.timeZone)}\`);
+    const indent = weekly ? "    " : "  ";
+    for (const tide of entry.tides)
+      console.log(\`\${indent}\${tide.kind.padEnd(4)} \${formatTime(tide.at, station.timeZone)}  \${formatHeight(tide.height)}\`);
+  }
+}
+`,
+  },
+  {
+    bash: "bun src/cli.ts Brest 2026-10-15 --week | head -12",
+    output:
+      "Brest\n  Thu 15 Oct\n    low  05:54   0.0 m\n    high 12:07   6.1 m\n    low  18:19   0.0 m\n    high 00:32   6.1 m\n  Fri 16 Oct\n    low  06:44   0.0 m\n    high 12:57   6.1 m\n    low  19:10   0.0 m\n    high 01:22   6.1 m\n  Sat 17 Oct",
+  },
+  {
+    bash: "bun test",
+    error: true,
+    output:
+      'bun test v1.3.5\n\ntests/format.test.ts:\n✗ formats a height with one decimal\n\n  expect(received).toBe(expected)\n\n  Expected: "3.8 m"\n  Received: " 3.8 m"\n\n✓ formats a time in the station\'s zone\n\ntests/search.test.ts:\n✓ finds a station by its name\n\n 2 pass\n 1 fail\nRan 3 tests across 2 files.',
+  },
+  {
+    edit: "README.md",
+    old: readmeUsage0,
+    new: "```sh\ntide brest 2026-10-15\ntide brest --week   # seven days, one block for each day\n```\n",
+  },
+  {
+    say: "`tide brest --week` prints seven days, one block for each day with its date. The days come from `week()` in `src/week.ts`, and `formatDay()` writes the heading in the station's zone. I also padded heights so that the columns line up.\n\nOne test fails: `tests/format.test.ts` expects `3.8 m`, and the padding makes it ` 3.8 m`. Change the test if you keep the padding.",
+  },
+  { end: true },
+];
+
+/** Attempt B: Codex. A predictDays() in tides.ts, a test file, and a fix
+ * after its first test run fails. */
+const tidesEnd0 = "  return tides;\n}\n";
+const weekCodex = [
+  { user: weekPrompt },
+  { think: "**Adding a week view to the CLI**" },
+  {
+    bash: 'rg -n "predict\\(" src tests',
+    output:
+      "src/cli.ts:8:  for (const tide of predict(station, day))\nsrc/tides.ts:17:export function predict(station: Station, day: Date): Tide[] {",
+  },
+  {
+    edit: "src/tides.ts",
+    old: tidesEnd0,
+    new: `${tidesEnd0}
+/** Tides for \`days\` days from the day of \`start\`, one list for each day. */
+export function predictDays(station: Station, start: Date, days: number) {
+  const first = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate());
+  return Array.from({ length: days }, (_, index) => {
+    const day = new Date(first + index * 24 * 60 * 60 * 1000);
+    return { day, tides: predict(station, day) };
+  });
+}
+`,
+  },
+  {
+    edit: "src/cli.ts",
+    old: `import { predict } from "./tides";`,
+    new: `import { predictDays } from "./tides";`,
+  },
+  {
+    edit: "src/cli.ts",
+    old: cliBody0,
+    new: `const args = process.argv.slice(2);
+const days = args.includes("--week") ? 7 : 1;
+const [query = "", date] = args.filter((arg) => !arg.startsWith("--"));
+const start = date ? new Date(date) : new Date();
+const heading = { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" } as const;
+for (const station of findStations(query)) {
+  console.log(station.name);
+  for (const { day, tides } of predictDays(station, start, days)) {
+    if (days > 1) console.log(\`  \${day.toLocaleDateString("en-GB", heading)}\`);
+    for (const tide of tides)
+      console.log(\`\${days > 1 ? "    " : "  "}\${tide.kind.padEnd(4)} \${formatTime(tide.at, station.timeZone)}  \${formatHeight(tide.height)}\`);
+  }
+}
+`,
+  },
+  {
+    write: "tests/week.test.ts",
+    content: `import { expect, test } from "bun:test";
+import { stations } from "../src/stations";
+import { predictDays } from "../src/tides";
+
+const brest = stations.find((station) => station.id === "brest")!;
+
+test("predicts seven days from the start day", () => {
+  const days = predictDays(brest, new Date("2026-10-15T18:00:00Z"), 7);
+  expect(days.map(({ day }) => day.toISOString().slice(0, 10))).toEqual([
+    "2026-10-15",
+    "2026-10-16",
+    "2026-10-17",
+    "2026-10-18",
+    "2026-10-19",
+    "2026-10-20",
+    "2026-10-21",
+  ]);
+});
+
+test("each day has four high and low waters", () => {
+  for (const { tides } of predictDays(brest, new Date("2026-10-15"), 7))
+    expect(tides).toHaveLength(4);
+});
+`,
+  },
+  {
+    bash: "bun test",
+    exit: 1,
+    output:
+      "bun test v1.3.5\n\ntests/format.test.ts:\n✓ formats a height with one decimal\n✓ formats a time in the station's zone\n\ntests/search.test.ts:\n✓ finds a station by its name\n\ntests/week.test.ts:\n✓ predicts seven days from the start day\n✗ each day has four high and low waters\n\n  expect(received).toHaveLength(expected)\n\n  Expected length: 4\n  Received length: 3\n\n 4 pass\n 1 fail\nRan 5 tests across 3 files.",
+  },
+  {
+    think:
+      "A tide comes about every 6 h 12 min, so a day has three or four of them. The test is wrong, not the code.",
+  },
+  {
+    edit: "tests/week.test.ts",
+    old: `test("each day has four high and low waters", () => {
+  for (const { tides } of predictDays(brest, new Date("2026-10-15"), 7))
+    expect(tides).toHaveLength(4);
+});`,
+    new: `test("each day has three or four high and low waters", () => {
+  // A high or low water comes every 6 h 12 min, so some days have only three.
+  for (const { tides } of predictDays(brest, new Date("2026-10-15"), 7))
+    expect([3, 4]).toContain(tides.length);
+});`,
+  },
+  {
+    bash: "bun test",
+    output:
+      "bun test v1.3.5\n\ntests/format.test.ts:\n✓ formats a height with one decimal\n✓ formats a time in the station's zone\n\ntests/search.test.ts:\n✓ finds a station by its name\n\ntests/week.test.ts:\n✓ predicts seven days from the start day\n✓ each day has three or four high and low waters\n\n 5 pass\n 0 fail\nRan 5 tests across 3 files.",
+  },
+  {
+    edit: "README.md",
+    old: readmeUsage0,
+    new: "```sh\ntide brest 2026-10-15\ntide brest 2026-10-15 --week\n```\n\n`--week` prints seven days from the date, each under its own heading.\n",
+  },
+  {
+    say: "Added `--week`: `tide brest --week` prints seven days from today, or from the date you give, each under a heading such as Thursday 15 October. `predictDays()` in `src/tides.ts` does the work, and `tests/week.test.ts` covers it. My first test expected four tides each day, but some days have three; I fixed the test. All 5 tests pass.",
+  },
+  { end: true },
+];
+
+/** The patch that Codex's apply_patch writes for one file. */
+function codexPatch(file, before, after) {
+  const lines = (text, mark) =>
+    text
+      .replace(/\n$/, "")
+      .split("\n")
+      .map((line) => `${mark}${line}`);
+  const body =
+    before === null
+      ? [`*** Add File: ${file}`, ...lines(after, "+")]
+      : [`*** Update File: ${file}`, "@@", ...lines(before, "-"), ...lines(after, "+")];
+  return ["*** Begin Patch", ...body, "*** End Patch"].join("\n");
+}
+
+/** Writes a Codex rollout from steps, from `from` to `to`, applying its
+ * patches to `cwd`. `exit` on a shell step is its exit code. */
+async function codexRollout({ home, cwd, branch, model, steps, from, to }) {
+  const id = randomUUID();
+  const day = new Date(from);
+  const two = (value) => String(value).padStart(2, "0");
+  const folder = join(
+    home,
+    ".codex",
+    "sessions",
+    String(day.getFullYear()),
+    two(day.getMonth() + 1),
+    two(day.getDate()),
+  );
+  const path = join(
+    folder,
+    `rollout-${day.toISOString().slice(0, 19).replace(/:/g, "-")}-${id}.jsonl`,
+  );
+  const t = (at) => new Date(at).toISOString();
+  const lines = [
+    {
+      timestamp: t(from),
+      type: "session_meta",
+      payload: {
+        id,
+        timestamp: t(from),
+        cwd,
+        originator: "codex_cli_rs",
+        cli_version: "0.160.0",
+        git: { branch, commit_hash: "" },
+      },
+    },
+    {
+      timestamp: t(from),
+      type: "turn_context",
+      payload: { cwd, model, approval_policy: "on-request" },
+    },
+  ];
+  const item = (at, payload) => lines.push({ timestamp: t(at), type: "response_item", payload });
+  const gap = steps.length > 1 ? (to - from) / (steps.length - 1) : 0;
+  let last = "";
+  for (const [index, step] of steps.entries()) {
+    const at = from + index * gap;
+    const call = `call_${index}`;
+    if (step.user) {
+      item(at, {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: step.user }],
+      });
+      lines.push({
+        timestamp: t(at),
+        type: "event_msg",
+        payload: { type: "user_message", message: step.user, kind: "plain" },
+      });
+    } else if (step.think) {
+      item(at, {
+        type: "reasoning",
+        summary: [{ type: "summary_text", text: step.think }],
+        content: null,
+        encrypted_content: "gAAAA",
+      });
+    } else if (step.bash) {
+      item(at, {
+        type: "function_call",
+        name: "shell",
+        arguments: JSON.stringify({ command: ["bash", "-lc", step.bash], workdir: cwd }),
+        call_id: call,
+      });
+      item(at + 1500, {
+        type: "function_call_output",
+        call_id: call,
+        output: JSON.stringify({
+          output: step.output ?? "",
+          metadata: { exit_code: step.exit ?? 0, duration_seconds: 1.2 },
+        }),
+      });
+    } else if (step.edit || step.write) {
+      const file = join(cwd, step.edit ?? step.write);
+      let before = null;
+      let after = step.content;
+      if (step.edit) {
+        const text = await readFile(file, "utf8");
+        const found = text.indexOf(step.old);
+        if (found < 0) throw new Error(`The edit's old text is not in ${step.edit}`);
+        await writeFile(
+          file,
+          text.slice(0, found) + step.new + text.slice(found + step.old.length),
+        );
+        [before, after] = [step.old, step.new];
+      } else await put(cwd, step.write, step.content);
+      item(at, {
+        type: "custom_tool_call",
+        status: "completed",
+        call_id: call,
+        name: "apply_patch",
+        input: codexPatch(file, before, after),
+      });
+      item(at + 800, {
+        type: "custom_tool_call_output",
+        call_id: call,
+        output: JSON.stringify({
+          output: `Success. Updated the following files:\n${before === null ? "A" : "M"} ${file}\n`,
+          metadata: { exit_code: 0, duration_seconds: 0 },
+        }),
+      });
+    } else if (step.say) {
+      last = step.say;
+      item(at, {
+        type: "message",
+        role: "assistant",
+        content: [{ type: "output_text", text: step.say }],
+      });
+    } else if (step.end) {
+      lines.push({
+        timestamp: t(at),
+        type: "event_msg",
+        payload: { type: "task_complete", last_agent_message: last },
+      });
+    }
+  }
+  await mkdir(folder, { recursive: true });
+  await writeFile(path, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+  await utimes(path, new Date(to), new Date(to));
+  return { id, path };
+}
+
+/** A Claude Code that answers only `initialize`, with its models: New thread
+ * asks for them. It writes no transcript and does no task. */
+const fakeClaude = `#!/usr/bin/env node
+// The demo world's Claude Code: it tells its models and does nothing else.
+const models = [
+  { value: "default", displayName: "Default (recommended)", description: "Opus 5.5", supportedEffortLevels: ["low", "medium", "high", "xhigh"] },
+  { value: "opus", displayName: "Opus 5.5", supportedEffortLevels: ["low", "medium", "high", "xhigh"] },
+  { value: "sonnet", displayName: "Sonnet 4.6", supportedEffortLevels: ["low", "medium", "high"] },
+  { value: "haiku", displayName: "Haiku 4.5" },
+];
+let buffer = "";
+process.stdin.on("data", (chunk) => {
+  buffer += chunk;
+  for (let end; (end = buffer.indexOf("\\n")) >= 0; ) {
+    const line = buffer.slice(0, end);
+    buffer = buffer.slice(end + 1);
+    try {
+      const message = JSON.parse(line);
+      if (message.type === "control_request" && message.request?.subtype === "initialize")
+        process.stdout.write(JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: message.request_id, response: { commands: [], models } } }) + "\\n");
+    } catch {}
+  }
+});
+process.stdin.on("end", () => process.exit(0));
+`;
+/** What Codex offered in its last session, as Med keeps it. */
+const codexOffers = {
+  codex: [
+    {
+      id: "model",
+      name: "Model",
+      category: "model",
+      value: "gpt-6-astra",
+      options: ["gpt-6-astra", "gpt-6", "gpt-6-mini"].map((value) => ({ value, name: value })),
+    },
+    {
+      id: "reasoning_effort",
+      name: "Reasoning effort",
+      category: "effort",
+      value: "medium",
+      options: ["low", "medium", "high"].map((value) => ({
+        value,
+        name: value[0].toUpperCase() + value.slice(1),
+      })),
+    },
+  ],
+};
+
+/**
+ * Experiment 7's world: the two attempts, each in its own worktree from main,
+ * and the agents that New thread lists. The fake agents come first on PATH, so
+ * the demo never starts a real one.
+ */
+async function weekAttempts({ root, home, state, worktree, now }) {
+  const bin = join(root, "bin");
+  await put(bin, "claude", fakeClaude);
+  await put(
+    bin,
+    "codex-acp",
+    "#!/bin/sh\n# The demo world's Codex: New thread lists it; it never runs.\nexit 1\n",
+  );
+  await chmod(join(bin, "claude"), 0o755);
+  await chmod(join(bin, "codex-acp"), 0o755);
+  await writeFile(join(state, "agent-offers.json"), JSON.stringify(codexOffers));
+
+  const a = worktree("week-view-a");
+  const b = worktree("week-view-b");
+  const started = now - 100 * MINUTE;
+  const claude = new ClaudeTranscript({ home, cwd: a, branch: "week-view-a" });
+  await play(claude, weekClaude, started, started + 14 * MINUTE);
+  await utimes(claude.path, new Date(started + 14 * MINUTE), new Date(started + 14 * MINUTE));
+  const codex = await codexRollout({
+    home,
+    cwd: b,
+    branch: "week-view-b",
+    model: "gpt-6-astra",
+    steps: weekCodex,
+    from: started,
+    to: started + 9 * MINUTE,
+  });
+  return {
+    bin,
+    trees: { weekA: a, weekB: b },
+    sessions: {
+      weekA: { agent: "claude", id: claude.id, path: claude.path, cwd: a },
+      weekB: { agent: "codex", id: codex.id, path: codex.path, cwd: b },
+    },
+    /** Adds the two attempts as one group, after the other threads. */
+    register(cli) {
+      const create = (tree, key, attempt) => [
+        "review",
+        "create",
+        "--title",
+        WEEK_TITLE,
+        "--repo",
+        tree,
+        "--working",
+        "--key",
+        key,
+        "--group",
+        "week-view",
+        "--attempt",
+        String(attempt),
+        "--no-pr",
+      ];
+      cli(create(a, "week-view-a", 1), { CLAUDE_CODE_SESSION_ID: claude.id });
+      cli([...create(b, "week-view-b", 2), "--session", `codex:${codex.id}`]);
+    },
+  };
+}
+
 // ------------------------------------------------------------------ build
 
 /**
@@ -886,6 +1377,9 @@ export async function buildWorld(root, now = Date.now()) {
   // A larger change with no session, for the change map (experiment 4).
   const weekTree = await buildWeekView({ repo, trees, now, helpers: { git, put, dated } });
 
+  // Experiment 7: one task that Claude and Codex both did (see weekAttempts).
+  const attempts = await weekAttempts({ root, home, state, worktree, now });
+
   const world = {
     root,
     home,
@@ -915,6 +1409,10 @@ export async function buildWorld(root, now = Date.now()) {
     env: { HOME: home, MED_HOME_DIR: home, GIT_CONFIG_GLOBAL: join(home, ".gitconfig") },
     glossarySession,
   };
+
+  Object.assign(world.trees, attempts.trees);
+  Object.assign(world.sessions, attempts.sessions);
+  world.env.PATH = `${attempts.bin}${delimiter}${process.env.PATH ?? ""}`;
 
   /** Adds the sources and the threads that agents handed off to a running host. */
   world.register = (cli) => {
@@ -972,6 +1470,7 @@ export async function buildWorld(root, now = Date.now()) {
       { CLAUDE_CODE_SESSION_ID: dstSession.id },
     );
     registerWeekView(cli, weekTree);
+    attempts.register(cli);
   };
 
   /** The glossary agent's next step, as it works during a recording. */
