@@ -69,12 +69,21 @@ function overlay() {
     },
   };
   document.addEventListener("DOMContentLoaded", install);
-  // The caption rises above Med's own toasts near the bottom of the window.
-  const fixedAt = (element) => {
+  // The caption rises above Med's own toasts near the bottom of the window:
+  // fixed elements, and notices that float over a page.
+  const floats = (node) => {
+    const position = getComputedStyle(node).position;
+    return (
+      position === "fixed" ||
+      (position === "absolute" && node.matches('[role="status"], [role="alert"]'))
+    );
+  };
+  const toastAt = (element) => {
     for (let node = element, depth = 0; node && depth < 6; node = node.parentElement, depth++)
-      if (getComputedStyle(node).position === "fixed") return node;
+      if (floats(node)) return node;
     return null;
   };
+  const small = (box) => box.height > 0 && box.height < 140 && box.width < innerWidth * 0.7;
   setInterval(() => {
     const caption = document.getElementById("xp-caption");
     if (!caption?.classList.contains("on")) return;
@@ -83,10 +92,16 @@ function overlay() {
       for (const x of [innerWidth * 0.3, innerWidth * 0.5, innerWidth * 0.7])
         for (const element of document.elementsFromPoint(x, y)) {
           if (element.closest("#xp-root")) continue;
-          const toast = fixedAt(element);
-          const box = toast?.getBoundingClientRect();
-          if (box && box.height < 140 && box.width < innerWidth * 0.7) top = Math.min(top, box.top);
+          const box = toastAt(element)?.getBoundingClientRect();
+          if (box && small(box)) top = Math.min(top, box.top);
         }
+    // A narrow notice can sit between the points above.
+    for (const notice of document.querySelectorAll('[role="status"], [role="alert"]')) {
+      if (notice.closest("#xp-root") || !floats(notice)) continue;
+      if (!notice.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
+      const box = notice.getBoundingClientRect();
+      if (small(box) && box.bottom > innerHeight - 180) top = Math.min(top, box.top);
+    }
     caption.style.bottom = `${Math.max(34, innerHeight - top + 14)}px`;
   }, 200);
 }
