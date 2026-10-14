@@ -361,17 +361,14 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
   let workspaceGeneration = 0;
   let reviewGeneration = 0;
   let reviewAbort: AbortController | undefined;
-  // A saved review's first diff loads and parses while the repository checks run.
   /** When the window last read its saved review. */
   let savedReadAt = -Infinity;
-  let prefetched: {
-    reviewId: string;
-    targetId: string;
-    abort: AbortController;
-    work: ReturnType<typeof fetchSavedTarget>;
-  } | null = null;
   /** A checkout's session that a saved review reads with its first diff. */
   let presession: { repo: string; value: Promise<z.infer<typeof sessionSchema>> } | null = null;
+  /** A saved review's first diff, which needs no Git, so it shows before its
+   * checkout's session. The workspace that the session opens keeps it. */
+  let leading: { target: SavedReviewTarget; generation: number; load: Promise<boolean> } | null =
+    null;
   let sessionAbort: AbortController | undefined;
   let eventAbort: AbortController | undefined;
   let eventTimer: ReturnType<typeof setTimeout> | undefined;
@@ -975,42 +972,54 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     savedTarget?: SavedReviewTarget,
   ): Promise<void> {
     if (disposed) return;
+    const kept =
+      savedTarget &&
+      leading?.target.id === savedTarget.id &&
+      leading.generation === reviewGeneration
+        ? leading
+        : undefined;
+    leading = null;
     rememberTarget();
     const generation = ++workspaceGeneration;
     const catalogueVersion = catalogueGeneration;
     ++branchGeneration;
     branchAbort?.abort();
-    ++reviewGeneration;
+    if (!kept) {
+      ++reviewGeneration;
+      reviewAbort?.abort();
+    }
     sessionAbort?.abort();
     sessionAbort = new AbortController();
-    reviewAbort?.abort();
     cancelSources();
     stopEvents();
     sourceCache.clear();
-    update({
-      session: null,
-      savedView: Boolean(savedTarget),
-      ...(savedTarget ? { savedTargetId: savedTarget.id } : {}),
-      activeRepositoryId: repositoryId ?? snapshot.activeRepositoryId,
-      branches: repositoryId
-        ? (snapshot.repositories.find((entry) => entry.id === repositoryId)?.branches ?? [])
-        : snapshot.branches,
-      branchesError: null,
-      activeBranch: branch?.name ?? null,
-      historyRef: null,
-      connection: "closed",
-      sourceRevision: snapshot.sourceRevision + 1,
-      status: "loading",
-      error: null,
-      review: null,
-      files: [],
-      visibleFiles: [],
-      semantic: null,
-      notes: null,
-      notesError: noteWriteRecovery,
-      selectedFileId: null,
-      filter: "",
-    });
+    // A kept diff's workspace is new and shows its diff; the session sets the
+    // rest in one update, so the diff renders once more, not twice.
+    if (!kept)
+      update({
+        session: null,
+        savedView: Boolean(savedTarget),
+        ...(savedTarget ? { savedTargetId: savedTarget.id } : {}),
+        activeRepositoryId: repositoryId ?? snapshot.activeRepositoryId,
+        branches: repositoryId
+          ? (snapshot.repositories.find((entry) => entry.id === repositoryId)?.branches ?? [])
+          : snapshot.branches,
+        branchesError: null,
+        activeBranch: branch?.name ?? null,
+        historyRef: null,
+        connection: "closed",
+        sourceRevision: snapshot.sourceRevision + 1,
+        status: "loading",
+        error: null,
+        review: null,
+        files: [],
+        visibleFiles: [],
+        semantic: null,
+        notes: null,
+        notesError: noteWriteRecovery,
+        selectedFileId: null,
+        filter: "",
+      });
     const early = path && presession?.repo === path ? presession.value : undefined;
     presession = null;
     try {
@@ -1043,7 +1052,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         (session.repository.branch === "Detached HEAD" ? null : session.repository.branch || null);
       activeTarget = targetKey(id, session.repository.path, activeBranch);
       const saved = navigation.get(activeTarget);
-      restoreFilePath = saved?.selectedFilePath ?? null;
+      restoreFilePath = kept ? null : (saved?.selectedFilePath ?? null);
       const branchSnapshot =
         branch && (!branch.worktreePath || session.repository.branch !== branch.name);
       const initialComparison = branchSnapshot
@@ -1062,15 +1071,28 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         repositories,
         activeRepositoryId: id,
         branches: repositories.find((entry) => entry.id === id)?.branches ?? [],
-        comparison,
-        filter: saved?.filter ?? "",
-        selectedFileId: saved?.selectedFileId ?? null,
+        // A kept diff can be on screen, with its own file and filter.
+        ...(kept
+          ? {}
+          : {
+              comparison,
+              filter: saved?.filter ?? "",
+              selectedFileId: saved?.selectedFileId ?? null,
+            }),
         activeBranch,
         historyRef: branchSnapshot ? `refs/heads/${branch.name}` : null,
       });
       startEvents();
       await Promise.all([
-        savedTarget ? loadSavedTarget(savedTarget) : selectComparison(comparison),
+        // A kept diff that failed loads again, unless another one took its place.
+        kept
+          ? kept.load.then(
+              (shown) =>
+                shown || kept.generation !== reviewGeneration || loadSavedTarget(kept.target),
+            )
+          : savedTarget
+            ? loadSavedTarget(savedTarget)
+            : selectComparison(comparison),
         loadBranches(),
       ]);
     } catch (error) {
@@ -1117,6 +1139,9 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
           return;
         }
       }
+      // A kept diff stops, so the error stays on screen.
+      ++reviewGeneration;
+      reviewAbort?.abort();
       update({
         status: "error",
         error:
@@ -1213,15 +1238,11 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     })();
   }
 
-  async function loadSavedTarget(target: SavedReviewTarget): Promise<void> {
+  /** Resolves true when the diff shows. A `quiet` load keeps its failure off
+   * screen: the load after the checkout's session tries again and reports it. */
+  async function loadSavedTarget(target: SavedReviewTarget, quiet = false): Promise<boolean> {
     const saved = snapshot.savedReview;
-    if (!saved || disposed) return;
-    const early =
-      prefetched?.reviewId === saved.id && prefetched.targetId === target.id
-        ? prefetched.work
-        : undefined;
-    if (!early) prefetched?.abort.abort();
-    prefetched = null;
+    if (!saved || disposed) return false;
     const generation = ++reviewGeneration;
     reviewAbort?.abort();
     reviewAbort = new AbortController();
@@ -1238,22 +1259,21 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     if (cached) {
       publishReview(cached, generation, { requestMs: 0, parseMs: 0, cacheHit: true });
       prefetchIterations();
-      return;
+      return true;
     }
     try {
-      // A prefetch that failed, such as before its repository was added, is retried.
-      const signal = reviewAbort.signal;
       const { entry, requestMs, parseMs } = await fetchSavedEntry(
         saved.id,
         target,
-        early?.catch(() => fetchSavedTarget(saved.id, target.id, signal)) ??
-          fetchSavedTarget(saved.id, target.id, signal),
+        fetchSavedTarget(saved.id, target.id, reviewAbort.signal),
       );
-      if (!isCurrent(generation)) return;
+      if (!isCurrent(generation)) return false;
       publishReview(entry, generation, { requestMs, parseMs, cacheHit: false });
       prefetchIterations();
+      return true;
     } catch (error) {
-      if (isCurrent(generation)) update({ status: "error", error: message(error) });
+      if (isCurrent(generation) && !quiet) update({ status: "error", error: message(error) });
+      return false;
     }
   }
 
@@ -1697,16 +1717,16 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         update({ savedReview });
         const first = currentTargets(savedReview)[0] ?? savedReview.targets[0];
         if (!first) throw new Error("This review has no targets.");
-        const abort = new AbortController();
-        const work = fetchSavedTarget(savedReview.id, first.id, abort.signal);
-        work.catch(() => {});
-        prefetched = { reviewId: savedReview.id, targetId: first.id, abort, work };
         // The checkout's session reads its repository again from Git and lists
         // the others as the host knows them, so the review opens without the
         // read of every repository's branches and worktrees.
         const sessionPath = `/api/session?${query({ repo: first.repo })}`;
         const early = readWarm(fetcher, sessionPath, () => api.json(sessionPath, sessionSchema));
         presession = { repo: first.repo, value: early };
+        // The diff needs no Git, so it shows when it arrives. One that fails,
+        // such as before its repository was added, loads again after the session.
+        const load = loadSavedTarget(first, true);
+        leading = { target: first, generation: reviewGeneration, load };
         const repositories = await early.then(
           (session) => session.repositories,
           () => undefined,
@@ -2058,8 +2078,6 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     },
     dispose() {
       disposed = true;
-      prefetched?.abort.abort();
-      prefetched = null;
       if (typeof window !== "undefined") {
         window.removeEventListener("focus", refreshSavedOnFocus);
         document.removeEventListener("visibilitychange", refreshSavedOnVisibility);

@@ -33,6 +33,14 @@ async function fixture({
   events = false,
   // The review starts as a new thread's does: a working capture with no changes.
   empty = false,
+  // Git reads the checkout only after this sees the review open.
+  slowGit,
+}: {
+  removeWorktreeDuringOpen?: boolean;
+  staleCatalogue?: boolean;
+  events?: boolean;
+  empty?: boolean;
+  slowGit?: (controller: ReturnType<typeof createReviewController>) => Promise<void>;
 } = {}) {
   const directory = await realpath(await mkdtemp(join(tmpdir(), "med-comment-transport-")));
   cleanup.push(() => rm(directory, { recursive: true, force: true }));
@@ -84,11 +92,13 @@ async function fixture({
       ],
     })
   ).json();
+  const checkout = gate();
   const transport: {
     before?: (url: URL, init?: RequestInit) => Promise<void>;
     after?: (url: URL, response: Response) => Promise<Response>;
   } = {
     before: async (url) => {
+      if (slowGit && url.pathname === "/api/session") await checkout.waiting;
       if (
         removeWorktreeDuringOpen &&
         url.pathname === "/api/session" &&
@@ -136,7 +146,12 @@ async function fixture({
     },
   });
   cleanup.push(() => controller.dispose());
-  await controller.initialize();
+  const opening = controller.initialize();
+  if (slowGit) {
+    await slowGit(controller);
+    checkout.release();
+  }
+  await opening;
   expect(controller.getSnapshot().status).toBe("ready");
   await vi.waitFor(() => expect(controller.getSnapshot().notes).not.toBeNull());
   const feedback = async () => (await api(`/api/reviews/${saved.id}/feedback`)).json();
@@ -154,6 +169,22 @@ async function fixture({
     driftChecks: () => driftChecks,
   };
 }
+
+test("a saved diff shows while Git reads its checkout, and stays when the checkout arrives", async () => {
+  let shown: ReturnType<ReturnType<typeof createReviewController>["getSnapshot"]> | undefined;
+  const { controller, repo } = await fixture({
+    slowGit: async (controller) => {
+      await vi.waitFor(() => expect(controller.getSnapshot().status).toBe("ready"));
+      shown = controller.getSnapshot();
+    },
+  });
+  expect(shown?.session).toBeNull();
+  expect(shown?.files.map((file) => file.path)).toEqual(["file.ts"]);
+  const now = controller.getSnapshot();
+  expect(now.session?.repository.path).toBe(repo);
+  expect(now.review).toBe(shown?.review);
+  expect(now.selectedFileId).toBe(shown?.selectedFileId);
+});
 
 test("a review in a worktree that is newer than the repository list opens in that worktree", async () => {
   const { controller, linked } = await fixture({ staleCatalogue: true });

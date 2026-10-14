@@ -747,13 +747,20 @@ export function App({
   const [rangeOpen, setRangeOpen] = useState(false);
   const viewer = useRef<CodeViewHandle<Annotation, undefined>>(null);
   const reviewScroll = useRef(new Map<string, number>());
-  const reviewScope = JSON.stringify([state.activeRepositoryId, workspaceKey, state.comparison]);
+  // A saved target's diff shows before its checkout's Git state, and stays
+  // mounted when that state arrives.
+  const shownTarget = state.savedView
+    ? state.savedReview?.targets.find((target) => target.id === state.savedTargetId)
+    : undefined;
+  const scopeRepository = shownTarget ? shownTarget.repositoryId : state.activeRepositoryId;
+  const scopeWorkspace = shownTarget ? shownTarget.id : workspaceKey;
+  const reviewScope = JSON.stringify([scopeRepository, scopeWorkspace, state.comparison]);
   // The Guide's part on screen: the Overview, a segment, or a commit. Each
   // segment keeps its own place in the stream.
   const [guideScope, setGuideScope] = useState<GuideScope>({ kind: "overview" });
   const streamScope =
     fileState.active === "guide" && guideScope.kind !== "overview"
-      ? JSON.stringify([state.activeRepositoryId, workspaceKey, state.comparison, guideScope])
+      ? JSON.stringify([scopeRepository, scopeWorkspace, state.comparison, guideScope])
       : reviewScope;
   const previousRepositories = useRef(new Set<string>());
   useEffect(() => {

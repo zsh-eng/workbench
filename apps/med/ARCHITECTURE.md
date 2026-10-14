@@ -230,7 +230,10 @@ it is less than 10 seconds old, and does not read the saved review again within
 2 seconds. A saved review opens with the checkout's session, not
 `GET /api/repositories`: the session reads that repository again from Git and
 lists the others as the host knows them, and the diff reads at the same time.
-Each Git process costs about 10 ms on macOS, so the open waits on as few
+The saved diff needs no Git, so it shows when it arrives; the session then
+adds the Git parts, such as the Commit tab, in one update. The diff view's key
+names the saved target, not the checkout, so that update does not mount it
+again. Each Git process costs about 10 ms on macOS, so the open waits on as few
 dependent reads as it can. The host lists repositories in parallel and shares
 one listing among concurrent callers.
 
