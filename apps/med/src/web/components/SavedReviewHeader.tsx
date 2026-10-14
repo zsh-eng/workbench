@@ -26,6 +26,7 @@ export function SavedReviewHeader({
   codexReviews,
   findingPlacement,
   onReturn,
+  onLive,
   onTarget,
   sendTo,
   notesPickIteration,
@@ -52,6 +53,8 @@ export function SavedReviewHeader({
   browsing?: boolean;
   browsingSourceLabel?: string;
   onReturn(): void;
+  /** Shows the checkout's working changes in place of the capture. */
+  onLive?(): void;
   onTarget(id: string): void;
   /** The Notes tab shows, and its iteration keys show each iteration's comparison. */
   notesPickIteration?: boolean;
@@ -210,6 +213,19 @@ export function SavedReviewHeader({
         </select>
       )}
       <span {...stylex.props(styles.grow)} />
+      {!outside && onLive && (
+        <button
+          {...stylex.props(ui.button, ui.pressable, styles.fixed)}
+          aria-label="Show live changes"
+          title="Show the working changes as they are now. Return to review comes back to the capture."
+          onClick={onLive}
+        >
+          <span>
+            Live
+            <span {...stylex.props(styles.desktop, compact && styles.short)}> changes</span>
+          </span>
+        </button>
+      )}
       {outside && (
         <button
           {...stylex.props(ui.button, ui.active, styles.fixed)}
@@ -408,7 +424,10 @@ const styles = stylex.create({
     transformOrigin: "12px 12px",
     transitionProperty: "opacity, transform",
     transitionTimingFunction: "ease-in-out",
-    transitionDuration: { default: "180ms", "@media (prefers-reduced-motion: reduce)": "0ms" },
+    transitionDuration: {
+      default: "180ms",
+      "@media (prefers-reduced-motion: reduce)": "0ms",
+    },
   },
   copyHidden: { opacity: 0, transform: "scale(0.85)" },
   checkShape: {
@@ -417,7 +436,10 @@ const styles = stylex.create({
     strokeDashoffset: "1",
     transitionProperty: "opacity, stroke-dashoffset",
     transitionTimingFunction: "ease-in-out",
-    transitionDuration: { default: "220ms", "@media (prefers-reduced-motion: reduce)": "0ms" },
+    transitionDuration: {
+      default: "220ms",
+      "@media (prefers-reduced-motion: reduce)": "0ms",
+    },
   },
   checkVisible: { opacity: 1, strokeDashoffset: "0" },
   srOnly: {
@@ -462,7 +484,9 @@ const styles = stylex.create({
   totalLabel: { color: tokens.muted, fontSize: 12, whiteSpace: "nowrap" },
   fixed: { flexShrink: 0 },
   // Labels give way to the title when the review pane is narrow.
-  desktop: { display: { default: "inline", "@container (max-width: 640px)": "none" } },
+  desktop: {
+    display: { default: "inline", "@container (max-width: 640px)": "none" },
+  },
   short: { display: "none" },
   count: { color: tokens.muted, fontVariantNumeric: "tabular-nums" },
   reviewTitle: {
@@ -476,7 +500,12 @@ const styles = stylex.create({
     fontSize: 13,
     fontWeight: 500,
   },
-  ellipsis: { minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+  ellipsis: {
+    minWidth: 0,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
   comparison: {
     display: { default: "block", "@media (max-width: 900px)": "none" },
     minWidth: 0,
@@ -487,7 +516,10 @@ const styles = stylex.create({
     color: tokens.faint,
     fontSize: 12,
   },
-  prLink: { color: tokens.accent, textDecoration: { default: "none", ":hover": "underline" } },
+  prLink: {
+    color: tokens.accent,
+    textDecoration: { default: "none", ":hover": "underline" },
+  },
   grow: { flexGrow: 1 },
   select: {
     minWidth: 0,
@@ -505,8 +537,18 @@ const styles = stylex.create({
   },
   positioner: { zIndex: 60 },
   details: { width: "min(360px, calc(100vw - 24px))", padding: 12 },
-  title: { fontSize: 13, fontWeight: 600, marginBlock: 0, overflowWrap: "anywhere" },
-  detailText: { marginBlock: 10, color: tokens.muted, lineHeight: 1.5, overflowWrap: "anywhere" },
+  title: {
+    fontSize: 13,
+    fontWeight: 600,
+    marginBlock: 0,
+    overflowWrap: "anywhere",
+  },
+  detailText: {
+    marginBlock: 10,
+    color: tokens.muted,
+    lineHeight: 1.5,
+    overflowWrap: "anywhere",
+  },
   notice: {
     position: "absolute",
     top: "calc(100% + 6px)",

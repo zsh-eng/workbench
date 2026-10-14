@@ -166,34 +166,12 @@ export const GuideRail = memo(function GuideRail({
           </ol>
         )}
         {commits.length > 0 && (
-          <>
-            <div {...stylex.props(styles.section)}>
-              <span {...stylex.props(ui.label)}>Commits</span>
-              <span {...stylex.props(styles.sectionCount)}>
-                {commits.length}
-                {moreCommits ? "+" : ""}
-              </span>
-            </div>
-            <ol aria-label="Commits" {...stylex.props(styles.list)}>
-              {commits.map((commit) => {
-                const open = scope.kind === "commit" && scope.id === commit.id;
-                return (
-                  <li key={commit.id}>
-                    <button
-                      type="button"
-                      aria-current={open ? "page" : undefined}
-                      title={commit.subject}
-                      onClick={() => onScope({ kind: "commit", id: commit.id })}
-                      {...stylex.props(styles.row, styles.commit, open && [styles.on, picked])}
-                    >
-                      <span {...stylex.props(styles.sha)}>{commit.id.slice(0, 7)}</span>
-                      <span {...stylex.props(styles.commitSubject)}>{commit.subject}</span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ol>
-          </>
+          <RailCommits
+            commits={commits}
+            more={moreCommits}
+            current={scope.kind === "commit" ? scope.id : null}
+            onCommit={(id) => onScope({ kind: "commit", id })}
+          />
         )}
       </div>
       <div {...stylex.props(styles.keys)} aria-hidden="true">
@@ -206,6 +184,71 @@ export const GuideRail = memo(function GuideRail({
     </nav>
   );
 });
+
+/**
+ * A range's commits, as the Guide and the Changes rail list them. Changes adds
+ * a first row for the whole range.
+ */
+export function RailCommits({
+  commits,
+  more,
+  current,
+  onCommit,
+  whole,
+}: {
+  commits: readonly SavedCommit[];
+  more?: boolean;
+  /** The commit that shows, if one does. */
+  current: string | null;
+  onCommit(id: string): void;
+  whole?: { current: boolean; onShow(): void };
+}) {
+  return (
+    <>
+      <div {...stylex.props(styles.section)}>
+        <span {...stylex.props(ui.label)}>Commits</span>
+        <span {...stylex.props(styles.sectionCount)}>
+          {commits.length}
+          {more ? "+" : ""}
+        </span>
+      </div>
+      <ol aria-label="Commits" {...stylex.props(styles.list)}>
+        {whole && (
+          <li>
+            <button
+              type="button"
+              aria-current={whole.current ? "page" : undefined}
+              onClick={whole.onShow}
+              {...stylex.props(styles.row, styles.commit, whole.current && [styles.on, picked])}
+            >
+              <span aria-hidden="true" {...stylex.props(styles.sha, styles.all)}>
+                all
+              </span>
+              <span {...stylex.props(styles.commitSubject)}>Whole range</span>
+            </button>
+          </li>
+        )}
+        {commits.map((commit) => {
+          const open = current === commit.id;
+          return (
+            <li key={commit.id}>
+              <button
+                type="button"
+                aria-current={open ? "page" : undefined}
+                title={commit.subject}
+                onClick={() => onCommit(commit.id)}
+                {...stylex.props(styles.row, styles.commit, open && [styles.on, picked])}
+              >
+                <span {...stylex.props(styles.sha)}>{commit.id.slice(0, 7)}</span>
+                <span {...stylex.props(styles.commitSubject)}>{commit.subject}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+    </>
+  );
+}
 
 const styles = stylex.create({
   // A narrow pane gives the diff the room; the Overview lists the segments.
@@ -278,7 +321,10 @@ const styles = stylex.create({
     fontFamily: tokens.ui,
     textAlign: "left",
     cursor: "pointer",
-    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+    outline: {
+      default: "none",
+      ":focus-visible": `2px solid ${tokens.accentLine}`,
+    },
     outlineOffset: -2,
   },
   on: {
@@ -303,7 +349,13 @@ const styles = stylex.create({
     fontVariantNumeric: "tabular-nums",
   },
   auto: { letterSpacing: "0.1em" },
-  body: { display: "flex", flexDirection: "column", gap: 3, flex: "1", minWidth: 0 },
+  body: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 3,
+    flex: "1",
+    minWidth: 0,
+  },
   title: {
     minWidth: 0,
     overflow: "hidden",
@@ -324,7 +376,12 @@ const styles = stylex.create({
     fontSize: 10.5,
     fontVariantNumeric: "tabular-nums",
   },
-  notes: { display: "inline-flex", alignItems: "center", gap: 3, color: tokens.accent },
+  notes: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 3,
+    color: tokens.accent,
+  },
   files: {
     listStyle: "none",
     margin: 0,
@@ -350,7 +407,10 @@ const styles = stylex.create({
     backgroundColor: "transparent",
     color: tokens.canvas,
     cursor: "pointer",
-    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+    outline: {
+      default: "none",
+      ":focus-visible": `2px solid ${tokens.accentLine}`,
+    },
     outlineOffset: 1,
     transitionProperty: "background-color, border-color",
     transitionDuration: "120ms",
@@ -375,7 +435,10 @@ const styles = stylex.create({
     fontSize: 12,
     textAlign: "left",
     cursor: "pointer",
-    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+    outline: {
+      default: "none",
+      ":focus-visible": `2px solid ${tokens.accentLine}`,
+    },
     outlineOffset: -2,
   },
   fileViewed: { color: tokens.faint, textDecorationLine: "none" },
@@ -395,7 +458,11 @@ const styles = stylex.create({
     paddingInline: 8,
     minHeight: 24,
   },
-  sectionCount: { color: tokens.faint, fontFamily: tokens.code, fontSize: 10.5 },
+  sectionCount: {
+    color: tokens.faint,
+    fontFamily: tokens.code,
+    fontSize: 10.5,
+  },
   commit: { minHeight: 30, paddingInline: 8, gap: 9 },
   sha: {
     flexShrink: 0,
@@ -403,6 +470,8 @@ const styles = stylex.create({
     fontFamily: tokens.code,
     fontSize: 10.5,
   },
+  // As wide as a short hash, so the subjects line up.
+  all: { width: "7ch" },
   commitSubject: {
     minWidth: 0,
     overflow: "hidden",

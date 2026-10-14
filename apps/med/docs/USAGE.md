@@ -110,7 +110,8 @@ only the threads in view. Nothing is archived on its own.
   such as by an agent that does not hand off, a bar in the review lets you
   choose once the agent stops: **Refresh review** captures it again, and
   **Show live changes** shows the working changes as they are now, until
-  **Return to review**.
+  **Return to review**. **Live changes** in the review's header, or **Show
+  live changes** in `⌘K`, does the same at any time.
 - **Repositories**, at the foot of the sidebar, lists the registered
   repositories and vaults by name. Click one to browse it without a thread;
   **+** opens the Sources page.
@@ -249,6 +250,14 @@ request split into small ones.
 
 A range with several commits and no guide shows its commits in the Guide too.
 Agents pass a guide with [`--guide`](AGENT_INTEGRATION.md#attach-a-guide).
+
+In a saved review, **Changes** shows the same diff with a rail of its changed
+files as a tree and, with two or more commits, the range's commits. A commit
+shows on its own in Changes; **Whole range** goes back. The rail shows by
+itself when the review pane has room; the toolbar's first button, or **Show
+files and commits** in `⌘K`, shows or hides it in any width, and Med keeps
+that choice. With the **Changed files** pane open, the pane lists the files
+instead.
 
 ## Notes and briefs
 

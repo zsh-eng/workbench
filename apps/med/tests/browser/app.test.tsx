@@ -66,6 +66,7 @@ const storedPreferences = [
   "med:pane-width",
   "med:work",
   "med:viewed:v1:saved",
+  "med:changes-rail",
 ];
 beforeEach(async () => {
   // A desktop window: the review and its side panes fit beside each other.
@@ -99,7 +100,12 @@ function response(comparison: Comparison): ReviewResponse {
     })),
     patch,
     warnings: [],
-    metrics: { gitMs: 1, totalMs: 2, patchBytes: patch.length, cacheHit: false },
+    metrics: {
+      gitMs: 1,
+      totalMs: 2,
+      patchBytes: patch.length,
+      cacheHit: false,
+    },
   };
 }
 
@@ -120,6 +126,8 @@ async function mountApp(
     iterationBriefs?: string[];
     /** The first target's worktree changed after its capture. */
     drift?: boolean;
+    /** The first target is a range of the two fixture commits. */
+    rangeCommits?: boolean;
     /** Both iterations are commits on the main branch of one repository. */
     oneBranch?: boolean;
     /** Replaces the two small files with these, as path and unified patch. */
@@ -140,7 +148,10 @@ async function mountApp(
     /** Agents that Med can start; a started one runs as session o1. */
     agents?: AgentPreset[];
     /** Session s1's earlier page and its prompts. The session stream stays open. */
-    sessionPages?: { page: { events: unknown[]; start: number }; turns: unknown[] };
+    sessionPages?: {
+      page: { events: unknown[]; start: number };
+      turns: unknown[];
+    };
   } = {},
 ) {
   initializeTheme();
@@ -169,6 +180,16 @@ async function mountApp(
       base: secondCommit,
       head: commit ?? "working",
       captured: !(reviewed && !index),
+      ...(options.rangeCommits && !index
+        ? {
+            commits: commits.map(({ id, subject, author, timestamp }) => ({
+              id,
+              subject,
+              author,
+              timestamp,
+            })),
+          }
+        : {}),
     };
   });
   const pullRequestReads: string[] = [];
@@ -181,7 +202,12 @@ async function mountApp(
     path: target.repo,
     name: target.repo.split("/").at(-1)!,
     branches: [
-      { name: target.branch, head: firstCommit, worktreePath: target.repo, current: true },
+      {
+        name: target.branch,
+        head: firstCommit,
+        worktreePath: target.repo,
+        current: true,
+      },
     ],
     worktrees: [{ path: target.repo, head: firstCommit, branch: target.branch }],
   }));
@@ -217,8 +243,12 @@ async function mountApp(
   };
   const savedNotes: Note[] = [];
   // Notes that the reader started: each a new iteration of the latest comparison.
-  const startedNotes: { number: number; createdAt: string; targetIds: string[]; fresh: true }[] =
-    [];
+  const startedNotes: {
+    number: number;
+    createdAt: string;
+    targetIds: string[];
+    fresh: true;
+  }[] = [];
   const savedBundle = () => ({
     id: "saved",
     title: "Agent review",
@@ -228,7 +258,10 @@ async function mountApp(
     targets: savedTargets,
     ...(sessions.length ? { sessions } : {}),
     ...(options.pullRequest
-      ? { pullRequestUrl: options.pullRequest.url, pullRequestTitle: "Read pull request threads" }
+      ? {
+          pullRequestUrl: options.pullRequest.url,
+          pullRequestTitle: "Read pull request threads",
+        }
       : {}),
     ...(brief ? { brief: { text: brief, updatedAt: "2026-09-20T00:00:00Z" } } : {}),
     ...(options.guide ? { guide: { ...options.guide, updatedAt: "2026-09-20T00:00:00Z" } } : {}),
@@ -247,7 +280,10 @@ async function mountApp(
                   : index === options.iterationBriefs!.length - 1
                     ? [savedTargets[1]!.id]
                     : [],
-              brief: { text, updatedAt: new Date(Date.UTC(2026, 8, 20 + index)).toISOString() },
+              brief: {
+                text,
+                updatedAt: new Date(Date.UTC(2026, 8, 20 + index)).toISOString(),
+              },
             })),
             ...startedNotes,
           ],
@@ -303,7 +339,9 @@ async function mountApp(
       if (url.pathname === "/api/reviews/saved/sessions/s1/events" && options.session)
         return options.sessionPages
           ? eventStream(() => options.session!)
-          : new Response(options.session, { headers: { "content-type": "text/event-stream" } });
+          : new Response(options.session, {
+              headers: { "content-type": "text/event-stream" },
+            });
       if (url.pathname === "/api/reviews/saved/sessions/s1/page" && options.sessionPages) {
         pageReads.push(url.searchParams.get("before")!);
         return Response.json(options.sessionPages.page);
@@ -371,7 +409,9 @@ async function mountApp(
         return Response.json(savedBundle());
       }
       if (url.pathname === "/api/reviews/saved/delete-notes" && init?.method === "POST") {
-        const { iteration } = JSON.parse(String(init.body)) as { iteration?: number };
+        const { iteration } = JSON.parse(String(init.body)) as {
+          iteration?: number;
+        };
         const started = startedNotes.findIndex((entry) => entry.number === iteration);
         if (started >= 0) {
           const [removed] = startedNotes.splice(started, 1);
@@ -445,12 +485,20 @@ async function mountApp(
               createdAt: "2026-09-20T00:00:00Z",
               updatedAt: "2026-09-20T00:00:00Z",
             });
-          return Response.json({ reviewId: target.id, revision: ++revision, notes: savedNotes });
+          return Response.json({
+            reviewId: target.id,
+            revision: ++revision,
+            notes: savedNotes,
+          });
         }
         return Response.json(
           savedRoute[2] === "notes"
             ? { reviewId: target.id, revision, notes: savedNotes }
-            : { ...response(target.comparison), id: target.id, repo: target.repo },
+            : {
+                ...response(target.comparison),
+                id: target.id,
+                repo: target.repo,
+              },
         );
       }
     }
@@ -533,7 +581,12 @@ async function mountApp(
       return Response.json(
         options.branches
           ? [
-              { name: "main", head: firstCommit, worktreePath: "/test/repo", current: true },
+              {
+                name: "main",
+                head: firstCommit,
+                worktreePath: "/test/repo",
+                current: true,
+              },
               {
                 name: "feature",
                 head: secondCommit,
@@ -592,9 +645,17 @@ async function mountApp(
           notes = notes.map((note) =>
             note.id === body.mutation.id ? { ...note, text: body.mutation.text } : note,
           );
-        return Response.json({ reviewId: body.reviewId, revision: ++revision, notes });
+        return Response.json({
+          reviewId: body.reviewId,
+          revision: ++revision,
+          notes,
+        });
       }
-      return Response.json({ reviewId: url.searchParams.get("reviewId"), revision, notes });
+      return Response.json({
+        reviewId: url.searchParams.get("reviewId"),
+        revision,
+        notes,
+      });
     }
     throw new Error(`Unexpected request: ${url.pathname}`);
   };
@@ -611,7 +672,10 @@ async function mountApp(
   root.render(
     <App
       controller={controller}
-      browseApi={{ ...browse, write: options.readOnly ? undefined : browse.write }}
+      browseApi={{
+        ...browse,
+        write: options.readOnly ? undefined : browse.write,
+      }}
       loadBlame={options.loadBlame}
       commitApi={options.commitApi && (() => options.commitApi!)}
       sessionFetch={fetcher}
@@ -624,7 +688,10 @@ async function mountApp(
   // have no box, so they render when Changes shows.
   const briefFirst =
     options.savedReview &&
-    (options.brief !== undefined || options.iterationBriefs || options.guide);
+    (options.brief !== undefined ||
+      options.iterationBriefs ||
+      options.guide ||
+      options.rangeCommits);
   await expect
     .poll(() => document.querySelectorAll("diffs-container").length)
     .toBeGreaterThanOrEqual(briefFirst ? 0 : options.review ? 1 : 2);
@@ -643,7 +710,12 @@ async function mountApp(
 
 async function openBranch(name: string) {
   window.dispatchEvent(
-    new KeyboardEvent("keydown", { key: "G", metaKey: true, shiftKey: true, bubbles: true }),
+    new KeyboardEvent("keydown", {
+      key: "G",
+      metaKey: true,
+      shiftKey: true,
+      bubbles: true,
+    }),
   );
   await page.getByRole("combobox", { name: "Search branches" }).fill(name);
   await page.getByRole("option", { name: new RegExp(`^${name} `) }).click();
@@ -655,7 +727,12 @@ describe("graphical review", () => {
     await page.getByRole("link", { name: "src/alpha.ts", exact: true }).click();
     await expect.element(page.getByRole("button", { name: "Return to review" })).toBeVisible();
     window.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Z", code: "KeyZ", altKey: true, bubbles: true }),
+      new KeyboardEvent("keydown", {
+        key: "Z",
+        code: "KeyZ",
+        altKey: true,
+        bubbles: true,
+      }),
     );
     await expect
       .element(page.getByRole("button", { name: "Exit zen mode", exact: true }))
@@ -672,7 +749,10 @@ describe("graphical review", () => {
       .toBeVisible();
   });
   test("saved review return and target selection restore Changes after live file browsing", async () => {
-    const { controller } = await mountApp({ savedReview: true, branches: true });
+    const { controller } = await mountApp({
+      savedReview: true,
+      branches: true,
+    });
     await page.getByRole("link", { name: "src/alpha.ts", exact: true }).click();
     await expect
       .element(page.getByRole("textbox", { name: "Edit src/alpha.ts", exact: true }))
@@ -739,7 +819,10 @@ describe("graphical review", () => {
       .toHaveAttribute("aria-selected", "true");
     expect(controller.getSnapshot().selectedFileId).toBe(selected);
     await page.getByRole("tab", { name: "alpha.ts", exact: true }).click();
-    const editor = page.getByRole("textbox", { name: "Edit src/alpha.ts", exact: true });
+    const editor = page.getByRole("textbox", {
+      name: "Edit src/alpha.ts",
+      exact: true,
+    });
     await expect.element(editor).toBeVisible();
     await expect.poll(() => document.activeElement).toBe(editor.element());
   });
@@ -750,7 +833,15 @@ describe("graphical review", () => {
         path: file.path,
         identity: file.identity,
         truncated: false,
-        lines: [{ line: start, commit: "a".repeat(40), author: "Mira", date: "", summary: "Add" }],
+        lines: [
+          {
+            line: start,
+            commit: "a".repeat(40),
+            author: "Mira",
+            date: "",
+            summary: "Add",
+          },
+        ],
       }),
     });
     for (const name of ["src/alpha.ts", "src/beta.ts"])
@@ -787,7 +878,10 @@ describe("graphical review", () => {
       }),
     });
     await page.getByRole("link", { name: "src/alpha.ts", exact: true }).click();
-    const editor = page.getByRole("textbox", { name: "Edit src/alpha.ts", exact: true });
+    const editor = page.getByRole("textbox", {
+      name: "Edit src/alpha.ts",
+      exact: true,
+    });
     await expect.element(editor).toBeVisible();
     await expect.poll(() => document.activeElement).toBe(editor.element());
     const label = () => document.querySelector<HTMLElement>(".cm-line [data-med-line-blame-label]");
@@ -817,7 +911,10 @@ describe("graphical review", () => {
   test("a fresh launch opens read-only files with a visible Vim cursor and keyboard focus", async () => {
     await mountApp({ readOnly: true });
     await page.getByRole("link", { name: "src/alpha.ts", exact: true }).click();
-    const pane = page.getByRole("textbox", { name: "File navigation", exact: true });
+    const pane = page.getByRole("textbox", {
+      name: "File navigation",
+      exact: true,
+    });
     await expect.poll(() => document.activeElement).toBe(pane.element());
     const caret = document.querySelector<HTMLElement>("[data-file-pane=main] [data-vim-caret]")!;
     await expect.element(caret).toBeVisible();
@@ -854,7 +951,12 @@ describe("graphical review", () => {
     await expect.poll(() => fileRequests.at(-1)?.source.kind).toBe("worktree");
     await expect.element(page.getByRole("dialog", { name: "Find symbol" })).not.toBeInTheDocument();
     window.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "o", metaKey: true, shiftKey: true, bubbles: true }),
+      new KeyboardEvent("keydown", {
+        key: "o",
+        metaKey: true,
+        shiftKey: true,
+        bubbles: true,
+      }),
     );
     await page.getByRole("combobox").fill("working");
     await page.getByRole("option", { name: /workingContents/ }).click();
@@ -893,9 +995,17 @@ describe("graphical review", () => {
       );
     const key = (code: string, options: KeyboardEventInit) =>
       window.dispatchEvent(
-        new KeyboardEvent("keydown", { key: code.at(-1)!, code, bubbles: true, ...options }),
+        new KeyboardEvent("keydown", {
+          key: code.at(-1)!,
+          code,
+          bubbles: true,
+          ...options,
+        }),
       );
-    const exit = page.getByRole("button", { name: "Exit zen mode", exact: true });
+    const exit = page.getByRole("button", {
+      name: "Exit zen mode",
+      exact: true,
+    });
     await page.getByRole("button", { name: "Toggle files sidebar" }).click();
     await expect.poll(files).toBe(true);
     await page.getByRole("button", { name: "Enter zen mode", exact: true }).click();
@@ -926,12 +1036,20 @@ describe("graphical review", () => {
   test("a single branch needs no tab strip; Command Shift G opens another beside it", async () => {
     await mountApp({ branches: true });
     const strip = page.getByRole("tablist", { name: "Branches and worktrees" });
-    const switcher = page.getByRole("button", { name: "Open branch", exact: true });
+    const switcher = page.getByRole("button", {
+      name: "Open branch",
+      exact: true,
+    });
     const branch = () => switcher.element().textContent?.split("/").at(-1);
     await expect.poll(branch).toBe("main");
     await expect.element(strip).not.toBeInTheDocument();
     window.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "G", metaKey: true, shiftKey: true, bubbles: true }),
+      new KeyboardEvent("keydown", {
+        key: "G",
+        metaKey: true,
+        shiftKey: true,
+        bubbles: true,
+      }),
     );
     await expect.element(page.getByRole("dialog", { name: "Open branch" })).toBeVisible();
     await page.getByRole("combobox", { name: "Search branches" }).fill("feature");
@@ -970,7 +1088,13 @@ describe("graphical review", () => {
     await page.getByRole("treeitem", { name: /beta.ts/ }).dblClick();
     const altKey = (code: string, shiftKey = false) =>
       window.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "∑", code, altKey: true, shiftKey, bubbles: true }),
+        new KeyboardEvent("keydown", {
+          key: "∑",
+          code,
+          altKey: true,
+          shiftKey,
+          bubbles: true,
+        }),
       );
     altKey("KeyO", true);
     await expect
@@ -985,7 +1109,10 @@ describe("graphical review", () => {
     await expect
       .element(page.getByRole("tab", { name: "beta.ts", exact: true }))
       .toHaveAttribute("aria-selected", "true");
-    const editor = page.getByRole("textbox", { name: "Edit src/beta.ts", exact: true });
+    const editor = page.getByRole("textbox", {
+      name: "Edit src/beta.ts",
+      exact: true,
+    });
     await expect.element(editor).toBeVisible();
     await expect.poll(() => document.activeElement).toBe(editor.element());
     altKey("KeyW", true);
@@ -998,7 +1125,12 @@ describe("graphical review", () => {
     await mountApp();
     const find = async (name: string, keys: string) => {
       window.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "K", metaKey: true, shiftKey: true, bubbles: true }),
+        new KeyboardEvent("keydown", {
+          key: "K",
+          metaKey: true,
+          shiftKey: true,
+          bubbles: true,
+        }),
       );
       await page.getByRole("combobox", { name: "Find file", exact: true }).fill(name);
       await expect.element(page.getByRole("option", { name: new RegExp(name) })).toBeVisible();
@@ -1018,13 +1150,20 @@ describe("graphical review", () => {
     // The row is Changes, Commit, beta.ts, alpha.ts.
     const key = (init: KeyboardEventInit, target: EventTarget = window) =>
       target.dispatchEvent(
-        new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }),
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          ...init,
+        }),
       );
     const selected = async (name: string) => {
       await expect.element(tab(name)).toHaveAttribute("aria-selected", "true");
     };
     // From alpha.ts's editor too, where Option+3 would otherwise type £.
-    const editor = page.getByRole("textbox", { name: "Edit src/alpha.ts", exact: true });
+    const editor = page.getByRole("textbox", {
+      name: "Edit src/alpha.ts",
+      exact: true,
+    });
     await expect.element(editor).toBeVisible();
     // Option+P keeps the preview tab, also from its editor, where it would type π.
     key({ key: "π", code: "KeyP", altKey: true }, editor.element());
@@ -1060,7 +1199,10 @@ describe("graphical review", () => {
       .toBeVisible();
     await expect
       .poll(() => fileRequests.at(-1))
-      .toEqual({ source: { kind: "worktree", repo: "/test/repo" }, path: "src/alpha.ts" });
+      .toEqual({
+        source: { kind: "worktree", repo: "/test/repo" },
+        path: "src/alpha.ts",
+      });
     expect(diffHost?.isConnected).toBe(true);
     await page.getByRole("button", { name: "Open before", exact: true }).click();
     await expect.poll(() => fileRequests.at(-1)?.source.kind).toBe("commit");
@@ -1097,7 +1239,12 @@ describe("graphical review", () => {
     expect(document.querySelector('[aria-label="Full file"] diffs-container')).toBeNull();
     await openBranch("feature");
     window.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "K", metaKey: true, shiftKey: true, bubbles: true }),
+      new KeyboardEvent("keydown", {
+        key: "K",
+        metaKey: true,
+        shiftKey: true,
+        bubbles: true,
+      }),
     );
     await expect.element(page.getByRole("option", { name: /feature-only.ts/ })).toBeVisible();
     await expect.element(page.getByRole("option", { name: /alpha.ts/ })).not.toBeInTheDocument();
@@ -1107,7 +1254,11 @@ describe("graphical review", () => {
   test("Space stays unhandled and Command K still opens commands", async () => {
     await mountApp();
     for (let i = 0; i < 2; i++) {
-      const space = new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true });
+      const space = new KeyboardEvent("keydown", {
+        key: " ",
+        bubbles: true,
+        cancelable: true,
+      });
       document.body.dispatchEvent(space);
       expect(space.defaultPrevented).toBe(false);
     }
@@ -1125,7 +1276,12 @@ describe("graphical review", () => {
     await mountApp();
     // Without an agent session, Command Shift B does nothing.
     window.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "B", metaKey: true, shiftKey: true, bubbles: true }),
+      new KeyboardEvent("keydown", {
+        key: "B",
+        metaKey: true,
+        shiftKey: true,
+        bubbles: true,
+      }),
     );
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(
@@ -1157,7 +1313,10 @@ describe("graphical review", () => {
     await page.viewport(1280, 800);
     await mountApp();
     await page.getByRole("button", { name: "Toggle files sidebar" }).click();
-    const files = page.getByRole("region", { name: "Workspace files", exact: true });
+    const files = page.getByRole("region", {
+      name: "Workspace files",
+      exact: true,
+    });
     await files.getByRole("treeitem", { name: "GUIDE.md", exact: true }).click();
     await page.getByRole("button", { name: "Toggle Markdown preview" }).click();
 
@@ -1187,7 +1346,9 @@ describe("graphical review", () => {
 
     // A gutter's arrow keys move the edge between two panes; ⌘⌃= gives each
     // pane the same width.
-    const gutter = page.getByRole("separator", { name: "Resize Preview and Files" });
+    const gutter = page.getByRole("separator", {
+      name: "Resize Preview and Files",
+    });
     const share = () => Number(gutter.element().getAttribute("aria-valuenow"));
     const start = share();
     (gutter.element() as HTMLElement).focus();
@@ -1225,9 +1386,14 @@ describe("graphical review", () => {
     await mountApp();
     // Changed files, the review, and Files leave no free room for a quiet preview.
     await page.getByRole("button", { name: "Toggle files sidebar" }).click();
-    const files = page.getByRole("region", { name: "Workspace files", exact: true });
+    const files = page.getByRole("region", {
+      name: "Workspace files",
+      exact: true,
+    });
     await files.getByRole("treeitem", { name: "GUIDE.md", exact: true }).click();
-    const toggle = page.getByRole("button", { name: "Toggle Markdown preview" });
+    const toggle = page.getByRole("button", {
+      name: "Toggle Markdown preview",
+    });
     await expect.element(toggle).toHaveAttribute("aria-pressed", "false");
     await toggle.click();
     const preview = page.getByRole("region", { name: "Markdown preview" });
@@ -1254,7 +1420,13 @@ describe("graphical review", () => {
       const start = handle.getBoundingClientRect();
       const at = (type: string, clientX: number, clientY: number) =>
         handle.dispatchEvent(
-          new PointerEvent(type, { bubbles: true, button: 0, pointerId: 7, clientX, clientY }),
+          new PointerEvent(type, {
+            bubbles: true,
+            button: 0,
+            pointerId: 7,
+            clientX,
+            clientY,
+          }),
         );
       at("pointerdown", start.x + 4, start.y + 4);
       at("pointermove", start.x + 40, start.y + 40);
@@ -1310,7 +1482,10 @@ describe("graphical review", () => {
     );
     expect(preparedHost?.checkVisibility()).toBe(false);
     await toggle();
-    const sidebar = page.getByRole("region", { name: "Workspace files", exact: true });
+    const sidebar = page.getByRole("region", {
+      name: "Workspace files",
+      exact: true,
+    });
     const folder = sidebar.getByRole("treeitem", { name: "src", exact: true });
     await expect.element(folder).toHaveAttribute("aria-expanded", "true");
     await folder.click();
@@ -1346,7 +1521,10 @@ describe("graphical review", () => {
     await openBranch("release");
     await expect.poll(() => name().element().getAnimations().length).toBeGreaterThan(0);
     await expect.poll(() => controller.getSnapshot().historyRef).toBe("refs/heads/release");
-    expect(controller.getSnapshot().comparison).toEqual({ kind: "commit", commit: secondCommit });
+    expect(controller.getSnapshot().comparison).toEqual({
+      kind: "commit",
+      commit: secondCommit,
+    });
     await expect
       .element(page.getByRole("button", { name: "Working changes", exact: true }))
       .not.toBeInTheDocument();
@@ -1507,7 +1685,12 @@ describe("graphical review", () => {
     await userEvent.keyboard("{Enter}");
     await expect.element(page.getByText("1 / 2 hunks", { exact: true })).toBeVisible();
     await expect
-      .element(page.getByRole("button", { name: "Collapse src/long0.ts", exact: true }))
+      .element(
+        page.getByRole("button", {
+          name: "Collapse src/long0.ts",
+          exact: true,
+        }),
+      )
       .toBeInTheDocument();
     await centered("needleCollapsed");
   });
@@ -1561,7 +1744,10 @@ describe("graphical review", () => {
       Array.from({ length: lines }, (_, line) => `+const added${line} = ${line};\n`).join("");
     const paths = ["src/app.ts", "src/app.test.ts", "bun.lock"];
     await mountApp({
-      review: { paths, patch: file(paths[0], 2) + file(paths[1], 3) + file(paths[2], 40) },
+      review: {
+        paths,
+        patch: file(paths[0], 2) + file(paths[1], 3) + file(paths[2], 40),
+      },
     });
     // The fixture reports one added and one deleted line for each file.
     const totals = page.getByRole("button", { name: /^Comparison total:/ });
@@ -1583,12 +1769,20 @@ describe("graphical review", () => {
 
   test("the full diff header toggles collapse while its filename opens the file", async () => {
     await mountApp();
-    const toggle = page.getByRole("button", { name: "Collapse src/alpha.ts", exact: true });
+    const toggle = page.getByRole("button", {
+      name: "Collapse src/alpha.ts",
+      exact: true,
+    });
     await expect.element(toggle).toBeVisible();
     const bounds = toggle.element().getBoundingClientRect();
     // The far edge of the header is clickable, not just the chevron.
-    await toggle.click({ position: { x: bounds.width - 4, y: bounds.height / 2 } });
-    const expand = page.getByRole("button", { name: "Expand src/alpha.ts", exact: true });
+    await toggle.click({
+      position: { x: bounds.width - 4, y: bounds.height / 2 },
+    });
+    const expand = page.getByRole("button", {
+      name: "Expand src/alpha.ts",
+      exact: true,
+    });
     await expect.element(expand).toHaveAttribute("aria-expanded", "false");
     (expand.element() as HTMLButtonElement).focus();
     await userEvent.keyboard("{Enter}");
@@ -1602,7 +1796,10 @@ describe("graphical review", () => {
   test("gd uses ctags to jump to a declaration in the current file", async () => {
     await mountApp();
     await page.getByRole("link", { name: "src/alpha.ts", exact: true }).click();
-    const editor = page.getByRole("textbox", { name: "Edit src/alpha.ts", exact: true });
+    const editor = page.getByRole("textbox", {
+      name: "Edit src/alpha.ts",
+      exact: true,
+    });
     await expect.element(editor).toBeVisible();
     await expect.poll(() => document.activeElement).toBe(editor.element());
     const cursorLine = () => document.querySelector(".med-editor .cm-activeLine")?.textContent;
@@ -1644,7 +1841,12 @@ describe("graphical review", () => {
     await number("2").click();
     await expect.element(page.getByRole("textbox", { name: "Review note text" })).toHaveValue("");
     await expect
-      .element(page.getByRole("form", { name: "Local comment on line R2", exact: true }))
+      .element(
+        page.getByRole("form", {
+          name: "Local comment on line R2",
+          exact: true,
+        }),
+      )
       .toBeVisible();
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect
@@ -1961,7 +2163,11 @@ describe("graphical review", () => {
     await page.getByText("2 preserved notes outside this diff", { exact: true }).click();
     await expect.element(page.getByText("Check this value", { exact: true })).toBeVisible();
     await expect
-      .element(page.getByText("Source changed since this note was written.", { exact: true }))
+      .element(
+        page.getByText("Source changed since this note was written.", {
+          exact: true,
+        }),
+      )
       .toBeVisible();
     await page.getByRole("button", { name: "Edit", exact: true }).first().click();
     await page
@@ -2024,15 +2230,27 @@ describe("graphical review", () => {
     await expect.poll(() => rows().length).toBe(5);
 
     // Space stages the focused file at once, before Git answers; j moves on.
-    repository.configure({ upstream: false, hookFails: true, pushRejected: false, slow: true });
+    repository.configure({
+      upstream: false,
+      hookFails: true,
+      pushRejected: false,
+      slow: true,
+    });
     await userEvent.keyboard(" ");
     await expect
       .element(row("docs/USAGE.md"), { timeout: 400 })
       .toHaveAccessibleName("docs/USAGE.md, staged, modified");
     await expect
-      .element(stream.getByRole("button", { name: "Unstage docs/USAGE.md" }), { timeout: 400 })
+      .element(stream.getByRole("button", { name: "Unstage docs/USAGE.md" }), {
+        timeout: 400,
+      })
       .toBeVisible();
-    repository.configure({ upstream: false, hookFails: true, pushRejected: false, slow: false });
+    repository.configure({
+      upstream: false,
+      hookFails: true,
+      pushRejected: false,
+      slow: false,
+    });
     await userEvent.keyboard("j");
     await expect
       .element(row("scripts/obsolete-check.mjs"))
@@ -2052,7 +2270,12 @@ describe("graphical review", () => {
       .element(page.getByRole("alert").filter({ hasText: "lint-staged" }))
       .toMatchTextContent("Missing semicolon");
     await expect.element(message).toHaveValue("docs: explain the Commit tab");
-    repository.configure({ upstream: false, hookFails: false, pushRejected: false, slow: false });
+    repository.configure({
+      upstream: false,
+      hookFails: false,
+      pushRejected: false,
+      slow: false,
+    });
     await userEvent.keyboard("{Control>}{Enter}{/Control}");
     await expect
       .element(page.getByRole("status").filter({ hasText: "Committed " }))
@@ -2090,7 +2313,10 @@ describe("graphical review", () => {
     const tab = (name: string) => page.getByRole("tab", { name, exact: true });
     await expect.element(tab("Commit")).toHaveAttribute("aria-selected", "true");
     stream
-      .getByRole("link", { name: "src/web/components/CommitView.tsx", exact: true })
+      .getByRole("link", {
+        name: "src/web/components/CommitView.tsx",
+        exact: true,
+      })
       .element()
       .dispatchEvent(new MouseEvent("click", { bubbles: true, metaKey: true }));
     await expect.element(tab("CommitView.tsx")).toBeVisible();
@@ -2135,7 +2361,11 @@ describe("review guide", () => {
               },
             ],
           },
-          { title: "Rename beta", summary: "The same rename.", files: ["src/beta.ts"] },
+          {
+            title: "Rename beta",
+            summary: "The same rename.",
+            files: ["src/beta.ts"],
+          },
         ],
       },
     });
@@ -2266,7 +2496,9 @@ describe("review brief", () => {
     );
     await userEvent.click(page.getByRole("button", { name: "Save note" }));
     // The comment shows below its paragraph, and the passage stays marked.
-    const card = page.getByRole("article", { name: "Comment on “Callers keep the old name”" });
+    const card = page.getByRole("article", {
+      name: "Comment on “Callers keep the old name”",
+    });
     await expect.element(card.getByText("Rename the callers too.")).toBeVisible();
     await expect.poll(marked).toEqual(["Callers keep the old name"]);
     await expect
@@ -2317,6 +2549,44 @@ describe("review brief", () => {
     await page.getByRole("button", { name: "Iteration 2" }).click();
     await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
     await expect.poll(() => controller.getSnapshot().savedTargetId).toBe("target-1");
+  });
+
+  test("a saved review's Changes tab lists its files and commits, and shows the live changes", async () => {
+    await page.viewport(1400, 900);
+    const { controller } = await mountApp({
+      savedReview: true,
+      rangeCommits: true,
+    });
+    await page.getByRole("tab", { name: "Changes", exact: true }).click();
+    // The Changed files pane holds the tree; without it, the rail does.
+    const rail = page.getByRole("navigation", { name: "Files and commits" });
+    await expect.element(rail).not.toBeInTheDocument();
+    await page.getByRole("button", { name: "Close changed files" }).click();
+    await expect.element(rail).toBeVisible();
+    await expect.element(rail.getByRole("textbox", { name: "Filter changed files" })).toBeVisible();
+    const list = rail.getByRole("list", { name: "Commits" });
+    await expect
+      .element(list.getByRole("button", { name: "Whole range" }))
+      .toHaveAttribute("aria-current", "page");
+    await list.getByRole("button", { name: /Add the initial renderer/ }).click();
+    await expect
+      .poll(() => controller.getSnapshot().comparison)
+      .toEqual({ kind: "commit", commit: secondCommit });
+    await expect
+      .element(list.getByRole("button", { name: /Add the initial renderer/ }))
+      .toHaveAttribute("aria-current", "page");
+    await list.getByRole("button", { name: "Whole range" }).click();
+    await expect.poll(() => controller.getSnapshot().savedView).toBe(true);
+    // The toolbar hides the rail, and the choice holds.
+    await page.getByRole("button", { name: "Hide files and commits" }).click();
+    await expect.element(rail).not.toBeInTheDocument();
+    expect(localStorage.getItem("med:changes-rail")).toBe("closed");
+    // The header shows the live changes until Return to review.
+    await page.getByRole("button", { name: "Show live changes" }).click();
+    await expect.poll(() => controller.getSnapshot().savedView).toBe(false);
+    expect(controller.getSnapshot().comparison.kind).toBe("working");
+    await page.getByRole("button", { name: "Return to review" }).click();
+    await expect.poll(() => controller.getSnapshot().savedView).toBe(true);
   });
 
   test("a review whose worktree changed offers a refresh or the live changes", async () => {
@@ -2376,7 +2646,11 @@ describe("review brief", () => {
     const observer = new MutationObserver(() =>
       tabs.add(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent ?? ""),
     );
-    observer.observe(document.body, { subtree: true, childList: true, attributes: true });
+    observer.observe(document.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+    });
     await confirm.getByRole("button", { name: "Delete", exact: true }).click();
     await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
     await expect.poll(() => controller.getSnapshot().savedTargetId).toBe("target-1");
@@ -2438,7 +2712,11 @@ describe("review brief", () => {
       shown.add(`${app?.dataset.reviewStatus} ${tab?.textContent} ${heading}`);
     };
     const observer = new MutationObserver(record);
-    observer.observe(document.body, { subtree: true, childList: true, attributes: true });
+    observer.observe(document.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+    });
     await page.getByRole("button", { name: "Iteration 1" }).click();
     await expect.element(page.getByRole("heading", { name: "First round" })).toBeVisible();
     observer.disconnect();
@@ -2460,12 +2738,17 @@ describe("review brief", () => {
   });
 
   test("loads a brief image from the repository", async () => {
-    await mountApp({ savedReview: true, brief: "# Screens\n\n![The review](docs/review.png)\n" });
+    await mountApp({
+      savedReview: true,
+      brief: "# Screens\n\n![The review](docs/review.png)\n",
+    });
     await expect.element(page.getByRole("img", { name: "The review" })).toBeInTheDocument();
     const source = new URL(document.querySelector<HTMLImageElement>("img[alt='The review']")!.src);
     expect(source.pathname).toBe("/api/markdown/image");
     expect(source.searchParams.get("href")).toBe("docs/review.png");
-    expect(JSON.parse(source.searchParams.get("source")!)).toMatchObject({ kind: "worktree" });
+    expect(JSON.parse(source.searchParams.get("source")!)).toMatchObject({
+      kind: "worktree",
+    });
   });
 
   test("adds a note on excerpt lines that also shows in Changes", async () => {
@@ -2495,7 +2778,12 @@ describe("review brief", () => {
     await page.getByRole("button", { name: "Save note", exact: true }).click();
     await expect
       .poll(() => controller.getSnapshot().notes?.notes[0])
-      .toMatchObject({ path: "src/alpha.ts", side: "new", line: 1, text: "Keep this name" });
+      .toMatchObject({
+        path: "src/alpha.ts",
+        side: "new",
+        line: 1,
+        text: "Keep this name",
+      });
     await expect.element(page.getByTitle("1 note on these lines")).toBeVisible();
     await expect
       .element(page.getByRole("textbox", { name: "Review note text" }))
@@ -2550,11 +2838,17 @@ describe("review brief", () => {
     });
     // The header names the PR by its own title; the browser tab keeps the short title.
     await expect
-      .element(page.getByRole("link", { name: "Open pull request: Read pull request threads" }))
+      .element(
+        page.getByRole("link", {
+          name: "Open pull request: Read pull request threads",
+        }),
+      )
       .toBeVisible();
     expect(document.title).toBe("Agent review");
     // The thread on the pull request head shows on its line, with no way to write.
-    const thread = page.getByRole("article", { name: "GitHub thread by mira at R1, read-only" });
+    const thread = page.getByRole("article", {
+      name: "GitHub thread by mira at R1, read-only",
+    });
     await expect.element(thread).toBeVisible();
     expect(thread.element().textContent).toMatch(
       /Rename after to next\..*sam.*Done in the next push/,
@@ -2636,7 +2930,9 @@ describe("review brief", () => {
       ],
     });
     // The finding of the commit on screen shows on its line, with no way to write.
-    const card = page.getByRole("article", { name: "Codex finding at R1, read-only" });
+    const card = page.getByRole("article", {
+      name: "Codex finding at R1, read-only",
+    });
     await expect.element(card).toBeVisible();
     expect(card.element().textContent).toMatch(
       /Codex\s*P1.*Use the existing field.*Because use the existing field\./,
@@ -2664,7 +2960,11 @@ describe("review brief", () => {
     const data = new DataTransfer();
     data.setData("text/plain", "Only [beta.ts:2](src/beta.ts:2) matters.");
     document.body.dispatchEvent(
-      new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }),
+      new ClipboardEvent("paste", {
+        clipboardData: data,
+        bubbles: true,
+        cancelable: true,
+      }),
     );
     await expect
       .element(page.getByRole("tab", { name: "Notes" }))
@@ -2723,7 +3023,10 @@ describe("agent session", () => {
         at: 2000,
         update: {
           sessionUpdate: "agent_message_chunk",
-          content: { type: "text", text: "Renamed in [alpha.ts:1](src/alpha.ts:1)." },
+          content: {
+            type: "text",
+            text: "Renamed in [alpha.ts:1](src/alpha.ts:1).",
+          },
         },
       },
     ];
@@ -2766,7 +3069,10 @@ describe("agent session", () => {
         at: 2000,
         update: {
           sessionUpdate: "agent_message_chunk",
-          content: { type: "text", text: "Renamed **alpha** in `src/alpha.ts`." },
+          content: {
+            type: "text",
+            text: "Renamed **alpha** in `src/alpha.ts`.",
+          },
         },
       },
     ];
@@ -2879,8 +3185,20 @@ describe("agent session", () => {
         messages: [],
         waiting: ["s1"],
         drafts: [
-          { id: "n1", path: "src/alpha.ts", line: 1, text: "Rename it.", replies: 0 },
-          { id: "n2", path: "src/beta.ts", line: 2, text: "Keep this one.", replies: 0 },
+          {
+            id: "n1",
+            path: "src/alpha.ts",
+            line: 1,
+            text: "Rename it.",
+            replies: 0,
+          },
+          {
+            id: "n2",
+            path: "src/beta.ts",
+            line: 2,
+            text: "Keep this one.",
+            replies: 0,
+          },
         ],
       },
     });
@@ -2981,7 +3299,11 @@ describe("agent session", () => {
     await expect
       .element(composer.getByRole("combobox", { name: "Model" }))
       .toHaveTextContent("Haiku");
-    expect(ownedActions).toContainEqual({ action: "setting", id: "model", value: "haiku" });
+    expect(ownedActions).toContainEqual({
+      action: "setting",
+      id: "model",
+      value: "haiku",
+    });
 
     // `/` lists the agent's own commands; Enter completes one.
     const input = composer.getByRole("combobox", { name: "Message Claude" });
@@ -3004,16 +3326,22 @@ describe("agent session", () => {
         type: "image/png",
       }),
     );
-    input
-      .element()
-      .dispatchEvent(new ClipboardEvent("paste", { clipboardData: clipboard, bubbles: true }));
+    input.element().dispatchEvent(
+      new ClipboardEvent("paste", {
+        clipboardData: clipboard,
+        bubbles: true,
+      }),
+    );
     const images = composer.getByRole("list", { name: "Images to send" });
     await expect.element(images.getByRole("img", { name: "Attachment 1" })).toBeVisible();
     await userEvent.click(input);
     await userEvent.keyboard("Why?{Meta>}{Enter}{/Meta}");
     await expect
       .poll(() => agentMessages.at(-1))
-      .toMatchObject({ text: "Why?", images: [{ mimeType: "image/png", data: png }] });
+      .toMatchObject({
+        text: "Why?",
+        images: [{ mimeType: "image/png", data: png }],
+      });
     await expect.element(images).not.toBeInTheDocument();
 
     // A tool call waits for an answer; while the agent works, Send becomes Stop.
@@ -3034,7 +3362,11 @@ describe("agent session", () => {
     await expect.element(page.getByText("Needs you")).toBeVisible();
     await userEvent.click(ask.getByRole("button", { name: "Allow", exact: true }));
     await expect.element(ask).not.toBeInTheDocument();
-    expect(ownedActions).toContainEqual({ action: "permission", id: "ask-1", option: "allow" });
+    expect(ownedActions).toContainEqual({
+      action: "permission",
+      id: "ask-1",
+      option: "allow",
+    });
     await userEvent.click(composer.getByRole("button", { name: "Stop" }));
     await expect.element(composer.getByRole("button", { name: "Send" })).toBeVisible();
     expect(ownedActions.at(-1)).toEqual({ action: "interrupt" });
@@ -3055,7 +3387,10 @@ describe("agent session", () => {
         update: {
           sessionUpdate: "agent_message_chunk",
           messageId: "r1",
-          content: { type: "text", text: "The old name clashed in [alpha.ts:1](src/alpha.ts:1)." },
+          content: {
+            type: "text",
+            text: "The old name clashed in [alpha.ts:1](src/alpha.ts:1).",
+          },
         },
       },
     ];

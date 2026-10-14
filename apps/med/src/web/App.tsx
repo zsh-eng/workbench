@@ -116,6 +116,7 @@ import { clipboardBrief, joinNotes, matchReviewFile, parseBriefHref } from "./da
 import type { BriefLocation } from "./components/BriefView";
 import { SaveReviewDialog } from "./components/SaveReviewDialog";
 import { GuideRail } from "./components/guide/GuideRail";
+import { ChangesRail } from "./components/ChangesRail";
 import { GuideOverview } from "./components/guide/GuideOverview";
 import { CommitHeader, GuideFooter, SegmentHeader } from "./components/guide/GuideHeader";
 import { resolveGuide, type GuideNote, type GuideScope, type GuideSection } from "./data/guide";
@@ -137,13 +138,19 @@ const BriefView = lazy(() => import("./components/BriefView"));
 // Memoized: the tab stays mounted once shown, and the review around it
 // renders again for unrelated state, such as an open palette.
 const CommitView = lazy(() =>
-  import("./components/CommitView").then((module) => ({ default: memo(module.default) })),
+  import("./components/CommitView").then((module) => ({
+    default: memo(module.default),
+  })),
 );
 const SessionPanel = lazy(() =>
-  import("./components/session/SessionPanel").then((module) => ({ default: module.SessionPanel })),
+  import("./components/session/SessionPanel").then((module) => ({
+    default: module.SessionPanel,
+  })),
 );
 const SessionStart = lazy(() =>
-  import("./components/session/SessionPanel").then((module) => ({ default: module.SessionStart })),
+  import("./components/session/SessionPanel").then((module) => ({
+    default: module.SessionStart,
+  })),
 );
 const NO_SESSIONS: AgentSession[] = [];
 const NO_COMMITS: SavedCommit[] = [];
@@ -308,8 +315,16 @@ export function App({
   const initialPanes = useCallback(
     (): PaneNode =>
       threadLayout
-        ? { axis: "row", children: [{ id: "session" }, { id: "review" }], sizes: [0.5, 0.5] }
-        : { axis: "row", children: [{ id: "changed" }, { id: "review" }], sizes: [0.24, 0.76] },
+        ? {
+            axis: "row",
+            children: [{ id: "session" }, { id: "review" }],
+            sizes: [0.5, 0.5],
+          }
+        : {
+            axis: "row",
+            children: [{ id: "changed" }, { id: "review" }],
+            sizes: [0.24, 0.76],
+          },
     [threadLayout],
   );
   const panes = usePaneTree({ key: layoutKey, initial: initialPanes });
@@ -694,7 +709,11 @@ export function App({
     else closePane("preview");
   }, [previewWanted, previewable, showPane, closePane]);
   const previewPane = useMemo(
-    () => ({ open: previewOpen, target: previewTarget, onToggle: togglePreview }),
+    () => ({
+      open: previewOpen,
+      target: previewTarget,
+      onToggle: togglePreview,
+    }),
     [previewOpen, previewTarget, togglePreview],
   );
   const zenToggle = useRef<HTMLButtonElement>(null);
@@ -801,7 +820,9 @@ export function App({
   const reviewScope = JSON.stringify([scopeRepository, scopeWorkspace, state.comparison]);
   // The Guide's part on screen: the Overview, a segment, or a commit. Each
   // segment keeps its own place in the stream.
-  const [guideScope, setGuideScope] = useState<GuideScope>({ kind: "overview" });
+  const [guideScope, setGuideScope] = useState<GuideScope>({
+    kind: "overview",
+  });
   const streamScope =
     fileState.active === "guide" && guideScope.kind !== "overview"
       ? JSON.stringify([scopeRepository, scopeWorkspace, state.comparison, guideScope])
@@ -1032,7 +1053,10 @@ export function App({
           byPath.set(finding.path, [...(byPath.get(finding.path) ?? []), { finding, run }]);
         }
     }
-    return { byPath, placement: { inline, reasons } satisfies FindingPlacement };
+    return {
+      byPath,
+      placement: { inline, reasons } satisfies FindingPlacement,
+    };
   }, [codexReviews.runs, state.savedView, savedTarget, files]);
   const submitted = pendingDraft;
   // The controller publishes the saved note before its save promise completes.
@@ -1112,7 +1136,13 @@ export function App({
       });
       setSelection({ id, range: { start, end, side } });
       const scroll = () =>
-        viewer.current?.scrollTo({ type: "line", id, lineNumber: start, side, align: "center" });
+        viewer.current?.scrollTo({
+          type: "line",
+          id,
+          lineNumber: start,
+          side,
+          align: "center",
+        });
       scroll();
       // Changes becomes visible, or a collapsed file opens, in this frame;
       // the rows around the line are measured in the next. Scroll again then.
@@ -1211,7 +1241,11 @@ export function App({
     state.savedTargetId &&
     (guideFiles.target !== state.savedTargetId || guideFiles.files !== state.files)
   )
-    setGuideFiles({ target: state.savedTargetId, files: state.files, root: state.review.repo });
+    setGuideFiles({
+      target: state.savedTargetId,
+      files: state.files,
+      root: state.review.repo,
+    });
   const shownGuideFiles = guideFiles.target === state.savedTargetId ? guideFiles.files : NO_FILES;
   const resolvedGuide = useMemo(
     () => (savedGuide ? resolveGuide(savedGuide, shownGuideFiles, guideFiles.root) : null),
@@ -1243,6 +1277,28 @@ export function App({
   const guideOverview = guideTab && !guideDiff;
   // The diff stream shows in Changes, and in the Guide for a segment or commit.
   const streamShown = fileState.active === "changes" || guideDiff;
+  // A saved review's Changes tab lists its files and commits beside the diff,
+  // unless the Changed files pane shows them.
+  const changesRail =
+    fileState.active === "changes" &&
+    !!state.savedReview &&
+    !zen &&
+    !changedVisible &&
+    gitAvailable;
+  // "auto" shows the rail in a pane with room for it; the reader's choice holds
+  // in any width.
+  const [railChoice, setRailChoice] = useState(() =>
+    readPreference("changes-rail", "auto", ["auto", "open", "closed"]),
+  );
+  useEffect(() => {
+    try {
+      localStorage.setItem("med:changes-rail", railChoice);
+    } catch {
+      /* Storage can be unavailable. */
+    }
+  }, [railChoice]);
+  const railShown = changesRail && (railChoice === "open" || (railChoice === "auto" && roomy));
+  const toggleRail = useCallback(() => setRailChoice(railShown ? "closed" : "open"), [railShown]);
   const streamFiles = useMemo(() => {
     if (!guideDiff || !guideSection) return files;
     const byId = new Map(state.files.map((file) => [file.id, file]));
@@ -1354,7 +1410,10 @@ export function App({
       setPendingGuideFile(fileId ?? null);
       if (scope.kind === "commit") {
         if (snapshot.comparison.kind !== "commit" || snapshot.comparison.commit !== scope.id)
-          void controller.selectComparison({ kind: "commit", commit: scope.id });
+          void controller.selectComparison({
+            kind: "commit",
+            commit: scope.id,
+          });
         return;
       }
       if (!snapshot.savedView) void controller.returnToSavedReview();
@@ -1380,7 +1439,10 @@ export function App({
         ? guideCommits.map((commit) => ({ kind: "commit", id: commit.id }))
         : [
             { kind: "overview" },
-            ...guideSections.map((section) => ({ kind: "segment" as const, key: section.key })),
+            ...guideSections.map((section) => ({
+              kind: "segment" as const,
+              key: section.key,
+            })),
           ];
       if (commits && guideScope.kind !== "commit" && delta > 0 && order[0]) {
         openGuide(order[0]);
@@ -1412,7 +1474,11 @@ export function App({
     if (!value) return;
     const next = streamFiles[streamFiles.findIndex((file) => file.id === current) + 1];
     requestAnimationFrame(() =>
-      viewer.current?.scrollTo({ type: "item", id: next?.id ?? current, align: "start" }),
+      viewer.current?.scrollTo({
+        type: "item",
+        id: next?.id ?? current,
+        align: "start",
+      }),
     );
   }, [streamFiles, viewedIds, setFilesViewed]);
   // A file chosen in the rail shows once its segment's stream has mounted.
@@ -1425,7 +1491,10 @@ export function App({
     });
     return () => cancelAnimationFrame(frame);
   }, [pendingGuideFile, guideDiff, streamFiles]);
-  const [noteReveal, setNoteReveal] = useState<{ key: string; nonce: number }>();
+  const [noteReveal, setNoteReveal] = useState<{
+    key: string;
+    nonce: number;
+  }>();
   const showIteration = (number: number) => {
     setBriefIteration(number);
     const first = iterations.find((entry) => entry.number === number)?.targetIds[0];
@@ -1721,7 +1790,12 @@ export function App({
     if (!state.selectedFileId || lineJump.current?.id === state.selectedFileId) return;
     const row = metadataRows.current.get(state.selectedFileId);
     if (row) row.scrollIntoView({ block: "nearest" });
-    else viewer.current?.scrollTo({ type: "item", id: state.selectedFileId, align: "nearest" });
+    else
+      viewer.current?.scrollTo({
+        type: "item",
+        id: state.selectedFileId,
+        align: "nearest",
+      });
   }, [state.selectedFileId]);
 
   // Pierre treats a matching version as an instruction to keep the old item.
@@ -1753,7 +1827,12 @@ export function App({
     itemVersion.notes !== notes
   ) {
     currentVersion++;
-    setItemVersion({ key: itemKey, files: streamFiles, notes, value: currentVersion });
+    setItemVersion({
+      key: itemKey,
+      files: streamFiles,
+      notes,
+      value: currentVersion,
+    });
   }
   // The guide's comments refer to the saved comparison's lines. One on a line
   // that no hunk shows goes to its segment's header instead.
@@ -1870,9 +1949,6 @@ export function App({
       enableGutterUtility: true,
       unsafeCSS: `[data-utility-button]::before { inset: 0; }
         [data-separator-content] { font-size: 11.5px; letter-spacing: 0.01em; }
-        [data-diffs-header] {
-          padding-inline: calc(16px + var(--med-lift-start, 0px)) calc(16px + var(--med-lift-end, 0px));
-        }
         ${highlightRules(activeTheme, { match: "med-diff-find", current: "med-diff-find-current" })}`,
       onLineEnter(_line, context) {
         context.element?.shadowRoot
@@ -1923,10 +1999,16 @@ export function App({
           const expectedReview = reviewId;
           if (controller.getSnapshot().review?.id !== expectedReview)
             throw new Error("The comparison changed.");
-          diagnostics.record("context-request", { review: expectedReview, path: metadata.name });
+          diagnostics.record("context-request", {
+            review: expectedReview,
+            path: metadata.name,
+          });
           const source = await controller.loadSources(metadata.name);
           if (source.reviewId !== expectedReview) throw new Error("The comparison changed.");
-          diagnostics.record("context-ready", { review: source.reviewId, path: metadata.name });
+          diagnostics.record("context-ready", {
+            review: source.reviewId,
+            path: metadata.name,
+          });
           setContextError(null);
           return {
             oldFile:
@@ -1987,7 +2069,11 @@ export function App({
   const hits = useMemo(() => {
     if (!find) return [];
     const query = find.toLowerCase();
-    const result: { id: string; side: "additions" | "deletions"; line: number }[] = [];
+    const result: {
+      id: string;
+      side: "additions" | "deletions";
+      line: number;
+    }[] = [];
     for (const file of streamFiles) {
       const metadata = file.metadata;
       if (!metadata) continue;
@@ -2942,13 +3028,28 @@ export function App({
       : []),
     ...(hasNotes
       ? [
-          { id: "brief", label: "Open the notes", run: () => fileWorkspace.select("brief") },
-          { id: "copy-brief", label: "Copy the notes", run: () => copyNotes(notesText) },
+          {
+            id: "brief",
+            label: "Open the notes",
+            run: () => fileWorkspace.select("brief"),
+          },
+          {
+            id: "copy-brief",
+            label: "Copy the notes",
+            run: () => copyNotes(notesText),
+          },
         ]
       : []),
     ...(savedBrief ? [{ id: "remove-brief", label: "Remove the brief", run: removeBrief }] : []),
     ...(commitApi
-      ? [{ id: "commit", label: "Stage and commit changes", shortcut: "q", run: toggleCommit }]
+      ? [
+          {
+            id: "commit",
+            label: "Stage and commit changes",
+            shortcut: "q",
+            run: toggleCommit,
+          },
+        ]
       : []),
     {
       id: "paste-brief",
@@ -3057,9 +3158,23 @@ export function App({
             : []),
         ]
       : []),
-    { id: "next-file", label: "Go to next changed file", shortcut: "", run: () => navigateFile(1) },
-    { id: "previous-file", label: "Go to previous changed file", run: () => navigateFile(-1) },
-    { id: "next-hunk", label: "Go to next hunk", shortcut: "]", run: () => navigateHunk(1) },
+    {
+      id: "next-file",
+      label: "Go to next changed file",
+      shortcut: "",
+      run: () => navigateFile(1),
+    },
+    {
+      id: "previous-file",
+      label: "Go to previous changed file",
+      run: () => navigateFile(-1),
+    },
+    {
+      id: "next-hunk",
+      label: "Go to next hunk",
+      shortcut: "]",
+      run: () => navigateHunk(1),
+    },
     {
       id: "previous-hunk",
       label: "Go to previous hunk",
@@ -3079,6 +3194,8 @@ export function App({
       id: "filter",
       label: "Filter changed files",
       run: () => {
+        // The Changes rail's filter, when it shows; otherwise the pane's.
+        if (filterRef.current?.offsetParent) return filterRef.current.focus();
         showPane("changed");
         requestAnimationFrame(() => filterRef.current?.focus());
       },
@@ -3170,7 +3287,31 @@ export function App({
         ]
       : []),
     ...(state.savedReview && (!state.savedView || isFileTab(fileState.active))
-      ? [{ id: "return-to-review", label: "Return to review", run: returnToReview }]
+      ? [
+          {
+            id: "return-to-review",
+            label: "Return to review",
+            run: returnToReview,
+          },
+        ]
+      : []),
+    ...(state.savedReview && state.savedView && workingAvailable
+      ? [
+          {
+            id: "show-live-changes",
+            label: "Show live changes",
+            run: selectWorking,
+          },
+        ]
+      : []),
+    ...(changesRail
+      ? [
+          {
+            id: "changes-rail",
+            label: railShown ? "Hide files and commits" : "Show files and commits",
+            run: toggleRail,
+          },
+        ]
       : []),
     {
       id: "picker-preview",
@@ -3201,7 +3342,11 @@ export function App({
             label: "Working changes",
             description: "HEAD to working files, including untracked",
           },
-          { value: "staged", label: "Staged changes", description: "HEAD to the index" },
+          {
+            value: "staged",
+            label: "Staged changes",
+            description: "HEAD to the index",
+          },
           {
             value: "unstaged",
             label: "Unstaged changes",
@@ -3772,10 +3917,21 @@ export function App({
   );
   // Beside the thread, the review pane's own actions join the header's menu.
   const moreActions: MenuAction[] = [
-    { label: "Commands", shortcut: "Mod+K", onClick: () => setCommandsOpen(true) },
+    {
+      label: "Commands",
+      shortcut: "Mod+K",
+      onClick: () => setCommandsOpen(true),
+    },
     ...(!shell ? [{ label: "Zen mode", shortcut: "Alt+Z", onClick: toggleZen }] : []),
     ...(browseSource
-      ? [{ label: "Files", checked: rightVisible, choice: true, onClick: toggleFilesSidebar }]
+      ? [
+          {
+            label: "Files",
+            checked: rightVisible,
+            choice: true,
+            onClick: toggleFilesSidebar,
+          },
+        ]
       : []),
   ];
   const savedHeader = (compact: boolean) =>
@@ -3803,6 +3959,7 @@ export function App({
         browsing={isFileTab(fileState.active)}
         browsingSourceLabel={activeFile?.sourceLabel ?? sourceLabel}
         onReturn={returnToReview}
+        onLive={workingAvailable ? selectWorking : undefined}
         onTarget={(id) => {
           pendingSavedChanges.current = id;
           pendingIteration.current = null;
@@ -4107,6 +4264,33 @@ export function App({
                     onToggleViewed={setFilesViewed}
                   />
                 )}
+                {railShown && (
+                  <ChangesRail
+                    narrow={!roomy}
+                    repo={state.session?.repository.path ?? null}
+                    pathActions={pathActions}
+                    files={files}
+                    total={state.files.length}
+                    selected={state.selectedFileId}
+                    filter={state.filter}
+                    onFilter={controller.setFilter}
+                    onSelect={reveal}
+                    onPrefetch={prefetchFile}
+                    onOpen={browseSource ? openChangedFile : undefined}
+                    filterRef={filterRef}
+                    commits={guideCommits}
+                    moreCommits={guideTarget?.moreCommits}
+                    commit={state.comparison.kind === "commit" ? state.comparison.commit : null}
+                    whole={state.savedView}
+                    onCommit={(commit) =>
+                      void controller.selectComparison({
+                        kind: "commit",
+                        commit,
+                      })
+                    }
+                    onWhole={returnToReview}
+                  />
+                )}
                 {guideOverview && (
                   <GuideOverview
                     title={
@@ -4134,13 +4318,24 @@ export function App({
                 )}
                 <div {...stylex.props(styles.reviewSurface, guideOverview && styles.hiddenSurface)}>
                   <div {...stylex.props(styles.toolbar, zen && styles.hiddenSurface)} hidden={zen}>
+                    {changesRail && (
+                      <ToolButton
+                        label={railShown ? "Hide files and commits" : "Show files and commits"}
+                        icon="panelLeft"
+                        aria-pressed={railShown}
+                        active={railShown}
+                        onClick={toggleRail}
+                      />
+                    )}
                     <ChoiceSelect
                       label="Comparison"
                       value={comparisonValue}
                       choices={comparisonChoices}
                       onChange={(value) => {
                         if (["working", "staged", "unstaged"].includes(value))
-                          void controller.selectComparison({ kind: value } as Comparison);
+                          void controller.selectComparison({
+                            kind: value,
+                          } as Comparison);
                       }}
                     />
                     {actionRepo &&
@@ -4226,7 +4421,10 @@ export function App({
                                 letter: "o",
                                 onClick: () => openWorkingFile(selectedFile.path),
                               },
-                              { label: "Show files sidebar", onClick: showFiles },
+                              {
+                                label: "Show files sidebar",
+                                onClick: showFiles,
+                              },
                             ]
                           : [],
                         [
@@ -4260,7 +4458,12 @@ export function App({
                           },
                         ],
                         [
-                          { label: "Zen mode", shortcut: "⌥ Z", letter: "z", onClick: toggleZen },
+                          {
+                            label: "Zen mode",
+                            shortcut: "⌥ Z",
+                            letter: "z",
+                            onClick: toggleZen,
+                          },
                           {
                             label: "Refresh review",
                             letter: "r",
@@ -4696,7 +4899,10 @@ export function App({
           comparisonLabel={state.review?.label ?? "These changes"}
           onClose={() => setPendingBrief(null)}
           onSave={async (title) => {
-            const id = await controller.saveReview({ title, brief: pendingBrief ?? undefined });
+            const id = await controller.saveReview({
+              title,
+              brief: pendingBrief ?? undefined,
+            });
             setPendingBrief(null);
             onOpenReview(id);
           }}
@@ -4849,7 +5055,8 @@ export function App({
               {...stylex.props(styles.performance, styles.onStatusHover)}
             >
               {Math.round(state.metrics.requestMs)} ms request · {Math.round(state.metrics.parseMs)}{" "}
-              ms parse{frameMs !== null ? ` · ${Math.round(frameMs)} ms frame` : ""} ·{" "}
+              ms parse
+              {frameMs !== null ? ` · ${Math.round(frameMs)} ms frame` : ""} ·{" "}
               {state.metrics.cacheHit
                 ? "client cache"
                 : state.review?.metrics.cacheHit
@@ -4895,13 +5102,20 @@ const sweep = stylex.keyframes({
 });
 // One ring per revision event: it confirms that a live update arrived.
 const ping = stylex.keyframes({
-  from: { boxShadow: `0 0 0 0 color-mix(in srgb, ${tokens.green} 55%, transparent)` },
-  to: { boxShadow: `0 0 0 6px color-mix(in srgb, ${tokens.green} 0%, transparent)` },
+  from: {
+    boxShadow: `0 0 0 0 color-mix(in srgb, ${tokens.green} 55%, transparent)`,
+  },
+  to: {
+    boxShadow: `0 0 0 6px color-mix(in srgb, ${tokens.green} 0%, transparent)`,
+  },
 });
 const reduced = "@media (prefers-reduced-motion: reduce)";
 const headerBackground = `color-mix(in srgb, ${tokens.canvas} 96%, ${tokens.text})`;
 
-const toastFade = stylex.keyframes({ from: { opacity: 0 }, to: { opacity: 1 } });
+const toastFade = stylex.keyframes({
+  from: { opacity: 0 },
+  to: { opacity: 1 },
+});
 const toastRise = stylex.keyframes({
   from: { opacity: 0, transform: "translate(-50%, 8px)" },
   to: { opacity: 1, transform: "translate(-50%, 0)" },
@@ -4941,7 +5155,12 @@ const styles = stylex.create({
     backgroundColor: tokens.line,
     flexShrink: 0,
   },
-  viewControls: { display: "flex", alignItems: "center", gap: 2, flexShrink: 0 },
+  viewControls: {
+    display: "flex",
+    alignItems: "center",
+    gap: 2,
+    flexShrink: 0,
+  },
   emptyRepositories: {
     display: "flex",
     flexDirection: "column",
@@ -5012,7 +5231,10 @@ const styles = stylex.create({
     fontFamily: tokens.ui,
     fontSize: 11.5,
     cursor: "pointer",
-    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+    outline: {
+      default: "none",
+      ":focus-visible": `2px solid ${tokens.accentLine}`,
+    },
     outlineOffset: -1,
   },
   viewedOn: { color: { default: tokens.muted, ":hover": tokens.text } },
@@ -5071,7 +5293,10 @@ const styles = stylex.create({
     fontSize: 12,
     fontWeight: 500,
     cursor: "pointer",
-    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+    outline: {
+      default: "none",
+      ":focus-visible": `2px solid ${tokens.accentLine}`,
+    },
   },
   // Diagnostics stay out of sight until the pointer rests on the status bar.
   onStatusHover: {
@@ -5080,7 +5305,12 @@ const styles = stylex.create({
     transitionDuration: "160ms",
   },
   // The Markdown preview's place in the pane column.
-  previewPane: { flex: "1", minHeight: 0, display: "flex", flexDirection: "column" },
+  previewPane: {
+    flex: "1",
+    minHeight: 0,
+    display: "flex",
+    flexDirection: "column",
+  },
   // A narrow pane drops the totals first, then truncates the comparison
   // labels; the view controls on the right always stay.
   toolbar: {
@@ -5098,9 +5328,15 @@ const styles = stylex.create({
     borderBottomStyle: "solid",
     borderBottomColor: tokens.line,
   },
-  toolbarTotals: { display: { default: "contents", "@container (max-width: 620px)": "none" } },
+  toolbarTotals: {
+    display: { default: "contents", "@container (max-width: 620px)": "none" },
+  },
   notesButton: { gap: 5, minWidth: 28, paddingInline: 6 },
-  notesCount: { fontFamily: tokens.code, fontSize: 10.5, fontVariantNumeric: "tabular-nums" },
+  notesCount: {
+    fontFamily: tokens.code,
+    fontSize: 10.5,
+    fontVariantNumeric: "tabular-nums",
+  },
   // Only loads that last long enough to notice show progress.
   loadingTrack: {
     position: "absolute",
@@ -5217,7 +5453,12 @@ const styles = stylex.create({
     backgroundColor: tokens.panel,
     paddingInlineEnd: 6,
   },
-  driftText: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  driftText: {
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
   driftAction: { flexShrink: 0, height: 24, paddingInline: 8, fontSize: 12 },
   orphanPanel: {
     flexShrink: 0,
@@ -5263,7 +5504,12 @@ const styles = stylex.create({
     fontVariantNumeric: "tabular-nums",
   },
   selectionLabel: { color: tokens.muted, fontSize: 12, marginInlineEnd: 6 },
-  selectionAction: { height: 30, minHeight: 30, paddingInlineStart: 9, paddingInlineEnd: 6 },
+  selectionAction: {
+    height: 30,
+    minHeight: 30,
+    paddingInlineStart: 9,
+    paddingInlineEnd: 6,
+  },
   selectionKey: {
     display: "inline-flex",
     alignItems: "center",
@@ -5278,7 +5524,13 @@ const styles = stylex.create({
     fontWeight: 500,
   },
   selectionClose: { width: 30, minWidth: 30, height: 30, minHeight: 30 },
-  codeView: { flex: "1", minHeight: 0, height: "100%", overflow: "auto", scrollbarWidth: "thin" },
+  codeView: {
+    flex: "1",
+    minHeight: 0,
+    height: "100%",
+    overflow: "auto",
+    scrollbarWidth: "thin",
+  },
   diffHeader: {
     position: "relative",
     pointerEvents: "none",
@@ -5286,8 +5538,10 @@ const styles = stylex.create({
     alignItems: "center",
     gap: 8,
     paddingBlock: 0,
-    paddingInlineStart: 8,
-    paddingInlineEnd: 14,
+    // The header spans the stream, as the code does. In zen, the first row
+    // keeps clear of the window controls (see CardTab).
+    paddingInlineStart: "calc(8px + var(--med-lift-start, 0px))",
+    paddingInlineEnd: "calc(14px + var(--med-lift-end, 0px))",
     backgroundColor: headerBackground,
     boxShadow: `inset 0 -1px 0 ${tokens.line}, inset 0 1px 0 ${tokens.line}`,
     color: tokens.text,
@@ -5302,7 +5556,10 @@ const styles = stylex.create({
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
     cursor: "pointer",
     pointerEvents: "auto",
-    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+    outline: {
+      default: "none",
+      ":focus-visible": `2px solid ${tokens.accentLine}`,
+    },
     outlineOffset: -2,
   },
   headerChevron: {
@@ -5389,7 +5646,11 @@ const styles = stylex.create({
     fontFamily: tokens.code,
     fontSize: 11,
   },
-  skipped: { paddingBlock: 6, paddingInline: 14, backgroundColor: tokens.canvas },
+  skipped: {
+    paddingBlock: 6,
+    paddingInline: 14,
+    backgroundColor: tokens.canvas,
+  },
   skippedRow: {
     display: "flex",
     alignItems: "center",
@@ -5462,7 +5723,12 @@ const styles = stylex.create({
     color: tokens.faint,
     fontSize: 11,
   },
-  statusItem: { display: "inline-flex", alignItems: "center", gap: 7, whiteSpace: "nowrap" },
+  statusItem: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 7,
+    whiteSpace: "nowrap",
+  },
   statusDot: {
     width: 6,
     height: 6,
