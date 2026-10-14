@@ -957,3 +957,50 @@ test("an edit shows its file and line counts, and its diff when the reader opens
   await expect.poll(() => document.querySelector('[data-unit="edit-79"] figure')).not.toBeNull();
   expect(document.querySelectorAll("[data-unit] figure")).toHaveLength(1);
 });
+
+test("a long prompt shows its first lines until Show more, and Show less folds it again", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const text = (value: string) => ({ type: "text" as const, text: value });
+  const prompt = (at: number, value: string) => ({
+    at,
+    update: { sessionUpdate: "user_message_chunk" as const, content: text(value) },
+  });
+  const reply = (at: number, id: string, value: string) => ({
+    at,
+    update: {
+      sessionUpdate: "agent_message_chunk" as const,
+      messageId: id,
+      content: text(value),
+      _meta: { med: { endsTurn: true } },
+    },
+  });
+  const long = Array.from({ length: 40 }, (_, index) => `Line ${index + 1} of the brief.`);
+  const store = longThread(0);
+  store.applyAll([
+    prompt(0, long.join("\n")),
+    reply(1000, "read", "I read the brief."),
+    prompt(2000, "A short prompt."),
+    reply(3000, "short", "Done."),
+  ]);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  const thread = page.getByRole("log", { name: "Session" });
+  const toggle = thread.getByRole("button", { name: /^Show (more|less)$/ });
+  await expect.element(toggle).toHaveTextContent("Show more");
+  // Only the long prompt folds.
+  expect(toggle.elements()).toHaveLength(1);
+  const body = thread.getByText(/^Line 1 of the brief/).element().parentElement!;
+  expect(body.clientHeight).toBeLessThan(body.scrollHeight / 2);
+
+  // Opening keeps the prompt's top in place.
+  const top = body.getBoundingClientRect().top;
+  await userEvent.click(toggle);
+  await expect.element(toggle).toHaveTextContent("Show less");
+  await expect.element(toggle).toHaveAttribute("aria-expanded", "true");
+  expect(body.clientHeight).toBe(body.scrollHeight);
+  expect(Math.abs(body.getBoundingClientRect().top - top)).toBeLessThan(2);
+
+  await userEvent.click(toggle);
+  await expect.element(toggle).toHaveTextContent("Show more");
+  expect(body.clientHeight).toBeLessThan(body.scrollHeight / 2);
+});

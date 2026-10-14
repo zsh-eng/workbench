@@ -195,6 +195,8 @@ background shells and agents. It follows the session live.
 - A session with subagents shows tabs above its thread: **Main** and one per
   subagent, with a spinner while it works. Click a tab, or use `←` and `→` on
   the tabs, to read that subagent's thread; `Esc` goes back to **Main**.
+- A prompt longer than 16 lines shows its first 12. **Show more** opens it,
+  and **Show less** folds it again.
 - A prompt's images are square thumbnails. Click one to see it at full size,
   and use `←` and `→` for the others.
 - Links in a reply open files in Med. A web link shows as a pill with its

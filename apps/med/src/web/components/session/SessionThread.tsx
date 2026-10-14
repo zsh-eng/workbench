@@ -48,6 +48,8 @@ import {
 } from "./thread-model";
 import {
   estimateUnit,
+  PROMPT_FOLD,
+  PROMPT_LINES,
   readMetrics,
   resetHeights,
   roughUnit,
@@ -106,6 +108,7 @@ function UnitBody({
   renderThread,
   onOpenLink,
   onWork,
+  onHold,
 }: {
   unit: Unit;
   last: boolean;
@@ -114,6 +117,8 @@ function UnitBody({
   onOpenLink?(href: string): void;
   /** Opens or folds a turn's work. */
   onWork?(key: string): void;
+  /** Keeps a unit's top in place while it grows, as a prompt that opens. */
+  onHold?(key: string): void;
 }) {
   return "work" in unit ? (
     <Work unit={unit} onToggle={onWork} />
@@ -122,27 +127,90 @@ function UnitBody({
   ) : (
     <Item
       item={unit.item}
+      unitKey={unit.key}
       last={last}
       final={final}
       renderThread={renderThread}
       onOpenLink={onOpenLink}
+      onHold={onHold}
     />
+  );
+}
+
+/**
+ * A prompt's text. A long one shows its first lines until the reader opens
+ * it; the thread's height estimates fold it by the same rule
+ * (thread-heights.ts). Opening keeps the prompt's top in place; folding keeps
+ * the next message in place, so the button stays near the pointer.
+ */
+function PromptText({
+  id,
+  children,
+  onOpen,
+}: {
+  id: string;
+  children: ReactNode;
+  onOpen?(): void;
+}) {
+  const body = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useRowOpen(id, false);
+  const [long, setLong] = useState(false);
+  useLayoutEffect(() => {
+    const node = body.current;
+    if (!node) return;
+    // The text's own height, which the fold does not change; a new width can.
+    const check = () =>
+      setLong(
+        node.scrollHeight > PROMPT_FOLD * Number.parseFloat(getComputedStyle(node).lineHeight),
+      );
+    check();
+    const resize = new ResizeObserver(check);
+    resize.observe(node);
+    return () => resize.disconnect();
+  }, []);
+  const folded = long && !open;
+  return (
+    <>
+      <div
+        ref={body}
+        {...stylex.props(styles.promptBody, folded && styles.promptFolded(`${PROMPT_LINES}lh`))}
+      >
+        {children}
+      </div>
+      {long && (
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => {
+            if (!open) onOpen?.();
+            setOpen(!open);
+          }}
+          {...stylex.props(styles.promptToggle)}
+        >
+          {open ? "Show less" : "Show more"}
+        </button>
+      )}
+    </>
   );
 }
 
 const Item = memo(function Item({
   item,
+  unitKey,
   last,
   final,
   renderThread,
   onOpenLink,
+  onHold,
 }: {
   item: SessionItem;
+  unitKey?: string;
   last: boolean;
   /** The reply that ends a turn, which has Copy and Pin to review. */
   final: boolean;
   renderThread(items: SessionItem[]): ReactNode;
   onOpenLink?(href: string): void;
+  onHold?(key: string): void;
 }) {
   switch (item.kind) {
     case "user": {
@@ -152,33 +220,35 @@ const Item = memo(function Item({
           {item.queued && !item.sent && <span {...stylex.props(styles.queued)}>Queued</span>}
           <div {...stylex.props(styles.user)}>
             {images.length > 0 && <ImageThumbs images={images} />}
-            {item.content
-              .filter((block) => block.type === "text")
-              .flatMap((block) => promptBlocks(block.text))
-              .map((part, at) =>
-                part.quote ? (
-                  <blockquote
-                    key={at}
-                    {...stylex.props(
-                      styles.userText,
-                      styles.userQuote,
-                      (at > 0 || images.length > 0) && styles.userNext,
-                    )}
-                  >
-                    {part.text}
-                  </blockquote>
-                ) : (
-                  <p
-                    key={at}
-                    {...stylex.props(
-                      styles.userText,
-                      (at > 0 || images.length > 0) && styles.userNext,
-                    )}
-                  >
-                    {part.text}
-                  </p>
-                ),
-              )}
+            <PromptText id={item.id} onOpen={unitKey ? () => onHold?.(unitKey) : undefined}>
+              {item.content
+                .filter((block) => block.type === "text")
+                .flatMap((block) => promptBlocks(block.text))
+                .map((part, at) =>
+                  part.quote ? (
+                    <blockquote
+                      key={at}
+                      {...stylex.props(
+                        styles.userText,
+                        styles.userQuote,
+                        (at > 0 || images.length > 0) && styles.userNext,
+                      )}
+                    >
+                      {part.text}
+                    </blockquote>
+                  ) : (
+                    <p
+                      key={at}
+                      {...stylex.props(
+                        styles.userText,
+                        (at > 0 || images.length > 0) && styles.userNext,
+                      )}
+                    >
+                      {part.text}
+                    </p>
+                  ),
+                )}
+            </PromptText>
             {item.sent?.comments?.map((comment, index) => (
               <Comment key={index} comment={comment} />
             ))}
@@ -1301,6 +1371,7 @@ export function SessionThread({
       node.removeEventListener("pointerdown", pointerdown);
     };
   }, [step]);
+  const holdUnit = useCallback((key: string) => list.current?.hold(key), []);
   const toggleWork = (key: string) => {
     list.current?.hold(key);
     setFlipped((keys) => {
@@ -1502,6 +1573,7 @@ export function SessionThread({
                           renderThread={renderThread}
                           onOpenLink={onOpenLink}
                           onWork={toggleWork}
+                          onHold={holdUnit}
                         />
                       </div>
                     );
@@ -1890,6 +1962,26 @@ const styles = stylex.create({
     color: tokens.muted,
   },
   userNext: { marginTop: 8 },
+  // The text's own size, so a fold's height counts its lines (lh).
+  promptBody: { fontSize: 13.5, lineHeight: 1.6 },
+  promptFolded: (maxHeight: string) => ({
+    maxHeight,
+    overflow: "hidden",
+    maskImage: "linear-gradient(to bottom, #000 calc(100% - 2lh), transparent)",
+  }),
+  // Its 24 pixels are PROMPT_TOGGLE in thread-heights.ts.
+  promptToggle: {
+    display: "block",
+    height: 20,
+    marginTop: 4,
+    padding: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    color: { default: tokens.muted, ":hover": tokens.text },
+    fontFamily: tokens.ui,
+    fontSize: 12,
+    cursor: "pointer",
+  },
   comment: {
     display: "flex",
     flexDirection: "column",

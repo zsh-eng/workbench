@@ -141,7 +141,9 @@ nothing.
   (`finalReplies`): the last reply before the next prompt, the reply before
   the agent runs `med review wait`, and each reply that ended the agent's
   turn, because a background task's report starts more work without a
-  prompt. A prompt shows each run of quoted lines as a quote,
+  prompt. A prompt longer than 16 lines shows its first 12 until **Show
+  more**, and the height estimates fold it by the same rule. A prompt shows
+  each run of quoted lines as a quote,
   as Claude does, and hides HTML comments such as reply markers
   (`prompt-blocks.ts`). Its images are 64 px square thumbnails; a click opens
   a viewer (`ImageThumbs.tsx`). A reply's web links are pills with their site's icon,

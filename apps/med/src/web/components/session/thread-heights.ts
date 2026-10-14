@@ -641,6 +641,19 @@ function toolHeight(item: ToolItem, m: ThreadMetrics, open = false) {
   return m.row + 8 + parts.reduce((sum, part) => sum + part, 0) + 8 * (parts.length - 1);
 }
 
+/** A long prompt shows this many lines until the reader opens it... */
+export const PROMPT_LINES = 12;
+/** ...when it has more than this many, so a fold never hides only a few. */
+export const PROMPT_FOLD = 16;
+/** The Show more or Show less button under a long prompt's text. */
+const PROMPT_TOGGLE = 24;
+
+/** The height of a prompt's text as it shows: a long one folds unless open. */
+function promptText(height: number, lineHeight: number, open?: boolean) {
+  if (height <= PROMPT_FOLD * lineHeight) return height;
+  return (open ? height : PROMPT_LINES * lineHeight) + PROMPT_TOGGLE;
+}
+
 /** A prompt's images, as thumbnails above its text, and its text's parts. */
 function promptParts(item: Extract<SessionItem, { kind: "user" }>, m: ThreadMetrics) {
   const images = item.content.filter((block) => block.type === "image").length;
@@ -650,17 +663,21 @@ function promptParts(item: Extract<SessionItem, { kind: "user" }>, m: ThreadMetr
   return { thumbs: thumbsHeight(images, m.user.width), images, parts };
 }
 
-function userHeight(item: Extract<SessionItem, { kind: "user" }>, m: ThreadMetrics) {
+function userHeight(
+  item: Extract<SessionItem, { kind: "user" }>,
+  m: ThreadMetrics,
+  open?: boolean,
+) {
   const { thumbs, images, parts } = promptParts(item, m);
-  let height = m.user.chrome + thumbs;
+  let text = 0;
   parts.forEach((part, index) => {
     const width = part.quote ? m.user.quoteWidth : m.user.width;
-    height +=
+    text +=
       (index || images ? m.user.gap : 0) +
       lineCount(item, part.text, m.user.text, width, true) * m.user.text.lineHeight;
   });
-  if (item.queued || item.sent) height += 19;
-  return height;
+  const height = m.user.chrome + thumbs + promptText(text, m.user.text.lineHeight, open);
+  return height + (item.queued || item.sent ? 19 : 0);
 }
 
 /** An estimate of a unit's height, with the space below it. `open` is the
@@ -674,7 +691,7 @@ export function estimateUnit(
   const { item } = unit;
   switch (item.kind) {
     case "user":
-      return userHeight(item, m) + m.gap;
+      return userHeight(item, m, options.open) + m.gap;
     case "agent":
       return replyHeight(item, item.text, m) + (options.final ? m.reply.bar : 0) + m.gap;
     case "tool":
@@ -706,17 +723,18 @@ export function roughUnit(
   switch (item.kind) {
     case "user": {
       const { thumbs, images, parts } = promptParts(item, m);
+      const text = parts.reduce(
+        (height, part, index) =>
+          height +
+          (index || images ? m.user.gap : 0) +
+          lines(part.text, m.user.text, part.quote ? m.user.quoteWidth : m.user.width) *
+            m.user.text.lineHeight,
+        0,
+      );
       return (
         m.user.chrome +
         thumbs +
-        parts.reduce(
-          (height, part, index) =>
-            height +
-            (index || images ? m.user.gap : 0) +
-            lines(part.text, m.user.text, part.quote ? m.user.quoteWidth : m.user.width) *
-              m.user.text.lineHeight,
-          0,
-        ) +
+        promptText(text, m.user.text.lineHeight, options.open) +
         (item.queued || item.sent ? 19 : 0) +
         m.gap
       );
