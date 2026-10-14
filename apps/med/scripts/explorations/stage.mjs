@@ -14,7 +14,7 @@ function overlay() {
   if (window.__stage) return;
   const css = `
     #xp-root { position: fixed; inset: 0; z-index: 2147483647; pointer-events: none; font-family: Geist, ui-sans-serif, system-ui, sans-serif; }
-    #xp-caption { position: absolute; left: 50%; bottom: 34px; transform: translate(-50%, 8px); max-width: min(880px, calc(100% - 64px)); padding: 11px 18px 12px; border-radius: 12px; background: rgba(18, 19, 24, 0.9); color: #ecebe8; font-size: 16px; line-height: 1.5; letter-spacing: -0.005em; box-shadow: 0 10px 40px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.08); opacity: 0; transition: opacity 220ms ease, transform 220ms ease; text-wrap: pretty; }
+    #xp-caption { position: absolute; left: 50%; bottom: 34px; transform: translate(-50%, 8px); max-width: min(880px, calc(100% - 64px)); padding: 11px 18px 12px; border-radius: 12px; background: rgba(18, 19, 24, 0.9); color: #ecebe8; font-size: 16px; line-height: 1.5; letter-spacing: -0.005em; box-shadow: 0 10px 40px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.08); opacity: 0; transition: opacity 220ms ease, transform 220ms ease, bottom 220ms ease; text-wrap: pretty; }
     #xp-caption.on { opacity: 1; transform: translate(-50%, 0); }
     #xp-caption b { font-weight: 600; color: #fff; }
     #xp-caption kbd { font-family: "Paper Mono", ui-monospace, monospace; font-size: 13px; padding: 1px 5px; border-radius: 5px; background: rgba(255,255,255,0.12); }
@@ -24,14 +24,19 @@ function overlay() {
     #xp-card small { display: block; margin-bottom: 18px; color: #8cc3cb; font: 500 13px/1 "Paper Mono", ui-monospace, monospace; letter-spacing: 0.04em; text-transform: uppercase; }
     #xp-card h1 { margin: 0 0 14px; color: #ecebe8; font-size: 40px; font-weight: 500; line-height: 1.15; letter-spacing: -0.02em; }
     #xp-card p { margin: 0; color: #a9a8a3; font-size: 19px; line-height: 1.5; text-wrap: pretty; }
+    #xp-card ul { margin: 26px 0 0; padding: 0; list-style: none; display: grid; gap: 12px; counter-reset: item; }
+    #xp-card ul:empty { display: none; }
+    #xp-card li { counter-increment: item; display: grid; grid-template-columns: 34px 1fr; color: #d6d4cf; font-size: 17px; line-height: 1.45; text-wrap: pretty; }
+    #xp-card li::before { content: counter(item, decimal-leading-zero); color: #8cc3cb; font: 500 13px/1.9 "Paper Mono", ui-monospace, monospace; }
     #xp-pointer { position: absolute; left: 0; top: 0; width: 22px; height: 22px; transform: translate(-100px, -100px); transition: transform 0ms; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.45)); }
     #xp-pointer.down { scale: 0.88; }
+    #xp-card.on ~ #xp-pointer { opacity: 0; }
   `;
   const install = () => {
     if (document.getElementById("xp-root")) return;
     const root = document.createElement("div");
     root.id = "xp-root";
-    root.innerHTML = `<style>${css}</style><div id="xp-card"><div><small></small><h1></h1><p></p></div></div><div id="xp-caption"></div><svg id="xp-pointer" viewBox="0 0 22 22"><path d="M4 2.5v15.2l4-3.7 2.6 6 2.7-1.2-2.6-5.9h5.6z" fill="#fff" stroke="#111" stroke-width="1.3" stroke-linejoin="round"/></svg>`;
+    root.innerHTML = `<style>${css}</style><div id="xp-card"><div><small></small><h1></h1><p></p><ul></ul></div></div><div id="xp-caption"></div><svg id="xp-pointer" viewBox="0 0 22 22"><path d="M4 2.5v15.2l4-3.7 2.6 6 2.7-1.2-2.6-5.9h5.6z" fill="#fff" stroke="#111" stroke-width="1.3" stroke-linejoin="round"/></svg>`;
     document.documentElement.append(root);
   };
   const el = (id) => (install(), document.getElementById(id));
@@ -42,12 +47,19 @@ function overlay() {
       node.innerHTML = html;
       node.classList.add("on");
     },
-    card(label, heading, text) {
+    card(label, heading, text, items) {
       const node = el("xp-card");
       if (!heading) return node.classList.remove("on");
       node.querySelector("small").textContent = label ?? "";
       node.querySelector("h1").textContent = heading;
       node.querySelector("p").textContent = text ?? "";
+      node
+        .querySelector("ul")
+        .replaceChildren(
+          ...(items ?? []).map((item) =>
+            Object.assign(document.createElement("li"), { textContent: item }),
+          ),
+        );
       node.classList.add("on");
     },
     pointer(x, y, down) {
@@ -57,6 +69,26 @@ function overlay() {
     },
   };
   document.addEventListener("DOMContentLoaded", install);
+  // The caption rises above Med's own toasts near the bottom of the window.
+  const fixedAt = (element) => {
+    for (let node = element, depth = 0; node && depth < 6; node = node.parentElement, depth++)
+      if (getComputedStyle(node).position === "fixed") return node;
+    return null;
+  };
+  setInterval(() => {
+    const caption = document.getElementById("xp-caption");
+    if (!caption?.classList.contains("on")) return;
+    let top = innerHeight;
+    for (let y = innerHeight - 16; y > innerHeight - 180; y -= 12)
+      for (const x of [innerWidth * 0.3, innerWidth * 0.5, innerWidth * 0.7])
+        for (const element of document.elementsFromPoint(x, y)) {
+          if (element.closest("#xp-root")) continue;
+          const toast = fixedAt(element);
+          const box = toast?.getBoundingClientRect();
+          if (box && box.height < 140 && box.width < innerWidth * 0.7) top = Math.min(top, box.top);
+        }
+    caption.style.bottom = `${Math.max(34, innerHeight - top + 14)}px`;
+  }, 200);
 }
 
 const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
@@ -147,6 +179,7 @@ export async function openStage({
   if (cdp)
     await cdp.send("Page.startScreencast", { format: "jpeg", quality: 92, everyNthFrame: 1 });
 
+  let cards = 0;
   let x = width / 2;
   let y = height / 2;
   const call = (method, ...args) =>
@@ -163,10 +196,14 @@ export async function openStage({
       if (ms) await page.waitForTimeout(ms);
     },
     clear: () => call("caption", ""),
-    /** A full-window title card. */
-    async card(label, heading, text, ms = 3200) {
+    /** A full-window title card; `items` adds a numbered list under the text. */
+    async card(label, heading, text, ms = 3200, items) {
       await call("caption", "");
-      await call("card", label, heading, text);
+      await call("card", label, heading, text, items);
+      if (!record) {
+        await page.waitForTimeout(400);
+        await page.screenshot({ path: join(out, `card-${String(++cards).padStart(2, "0")}.png`) });
+      }
       await page.waitForTimeout(ms);
       await call("card");
       await page.waitForTimeout(400);
