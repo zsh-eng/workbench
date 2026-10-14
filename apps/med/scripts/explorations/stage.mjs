@@ -112,6 +112,11 @@ export async function openStage({
     colorScheme: theme === "light" ? "light" : "dark",
   });
   await context.addInitScript(overlay);
+  // Med keeps its theme in local storage: light runs use Med Dawn.
+  if (theme === "light")
+    await context.addInitScript(() => {
+      if (!localStorage.getItem("med:theme:v1")) localStorage.setItem("med:theme:v1", "med-dawn");
+    });
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
