@@ -261,6 +261,50 @@ test("search services start on demand, dispatch by repository, and share bounded
   ).toBe(200);
 });
 
+test("a newer search in the same stream stops the last one and frees its host slot", async () => {
+  vi.spyOn(ZoektSearchService.prototype, "start").mockImplementation(async () => {});
+  const entered = new Map<string, () => void>();
+  const stopped: string[] = [];
+  vi.spyOn(ZoektSearchService.prototype, "search").mockImplementation(
+    async (source, query, signal) => {
+      entered.get(query)?.();
+      // As a slow Git search, each query but the last ends only when stopped.
+      if (query !== "relative")
+        await new Promise((_, fail) =>
+          signal!.addEventListener("abort", () => (stopped.push(query), fail(signal!.reason)), {
+            once: true,
+          }),
+        );
+      return { source, query, matches: [], truncated: false };
+    },
+  );
+  const { repo } = await fixture();
+  const { base, headers } = await launch(repo);
+  // The page never cancels its requests, as a host under Bun never hears of it.
+  const search = async (query: string, stream: string) => {
+    const started = new Promise<void>((done) => entered.set(query, done));
+    const response = fetch(`${base}/api/browse/search`, {
+      method: "POST",
+      headers: { ...headers, "x-med-latest": stream },
+      body: JSON.stringify({ source: { kind: "worktree", repo }, query }),
+    });
+    await Promise.race([started, response]);
+    return { response };
+  };
+  const other = search("other", "search:another-page");
+  const typed = [];
+  for (const query of ["r", "re", "rel", "rela", "relat", "relati", "relativ"])
+    typed.push(await search(query, "search:page"));
+  // More queries than the host's eight slots: each one stopped the one before.
+  const last = await (await search("relative", "search:page")).response;
+  expect(last.status).toBe(200);
+  expect(await last.json()).toMatchObject({ query: "relative" });
+  expect(stopped).toEqual(["r", "re", "rel", "rela", "relat", "relati", "relativ"]);
+  const statuses = await Promise.all(typed.map(async ({ response }) => (await response).status));
+  expect(statuses).toEqual(Array(7).fill(499));
+  void (await other).response.catch(() => {});
+});
+
 test("removal cancels an in-flight review response and prevents its notes from being adopted", async () => {
   const { repo, clone } = await fixture();
   const { request, catalogue } = await launch(repo, [clone]);

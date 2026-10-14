@@ -370,6 +370,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   let closing = false;
   let port = 0;
   let expensiveRequests = 0;
+  // The last request of each stream that a page names, such as a search as
+  // the user types. A newer one stops it: Bun does not tell the host when the
+  // browser cancels a request, and the old work would hold its slot.
+  const latestRequests = new Map<string, () => void>();
   const embeddedAssets =
     options.assets ?? (globalThis as { __medAssets?: StartHostOptions["assets"] }).__medAssets;
   const webRoot =
@@ -1199,9 +1203,22 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           response.once("close", () => windows.delete(response));
           return;
         }
+        const stream = request.headers["x-med-latest"];
+        const latest = typeof stream === "string" && /^[\w:-]{1,100}$/.test(stream) ? stream : "";
+        if (latest) latestRequests.get(latest)?.();
         if (expensiveRequests >= 8)
           throw new HostError("busy", "The host is processing other requests. Retry shortly.", 503);
         expensiveRequests++;
+        let held = true;
+        const release = () => {
+          if (held) expensiveRequests--;
+          held = false;
+        };
+        const replace = () => {
+          abort.abort();
+          release();
+        };
+        if (latest) latestRequests.set(latest, replace);
         try {
           if (
             options.service &&
@@ -2134,7 +2151,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
         } finally {
-          expensiveRequests--;
+          release();
+          if (latestRequests.get(latest) === replace) latestRequests.delete(latest);
         }
         throw new HostError("not-found", "This API route does not exist.", 404);
       }

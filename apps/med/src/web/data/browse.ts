@@ -18,6 +18,9 @@ export function browseSourceKey(source: BrowseSource): string {
 
 export function createBrowseApi(fetcher: typeof fetch, token: string) {
   const api = createApi(fetcher, token);
+  // Each query replaces the last one on the host, which stops its work.
+  const streams = crypto.randomUUID();
+  const latest = (name: string) => ({ "X-Med-Latest": `${name}:${streams}` });
   return {
     async changes(
       source: BrowseSource,
@@ -45,7 +48,10 @@ export function createBrowseApi(fetcher: typeof fetch, token: string) {
     ) {
       const result = await api.json("/api/browse/symbols", symbolSearchSchema, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(options?.path ? {} : latest("symbols")),
+        },
         body: JSON.stringify({ source, query, ...options }),
         signal,
       });
@@ -67,7 +73,7 @@ export function createBrowseApi(fetcher: typeof fetch, token: string) {
     async search(source: BrowseSource, query: string, signal?: AbortSignal) {
       const result = await api.json("/api/browse/search", browseSearchResponseSchema, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...latest("search") },
         body: JSON.stringify({ source, query }),
         signal,
       });
