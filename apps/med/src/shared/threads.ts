@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { agentStatusSchema } from "./agent-status";
+import { agentChoicesSchema } from "./owned-session";
 import { agentSessionSchema } from "./saved-review";
 
 /**
@@ -51,6 +52,7 @@ export const threadStartSchema = z.object({
   /** Work on a new branch in a new linked worktree; otherwise in the repository's checkout. */
   worktree: z.boolean().default(true),
   title: z.string().trim().min(1).max(120).optional(),
+  choices: agentChoicesSchema.optional(),
 });
 export type ThreadStart = z.infer<typeof threadStartSchema>;
 

@@ -172,7 +172,13 @@ place. **Turns** jumps to a prompt by loading each page back to it.
 ## Model, effort, and commands
 
 Owned sessions get model and effort pickers from the agent: ACP config options
-(`model`, `thought_level`) or Claude Code's `initialize` reply. Built-in
+(`model`, `thought_level`) or Claude Code's `initialize` reply. New thread
+offers them before the session starts: Med asks Claude Code once per host with
+an `initialize` request and no prompt, which writes no transcript; an ACP agent
+names its options only in a session, so Med shows those of its last session
+(`agent-offers.json` in the state directory). A new session starts with Med's
+defaults where the agent offers them: Claude Code on `opus` at `medium` effort,
+Codex on `gpt-6-astra`. Built-in
 commands become controls (**New session**, the pickers, the context meter);
 the `/` menu lists only skills and custom commands. Attached sessions show
 model and effort as text, with a divider when they change.

@@ -279,6 +279,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   const ownedSessions = new OwnedSessions({
     agents: options.agents ?? (() => findAgents(options.stateDir)),
     logDirectory: join(options.stateDir ?? temporaryState!, "sessions"),
+    offersFile: join(options.stateDir ?? temporaryState!, "agent-offers.json"),
   });
   const ownedStreams = new Set<ServerResponse>();
   const codexReviews = new CodexReviews();
@@ -923,6 +924,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           send({ agents: await ownedSessions.agents() });
           return;
         }
+        // The models and efforts for a new session of an agent.
+        const agentChoices = /^\/api\/agents\/([a-z0-9-]{1,40})\/choices$/.exec(url.pathname);
+        if (agentChoices && request.method === "GET") {
+          send(await ownedSessions.choices(agentChoices[1]!));
+          return;
+        }
         // Sessions that Med starts in a review's repository and runs itself.
         const ownedRoute =
           /^\/api\/reviews\/([A-Za-z0-9_-]+)\/owned(?:\/([A-Za-z0-9_-]+)(\/events)?)?$/.exec(
@@ -950,6 +957,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             assertRequestAccess();
             const runner = await ownedSessions.start(input.preset, cwd, {
               env: agentEnvironment(bundle.key, cwd),
+              ...(input.choices ? { choices: input.choices } : {}),
             });
             const review = await savedReviews.details(
               reviewId!,
@@ -1364,6 +1372,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             assertRequestAccess();
             const runner = await ownedSessions.start(input.preset, cwd, {
               env: agentEnvironment(key, cwd),
+              ...(input.choices ? { choices: input.choices } : {}),
             });
             const review = await savedReviews.create(
               {

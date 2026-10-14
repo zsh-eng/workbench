@@ -77,6 +77,11 @@ createInterface({ input: process.stdin }).on("line", (line) => {
           ],
           models: [
             { value: "default", displayName: "Default", supportedEffortLevels: ["low", "high"] },
+            {
+              value: "opus",
+              displayName: "Opus",
+              supportedEffortLevels: ["low", "medium", "high"],
+            },
             { value: "haiku", displayName: "Haiku" },
           ],
           current_permission_mode: mode,

@@ -5,7 +5,8 @@ import { savedReviewSchema, type SavedReview } from "../../../shared/saved-revie
 import { threadSlug, threadTitle, type ThreadList } from "../../../shared/threads";
 import { createApi } from "../../data/api";
 import { readBrowserToken } from "../../data/auth";
-import { useAgentPresets } from "../../data/owned-session";
+import type { AgentChoices, AgentOptions } from "../../../shared/owned-session";
+import { useAgentOptions, useAgentPresets } from "../../data/owned-session";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon, type IconName } from "../Icon";
 import { ShortcutKeys } from "../ShortcutKeys";
@@ -16,6 +17,8 @@ interface Choice {
   repositoryId?: string;
   worktree: boolean;
   preset?: string;
+  /** The model and effort chosen for each agent. */
+  agents?: Record<string, AgentChoices>;
 }
 function readChoice(): Choice {
   try {
@@ -24,10 +27,31 @@ function readChoice(): Choice {
       repositoryId: typeof value.repositoryId === "string" ? value.repositoryId : undefined,
       worktree: value.worktree !== false,
       preset: typeof value.preset === "string" ? value.preset : undefined,
+      agents: value.agents && typeof value.agents === "object" ? value.agents : undefined,
     };
   } catch {
     return { worktree: true };
   }
+}
+
+/**
+ * The model and effort for a new session: the last choice where the agent
+ * still offers it, or Med's default. An effort shows only where the model has
+ * efforts.
+ */
+function sessionChoices(options: AgentOptions | undefined, last: AgentChoices = {}) {
+  const pick = (options: { value: string }[], value: string | undefined, fallback: string) =>
+    options.some((option) => option.value === value) ? value! : fallback;
+  const model = options?.model && pick(options.model.options, last.model, options.model.value);
+  const levels = model ? options?.efforts?.[model] : undefined;
+  const efforts =
+    options?.effort?.options.filter(
+      (option) => !options.efforts || option.value === "default" || levels?.includes(option.value),
+    ) ?? [];
+  const effort = efforts.some((option) => option.value !== "default")
+    ? pick(efforts, last.effort, pick(efforts, options!.effort!.value, efforts[0]!.value))
+    : undefined;
+  return { model, effort, efforts };
 }
 
 /**
@@ -58,6 +82,8 @@ export function NewThread({
     repositories.find((entry) => entry.id === list?.threads[0]?.repository?.id) ??
     repositories[0];
   const agent = agents?.find((entry) => entry.id === choice.preset) ?? agents?.[0];
+  const options = useAgentOptions(agent?.id, fetcher);
+  const { model, effort, efforts } = sessionChoices(options, agent && choice.agents?.[agent.id]);
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
@@ -108,6 +134,7 @@ export function NewThread({
             prompt,
             preset: agent.id,
             worktree: choice.worktree,
+            choices: { model, effort },
           }),
         },
       );
@@ -173,23 +200,57 @@ export function NewThread({
                 </button>
               ))}
             </div>
-            <Select
-              label="Agent"
-              icon={agent?.kind === "claude" ? "claude" : "agent"}
-              value={agent?.id ?? ""}
-              options={(agents ?? []).map((entry) => ({ value: entry.id, label: entry.name }))}
-              onChange={(value) => remember({ preset: value })}
-            />
-            <span {...stylex.props(styles.grow)} />
-            <button
-              type="button"
-              disabled={!ready}
-              onClick={() => void start()}
-              {...stylex.props(ui.button, ui.primary, ui.pressable, styles.start)}
-            >
-              {busy ? "Starting…" : "Start"}
-              <ShortcutKeys value="Mod+Enter" />
-            </button>
+            <div {...stylex.props(styles.agent)}>
+              <Select
+                label="Agent"
+                icon={agent?.kind === "claude" ? "claude" : "agent"}
+                value={agent?.id ?? ""}
+                options={(agents ?? []).map((entry) => ({ value: entry.id, label: entry.name }))}
+                onChange={(value) => remember({ preset: value })}
+              />
+              {options?.model && model && (
+                <Select
+                  label="Model"
+                  value={model}
+                  options={options.model.options.map((option) => ({
+                    value: option.value,
+                    label: option.name,
+                  }))}
+                  onChange={(value) =>
+                    remember({
+                      agents: {
+                        ...choice.agents,
+                        [agent!.id]: { ...choice.agents?.[agent!.id], model: value },
+                      },
+                    })
+                  }
+                />
+              )}
+              {effort && (
+                <Select
+                  label="Effort"
+                  value={effort}
+                  options={efforts.map((option) => ({ value: option.value, label: option.name }))}
+                  onChange={(value) =>
+                    remember({
+                      agents: {
+                        ...choice.agents,
+                        [agent!.id]: { ...choice.agents?.[agent!.id], effort: value },
+                      },
+                    })
+                  }
+                />
+              )}
+              <button
+                type="button"
+                disabled={!ready}
+                onClick={() => void start()}
+                {...stylex.props(ui.button, ui.primary, ui.pressable, styles.start)}
+              >
+                {busy ? "Starting…" : "Start"}
+                <ShortcutKeys value="Mod+Enter" />
+              </button>
+            </div>
           </div>
         </div>
         <p {...stylex.props(styles.hint)} aria-live="polite">
@@ -223,14 +284,14 @@ function Select({
   onChange,
 }: {
   label: string;
-  icon: IconName;
+  icon?: IconName;
   value: string;
   options: { value: string; label: string }[];
   onChange(value: string): void;
 }) {
   return (
     <label {...stylex.props(styles.select)}>
-      <Icon name={icon} size={13} />
+      {icon && <Icon name={icon} size={13} />}
       <select
         aria-label={label}
         value={value}
@@ -316,7 +377,15 @@ const styles = stylex.create({
     gap: 6,
     padding: 8,
   },
-  grow: { flex: "1" },
+  // The agent and its choices, with Start; on a narrow card they wrap as one.
+  agent: {
+    display: "flex",
+    alignItems: "center",
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+    gap: 2,
+    marginInlineStart: "auto",
+  },
   select: {
     position: "relative",
     display: "inline-flex",
@@ -341,6 +410,8 @@ const styles = stylex.create({
     cursor: "pointer",
     outline: "none",
     paddingInlineEnd: 0,
+    // As wide as the chosen option, not the longest one.
+    fieldSizing: "content",
   },
   segments: {
     display: "inline-flex",
@@ -369,7 +440,7 @@ const styles = stylex.create({
     color: { default: tokens.text, ":hover": tokens.text },
     boxShadow: `0 0 0 1px ${tokens.line}`,
   },
-  start: { gap: 8, paddingInline: 12 },
+  start: { gap: 8, paddingInline: 12, marginInlineStart: 4 },
   hint: {
     marginTop: 12,
     marginInline: 4,

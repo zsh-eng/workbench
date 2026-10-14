@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SessionEvent } from "../../src/shared/agent-session";
 import type { Thread, ThreadList } from "../../src/shared/threads";
-import type { OwnedState } from "../../src/shared/owned-session";
+import type { AgentOptions, OwnedState } from "../../src/shared/owned-session";
 import type { SavedReview } from "../../src/shared/saved-review";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { readServerEvents } from "../../src/web/data/sse";
@@ -107,10 +107,10 @@ async function fixture() {
           : [],
       );
   };
-  const start = async (preset: string) => {
+  const start = async (preset: string, choices?: { model?: string; effort?: string }) => {
     const started = await api<{ review: SavedReview; state: OwnedState }>(
       `/api/reviews/${review.id}/owned`,
-      { preset },
+      { preset, choices },
     );
     expect(started.status).toBe(200);
     const id = started.data.state.sessionId;
@@ -159,14 +159,26 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
   ]);
   expect((await api(`/api/reviews/${review.id}/owned`, { preset: "missing" })).status).toBe(404);
 
+  // Before a session starts, Claude Code tells its models and efforts; Med
+  // chooses Opus at medium effort.
+  const choices = await api<AgentOptions>("/api/agents/claude/choices");
+  expect(choices.data).toMatchObject({
+    model: {
+      value: "opus",
+      options: [{ value: "default" }, { value: "opus" }, { value: "haiku" }],
+    },
+    effort: { value: "medium" },
+    efforts: { default: ["low", "high"], opus: ["low", "medium", "high"], haiku: [] },
+  });
+
   const session = await start("claude");
   expect(session.review.sessions).toMatchObject([{ agent: "claude", id: session.id }]);
   const ready = await session.until(
     (state) => state.status === "idle" && state.settings.length > 0,
   );
   expect(ready.settings.map((setting) => [setting.id, setting.value])).toEqual([
-    ["model", "default"],
-    ["effort", "default"],
+    ["model", "opus"],
+    ["effort", "medium"],
     ["mode", "default"],
   ]);
   // Built-in commands have GUI controls; the `/` menu lists the others.
@@ -182,9 +194,7 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
   );
   expect(sent.data.message.delivery).toBe("delivered");
   await vi.waitFor(() =>
-    expect(replies()).toEqual([
-      "Model default, effort default, mode default: Format the durations.",
-    ]),
+    expect(replies()).toEqual(["Model opus, effort medium, mode default: Format the durations."]),
   );
   const answered = await session.until((state) => state.context !== undefined);
   expect(answered.context).toEqual({ used: 2500, total: 10_000 });
@@ -194,7 +204,7 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
   await session.until((state) => state.status === "idle");
   await session.act({ action: "prompt", text: "Check the summary." });
   await vi.waitFor(() =>
-    expect(replies().at(-1)).toBe("Model default, effort high, mode default: Check the summary."),
+    expect(replies().at(-1)).toBe("Model opus, effort high, mode default: Check the summary."),
   );
   // A model change applies at once. Haiku has no effort levels, so the picker goes.
   const haiku = await session.act({ action: "setting", id: "model", value: "haiku" });
@@ -255,6 +265,8 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
 
 test("Med runs an ACP agent and keeps its thread", async () => {
   const { api, review, stateDir, thread, start } = await fixture();
+  // An ACP agent tells its models only in a session.
+  expect((await api<AgentOptions>("/api/agents/fake/choices")).data).toEqual({});
   const session = await start("fake");
   expect(session.review.sessions).toMatchObject([
     { agent: "acp", name: "Fake ACP", id: session.id },
@@ -267,6 +279,14 @@ test("Med runs an ACP agent and keeps its thread", async () => {
     ["mode", "mode", "build"],
   ]);
   expect(ready.commands).toEqual([{ name: "init", description: "Write AGENTS.md" }]);
+  // The next session can choose from them, and starts with the choice.
+  expect((await api<AgentOptions>("/api/agents/fake/choices")).data).toMatchObject({
+    model: { value: "small", options: [{ value: "small" }, { value: "large" }] },
+  });
+  const chosen = await start("fake", { model: "large" });
+  const large = await chosen.until((state) => state.status === "idle");
+  expect(large.settings.find((setting) => setting.id === "model")?.value).toBe("large");
+  await chosen.act({ action: "stop" });
 
   const replies = await thread(session.id);
   await api(`/api/reviews/${review.id}/agent/messages`, {

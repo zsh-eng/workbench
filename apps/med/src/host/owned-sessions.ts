@@ -1,17 +1,21 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { access, appendFile, mkdir, readFile } from "node:fs/promises";
+import { access, appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { delimiter, isAbsolute, join, relative } from "node:path";
 import { createInterface } from "node:readline";
 import { z } from "zod";
 import type { SessionEvent, SessionUpdate } from "../shared/agent-session";
-import type {
-  AgentPreset,
-  OwnedCommand,
-  OwnedPermission,
-  OwnedSetting,
-  OwnedState,
+import {
+  AGENT_DEFAULTS,
+  ownedSettingSchema,
+  type AgentChoices,
+  type AgentOptions,
+  type AgentPreset,
+  type OwnedCommand,
+  type OwnedPermission,
+  type OwnedSetting,
+  type OwnedState,
 } from "../shared/owned-session";
 import type { AgentSession } from "../shared/saved-review";
 import { compactUpdate } from "./agent-transcripts";
@@ -175,6 +179,78 @@ const claudeInitSchema = z
     current_permission_mode: z.string().optional(),
   })
   .passthrough();
+type ClaudeModel = z.infer<typeof claudeInitSchema>["models"][number];
+
+const modelOption = (entry: ClaudeModel) => ({
+  value: entry.value,
+  name: entry.displayName ?? entry.value,
+  ...(entry.description ? { description: entry.description } : {}),
+});
+const effortOptions = (levels: string[]) => [
+  { value: "default", name: "Default effort" },
+  ...levels.map((level) => ({
+    value: level,
+    name: level === "xhigh" ? "Extra high" : capitalized(level),
+  })),
+];
+
+/** The model and effort that Claude Code offers, from the wanted ones. */
+function claudeChoices(models: ClaudeModel[], wanted: AgentChoices) {
+  const model = models.find((entry) => entry.value === wanted.model);
+  const levels = (model ?? models[0])?.supportedEffortLevels ?? [];
+  return {
+    model: model?.value ?? "default",
+    effort: wanted.effort && levels.includes(wanted.effort) ? wanted.effort : "default",
+  };
+}
+
+/**
+ * The models that Claude Code offers. `initialize` answers without a prompt,
+ * so the process writes no transcript; Med stops it after the answer.
+ */
+async function probeClaude(agent: RunnableAgent): Promise<ClaudeModel[]> {
+  const child = spawn(
+    agent.command,
+    [
+      ...agent.args,
+      "-p",
+      "--input-format",
+      "stream-json",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--session-id",
+      randomUUID(),
+    ],
+    { cwd: userHome(), env: agentEnvironment(), stdio: ["pipe", "pipe", "ignore"] },
+  );
+  try {
+    return await new Promise<ClaudeModel[]>((resolve) => {
+      const timer = setTimeout(() => resolve([]), 15_000);
+      const done = (models: ClaudeModel[]) => {
+        clearTimeout(timer);
+        resolve(models);
+      };
+      child.on("error", () => done([]));
+      child.on("exit", () => done([]));
+      createInterface({ input: child.stdout, crlfDelay: Infinity }).on("line", (line) => {
+        try {
+          const message = JSON.parse(line);
+          if (message.type !== "control_response") return;
+          done(claudeInitSchema.safeParse(message.response?.response).data?.models ?? []);
+        } catch {
+          /* Not a message. */
+        }
+      });
+      child.stdin.on("error", () => {});
+      child.stdin.write(
+        `${JSON.stringify({ type: "control_request", request_id: "med-probe", request: { subtype: "initialize" } })}\n`,
+      );
+    });
+  } finally {
+    child.kill("SIGTERM");
+  }
+}
 
 /**
  * Claude Code through `stream-json`. Med starts the binary that the user
@@ -185,7 +261,13 @@ const claudeInitSchema = z
 export function startClaude(
   agent: RunnableAgent,
   cwd: string,
-  options: { sessionId?: string; env?: Record<string, string> } = {},
+  options: {
+    sessionId?: string;
+    env?: Record<string, string>;
+    /** The model and effort to start with, where `models` offers them. */
+    choices?: AgentChoices;
+    models?: ClaudeModel[];
+  } = {},
 ): OwnedRunner {
   const sessionId = options.sessionId ?? randomUUID();
   const session: AgentSession = { agent: "claude", id: sessionId, cwd };
@@ -204,8 +286,8 @@ export function startClaude(
   let sequence = 0;
   const pending = new Map<string, (response: { error?: string; value?: unknown }) => void>();
   let ask: { id: string; input: unknown; suggestions?: unknown[] } | undefined;
-  let models: z.infer<typeof claudeInitSchema>["models"] = [];
-  let chosen = { model: "default", effort: "default", mode: "default" };
+  let models = options.models ?? [];
+  let chosen = { ...claudeChoices(models, options.choices ?? {}), mode: "default" };
   let streamTimer: ReturnType<typeof setTimeout> | undefined;
   let streaming: OwnedState["streaming"];
 
@@ -231,11 +313,7 @@ export function startClaude(
               name: "Model",
               category: "model" as const,
               value: chosen.model,
-              options: models.map((entry) => ({
-                value: entry.value,
-                name: entry.displayName ?? entry.value,
-                ...(entry.description ? { description: entry.description } : {}),
-              })),
+              options: models.map(modelOption),
             },
           ]
         : []),
@@ -246,10 +324,7 @@ export function startClaude(
               name: "Effort",
               category: "effort" as const,
               value: efforts.includes(chosen.effort) ? chosen.effort : "default",
-              options: [
-                { value: "default", name: "Default effort" },
-                ...efforts.map((level) => ({ value: level, name: capitalized(level) })),
-              ],
+              options: effortOptions(efforts),
               idleOnly: true,
             },
           ]
@@ -595,7 +670,19 @@ function stopNotice(name: string, reason: string | undefined, answered: boolean)
 export function startAcp(
   agent: RunnableAgent,
   cwd: string,
-  { logDirectory, env }: { logDirectory?: string; env?: Record<string, string> } = {},
+  {
+    logDirectory,
+    env,
+    choices = {},
+    onOffer,
+  }: {
+    logDirectory?: string;
+    env?: Record<string, string>;
+    /** The model and effort to set, where the agent offers them. */
+    choices?: AgentChoices;
+    /** The settings of the new session, before Med sets its choices. */
+    onOffer?(settings: OwnedSetting[]): void;
+  } = {},
 ): OwnedRunner {
   const sessionId = randomUUID();
   const session: AgentSession = { agent: "acp", name: agent.name, id: sessionId, cwd };
@@ -774,7 +861,15 @@ export function startAcp(
         })),
       });
     }
-    store.set({ status: "idle", settings });
+    store.set({ settings });
+    onOffer?.(settings);
+    for (const category of ["model", "effort"] as const) {
+      const wanted = choices[category];
+      const setting = settings.find((entry) => entry.category === category);
+      if (wanted && setting && setting.value !== wanted)
+        await change(setting.id, wanted).catch(() => {});
+    }
+    store.set({ status: "idle" });
   })();
   ready.catch((error) => {
     fail(error);
@@ -832,38 +927,7 @@ export function startAcp(
     },
     async set(id, value) {
       await ready;
-      const setting = store.get().settings.find((entry) => entry.id === id);
-      if (!setting || !setting.options.some((option) => option.value === value))
-        throw new HostError("invalid-setting", "The agent does not offer this choice.", 400);
-      try {
-        if (legacy.has(id))
-          await rpc.request(id === "model" ? "session/set_model" : "session/set_mode", {
-            sessionId: acpSession,
-            ...(id === "model" ? { modelId: value } : { modeId: value }),
-          });
-        else {
-          const result = await rpc.request<Record<string, unknown>>("session/set_config_option", {
-            sessionId: acpSession,
-            configId: id,
-            value,
-          });
-          if (Array.isArray(result?.configOptions)) {
-            store.set({ settings: withConfig(result.configOptions) });
-            return;
-          }
-        }
-      } catch (error) {
-        throw new HostError(
-          "agent-error",
-          error instanceof Error ? error.message : String(error),
-          502,
-        );
-      }
-      store.set({
-        settings: store
-          .get()
-          .settings.map((entry) => (entry.id === id ? { ...entry, value } : entry)),
-      });
+      await change(id, value);
     },
     stop() {
       stopping = true;
@@ -872,6 +936,40 @@ export function startAcp(
       store.set({ status: "exited", permission: undefined });
     },
   };
+  async function change(id: string, value: string) {
+    const setting = store.get().settings.find((entry) => entry.id === id);
+    if (!setting || !setting.options.some((option) => option.value === value))
+      throw new HostError("invalid-setting", "The agent does not offer this choice.", 400);
+    try {
+      if (legacy.has(id))
+        await rpc.request(id === "model" ? "session/set_model" : "session/set_mode", {
+          sessionId: acpSession,
+          ...(id === "model" ? { modelId: value } : { modeId: value }),
+        });
+      else {
+        const result = await rpc.request<Record<string, unknown>>("session/set_config_option", {
+          sessionId: acpSession,
+          configId: id,
+          value,
+        });
+        if (Array.isArray(result?.configOptions)) {
+          store.set({ settings: withConfig(result.configOptions) });
+          return;
+        }
+      }
+    } catch (error) {
+      throw new HostError(
+        "agent-error",
+        error instanceof Error ? error.message : String(error),
+        502,
+      );
+    }
+    store.set({
+      settings: store
+        .get()
+        .settings.map((entry) => (entry.id === id ? { ...entry, value } : entry)),
+    });
+  }
 }
 
 async function executable(path: string) {
@@ -965,11 +1063,17 @@ export async function findAgents(stateDir?: string, home = userHome()): Promise<
 export class OwnedSessions {
   private runners = new Map<string, OwnedRunner>();
   private updated = new Map<string, number>();
+  /** Claude Code's models, asked once per host. */
+  private claudeModels = new Map<string, Promise<ClaudeModel[]>>();
+  /** What each ACP agent offered in its last new session. */
+  private offered: Promise<Record<string, OwnedSetting[]>> | undefined;
   constructor(
     private options: {
       agents: () => Promise<RunnableAgent[]>;
       /** Where ACP sessions keep their updates. */
       logDirectory?: string;
+      /** Where Med keeps what each ACP agent offered, for the next new session. */
+      offersFile?: string;
     },
   ) {}
   async agents(): Promise<AgentPreset[]> {
@@ -980,21 +1084,105 @@ export class OwnedSessions {
       available,
     }));
   }
-  /** Starts an agent in `cwd`, with `env` added to its environment. */
-  async start(
-    presetId: string,
-    cwd: string,
-    { env }: { env?: Record<string, string> } = {},
-  ): Promise<OwnedRunner> {
+  private async agent(presetId: string) {
     const agent = (await this.options.agents()).find((entry) => entry.id === presetId);
     if (!agent?.available)
       throw new HostError("agent-unavailable", "This agent is not installed here.", 404);
+    return agent;
+  }
+  private models(agent: RunnableAgent) {
+    let models = this.claudeModels.get(agent.id);
+    if (!models) this.claudeModels.set(agent.id, (models = probeClaude(agent)));
+    return models;
+  }
+  private offers() {
+    const file = this.options.offersFile;
+    this.offered ??= (file ? readFile(file, "utf8") : Promise.reject(new Error("No file.")))
+      .then((text) => z.record(z.string(), z.array(ownedSettingSchema)).parse(JSON.parse(text)))
+      .catch(() => ({}));
+    return this.offered;
+  }
+  private async remember(presetId: string, settings: OwnedSetting[]) {
+    const offers = await this.offers();
+    offers[presetId] = settings.filter(
+      (setting) => setting.category === "model" || setting.category === "effort",
+    );
+    if (this.options.offersFile)
+      await writeFile(this.options.offersFile, JSON.stringify(offers)).catch(() => {});
+  }
+  /**
+   * The models and efforts that an agent offers, valued with the choices for
+   * a new session. An ACP agent tells them only in a session, so Med shows
+   * what it offered in the last one.
+   */
+  async choices(presetId: string): Promise<AgentOptions> {
+    const agent = await this.agent(presetId);
+    const wanted = AGENT_DEFAULTS[presetId] ?? {};
+    if (agent.kind === "claude") {
+      const models = await this.models(agent);
+      if (!models.length) return {};
+      const chosen = claudeChoices(models, wanted);
+      const levels = [...new Set(models.flatMap((entry) => entry.supportedEffortLevels ?? []))];
+      return {
+        model: {
+          id: "model",
+          name: "Model",
+          category: "model",
+          value: chosen.model,
+          options: models.map(modelOption),
+        },
+        ...(levels.length
+          ? {
+              effort: {
+                id: "effort",
+                name: "Effort",
+                category: "effort" as const,
+                value: chosen.effort,
+                options: effortOptions(levels),
+              },
+              efforts: Object.fromEntries(
+                models.map((entry) => [entry.value, entry.supportedEffortLevels ?? []]),
+              ),
+            }
+          : {}),
+      };
+    }
+    const settings = (await this.offers())[presetId] ?? [];
+    const pick = (category: "model" | "effort") => {
+      const setting = settings.find((entry) => entry.category === category);
+      if (!setting) return {};
+      const value = wanted[category];
+      return {
+        [category]: setting.options.some((option) => option.value === value)
+          ? { ...setting, value: value! }
+          : setting,
+      };
+    };
+    return { ...pick("model"), ...pick("effort") };
+  }
+  /**
+   * Starts an agent in `cwd`, with `env` added to its environment, and the
+   * chosen model and effort, or Med's defaults, where the agent offers them.
+   */
+  async start(
+    presetId: string,
+    cwd: string,
+    { env, choices }: { env?: Record<string, string>; choices?: AgentChoices } = {},
+  ): Promise<OwnedRunner> {
+    const agent = await this.agent(presetId);
+    const wanted = { ...AGENT_DEFAULTS[presetId], ...choices };
     const runner =
       agent.kind === "claude"
-        ? startClaude(agent, cwd, env ? { env } : {})
+        ? startClaude(agent, cwd, {
+            ...(env ? { env } : {}),
+            choices: wanted,
+            models: await this.models(agent),
+          })
         : startAcp(agent, cwd, {
             ...(this.options.logDirectory ? { logDirectory: this.options.logDirectory } : {}),
             ...(env ? { env } : {}),
+            choices: wanted,
+            onOffer: (settings) => void this.remember(presetId, settings),
           });
     const id = runner.session.id;
     this.runners.set(id, runner);

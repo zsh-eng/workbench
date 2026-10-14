@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { z } from "zod";
 import {
+  agentOptionsSchema,
   agentPresetSchema,
   ownedStateSchema,
+  type AgentOptions,
   type AgentPreset,
   type OwnedAction,
   type OwnedState,
@@ -33,6 +35,34 @@ export function useAgentPresets(enabled: boolean, fetcher: typeof fetch = browse
     return () => controller.abort();
   }, [enabled, agents, fetcher]);
   return agents;
+}
+
+// Kept for the window: Claude Code answers in about a second the first time.
+const agentOptions = new Map<string, AgentOptions>();
+
+/** The models and efforts that an agent offers for a new session. */
+export function useAgentOptions(preset: string | undefined, fetcher: typeof fetch = browserFetch) {
+  const [options, setOptions] = useState(() => (preset ? agentOptions.get(preset) : undefined));
+  const [shown, setShown] = useState(preset);
+  if (shown !== preset) {
+    setShown(preset);
+    setOptions(preset ? agentOptions.get(preset) : undefined);
+  }
+  useEffect(() => {
+    if (!preset) return;
+    const controller = new AbortController();
+    createApi(fetcher, readBrowserToken())
+      .json(`/api/agents/${encodeURIComponent(preset)}/choices`, agentOptionsSchema, {
+        signal: controller.signal,
+      })
+      .then((result) => {
+        agentOptions.set(preset, result);
+        setOptions(result);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [preset, fetcher]);
+  return options;
 }
 
 export interface OwnedSession {

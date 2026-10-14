@@ -99,8 +99,13 @@ async function fixture() {
 
 test("a thread starts its agent on a new branch in a worktree, and archiving can remove it", async () => {
   const { api, list, repo, repositoryId } = await fixture();
-  const start = (prompt: string) =>
-    api<{ review: SavedReview }>("/api/threads", { repositoryId, prompt, preset: "claude" });
+  const start = (prompt: string, choices?: { model: string }) =>
+    api<{ review: SavedReview }>("/api/threads", {
+      repositoryId,
+      prompt,
+      preset: "claude",
+      choices,
+    });
 
   // The task names the thread and its branch; the agent starts on it at once.
   const first = await start("Show each result's age in the list, as relative times.");
@@ -120,11 +125,18 @@ test("a thread starts its agent on a new branch in a worktree, and archiving can
     { timeout: 5000 },
   );
 
-  // The same task again takes the next free branch name.
-  const second = (await start("Show each result's age in the list")).data.review;
+  // The same task again takes the next free branch name, here with a chosen model.
+  const second = (await start("Show each result's age in the list", { model: "haiku" })).data
+    .review;
   expect(git(second.targets[0]!.repo, ["branch", "--show-current"])).toBe(
     "show-each-results-age-list-2",
   );
+  await vi.waitFor(async () => {
+    const owned = await api<OwnedState>(
+      `/api/reviews/${second.id}/owned/${second.sessions![0]!.id}`,
+    );
+    expect(owned.data.settings.find((setting) => setting.id === "model")?.value).toBe("haiku");
+  });
 
   // The list shows both, newest first, each in its own linked worktree.
   const threads = await list();

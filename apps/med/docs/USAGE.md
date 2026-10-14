@@ -86,10 +86,12 @@ older threads into one **N older** row, which opens them below. `⌘1`–`⌘9` 
 only the threads in view. Nothing is archived on its own.
 
 - **New thread** (`⌥N`) asks for the task, the repository, where the agent
-  works, and the agent. **New worktree**, the default, makes a branch named
-  for the task in a new linked worktree, so the work stays apart from your
-  checkout. **Checkout** works on the checkout's current branch. `⌘↵` starts
-  the agent on the task at once.
+  works, and the agent with its model and effort. **New worktree**, the
+  default, makes a branch named for the task in a new linked worktree, so the
+  work stays apart from your checkout. **Checkout** works on the checkout's
+  current branch. Claude Code starts on Opus 5.5 at medium effort and Codex on
+  `gpt-6-astra`; Med keeps your last choice for each agent. `⌘↵` starts the
+  agent on the task at once.
 - A turning mark shows while the agent works, **Needs you** while it waits for
   a permission answer or for your review, and a dot when a turn ended while
   you were elsewhere.

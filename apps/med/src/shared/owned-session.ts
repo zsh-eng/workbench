@@ -74,10 +74,36 @@ export const ownedStateSchema = z.object({
 });
 export type OwnedState = z.infer<typeof ownedStateSchema>;
 
+/** The model and effort for a new session; the agent's own default otherwise. */
+export const agentChoicesSchema = z.object({
+  model: z.string().min(1).max(200).optional(),
+  effort: z.string().min(1).max(80).optional(),
+});
+export type AgentChoices = z.infer<typeof agentChoicesSchema>;
+
+/** Med's choices for a new session, where the agent offers them. */
+export const AGENT_DEFAULTS: Record<string, AgentChoices> = {
+  claude: { model: "opus", effort: "medium" },
+  codex: { model: "gpt-6-astra" },
+};
+
+/**
+ * The models and efforts that an agent offers before a session starts. Each
+ * setting's value is the choice for a new session.
+ */
+export const agentOptionsSchema = z.object({
+  model: ownedSettingSchema.optional(),
+  effort: ownedSettingSchema.optional(),
+  /** The efforts of each model, where they depend on the model, as in Claude Code. */
+  efforts: z.record(z.string(), z.array(z.string())).optional(),
+});
+export type AgentOptions = z.infer<typeof agentOptionsSchema>;
+
 export const ownedStartSchema = z.object({
   preset: z.string().min(1).max(80),
   /** The review target whose repository the agent works in. */
   targetId: z.string().max(80).optional(),
+  choices: agentChoicesSchema.optional(),
 });
 
 export const ownedActionSchema = z.discriminatedUnion("action", [

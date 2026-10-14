@@ -262,6 +262,31 @@ function createHost() {
         return Response.json({
           agents: [{ id: "claude", name: "Claude Code", kind: "claude", available: true }],
         });
+      case "/api/agents/claude/choices":
+        return Response.json({
+          model: {
+            id: "model",
+            name: "Model",
+            category: "model",
+            value: "opus",
+            options: [
+              { value: "default", name: "Default (recommended)" },
+              { value: "opus", name: "Opus 5.5" },
+              { value: "haiku", name: "Haiku 4.5" },
+            ],
+          },
+          effort: {
+            id: "effort",
+            name: "Effort",
+            category: "effort",
+            value: "medium",
+            options: ["default", "low", "medium", "high"].map((value) => ({
+              value,
+              name: value,
+            })),
+          },
+          efforts: { default: ["low", "high"], opus: ["low", "medium", "high"], haiku: [] },
+        });
       case "/api/review": {
         const body = JSON.parse(String(init?.body)) as { comparison: Comparison; repo: string };
         return Response.json(reviewFor(body.repo, body.comparison));
@@ -614,6 +639,13 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
   await dialog.getByRole("textbox", { name: "Task" }).fill("Show each result's age in the list");
   // The hint names the branch that Med creates.
   await expect.element(dialog.getByText("show-each-results-age-list")).toBeVisible();
+  // Med chooses Opus at medium effort; a choice stays for the next thread.
+  const model = dialog.getByRole("combobox", { name: "Model" });
+  const effort = dialog.getByRole("combobox", { name: "Effort" });
+  await expect.element(model).toHaveValue("opus");
+  await expect.element(effort).toHaveValue("medium");
+  await effort.selectOptions("high");
+  await dialog.getByRole("textbox", { name: "Task" }).click();
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
   await expect
     .poll(() => host.threadRequests)
@@ -625,6 +657,7 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
           prompt: "Show each result's age in the list",
           preset: "claude",
           worktree: true,
+          choices: { model: "opus", effort: "high" },
         },
       },
     ]);
@@ -634,6 +667,12 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
   // Escape leaves a new thread that has not started.
   await userEvent.keyboard("{Alt>}n{/Alt}");
   await expect.element(dialog).toBeVisible();
+  await expect.element(effort).toHaveValue("high");
+  // A model without efforts has no effort to choose.
+  await model.selectOptions("haiku");
+  await expect.element(effort).not.toBeInTheDocument();
+  await model.selectOptions("opus");
+  await expect.element(effort).toHaveValue("high");
   await userEvent.keyboard("{Escape}");
   await expect.element(dialog).not.toBeInTheDocument();
   expect(shown()?.dataset.reviewId).toBe("agent-target");
