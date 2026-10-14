@@ -1,8 +1,5 @@
 import {
-  commitResultSchema,
-  fileChangesSchema,
-  pushResultSchema,
-  workingStatusSchema,
+  commitRoutes,
   type CommitResult,
   type FileChanges,
   type WorkingFile,
@@ -46,19 +43,16 @@ export function createCommitApi(api: ReturnType<typeof createApi>, repo: string)
     body: JSON.stringify({ repo, ...body }),
   });
   return {
-    status: (signal) =>
-      api.json(`/api/git/status?repo=${encodeURIComponent(repo)}`, workingStatusSchema, {
-        signal,
-      }),
+    status: (signal) => api.call(commitRoutes.status, { repo }, signal),
     changes: (file, signal) =>
-      api.json(
-        `/api/git/file-changes?${new URLSearchParams({
+      api.call(
+        commitRoutes.changes,
+        {
           repo,
           path: file.path,
           ...(file.previousPath ? { previousPath: file.previousPath } : {}),
-        })}`,
-        fileChangesSchema,
-        { signal },
+        },
+        signal,
       ),
     diff: async (signal) => {
       const review = await api.json("/api/review", reviewSchema, {
@@ -68,11 +62,9 @@ export function createCommitApi(api: ReturnType<typeof createApi>, repo: string)
       return { id: review.id, files: review.files, patch: review.patch };
     },
     stage: (paths, stage) =>
-      api.json("/api/git/stage", workingStatusSchema, post({ stage, ...(paths ? { paths } : {}) })),
-    commit: (message, indexKey) =>
-      api.json("/api/git/commit", commitResultSchema, post({ message, indexKey })),
-    push: (head, track) =>
-      api.json("/api/git/push-branch", pushResultSchema, post({ head, track })),
+      api.call(commitRoutes.stage, { repo, stage, ...(paths ? { paths } : {}) }),
+    commit: (message, indexKey) => api.call(commitRoutes.commit, { repo, message, indexKey }),
+    push: (head, track) => api.call(commitRoutes.pushBranch, { repo, head, track }),
   };
 }
 

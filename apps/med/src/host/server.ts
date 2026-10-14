@@ -41,12 +41,8 @@ import {
   workingFileChanges,
   workingStatus,
 } from "./repository/commit-flow";
-import {
-  branchPushRequestSchema,
-  commitRequestSchema,
-  pushRequestSchema,
-  stageRequestSchema,
-} from "../shared/git-actions";
+import { commitRoutes, pushRequestSchema } from "../shared/git-actions";
+import { route, routeTable } from "./routes";
 import {
   loadCommitDetails,
   loadHistory,
@@ -574,6 +570,32 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     };
   };
 
+  // Routes with a shared contract: the browser's client reads the same one.
+  const routes = routeTable([
+    route(commitRoutes.status, async ({ repo }, { requireRepo, signal }) =>
+      workingStatus(await requireRepo(repo ?? null), signal),
+    ),
+    route(commitRoutes.changes, async (input, { requireRepo, signal }) => {
+      const repo = await requireRepo(input.repo ?? null);
+      if (!input.path) throw new HostError("invalid-path", "Choose a changed file.");
+      return workingFileChanges(
+        repo,
+        { path: input.path, previousPath: input.previousPath },
+        signal,
+      );
+    }),
+    route(commitRoutes.stage, async (input, { requireRepo, signal }) => {
+      const repo = await requireRepo(input.repo);
+      await stagePaths({ ...input, repo }, signal);
+      return workingStatus(repo, signal);
+    }),
+    route(commitRoutes.commit, async (input, { requireRepo, signal }) =>
+      commitStaged({ ...input, repo: await requireRepo(input.repo) }, signal),
+    ),
+    route(commitRoutes.pushBranch, async (input, { requireRepo, signal }) =>
+      pushCurrentBranch({ ...input, repo: await requireRepo(input.repo) }, signal),
+    ),
+  ]);
   const handle = (request: IncomingMessage, response: ServerResponse) => {
     const abort = new AbortController();
     const owners = new Set<string>();
@@ -1266,6 +1288,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         };
         if (latest) latestRequests.set(latest, replace);
         try {
+          const routed = routes.find(request.method, url.pathname);
+          if (routed) {
+            send(await routed(url, () => readBody(request), { signal: abort.signal, requireRepo }));
+            return;
+          }
           if (
             options.service &&
             url.pathname.startsWith("/api/service/") &&
@@ -2016,39 +2043,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             const input = pushRequestSchema.parse(await readBody(request));
             input.repo = await requireRepo(input.repo);
             send(await pushBranch(input, abort.signal));
-            return;
-          }
-          if (url.pathname === "/api/git/status" && request.method === "GET") {
-            send(
-              await workingStatus(await requireRepo(url.searchParams.get("repo")), abort.signal),
-            );
-            return;
-          }
-          if (url.pathname === "/api/git/file-changes" && request.method === "GET") {
-            const repo = await requireRepo(url.searchParams.get("repo"));
-            const path = url.searchParams.get("path");
-            if (!path) throw new HostError("invalid-path", "Choose a changed file.");
-            const previousPath = url.searchParams.get("previousPath") ?? undefined;
-            send(await workingFileChanges(repo, { path, previousPath }, abort.signal));
-            return;
-          }
-          if (url.pathname === "/api/git/stage" && request.method === "POST") {
-            const input = stageRequestSchema.parse(await readBody(request));
-            input.repo = await requireRepo(input.repo);
-            await stagePaths(input, abort.signal);
-            send(await workingStatus(input.repo, abort.signal));
-            return;
-          }
-          if (url.pathname === "/api/git/commit" && request.method === "POST") {
-            const input = commitRequestSchema.parse(await readBody(request));
-            input.repo = await requireRepo(input.repo);
-            send(await commitStaged(input, abort.signal));
-            return;
-          }
-          if (url.pathname === "/api/git/push-branch" && request.method === "POST") {
-            const input = branchPushRequestSchema.parse(await readBody(request));
-            input.repo = await requireRepo(input.repo);
-            send(await pushCurrentBranch(input, abort.signal));
             return;
           }
           if (url.pathname === "/api/branches" && request.method === "GET") {

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { apiErrorMessage, comparisonSchema } from "../../shared/protocol";
+import type { RouteContract } from "../../shared/routes";
 import { browserFetch, liveStream } from "./live";
 
 const worktreeSchema = z.object({
@@ -164,19 +165,41 @@ export function createApi(fetcher: typeof fetch, token: string) {
     if (token) result.set("Authorization", `Bearer ${token}`);
     return result;
   };
+  async function json<T>(url: string, schema: z.ZodType<T>, init: RequestInit = {}): Promise<T> {
+    const response = await fetcher(url, { ...init, headers: headers(init.headers) });
+    if (!response.ok) {
+      const body: unknown = await response.json().catch(() => null);
+      throw new HttpError(
+        apiErrorMessage(body) ?? `Request failed (${response.status}).`,
+        response.status,
+      );
+    }
+    const result = schema.safeParse(await response.json());
+    if (!result.success) throw new Error("The server returned an invalid response.");
+    return result.data;
+  }
   return {
-    async json<T>(url: string, schema: z.ZodType<T>, init: RequestInit = {}): Promise<T> {
-      const response = await fetcher(url, { ...init, headers: headers(init.headers) });
-      if (!response.ok) {
-        const body: unknown = await response.json().catch(() => null);
-        throw new HttpError(
-          apiErrorMessage(body) ?? `Request failed (${response.status}).`,
-          response.status,
-        );
+    json,
+    /** Calls a route by its shared contract: the input goes in the query of
+     * a GET or the body of a POST, and the answer is parsed with its output. */
+    call<C extends RouteContract>(
+      route: C,
+      input: z.input<C["input"]>,
+      signal?: AbortSignal,
+    ): Promise<z.output<C["output"]>> {
+      const output = route.output as z.ZodType<z.output<C["output"]>>;
+      if (route.method === "GET") {
+        const query = new URLSearchParams();
+        for (const [key, value] of Object.entries(input as Record<string, unknown>))
+          if (value !== undefined) query.set(key, String(value));
+        return json(`${route.path}?${query}`, output, { signal });
       }
-      const result = schema.safeParse(await response.json());
-      if (!result.success) throw new Error("The server returned an invalid response.");
-      return result.data;
+      return json(route.path, output, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+        signal,
+      });
     },
     stream(url: string, signal: AbortSignal) {
       if (fetcher === browserFetch) return liveStream(token, url, signal);

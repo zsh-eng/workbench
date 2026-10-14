@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { RouteContract } from "./routes";
 export const gitTargetsSchema = z.object({
   branch: z.string(),
   head: z.string(),
@@ -88,3 +89,42 @@ export const branchPushRequestSchema = z.object({
   track: z.boolean(),
 });
 export type BranchPushRequest = z.infer<typeof branchPushRequestSchema>;
+
+/** The Commit tab's routes. Without `repo`, a GET reads the host's default
+ * repository. */
+export const commitRoutes = {
+  status: {
+    method: "GET",
+    path: "/api/git/status",
+    input: z.object({ repo: repoField.optional() }),
+    output: workingStatusSchema,
+  },
+  changes: {
+    method: "GET",
+    path: "/api/git/file-changes",
+    input: z.object({
+      repo: repoField.optional(),
+      path: z.string().max(4096).optional(),
+      previousPath: z.string().max(4096).optional(),
+    }),
+    output: fileChangesSchema,
+  },
+  stage: {
+    method: "POST",
+    path: "/api/git/stage",
+    input: stageRequestSchema,
+    output: workingStatusSchema,
+  },
+  commit: {
+    method: "POST",
+    path: "/api/git/commit",
+    input: commitRequestSchema,
+    output: commitResultSchema,
+  },
+  pushBranch: {
+    method: "POST",
+    path: "/api/git/push-branch",
+    input: branchPushRequestSchema,
+    output: pushResultSchema,
+  },
+} as const satisfies Record<string, RouteContract>;
