@@ -112,8 +112,18 @@ written to both formats.
    subagent transcript it found, and sends `updates` events.
 
 Updates keep a command but no other raw tool input or output. Text longer than
-64 KiB, diffs over 512 KiB, and images over 512 KiB are cut or replaced. At
-most 8 session streams are open. A reconnect starts with a new `reset`.
+64 KiB and diffs over 512 KiB are cut or replaced. Images from tools stay on
+this computer, because the thread does not show them; tool screenshots were
+most of a first view's bytes. A prompt's images go with the prompt. At most 8
+session streams are open. A reconnect starts with a new `reset`.
+
+Streams of one transcript share one follower (`createTranscriptFeeds`). A new
+stream gets the first view and the updates since from memory, so a click after
+a read ahead, a revisit, or a reconnect reads and parses nothing again. A
+follower stays 30 seconds after its last stream closes, and at most 6 stay
+without a stream. One that has read 8 MiB more since its first view starts
+anew for the next stream, so that a first view stays near 8 MiB of transcript.
+The host finds lines in the bytes it reads and decodes them once.
 
 In the app, this stream and the page's other event streams are channels of
 one `GET /api/live` stream (`src/web/data/live.ts`, `src/host/live-streams.ts`).

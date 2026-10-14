@@ -12,7 +12,6 @@ export const TAIL_BYTES = 8 * 1024 * 1024;
 /** Limits for one update on the wire; larger output is cut. */
 const MAX_TEXT = 64 * 1024;
 const MAX_DIFF = 512 * 1024;
-const MAX_IMAGE = 512 * 1024;
 /** How often a followed transcript is checked for new lines. */
 const POLL_MS = 400;
 
@@ -73,7 +72,9 @@ const cut = (value: string, limit: number) =>
     ? `${value.slice(0, limit)}\n… ${value.length - limit} more characters`
     : value;
 
-/** Keeps updates small for the browser: no raw tool output, cut text, and no huge diffs or images. */
+/** Keeps updates small for the browser: no raw tool output, cut text, no
+ * huge diffs, and no images from tools, which the thread does not show. Tool
+ * screenshots were most of a first view's bytes. */
 export function compactUpdate(update: SessionUpdate): SessionUpdate {
   if (update.sessionUpdate !== "tool_call" && update.sessionUpdate !== "tool_call_update")
     return update;
@@ -81,26 +82,23 @@ export function compactUpdate(update: SessionUpdate): SessionUpdate {
   const input = rawInput as Record<string, unknown> | undefined;
   // The thread shows a command; other input stays on this computer.
   const command = typeof input?.command === "string" ? cut(input.command, MAX_TEXT) : undefined;
-  const content = update.content?.map((part): ToolCallContent => {
+  const content = update.content?.flatMap((part): ToolCallContent[] => {
     if (part.type === "diff") {
-      if ((part.oldText?.length ?? 0) + part.newText.length <= MAX_DIFF) return part;
-      return {
-        type: "content",
-        content: {
-          type: "text",
-          text: `${basename(part.path)}: the diff is too large to show here.`,
+      if ((part.oldText?.length ?? 0) + part.newText.length <= MAX_DIFF) return [part];
+      return [
+        {
+          type: "content",
+          content: {
+            type: "text",
+            text: `${basename(part.path)}: the diff is too large to show here.`,
+          },
         },
-      };
+      ];
     }
-    if (part.type !== "content") return part;
+    if (part.type !== "content") return [part];
     if (part.content.type === "text")
-      return { ...part, content: { ...part.content, text: cut(part.content.text, MAX_TEXT) } };
-    if (part.content.type === "image" && part.content.data.length > MAX_IMAGE)
-      return {
-        type: "content",
-        content: { type: "text", text: "An image too large to show here." },
-      };
-    return part;
+      return [{ ...part, content: { ...part.content, text: cut(part.content.text, MAX_TEXT) } }];
+    return part.content.type === "image" ? [] : [part];
   });
   return {
     ...rest,
@@ -125,20 +123,17 @@ async function readLines(path: string, offset: number, limit = Number.POSITIVE_I
     }
     const buffer = Buffer.alloc(size - start);
     await handle.read(buffer, 0, buffer.length, start);
-    let text = buffer.toString("utf8");
+    // Offsets count bytes, and a newline byte is never part of another UTF-8
+    // character, so lines are found in the bytes and decoded once.
     // A tail starts inside a line; skip to the next one.
-    if (truncated) {
-      const newline = text.indexOf("\n");
-      text = newline < 0 ? "" : text.slice(newline + 1);
-    }
-    const end = text.lastIndexOf("\n");
-    const complete = end < 0 ? "" : text.slice(0, end);
-    const consumed = end < 0 ? 0 : Buffer.byteLength(text.slice(0, end + 1));
-    const first = truncated ? size - Buffer.byteLength(text) : start;
+    const newline = truncated ? buffer.indexOf(10) : -1;
+    const from = truncated ? (newline < 0 ? buffer.length : newline + 1) : 0;
+    const end = buffer.lastIndexOf(10);
+    const complete = end > from ? buffer.toString("utf8", from, end) : "";
     return {
       lines: complete ? complete.split("\n") : [],
-      next: first + consumed,
-      first,
+      next: start + Math.max(from, end + 1),
+      first: start + from,
       truncated,
       reset: false,
     };
@@ -180,6 +175,8 @@ export interface TranscriptFeed {
   start: number;
   idle: boolean;
   modifiedAt: number;
+  /** The byte offset where the next read of the transcript starts. */
+  end: number;
 }
 
 /**
@@ -192,7 +189,10 @@ export async function followTranscript(
   path: string,
   handlers: {
     onFeed(feed: TranscriptFeed): void;
-    onEvents(events: SessionEvent[], state: { idle: boolean; modifiedAt: number }): void;
+    onEvents(
+      events: SessionEvent[],
+      state: { idle: boolean; modifiedAt: number; end: number },
+    ): void;
   },
   signal: AbortSignal,
 ) {
@@ -259,6 +259,7 @@ export async function followTranscript(
     start: first.first,
     idle: main.idle?.() ?? true,
     modifiedAt: await modified(),
+    end: main.offset,
   });
 
   let lastModified = 0;
@@ -274,10 +275,135 @@ export async function followTranscript(
         next
           .sort((a, b) => a.at - b.at)
           .map((event) => ({ ...event, update: compactUpdate(event.update) })),
-        { idle: main.idle?.() ?? true, modifiedAt },
+        { idle: main.idle?.() ?? true, modifiedAt, end: main.offset },
       );
     lastModified = modifiedAt;
   }
+}
+
+/** A follower stays this long after its last stream closes. */
+const FEED_LINGER_MS = 30_000;
+/** At most this many followers stay without a stream. */
+const IDLE_FEEDS = 6;
+
+type FeedHandlers = {
+  onFeed(feed: Omit<TranscriptFeed, "end">): void;
+  onEvents(events: SessionEvent[], state: { idle: boolean; modifiedAt: number }): void;
+};
+
+/**
+ * One follower per transcript, which the streams that show it share. A
+ * stream gets the first view and the updates since at once, without a read,
+ * while the transcript is followed: as when a click follows a read ahead, or
+ * a thread shows again. A follower stays a while after its last stream
+ * closes. One that has read more than a first view since starts anew for the
+ * next stream, so that a first view stays near TAIL_BYTES.
+ */
+export function createTranscriptFeeds(linger = FEED_LINGER_MS) {
+  interface Feed {
+    view: Promise<TranscriptFeed>;
+    /** Resolves when the follower stops, and rejects if it fails. */
+    done: Promise<void>;
+    listeners: Set<FeedHandlers["onEvents"]>;
+    users: number;
+    stop: AbortController;
+    timer?: ReturnType<typeof setTimeout>;
+    grown: boolean;
+  }
+  const feeds = new Map<string, Feed>();
+  const stopFeed = (path: string, feed: Feed) => {
+    clearTimeout(feed.timer);
+    feed.stop.abort();
+    if (feeds.get(path) === feed) feeds.delete(path);
+  };
+  const start = (session: Pick<AgentSession, "agent" | "id">, path: string) => {
+    let current: TranscriptFeed | undefined;
+    let firstEnd = 0;
+    let shown!: (view: TranscriptFeed) => void;
+    const view = new Promise<TranscriptFeed>((resolve) => (shown = resolve));
+    const stop = new AbortController();
+    const listeners = new Set<FeedHandlers["onEvents"]>();
+    const done = followTranscript(
+      session,
+      path,
+      {
+        onFeed(first) {
+          current = first;
+          firstEnd = first.end;
+          shown(first);
+        },
+        onEvents(events, { end, ...state }) {
+          current!.events.push(...events);
+          Object.assign(current!, state);
+          if (end - firstEnd > TAIL_BYTES && feeds.get(path) === feed) {
+            feed.grown = true;
+            feeds.delete(path);
+          }
+          for (const listener of listeners) listener(events, state);
+        },
+      },
+      stop.signal,
+    );
+    const feed: Feed = {
+      // A follower that fails before its first view fails its streams.
+      view: Promise.race([view, done.then(() => view)]),
+      done,
+      listeners,
+      users: 0,
+      stop,
+      grown: false,
+    };
+    done.catch(() => stopFeed(path, feed));
+    return feed;
+  };
+  return {
+    /** Follows a transcript until `signal` aborts, as `followTranscript` does. */
+    async follow(
+      session: Pick<AgentSession, "agent" | "id">,
+      path: string,
+      handlers: FeedHandlers,
+      signal: AbortSignal,
+    ) {
+      if (signal.aborted) return;
+      let feed = feeds.get(path);
+      clearTimeout(feed?.timer);
+      // The most recent comes last, so the oldest idle follower stops first.
+      feeds.delete(path);
+      feed ??= start(session, path);
+      feeds.set(path, feed);
+      feed.users++;
+      try {
+        const view = await feed.view;
+        if (signal.aborted) return;
+        const { end: _end, ...state } = view;
+        handlers.onFeed({ ...state, events: [...view.events] });
+        feed.listeners.add(handlers.onEvents);
+        try {
+          await Promise.race([
+            new Promise<void>((resolve) =>
+              signal.addEventListener("abort", () => resolve(), { once: true }),
+            ),
+            feed.done,
+          ]);
+        } finally {
+          feed.listeners.delete(handlers.onEvents);
+        }
+      } finally {
+        if (!--feed.users) {
+          if (feed.grown || feeds.get(path) !== feed) stopFeed(path, feed);
+          else {
+            const stopping = feed;
+            feed.timer = setTimeout(() => stopFeed(path, stopping), linger);
+            const idle = [...feeds].filter(([, entry]) => !entry.users);
+            for (const [key, entry] of idle.slice(0, -IDLE_FEEDS)) stopFeed(key, entry);
+          }
+        }
+      }
+    },
+    close() {
+      for (const [path, feed] of [...feeds]) stopFeed(path, feed);
+    },
+  };
 }
 
 /** An earlier page reads at most this much before its end. */
@@ -301,13 +427,11 @@ export async function readTranscriptPage(
     start = Math.max(0, end - PAGE_BYTES);
     const buffer = Buffer.alloc(end - start);
     await handle.read(buffer, 0, buffer.length, start);
-    text = buffer.toString("utf8");
     // A page starts inside a line unless it starts the file.
-    if (start > 0) {
-      const newline = text.indexOf("\n");
-      text = newline < 0 ? "" : text.slice(newline + 1);
-      start = end - Buffer.byteLength(text);
-    }
+    const newline = start > 0 ? buffer.indexOf(10) : -1;
+    const from = start > 0 ? (newline < 0 ? buffer.length : newline + 1) : 0;
+    text = buffer.toString("utf8", from);
+    start += from;
   } finally {
     await handle.close();
   }

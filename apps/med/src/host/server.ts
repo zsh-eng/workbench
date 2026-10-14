@@ -77,8 +77,8 @@ import { acceptWebSocket } from "./runtime/websocket";
 import { CodexReviews } from "./codex-reviews";
 import { SavedReviewStore } from "./saved-reviews";
 import {
+  createTranscriptFeeds,
   findTranscript,
-  followTranscript,
   readTranscriptPage,
   transcriptTurns,
 } from "./agent-transcripts";
@@ -353,6 +353,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   // such as a review an agent just created.
   const windows = new Set<ServerResponse>();
   const sessionStreams = new Set<ServerResponse>();
+  // Streams of one transcript share its follower.
+  const { follow: followTranscript, close: closeTranscripts } = createTranscriptFeeds();
   // One stream per page that carries the streams above as channels.
   const lives = new Map<
     string,
@@ -2340,6 +2342,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       closing = true;
       clearInterval(heartbeat);
       ownedSessions.stopAll();
+      closeTranscripts();
       for (const abort of activeRequests.keys()) abort.abort();
       for (const stream of [...streams.keys(), ...windows]) stream.end();
       // A channel's handler stops when its response closes. Bun does not emit

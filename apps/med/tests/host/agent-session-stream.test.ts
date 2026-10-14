@@ -184,6 +184,89 @@ test("a review's agent session streams its transcript, then new lines and subage
   );
 });
 
+test("a second stream of a session starts with its updates so far, without tool images", async () => {
+  const { api, saved, transcript } = await fixture();
+  await writeFile(
+    transcript,
+    line({
+      type: "user",
+      timestamp: at(0),
+      cwd: "/work/repo",
+      message: { role: "user", content: "Check the page." },
+    }) +
+      line(
+        assistant(1, "a1", {
+          type: "tool_use",
+          id: "shot",
+          name: "Bash",
+          input: { command: "bun run screenshot" },
+        }),
+      ),
+  );
+  const events = `/api/reviews/${saved.id}/sessions/${session}/events`;
+  const first = listen(await api(events));
+  await vi.waitFor(() => expect(first[0]?.event).toBe("reset"));
+  await appendFile(
+    transcript,
+    line({
+      type: "user",
+      timestamp: at(2),
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "shot",
+            content: [
+              { type: "text", text: "Saved the screenshot." },
+              { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBOR" } },
+            ],
+          },
+        ],
+      },
+    }),
+  );
+  const completed = expect.objectContaining({
+    update: expect.objectContaining({ toolCallId: "shot", status: "completed" }),
+  });
+  await vi.waitFor(
+    () => expect(first.slice(1).flatMap((part) => part.events)).toContainEqual(completed),
+    {
+      timeout: 5000,
+    },
+  );
+
+  // As when the thread shows again: the first view has every update so far.
+  const second = listen(await api(events));
+  await vi.waitFor(() => expect(second[0]?.event).toBe("reset"));
+  const updates = second[0]!.events.map((event) => event.update);
+  expect(updates.map((update) => update.sessionUpdate)).toEqual([
+    "user_message_chunk",
+    "tool_call",
+    "tool_call_update",
+  ]);
+  // The thread shows a tool's text; its images stay on this computer.
+  expect(updates[2]).toMatchObject({
+    content: [{ type: "content", content: { type: "text", text: "Saved the screenshot." } }],
+  });
+
+  await appendFile(
+    transcript,
+    line(assistant(3, "a2", { type: "text", text: "The page looks right." }, "end_turn")),
+  );
+  await vi.waitFor(
+    () => {
+      for (const stream of [first, second])
+        expect(stream.slice(1).flatMap((part) => part.events)).toContainEqual(
+          expect.objectContaining({
+            update: expect.objectContaining({ sessionUpdate: "agent_message_chunk" }),
+          }),
+        );
+    },
+    { timeout: 5000 },
+  );
+});
+
 test("a session the review does not record, or without a transcript, is not found", async () => {
   const { api, saved } = await fixture();
   expect((await api(`/api/reviews/${saved.id}/sessions/other-session/events`)).status).toBe(404);
