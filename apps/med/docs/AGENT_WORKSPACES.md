@@ -161,7 +161,9 @@ switches to tabs.
 
 ## Long sessions: load earlier work
 
-The host reads the last 8 MiB of a transcript. `GET
+The host's first view is the end of a transcript: about three screens of
+prompts and replies, read from at most the last 8 MiB
+([host stream](SESSIONS.md#host-stream)). `GET
 /api/reviews/:id/sessions/:session/page?before=<offset>` reads up to 4 MiB
 before a byte offset, and `GET …/turns` lists each prompt with its offset from
 an index that grows with the file. The store keeps a result whose call is on an

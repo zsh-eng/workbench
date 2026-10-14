@@ -85,10 +85,17 @@ const reviewFor = (repo: string, comparison: Comparison, id = `review-${repo}`) 
   };
 };
 /** Saved reviews that an agent can announce, each of the main worktree. */
-const savedTitles: Record<string, string> = { agent: "Agent review", second: "Second review" };
+const savedTitles: Record<string, string> = {
+  agent: "Agent review",
+  second: "Second review",
+  talk: "Talk review",
+};
+/** The agent session of the "talk" thread. */
+const talkSession = { agent: "claude" as const, id: "talk-session", cwd: "/test/repo" };
 const savedReview = (id: string) => ({
   id,
   title: savedTitles[id],
+  ...(id === "talk" ? { sessions: [talkSession] } : {}),
   createdAt: "2026-10-01T00:00:00Z",
   revision: 0,
   commentCount: 0,
@@ -152,6 +159,11 @@ function createHost() {
   const removals: string[] = [];
   // Each request's path, in order.
   const requested: string[] = [];
+  // The talk thread's session sends its first view when the test releases it.
+  let releaseSession!: () => void;
+  const sessionHeld = new Promise<void>((resolve) => {
+    releaseSession = resolve;
+  });
   const fetcher: typeof fetch = async (input, init) => {
     const url = new URL(String(input), "http://localhost");
     requested.push(url.pathname);
@@ -203,6 +215,42 @@ function createHost() {
             pullStreams.delete(controller);
             controller.error(new DOMException("Aborted", "AbortError"));
           });
+        },
+      });
+      return new Response(body, { headers: { "content-type": "text/event-stream" } });
+    }
+    if (url.pathname === `/api/reviews/talk/sessions/${talkSession.id}/events`) {
+      const reset = {
+        events: [
+          {
+            at: 1,
+            update: {
+              sessionUpdate: "user_message_chunk",
+              content: { type: "text", text: "Rename the export." },
+            },
+          },
+          {
+            at: 2,
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "Renamed **alpha**." },
+            },
+          },
+        ],
+        idle: true,
+        modifiedAt: 0,
+        truncated: false,
+      };
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          void sessionHeld.then(() =>
+            controller.enqueue(
+              new TextEncoder().encode(`event: reset\ndata: ${JSON.stringify(reset)}\n\n`),
+            ),
+          );
+          init?.signal?.addEventListener("abort", () =>
+            controller.error(new DOMException("Aborted", "AbortError")),
+          );
         },
       });
       return new Response(body, { headers: { "content-type": "text/event-stream" } });
@@ -368,6 +416,7 @@ function createHost() {
     pulls,
     setPull,
     removals,
+    releaseSession,
   };
 }
 
@@ -500,6 +549,30 @@ test("a thread in view loads out of sight, and its first visit shows that slot",
   // The click shows that slot; nothing reads the review again.
   expect(slot()).toBe(ahead);
   expect(host.requested.filter((path) => path === "/api/reviews/agent")).toHaveLength(1);
+});
+
+test("a thread with its session on screen shows its session first, and its diff after", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  host.setThreads([thread("talk", { agent: "claude", state: "idle", sessions: [talkSession] })]);
+  // The thread loads ahead. Its diff arrives, and waits for its session.
+  const slot = () => document.querySelector<HTMLElement>('[data-workspace-slot="review-talk"]');
+  const status = () =>
+    slot()?.querySelector<HTMLElement>("[data-review-status]")?.dataset.reviewStatus;
+  await expect
+    .poll(() => host.requested.includes("/api/reviews/talk/targets/talk-target/review"))
+    .toBe(true);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  expect(status()).toBe("loading");
+
+  host.releaseSession();
+  await page.getByRole("button", { name: /^Talk review/ }).click();
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("talk-target");
+  const thread_ = page.getByRole("log", { name: "Session" });
+  await expect.element(thread_.getByText("Rename the export.")).toBeVisible();
+  await expect.element(thread_.getByText("alpha", { exact: true })).toBeVisible();
+  expect(status()).toBe("ready");
 });
 
 test("the sidebar lists every thread by repository with its agent's state", async () => {

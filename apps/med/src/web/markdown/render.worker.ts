@@ -29,7 +29,9 @@ const firstSourceLine = (node: RootContent): number | undefined => {
 type Task = {
   id: number;
   text: string;
-  theme: AdapterTheme;
+  /** The theme, once for each worker; later tasks name it. */
+  theme?: AdapterTheme;
+  themeName?: string;
   vault?: boolean;
   fileLinks?: boolean;
   /** Keep every link target for the review brief to resolve against its files. */
@@ -41,6 +43,7 @@ type Task = {
 // renders each task in order and replies to each.
 let latest: Task | undefined;
 const queue: Task[] = [];
+const themes = new Map<string, AdapterTheme>();
 let running = false;
 self.onmessage = (event: MessageEvent<Task | { batch: Task[] }>) => {
   if ("batch" in event.data) queue.push(...event.data.batch);
@@ -63,7 +66,11 @@ async function drain() {
       const headings: MarkdownHeading[] = [];
       const slugs = new Map<string, number>();
       let hasMath = false;
-      highlighter.loadThemeSync(task.theme);
+      if (task.theme) themes.set(task.theme.name!, task.theme);
+      const known = task.theme ?? themes.get(task.themeName!);
+      if (!known) throw new Error("The Markdown theme is not loaded. Reload the page.");
+      const theme: AdapterTheme = known;
+      highlighter.loadThemeSync(theme);
       async function visit(node: RootContent, sourceLine: number): Promise<void> {
         if (node.type !== "element") return;
         if (node.position) {
@@ -179,14 +186,14 @@ async function drain() {
               return;
             }
             if (supportedLanguage(language) && source.length < 100_000 && language !== "markdown") {
-              const key = `${task.theme.name}:${language}:${source}`;
+              const key = `${theme.name}:${language}:${source}`;
               let children = codeCache.get(key);
               if (!children) {
                 await highlighter.prepareSource(language, source);
                 children = [];
                 const lines = highlighter.codeToTokens(source, {
                   lang: language,
-                  theme: task.theme.name!,
+                  theme: theme.name!,
                   tokenizeMaxLineLength: 20000,
                 });
                 lines.forEach((line, index) => {

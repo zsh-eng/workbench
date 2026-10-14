@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { execFileSync } from "node:child_process";
-import { appendFile, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionEvent } from "../../src/shared/agent-session";
@@ -29,6 +29,12 @@ const assistant = (second: number, uuid: string, block: unknown, stop = "tool_us
   timestamp: at(second),
   uuid,
   message: { id: uuid, role: "assistant", stop_reason: stop, content: [block] },
+});
+const user = (second: number, content: unknown, uuid = `u${second}`) => ({
+  type: "user",
+  timestamp: at(second),
+  uuid,
+  message: { role: "user", content },
 });
 
 async function fixture() {
@@ -326,15 +332,38 @@ test("a session the review does not record, or without a transcript, is not foun
   expect(await missing.json()).toMatchObject({ error: { code: "transcript-not-found" } });
 });
 
+test("a long session's first view is its last few screens, and the turns before it page back", async () => {
+  const { api, saved, transcript } = await fixture();
+  const reply = "y".repeat(1_000);
+  await writeFile(
+    transcript,
+    Array.from(
+      { length: 400 },
+      (_, index) =>
+        line(user(0, `Prompt ${index}`, `p${index}`)) +
+        line(assistant(1, `r${index}`, { type: "text", text: reply }, "end_turn")),
+    ).join(""),
+  );
+  const received = listen(await api(`/api/reviews/${saved.id}/sessions/${session}/events`));
+  await vi.waitFor(() => expect(received[0]?.event).toBe("reset"));
+  const first = received[0] as unknown as { truncated: boolean; start: number };
+  // Its last turns fill the screens; the first view does not read 8 MiB.
+  expect(first.truncated).toBe(true);
+  expect((await stat(transcript)).size - first.start).toBeLessThanOrEqual(256 * 1024);
+  const shown = JSON.stringify(received[0]!.events);
+  expect(shown).toContain('"Prompt 399"');
+  expect(shown).not.toContain('"Prompt 0"');
+  const page = (await (
+    await api(`/api/reviews/${saved.id}/sessions/${session}/page?before=${first.start}`)
+  ).json()) as { events: SessionEvent[]; start: number };
+  expect(page.start).toBe(0);
+  expect(JSON.stringify(page.events)).toContain('"Prompt 0"');
+});
+
 test("a long session pages back from its tail, and its prompts form a turn index", async () => {
   const { api, fetcher, saved, transcript } = await fixture();
-  const user = (second: number, content: unknown) => ({
-    type: "user",
-    timestamp: at(second),
-    uuid: `u${second}`,
-    message: { role: "user", content },
-  });
-  // The early call's result comes after 8.5 MB of replies, in the tail.
+  // The early call's result comes after 8.5 MB of tool output, in the tail.
+  // Work folds into one row, so this first view reads all 8 MiB.
   const filler = "x".repeat(10_000);
   await writeFile(
     transcript,
@@ -347,8 +376,24 @@ test("a long session pages back from its tail, and its prompts form a turn index
           input: { command: "bun run build", description: "Build" },
         }),
       ) +
-      Array.from({ length: 850 }, (_, index) =>
-        line(assistant(2, `f${index}`, { type: "text", text: filler }, "end_turn")),
+      Array.from(
+        { length: 850 },
+        (_, index) =>
+          line(
+            assistant(2, `f${index}`, {
+              type: "tool_use",
+              id: `f${index}`,
+              name: "Bash",
+              input: { command: "cat log", description: "Read the log" },
+            }),
+          ) +
+          line(
+            user(
+              2,
+              [{ type: "tool_result", tool_use_id: `f${index}`, content: filler }],
+              `o${index}`,
+            ),
+          ),
       ).join("") +
       line(user(3, [{ type: "tool_result", tool_use_id: "early", content: "built" }])) +
       line(user(4, "Second prompt")) +

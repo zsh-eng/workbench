@@ -147,3 +147,18 @@ export function fold(
   }
   return result;
 }
+
+/** The replies in the last `count` units of a thread as it opens, with its
+ * work folded: the Markdown that it waits for before it shows, which a read
+ * ahead renders first. A reply that is still streaming is left out. */
+export function endReplies(items: SessionItem[], live: boolean, count: number) {
+  const list = units(items);
+  const all = fold(list, finalReplies(list, live), live, () => false);
+  return all
+    .slice(-count)
+    .flatMap((unit) =>
+      "item" in unit && unit.item.kind === "agent" && !(live && unit === all.at(-1))
+        ? [unit.item.text]
+        : [],
+    );
+}

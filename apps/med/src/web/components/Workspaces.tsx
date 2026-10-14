@@ -43,7 +43,8 @@ import { createApi } from "../data/api";
 import { browserFetch } from "../data/live";
 import { readBrowserToken } from "../data/auth";
 import { readServerEvents } from "../data/sse";
-import { renderBrief } from "../markdown/brief-render";
+import { renderBrief, renderBriefs } from "../markdown/brief-render";
+import { endReplies } from "./session/thread-model";
 import { themeController } from "../themes";
 import { parsePullUrl } from "../../shared/pull-workspace";
 import { startPull, usePullJob } from "../data/pull-jobs";
@@ -772,6 +773,15 @@ export function WorkspaceHost({
       : activeEntry?.kind === "review"
         ? threadList?.threads.find((thread) => thread.id === activeEntry.reviewId)?.repository?.id
         : undefined;
+  // A press on a thread reads its session before the click renders the
+  // workspace, so the session's code loads while the window is idle.
+  const hasSessions = !!threadList?.threads.some((thread) => thread.sessions?.length);
+  useEffect(() => {
+    if (!hasSessions || sessionStream) return;
+    return whenIdle(() => {
+      void import("../data/session-stream").then((module) => (sessionStream ??= module));
+    });
+  }, [hasSessions]);
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey) return;
@@ -962,7 +972,7 @@ function createControllerPool(options: ControllerOptions, createParser?: ParserF
         const own = parser ? { ...options, parsePatch: parser.parse } : options;
         const controller = createReviewController(
           workspace.kind === "review"
-            ? { ...own, savedReviewId: workspace.reviewId }
+            ? { ...own, savedReviewId: workspace.reviewId, lead: () => leadReady(workspace.id) }
             : {
                 ...own,
                 start: {
@@ -1038,8 +1048,10 @@ export function WorkspaceViews({
 
   // A workspace that has not shown yet renders out of sight while the last
   // one stays on screen, and takes its place in one frame when nothing in it
-  // is still pending, as a native app swaps views. A slow one shows anyway
-  // after PREPARE_MS.
+  // is still pending, as a native app swaps views. A thread whose session is
+  // on screen shows when its session is ready, and its review fills in after,
+  // so a large diff does not hold the thread. A slow one shows anyway after
+  // PREPARE_MS.
   const [seen] = useState(() => new Set<string>());
   const [shown, setShown] = useState(onScreen);
   const preparing =
@@ -1056,7 +1068,8 @@ export function WorkspaceViews({
     const started = performance.now();
     let frame = requestAnimationFrame(function check() {
       const slot = document.querySelector(`[data-workspace-slot="${CSS.escape(preparing)}"]`);
-      const ready = !!slot?.firstElementChild && !slot.querySelector("[data-pending]");
+      const ready =
+        !!slot?.firstElementChild && !pending(slot.querySelector("[data-lead]") ?? slot);
       if (ready || performance.now() - started > PREPARE_MS) setShown(preparing);
       else frame = requestAnimationFrame(check);
     });
@@ -1086,7 +1099,12 @@ export function WorkspaceViews({
     let cancel: (() => void) | undefined;
     const check = () => {
       const loaded = controllers.find(
-        ({ controller }) => controller.getSnapshot().status !== "loading",
+        // A thread with a session settles once it knows its review: its
+        // session leads, and its diff waits for the session.
+        ({ controller }) => {
+          const snapshot = controller.getSnapshot();
+          return snapshot.status !== "loading" || !!snapshot.savedReview?.sessions?.length;
+        },
       );
       if (!loaded || cancel) return;
       cancel = whenIdle(() => setSettling(loaded.id));
@@ -1263,7 +1281,7 @@ export function WorkspaceViews({
           <Entry value={workspace}>
             <ShownCheck value={screen.check(id)}>
               <Lifetime value={disposers}>
-                <KeepScroll id={id} preparing={outOfSight}>
+                <KeepScroll id={id} preparing={outOfSight} showing={id === preparing}>
                   {render(controller)}
                 </KeepScroll>
               </Lifetime>
@@ -1318,7 +1336,9 @@ function PullView({ workspace }: { workspace: PullWorkspace }) {
   );
 }
 
-/** Runs once the page is idle, or after two seconds. Returns a cancel. */
+/** The session module once a thread has loaded it, so that a press reads
+ * its session at once rather than after the click renders the workspace. */
+let sessionStream: typeof import("../data/session-stream") | undefined;
 /** A thread's session, read ahead with its newest replies' Markdown, so the
  * thread shows with the workspace's first frame. */
 function prefetchThreadSession(
@@ -1327,23 +1347,27 @@ function prefetchThreadSession(
   fetcher: typeof fetch,
   onDone?: () => void,
 ) {
-  void import("../data/session-stream")
-    .then(({ prefetchSession }) =>
-      prefetchSession(
-        reviewId,
-        sessionId,
-        (store) => {
-          const theme = themeController.getSnapshot().active.pierreTheme;
-          const replies = store
-            .getSnapshot()
-            .items.slice(-40)
-            .filter((item) => item.kind === "agent");
-          for (const reply of replies.slice(-8))
-            renderBrief(theme, reply.text, false, { cache: "session" }).catch(() => {});
-        },
-        fetcher,
-      ),
-    )
+  const read = ({ prefetchSession }: typeof import("../data/session-stream")) =>
+    prefetchSession(
+      reviewId,
+      sessionId,
+      (store) => {
+        // The replies that the thread shows first render in the worker
+        // while the thread builds, so it shows when it is built.
+        const { items, running } = store.getSnapshot();
+        const theme = themeController.getSnapshot().active.pierreTheme;
+        for (const done of renderBriefs(theme, endReplies(items, running, 24), false, {
+          cache: "session",
+        }))
+          done.catch(() => {});
+      },
+      fetcher,
+    );
+  void (
+    sessionStream
+      ? read(sessionStream)
+      : import("../data/session-stream").then((module) => read((sessionStream = module)))
+  )
     .catch(() => {})
     .finally(() => onDone?.());
 }
@@ -1364,6 +1388,44 @@ function createScreen() {
   };
 }
 
+/** A part of a workspace that still loads, or holds one that does. */
+const pending = (node: Element) =>
+  node.matches("[data-pending]") || !!node.querySelector("[data-pending]");
+
+/** Resolves once the workspace's lead pane, its session on screen, has its
+ * thread, and has painted if the workspace is about to show; as soon as the
+ * review shows that the session does not lead, and after PREPARE_MS at the
+ * latest. Work that waits for it does not hold the frame that shows the
+ * thread. */
+function leadReady(id: string) {
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(done, PREPARE_MS);
+    let frame = 0;
+    function done() {
+      clearTimeout(timer);
+      cancelAnimationFrame(frame);
+      resolve();
+    }
+    (function check() {
+      const slot = document.querySelector(`[data-workspace-slot="${CSS.escape(id)}"]`);
+      // A workspace out of sight renders late; it says which pane leads once
+      // it has its saved review.
+      const leads = slot?.querySelector<HTMLElement>("[data-leads]")?.dataset.leads;
+      if (leads === "review") return done();
+      const lead = leads && slot!.querySelector("[data-lead]");
+      if (!lead) {
+        frame = requestAnimationFrame(check);
+        return;
+      }
+      // A slot that is about to show waits until it shows; the task after
+      // this frame comes after its paint. One loaded ahead goes on at once.
+      if (!pending(lead) && !slot!.hasAttribute("data-showing")) setTimeout(done);
+      else frame = requestAnimationFrame(check);
+    })();
+  });
+}
+
+/** Runs once the page is idle, or after two seconds. Returns a cancel. */
 export function whenIdle(run: () => void) {
   if (!("requestIdleCallback" in globalThis)) {
     const timer = setTimeout(run, 300);
@@ -1381,11 +1443,14 @@ export function whenIdle(run: () => void) {
 function KeepScroll({
   id,
   preparing,
+  showing,
   children,
 }: {
   id: string;
   /** Renders out of sight until it shows; it takes no input meanwhile. */
   preparing: boolean;
+  /** Prepares to take the screen, rather than to settle while loaded ahead. */
+  showing: boolean;
   children: ReactNode;
 }) {
   const root = useRef<HTMLDivElement>(null);
@@ -1418,6 +1483,7 @@ function KeepScroll({
     <div
       ref={root}
       data-workspace-slot={id}
+      data-showing={showing || undefined}
       inert={preparing || undefined}
       style={{ display: "contents", visibility: preparing ? "hidden" : undefined }}
     >

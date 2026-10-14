@@ -345,8 +345,12 @@ export function SessionPanel({
   starter,
   title,
   detail,
+  lead,
 }: {
   reviewId: string;
+  /** The pane is on screen, so a new workspace shows once this has its
+   * thread, before its review loads (see WorkspaceViews). */
+  lead?: boolean;
   /** The thread's name for the header, in place of the session's own. */
   title?: string;
   /** Where the thread works, such as its repository and branch. */
@@ -620,6 +624,7 @@ export function SessionPanel({
       aria-label={`${agent} session`}
       // A workspace shows once this has its thread (see WorkspaceViews).
       data-pending={loading || undefined}
+      data-lead={lead || undefined}
       {...stylex.props(styles.panel)}
     >
       <header {...paneHandle} {...stylex.props(styles.header)}>

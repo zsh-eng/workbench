@@ -3837,7 +3837,14 @@ export function App({
             icon: leadIcon,
             preload: sessionReady && hasSessions,
             render: (controls: ReactNode) => (
-              <Suspense fallback={null}>
+              <Suspense
+                fallback={
+                  // While its code loads, the session still leads the workspace.
+                  sessionVisible && hasSessions ? (
+                    <span hidden data-lead="" data-pending="" />
+                  ) : null
+                }
+              >
                 {agentSessions.length === 0 ? (
                   <SessionStart
                     starter={sessionStarter}
@@ -3865,6 +3872,7 @@ export function App({
                     pins={sessionPins}
                     controls={controls}
                     starter={sessionStarter}
+                    lead={sessionVisible}
                   />
                 )}
               </Suspense>
@@ -4625,6 +4633,10 @@ export function App({
         data-review-id={state.review?.id ?? ""}
         data-review-status={state.status}
         data-pending={state.status === "loading" || undefined}
+        // Which pane a saved review shows first: its session, when on screen.
+        data-leads={
+          state.savedReview ? (sessionVisible && hasSessions ? "session" : "review") : undefined
+        }
         data-file-count={state.files.length}
         data-active-file={activeFile?.path ?? ""}
       >

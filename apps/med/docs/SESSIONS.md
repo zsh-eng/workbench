@@ -100,9 +100,14 @@ written to both formats.
 
 1. The host accepts only a session that the review records, and finds its
    transcript (`src/host/agent-transcripts.ts`). No transcript gives a 404.
-2. It reads the last 8 MiB, from the first complete line. Transcripts of long
-   sessions reach hundreds of megabytes. The thread loads earlier pages of
-   4 MiB when you scroll to its top, and **Turns** jumps to any prompt
+2. It reads the newest 256 KiB, from the first complete line, and reads
+   further back (at most 8 MiB) until the thread has about 150 lines to show:
+   each prompt, up to 16 lines, and each turn's last reply. That is about three
+   screens, so the first view is small and the thread does not load an earlier
+   page at once. Transcripts of long sessions reach hundreds of megabytes; one
+   of 294 MB opened with 186 kB of updates, not 1.9 MB. The thread loads
+   earlier pages of 4 MiB when you scroll to its top, and **Turns** jumps to
+   any prompt
    ([long sessions](AGENT_WORKSPACES.md#long-sessions-load-earlier-work)).
 3. It sends a `reset` event with the updates, `idle`, and the file's
    modification time, in parts of up to 1 MiB. The `reset` gives the number
@@ -127,7 +132,7 @@ stream gets the first view and the updates since from memory, so a click after
 a read ahead, a revisit, or a reconnect reads and parses nothing again. A
 follower stays 30 seconds after its last stream closes, and at most 6 stay
 without a stream. One that has read 8 MiB more since its first view starts
-anew for the next stream, so that a first view stays near 8 MiB of transcript.
+anew for the next stream, so that a first view stays small.
 The host finds lines in the bytes it reads and decodes them once.
 
 In the app, this stream and the page's other event streams are channels of
@@ -169,7 +174,10 @@ nothing.
   its end, in one step: it stays pending until its newest replies have their
   Markdown and their heights. Meanwhile a new workspace stays out of sight and
   the last one stays on screen (`WorkspaceViews`, at most 600 ms); a thread in
-  the workspace on screen stays hidden. The 12 most recent sessions keep
+  the workspace on screen stays hidden. When the Session pane is open, the
+  workspace shows when its thread is ready, and its diff fills in after: the
+  review's diff and Git state wait for the painted thread (`lead`), so a large
+  diff does not hold the thread on the main thread. The 12 most recent sessions keep
   their threads (`keptSessionStore`), and Med reads a session's first view
   ahead while the pointer rests on its thread, and for the open workspaces
   that load in the background. The three newest threads in the sidebar that
@@ -231,7 +239,11 @@ nothing.
   first render's estimates from about 50 ms to a few.
 - Replies render their Markdown in one worker, which takes several replies
   in one message and answers each, so the replies in view do not wait for
-  the page between them (`brief-render.ts`).
+  the page between them (`brief-render.ts`). The theme goes to the worker
+  once. A read ahead sends the newest replies when its first view arrives,
+  before the thread renders. Two batches can be in flight: the page takes a
+  batch's answers only when it is free, so replies read ahead while a
+  workspace mounts do not wait for an earlier batch.
 - Items without an ID take one from their kind and time, so they keep it
   when an earlier page builds the thread again.
 - Once the review is idle, the Session pane mounts hidden: the thread

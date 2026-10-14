@@ -231,7 +231,11 @@ it is less than 10 seconds old, and does not read the saved review again within
 `GET /api/repositories`: the session reads that repository again from Git and
 lists the others as the host knows them, and the diff reads at the same time.
 The saved diff needs no Git, so it shows when it arrives; the session then
-adds the Git parts, such as the Commit tab, in one update. The diff view's key
+adds the Git parts, such as the Commit tab, in one update. When the Session
+pane is open, the session leads: the workspace shows when its thread is ready,
+and the saved diff and the Git update wait for the controller's `lead` option
+until the thread has painted (at most 600 ms). The page has one main thread,
+and a large diff takes it for tens of milliseconds. The diff view's key
 names the saved target, not the checkout, so that update does not mount it
 again. Each Git process costs about 10 ms on macOS, so the open waits on as few
 dependent reads as it can. The host lists repositories in parallel and shares

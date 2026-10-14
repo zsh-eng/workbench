@@ -104,6 +104,10 @@ export interface ReviewControllerOptions {
   events?: boolean;
   /** A workspace's repository and branch; without it the host's default opens. */
   start?: { path?: string; repositoryId?: string; branch?: string };
+  /** Resolves when the pane that leads the workspace, such as its agent
+   * session, is ready. A saved diff and the checkout's Git state wait for it
+   * before they take the main thread, so they do not hold the session. */
+  lead?: () => Promise<void>;
 }
 
 export interface ReviewController {
@@ -1265,7 +1269,10 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       const { entry, requestMs, parseMs } = await fetchSavedEntry(
         saved.id,
         target,
-        fetchSavedTarget(saved.id, target.id, reviewAbort.signal),
+        fetchSavedTarget(saved.id, target.id, reviewAbort.signal).then(async (work) => {
+          await options.lead?.();
+          return work;
+        }),
       );
       if (!isCurrent(generation)) return false;
       publishReview(entry, generation, { requestMs, parseMs, cacheHit: false });
@@ -1731,6 +1738,8 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
           (session) => session.repositories,
           () => undefined,
         );
+        // The checkout's Git state renders the review's tools, which wait too.
+        await options.lead?.();
         if (disposed) return;
         if (!repositories) presession = null;
         hasRepositoryCatalogue = true;

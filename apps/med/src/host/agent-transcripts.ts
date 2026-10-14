@@ -9,6 +9,14 @@ import { userHome } from "./service/discover";
 /** The first view reads at most this much of the end of a transcript. Claude
  * Code transcripts of long sessions reach hundreds of megabytes. */
 export const TAIL_BYTES = 8 * 1024 * 1024;
+/** A first view starts with this much of the end, and reaches four times
+ * further back each time until its text fills FIRST_LINES. */
+const FIRST_BYTES = 256 * 1024;
+/** About three screens of a thread: one that opens shorter loads earlier work
+ * at once, which moves it (`EARLIER_SCREENS` in SessionThread). */
+const FIRST_LINES = 150;
+/** A long prompt folds to this many lines (`PROMPT_FOLD` in the browser). */
+const PROMPT_LINES = 16;
 /** Limits for one update on the wire; larger output is cut. */
 const MAX_TEXT = 64 * 1024;
 const MAX_DIFF = 512 * 1024;
@@ -142,6 +150,23 @@ async function readLines(path: string, offset: number, limit = Number.POSITIVE_I
   }
 }
 
+/** The complete lines from byte offset `start` up to `end`, where a line
+ * starts; `first` is where the first of them starts. */
+async function readSpan(path: string, start: number, end: number) {
+  const handle = await open(path, "r");
+  try {
+    const buffer = Buffer.alloc(end - start);
+    await handle.read(buffer, 0, buffer.length, start);
+    // A span starts inside a line unless it starts the file.
+    const newline = start > 0 ? buffer.indexOf(10) : -1;
+    const from = start > 0 ? (newline < 0 ? buffer.length : newline + 1) : 0;
+    const text = buffer.toString("utf8", from);
+    return { lines: text.split("\n").filter(Boolean), first: start + from };
+  } finally {
+    await handle.close();
+  }
+}
+
 /** The tail that tells whether a turn is open, and what the turn does. */
 const STATUS_TAIL_BYTES = 256 * 1024;
 
@@ -164,6 +189,32 @@ export async function readTranscriptTail(
   path: string,
 ) {
   return (await readStatusTail(session, path)).events;
+}
+
+/** The lines of text that a thread shows for these updates: each prompt and
+ * each turn's last reply, since the work between them folds into one row. */
+function shownLines(events: SessionEvent[]) {
+  const lines = (text: string) =>
+    text.split("\n").reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / 80)), 0);
+  let total = 0;
+  let reply = "";
+  let replying = false;
+  for (const { update } of events) {
+    const kind = update.sessionUpdate;
+    if (kind === "user_message_chunk" || kind === "agent_message_chunk") {
+      const text = update.content.type === "text" ? update.content.text : "";
+      if (kind === "agent_message_chunk") {
+        reply = replying ? reply + text : text;
+        replying = true;
+        continue;
+      }
+      // A prompt ends the turn before it; that turn's work is one row.
+      total += lines(reply) + Math.min(lines(text), PROMPT_LINES) + 2;
+      reply = "";
+    }
+    if (kind !== "agent_thought_chunk") replying = false;
+  }
+  return total + lines(reply);
 }
 
 export interface TranscriptFeed {
@@ -251,12 +302,28 @@ export async function followTranscript(
   };
   const modified = async () => (await stat(path).catch(() => undefined))?.mtimeMs ?? 0;
 
-  const first = await read(main, TAIL_BYTES);
-  const events = [...first.events, ...(await drain())].sort((a, b) => a.at - b.at);
+  // The first view is the end that fills a few screens, not all of
+  // TAIL_BYTES, so a thread shows at once; earlier work loads as the reader
+  // scrolls up. Earlier spans read newest first, each once, as earlier pages do.
+  const newest = await read(main, FIRST_BYTES);
+  let tail = newest.events;
+  let start = newest.first;
+  for (let reach = FIRST_BYTES; start > 0 && reach < TAIL_BYTES;) {
+    if (shownLines(tail) >= FIRST_LINES) break;
+    reach = Math.min(reach * 4, TAIL_BYTES);
+    const from = Math.max(0, main.offset - reach);
+    if (from >= start) continue;
+    const span = await readSpan(path, from, start).catch(() => undefined);
+    if (!span) break;
+    const older = addSource(path);
+    tail = [...span.lines.flatMap((line) => older.line(line)), ...tail];
+    start = span.first;
+  }
+  const events = [...tail, ...(await drain())].sort((a, b) => a.at - b.at);
   handlers.onFeed({
     events: events.map((event) => ({ ...event, update: compactUpdate(event.update) })),
-    truncated: first.truncated,
-    start: first.first,
+    truncated: start > 0,
+    start,
     idle: main.idle?.() ?? true,
     modifiedAt: await modified(),
     end: main.offset,
@@ -434,23 +501,8 @@ export async function readTranscriptPage(
   path: string,
   before: number,
 ) {
-  const handle = await open(path, "r");
-  let text: string;
-  let start: number;
-  try {
-    const end = Math.min(Math.max(0, before), (await handle.stat()).size);
-    start = Math.max(0, end - PAGE_BYTES);
-    const buffer = Buffer.alloc(end - start);
-    await handle.read(buffer, 0, buffer.length, start);
-    // A page starts inside a line unless it starts the file.
-    const newline = start > 0 ? buffer.indexOf(10) : -1;
-    const from = start > 0 ? (newline < 0 ? buffer.length : newline + 1) : 0;
-    text = buffer.toString("utf8", from);
-    start += from;
-  } finally {
-    await handle.close();
-  }
-  const lines = text.split("\n").filter(Boolean);
+  const end = Math.min(Math.max(0, before), (await stat(path)).size);
+  const { lines, first: start } = await readSpan(path, Math.max(0, end - PAGE_BYTES), end);
   const events: SessionEvent[] = [];
   if (session.agent === "codex") {
     const reader = createCodexRolloutReader();
