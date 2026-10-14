@@ -27,14 +27,14 @@ with its own write-up, so you can keep it, change it, or drop it alone.
 
 | #   | Experiment | Write-up | Status |
 | --- | ---------- | -------- | ------ |
-| 1   | Every agent, wherever it runs | [every-agent.md](every-agent.md) | In progress |
-| 2   | Inbox | [inbox.md](inbox.md) | Planned |
+| 1   | Every agent, wherever it runs | [every-agent.md](every-agent.md) | Built |
+| 2   | Inbox | [inbox.md](inbox.md) | In progress |
 | 3   | Turn blame | [turn-blame.md](turn-blame.md) | In progress |
 | 4   | Change map | [change-map.md](change-map.md) | In progress |
-| 5   | Land | [land.md](land.md) | In progress |
+| 5   | Land | [land.md](land.md) | Built |
 | 6   | Quieter chrome | [quiet.md](quiet.md) | Planned |
-| 7   | Instant start | [instant-start.md](instant-start.md) | Planned |
-| —   | Architecture review | [architecture.md](architecture.md) | In progress |
+| 7   | Attempts | [attempts.md](attempts.md) | In progress |
+| —   | Architecture review | [architecture.md](architecture.md) | Written, with two proofs of concept |
 
 ## Watch and try
 
