@@ -223,11 +223,16 @@ workspace, so objects that live as long as the workspace register with
 Pierre's views and trees while a workspace is hidden. When the browser is idle,
 the pool mounts the next workspace in advance.
 
-A pointer that rests on a thread row for 60 ms reads the thread's saved review
-and its diff (`prefetchSavedReview` in `data/controller.ts`). The controller
-takes that read when the thread opens, if it is less than 10 seconds old, and
-does not read the saved review again within 2 seconds. The host lists
-repositories in parallel and shares one listing among concurrent callers.
+A pointer that rests on a thread row for 60 ms reads the thread's saved review,
+its diff, and its checkout's session (`prefetchSavedReview` in
+`data/controller.ts`). The controller takes that read when the thread opens, if
+it is less than 10 seconds old, and does not read the saved review again within
+2 seconds. A saved review opens with the checkout's session, not
+`GET /api/repositories`: the session reads that repository again from Git and
+lists the others as the host knows them, and the diff reads at the same time.
+Each Git process costs about 10 ms on macOS, so the open waits on as few
+dependent reads as it can. The host lists repositories in parallel and shares
+one listing among concurrent callers.
 
 Only the workspace on screen keeps its live-update stream; `resume()`
 reconciles without clearing the screen. Every event stream of a page is a

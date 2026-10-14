@@ -225,8 +225,8 @@ function readWarm<T>(fetcher: typeof fetch, path: string, read: () => Promise<T>
 }
 
 /**
- * Reads a saved review, its first diff, and the repository list ahead of its
- * window, such as while the pointer rests on its thread. The window that
+ * Reads a saved review, its first diff, and its checkout's session ahead of
+ * its window, such as while the pointer rests on its thread. The window that
  * opens next uses them.
  */
 export function prefetchSavedReview(reviewId: string, fetcher: typeof fetch = browserFetch) {
@@ -248,12 +248,13 @@ export function prefetchSavedReview(reviewId: string, fetcher: typeof fetch = br
       const value = api.json(target, reviewSchema);
       value.catch(() => paths.delete(target));
       paths.set(target, { at, value });
+      const checkout = `/api/session?${query({ repo: first.repo })}`;
+      const session = api.json(checkout, sessionSchema);
+      session.catch(() => paths.delete(checkout));
+      paths.set(checkout, { at, value: session });
     },
     () => {},
   );
-  const catalogue = api.json("/api/repositories", repositoriesSchema);
-  catalogue.catch(() => paths.delete("/api/repositories"));
-  paths.set("/api/repositories", { at, value: catalogue });
 }
 
 export function createReviewController(options: ReviewControllerOptions = {}): ReviewController {
@@ -369,6 +370,8 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     abort: AbortController;
     work: ReturnType<typeof fetchSavedTarget>;
   } | null = null;
+  /** A checkout's session that a saved review reads with its first diff. */
+  let presession: { repo: string; value: Promise<z.infer<typeof sessionSchema>> } | null = null;
   let sessionAbort: AbortController | undefined;
   let eventAbort: AbortController | undefined;
   let eventTimer: ReturnType<typeof setTimeout> | undefined;
@@ -1008,12 +1011,13 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       selectedFileId: null,
       filter: "",
     });
+    const early = path && presession?.repo === path ? presession.value : undefined;
+    presession = null;
     try {
-      const session = await api.json(
-        `/api/session${path ? `?${query({ repo: path })}` : ""}`,
-        sessionSchema,
-        { signal: sessionAbort.signal },
-      );
+      const session = await (early ??
+        api.json(`/api/session${path ? `?${query({ repo: path })}` : ""}`, sessionSchema, {
+          signal: sessionAbort.signal,
+        }));
       if (disposed || generation !== workspaceGeneration) return;
       hasRepositoryCatalogue ||= session.repositories !== undefined;
       const id =
@@ -1692,17 +1696,26 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         if (disposed) return;
         update({ savedReview });
         const first = currentTargets(savedReview)[0] ?? savedReview.targets[0];
-        if (first) {
-          const abort = new AbortController();
-          const work = fetchSavedTarget(savedReview.id, first.id, abort.signal);
-          work.catch(() => {});
-          prefetched = { reviewId: savedReview.id, targetId: first.id, abort, work };
-        }
-        const result = await readCatalogue();
-        if (disposed) return;
-        hasRepositoryCatalogue = true;
-        update({ repositories: result.repositories });
         if (!first) throw new Error("This review has no targets.");
+        const abort = new AbortController();
+        const work = fetchSavedTarget(savedReview.id, first.id, abort.signal);
+        work.catch(() => {});
+        prefetched = { reviewId: savedReview.id, targetId: first.id, abort, work };
+        // The checkout's session reads its repository again from Git and lists
+        // the others as the host knows them, so the review opens without the
+        // read of every repository's branches and worktrees.
+        const sessionPath = `/api/session?${query({ repo: first.repo })}`;
+        const early = readWarm(fetcher, sessionPath, () => api.json(sessionPath, sessionSchema));
+        presession = { repo: first.repo, value: early };
+        const repositories = await early.then(
+          (session) => session.repositories,
+          () => undefined,
+        );
+        if (disposed) return;
+        if (!repositories) presession = null;
+        hasRepositoryCatalogue = true;
+        update({ repositories: repositories ?? (await readCatalogue()).repositories });
+        if (disposed) return;
         await selectSavedTarget(first.id);
       } catch (error) {
         update({

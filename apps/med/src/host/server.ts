@@ -535,10 +535,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         repositories: [],
         ...(options.initialComparison ? { initialComparison: options.initialComparison } : {}),
       };
+    // The checkout's own Git state reads while its repository refreshes; a
+    // refresh that fails still gives its error first.
+    const checkout = resolveRepository(repo, signal);
+    checkout.catch(() => {});
     await registry.refreshOwner(repo, signal);
     const repositories = registry.snapshot();
     const owner = await registry.require(repo, signal);
-    const info = await resolveRepository(repo, signal);
+    const info = await checkout;
     observe(info.path, watcherModes.get(info.path) ?? false);
     return {
       protocol: 1,
