@@ -349,7 +349,11 @@ export function SessionPanel({
   lead,
   mentions,
   onMentionsWanted,
+  footer,
 }: {
+  /** In place of the message box of a session that the panel only reads,
+   * such as one that Med found (FoundSession.tsx). */
+  footer?: ReactNode;
   reviewId: string;
   /** What @ can name in a message. */
   mentions?: MentionSources;
@@ -721,6 +725,7 @@ export function SessionPanel({
           />
         )
       )}
+      {!inbox && footer}
     </section>
   );
 }

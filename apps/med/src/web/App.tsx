@@ -129,6 +129,7 @@ import { useAgentInbox } from "./data/agent-inbox";
 import type { ComposerAttachment } from "./components/session/SessionComposer";
 import type { SessionPins, SessionStarter } from "./components/session/SessionPanel";
 import { useAgentPresets } from "./data/owned-session";
+import { useFoundCommands } from "./data/found-threads";
 
 // The brief loads its Markdown worker and excerpt renderer only when shown.
 const BriefView = lazy(() => import("./components/BriefView"));
@@ -147,6 +148,11 @@ const SessionPanel = lazy(() =>
 const SessionStart = lazy(() =>
   import("./components/session/SessionPanel").then((module) => ({
     default: module.SessionStart,
+  })),
+);
+const FoundSessionPane = lazy(() =>
+  import("./components/session/FoundSession").then((module) => ({
+    default: module.FoundSessionPane,
   })),
 );
 const NO_SESSIONS: AgentSession[] = [];
@@ -299,15 +305,19 @@ export function App({
   // The workspace's panes: the review, its thread, the file trees, and the
   // preview, tiled as the reader leaves them. Each workspace keeps its own.
   const entry = useWorkspaceEntry();
-  const layoutKey =
-    entry?.kind === "review"
+  // A session that Med found: a thread on this checkout, without a review.
+  const found = entry?.kind === "repository" ? entry.found : undefined;
+  const layoutKey = found
+    ? `found:${found.agent}:${found.id}`
+    : entry?.kind === "review"
       ? `review:${entry.reviewId}`
       : entry?.kind === "repository"
         ? `repository:${entry.path ?? "default"}`
         : entry?.kind === "pull"
           ? `pull:${entry.url}`
           : undefined;
-  const threadLayout = entry?.kind === "review" || entry?.kind === "pull";
+  const threadLayout = entry?.kind === "review" || entry?.kind === "pull" || !!found;
+  const foundCommands = useFoundCommands(sessionFetch);
   const initialPanes = useCallback(
     (): PaneNode =>
       threadLayout
@@ -3124,6 +3134,7 @@ export function App({
       disabled: !browseSource,
       run: resumeFilePicker,
     },
+    ...(shell ? foundCommands : []),
     ...(browseSource
       ? [
           {
@@ -3144,6 +3155,16 @@ export function App({
                   id: "fold-files",
                   label: allCollapsed ? "Expand all files" : "Collapse all files",
                   run: toggleAllFiles,
+                },
+              ]
+            : []),
+          ...(found
+            ? [
+                {
+                  id: "agent-session",
+                  label: sessionVisible ? "Hide agent session" : "Show agent session",
+                  shortcut: "⌘⇧B",
+                  run: toggleSession,
                 },
               ]
             : []),
@@ -3921,11 +3942,11 @@ export function App({
         />
       )}
       {/* The thread pane closes from its own header. */}
-      {state.savedReview && !sessionVisible && (
+      {(state.savedReview || found) && !sessionVisible && (
         <ToolButton
           label={sessionVisible ? "Hide agent session" : "Show agent session"}
           shortcut="⌘ ⇧ B"
-          icon={leadIcon}
+          icon={found?.agent ?? leadIcon}
           aria-label="Toggle agent session"
           aria-pressed={sessionVisible}
           active={sessionVisible}
@@ -4116,6 +4137,30 @@ export function App({
                     onMentionsWanted={wantMentions}
                   />
                 )}
+              </Suspense>
+            ),
+          },
+        ]
+      : []),
+    ...(found
+      ? [
+          {
+            id: "session" as const,
+            label: "Session",
+            ariaLabel: "Agent session",
+            icon: found.agent,
+            preload: true,
+            render: (controls: ReactNode) => (
+              <Suspense fallback={null}>
+                <FoundSessionPane
+                  key={found.id}
+                  session={found}
+                  root={state.review?.repo}
+                  fetcher={sessionFetch}
+                  controls={controls}
+                  onOpenPath={(path, line) => fileWorkspace.open(path, true, line)}
+                  onClose={() => closePane("session")}
+                />
               </Suspense>
             ),
           },

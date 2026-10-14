@@ -35,6 +35,9 @@ export interface RepositoryWorkspace extends WorkspaceBase {
   path?: string;
   repositoryId?: string;
   branch?: string;
+  /** A session that Med found by itself (data/found-threads.ts): the
+   * workspace is its thread, on its checkout. It names the workspace. */
+  found?: WorkspaceSession;
 }
 /** A registered vault. Vaults come from the server's sources and stay pinned. */
 export interface VaultWorkspace extends WorkspaceBase {
@@ -141,7 +144,8 @@ function parse(value: unknown): Workspace | null {
       jobId: optional(entry.jobId),
       agent: optional(entry.agent),
     };
-  if (entry.kind === "repository")
+  if (entry.kind === "repository") {
+    const found = sessionsOf([entry.found])?.[0];
     return {
       ...base,
       kind: "repository",
@@ -149,7 +153,9 @@ function parse(value: unknown): Workspace | null {
       path: optional(entry.path),
       repositoryId: optional(entry.repositoryId),
       branch: optional(entry.branch),
+      ...(found && entry.home !== true ? { found } : {}),
     };
+  }
   return null;
 }
 function read(text = storedText()): WorkspaceSnapshot {
@@ -202,6 +208,9 @@ function matches(input: WorkspaceInput, entry: Workspace) {
   if (input.kind === "vault") return entry.kind === "vault" && entry.sourceId === input.sourceId;
   if (input.kind === "pull") return entry.kind === "pull" && entry.url === input.url;
   if (entry.kind !== "repository") return false;
+  // A found session's workspace is its session's, not its branch's.
+  if (input.found || entry.found)
+    return input.found?.agent === entry.found?.agent && input.found?.id === entry.found?.id;
   if (!input.branch) return !!input.path && !entry.branch && input.path === entry.path;
   return (
     input.branch === entry.branch &&

@@ -50,6 +50,7 @@ import { parsePullUrl } from "../../shared/pull-workspace";
 import { startPull, usePullJob } from "../data/pull-jobs";
 import { PullWorkspaceView, pullTitle, type PullState } from "./PullWorkspace";
 import { groupThreads, isRecent, useThreads } from "../data/threads";
+import { isFoundThread, threadInput, updateFound } from "../data/found-threads";
 import { barContext, WorkspaceBar } from "./shell/WorkspaceBar";
 import { ThreadSidebar, type SidebarSource } from "./shell/ThreadSidebar";
 import { NewThread } from "./shell/NewThread";
@@ -796,6 +797,13 @@ export function WorkspaceHost({
   // An archived thread's workspace closes; its worktree can go with it.
   const archiveThread = useCallback(
     async (thread: Thread, archived: boolean, removeWorktree: boolean) => {
+      // A found session hides; Keep in Med is the way to save it.
+      if (isFoundThread(thread)) {
+        await updateFound({ hide: { id: thread.id, hidden: archived } }, fetcher);
+        const workspace = archived && store.match(threadInput(thread));
+        if (workspace) actions.close(workspace);
+        return;
+      }
       await createApi(fetcher, readBrowserToken()).json(
         `/api/threads/${thread.id}/archive`,
         z.object({}).passthrough(),
@@ -816,6 +824,7 @@ export function WorkspaceHost({
   // workspace mounts: under the pointer, or at the key that opens it.
   const readThread = useCallback(
     (thread: Thread) => {
+      if (isFoundThread(thread)) return;
       prefetchSavedReview(thread.id, fetcher);
       const session = thread.sessions?.at(-1);
       if (session) prefetchThreadSession(thread.id, session.id, fetcher);
@@ -841,7 +850,7 @@ export function WorkspaceHost({
       event.stopPropagation();
       setNewThread(false);
       readThread(thread);
-      actions.open({ kind: "review", reviewId: thread.id, title: thread.title });
+      actions.open(threadInput(thread));
     };
     window.addEventListener("keydown", keydown, true);
     return () => window.removeEventListener("keydown", keydown, true);
@@ -856,7 +865,10 @@ export function WorkspaceHost({
     return {
       threads: threadOrder
         .filter(
-          (thread) => !open.has(thread.id) && (thread.id === pointed || isRecent(thread, now)),
+          (thread) =>
+            !isFoundThread(thread) &&
+            !open.has(thread.id) &&
+            (thread.id === pointed || isRecent(thread, now)),
         )
         .map((thread) => ({
           workspace: {

@@ -2,6 +2,7 @@ import { ContextMenu } from "@base-ui/react/context-menu";
 import * as stylex from "@stylexjs/stylex";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Thread } from "../../../shared/threads";
+import { foundSessionThread, threadInput } from "../../data/found-threads";
 import { groupThreads, isRecent, shortAge } from "../../data/threads";
 import {
   lazygitCommand,
@@ -118,7 +119,13 @@ export function ThreadSidebar({
   const active = newThread
     ? undefined
     : snapshot.workspaces.find((entry) => entry.id === snapshot.active);
-  const currentThread = !newThread && active?.kind === "review" ? active.reviewId : null;
+  const currentThread = newThread
+    ? null
+    : active?.kind === "review"
+      ? active.reviewId
+      : active?.kind === "repository" && active.found
+        ? foundSessionThread(active.found)
+        : null;
   const { isUnread, setUnread } = useUnread(threads, currentThread);
   // An archived thread leaves at once; Undo brings it back.
   const [archiving, setArchiving] = useState<ReadonlySet<string>>(new Set());
@@ -162,7 +169,11 @@ export function ThreadSidebar({
       () =>
         setNotice({
           thread,
-          text: removeWorktree ? "Archived; removed its worktree" : "Archived",
+          text: thread.found
+            ? "Hidden"
+            : removeWorktree
+              ? "Archived; removed its worktree"
+              : "Archived",
           undo: true,
         }),
       (error: unknown) => {
@@ -283,11 +294,12 @@ export function ThreadSidebar({
               unread={isUnread(thread)}
               copied={copied === thread.id}
               now={now}
-              onOpen={() => onOpen({ kind: "review", reviewId: thread.id, title: thread.title })}
+              onOpen={() => onOpen(threadInput(thread))}
               onCopy={(text) => copy(thread, text)}
               onUnread={(unread) => setUnread(thread, unread)}
               onArchive={onArchive && ((removeWorktree) => archive(thread, removeWorktree))}
-              onPrefetch={onPrefetch && (() => onPrefetch(thread))}
+              // A found session has no saved review to read ahead.
+              onPrefetch={onPrefetch && !thread.found ? () => onPrefetch(thread) : undefined}
             />
           );
           return (
@@ -433,6 +445,7 @@ function ThreadRow({
           type="button"
           data-sidebar-row=""
           data-thread={thread.id}
+          data-found={thread.found || undefined}
           aria-current={current ? "page" : undefined}
           onClick={onOpen}
           onPointerEnter={() => {
@@ -541,10 +554,10 @@ function ThreadRow({
             </ContextMenu.Item>
             {onArchive && (
               <ContextMenu.Item onClick={() => onArchive(false)} className={item}>
-                Archive
+                {thread.found ? "Hide" : "Archive"}
               </ContextMenu.Item>
             )}
-            {onArchive && thread.linked && (
+            {onArchive && thread.linked && !thread.found && (
               <ContextMenu.Item disabled={busy} onClick={() => onArchive(true)} className={item}>
                 Archive and remove worktree
                 <span {...stylex.props(styles.menuHint)}>{thread.checkout?.split("/").at(-1)}</span>

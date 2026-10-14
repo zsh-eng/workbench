@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { threadListSchema, type Thread, type ThreadList } from "../../shared/threads";
 import { createApi } from "./api";
 import { readBrowserToken } from "./auth";
+import { noteFoundSettings } from "./found-threads";
 import { readServerEvents } from "./sse";
 
 const pause = (ms: number, signal: AbortSignal) =>
@@ -35,7 +36,9 @@ export function useThreads(fetcher: typeof fetch): ThreadList | null {
             (event) => {
               if (event.event !== "state") return;
               const parsed = threadListSchema.safeParse(JSON.parse(event.data));
-              if (parsed.success) setList(parsed.data);
+              if (!parsed.success) return;
+              setList(parsed.data);
+              noteFoundSettings(parsed.data);
             },
             signal,
             4 * 1024 * 1024,
