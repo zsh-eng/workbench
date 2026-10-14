@@ -89,6 +89,10 @@ const savedTitles: Record<string, string> = {
   agent: "Agent review",
   second: "Second review",
   talk: "Talk review",
+  third: "Third review",
+  fourth: "Fourth review",
+  fifth: "Fifth review",
+  older: "Older review",
 };
 /** The agent session of the "talk" thread. */
 const talkSession = { agent: "claude" as const, id: "talk-session", cwd: "/test/repo" };
@@ -549,6 +553,36 @@ test("a thread in view loads out of sight, and its first visit shows that slot",
   // The click shows that slot; nothing reads the review again.
   expect(slot()).toBe(ahead);
   expect(host.requested.filter((path) => path === "/api/reviews/agent")).toHaveLength(1);
+});
+
+test("every thread in view loads out of sight and stays, as open tabs do, and ⌘5 shows its slot", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  const inView = ["agent", "second", "third", "fourth", "fifth"];
+  host.setThreads([
+    ...inView.map((id, index) => thread(id, { updatedAt: Date.now() - (index + 1) * 60_000 })),
+    // Quiet for five days: it folds into the older threads and does not load.
+    thread("older", { updatedAt: Date.now() - 5 * 24 * 60 * 60 * 1000 }),
+  ]);
+  const slot = (id: string) =>
+    document.querySelector<HTMLElement>(`[data-workspace-slot="review-${id}"]`);
+  // More threads than the three that loaded ahead before.
+  for (const id of inView)
+    await expect
+      .poll(
+        () => slot(id)?.querySelector<HTMLElement>("[data-review-status]")?.dataset.reviewStatus,
+      )
+      .toBe("ready");
+  expect(slot("older")).toBeNull();
+
+  const ahead = slot("fifth");
+  await userEvent.keyboard("{Control>}5{/Control}");
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("fifth-target");
+  expect(slot("fifth")).toBe(ahead);
+  expect(host.requested.filter((path) => path === "/api/reviews/fifth")).toHaveLength(1);
+  // The others stay loaded.
+  for (const id of inView) expect(slot(id)).not.toBeNull();
 });
 
 test("a thread with its session on screen shows its session first, and its diff after", async () => {

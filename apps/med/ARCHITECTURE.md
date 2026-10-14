@@ -215,13 +215,20 @@ requests, restores that branch's navigation, and reloads mutable content.
 
 `WorkspaceHost` (`components/Workspaces.tsx`) owns the store, the address,
 the thread sidebar, `⌘1`–`⌘9` (the threads in sidebar order), and the `⌃Tab`
-switcher. Each workspace has its own review controller and `App`. The six most
-recently shown stay mounted in React `<Activity>`; older ones are disposed and
-load again when shown. Activity runs effect cleanups when it hides a
-workspace, so objects that live as long as the workspace register with
+switcher. Each workspace has its own review controller and `App`. The threads
+in view in the sidebar stay mounted in React `<Activity>`, open or not, as a
+terminal keeps its open tabs: one leaves memory when it is archived or folds
+into the older threads. Of the other workspaces, the six most recently shown
+stay mounted; older ones are disposed and load again when shown. A thread
+takes about 5 MB of JavaScript heap and 15 MB of renderer memory; one with a
+12,000-line diff about 14 MB of heap. Activity runs effect cleanups when it
+hides a workspace, so objects that live as long as the workspace register with
 `useDisposeOnClose`. `tools/pierre-keep-alive.ts` and `StableFileTree` keep
 Pierre's views and trees while a workspace is hidden. When the browser is idle,
-the pool mounts the next workspace in advance.
+the pool mounts the next workspace in advance, one at a time, also beneath
+the Sources page, so the first `⌘1`–`⌘9` after a reload shows a loaded thread.
+`⌘1`–`⌘9` read the thread's saved review and session at the key, before its
+workspace mounts, as a pointer that rests on a row does.
 
 A pointer that rests on a thread row for 60 ms reads the thread's saved review,
 its diff, and its checkout's session (`prefetchSavedReview` in

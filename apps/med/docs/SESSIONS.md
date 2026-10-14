@@ -179,14 +179,16 @@ nothing.
   review's diff and Git state wait for the painted thread (`lead`), so a large
   diff does not hold the thread on the main thread. The 12 most recent sessions keep
   their threads (`keptSessionStore`), and Med reads a session's first view
-  ahead while the pointer rests on its thread, and for the open workspaces
-  that load in the background. The three newest threads in the sidebar that
-  are not open yet, and the thread under the pointer, also load out of sight
-  under their workspace's id. While the browser is idle, each shows out of
-  sight once, until nothing in it is pending and its DOM is quiet for two
-  frames, and hides again with its state. Its first visit then shows that
-  slot at once, as a revisit does (about 25 ms from the click to the painted
-  thread on an M1 Pro). A workspace out of sight runs its effects but takes
+  ahead while the pointer rests on its thread, at the `⌘1`–`⌘9` key that
+  opens it, and for the open workspaces that load in the background. Every
+  thread in view in the sidebar that is not open yet, and the thread under
+  the pointer, also loads out of sight under its workspace's id. While the
+  browser is idle, each shows out of sight once, until nothing in it is
+  pending and its DOM is quiet for two frames, and hides again with its
+  state. Its first visit then shows that slot at once, as a revisit does
+  (35 to 65 ms from the key to the painted thread on an M1 Pro, with real
+  threads). The swap commits in the frame's `requestAnimationFrame`, so it
+  paints in that frame. A workspace out of sight runs its effects but takes
   no keys (`useWorkspaceShown`). The stream's own first view replaces the
   thread in one step. The
   view follows new items while the reader is at the bottom; only
@@ -231,12 +233,14 @@ nothing.
   in four themes; the sum is within 0.4%. Open edits are the weak part: 66%
   are exact, because the estimate does not know Pierre's hunks and
   separators. Edits are closed until the reader opens one, so this error
-  stays small. Only the units within 2,500 px of the end, where the thread
-  opens, measure their text before the first render; the others have a
-  quick estimate from the font size until idle time measures them, newest
-  first. A prompt with more source lines than the fold shows its first
-  lines, so it does not measure them. In a long session this took the
-  first render's estimates from about 50 ms to a few.
+  stays small. A thread opens at its end, where nothing above the view
+  needs an exact height: it renders the newest units that fill 1.25 window
+  heights, with a quick estimate from the font size for every unit and the
+  metrics of the last thread in the same theme. Once it has shown, idle
+  time measures text, newest first, and the rendered range grows around
+  the view. A prompt with more source lines than the fold renders only its
+  first 17 lines until it opens, so its hidden text does not lay out. On a
+  cold open of a long session this took Pretext from 17 ms to none.
 - Replies render their Markdown in one worker, which takes several replies
   in one message and answers each, so the replies in view do not wait for
   the page between them (`brief-render.ts`). The theme goes to the worker

@@ -28,6 +28,7 @@ import "./VaultWorkspace.css";
 import { visibleElement } from "../data/palette-focus";
 import { platform } from "../data/keys";
 import { openWelcome } from "../data/setup";
+import { whenIdle } from "../data/idle";
 const api = createApi(globalThis.fetch.bind(globalThis), "");
 const request = async (action: string, body: object = {}, signal?: AbortSignal) =>
   api.json(`/api/service/${action}`, z.any(), {
@@ -52,6 +53,11 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
   const [locationState, setLocationState] = useState(route);
   const [reviewMounted, setReviewMounted] = useState(() => !route().visible);
   if (!locationState.visible && !reviewMounted) setReviewMounted(true);
+  // The threads mount beneath these pages once the browser is idle, so the
+  // threads in view load and the first one opens at once.
+  useEffect(() => {
+    if (!reviewMounted) return whenIdle(() => setReviewMounted(true));
+  }, [reviewMounted]);
   // Notes open in the editor; load it while the vault is idle.
   const vaultShown = Boolean(locationState.id);
   useEffect(() => {
@@ -532,7 +538,16 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
   const review = reviewMounted && (
     <div
       inert={locationState.visible}
-      style={{ height: "100%", display: locationState.visible ? "none" : undefined }}
+      // Hidden, but laid out: threads that load beneath measure themselves.
+      style={{
+        height: "100%",
+        ...(locationState.visible && {
+          position: "fixed",
+          inset: 0,
+          visibility: "hidden",
+          pointerEvents: "none",
+        }),
+      }}
     >
       {children}
     </div>

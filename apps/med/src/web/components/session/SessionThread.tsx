@@ -27,7 +27,7 @@ import { motion, rowStyles } from "./session-styles";
 import { BackgroundDock } from "./BackgroundDock";
 import { SessionMarkdown } from "./SessionMarkdown";
 import { ImageThumbs } from "./ImageThumbs";
-import { promptBlocks } from "./prompt-blocks";
+import { promptBlocks, type PromptBlock } from "./prompt-blocks";
 import {
   formatSeconds,
   isSubagent,
@@ -48,6 +48,8 @@ import {
 } from "./thread-model";
 import {
   estimateUnit,
+  foldedParts,
+  folds,
   PROMPT_FOLD,
   PROMPT_LINES,
   readMetrics,
@@ -55,6 +57,7 @@ import {
   roughUnit,
   type ThreadMetrics,
 } from "./thread-heights";
+import { whenIdle } from "../../data/idle";
 import "./SessionThread.css";
 
 type AgentItem = Extract<SessionItem, { kind: "agent" }>;
@@ -137,6 +140,20 @@ function UnitBody({
   );
 }
 
+/** A prompt's text in parts, kept for each item so that renders share them. */
+const promptPartsOf = new WeakMap<object, PromptBlock[]>();
+function promptParts(item: Extract<SessionItem, { kind: "user" }>) {
+  let parts = promptPartsOf.get(item);
+  if (!parts)
+    promptPartsOf.set(
+      item,
+      (parts = item.content.flatMap((block) =>
+        block.type === "text" ? promptBlocks(block.text) : [],
+      )),
+    );
+  return parts;
+}
+
 /**
  * A prompt's text. A long one shows its first lines until the reader opens
  * it; the thread's height estimates fold it by the same rule
@@ -145,37 +162,62 @@ function UnitBody({
  */
 function PromptText({
   id,
-  children,
+  parts,
+  images,
   onOpen,
 }: {
   id: string;
-  children: ReactNode;
+  parts: PromptBlock[];
+  /** Thumbnails above the text, which put space before its first part. */
+  images: boolean;
   onOpen?(): void;
 }) {
   const body = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useRowOpen(id, false);
-  const [long, setLong] = useState(false);
+  // More source lines than the fold shows make a prompt long without
+  // measuring it, so a thread lays out its first view once. A folded one
+  // renders only its first lines.
+  const cut = useMemo(() => folds(parts), [parts]);
+  const [long, setLong] = useState(cut);
   useLayoutEffect(() => {
     const node = body.current;
     if (!node) return;
-    // The text's own height, which the fold does not change; a new width can.
-    const check = () =>
+    // The text's own height, which the fold does not change; a new width
+    // can. It is read after layout, when the observer reports the size.
+    const resize = new ResizeObserver(() =>
       setLong(
         node.scrollHeight > PROMPT_FOLD * Number.parseFloat(getComputedStyle(node).lineHeight),
-      );
-    check();
-    const resize = new ResizeObserver(check);
+      ),
+    );
     resize.observe(node);
     return () => resize.disconnect();
   }, []);
   const folded = long && !open;
+  const shown = folded && cut ? foldedParts(parts) : parts;
   return (
     <>
       <div
         ref={body}
         {...stylex.props(styles.promptBody, folded && styles.promptFolded(`${PROMPT_LINES}lh`))}
       >
-        {children}
+        {shown.map((part, at) =>
+          part.quote ? (
+            <blockquote
+              key={at}
+              {...stylex.props(
+                styles.userText,
+                styles.userQuote,
+                (at > 0 || images) && styles.userNext,
+              )}
+            >
+              {part.text}
+            </blockquote>
+          ) : (
+            <p key={at} {...stylex.props(styles.userText, (at > 0 || images) && styles.userNext)}>
+              {part.text}
+            </p>
+          ),
+        )}
       </div>
       {long && (
         <button
@@ -220,35 +262,12 @@ const Item = memo(function Item({
           {item.queued && !item.sent && <span {...stylex.props(styles.queued)}>Queued</span>}
           <div {...stylex.props(styles.user)}>
             {images.length > 0 && <ImageThumbs images={images} />}
-            <PromptText id={item.id} onOpen={unitKey ? () => onHold?.(unitKey) : undefined}>
-              {item.content
-                .filter((block) => block.type === "text")
-                .flatMap((block) => promptBlocks(block.text))
-                .map((part, at) =>
-                  part.quote ? (
-                    <blockquote
-                      key={at}
-                      {...stylex.props(
-                        styles.userText,
-                        styles.userQuote,
-                        (at > 0 || images.length > 0) && styles.userNext,
-                      )}
-                    >
-                      {part.text}
-                    </blockquote>
-                  ) : (
-                    <p
-                      key={at}
-                      {...stylex.props(
-                        styles.userText,
-                        (at > 0 || images.length > 0) && styles.userNext,
-                      )}
-                    >
-                      {part.text}
-                    </p>
-                  ),
-                )}
-            </PromptText>
+            <PromptText
+              id={item.id}
+              parts={promptParts(item)}
+              images={images.length > 0}
+              onOpen={unitKey ? () => onHold?.(unitKey) : undefined}
+            />
             {item.sent?.comments?.map((comment, index) => (
               <Comment key={index} comment={comment} />
             ))}
@@ -600,9 +619,14 @@ const LEAD = 800;
 const MARGIN = 400;
 /** The newest units render before the thread has a size, as in a hidden pane. */
 const UNSIZED = 24;
-/** The newest units within this height of the end measure their text at
- * once, so the thread opens on exact heights; the others in idle time. */
-const EXACT_PX = 2500;
+/** A thread opens with the newest units that fill this many window heights,
+ * at quick heights: it is at its end, so nothing above needs an exact one.
+ * Once it shows, idle time measures text and renders the units around the
+ * view, as when the reader scrolls. */
+const FIRST_SCREENS = 1.25;
+/** The last metrics for each theme, so a thread opens with them before its
+ * probe lays out. */
+const knownMetrics = new Map<string, ThreadMetrics>();
 /** Replies past each end of the rendered range render their Markdown ahead. */
 const AHEAD = 8;
 /** The view loads the page before the first update within this many screens of it. */
@@ -904,6 +928,7 @@ export function SessionThread({
   const stuck = useRef(true);
   const [atBottom, setAtBottom] = useState(true);
   const { active: theme } = useTheme();
+  const themeId = theme.id;
   const [rows] = useState(() => new Map<string, boolean>());
   // An open subagent covers the thread, which keeps its place beneath.
   const [agentId, setAgentId] = useState<string | null>(null);
@@ -930,7 +955,9 @@ export function SessionThread({
   );
 
   // Heights: a unit's own from when it last rendered, else an estimate.
-  const [metrics, setMetrics] = useState<ThreadMetrics | null>(null);
+  const [metrics, setMetrics] = useState<ThreadMetrics | null>(
+    () => knownMetrics.get(theme.id) ?? null,
+  );
   const [version, setVersion] = useState(0);
   const [heights] = useState(() => ({
     /** Heights of units as they last rendered. */
@@ -947,7 +974,7 @@ export function SessionThread({
     const index = new Map<string, number>();
     // Units with a quick height, which wait for idle time to measure their text.
     let rough = 0;
-    const heightOf = (unit: Unit, m: ThreadMetrics, exact: boolean) => {
+    const heightOf = (unit: Unit, m: ThreadMetrics) => {
       const source = sourceOf(unit);
       const seen = heights.measured.get(unit.key);
       // A rendered unit's height is the one on screen, even before it
@@ -958,21 +985,11 @@ export function SessionThread({
       const known = heights.estimates.get(source);
       if (known && known.metrics === m && known.open === open && known.final === final)
         return known.height;
-      if (!exact) {
-        rough++;
-        return roughUnit(unit, m, { open, final });
-      }
-      const height = estimateUnit(unit, m, { open, final });
-      heights.estimates.set(source, { metrics: m, open, final, height });
-      return height;
+      rough++;
+      return roughUnit(unit, m, { open, final });
     };
-    // From the end, where the thread opens: the units in its first view and
-    // their overscan measure their text.
     const sizes = new Float64Array(all.length);
-    let below = 0;
-    if (metrics)
-      for (let at = all.length - 1; at >= 0; at--)
-        below += sizes[at] = heightOf(all[at]!, metrics, below < EXACT_PX);
+    if (metrics) for (let at = 0; at < all.length; at++) sizes[at] = heightOf(all[at]!, metrics);
     for (let at = 0; at < all.length; at++) {
       index.set(all[at]!.key, at);
       offsets[at + 1] = offsets[at]! + sizes[at]!;
@@ -986,10 +1003,19 @@ export function SessionThread({
     return { all, offsets, index, rough, version };
   }, [all, finals, metrics, rows, version, heights]);
 
+  // A thread that opens is pending until its newest units have their
+  // Markdown, and shows at its end in one step (see below). Once it has, the
+  // range grows around the view, and idle time measures text.
+  const [settled, setSettled] = useState(false);
+  const [grown, setGrown] = useState(false);
+  useEffect(() => {
+    if (settled && !grown) return whenIdle(() => setGrown(true));
+  }, [settled, grown]);
+
   // In idle time, units with a quick height measure their text, the newest
   // first; the view keeps its place as their heights change.
   useEffect(() => {
-    if (!metrics || !model.rough) return;
+    if (!metrics || !model.rough || !grown) return;
     const run = (deadline?: IdleDeadline) => {
       const until = performance.now() + Math.min(8, deadline?.timeRemaining() ?? 8);
       let done = 0;
@@ -1013,9 +1039,10 @@ export function SessionThread({
     }
     const id = requestIdleCallback(run, { timeout: 1000 });
     return () => cancelIdleCallback(id);
-  }, [model, metrics, all, finals, rows, heights]);
+  }, [model, metrics, all, finals, rows, heights, grown]);
 
-  // The rendered range. Before the thread has a size, the newest units.
+  // The rendered range. Before the thread has a size, the newest units;
+  // before it has shown, the newest that fill the window.
   const [range, setRange] = useState<Range | null>(null);
   const count = all.length;
   let start = Math.max(0, count - UNSIZED);
@@ -1024,7 +1051,8 @@ export function SessionThread({
     const shift = range.first ? (model.index.get(range.first) ?? 0) : 0;
     start = Math.min(count, range.start + shift);
     end = range.tail ? count : Math.min(count, range.end + shift);
-  }
+  } else if (metrics && count)
+    start = indexAt(model.offsets, model.offsets[count]! - globalThis.innerHeight * FIRST_SCREENS);
 
   // Units that come at the end of the thread rise in once. Units that were
   // there when it opened, earlier pages, and units that scroll back in do not.
@@ -1039,6 +1067,10 @@ export function SessionThread({
         next.add(all[at]!.key);
     setAppended(next);
   }
+
+  // Whether the thread has a size. A hidden pane has none: the range, its
+  // place, and earlier work wait until it shows.
+  const [sized, setSized] = useState(false);
 
   // The latest values for the scroll and resize handlers.
   const latest = useRef({ model, metrics, range: { start, end }, earlier });
@@ -1114,6 +1146,7 @@ export function SessionThread({
       const element = probe.current;
       if (!element?.clientWidth) return;
       const next = readMetrics(element);
+      knownMetrics.set(themeId, next);
       const current = latest.current.metrics;
       if (!force && current && JSON.stringify(current) === JSON.stringify(next)) return;
       // Heights of units out of view were for the old width or fonts.
@@ -1121,7 +1154,7 @@ export function SessionThread({
         if (!heights.elements.has(key)) heights.measured.delete(key);
       setMetrics(next);
     },
-    [heights],
+    [heights, themeId],
   );
   useLayoutEffect(() => readProbe(), [theme, readProbe]);
   useEffect(() => {
@@ -1278,6 +1311,7 @@ export function SessionThread({
       top = node.scrollTop;
       if (stuck.current) recorded = top;
       setAtBottom(stuck.current);
+      setSized(node.clientHeight > 0);
     };
     const onScroll = () => {
       check();
@@ -1435,9 +1469,9 @@ export function SessionThread({
       return;
     }
     list.current?.restore();
-    list.current?.place(false);
+    if (grown) list.current?.place(false);
     list.current?.loadEarlier();
-  }, [model, all, start, end, metrics, heights, handled, earlier]);
+  }, [model, all, start, end, metrics, heights, handled, earlier, grown, sized]);
 
   // The Markdown of replies just past the rendered range renders ahead in
   // the worker, so they show formatted when they scroll in.
@@ -1457,7 +1491,6 @@ export function SessionThread({
   // and their heights, and shows at its end in one step. A new workspace
   // stays out of sight meanwhile (see WorkspaceViews); in a workspace on
   // screen, the thread itself does.
-  const [settled, setSettled] = useState(false);
   useEffect(() => {
     if (settled || loading || !metrics) return;
     let live = true;

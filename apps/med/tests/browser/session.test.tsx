@@ -958,7 +958,7 @@ test("an edit shows its file and line counts, and its diff when the reader opens
   expect(document.querySelectorAll("[data-unit] figure")).toHaveLength(1);
 });
 
-test("a long prompt shows its first lines until Show more, and Show less folds it again", async () => {
+test("a long prompt shows its first lines until Show more, and Show less folds it again; the rest renders only when open", async () => {
   await page.viewport(1280, 900);
   initializeTheme();
   const text = (value: string) => ({ type: "text" as const, text: value });
@@ -990,17 +990,21 @@ test("a long prompt shows its first lines until Show more, and Show less folds i
   // Only the long prompt folds.
   expect(toggle.elements()).toHaveLength(1);
   const body = thread.getByText(/^Line 1 of the brief/).element().parentElement!;
-  expect(body.clientHeight).toBeLessThan(body.scrollHeight / 2);
+  expect(body.clientHeight).toBeLessThan(body.scrollHeight);
+  // The lines past the fold do not lay out while it is folded.
+  expect(body.textContent).not.toContain("Line 40");
 
   // Opening keeps the prompt's top in place.
   const top = body.getBoundingClientRect().top;
   await userEvent.click(toggle);
   await expect.element(toggle).toHaveTextContent("Show less");
   await expect.element(toggle).toHaveAttribute("aria-expanded", "true");
+  expect(body.textContent).toContain("Line 40 of the brief.");
   expect(body.clientHeight).toBe(body.scrollHeight);
   expect(Math.abs(body.getBoundingClientRect().top - top)).toBeLessThan(2);
 
   await userEvent.click(toggle);
   await expect.element(toggle).toHaveTextContent("Show more");
-  expect(body.clientHeight).toBeLessThan(body.scrollHeight / 2);
+  expect(body.clientHeight).toBeLessThan(body.scrollHeight);
+  expect(body.textContent).not.toContain("Line 40");
 });

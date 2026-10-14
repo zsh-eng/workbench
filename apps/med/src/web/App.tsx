@@ -52,8 +52,8 @@ import {
   useWorkspace,
   useWorkspaceEntry,
   useWorkspaceShown,
-  whenIdle,
 } from "./components/Workspaces";
+import { whenIdle } from "./data/idle";
 import type { BranchEntry } from "./components/BranchPicker";
 import { visibleElement } from "./data/palette-focus";
 import { setFilePreviewShown, useFilePreviewShown } from "./data/picker-preferences";

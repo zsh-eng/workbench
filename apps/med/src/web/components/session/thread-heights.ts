@@ -665,7 +665,7 @@ function promptParts(item: Extract<SessionItem, { kind: "user" }>, m: ThreadMetr
 
 /** Whether a prompt's parts have more lines than a fold shows, without
  * measuring them: each line of the source is at least one line on screen. */
-function folds(parts: { text: string }[]) {
+export function folds(parts: { text: string }[]) {
   let lines = 0;
   for (const part of parts)
     for (let at = part.text.indexOf("\n"); ; at = part.text.indexOf("\n", at + 1)) {
@@ -673,6 +673,26 @@ function folds(parts: { text: string }[]) {
       if (at < 0) break;
     }
   return false;
+}
+
+/** The parts of a prompt that `folds`, cut after its first source lines: a
+ * folded prompt shows fewer, and the rest need not lay out until it opens. */
+export function foldedParts<T extends { text: string }>(parts: T[]): T[] {
+  const result: T[] = [];
+  let lines = 0;
+  for (const part of parts) {
+    let end = -1;
+    for (let at = part.text.indexOf("\n"); ; at = part.text.indexOf("\n", at + 1)) {
+      if (++lines > PROMPT_FOLD) {
+        end = at < 0 ? part.text.length : at;
+        break;
+      }
+      if (at < 0) break;
+    }
+    if (end < 0) result.push(part);
+    else return [...result, { ...part, text: part.text.slice(0, end) }];
+  }
+  return result;
 }
 
 function userHeight(

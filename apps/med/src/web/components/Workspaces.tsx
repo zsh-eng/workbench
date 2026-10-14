@@ -1,5 +1,6 @@
 import type { Thread } from "../../shared/threads";
 import * as stylex from "@stylexjs/stylex";
+import { flushSync } from "react-dom";
 import {
   Activity,
   createContext,
@@ -53,10 +54,13 @@ import { groupThreads, isRecent, useThreads } from "../data/threads";
 import { ThreadSidebar, type SidebarSource } from "./shell/ThreadSidebar";
 import { NewThread } from "./shell/NewThread";
 import { prefetchSavedReview } from "../data/controller";
+import { whenIdle } from "../data/idle";
 
-/** Workspaces kept mounted, most recently shown first. Older ones reload. */
+/** Workspaces kept mounted besides the threads in view, most recently shown
+ * first. Older ones reload. */
 const MOUNTED = 6;
-/** Threads not open yet that load out of sight, so a first visit shows at once. */
+/** Threads out of view that load out of sight, such as one under the pointer
+ * in the older threads. The threads in view always do. */
 const WARM = 3;
 /** The longest that a new workspace prepares out of sight before it shows. */
 const PREPARE_MS = 600;
@@ -117,12 +121,15 @@ const removedSchema = z.object({ removed: z.literal(true) });
 /** Disposers that run when a workspace closes or leaves memory. */
 const Lifetime = createContext<Set<() => void> | null>(null);
 /** Threads to load before their first visit: the one under the pointer
- * (`next`), then the threads in view, in the sidebar's order. */
+ * (`next`), then the threads in view, in the sidebar's order. The threads in
+ * view (`active`, open or not) stay loaded, as open terminal tabs do, until
+ * they are archived or fold into the older threads. */
 interface WarmThreads {
   threads: { workspace: ReviewWorkspace; session?: string }[];
   next: string | null;
+  active: ReadonlySet<string>;
 }
-const Warm = createContext<WarmThreads>({ threads: [], next: null });
+const Warm = createContext<WarmThreads>({ threads: [], next: null, active: new Set() });
 /** Whether this workspace is the one on screen. One that renders out of
  * sight runs its effects but takes no keys. */
 const ShownCheck = createContext<() => boolean>(() => true);
@@ -719,6 +726,16 @@ export function WorkspaceHost({
   );
   // A new thread covers the workspaces until it starts or the reader leaves.
   const [newThread, setNewThread] = useState(false);
+  // A thread's saved review and its session start to load before its
+  // workspace mounts: under the pointer, or at the key that opens it.
+  const readThread = useCallback(
+    (thread: Thread) => {
+      prefetchSavedReview(thread.id, fetcher);
+      const session = thread.sessions?.at(-1);
+      if (session) prefetchThreadSession(thread.id, session.id, fetcher);
+    },
+    [fetcher],
+  );
   // ⌘1–⌘9 open the thread at that place among the threads in view; older
   // threads fold in the sidebar.
   const threadOrder = useMemo(
@@ -737,11 +754,12 @@ export function WorkspaceHost({
       event.preventDefault();
       event.stopPropagation();
       setNewThread(false);
+      readThread(thread);
       actions.open({ kind: "review", reviewId: thread.id, title: thread.title });
     };
     window.addEventListener("keydown", keydown, true);
     return () => window.removeEventListener("keydown", keydown, true);
-  }, [actions, threadOrder]);
+  }, [actions, threadOrder, readThread]);
   // The thread under the pointer, and the threads in view, load ahead.
   const [pointed, setPointed] = useState<string | null>(null);
   const [now] = useState(Date.now);
@@ -764,6 +782,11 @@ export function WorkspaceHost({
           ...(thread.sessions?.length ? { session: thread.sessions.at(-1)!.id } : {}),
         })),
       next: pointed && !open.has(pointed) ? reviewWorkspaceId(pointed) : null,
+      active: new Set(
+        threadOrder
+          .filter((thread) => isRecent(thread, now))
+          .map((thread) => reviewWorkspaceId(thread.id)),
+      ),
     };
   }, [threadOrder, snapshot.workspaces, pointed, now]);
   const activeEntry = snapshot.workspaces.find((entry) => entry.id === snapshot.active);
@@ -858,9 +881,7 @@ export function WorkspaceHost({
                           }}
                           onArchive={archiveThread}
                           onPrefetch={(thread) => {
-                            prefetchSavedReview(thread.id, fetcher);
-                            const session = thread.sessions?.at(-1);
-                            if (session) prefetchThreadSession(thread.id, session.id, fetcher);
+                            readThread(thread);
                             setPointed(thread.id);
                           }}
                         />
@@ -1036,10 +1057,13 @@ export function WorkspaceViews({
   let next = mounted.filter((id) => workspaceOf(id));
   if (warm.next && !next.includes(warm.next)) next = [warm.next, ...next];
   if (onScreen && next[0] !== onScreen) next = [onScreen, ...next.filter((id) => id !== onScreen)];
-  // The most recent of each: open workspaces, and threads loading ahead.
+  // The threads in view, and the most recent of the others: open
+  // workspaces, and threads loading ahead.
   let opened = 0;
   let ahead = 0;
-  next = next.filter((id) => (isOpen(id) ? ++opened <= MOUNTED : ++ahead <= WARM));
+  next = next.filter(
+    (id) => warm.active.has(id) || (isOpen(id) ? ++opened <= MOUNTED : ++ahead <= WARM),
+  );
   if (next.length !== mounted.length || next.some((id, index) => id !== mounted[index]))
     setMounted(next);
 
@@ -1070,7 +1094,9 @@ export function WorkspaceViews({
       const slot = document.querySelector(`[data-workspace-slot="${CSS.escape(preparing)}"]`);
       const ready =
         !!slot?.firstElementChild && !pending(slot.querySelector("[data-lead]") ?? slot);
-      if (ready || performance.now() - started > PREPARE_MS) setShown(preparing);
+      // The swap commits in this frame, before it paints; a plain update
+      // would render after the paint and show a frame later.
+      if (ready || performance.now() - started > PREPARE_MS) flushSync(() => setShown(preparing));
       else frame = requestAnimationFrame(check);
     });
     return () => cancelAnimationFrame(frame);
@@ -1159,23 +1185,27 @@ export function WorkspaceViews({
     };
   }, [visible]);
 
-  // When every mounted workspace has loaded, the next one in the list loads
-  // hidden while the browser is idle, until MOUNTED are ready, and then the
-  // next threads in view, until WARM are ready. A first visit then shows a
-  // rendered review instead of loading in front of the reviewer, as a
-  // browser keeps a pool of warm tabs.
-  const openCount = mounted.filter(isOpen).length;
+  // When every mounted workspace has loaded, the next one loads hidden
+  // while the browser is idle: open workspaces, then the threads in view in
+  // the sidebar's order, as a terminal keeps its open tabs. A first visit
+  // then shows a rendered thread instead of loading in front of the reader.
+  const others = mounted.filter((id) => !warm.active.has(id));
+  const openCount = others.filter(isOpen).length;
   const cold =
-    (openCount < MOUNTED
-      ? orderedWorkspaces(snapshot).find(
-          (entry) => entry.kind !== "vault" && entry.kind !== "pull" && !mounted.includes(entry.id),
-        )?.id
-      : undefined) ??
-    (mounted.length - openCount < WARM
-      ? warm.threads.find((entry) => !mounted.includes(entry.workspace.id))?.workspace.id
-      : undefined);
+    orderedWorkspaces(snapshot).find(
+      (entry) =>
+        entry.kind !== "vault" &&
+        entry.kind !== "pull" &&
+        !mounted.includes(entry.id) &&
+        (warm.active.has(entry.id) || openCount < MOUNTED),
+    )?.id ??
+    warm.threads.find(
+      ({ workspace }) =>
+        !mounted.includes(workspace.id) &&
+        (warm.active.has(workspace.id) || others.length - openCount < WARM),
+    )?.workspace.id;
   useEffect(() => {
-    if (!cold || !onScreen) return;
+    if (!cold) return;
     const controllers = mounted.flatMap((id) => {
       const workspace = workspaceOf(id);
       return workspace && workspace.kind !== "vault" && workspace.kind !== "pull"
@@ -1196,7 +1226,7 @@ export function WorkspaceViews({
       for (const stop of stops) stop();
       cancel?.();
     };
-  }, [cold, onScreen, mounted, pool, workspaceOf]);
+  }, [cold, mounted, pool, workspaceOf]);
 
   // A hidden workspace runs no effects, so its brief renders here, ahead of
   // its first visit, with the briefs of its other iterations.
@@ -1423,16 +1453,6 @@ function leadReady(id: string) {
       else frame = requestAnimationFrame(check);
     })();
   });
-}
-
-/** Runs once the page is idle, or after two seconds. Returns a cancel. */
-export function whenIdle(run: () => void) {
-  if (!("requestIdleCallback" in globalThis)) {
-    const timer = setTimeout(run, 300);
-    return () => clearTimeout(timer);
-  }
-  const id = requestIdleCallback(run, { timeout: 2000 });
-  return () => cancelIdleCallback(id);
 }
 
 /** Hidden workspaces have no layout, so the browser forgets their scroll
