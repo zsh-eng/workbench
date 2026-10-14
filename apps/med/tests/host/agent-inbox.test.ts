@@ -48,6 +48,7 @@ async function fixture() {
     queueCodex: async (thread, text) => {
       queued.push([thread, text]);
     },
+    agentAckMs: 300,
   });
   hosts.push(host);
   const api = async (path: string, body?: unknown) => {
@@ -134,6 +135,26 @@ test("a message reaches a waiting Claude session through med review wait", async
     { path: "summary.ts", line: 1, text: "Round to minutes instead." },
   ]);
   expect(state.drafts).toEqual([]);
+});
+
+test("a message that a wait takes but never prints goes to the next wait", async () => {
+  const { api, saved, wait } = await fixture();
+  const inbox = async () => (await api(`/api/reviews/${saved.id}/agent`)).data as AgentInboxState;
+  // A wait whose process died takes the message and never confirms it. Under
+  // Bun the host cannot tell that its client went away.
+  const lost = api(`/api/reviews/${saved.id}/agent/wait`, { session: claude, confirm: true });
+  await vi.waitFor(async () => expect((await inbox()).waiting).toEqual([claude]));
+  await api(`/api/reviews/${saved.id}/agent/messages`, {
+    sessionId: claude,
+    text: "Use minutes.",
+    noteIds: [],
+  });
+  expect((await lost).data).toMatchObject({ message: expect.stringContaining("Use minutes.") });
+  expect((await inbox()).messages.map((message) => message.delivery)).toEqual(["pending"]);
+
+  // The next wait gets it and confirms it.
+  expect(await wait(claude)).toContain("Use minutes.");
+  expect((await inbox()).messages.map((message) => message.delivery)).toEqual(["delivered"]);
 });
 
 test("a message to a Codex session goes to its queue once", async () => {

@@ -14,13 +14,19 @@ type StoredMessage = z.infer<typeof storedMessageSchema>;
 const MAX_MESSAGES = 100;
 /** A `med review wait` that ends its poll still counts as waiting while it polls again. */
 const WAIT_GRACE_MS = 5_000;
+/** A wait that confirms its messages has this long to do so; then they go to
+ * the next wait. Under Bun, the host cannot tell that a waiting client went
+ * away, so it can answer a wait that nobody reads. */
+const ACK_MS = 10_000;
 /** `codex queue` takes the message as an argument, which the system limits. */
 const MAX_CODEX_MESSAGE_BYTES = 200_000;
 
-type WaitResult = { body: string } | { superseded: true } | null;
+type WaitResult = { body: string; ids: string[] } | { superseded: true } | null;
 interface Waiter {
   /** False when the wait already ended, such as after its time ran out. */
   resolve(result: WaitResult): boolean;
+  /** The wait confirms the messages it prints (`ack`). */
+  confirm: boolean;
 }
 
 /**
@@ -31,6 +37,8 @@ interface Waiter {
  */
 export class AgentInbox {
   private waiters = new Map<string, Waiter>();
+  /** Messages given to a wait that has not confirmed them, by message ID. */
+  private unconfirmed = new Map<string, ReturnType<typeof setTimeout>>();
   private polled = new Map<string, number>();
   private listeners = new Map<string, Set<() => void>>();
   private writes = new Map<string, Promise<unknown>>();
@@ -40,6 +48,7 @@ export class AgentInbox {
     private readonly options: {
       queueCodex?: (threadId: string, text: string) => Promise<void>;
       now?: () => number;
+      ackMs?: number;
     } = {},
   ) {}
 
@@ -190,34 +199,54 @@ export class AgentInbox {
         : undefined;
     if (!key) return;
     const waiter = this.waiters.get(key)!;
-    const taken = await this.take(reviewId, key.endsWith(":*") ? undefined : sessionId);
+    const taken = await this.take(
+      reviewId,
+      key.endsWith(":*") ? undefined : sessionId,
+      waiter.confirm,
+    );
     if (!taken) return;
     // The wait ended while Med read the messages: keep them for the next one.
-    if (!waiter.resolve({ body: taken.body }))
-      await this.change(reviewId, (messages) => {
-        for (const message of messages)
-          if (taken.ids.includes(message.id)) {
-            message.delivery = "pending";
-            delete message.deliveredAt;
-          }
-      });
+    if (!waiter.resolve(taken)) {
+      if (waiter.confirm) this.release(taken.ids);
+      else
+        await this.change(reviewId, (messages) => {
+          for (const message of messages)
+            if (taken.ids.includes(message.id)) {
+              message.delivery = "pending";
+              delete message.deliveredAt;
+            }
+        });
+    }
   }
 
-  /** Marks the pending messages for a session delivered and joins their text. */
-  private take(reviewId: string, sessionId: string | undefined) {
+  /**
+   * Takes the pending messages for a session and joins their text. Without
+   * `confirm` they count as delivered now. With it they stay pending until
+   * the wait confirms them (`ack`), and go to the next wait if it does not.
+   */
+  private take(reviewId: string, sessionId: string | undefined, confirm = false) {
     return this.change(reviewId, (messages) => {
       const pending = messages.filter(
         (message) =>
           message.delivery === "pending" &&
           message.agent === "claude" &&
+          !this.unconfirmed.has(message.id) &&
           (!sessionId || message.sessionId === sessionId),
       );
       if (!pending.length) return undefined;
       const at = new Date(this.now()).toISOString();
-      for (const message of pending) {
-        message.delivery = "delivered";
-        message.deliveredAt = at;
-      }
+      for (const message of pending)
+        if (confirm) {
+          const timer = setTimeout(() => {
+            this.release([message.id]);
+            void this.offer(reviewId, message.sessionId);
+          }, this.options.ackMs ?? ACK_MS);
+          timer.unref?.();
+          this.unconfirmed.set(message.id, timer);
+        } else {
+          message.delivery = "delivered";
+          message.deliveredAt = at;
+        }
       return {
         ids: pending.map((message) => message.id),
         body: pending.map((message) => message.body).join("\n\n---\n\n"),
@@ -225,20 +254,42 @@ export class AgentInbox {
     });
   }
 
+  /** Messages that a wait did not confirm become pending for the next one. */
+  private release(ids: string[]) {
+    for (const id of ids) {
+      clearTimeout(this.unconfirmed.get(id));
+      this.unconfirmed.delete(id);
+    }
+  }
+
+  /** A wait printed these messages: they are delivered. */
+  async ack(reviewId: string, ids: string[]) {
+    this.release(ids);
+    await this.change(reviewId, (messages) => {
+      const at = new Date(this.now()).toISOString();
+      for (const message of messages)
+        if (ids.includes(message.id) && message.delivery === "pending") {
+          message.delivery = "delivered";
+          message.deliveredAt = at;
+        }
+    });
+  }
+
   /**
    * Waits up to `timeout` for a message to a session, or to any Claude session
    * of the review without `sessionId`. A newer wait for the same session ends
-   * an older one.
+   * an older one. With `confirm`, the wait confirms what it prints (`ack`).
    */
   async wait(
     reviewId: string,
     sessionId: string | undefined,
     timeout: number,
     signal: AbortSignal,
+    confirm = false,
   ): Promise<WaitResult> {
     const key = `${reviewId}:${sessionId ?? "*"}`;
-    const pending = await this.take(reviewId, sessionId);
-    if (pending) return { body: pending.body };
+    const pending = await this.take(reviewId, sessionId, confirm);
+    if (pending) return pending;
     this.waiters.get(key)?.resolve({ superseded: true });
     return new Promise((resolve) => {
       let done = false;
@@ -257,7 +308,7 @@ export class AgentInbox {
         resolve(result);
         return true;
       };
-      const waiter: Waiter = { resolve: finish };
+      const waiter: Waiter = { resolve: finish, confirm };
       const stop = () => finish(null);
       const timer = setTimeout(stop, timeout);
       signal.addEventListener("abort", stop, { once: true });

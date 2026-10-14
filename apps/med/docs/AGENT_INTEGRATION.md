@@ -417,7 +417,9 @@ the agent in the pull request panel, adds GitHub comments. Press `⌘↵` or **S
   it creates the review. The command
   waits with no time limit, prints the message, and ends; Claude Code then
   wakes the agent. The pane shows **Waiting for you** while the agent waits. A
-  message sent earlier stays in Med until the agent waits.
+  message sent earlier stays in Med until the agent waits. The command confirms
+  each message that it prints; a message that no wait confirms within 10
+  seconds, as when the waiting process stopped, goes to the next wait.
 - **Codex** gets the message in its queue (`codex queue`), and the thread's
   next turn reads it first, as a user message. Med finds `codex` on the PATH,
   in the ChatGPT app, or at `MED_CODEX_PATH`.

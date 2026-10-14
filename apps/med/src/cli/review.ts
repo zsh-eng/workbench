@@ -481,15 +481,25 @@ async function waitForMessage(
         .object({ id: z.string().regex(/^[A-Za-z0-9_-]+$/) })
         .parse(await request(connection, "/api/reviews/by-key", fetcher, { key })).id;
       const result = z
-        .object({ message: z.string().nullable(), superseded: z.boolean().optional() })
+        .object({
+          message: z.string().nullable(),
+          ids: z.array(z.string()).optional(),
+          superseded: z.boolean().optional(),
+        })
         .parse(
           await request(connection, `/api/reviews/${id}/agent/wait`, fetcher, {
             ...(session ? { session } : {}),
+            confirm: true,
           }),
         );
       failures = 0;
       if (result.message) {
         print(result.message);
+        // Med gives a message that nobody confirms to the next wait.
+        if (result.ids?.length)
+          await request(connection, `/api/reviews/${id}/agent/ack`, fetcher, {
+            ids: result.ids,
+          }).catch(() => {});
         return;
       }
       if (result.superseded) {

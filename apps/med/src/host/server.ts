@@ -130,6 +130,8 @@ export interface StartHostOptions {
   reveal?: (path: string) => void;
   /** Adds a message to a Codex thread's queue; tests replace `codex queue`. */
   queueCodex?: (threadId: string, text: string) => Promise<void>;
+  /** How long a `med review wait` has to confirm a message (tests shorten it). */
+  agentAckMs?: number;
   /** The agents Med can start; tests replace the installed ones. */
   agents?: () => Promise<RunnableAgent[]>;
   /** The GitHub CLI that opens pull requests; tests give a fake one. */
@@ -258,6 +260,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   const savedReviews = new SavedReviewStore(join(options.stateDir ?? temporaryState!, "reviews"));
   const inbox = new AgentInbox(join(options.stateDir ?? temporaryState!, "agent-messages"), {
     ...(options.queueCodex ? { queueCodex: options.queueCodex } : {}),
+    ...(options.agentAckMs ? { ackMs: options.agentAckMs } : {}),
   });
   const inboxStreams = new Set<ServerResponse>();
   const imageDirectory = join(options.stateDir ?? temporaryState!, "images");
@@ -999,7 +1002,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         // Messages from the review to its agent sessions. `wait` is the long
         // poll behind `med review wait`, so it stays outside the request limit.
         const agentRoute =
-          /^\/api\/reviews\/([A-Za-z0-9_-]+)\/agent(?:\/(wait|messages|events))?$/.exec(
+          /^\/api\/reviews\/([A-Za-z0-9_-]+)\/agent(?:\/(wait|ack|messages|events))?$/.exec(
             url.pathname,
           );
         if (agentRoute) {
@@ -1142,14 +1145,34 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   .regex(/^[A-Za-z0-9_-]{1,128}$/)
                   .optional(),
                 timeout: z.number().int().min(1).max(25_000).default(25_000),
+                // The wait confirms what it prints (ack), so a message that
+                // reaches no one goes to the next wait.
+                confirm: z.boolean().default(false),
               })
               .parse(await readBody(request));
-            const result = await inbox.wait(reviewId, input.session, input.timeout, abort.signal);
+            const result = await inbox.wait(
+              reviewId,
+              input.session,
+              input.timeout,
+              abort.signal,
+              input.confirm,
+            );
             send(
               result && "body" in result
-                ? { message: deliveredText(bundle.title, [{ body: result.body }]) }
+                ? {
+                    message: deliveredText(bundle.title, [{ body: result.body }]),
+                    ...(input.confirm ? { ids: result.ids } : {}),
+                  }
                 : { message: null, ...(result ? { superseded: true } : {}) },
             );
+            return;
+          }
+          if (action === "ack" && request.method === "POST") {
+            const input = z
+              .object({ ids: z.array(z.string().min(1).max(128)).min(1).max(100) })
+              .parse(await readBody(request));
+            await inbox.ack(reviewId, input.ids);
+            send({ ok: true });
             return;
           }
           throw new HostError("method-not-allowed", "This agent action is not supported.", 405);
