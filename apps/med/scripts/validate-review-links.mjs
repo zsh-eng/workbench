@@ -241,6 +241,11 @@ process.stdout.write(process.env.MED_TEST_PR);
     viewport: { width: 1440, height: 1000 },
     permissions: ["clipboard-read", "clipboard-write"],
   });
+  // Warm thread workspaces stay mounted but hidden: query the one on screen.
+  await context.addInitScript(() => {
+    window.shown = (selector) =>
+      [...document.querySelectorAll(selector)].find((element) => element.checkVisibility());
+  });
   const pageErrors = [];
   context.on("page", (page) => page.on("pageerror", (error) => pageErrors.push(error.message)));
   const launchPage = await context.newPage();
@@ -257,7 +262,7 @@ process.stdout.write(process.env.MED_TEST_PR);
   validLaunch.searchParams.set("example", "preserved");
   validLaunch.hash += "&anchor=preserved";
   await launchPage.goto(validLaunch.href);
-  await launchPage.locator('[data-review-status="ready"]').waitFor();
+  await launchPage.locator('[data-review-status="ready"]').filter({ visible: true }).waitFor();
   await launchPage.waitForFunction(() => !location.hash.includes("token="));
   assert.equal(new URL(launchPage.url()).searchParams.get("example"), "preserved");
   assert.equal(
@@ -277,7 +282,7 @@ process.stdout.write(process.env.MED_TEST_PR);
     "https://github.com/example/repo/pull/42",
   );
   await page.getByRole("region", { name: "Saved review" }).waitFor();
-  await page.locator('[data-review-status="ready"]').waitFor();
+  await page.locator('[data-review-status="ready"]').filter({ visible: true }).waitFor();
   assert.equal(new URL(page.url()).hash, "");
   const header = page.getByRole("region", { name: "Saved review" });
   await header.getByText("Faster lookups", { exact: true }).waitFor();
@@ -287,6 +292,7 @@ process.stdout.write(process.env.MED_TEST_PR);
   // when the renderer updates after browser focus or source loading.
   await page
     .locator('[data-additions] [data-column-number="2"] [data-line-number-content]')
+    .filter({ visible: true })
     .click();
   await page.getByRole("button", { name: "Add note", exact: true }).click();
   await page
@@ -318,7 +324,7 @@ process.stdout.write(process.env.MED_TEST_PR);
     "https://github.com/example/repo/pull/42",
   );
   await page.waitForFunction(() =>
-    document.querySelector('button[aria-label="Copy comments"]')?.textContent?.trim().endsWith("2"),
+    window.shown('button[aria-label="Copy comments"]')?.textContent?.trim().endsWith("2"),
   );
   await header
     .getByRole("group", { name: "Whole review: 2 lines added, 2 lines deleted", exact: true })
@@ -336,14 +342,14 @@ process.stdout.write(process.env.MED_TEST_PR);
   const restingCopyWidth = (await copyButton.boundingBox()).width;
   await page.mouse.down();
   await page.waitForFunction(() => {
-    const button = document.querySelector('button[aria-label="Copy comments"]');
+    const button = window.shown('button[aria-label="Copy comments"]');
     return button && new DOMMatrix(getComputedStyle(button).transform).a < 0.99;
   });
   assert.ok((await copyButton.boundingBox()).width < restingCopyWidth * 0.99);
   await page.mouse.up();
   await page.waitForFunction(
     () =>
-      document.querySelector('button[aria-label="Copy comments"]')?.getAttribute("data-copied") ===
+      window.shown('button[aria-label="Copy comments"]')?.getAttribute("data-copied") ===
       "true",
   );
   const clipboard = await page.evaluate(() => navigator.clipboard.readText());
@@ -372,7 +378,7 @@ process.stdout.write(process.env.MED_TEST_PR);
   assert.equal((await header.boundingBox()).height, 38);
   // A settling press transition can round to identity while still moving.
   await page.waitForFunction(() => {
-    const button = document.querySelector('[aria-label="Copy comments"]');
+    const button = window.shown('[aria-label="Copy comments"]');
     return (
       button &&
       !button.getAnimations().length &&
@@ -385,7 +391,7 @@ process.stdout.write(process.env.MED_TEST_PR);
   assert.equal(clearBounds.y, copyBounds.y);
   assert.equal(await copyButton.getAttribute("title"), null);
   await page.waitForFunction(
-    () => document.querySelector('[aria-label="Copy comments"]')?.dataset.copied === "false",
+    () => window.shown('[aria-label="Copy comments"]')?.dataset.copied === "false",
   );
   assert.equal((await copyButton.boundingBox()).width, copyBounds.width);
   await page.evaluate(() => {
@@ -427,7 +433,7 @@ process.stdout.write(process.env.MED_TEST_PR);
   assert.equal(await clearButton.evaluate((button) => button.disabled), false);
   await page.evaluate(() => window.releaseClipboard());
   await page.waitForFunction(
-    () => document.querySelector('[aria-label="Copy comments"]')?.dataset.copied === "true",
+    () => window.shown('[aria-label="Copy comments"]')?.dataset.copied === "true",
   );
   assert.deepEqual(await appearance(), beforeCopy);
   await page.evaluate(() => {
@@ -454,9 +460,10 @@ process.stdout.write(process.env.MED_TEST_PR);
     .fill(git(repositories[0], "rev-parse", `${baseline}~1`));
   await page.getByRole("textbox", { name: "Head revision", exact: true }).fill(baseline);
   await page.getByRole("button", { name: "Review", exact: true }).click();
-  await page.locator('[data-review-status="ready"]').waitFor();
+  await page.locator('[data-review-status="ready"]').filter({ visible: true }).waitFor();
   await page
     .locator('[data-additions] [data-column-number="1"] [data-line-number-content]')
+    .filter({ visible: true })
     .click();
   await page.getByRole("button", { name: "Add note", exact: true }).click();
   await page
@@ -468,7 +475,7 @@ process.stdout.write(process.env.MED_TEST_PR);
     .getByText("Comment on an individual commit", { exact: true })
     .waitFor();
   await page.waitForFunction(() =>
-    document.querySelector('button[aria-label="Copy comments"]')?.textContent?.trim().endsWith("3"),
+    window.shown('button[aria-label="Copy comments"]')?.textContent?.trim().endsWith("3"),
   );
   await header
     .getByRole("group", { name: "Whole review: 2 lines added, 2 lines deleted", exact: true })
@@ -494,11 +501,11 @@ process.stdout.write(process.env.MED_TEST_PR);
   await page.getByRole("menuitem", { name: "main", exact: true }).click();
   await page.waitForFunction(
     () =>
-      document.querySelector('[data-review-status="ready"]')?.getAttribute("data-file-count") ===
+      window.shown('[data-review-status="ready"]')?.getAttribute("data-file-count") ===
       "0",
   );
   await header.getByRole("button", { name: "Return to review", exact: true }).click();
-  await page.locator('[data-review-status="ready"]').waitFor();
+  await page.locator('[data-review-status="ready"]').filter({ visible: true }).waitFor();
   await copyButton.click();
   await page.waitForFunction(async () =>
     (await navigator.clipboard.readText()).includes("Comment on an individual commit"),
@@ -528,7 +535,7 @@ process.stdout.write(process.env.MED_TEST_PR);
     "https://github.com/example/repo/pull/42",
   );
   await page.waitForFunction(() =>
-    document.querySelector('button[aria-label="Copy comments"]')?.textContent?.trim().endsWith("3"),
+    window.shown('button[aria-label="Copy comments"]')?.textContent?.trim().endsWith("3"),
   );
   await page
     .getByRole("article")
