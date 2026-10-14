@@ -37,18 +37,75 @@ function bigLength(length: number) {
   return bytes;
 }
 
-/** Completes the handshake of an upgrade request, or returns undefined when it is not one. */
-export function acceptWebSocket(
+/** Whether a request asks for a WebSocket that this host can accept. */
+function isUpgrade(request: IncomingMessage) {
+  return (
+    typeof request.headers["sec-websocket-key"] === "string" &&
+    request.headers.upgrade?.toLowerCase() === "websocket" &&
+    request.headers["sec-websocket-version"] === "13"
+  );
+}
+
+/**
+ * Completes the handshake of an upgrade request, or returns undefined when it
+ * is not one. Bun's node:http does not send what an upgraded socket writes, so
+ * under Bun the runtime's own `ws` module, which Bun builds in, takes the
+ * socket; Node has no such module, and this file speaks the protocol itself.
+ */
+export async function acceptWebSocket(
   request: IncomingMessage,
   socket: Duplex,
-): WebSocketPeer | undefined {
-  const key = request.headers["sec-websocket-key"];
-  if (
-    typeof key !== "string" ||
-    request.headers.upgrade?.toLowerCase() !== "websocket" ||
-    request.headers["sec-websocket-version"] !== "13"
-  )
-    return undefined;
+  head: Buffer,
+): Promise<WebSocketPeer | undefined> {
+  if (!isUpgrade(request)) return undefined;
+  return process.versions.bun ? acceptInBun(request, socket, head) : acceptInNode(request, socket);
+}
+
+let bunServer: import("ws").WebSocketServer | undefined;
+async function acceptInBun(request: IncomingMessage, socket: Duplex, head: Buffer) {
+  const { WebSocketServer } = await import("ws");
+  bunServer ??= new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME });
+  // `ws` answers a bad handshake itself and closes the socket.
+  const ws = await new Promise<import("ws").WebSocket | undefined>((resolve) => {
+    socket.once("close", () => resolve(undefined));
+    bunServer!.handleUpgrade(request, socket, head, resolve);
+  });
+  if (!ws) return undefined;
+  let closed = false;
+  const listeners = new Set<() => void>();
+  const finish = () => {
+    if (closed) return;
+    closed = true;
+    for (const listener of listeners) listener();
+    listeners.clear();
+  };
+  ws.on("close", finish);
+  ws.on("error", finish);
+  const write = (text: string) => {
+    if (closed) return false;
+    ws.send(text);
+    return true;
+  };
+  return {
+    send: (text) => void write(text),
+    write,
+    get writableEnded() {
+      return closed;
+    },
+    end() {
+      if (closed) return;
+      ws.close();
+      finish();
+    },
+    onClose: (listener) => {
+      if (closed) listener();
+      else listeners.add(listener);
+    },
+  } satisfies WebSocketPeer;
+}
+
+function acceptInNode(request: IncomingMessage, socket: Duplex): WebSocketPeer {
+  const key = request.headers["sec-websocket-key"] as string;
   const accept = createHash("sha1")
     .update(key + GUID)
     .digest("base64");

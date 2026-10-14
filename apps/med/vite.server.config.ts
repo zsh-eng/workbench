@@ -17,6 +17,7 @@ export default defineConfig({
     emptyOutDir: false,
     target: "node22",
     sourcemap: true,
-    rolldownOptions: { output: { entryFileNames: "cli.js" } },
+    // Bun's own `ws` module, imported only under Bun.
+    rolldownOptions: { external: ["ws"], output: { entryFileNames: "cli.js" } },
   },
 });
