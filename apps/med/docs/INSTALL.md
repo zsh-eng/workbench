@@ -7,8 +7,8 @@ This release does not support Intel Macs.
 curl -fsSL https://raw.githubusercontent.com/zsh-eng/workbench/main/apps/med/install.sh | sh
 ```
 
-The script downloads the newest release from GitHub, also when GitHub's API
-limit is used up, and stops if the archive does not match `SHA256SUMS`. It installs `med` in `~/.local/bin`, keeps the
+The script downloads the newest release from GitHub and stops if the archive
+does not match `SHA256SUMS`. It installs `med` in `~/.local/bin`, keeps the
 license notices in `~/.local/share/med`, and adds `~/.local/bin` to PATH in
 your shell's startup file. The executable includes its runtime, the browser
 app, and these guides, so you do not need Node, Bun, or a checkout.

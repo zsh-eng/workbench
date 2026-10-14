@@ -2,7 +2,8 @@
 
 Build on Apple Silicon with Bun 1.3.5 and a clean checkout. Install dependencies
 with `bun install --frozen-lockfile` from the Workbench root. Keep the release
-version in `package.json` and `docs/INSTALL.md` aligned. The runtime notices in
+version in `package.json`, `latest` in `install.sh`, and `docs/INSTALL.md`
+aligned; the release script refuses an `install.sh` that names another version. The runtime notices in
 `upstream/BUN-LICENSE.md` come from `oven-sh/bun` at `bun-v1.3.5`; update them if
 changing the runtime.
 
@@ -30,12 +31,10 @@ minimum macOS version with `otool -l med`. The script replaces Bun's linker sign
 after compilation with a verified ad-hoc signature. It is not Developer ID signed or notarized. Do not describe it as such.
 
 `install.sh` downloads `med-v<version>-macos-arm64.tar.gz` and `SHA256SUMS`
-from the release with tag `med-v<version>`. It takes the highest plain
-`med-v<x.y.z>` version from the release list, so a release-candidate tag such as
-`med-v0.2.0-rc.1` is skipped. When GitHub's API refuses (60 calls an hour from
-one address without a token), it reads the repository's tags from github.com
-instead, so push the tag only with its release. Keep these names when changing
-the release script.
+from the release with tag `med-v<version>`. It asks no API for the newest
+version: it installs its own `latest` unless the user sets one. The command in
+the guides reads the script from `main`, so push the tag and publish the release
+first, then push `main`. Keep these names when changing the release script.
 
 Publish only when authorized. Use Med-specific tags (`med-v0.4.1`) because this
 repository also releases other apps. Tag the exact `BUILD.json` commit, push the

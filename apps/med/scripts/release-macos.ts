@@ -14,6 +14,8 @@ if (Bun.version !== "1.3.5")
 if (run("git", ["status", "--porcelain"]))
   throw new Error("Build releases from a clean checkout. Commit changes or use a clean worktree.");
 const version = JSON.parse(await readFile(join(app, "package.json"), "utf8")).version;
+if (!(await readFile(join(app, "install.sh"), "utf8")).includes(`\nlatest="${version}"\n`))
+  throw new Error("Set latest in install.sh to the package.json version.");
 const commit = run("git", ["rev-parse", "HEAD"]);
 const output = resolve(process.argv[2] ?? join(app, "dist", "release"));
 const name = `med-v${version}-macos-arm64`;

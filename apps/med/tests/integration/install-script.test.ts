@@ -15,14 +15,16 @@ afterEach(async () => {
 
 // Releases are built for macOS on Apple Silicon, and the script refuses other machines.
 it.skipIf(process.platform !== "darwin" || process.arch !== "arm64")(
-  "installs the newest Med release with its checksum, once, and adds it to PATH",
+  "installs this version's release with its checksum, once, and adds it to PATH",
   async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), "med-install-")));
     cleanup.push(() => rm(root, { recursive: true, force: true }));
 
-    // Release archives as the release script writes them. 0.4.0 has a wrong checksum.
+    // The script installs the release that the release commit names in it.
+    const current: string = JSON.parse(await readFile("package.json", "utf8")).version;
+    // Release archives as the release script writes them. 0.0.9 has a wrong checksum.
     const files = new Map<string, Buffer>();
-    for (const version of ["0.1.0", "0.2.0", "0.4.0"]) {
+    for (const version of ["0.0.9", "0.1.0", current]) {
       const name = `med-v${version}-macos-arm64`;
       const stage = join(root, "release", name);
       await mkdir(join(stage, "licenses", "upstream"), { recursive: true });
@@ -35,7 +37,7 @@ it.skipIf(process.platform !== "darwin" || process.arch !== "arm64")(
       });
       const archive = await readFile(join(root, "release", `${name}.tar.gz`));
       const sha256 = createHash("sha256")
-        .update(version === "0.4.0" ? "something else" : archive)
+        .update(version === "0.0.9" ? "something else" : archive)
         .digest("hex");
       files.set(`/zsh-eng/workbench/releases/download/med-v${version}/${name}.tar.gz`, archive);
       files.set(
@@ -45,45 +47,8 @@ it.skipIf(process.platform !== "darwin" || process.arch !== "arm64")(
     }
     const script = resolve("install.sh");
     files.set("/install.sh", await readFile(script));
-    // Another app's release and a release candidate come first, and a later
-    // patch of an older version can come before a newer one; the highest plain
-    // version wins. The broken 0.4.0 is pinned only.
-    files.set(
-      "/repos/zsh-eng/workbench/releases",
-      Buffer.from(
-        JSON.stringify(
-          ["reader-v3.0.0", "med-v0.3.0-rc.1", "med-v0.1.0", "med-v0.2.0"].map((tag_name) => ({
-            tag_name,
-            draft: false,
-          })),
-        ),
-      ),
-    );
-    // The repository's tags, as Git reads them from github.com (pkt-lines).
-    const line = (text: string) => `${(text.length + 4).toString(16).padStart(4, "0")}${text}`;
-    const sha = "a".repeat(40);
-    files.set(
-      "/zsh-eng/workbench.git/info/refs",
-      Buffer.from(
-        [
-          line("# service=git-upload-pack\n"),
-          "0000",
-          line(`${sha} HEAD\0multi_ack side-band-64k\n`),
-          line(`${sha} refs/heads/main\n`),
-          ...["med-v0.1.0", "med-v0.2.0", "med-v0.3.0-rc.1", "reader-v3.0.0"].flatMap((tag) => [
-            line(`${sha} refs/tags/${tag}\n`),
-            line(`${sha} refs/tags/${tag}^{}\n`),
-          ]),
-          "0000",
-        ].join(""),
-      ),
-    );
-    // GitHub's API allows 60 calls an hour from one address without a token.
-    let limited = false;
     const server: Server = createServer((request, response) => {
       const path = new URL(request.url!, "http://localhost").pathname;
-      if (limited && path.startsWith("/repos/"))
-        return response.writeHead(403).end('{"message":"API rate limit exceeded"}');
       const body = files.get(path);
       response.writeHead(body ? 200 : 404).end(body);
     });
@@ -100,7 +65,6 @@ it.skipIf(process.platform !== "darwin" || process.arch !== "arm64")(
       // A Terminal's usual locale; under it /bin/sh reads non-ASCII bytes as name characters.
       LANG: "en_US.UTF-8",
       TMPDIR: root,
-      MED_INSTALL_API: origin,
       MED_INSTALL_DOWNLOADS: origin,
     };
     // The documented form: the script arrives on standard input.
@@ -113,7 +77,7 @@ it.skipIf(process.platform !== "darwin" || process.arch !== "arm64")(
     const rc = () => readFile(join(home, ".zshrc"), "utf8");
 
     const first = await install();
-    expect(await version()).toBe("med 0.2.0");
+    expect(await version()).toBe(`med ${current}`);
     expect(first.stdout).toContain("med skills install");
     expect(await rc()).toBe('\n# Med\nexport PATH="$HOME/.local/bin:$PATH"\n');
     expect(
@@ -124,13 +88,13 @@ it.skipIf(process.platform !== "darwin" || process.arch !== "arm64")(
     ).toBe("Bun notices\n");
 
     // Again: nothing to download, and the startup file keeps one PATH line.
-    expect((await install()).stdout).toContain("Med 0.2.0 is already installed");
+    expect((await install()).stdout).toContain(`Med ${current} is already installed`);
     expect(await rc()).toBe('\n# Med\nexport PATH="$HOME/.local/bin:$PATH"\n');
 
     // A pinned version replaces it; a bad checksum installs nothing.
     expect((await install("--version", "0.1.0")).stdout).toContain("If Med is running, restart it");
     expect(await version()).toBe("med 0.1.0");
-    await expect(install("--version", "0.4.0")).rejects.toMatchObject({
+    await expect(install("--version", "0.0.9")).rejects.toMatchObject({
       stderr: expect.stringContaining("does not match SHA256SUMS"),
     });
     expect(await version()).toBe("med 0.1.0");
@@ -145,16 +109,5 @@ it.skipIf(process.platform !== "darwin" || process.arch !== "arm64")(
     );
     expect(quiet.stdout).toContain('Add it with: export PATH="$HOME/.local/bin:$PATH"');
     await expect(readFile(join(other, ".zshrc"))).rejects.toThrow("ENOENT");
-
-    // When the API refuses, the repository's tags give the newest version.
-    limited = true;
-    const office = join(root, "office");
-    await mkdir(office);
-    await exec("/bin/sh", ["-c", `curl -fsSL ${origin}/install.sh | sh -s -- --no-modify-path`], {
-      env: { ...env, HOME: office },
-    });
-    expect((await exec(join(office, ".local", "bin", "med"), ["--version"])).stdout.trim()).toBe(
-      "med 0.2.0",
-    );
   },
 );

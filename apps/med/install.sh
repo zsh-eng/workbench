@@ -4,7 +4,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/zsh-eng/workbench/main/apps/med/install.sh | sh
 #
 # Options (after `sh -s --` when piped):
-#   --version <x.y.z>   Install this release instead of the newest one (MED_VERSION).
+#   --version <x.y.z>   Install this release instead of the one below (MED_VERSION).
 #   --dir <path>        Install the executable here (MED_INSTALL_DIR, default ~/.local/bin).
 #   --no-modify-path    Do not add the directory to PATH in a shell startup file
 #                       (MED_NO_MODIFY_PATH=1).
@@ -14,10 +14,12 @@ set -eu
 # bytes such as the first byte of an ellipsis as letters of a variable name.
 
 repo="zsh-eng/workbench"
-# Tests point these at a local server.
-api="${MED_INSTALL_API:-https://api.github.com}"
+# The newest release. Each release commit sets it, so the script asks no API
+# for it (GitHub's API allows 60 calls an hour from one address).
+latest="0.4.1"
+# Tests point this at a local server.
 downloads="${MED_INSTALL_DOWNLOADS:-https://github.com}"
-version="${MED_VERSION:-}"
+version="${MED_VERSION:-$latest}"
 dir="${MED_INSTALL_DIR:-$HOME/.local/bin}"
 modify_path=1
 [ "${MED_NO_MODIFY_PATH:-}" = 1 ] && modify_path=0
@@ -72,29 +74,6 @@ for tool in curl tar shasum; do
   command -v "$tool" >/dev/null 2>&1 || fail "$tool is required."
 done
 
-# The highest of the x.y.z versions on standard input, by number.
-highest() { sort -u -t. -k1,1n -k2,2n -k3,3n | tail -n 1; }
-
-if [ -z "$version" ]; then
-  # This repository also releases other apps, so GitHub's "latest" release can
-  # be another app's: take the highest plain med-v<x.y.z> release.
-  if releases=$(curl -fsSL -H "Accept: application/vnd.github+json" "$api/repos/$repo/releases?per_page=100" 2>/dev/null); then
-    version=$(printf '%s\n' "$releases" |
-      grep -o '"tag_name": *"med-v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*"' |
-      sed 's/.*"med-v//; s/"$//' | highest)
-  fi
-  # Without a token, the API allows 60 calls an hour from one address, which
-  # a shared office network uses up. The repository's tags on github.com have
-  # no such limit.
-  if [ -z "$version" ]; then
-    tags=$(curl -fsSL "$downloads/$repo.git/info/refs?service=git-upload-pack" 2>/dev/null | tr '\000' '\n')
-    [ -n "$tags" ] || fail "could not list Med releases. Set MED_VERSION=<x.y.z> to choose one."
-    version=$(printf '%s\n' "$tags" |
-      grep -o 'refs/tags/med-v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*$' |
-      sed 's/.*med-v//' | highest)
-  fi
-  [ -n "$version" ] || fail "found no Med release."
-fi
 version=${version#v}
 name="med-v$version-macos-arm64"
 target="$dir/med"
