@@ -72,14 +72,27 @@ for tool in curl tar shasum; do
   command -v "$tool" >/dev/null 2>&1 || fail "$tool is required."
 done
 
+# The highest of the x.y.z versions on standard input, by number.
+highest() { sort -u -t. -k1,1n -k2,2n -k3,3n | tail -n 1; }
+
 if [ -z "$version" ]; then
   # This repository also releases other apps, so GitHub's "latest" release can
-  # be another app's. The list is newest first; take the first plain med-v tag.
-  releases=$(curl -fsSL -H "Accept: application/vnd.github+json" "$api/repos/$repo/releases?per_page=100") ||
-    fail "could not list Med releases. Set MED_VERSION=<x.y.z> to choose one."
-  version=$(printf '%s\n' "$releases" |
-    grep -o '"tag_name": *"med-v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*"' |
-    head -n 1 | sed 's/.*"med-v//; s/"$//')
+  # be another app's: take the highest plain med-v<x.y.z> release.
+  if releases=$(curl -fsSL -H "Accept: application/vnd.github+json" "$api/repos/$repo/releases?per_page=100" 2>/dev/null); then
+    version=$(printf '%s\n' "$releases" |
+      grep -o '"tag_name": *"med-v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*"' |
+      sed 's/.*"med-v//; s/"$//' | highest)
+  fi
+  # Without a token, the API allows 60 calls an hour from one address, which
+  # a shared office network uses up. The repository's tags on github.com have
+  # no such limit.
+  if [ -z "$version" ]; then
+    tags=$(curl -fsSL "$downloads/$repo.git/info/refs?service=git-upload-pack" 2>/dev/null | tr '\000' '\n')
+    [ -n "$tags" ] || fail "could not list Med releases. Set MED_VERSION=<x.y.z> to choose one."
+    version=$(printf '%s\n' "$tags" |
+      grep -o 'refs/tags/med-v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*$' |
+      sed 's/.*med-v//' | highest)
+  fi
   [ -n "$version" ] || fail "found no Med release."
 fi
 version=${version#v}

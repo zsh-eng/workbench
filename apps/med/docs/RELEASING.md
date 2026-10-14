@@ -30,9 +30,12 @@ minimum macOS version with `otool -l med`. The script replaces Bun's linker sign
 after compilation with a verified ad-hoc signature. It is not Developer ID signed or notarized. Do not describe it as such.
 
 `install.sh` downloads `med-v<version>-macos-arm64.tar.gz` and `SHA256SUMS`
-from the release with tag `med-v<version>`. It takes the newest plain
-`med-v<x.y.z>` tag from the release list, so a release-candidate tag such as
-`med-v0.2.0-rc.1` is skipped. Keep these names when changing the release script.
+from the release with tag `med-v<version>`. It takes the highest plain
+`med-v<x.y.z>` version from the release list, so a release-candidate tag such as
+`med-v0.2.0-rc.1` is skipped. When GitHub's API refuses (60 calls an hour from
+one address without a token), it reads the repository's tags from github.com
+instead, so push the tag only with its release. Keep these names when changing
+the release script.
 
 Publish only when authorized. Use Med-specific tags (`med-v0.4.1`) because this
 repository also releases other apps. Tag the exact `BUILD.json` commit, push the
