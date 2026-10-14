@@ -68,6 +68,10 @@ async function handle(method, params) {
       mode = params.modeId;
       return {};
     case "session/prompt": {
+      // Med puts a thread's instructions in a text block before the first prompt.
+      const blocks = params.prompt.filter((block) => block.type === "text");
+      if (blocks.length > 1)
+        say(`Context for ${process.env.MED_THREAD_KEY}: ${blocks[0].text.split("\n")[0]}`);
       const text = params.prompt.map((block) => block.text ?? "").join("");
       const images = params.prompt.filter((block) => block.type === "image");
       if (images.length) {
@@ -102,7 +106,7 @@ async function handle(method, params) {
         await new Promise((resolve) => (held = resolve));
         return { stopReason: "cancelled" };
       }
-      say(`(${model}, ${mode}) ${text.split("\n")[0]}`);
+      say(`(${model}, ${mode}) ${(blocks.at(-1)?.text ?? "").split("\n")[0]}`);
       return { stopReason: "end_turn" };
     }
     default:

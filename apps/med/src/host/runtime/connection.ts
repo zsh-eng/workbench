@@ -16,7 +16,7 @@ export type RunningConnection = z.infer<typeof connectionSchema>;
 
 export function getStateDirectory(override?: string): string {
   return resolve(
-    override ?? process.env.MED_STATE_DIR ?? join(homedir(), ".local", "state", "med"),
+    override || process.env.MED_STATE_DIR || join(homedir(), ".local", "state", "med"),
   );
 }
 

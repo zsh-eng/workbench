@@ -394,8 +394,12 @@ with your text and the comments that you have not sent. Select the comment
 count to choose comments. A GitHub comment's reply button, or **Add all to**
 the agent in the pull request panel, adds GitHub comments. Press `⌘↵` or **Send**.
 
-- **Claude Code** takes the message with `med review wait --key <task>`, which
-  the skill runs in the background after it creates the review. The command
+- **A session that Med started** in a thread gets the message as a new turn.
+  It does not run `med review wait`; in such a session, the command exits at
+  once. `MED_THREAD_KEY` and `MED_THREAD_REPO` give its `--key` and `--repo`.
+- **Claude Code** in a terminal or app takes the message with
+  `med review wait --key <task>`, which the skill runs in the background after
+  it creates the review. The command
   waits with no time limit, prints the message, and ends; Claude Code then
   wakes the agent. The pane shows **Waiting for you** while the agent waits. A
   message sent earlier stays in Med until the agent waits.

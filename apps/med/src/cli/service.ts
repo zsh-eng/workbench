@@ -13,6 +13,7 @@ import {
   type RunningConnection,
 } from "../host/runtime/connection";
 import { startHost } from "../host/server";
+import { ownCommand } from "../host/thread-agents";
 import { HostError } from "../host/runtime/errors";
 import { ServiceManager } from "../host/service/manager";
 import { selfCommand } from "../host/service/self";
@@ -118,6 +119,7 @@ export async function serve(stateDir: string, port: number) {
       port,
       stateDir,
       service: manager,
+      cli: ownCommand(),
     });
     manager.port = host.port;
     let closing = false;

@@ -13,9 +13,18 @@ import {
   readConnection,
 } from "../../src/host/runtime/connection";
 
-// The agent running these tests has its own session; reviews here record none.
+// The agent running these tests has its own session, maybe in a Med thread;
+// reviews here record none.
 beforeEach(() => {
-  vi.stubEnv("CLAUDE_CODE_SESSION_ID", "");
+  for (const name of [
+    "CLAUDE_CODE_SESSION_ID",
+    "MED_SESSION",
+    "MED_THREAD_KEY",
+    "MED_THREAD_REPO",
+    "MED_PORT",
+    "MED_STATE_DIR",
+  ])
+    vi.stubEnv(name, "");
 });
 afterEach(() => {
   vi.unstubAllEnvs();

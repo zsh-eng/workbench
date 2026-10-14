@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { startHost } from "../host/server";
+import { ownCommand } from "../host/thread-agents";
 import type { Comparison } from "../shared/protocol";
 import { ctagsSetupMessage, discoverCtags } from "../host/search/symbols";
 import { installSearchTools } from "../host/search/install";
@@ -160,6 +161,7 @@ async function main() {
       ...(initialComparison ? { initialComparison } : {}),
       allowedInputPaths,
       onClose: cleanup,
+      cli: ownCommand(),
     }).catch(async (error: unknown) => {
       await cleanup();
       throw error;

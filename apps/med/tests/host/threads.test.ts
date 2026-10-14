@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import type { OwnedState } from "../../src/shared/owned-session";
 import type { SavedReview } from "../../src/shared/saved-review";
 import type { ThreadList } from "../../src/shared/threads";
+import type { SessionEvent } from "../../src/shared/agent-session";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { runReviewCommand } from "../../src/cli/review";
 import { readServerEvents } from "../../src/web/data/sse";
@@ -63,7 +64,17 @@ async function fixture() {
         command: process.execPath,
         args: [fileURLToPath(new URL("../fixtures/agents/fake-claude.mjs", import.meta.url))],
       },
+      {
+        id: "fake",
+        name: "Fake ACP",
+        kind: "acp",
+        available: true,
+        command: process.execPath,
+        args: [fileURLToPath(new URL("../fixtures/agents/fake-acp.mjs", import.meta.url))],
+      },
     ],
+    // The agents' `med` command; here it prints its arguments.
+    cli: [process.execPath, "-e", "process.stdout.write(JSON.stringify(process.argv.slice(1)))"],
   });
   hosts.push(host);
   const api = async <T>(path: string, body?: unknown) => {
@@ -180,7 +191,7 @@ test("a thread starts its agent on a new branch in a worktree, and archiving can
   await vi.waitFor(() => expect(time()).toBe(before), { timeout: 5000 });
 });
 
-test("a thread's agent hands off its work with the command that its system prompt gives", async () => {
+test("a thread's agent hands off its work as its instructions say, with no flags for the thread", async () => {
   const { api, home, host, repositoryId, stateDir } = await fixture();
   const review = (
     await api<{ review: SavedReview }>("/api/threads", {
@@ -191,29 +202,101 @@ test("a thread's agent hands off its work with the command that its system promp
   ).data.review;
   const worktree = review.targets[0]!.repo;
   const session = review.sessions![0]!;
-  const argsFile = join(home, ".claude", "projects", "-fake-repo", `${session.id}.args.json`);
-  const args = await vi.waitFor(
-    async () => JSON.parse(await readFile(argsFile, "utf8")) as string[],
+  const project = join(home, ".claude", "projects", "-fake-repo");
+  const args = await vi.waitFor(async () =>
+    JSON.parse(await readFile(join(project, `${session.id}.args.json`), "utf8")),
   );
-  const prompt = args[args.indexOf("--append-system-prompt") + 1]!;
-  const command = /`med review (create [^`]+)`/.exec(prompt)![1]!;
-
-  // The agent changes a file and runs the command as written; the brief comes
-  // from a file here instead of standard input.
-  await writeFile(join(worktree, "summary.ts"), "export const best = 2;\n");
-  const brief = join(worktree, "..", "brief.md");
-  await writeFile(brief, "The best result is two.\n");
-  const words = [...command.matchAll(/"((?:[^"\\]|\\.)*)"|(\S+)/g)].map((match) =>
-    match[1] === undefined ? match[2]! : (JSON.parse(`"${match[1]}"`) as string),
-  );
-  words[words.indexOf("--brief") + 1] = brief;
-  await runReviewCommand([...words, "--state-dir", stateDir, "--port", String(host.port)], {
-    print: () => {},
-    home,
+  const environment = JSON.parse(
+    await readFile(join(project, `${session.id}.env.json`), "utf8"),
+  ) as Record<string, string>;
+  expect(environment).toMatchObject({
+    MED_SESSION: "owned",
+    MED_PORT: String(host.port),
+    MED_STATE_DIR: stateDir,
+    MED_THREAD_KEY: review.key,
+    MED_THREAD_REPO: worktree,
   });
+  // `med` on the agent's PATH is this host's command, with the arguments intact.
+  const med = execFileSync("med", ["review", "it's here"], {
+    env: { PATH: environment.PATH! },
+    encoding: "utf8",
+  });
+  expect(JSON.parse(med)).toEqual(["review", "it's here"]);
 
-  // The thread gets a second round with the change.
+  // The agent changes a file and runs the command as written, with its own
+  // environment; the guide comes from a file here instead of standard input.
+  const instructions = args[args.indexOf("--append-system-prompt") + 1] as string;
+  const command = /`med review (create [^`]+)`/.exec(instructions)![1]!;
+  expect(command).toBe('create --working --title "<2-4 words>" --guide -');
+  await writeFile(join(worktree, "summary.ts"), "export const best = 2;\n");
+  const guide = join(worktree, "..", "guide.json");
+  await writeFile(
+    guide,
+    JSON.stringify({
+      summary: "The best result is two.",
+      segments: [{ title: "Best result", files: ["summary.ts"] }],
+    }),
+  );
+  const printed: string[] = [];
+  const run = (words: string[]) =>
+    runReviewCommand(words, { environment, home, print: (line) => printed.push(line) });
+  await run(["create", "--working", "--title", "Best result", "--guide", guide]);
+
+  // The thread gets a second round with the change and its guide.
   const saved = (await api<SavedReview>(`/api/reviews/${review.id}`)).data;
   expect(saved.iterations).toHaveLength(2);
   expect(saved.totals).toMatchObject({ files: 1, additions: 1, deletions: 1 });
+  expect(saved.iterations![1]!.guide?.segments.map((segment) => segment.title)).toEqual([
+    "Best result",
+  ]);
+
+  // Med sends the user's messages itself, so wait ends at once.
+  printed.length = 0;
+  await run(["wait"]);
+  expect(printed.join("\n")).toContain("Do not run med review wait in this session.");
+});
+
+test("an ACP agent reads the thread's instructions before its first prompt, and the thread does not show them", async () => {
+  const { api, host, repositoryId } = await fixture();
+  const review = (
+    await api<{ review: SavedReview }>("/api/threads", {
+      repositoryId,
+      prompt: "Make the best result two.",
+      preset: "fake",
+    })
+  ).data.review;
+  const session = review.sessions![0]!;
+  const response = await fetch(
+    `http://127.0.0.1:${host.port}/api/reviews/${review.id}/sessions/${session.id}/events`,
+    { headers: { authorization: `Bearer ${host.token}` } },
+  );
+  const events: SessionEvent[] = [];
+  const controller = new AbortController();
+  streams.push(controller);
+  void readServerEvents(
+    response.body!,
+    (event) => {
+      const payload = JSON.parse(event.data) as { events: SessionEvent[] };
+      if (event.event === "reset") events.length = 0;
+      events.push(...payload.events);
+    },
+    controller.signal,
+  ).catch(() => {});
+  const texts = (kind: "agent_message_chunk" | "user_message_chunk") =>
+    events.flatMap(({ update }) =>
+      update.sessionUpdate === kind && update.content.type === "text" ? [update.content.text] : [],
+    );
+  await vi.waitFor(() =>
+    expect(texts("agent_message_chunk")).toEqual([
+      `Context for ${review.key}: You work in a Med thread named "Make the best result two", in ${review.targets[0]!.repo}. Med is the user's local review app. It shows the user your changes as you work, and it sends you their messages and review comments as new turns.`,
+      "(small, build) Make the best result two.",
+    ]),
+  );
+  // The thread shows the user's prompt once, without the instructions or the agent's echo.
+  expect(texts("user_message_chunk")).toEqual(["Make the best result two."]);
+
+  // A later prompt has no instructions.
+  await api(`/api/reviews/${review.id}/owned/${session.id}`, { action: "prompt", text: "Again." });
+  await vi.waitFor(() => expect(texts("agent_message_chunk").at(-1)).toBe("(small, build) Again."));
+  expect(texts("agent_message_chunk")).toHaveLength(3);
 });

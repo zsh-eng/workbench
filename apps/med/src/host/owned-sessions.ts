@@ -110,10 +110,10 @@ const SESSION_VARIABLES = [
   "CLAUDE_AGENT_SDK_MCP_NO_PREFIX",
   "CLAUDE_PID",
 ];
-function agentEnvironment() {
+function agentEnvironment(extra: Record<string, string> = {}) {
   const env = { ...process.env };
   for (const name of SESSION_VARIABLES) delete env[name];
-  return env;
+  return { ...env, ...extra };
 }
 
 /** Listeners and a state that changes in place. */
@@ -185,7 +185,7 @@ const claudeInitSchema = z
 export function startClaude(
   agent: RunnableAgent,
   cwd: string,
-  options: { sessionId?: string; systemPrompt?: string } = {},
+  options: { sessionId?: string; systemPrompt?: string; env?: Record<string, string> } = {},
 ): OwnedRunner {
   const sessionId = options.sessionId ?? randomUUID();
   const session: AgentSession = { agent: "claude", id: sessionId, cwd };
@@ -385,7 +385,7 @@ export function startClaude(
     ];
     const current = spawn(agent.command, [...agent.args, ...args], {
       cwd,
-      env: agentEnvironment(),
+      env: agentEnvironment(options.env),
       stdio: ["pipe", "pipe", "pipe"],
     });
     child = current;
@@ -592,8 +592,19 @@ function stopNotice(name: string, reason: string | undefined, answered: boolean)
  * the client: it creates a session in the review's repository, sends prompts,
  * answers permission requests, and keeps the session's updates, because an
  * ACP agent keeps no transcript that Med can read.
+ *
+ * ACP has no system prompt, so `instructions` go first in the first prompt, as
+ * a text block of their own that the thread does not show.
  */
-export function startAcp(agent: RunnableAgent, cwd: string, logDirectory?: string): OwnedRunner {
+export function startAcp(
+  agent: RunnableAgent,
+  cwd: string,
+  {
+    logDirectory,
+    instructions,
+    env,
+  }: { logDirectory?: string; instructions?: string; env?: Record<string, string> } = {},
+): OwnedRunner {
   const sessionId = randomUUID();
   const session: AgentSession = { agent: "acp", name: agent.name, id: sessionId, cwd };
   const log = new SessionLog(logDirectory ? join(logDirectory, `${sessionId}.jsonl`) : undefined);
@@ -622,7 +633,7 @@ export function startAcp(agent: RunnableAgent, cwd: string, logDirectory?: strin
   ];
   const child = spawn(agent.command, agent.args, {
     cwd,
-    env: agentEnvironment(),
+    env: agentEnvironment(env),
     stdio: ["pipe", "pipe", "pipe"],
   });
   let errors = "";
@@ -794,13 +805,15 @@ export function startAcp(agent: RunnableAgent, cwd: string, logDirectory?: strin
         ...(text ? [{ type: "text" as const, text }] : []),
       ];
       for (const content of prompt) log.push({ sessionUpdate: "user_message_chunk", content });
+      const preamble = store.get().turns === 0 && instructions ? instructions : "";
       store.set({ status: "working", turns: store.get().turns + 1, error: undefined });
-      const current = { text, answered: false };
+      // The agent can send back each block, or all of them as one text.
+      const current = { text: preamble + text, answered: false };
       turn = current;
       rpc
         .request<{ stopReason?: string }>("session/prompt", {
           sessionId: acpSession,
-          prompt,
+          prompt: preamble ? [{ type: "text" as const, text: preamble }, ...prompt] : prompt,
         })
         .then(
           (result) => {
@@ -977,19 +990,29 @@ export class OwnedSessions {
       available,
     }));
   }
-  /** Starts an agent in `cwd`. Claude Code adds `systemPrompt` to its own. */
+  /**
+   * Starts an agent in `cwd`, with `env` added to its environment. Claude Code
+   * adds `systemPrompt` to its own; an ACP agent gets it before its first prompt.
+   */
   async start(
     presetId: string,
     cwd: string,
-    { systemPrompt }: { systemPrompt?: string } = {},
+    { systemPrompt, env }: { systemPrompt?: string; env?: Record<string, string> } = {},
   ): Promise<OwnedRunner> {
     const agent = (await this.options.agents()).find((entry) => entry.id === presetId);
     if (!agent?.available)
       throw new HostError("agent-unavailable", "This agent is not installed here.", 404);
     const runner =
       agent.kind === "claude"
-        ? startClaude(agent, cwd, systemPrompt ? { systemPrompt } : {})
-        : startAcp(agent, cwd, this.options.logDirectory);
+        ? startClaude(agent, cwd, {
+            ...(systemPrompt ? { systemPrompt } : {}),
+            ...(env ? { env } : {}),
+          })
+        : startAcp(agent, cwd, {
+            ...(this.options.logDirectory ? { logDirectory: this.options.logDirectory } : {}),
+            ...(systemPrompt ? { instructions: systemPrompt } : {}),
+            ...(env ? { env } : {}),
+          });
     const id = runner.session.id;
     this.runners.set(id, runner);
     this.updated.set(id, Date.now());

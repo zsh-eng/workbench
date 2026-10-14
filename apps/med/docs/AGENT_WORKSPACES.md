@@ -74,6 +74,29 @@ stdio --session-id <id>`, with `--model`, `--effort`, and `--permission-mode`
   updates to `sessions/<id>.jsonl` in the state directory. A turn that ends
   with no reply gets a notice.
 
+### What a thread's agent knows
+
+An agent that Med starts in a thread (a review with a key) gets the thread's
+instructions from `src/host/thread-agents.ts`: where it works, how to hand off
+work with `med review create --working --title "<2-4 words>" --guide -`, a
+short guide format, and not to run `med review wait`. Claude Code takes them
+with `--append-system-prompt`. ACP has no system prompt, so Med sends them as a
+text block before the first prompt; the thread shows only the user's prompt,
+and Med drops the agent's echo of both.
+
+Every agent that Med starts also gets these variables:
+
+| Variable                            | Value                                                       |
+| ----------------------------------- | ----------------------------------------------------------- |
+| `MED_SESSION`                       | `owned`: `med review wait` exits at once                    |
+| `MED_PORT`, `MED_STATE_DIR`         | This host, so `med review` reaches it                       |
+| `MED_THREAD_KEY`, `MED_THREAD_REPO` | The default `--key` and `--repo` of `med review`            |
+| `PATH`                              | Starts with `<state>/bin`, whose `med` runs this host's CLI |
+
+The `med` command in `<state>/bin` lets an agent hand off work when `med` is
+not on PATH, such as when the host runs from a checkout, and it always matches
+the host's version.
+
 Med finds `claude`, `opencode acp`, `codex-acp`, and `gemini
 --experimental-acp`, and reads other ACP agents from `agents.json` in the state
 directory:

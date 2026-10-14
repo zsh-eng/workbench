@@ -7,8 +7,17 @@ import { join, resolve } from "node:path";
 import { chromium } from "playwright";
 
 // Use the built CLI or standalone executable with isolated repositories and state.
-// A run from inside an agent session must not link that session to its reviews.
-delete process.env.CLAUDE_CODE_SESSION_ID;
+// A run from inside an agent session, or a Med thread, must not link that
+// session or thread to its reviews.
+for (const name of [
+  "CLAUDE_CODE_SESSION_ID",
+  "MED_SESSION",
+  "MED_THREAD_KEY",
+  "MED_THREAD_REPO",
+  "MED_PORT",
+  "MED_STATE_DIR",
+])
+  delete process.env[name];
 const executable = process.env.MED_EXECUTABLE;
 const command = executable ? resolve(executable) : process.execPath;
 const cliArgs = executable ? [] : ["dist/cli.js"];

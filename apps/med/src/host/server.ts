@@ -108,6 +108,7 @@ import {
   type SavedReviewCreate,
 } from "../shared/saved-review";
 import { getPersistentToken, publishConnection } from "./runtime/connection";
+import { ownedEnvironment, threadInstructions, writeMedCommand } from "./thread-agents";
 
 import type { ServiceManager } from "./service/manager";
 
@@ -133,6 +134,8 @@ export interface StartHostOptions {
   agents?: () => Promise<RunnableAgent[]>;
   /** The GitHub CLI that opens pull requests; tests give a fake one. */
   gh?: { command: string; args: string[] };
+  /** The command that runs this Med again; agents that Med starts get it as `med`. */
+  cli?: readonly string[];
 }
 export interface RunningHost {
   url: string;
@@ -259,6 +262,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   const inboxStreams = new Set<ServerResponse>();
   const imageDirectory = join(options.stateDir ?? temporaryState!, "images");
   void pruneImages(imageDirectory);
+  const bin = options.cli ? join(options.stateDir ?? temporaryState!, "bin") : undefined;
+  if (bin) await writeMedCommand(bin, options.cli!);
+  /** The environment of an agent that Med starts, in a thread when the review has a key. */
+  const agentEnvironment = (key: string | undefined, repo: string) =>
+    ownedEnvironment({
+      port,
+      ...(options.stateDir ? { stateDir: options.stateDir } : {}),
+      ...(bin ? { bin } : {}),
+      ...(key ? { thread: { key, repo } } : {}),
+    });
   // Sessions that Med starts. ACP sessions keep their updates in the state directory.
   const ownedSessions = new OwnedSessions({
     agents: options.agents ?? (() => findAgents(options.stateDir)),
@@ -923,7 +936,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             // worktree, while that checkout stays.
             const cwd = await requireRepo(target.repo).catch(() => requireRepo(entry.path));
             assertRequestAccess();
-            const runner = await ownedSessions.start(input.preset, cwd);
+            const runner = await ownedSessions.start(input.preset, cwd, {
+              ...(bundle.key ? { systemPrompt: threadInstructions(bundle.title, cwd) } : {}),
+              env: agentEnvironment(bundle.key, cwd),
+            });
             const review = await savedReviews.details(
               reviewId!,
               { sessions: [runner.session] },
@@ -1316,11 +1332,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             }
             assertRequestAccess();
             const runner = await ownedSessions.start(input.preset, cwd, {
-              systemPrompt: [
-                `You work in a Med thread named "${title}", in ${cwd}.`,
-                "Med shows the user your changes there as you work, and sends you their messages.",
-                `When a piece of work is ready, hand it off for review with \`med review create --key ${key} --repo ${JSON.stringify(cwd)} --working --title "<2-4 words>" --brief -\` and a short Markdown brief on standard input; the key keeps it in this thread.`,
-              ].join(" "),
+              systemPrompt: threadInstructions(title, cwd),
+              env: agentEnvironment(key, cwd),
             });
             const review = await savedReviews.create(
               {

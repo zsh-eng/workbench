@@ -36,6 +36,7 @@ export const reviewHelp = `Usage: med-diff review create --title <title> --repo 
 update sets the title or the PR link of the review with that key, such as after you open the PR.
 wait waits until the user sends a message to your session from the review, prints it, and exits. Run it in the background; it has no time limit.
 A Claude Code session that runs the command is recorded with the review, so Med can copy its resume command; --session codex:<id> or claude:<id> adds others, and --no-session records none.
+In a session that Med started, MED_PORT and MED_STATE_DIR choose its host, and in a thread MED_THREAD_KEY and MED_THREAD_REPO give the default --key and --repo, so "create --working --guide -" hands off to the thread. Med sends the user's messages to such a session itself, so wait exits at once.
 
 --title names the review in the workspace list and the browser tab. Use 2–4 words, such as "Commit tab search". Without it, use the matching PR title or a comparison label. Once the review has a PR, its header shows the PR title, read with gh.
 --pr <https-url> adds a clickable GitHub PR link. A matching PR is inferred for a single GitHub origin repository when gh is available; --no-pr skips lookup.
@@ -51,8 +52,8 @@ The create command prints a Markdown review link without an access token.`;
 
 export interface ReviewCommand {
   kind: "help" | "repos" | "create" | "update" | "wait";
-  /** For wait: the review's key, and the session that waits. */
-  wait?: { key: string; session?: string };
+  /** For wait: the review's key, and the session that waits. `owned`: Med started this session and sends it messages itself. */
+  wait?: { key: string; session?: string; owned?: boolean };
   /** For update: the review's key and its new details. */
   update?: {
     key: string;
@@ -127,6 +128,12 @@ export async function parseReviewCommand(
   });
   const sessions = () =>
     agentSessions(values.session, { ...sessionOptions, detect: !values["no-session"] });
+  // A session that Med started for a thread knows the thread from its environment.
+  const environment = sessionOptions.environment ?? process.env;
+  const owned = environment.MED_SESSION === "owned";
+  values.key ??= environment.MED_THREAD_KEY || undefined;
+  values["state-dir"] ??= environment.MED_STATE_DIR || undefined;
+  values.port ??= environment.MED_PORT || undefined;
   const stateDir = getStateDirectory(values["state-dir"]);
   const port = values.port === undefined ? await findPort(stateDir) : Number(values.port);
   if (!Number.isInteger(port) || port < 1 || port > 65535)
@@ -136,6 +143,7 @@ export async function parseReviewCommand(
   if (positionals.length !== 1 || !["repos", "create", "update", "wait"].includes(positionals[0]!))
     throw new Error(reviewHelp);
   if (positionals[0] === "wait") {
+    if (owned) return { ...common, kind: "wait", wait: { key: values.key ?? "", owned } };
     if (!values.key) throw new Error("Use wait with --key, the key the review was created with.");
     const key = reviewKeySchema.safeParse(values.key);
     if (!key.success) throw new Error(key.error.issues[0]!.message);
@@ -193,6 +201,7 @@ export async function parseReviewCommand(
       throw new Error("Could not read the review manifest. Supply a readable JSON file.");
     }
   } else {
+    values.repo ??= environment.MED_THREAD_REPO || undefined;
     if (!values.repo) throw new Error("Use --repo, or supply --manifest.");
     if (values.pr && values["no-pr"]) throw new Error("Use --pr without --no-pr.");
     if (
@@ -335,6 +344,12 @@ export async function runReviewCommand(
   const print = options.print ?? console.log;
   if (command.kind === "help") {
     print(reviewHelp);
+    return;
+  }
+  if (command.kind === "wait" && command.wait?.owned) {
+    print(
+      "Med started this session and sends the user's messages to it as new turns, so there is nothing to wait for. Do not run med review wait in this session.",
+    );
     return;
   }
   const connection = await readConnection(command.stateDir, command.port);

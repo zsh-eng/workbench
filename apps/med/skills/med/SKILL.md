@@ -10,6 +10,13 @@ the `med` command and put its link in your final message. The user reads your
 guide one segment at a time, comments on lines, and sends the comments back to
 you from Med.
 
+## In a Med thread
+
+When `MED_SESSION` is `owned`, Med started you in a thread. `MED_THREAD_KEY`
+and `MED_THREAD_REPO` give the default `--key` and `--repo`, so leave them out:
+`med review create --working --title "<2-4 words>" --guide -`. Med sends the
+user's messages to you as new turns, so do not run `med review wait`.
+
 ## Before you start work
 
 Record the repository root, the commit before your work (`git rev-parse HEAD`),
@@ -105,9 +112,10 @@ and any changes that were already there (`git status --short`).
    out or names twice. Fix those, then run
    `med review update --key <task> --guide -` with the fixed guide.
 5. Put the printed Markdown link in your final message.
-6. Wait for the user's review (Claude Code): run `med review wait --key <task>`
-   as a background command (`run_in_background`). It has no time limit, and it
-   ends when the user sends a message from Med. Do not poll it.
+6. Wait for the user's review (Claude Code, not in a Med thread): run
+   `med review wait --key <task>` as a background command
+   (`run_in_background`). It has no time limit, and it ends when the user
+   sends a message from Med. Do not poll it.
 7. After you open a pull request: `med review update --key <task> --pr <url>`.
    The review header then shows the PR title.
 
