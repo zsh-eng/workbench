@@ -58,6 +58,8 @@ import { SEARCH_PATH, SearchPage, readSearchAddress, type SearchOpen } from "./S
 import { requestFileOpen } from "../data/file-opens";
 import { prefetchSavedReview } from "../data/controller";
 import { whenIdle } from "../data/idle";
+import { AttemptsHost } from "./attempts/AttemptsHost";
+import { attemptsGroupOf } from "../data/attempts";
 
 /** Workspaces kept mounted besides the threads in view, most recently shown
  * first. Older ones reload. */
@@ -1067,7 +1069,7 @@ export function WorkspaceHost({
                     />
                     <div {...stylex.props(styles.shellViews)}>
                       <div
-                        inert={newThread || !!search || undefined}
+                        inert={newThread || !!search || !!attemptsGroupOf(pathname) || undefined}
                         {...stylex.props(styles.shellLayer)}
                       >
                         <Warm value={warm}>{children}</Warm>
@@ -1084,6 +1086,12 @@ export function WorkspaceHost({
                           onOpen={openMatch}
                         />
                       )}
+                      <AttemptsHost
+                        threads={threadList?.threads ?? []}
+                        fetcher={fetcher}
+                        actions={actions}
+                        onLeave={() => show(store.getSnapshot().active, true)}
+                      />
                       {newThread && (
                         <NewThread
                           list={threadList}

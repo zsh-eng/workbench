@@ -14,6 +14,14 @@ import { useMentions } from "../Mentions";
 import { createBrowseApi, useBrowseFiles, useVaults } from "../../data/browse";
 import { useMentionSources } from "../../data/mentions";
 import type { BrowseSource } from "../../../shared/browse";
+import { openAttempts } from "../../data/attempts";
+import {
+  AttemptRows,
+  AttemptsCount,
+  AttemptsHint,
+  attemptStyles,
+  useAttempts,
+} from "../attempts/NewAttempts";
 
 const PLACE_KEY = "med:new-thread";
 
@@ -43,7 +51,7 @@ function readChoice(): Choice {
  * still offers it, or Med's default. An effort shows only where the model has
  * efforts.
  */
-function sessionChoices(options: AgentOptions | undefined, last: AgentChoices = {}) {
+export function sessionChoices(options: AgentOptions | undefined, last: AgentChoices = {}) {
   const pick = (options: { value: string }[], value: string | undefined, fallback: string) =>
     options.some((option) => option.value === value) ? value! : fallback;
   const model = options?.model && pick(options.model.options, last.model, options.model.value);
@@ -89,6 +97,9 @@ export function NewThread({
   const agent = agents?.find((entry) => entry.id === choice.preset) ?? agents?.[0];
   const options = useAgentOptions(agent?.id, fetcher);
   const { model, effort, efforts } = sessionChoices(options, agent && choice.agents?.[agent.id]);
+  // Two or three attempts: each agent does the task in its own worktree.
+  const attempts = useAttempts(agents, agent, fetcher);
+  const several = attempts.count > 1;
   const [prompt, setPrompt] = useState("");
   const input = useRef<HTMLTextAreaElement>(null);
   // @ names the repository's files, the vaults' notes, and other threads.
@@ -151,12 +162,27 @@ export function NewThread({
     }
   };
 
-  const ready = !!prompt.trim() && !!repository && !!agent && !busy;
+  const ready = !!prompt.trim() && !!repository && !!agent && !busy && attempts.ready;
   const start = async () => {
     if (!ready) return;
     setBusy(true);
     setError(null);
     try {
+      if (several) {
+        const first = { agent, options, model, effort, efforts };
+        const started = await attempts.start(
+          {
+            repositoryId: repository.id,
+            prompt: await mentions.expand(prompt),
+            title: threadTitle(prompt),
+            first,
+          },
+          fetcher,
+        );
+        onStarted(started.reviews[0]!);
+        openAttempts(started.group, started.problem);
+        return;
+      }
       const result = await createApi(fetcher, readBrowserToken()).json(
         "/api/threads",
         z.object({ review: savedReviewSchema }),
@@ -214,6 +240,26 @@ export function NewThread({
             />,
           )}
           {mentions.menu && <div {...stylex.props(styles.mentions)}>{mentions.menu}</div>}
+          {several && agents && (
+            <AttemptRows
+              attempts={attempts}
+              agents={agents}
+              first={{ agent, options, model, effort, efforts }}
+              onFirst={(next) =>
+                remember(
+                  next.preset
+                    ? { preset: next.preset }
+                    : {
+                        agents: {
+                          ...choice.agents,
+                          [agent!.id]: { ...choice.agents?.[agent!.id], ...next },
+                        },
+                      },
+                )
+              }
+              branch={branch}
+            />
+          )}
           <div {...stylex.props(styles.controls)}>
             <Select
               label="Repository"
@@ -238,11 +284,13 @@ export function NewThread({
                   key={option.label}
                   type="button"
                   role="radio"
-                  aria-checked={choice.worktree === option.value}
+                  aria-checked={(choice.worktree || several) === option.value}
+                  disabled={several && !option.value}
                   onClick={() => remember({ worktree: option.value })}
                   {...stylex.props(
                     styles.segment,
-                    choice.worktree === option.value && styles.segmentOn,
+                    (choice.worktree || several) === option.value && styles.segmentOn,
+                    several && !option.value && attemptStyles.off,
                   )}
                 >
                   <Icon name={option.icon} size={13} />
@@ -251,14 +299,17 @@ export function NewThread({
               ))}
             </div>
             <div {...stylex.props(styles.agent)}>
-              <Select
-                label="Agent"
-                icon={agent?.kind === "claude" ? "claude" : "agent"}
-                value={agent?.id ?? ""}
-                options={(agents ?? []).map((entry) => ({ value: entry.id, label: entry.name }))}
-                onChange={(value) => remember({ preset: value })}
-              />
-              {options?.model && model && (
+              <AttemptsCount attempts={attempts} />
+              {!several && (
+                <Select
+                  label="Agent"
+                  icon={agent?.kind === "claude" ? "claude" : "agent"}
+                  value={agent?.id ?? ""}
+                  options={(agents ?? []).map((entry) => ({ value: entry.id, label: entry.name }))}
+                  onChange={(value) => remember({ preset: value })}
+                />
+              )}
+              {!several && options?.model && model && (
                 <Select
                   label="Model"
                   value={model}
@@ -276,7 +327,7 @@ export function NewThread({
                   }
                 />
               )}
-              {effort && (
+              {!several && effort && (
                 <Select
                   label="Effort"
                   value={effort}
@@ -308,6 +359,8 @@ export function NewThread({
             <span {...stylex.props(styles.error)}>{error}</span>
           ) : !repositories.length && list ? (
             "Add a repository to start a thread."
+          ) : several ? (
+            <AttemptsHint count={attempts.count} repository={repository?.name} />
           ) : choice.worktree ? (
             <>
               Med creates the branch <code {...stylex.props(styles.code)}>{branch}</code> in a new
@@ -326,7 +379,7 @@ export function NewThread({
   );
 }
 
-function Select({
+export function Select({
   label,
   icon,
   value,

@@ -2,6 +2,7 @@ import { ContextMenu } from "@base-ui/react/context-menu";
 import * as stylex from "@stylexjs/stylex";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Thread } from "../../../shared/threads";
+import { useAttemptsAddress } from "../../data/attempts";
 import { foundSessionThread, threadInput } from "../../data/found-threads";
 import { groupThreads, isRecent, needsYou, shortAge } from "../../data/threads";
 import {
@@ -11,6 +12,7 @@ import {
   type WorkspaceSnapshot,
 } from "../../data/workspaces";
 import { picked, tokens, ui } from "../../theme.stylex";
+import { withAttempts } from "../attempts/AttemptGroupRow";
 import { Icon, type IconName } from "../Icon";
 import { ShortcutKeys } from "../ShortcutKeys";
 import { ToolButton } from "../ToolButton";
@@ -119,13 +121,16 @@ export function ThreadSidebar({
   const active = newThread
     ? undefined
     : snapshot.workspaces.find((entry) => entry.id === snapshot.active);
-  const currentThread = newThread
-    ? null
-    : active?.kind === "review"
-      ? active.reviewId
-      : active?.kind === "repository" && active.found
-        ? foundSessionThread(active.found)
-        : null;
+  // The Attempts page covers the workspace, so no thread row is current.
+  const attemptsPage = useAttemptsAddress();
+  const currentThread =
+    newThread || attemptsPage
+      ? null
+      : active?.kind === "review"
+        ? active.reviewId
+        : active?.kind === "repository" && active.found
+          ? foundSessionThread(active.found)
+          : null;
   const { isUnread, setUnread } = useUnread(threads, currentThread);
   // An archived thread leaves at once; Undo brings it back.
   const [archiving, setArchiving] = useState<ReadonlySet<string>>(new Set());
@@ -286,10 +291,11 @@ export function ThreadSidebar({
             (thread) => isRecent(thread, now) || (!open && thread.id === currentThread),
           );
           const older = group.threads.filter((thread) => !recent.includes(thread));
-          const row = (thread: Thread) => (
+          const row = (thread: Thread, name?: string) => (
             <ThreadRow
               key={thread.id}
               thread={thread}
+              name={name}
               current={thread.id === currentThread}
               unread={isUnread(thread)}
               copied={copied === thread.id}
@@ -306,7 +312,7 @@ export function ThreadSidebar({
             <section key={group.key} aria-label={group.name} {...stylex.props(styles.group)}>
               <h2 {...stylex.props(ui.label, styles.groupName)}>{group.name}</h2>
               <ul {...stylex.props(styles.list)}>
-                {recent.map(row)}
+                {withAttempts(recent, row, { current: currentThread, now })}
                 {older.length > 0 && (
                   <li>
                     <button
@@ -325,7 +331,7 @@ export function ThreadSidebar({
                     </button>
                   </li>
                 )}
-                {open && older.map(row)}
+                {open && withAttempts(older, row, { current: currentThread, now })}
               </ul>
             </section>
           );
@@ -407,6 +413,7 @@ const agentNames = { claude: "Claude Code", codex: "Codex" } as const;
  * mark it read or unread, or archive it, with the worktree Med made for it. */
 function ThreadRow({
   thread,
+  name,
   current,
   unread,
   copied,
@@ -418,6 +425,8 @@ function ThreadRow({
   onPrefetch,
 }: {
   thread: Thread;
+  /** In place of the title, such as an attempt's letter and agent. */
+  name?: string;
   current: boolean;
   unread: boolean;
   copied: boolean;
@@ -479,7 +488,7 @@ function ThreadRow({
           </span>
           <span {...stylex.props(styles.lines)}>
             <span {...stylex.props(styles.titleLine)}>
-              <span {...stylex.props(styles.title)}>{thread.title}</span>
+              <span {...stylex.props(styles.title)}>{name ?? thread.title}</span>
               {copied ? (
                 <span role="status" {...stylex.props(styles.age)}>
                   Copied

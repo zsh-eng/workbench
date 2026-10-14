@@ -91,7 +91,8 @@ only the threads in view. Nothing is archived on its own.
   work stays apart from your checkout. **Checkout** works on the checkout's
   current branch. Claude Code starts on Opus 5.5 at medium effort and Codex on
   `gpt-6-astra`; Med keeps your last choice for each agent. `⌘↵` starts the
-  agent on the task at once.
+  agent on the task at once. **2 attempts** or **3 attempts** gives the same
+  task to several agents ([Attempts](#attempts)).
 - A turning mark shows while the agent works, **Needs you** while it waits for
   a permission answer or for your review, and a dot when a turn ended while
   you were elsewhere.
@@ -386,6 +387,34 @@ If the staged files change outside Med, the commit stops and the tab reads
 them again. For hunks, amends, rebases, and branch switches, use **Copy lazygit
 command** on the workspace.
 
+## Attempts
+
+Two agents seldom do a task the same way. **Attempts** in New thread (`⌥N`)
+gives one task to two or three agents. Each attempt has a line with its agent,
+model, and effort, and its own branch (the task's name with `-a`, `-b`, `-c`)
+in a new worktree. Start starts them all and opens the Attempts page.
+
+- The sidebar shows the task as one row, with its attempts under it, such as
+  **A · Claude** and **B · Codex**. They fold when all are done; the chevron,
+  `→`, and `←` show or hide them. Click the row to open the Attempts page.
+- The **Attempts page** has a column for each attempt: its agent and model,
+  its state and time, its branch, its changes, the checks that its session ran
+  (test, type-check, lint, and build commands, with their pass and fail
+  counts), and its last message. Below, the files that more attempts changed
+  come first, side by side, each against the commit that the attempts started
+  from. `←` and `→` move between the attempts' **Keep** buttons; `Esc` goes
+  back.
+- **Keep** makes that attempt the thread. Med stops the agents of the others,
+  commits their work to their branches ("Attempt A of …, not kept"), removes
+  their worktrees, and archives their threads. Their branches stay. A worktree
+  that another thread uses, or one with an agent that Med cannot stop, stays,
+  and the notice says why. The notice offers **Undo**, which brings back the
+  other attempts with their worktrees and uncommitted work. Undo lasts until
+  the host restarts.
+
+An agent can hand off one attempt with
+`med review create --working --group <task> --attempt <1-3>`.
+
 ## Edit working files
 
 Working files and files outside Git open in Vim Normal mode; press `i` to
@@ -658,6 +687,7 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Switch to a recent workspace     | `⌃Tab`        |
 | Toggle the sidebar / session     | `⌘B` / `⌘⇧B`  |
 | New thread                       | `⌥N`          |
+| Previous / next attempt          | `←` / `→`     |
 | Focus the next pane              | `⌘⌥←`         |
 | Move the focused pane            | `⌘⌥⇧←`        |
 | Zoom the focused pane            | `⌘E`          |

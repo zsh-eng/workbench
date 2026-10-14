@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { threadListSchema, type Thread, type ThreadList } from "../../shared/threads";
 import { createApi } from "./api";
+import { orderAttempts } from "./attempts";
 import { readBrowserToken } from "./auth";
 import { noteFoundSettings } from "./found-threads";
 import { readServerEvents } from "./sse";
@@ -74,7 +75,9 @@ export function groupThreads(threads: readonly Thread[]): ThreadGroup[] {
     if (!group) groups.set(key, (group = { key, name, threads: [] }));
     group.threads.push(thread);
   }
-  for (const group of groups.values()) group.threads.sort((a, b) => b.updatedAt - a.updatedAt);
+  // The attempts of one task stay together, by letter (data/attempts.ts).
+  for (const group of groups.values())
+    group.threads = orderAttempts(group.threads.sort((a, b) => b.updatedAt - a.updatedAt));
   return [...groups.values()].sort(
     (a, b) => (b.threads[0]?.updatedAt ?? 0) - (a.threads[0]?.updatedAt ?? 0),
   );

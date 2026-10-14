@@ -286,6 +286,20 @@ sets or clears `archivedAt`. With `removeWorktree`, it also runs `git worktree
 remove` without force, so Git keeps a worktree with changes and the host
 returns 409; it refuses a worktree that another thread uses. The branch stays.
 
+**Attempts.** A start with `group: { id, attempt }` is one attempt at a task
+that several agents do. It needs a worktree; its branch is the task's name
+with the attempt's letter (`-a`, `-b`, `-c`). The saved review keeps the group,
+and the thread list carries it, so the sidebar shows the group as one row.
+`src/host/attempts.ts` serves `/api/attempts`: the compare reads each open
+attempt's diff against the attempts' common ancestor (`git merge-base
+--octopus`), with untracked files, and each lead session's agent, model, time,
+checks (test, lint, type-check, and build commands in its tool calls), and
+last message, cached by transcript size and time. Keep stops the other
+attempts' agents, saves their changes as a commit on their branches (no hooks,
+no signing), removes their worktrees without force, and archives them. Undo,
+kept in host memory, adds each worktree back from its branch and resets the
+saved commit, so the work is uncommitted again.
+
 ### Panes
 
 `data/pane-tree.ts` holds the layout as pure functions over a tree: a leaf is

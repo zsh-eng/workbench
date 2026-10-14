@@ -212,6 +212,16 @@ export const guideContexts: GuideContext[] = [
             note: "Again: the width from before",
           },
           { label: "Close a branch tab", keys: ["Backspace"], note: "On a focused branch tab" },
+          {
+            label: "Previous / next attempt",
+            keys: ["Left", "Right"],
+            note: "On the Attempts page",
+          },
+          {
+            label: "Show / hide a task's attempts",
+            keys: ["Right", "Left"],
+            note: "On its sidebar row",
+          },
         ],
       },
       {
