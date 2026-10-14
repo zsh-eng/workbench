@@ -21,7 +21,7 @@ export const site = {
   closingMore: "Read it in Med.",
 
   installCommand,
-  agentPrompt: `Install Med, a local app where I review your code changes. Run \`${installCommand}\`, then run \`med skills install\` so you know how to hand your work to me in Med. Register this repository with \`med add .\` and start Med with \`med web\`. When you finish a task, give me a Med review link.`,
+  agentPrompt: `Install Med, a local app where I review your code changes. Run \`${installCommand}\`, then run \`med skills install\` so you know how to hand your work to me in Med. Add the lines that \`med skills instructions\` prints to your global instructions (~/.claude/CLAUDE.md for Claude Code, ~/.codex/AGENTS.md for Codex). Register this repository with \`med add .\` and start Med with \`med web\`. When you finish a task, give me a Med review link.`,
   requirements: "macOS 13 or newer on Apple Silicon.",
 
   links: {
