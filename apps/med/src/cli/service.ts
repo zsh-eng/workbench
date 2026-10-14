@@ -129,6 +129,8 @@ export async function serve(stateDir: string, port: number) {
       void host.close().finally(async () => {
         await release();
         await next?.();
+        // A watcher that chokidar did not close can keep a stopped service alive.
+        process.exit();
       });
     };
     manager.onStop = () => close();

@@ -182,10 +182,14 @@ async function main() {
     const close = () => {
       if (!stopping) {
         stopping = true;
-        void host.close().catch((error: unknown) => {
-          console.error(error);
-          process.exitCode = 1;
-        });
+        void host
+          .close()
+          .catch((error: unknown) => {
+            console.error(error);
+            process.exitCode = 1;
+          })
+          // A watcher that chokidar did not close can keep a stopped host alive.
+          .finally(() => process.exit());
       }
     };
     process.once("SIGINT", close);
