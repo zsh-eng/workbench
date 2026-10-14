@@ -13,6 +13,7 @@ import { localPathSchema } from "../shared/local-file";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type { Socket } from "node:net";
 import type { Duplex } from "node:stream";
 import { existsSync } from "node:fs";
 import { lstat, mkdir, mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
@@ -2273,6 +2274,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       });
   };
   const server = createServer(handle);
+  // Bun's closeAllConnections() keeps a connection whose request still runs,
+  // such as a pull request's comments from gh, so close() ends each socket.
+  const sockets = new Set<Socket>();
+  server.on("connection", (socket: Socket) => {
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
+  });
   // A page's live stream as a WebSocket: the same events as /api/live sends,
   // without holding one of the browser's six connections to the host.
   server.on("upgrade", async (request: IncomingMessage, socket: Duplex, head: Buffer) => {
@@ -2385,6 +2393,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       await new Promise<void>((resolvePromise) => {
         server.close(() => resolvePromise());
         server.closeAllConnections();
+        for (const socket of sockets) socket.destroy();
       });
       await options.onClose?.();
     },
