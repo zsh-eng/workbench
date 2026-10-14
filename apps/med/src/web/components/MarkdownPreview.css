@@ -1,19 +1,12 @@
-.med-markdown-shell {
+/* A Markdown file as it reads: its header, then the rendered text. The source
+   shows in place of it, never beside it (FullFileView). */
+.med-markdown-reader {
   display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
   min-width: 0;
   overflow: hidden;
-}
-.med-markdown-source {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-}
-.med-markdown-shell[data-preview="true"] > .med-markdown-source {
-  flex: 0 0 42%;
 }
 .med-markdown {
   container-type: inline-size;
@@ -22,11 +15,9 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border-left: 1px solid var(--med-border);
   color: var(--med-text);
   background: var(--med-canvas);
   font-family: var(--med-font-ui);
-  animation: med-preview-in 180ms ease-out both;
 }
 .med-md-layout {
   display: flex;
@@ -251,7 +242,8 @@
   color: var(--med-muted);
   margin: 0 0 16px 10px;
 }
-.med-md-toc button {
+.med-markdown .med-md-toc button {
+  /* Above page-wide button rules, such as .med-local button. */
   display: block;
   width: 100%;
   text-align: left;
@@ -268,10 +260,10 @@
     color 120ms ease-out,
     border-color 120ms ease-out;
 }
-.med-md-toc button:hover {
+.med-markdown .med-md-toc button:hover {
   color: var(--med-text);
 }
-.med-md-toc button[aria-current] {
+.med-markdown .med-md-toc button[aria-current] {
   color: var(--med-accent);
   border-left: 2px solid var(--med-accent);
 }
@@ -288,33 +280,8 @@
     display: block;
   }
 }
-@media (max-width: 700px) {
-  .med-markdown-shell[data-preview="true"] {
-    flex-direction: column;
-  }
-  .med-markdown-shell[data-preview="true"] > .med-markdown-source {
-    flex: 0 0 45%;
-  }
-  .med-markdown {
-    border-left: 0;
-    border-top: 1px solid var(--med-border);
-  }
-}
-@keyframes med-preview-in {
-  from {
-    opacity: 0;
-    transform: translateX(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
 @media (prefers-reduced-motion: reduce) {
-  .med-markdown {
-    animation: none;
-  }
-  .med-md-toc button {
+  .med-markdown .med-md-toc button {
     transition: none;
   }
 }

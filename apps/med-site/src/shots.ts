@@ -39,7 +39,7 @@ export const shots = {
     priority: false,
   },
   notes: {
-    alt: "The note Search filters in the Vim editor beside its preview, which links to the note Filter chips.",
+    alt: "The note Search filters, rendered to read, which links to the note Filter chips.",
     sizes: chapter,
     priority: false,
   },

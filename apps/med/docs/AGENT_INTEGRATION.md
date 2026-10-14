@@ -442,12 +442,12 @@ the link does not change the file or register its folder. A dropped preview has
 no path on disk, so it cannot have a link. See
 [standalone files](USAGE.md#standalone-files-and-dropped-previews).
 
-For Markdown, the user can open **Preview** beside the editor; it shows drafts
-before they are saved. Med renders GFM, `mermaid` fences, `$…$` and `$$` math,
+Markdown files open rendered, and the rendered view shows drafts before they
+are saved. Med renders GFM, `mermaid` fences, `$…$` and `$$` math,
 and colored code. A blank line starts a paragraph. Relative images resolve
 from the document, within its folder or repository; keep secrets and unrelated
 paths out of image references. See
-[Markdown preview](USAGE.md#markdown-preview) and the
+[Read and edit Markdown](USAGE.md#read-and-edit-markdown) and the
 [sample note](examples/reading-queue.md).
 
 ## AGENTS.md guidance

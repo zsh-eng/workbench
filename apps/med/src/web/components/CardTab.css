@@ -37,7 +37,8 @@
 [data-lift] [data-lift-row] {
   padding-inline: calc(12px + var(--med-lift-start)) calc(12px + var(--med-lift-end));
 }
-[data-lift] .med-editor-header {
+[data-lift] .med-editor-header,
+[data-lift] [data-lift-row="editor"] {
   padding-inline: calc(8px + var(--med-lift-start)) calc(8px + var(--med-lift-end));
 }
 [data-lift] .med-media-header {

@@ -76,10 +76,11 @@ try {
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(launch);
   await page.goto(`${origin}/file?${new URLSearchParams({ repo, path: "docs/note.md" })}`);
+  // A Markdown file opens rendered, unless it showed its source before.
   const showPreview = async () => {
-    const button = page.getByRole("button", { name: "Toggle Markdown preview", exact: true });
-    await button.waitFor();
-    if ((await button.getAttribute("aria-pressed")) !== "true") await button.click();
+    const read = page.getByRole("button", { name: "Read", exact: true });
+    await read.or(page.getByRole("button", { name: "Edit source", exact: true })).waitFor();
+    if (await read.isVisible()) await read.click();
     await page.getByRole("link", { name: "Samples", exact: true }).waitFor();
   };
   await showPreview();
@@ -97,6 +98,7 @@ try {
   );
   await filesSidebar.getByRole("button", { name: "Refresh files", exact: true }).focus();
   await page.keyboard.press("Meta+Shift+v");
+  await page.locator(".cm-content").waitFor();
   assert.equal(await page.locator(".med-markdown").count(), 0);
   await page.keyboard.press("Meta+Shift+v");
   await page.getByRole("link", { name: "Samples", exact: true }).waitFor();

@@ -27,49 +27,10 @@
   flex: 1;
   min-height: 0;
 }
-.med-vault-sidebar-header {
-  display: flex;
-  align-items: center;
-  flex: none;
+/* The files heading is level with the file tabs. */
+.med-vault-sidebar > aside > :first-child {
   height: 38px;
-  padding: 0 8px 0 2px;
-}
-.med-vault-identity {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  min-width: 0;
-  flex: none;
-}
-.med-vault-tabbar > .med-vault-identity {
-  padding-left: 2px;
-}
-.med-vault-name {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  padding: 0 6px;
-  color: var(--med-text);
-  font-size: 13px;
-  font-weight: 500;
-}
-.med-vault-name svg {
-  flex: none;
-  color: var(--med-muted);
-}
-.med-vault-name span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.med-vault-divider {
-  flex: none;
-  width: 1px;
-  height: 16px;
-  margin: 0 6px;
-  align-self: center;
-  background: color-mix(in srgb, var(--med-text) 14%, transparent);
+  min-height: 38px;
 }
 /* A hairline that shows on hover, like the review's sidebar divider. */
 .med-vault-resizer {
@@ -118,8 +79,7 @@
   height: 38px;
   border-bottom: 1px solid color-mix(in srgb, var(--med-text) 8%, transparent);
 }
-.med-vault-tabbar > [role="tablist"],
-.med-vault-tabbar > :not(.med-vault-identity, .med-vault-divider, .med-vault-actions) {
+.med-vault-tabbar > :not(.med-vault-actions) {
   flex: 1;
   min-width: 0;
 }

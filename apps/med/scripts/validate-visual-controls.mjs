@@ -142,17 +142,21 @@ try {
   await page.keyboard.press("Escape");
   await page.getByRole("dialog").waitFor({ state: "hidden" });
   await page.goto(new URL(url).origin + "/file" + repo + "/README.md");
-  await page.locator(".cm-content").waitFor();
+  await page.locator(phase === "after" ? ".med-markdown" : ".cm-content").waitFor();
   await page.waitForTimeout(500);
   await page.screenshot({
     path: out + "/" + phase + "-toolbar.png",
     clip: { x: 620, y: 0, width: 660, height: 132 },
   });
   if (phase === "after") {
-    const preview = page.getByRole("button", { name: "Toggle Markdown preview", exact: true });
-    const height = await page
-      .locator(".med-editor-header")
-      .evaluate((e) => e.getBoundingClientRect().height);
+    // The rendered view and the source share one header height and toggle place.
+    const preview = page.getByRole("button", { name: "Edit source", exact: true });
+    const header = () =>
+      page
+        .locator(".med-markdown-reader > header, .med-editor-header")
+        .first()
+        .evaluate((e) => e.getBoundingClientRect().height);
+    const height = await header();
     assert.equal(await preview.getAttribute("title"), null);
     await preview.hover();
     await page.getByRole("tooltip").waitFor();
@@ -162,18 +166,15 @@ try {
       clip: { x: 930, y: 0, width: 350, height: 155 },
     });
     await preview.click();
-    await page.locator(".med-markdown").waitFor();
-    assert.equal(
-      await page.locator(".med-editor-header").evaluate((e) => e.getBoundingClientRect().height),
-      height,
-    );
+    await page.locator(".cm-content").waitFor();
+    assert.equal(await header(), height);
     await page.getByRole("button", { name: "Commands", exact: true }).click();
     await page.getByRole("combobox", { name: "Search commands", exact: true }).waitFor();
     await page.keyboard.press("Escape");
     await page.getByRole("dialog").waitFor({ state: "hidden" });
-    await preview.focus();
+    await page.getByRole("button", { name: "Read", exact: true }).focus();
     await page.keyboard.press("Meta+Shift+v");
-    await page.locator(".med-markdown").waitFor({ state: "hidden" });
+    await page.locator(".med-markdown").waitFor();
   }
   await page.getByRole("button", { name: "Theme", exact: true }).click();
   const themes = page.getByRole("combobox", { name: "Search themes" });
@@ -194,7 +195,7 @@ try {
     await page.goto(
       new URL(url).origin + "/file?" + new URLSearchParams({ repo, path: "README.md" }),
     );
-    await page.locator(".cm-content").waitFor();
+    await page.locator(".med-markdown").waitFor();
     const files = page.getByRole("tablist", { name: "Open files" });
     const fileTab = files.getByRole("tab", { name: /README/ });
     assert.equal(await fileTab.getAttribute("aria-selected"), "true");

@@ -63,13 +63,7 @@ import { agentName, type AgentSession } from "../shared/saved-review";
 import { createBrowseApi, useBrowseFiles, type BrowseApi } from "./data/browse";
 import { createFileWorkspace, isFileTab, sourceKey, useFileWorkspace } from "./data/file-workspace";
 import { RepositoryFiles } from "./components/RepositoryFiles";
-import {
-  PaneHeader,
-  PaneTree,
-  paneHandle,
-  usePaneTree,
-  type PaneSpec,
-} from "./components/PaneTree";
+import { PaneTree, paneHandle, usePaneTree, type PaneSpec } from "./components/PaneTree";
 import type { PaneNode, Side } from "./data/pane-tree";
 import { FilePicker } from "./components/FilePicker";
 import { openSearchPage } from "./components/SearchPage";
@@ -241,7 +235,6 @@ const PANE_PLACES: Record<string, { near: string; side: Side; share: number }> =
   session: { near: "review", side: "left", share: 0.5 },
   changed: { near: "review", side: "left", share: 0.24 },
   files: { near: "review", side: "right", share: 0.26 },
-  preview: { near: "review", side: "right", share: 0.5 },
 };
 
 /** The narrowest review pane that shows a split diff, in pixels. */
@@ -331,16 +324,13 @@ export function App({
   const filesVisible = panes.isOpen("files");
   const sessionVisible = panes.isOpen("session");
   const changedVisible = panes.isOpen("changed");
-  // The Markdown preview follows the main view: it shows while a Markdown
-  // file is open, if you want it. The wish persists, as before.
-  const [previewWanted, setPreviewWanted] = useState(() => {
-    try {
-      return localStorage.getItem("med-markdown-preview") === "true";
-    } catch {
-      return false;
-    }
-  });
-  const [previewTarget, setPreviewTarget] = useState<HTMLDivElement | null>(null);
+  // Markdown files now read rendered or show their source in the file view
+  // (FullFileView), so a saved layout's Preview pane has nothing to show.
+  const retiredPreview = panes.isOpen("preview");
+  const closeRetired = panes.close;
+  useEffect(() => {
+    if (retiredPreview) closeRetired("preview");
+  }, [retiredPreview, closeRetired]);
   // Zen hides every bar. The sidebars keep their own state in and out of zen.
   const [zen, setZenState] = useState(() => readPreference("zen", "off", ["on", "off"]) === "on");
   const filePreviewShown = useFilePreviewShown();
@@ -686,36 +676,6 @@ export function App({
   // ⌘B shows or hides the window's thread list; alone, the changed files.
   const toggleChanged = useCallback(() => togglePane("changed"), [togglePane]);
   const toggleReviewSidebar = shell?.toggleSidebar ?? toggleChanged;
-  const previewable =
-    !!activeFile &&
-    fileState.file?.kind === "text" &&
-    /\.(md|markdown|mdown|mkd)$/i.test(activeFile.path);
-  const previewOpen = panes.isOpen("preview");
-  // The toggle follows the pane on screen: a preview that is wanted but had no
-  // free room (see the quiet show below) shows with one click.
-  const togglePreview = useCallback(() => {
-    const next = !(previewWanted && previewOpen);
-    setPreviewWanted(next);
-    try {
-      localStorage.setItem("med-markdown-preview", String(next));
-    } catch {
-      /* The choice lasts for this window. */
-    }
-    // Asked for, the preview takes room from the oldest pane.
-    if (next && previewable) showPane("preview");
-  }, [previewWanted, previewOpen, previewable, showPane]);
-  useEffect(() => {
-    if (previewWanted && previewable) showPane("preview", { quiet: true });
-    else closePane("preview");
-  }, [previewWanted, previewable, showPane, closePane]);
-  const previewPane = useMemo(
-    () => ({
-      open: previewOpen,
-      target: previewTarget,
-      onToggle: togglePreview,
-    }),
-    [previewOpen, previewTarget, togglePreview],
-  );
   const zenToggle = useRef<HTMLButtonElement>(null);
   const toggleZen = useCallback(() => setZen((value) => !value), [setZen]);
   // Keep keyboard focus when the control that held it leaves with the chrome.
@@ -2730,6 +2690,8 @@ export function App({
         : undefined,
     [activeSource, activePath, browseApi, editorDrafts, fileWorkspace],
   );
+  // The main file shows a Markdown file rendered.
+  const [fileReading, setFileReading] = useState(false);
   const setFileBlame = useCallback(
     (open: boolean) => setBlameTab(open && activeFileId ? activeFileId : null),
     [activeFileId],
@@ -4110,25 +4072,6 @@ export function App({
           },
         ]
       : []),
-    {
-      id: "preview",
-      label: "Preview",
-      ariaLabel: "Markdown preview",
-      icon: "preview",
-      onClose: togglePreview,
-      render: (controls: ReactNode) => (
-        <>
-          <PaneHeader
-            title="Preview"
-            detail={previewable ? activeFile?.path.split("/").at(-1) : undefined}
-            controls={controls}
-          />
-          {/* The file view renders its preview here, so its source keeps the
-              view's width and both still scroll together. */}
-          <div ref={setPreviewTarget} {...stylex.props(styles.previewPane)} />
-        </>
-      ),
-    },
   ];
   const branchPicker = gitAvailable && (
     <BranchPicker
@@ -4816,7 +4759,7 @@ export function App({
                 onOpenFile={openLinkedFile}
                 onOpenBefore={openBefore}
                 onOpenAfter={openAfter}
-                previewPane={previewPane}
+                onReadingChange={setFileReading}
               />
             )}
           </div>
@@ -5018,15 +4961,17 @@ export function App({
               )}
             />
             {activeFile
-              ? editorDrafts.get(JSON.stringify([activeFile.source, activeFile.path]))?.editing
-                ? "Editing file · Vim"
-                : fileState.file?.media
-                  ? fileState.file.kind === "video"
-                    ? "Video"
-                    : "Image"
-                  : vimEnabled
-                    ? "Read-only file · Vim"
-                    : "Read-only file"
+              ? fileReading
+                ? "Reading file"
+                : editorDrafts.get(JSON.stringify([activeFile.source, activeFile.path]))?.editing
+                  ? "Editing file · Vim"
+                  : fileState.file?.media
+                    ? fileState.file.kind === "video"
+                      ? "Video"
+                      : "Image"
+                    : vimEnabled
+                      ? "Read-only file · Vim"
+                      : "Read-only file"
               : state.comparison.kind === "patch"
                 ? "Patch review"
                 : state.comparison.kind === "files"
@@ -5304,13 +5249,6 @@ const styles = stylex.create({
     opacity: { default: 0, [stylex.when.ancestor(":hover")]: 1 },
     transitionProperty: "opacity",
     transitionDuration: "160ms",
-  },
-  // The Markdown preview's place in the pane column.
-  previewPane: {
-    flex: "1",
-    minHeight: 0,
-    display: "flex",
-    flexDirection: "column",
   },
   // A narrow pane drops the totals first, then truncates the comparison
   // labels; the view controls on the right always stay.

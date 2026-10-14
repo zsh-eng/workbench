@@ -182,9 +182,7 @@ try {
   assert.equal(await page.getByRole("tab", { name: "Other.md", exact: true }).count(), 1);
   await page.getByRole("button", { name: "Close Notes/Other.md", exact: true }).click();
   assert.equal(await page.getByRole("tab", { name: "Other.md", exact: true }).count(), 0);
-  const preview = page.getByRole("button", { name: "Toggle Markdown preview", exact: true });
-  await preview.waitFor();
-  if ((await preview.getAttribute("aria-pressed")) !== "true") await preview.click();
+  // A note opens rendered; ⌘⇧V shows its source in its place, and back.
   await page.locator(".med-markdown").waitFor();
   await page.locator(".med-markdown img").waitFor();
   await until(() =>
@@ -220,6 +218,8 @@ try {
     .waitFor();
   await page.keyboard.press("Enter");
   await page.getByRole("tab", { name: "Nested.md", exact: true }).waitFor();
+  await page.locator(".med-markdown").waitFor();
+  await page.keyboard.press("Meta+Shift+v");
   await page.locator(".cm-content").focus();
   await page.keyboard.type("gg0iDraft from Med\n");
   await page.keyboard.press("Escape");
@@ -238,9 +238,11 @@ try {
   );
   await page.getByRole("img", { name: "Saved", exact: true }).waitFor();
   await page.getByRole("button", { name: "Close Notes/Nested.md", exact: true }).click();
-  await page.keyboard.press("Meta+b");
+  // Files toggles beside the tabs, as in a repository; ⌘B is the window's sidebar.
+  const files = page.getByRole("button", { name: "Toggle files sidebar", exact: true });
+  await files.click();
   assert.equal(await tree.isVisible(), false);
-  await page.getByRole("button", { name: "Toggle sidebar", exact: true }).click();
+  await files.click();
   await tree.waitFor();
   await page.keyboard.press("Meta+Shift+k");
   await page.getByRole("combobox", { name: "Find file", exact: true }).fill("Target");

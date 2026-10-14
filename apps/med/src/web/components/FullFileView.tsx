@@ -23,7 +23,6 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { createPortal } from "react-dom";
 import { createMarkdownModel, type MarkdownModel } from "../markdown/model";
 import "./MarkdownPreview.css";
 import { preloadable } from "./preloadable";
@@ -55,17 +54,11 @@ export interface FileSymbolPreview {
 }
 export type BeginFileSymbolPreview = () => FileSymbolPreview;
 
-/** A pane outside the file view that shows the Markdown preview, so the
- * source keeps the view's full width. The pane owns whether it is open. */
-export interface MarkdownPreviewPane {
-  open: boolean;
-  target: HTMLElement | null;
-  onToggle(): void;
-}
 export interface FullFileViewProps {
   file: BrowseRead | null;
-  previewPane?: MarkdownPreviewPane;
   previewControl?: ReactNode;
+  /** A Markdown file shows rendered, or not, such as for a status line. */
+  onReadingChange?(reading: boolean): void;
   onSourcePosition?(line: number, reason: "cursor" | "scroll"): void;
   markdownNavigation?: MarkdownModel;
   path?: string;
@@ -491,7 +484,6 @@ function ReadOnlyFileView({
             </span>
           )}
           <span {...stylex.props(styles.badge)}>Read-only</span>
-          {previewControl}
           {onEdit && (
             <button {...stylex.props(ui.button)} onClick={onEdit}>
               Edit
@@ -526,6 +518,7 @@ function ReadOnlyFileView({
               onClick={onRefresh}
             />
           )}
+          {previewControl}
           {onClose && <ToolButton label="Close file" icon="close" onClick={onClose} />}
         </header>
       )}
@@ -743,6 +736,20 @@ const styles = stylex.create({
     borderBottomStyle: "solid",
     borderBottomColor: tokens.border,
   },
+  // As FileEditor.css lays out the editor's header.
+  editorHeader: { gap: 4, paddingInline: 8, fontSize: 12 },
+  saveDot: {
+    flexShrink: 0,
+    width: 7,
+    height: 7,
+    boxSizing: "border-box",
+    borderRadius: "50%",
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "currentColor",
+    color: tokens.muted,
+  },
+  unsaved: { color: tokens.warning, backgroundColor: "currentColor" },
   path: {
     flex: "1",
     minWidth: 30,
@@ -829,6 +836,18 @@ const EditableFile = preloadable(() => import("./FileEditor"));
 /** Loads the editor early, such as once a vault opens, so its first note opens at once. */
 export const preloadFileEditor = EditableFile.preload;
 const noDrafts = createEditorDrafts();
+/** Markdown files that the reader switched to their source, by source and path. */
+const markdownSources = new Set<string>();
+/** The source line of the first rendered block in view. */
+function topBlockLine(view: HTMLElement | null) {
+  const pane = view?.querySelector<HTMLElement>(".med-md-scroll");
+  if (!pane) return undefined;
+  const top = pane.getBoundingClientRect().top;
+  const block = [...pane.querySelectorAll<HTMLElement>("[data-block-line]")].find(
+    (entry) => entry.getBoundingClientRect().bottom > top + 8,
+  );
+  return block ? Number(block.dataset.blockLine) : undefined;
+}
 /** Memoized: the review renders again for unrelated state, such as a palette. */
 export const FullFileView = memo(function FullFileView(props: FullFileViewProps) {
   const store = props.editor?.drafts ?? noDrafts;
@@ -839,16 +858,17 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
     !props.compact &&
     props.file?.kind === "text" &&
     /\.(md|markdown|mdown|mkd)$/i.test(props.file.path);
-  const [ownPreview, setPreview] = useState(() => {
-    try {
-      return localStorage.getItem("med-markdown-preview") === "true";
-    } catch {
-      return false;
-    }
-  });
-  const pane = props.previewPane;
-  const preview = pane ? pane.open : ownPreview;
-  const sourceKey = JSON.stringify(props.file?.source) + props.file?.path;
+  const sourceKey = props.file ? JSON.stringify(props.file.source) + props.file.path : "";
+  // A Markdown file shows one view at a time: rendered to read, or its source
+  // to edit. It opens rendered, unless it has unsaved changes or the reader
+  // chose its source before.
+  const readingFor = (key: string) =>
+    !markdownSources.has(key) && !(props.editor && store.get(props.editor.key)?.dirty);
+  const [mode, setMode] = useState(() => ({ key: sourceKey, reading: readingFor(sourceKey) }));
+  if (mode.key !== sourceKey) setMode({ key: sourceKey, reading: readingFor(sourceKey) });
+  const reading = markdown && mode.reading;
+  const onReadingChange = props.onReadingChange;
+  useEffect(() => onReadingChange?.(reading), [onReadingChange, reading]);
   // The bridge remains stable through disk saves and editor draft notifications.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const markdownModel = useMemo(() => createMarkdownModel(props.file?.text ?? ""), [sourceKey]);
@@ -856,31 +876,30 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
     markdownModel.setText(
       draft?.editing ? (draft.state?.sliceDoc() ?? draft.savedText) : (props.file?.text ?? ""),
     );
-  }, [markdownModel, props.file?.text, draft, draft?.editing, preview]);
-  const showPreview = markdown && preview;
+  }, [markdownModel, props.file?.text, draft, draft?.editing, reading]);
+  // A file opened at a line reads from that line.
+  const openedLine = props.line;
+  useLayoutEffect(() => {
+    if (openedLine) markdownModel.follow(openedLine, "cursor");
+  }, [markdownModel, openedLine]);
+  // The source's cursor and scroll keep the rendered view's place, so each
+  // view opens where the other one was.
   const followSource = useCallback(
     (line: number, reason: "cursor" | "scroll") => markdownModel.follow(line, reason),
     [markdownModel],
   );
-  const paneToggle = useRef(pane?.onToggle);
-  useLayoutEffect(() => {
-    paneToggle.current = pane?.onToggle;
-  });
-  const togglePreview = () => {
-    if (paneToggle.current) return paneToggle.current();
-    // Read the current value in the updater. The keyboard shortcut effect
-    // registers once per model, so a closure over `preview` would go stale and
-    // make every later toggle repeat the first result.
-    setPreview((value) => {
-      try {
-        localStorage.setItem("med-markdown-preview", String(!value));
-      } catch {
-        /* Session preference still works. */
-      }
-      return !value;
-    });
+  const reader = useRef<HTMLDivElement>(null);
+  const toggleReading = () => {
+    if (reading) {
+      markdownSources.add(sourceKey);
+      // The source opens at the first line in view.
+      const line = topBlockLine(reader.current);
+      const current = props.editor && store.get(props.editor.key);
+      if (line && current) store.update(current, { line, column: 1 });
+    } else markdownSources.delete(sourceKey);
+    setMode({ key: sourceKey, reading: !reading });
   };
-  const previewButton = useRef<HTMLButtonElement>(null);
+  const toggleButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!markdown) return;
     const shortcut = (event: KeyboardEvent) => {
@@ -892,7 +911,7 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
         event.key.toLowerCase() !== "v"
       )
         return;
-      const button = previewButton.current;
+      const button = toggleButton.current;
       // Retained workspaces stay mounted. Only the visible main file owns this shortcut.
       const visible = [
         ...document.querySelectorAll<HTMLButtonElement>("[data-markdown-preview-toggle]"),
@@ -907,39 +926,15 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
   }, [markdown]);
   const previewControl = markdown ? (
     <ToolButton
-      ref={previewButton}
+      ref={toggleButton}
       data-markdown-preview-toggle
-      label="Toggle Markdown preview"
+      label={reading ? "Edit source" : "Read"}
       shortcut="⌘ ⇧ V"
-      icon="preview"
-      active={preview}
-      aria-pressed={preview}
+      icon={reading ? "edit" : "read"}
       aria-keyshortcuts="Meta+Shift+V Control+Shift+V"
-      onClick={togglePreview}
+      onClick={toggleReading}
     />
   ) : undefined;
-  const previewView = showPreview && props.file && (
-    <Suspense fallback={<div className="med-markdown" aria-hidden="true" />}>
-      <MarkdownPreview
-        key={sourceKey}
-        model={markdownModel}
-        onOpenFile={props.onOpenFile}
-        file={draft?.editing ? draft.file : props.file}
-      />
-    </Suspense>
-  );
-  const wrap = (source: ReactNode) =>
-    pane ? (
-      <div className="med-markdown-shell" data-preview={false}>
-        <div className="med-markdown-source">{source}</div>
-        {previewView && pane.target && createPortal(previewView, pane.target)}
-      </div>
-    ) : (
-      <div className="med-markdown-shell" data-preview={showPreview}>
-        <div className="med-markdown-source">{source}</div>
-        {previewView}
-      </div>
-    );
   const canEdit =
     !!props.editor &&
     !props.compact &&
@@ -948,6 +943,10 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
     !props.file.truncated &&
     props.file.size <= 1024 * 1024 &&
     !props.loading;
+  // The source is a keystroke away: its editor loads while the file reads.
+  useEffect(() => {
+    if (reading && canEdit) EditableFile.preload();
+  }, [reading, canEdit]);
   const begin = (insert = false, position?: { line: number; column: number }) => {
     if (!canEdit || !props.file || !props.editor) return;
     try {
@@ -980,8 +979,55 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
   });
   if (props.file?.media && !props.loading)
     return <MediaFileView key={props.file.identity} {...props} file={props.file} />;
+  if (reading && props.file && !props.loading && !props.error)
+    return (
+      <div ref={reader} className="med-markdown-reader">
+        {/* The header matches the source view's, so nothing moves as the views change. */}
+        <header
+          data-lift-row={draft?.editing ? "editor" : ""}
+          {...stylex.props(styles.header, draft?.editing && styles.editorHeader)}
+        >
+          {draft?.editing ? (
+            <span
+              role="img"
+              aria-label={draft.dirty ? "Unsaved changes" : "Saved"}
+              title={draft.dirty ? "Unsaved changes" : "Saved"}
+              {...stylex.props(styles.saveDot, draft.dirty && styles.unsaved)}
+            />
+          ) : (
+            <Icon name="file" size={15} />
+          )}
+          <span {...stylex.props(styles.path)} title={props.file.path}>
+            {props.path ?? props.file.path}
+          </span>
+          {!draft?.editing && (
+            <span {...stylex.props(styles.badge)} title={props.sourceLabel}>
+              {props.sourceLabel.replace(/^Working files\b/, "Working file")}
+            </span>
+          )}
+          {props.refreshAvailable && (
+            <ToolButton
+              label="Refresh file"
+              icon="refresh"
+              disabled={!!draft?.dirty}
+              onClick={props.onRefresh}
+            />
+          )}
+          {previewControl}
+          {props.onClose && <ToolButton label="Close file" icon="close" onClick={props.onClose} />}
+        </header>
+        <Suspense fallback={<div className="med-markdown" aria-hidden="true" />}>
+          <MarkdownPreview
+            key={sourceKey}
+            model={markdownModel}
+            onOpenFile={props.onOpenFile}
+            file={draft?.editing ? draft.file : props.file}
+          />
+        </Suspense>
+      </div>
+    );
   if (draft?.editing && props.editor)
-    return wrap(
+    return (
       <Suspense fallback={null}>
         <EditableFile
           key={props.editor.key}
@@ -991,21 +1037,18 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
           onClose={() => props.onClose?.()}
           context={props}
           previewControl={previewControl}
-          onDocumentChange={showPreview ? markdownModel.setText : undefined}
-          markdownNavigation={showPreview ? markdownModel : undefined}
-          onSourcePosition={showPreview ? followSource : undefined}
+          onSourcePosition={markdown ? followSource : undefined}
         />
-      </Suspense>,
+      </Suspense>
     );
-  return wrap(
+  return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0 }}>
       {editError && <div role="alert">{editError}</div>}
       <ReadOnlyFileView
         {...props}
         previewControl={previewControl}
-        markdownNavigation={showPreview ? markdownModel : undefined}
-        onSourcePosition={showPreview ? followSource : undefined}
+        onSourcePosition={markdown ? followSource : undefined}
       />
-    </div>,
+    </div>
   );
 });

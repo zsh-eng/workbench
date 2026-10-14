@@ -16,7 +16,8 @@
   min-height: 28px;
   border-bottom: 1px solid var(--local-border);
 }
-.med-local button {
+/* Plain buttons; a ToolButton keeps its own look, as in a file's header. */
+.med-local button:where(:not([data-med-tool-button])) {
   background: transparent;
   border: 1px solid var(--local-border);
   border-radius: calc(5px * var(--med-round, 1));

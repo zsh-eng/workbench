@@ -22,7 +22,8 @@ export interface RepositoryFilesProps {
   loading: boolean;
   error: string | null;
   truncated: boolean;
-  sourceLabel: string;
+  /** What the files are from, when nothing nearby names it. */
+  sourceLabel?: string;
   /** The checkout that holds the files, for Reveal in Finder. */
   repo?: string | null;
   pathActions?: PathActions;
@@ -136,9 +137,11 @@ export const RepositoryFiles = memo(function RepositoryFiles(props: RepositoryFi
           <ToolButton label="Close files sidebar" icon="close" onClick={onClose} />
         </div>
       )}
-      <div {...stylex.props(styles.source)} title={sourceLabel}>
-        {sourceLabel}
-      </div>
+      {sourceLabel && (
+        <div {...stylex.props(styles.source)} title={sourceLabel}>
+          {sourceLabel}
+        </div>
+      )}
       {onIgnoredChange && (
         <label {...stylex.props(styles.ignored)}>
           <input

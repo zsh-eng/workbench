@@ -26,7 +26,6 @@ import { SourcesPage, type Source } from "./SourcesPage";
 import { ui } from "../theme.stylex";
 import "./VaultWorkspace.css";
 import { visibleElement } from "../data/palette-focus";
-import { platform } from "../data/keys";
 import { openWelcome } from "../data/setup";
 import { whenIdle } from "../data/idle";
 const api = createApi(globalThis.fetch.bind(globalThis), "");
@@ -324,25 +323,6 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
             setPickerOpen(false);
             setCommandsOpen((value) => !value);
           }
-        } else if (
-          key === "b" &&
-          !event.shiftKey &&
-          locationState.id &&
-          // On macOS, unshifted Control+B in the editor stays Vim's page up.
-          !(
-            platform === "mac" &&
-            event.ctrlKey &&
-            !event.metaKey &&
-            !event.shiftKey &&
-            event
-              .composedPath()
-              .some((node) => node instanceof HTMLElement && node.classList.contains("cm-content"))
-          )
-        ) {
-          // ⌘B, as in reviews.
-          event.preventDefault();
-          event.stopImmediatePropagation();
-          setSidebar((value) => !value);
         }
       } else if (
         event.altKey &&
@@ -432,8 +412,7 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
     },
     {
       id: "browse-files",
-      label: sidebar ? "Hide sidebar" : "Show sidebar",
-      shortcut: "⌘B",
+      label: sidebar ? "Hide files sidebar" : "Show files sidebar",
       disabled: !locationState.id,
       run: () => setSidebar((value) => !value),
     },
@@ -445,12 +424,12 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
     },
     {
       id: "preview",
-      label: "Toggle Markdown preview",
+      label: "Read or edit the note's source",
       shortcut: "⌘⇧V",
       disabled: !currentFile || !/\.(md|markdown|mdown|mkd)$/i.test(currentFile.path),
       run: () =>
         surface.current
-          ?.querySelector<HTMLButtonElement>('[aria-label="Toggle Markdown preview"]')
+          ?.querySelector<HTMLButtonElement>("[data-markdown-preview-toggle]")
           ?.click(),
     },
     {
@@ -519,22 +498,6 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
       },
     },
   ];
-  const identity = (
-    <div className="med-vault-identity">
-      <ToolButton
-        label={sidebar ? "Hide sidebar" : "Show sidebar"}
-        shortcut="⌘ B"
-        icon="panelLeft"
-        aria-label="Toggle sidebar"
-        aria-pressed={sidebar}
-        onClick={() => setSidebar((value) => !value)}
-      />
-      <span className="med-vault-name" title={source?.path}>
-        <Icon name="vault" size={14} />
-        <span>{source?.name ?? "Vault"}</span>
-      </span>
-    </div>
-  );
   const review = reviewMounted && (
     <div
       inert={locationState.visible}
@@ -587,7 +550,6 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
                 aria-label="Workspace files"
                 style={{ width: sidebarWidth }}
               >
-                <div className="med-vault-sidebar-header">{identity}</div>
                 <RepositoryFiles
                   key={locationState.id}
                   label="Vault files"
@@ -595,7 +557,6 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
                   loading={false}
                   error={null}
                   truncated={false}
-                  sourceLabel={source?.name ?? "Vault"}
                   selectedPath={locationState.file || null}
                   onPreview={(path) => open(path, undefined, false)}
                   onPin={(path) => open(path)}
@@ -657,12 +618,6 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
             )}
             <main className="med-vault-main">
               <div className="med-vault-tabbar">
-                {!sidebar && (
-                  <>
-                    {identity}
-                    <span className="med-vault-divider" />
-                  </>
-                )}
                 <FileViewTabs
                   showChanges={false}
                   tabs={currentTabs.map((tab) => ({
@@ -681,6 +636,13 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
                   onClose={(id) => closeTabs([id])}
                 />
                 <div className="med-vault-actions">
+                  <ToolButton
+                    label={sidebar ? "Hide files" : "Show files"}
+                    icon="folder"
+                    aria-label="Toggle files sidebar"
+                    aria-pressed={sidebar}
+                    onClick={() => setSidebar((value) => !value)}
+                  />
                   <ToolButton
                     label="Commands"
                     shortcut="⌘ K"
@@ -701,6 +663,7 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
                   <FullFileView
                     key={currentFile.path}
                     file={currentFile}
+                    path={currentFile.vault?.path}
                     loading={false}
                     error={null}
                     vimEnabled

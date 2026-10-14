@@ -266,6 +266,8 @@ export default function MarkdownPreview({
                 aria-current={heading === h.id ? "location" : undefined}
                 style={{ paddingLeft: 10 + (h.level - 1) * 10 }}
                 onClick={() => {
+                  const target = scroller.current?.querySelector(`#${CSS.escape(h.id)}`);
+                  if (target) scrollController.current?.reveal(target);
                   model.navigate(h.line);
                   setHeading(h.id);
                 }}

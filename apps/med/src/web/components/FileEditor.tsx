@@ -688,12 +688,11 @@ export default function FileEditor({
           style={{ color: draft.dirty ? active.palette.warning : active.palette.muted }}
         />
         <span className="med-editor-path" title={draft.file.path}>
-          {draft.file.path}
+          {context.path ?? draft.file.path}
         </span>
         <span className="med-editor-mode" aria-live="polite">
           {mode}
         </span>
-        {previewControl}
         <ToolButton
           label="Save"
           icon="save"
@@ -724,6 +723,7 @@ export default function FileEditor({
             disabled={draft.dirty || draft.saving}
           />
         )}
+        {previewControl}
         <ToolButton
           label="Close file"
           shortcut=":q"

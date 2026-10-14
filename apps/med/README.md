@@ -180,15 +180,15 @@ Open files outside Git with `med-diff open /absolute/path/file --line 42`, or us
 previews. Full-file views show added, deleted, and working changes in the gutter.
 See [file workspace usage](docs/USAGE.md#standalone-files-and-dropped-previews).
 
-### Write with a live Markdown preview
+### Read and edit Markdown
 
-Select **Preview** beside a Markdown file to read it alongside the Vim editor.
-The rendered pane follows your cursor and scroll position, updates from unsaved
-edits, and remembers whether it is open. GFM, math, Mermaid, code colors, images,
-and a wide-screen table of contents are included. Try the
+Markdown files open rendered. Select **Edit source** or press `⌘⇧V` to edit the
+source in Vim in the same place, and again to read it; each view opens where
+the other one was. GFM, math, Mermaid, code colors, images, and a wide-screen
+table of contents are included. Try the
 [reading queue design note](docs/examples/reading-queue.md).
 
-![Markdown editor and preview in Graphite Light](docs/validation/markdown-preview-light.png)
+![A Markdown design note rendered to read, with its contents, in Graphite Light](docs/validation/markdown-preview-light.png)
 
 ### Repositories and Obsidian vaults
 
@@ -200,7 +200,7 @@ med web
 
 Register once. Med restores your sources and watches changes in one background
 server. Vaults support note navigation, backlinks, wiki links, image embeds, and
-the Vim editor with live Markdown preview. `med stop` stops the server.
+notes that open rendered, with the Vim editor a keystroke away. `med stop` stops the server.
 
 Build a self-contained executable with `bun run build:executable` from `apps/med`.
 Browser assets and offline guides are included. Git and optional search helpers

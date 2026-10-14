@@ -512,17 +512,17 @@ Command-click a diff's filename, or a file in the Changes list, to open it in a
 background tab. Closing the active file selects the file to its right, then its
 left.
 
-## Markdown preview
+## Read and edit Markdown
 
-Open a `.md`, `.markdown`, `.mdown`, or `.mkd` file and select **Preview**, or
-press `⌘⇧V`. In a repository, the preview opens as the Preview
-[pane](#panes) and follows the Markdown file in the main view. In a
-vault or a dropped file, it shows beside the source, or below it in a narrow
-window. Med remembers whether Preview is open.
+A `.md`, `.markdown`, `.mdown`, or `.mkd` file opens rendered, to read. To edit
+it, select **Edit source** (the pencil) or press `⌘⇧V`: the source opens in the
+Vim editor in the same place, at the first line that was in view. **Read** or
+`⌘⇧V` renders it again, at the source's cursor. A file with unsaved changes
+opens as source, and Med keeps each file's view until you reload. The rendered
+view shows unsaved edits; it does not save them.
 
-The preview follows the source's cursor and scrolling, and you can scroll it on
-its own. At 760 pixels wide or more, it has **On this page**; its links move
-the source cursor. Edits show after a short pause; they do not save the file.
+At 760 pixels wide or more, the rendered view has **On this page**; select a
+heading to go to it.
 
 - GFM tables, task lists, strikethrough, autolinks, and footnotes; LaTeX with
   KaTeX; Mermaid diagrams; colored code; and images. A single newline stays in
@@ -595,8 +595,8 @@ markers until you refresh.
 ### Panes
 
 A workspace is a set of tiled panes: the review, and **Changes** (the changed
-files), **Session** (`⌘⇧B`), **Files** (the folder button), and **Preview**
-(`⌘⇧V`) beside it. Each thread keeps its own layout.
+files), **Session** (`⌘⇧B`), and **Files** (the folder button) beside it. Each
+thread keeps its own layout.
 
 - A pane's header acts as a window's title bar. Drag it onto a side of another
   pane to place the pane there, or onto the middle to swap the two; Escape

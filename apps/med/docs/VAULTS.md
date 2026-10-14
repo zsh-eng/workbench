@@ -1,7 +1,7 @@
 # Notes and vaults
 
 Med opens Obsidian vaults and Markdown folders beside your repositories, with
-links, backlinks, and a live preview. A vault does not need Git. Med does not
+links, backlinks, and notes that open rendered. A vault does not need Git. Med does not
 run community plugins or change `.obsidian` settings.
 
 ## Add a vault
@@ -23,26 +23,27 @@ running; `status` and `stop` do not. Keep the state folder
 
 ## Read and write
 
-Open a vault from the **Sources** page or the workspace list. The sidebar has
-the workspaces, the file tree, and backlinks, as in a review. Click a file to
-preview it, and double-click to keep its tab. Edited files stay open, and a tab
+Open a vault from the **Sources** page or the workspace list. The title band
+names the vault, and the files sidebar has the file tree and backlinks. Click a
+file to preview it, and double-click to keep its tab. Edited files stay open, and a tab
 with unsaved changes does not close until you save or discard them.
 
-- `⌘K` opens the command palette, `⌘⇧K` finds a file with a preview, and `⌘B`
-  shows or hides the sidebar.
+- `⌘K` opens the command palette, `⌘⇧K` finds a file with a preview, and the
+  folder button shows or hides the files sidebar. `⌘B` shows or hides the
+  window's sidebar, as in a repository.
 - Follow wiki links and Markdown links. **Backlinks**, below the file tree,
   show each linking note with its line number.
-- **Preview** renders the note with its image embeds. Edit in the Vim editor,
-  with explicit saves, the unsaved dot, and the live preview; see
-  [Markdown preview](USAGE.md#markdown-preview).
+- A note opens rendered, with its image embeds. **Edit source** (`⌘⇧V`) shows
+  it in the Vim editor, with explicit saves and the unsaved dot; see
+  [Read and edit Markdown](USAGE.md#read-and-edit-markdown).
 
 Registering and indexing never change your notes; only a save does.
 
 ### Obsidian syntax
 
 Wiki image embeds take a width, such as `![[image.png|320]]`. Links to a
-heading or a block resolve to their note, and Preview can jump to simple ATX
-headings. Med leaves a link unresolved when more than one note has its name.
+heading or a block resolve to their note, and the rendered note can jump to
+simple ATX headings. Med leaves a link unresolved when more than one note has its name.
 
 Med does not support full heading and block resolution, frontmatter aliases,
 note embeds, plugin syntax, or text search across a vault.

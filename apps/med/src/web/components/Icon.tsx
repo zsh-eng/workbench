@@ -42,6 +42,7 @@ export type IconName =
   | "reply"
   | "save"
   | "preview"
+  | "read"
   | "diff"
   | "commit"
   | "push"
@@ -250,6 +251,9 @@ const icons: Record<IconName, ReactNode> = {
       {frame}
       <path d="M8 2.75v10.5M10.25 6.25h1.75M10.25 9.25h1.75" />
     </>
+  ),
+  read: (
+    <path d="M8 4.6C6.7 3.7 5 3.25 2.75 3.25v9c2.25 0 3.95.45 5.25 1.35 1.3-.9 3-1.35 5.25-1.35v-9C11 3.25 9.3 3.7 8 4.6zm0 0v9" />
   ),
   wrap: (
     <path d="M2.75 3.75h10.5M2.75 8h8.5a2.25 2.25 0 0 1 0 4.5H8.5M2.75 12.5h2.5M10 10.75l-1.75 1.75L10 14.25" />

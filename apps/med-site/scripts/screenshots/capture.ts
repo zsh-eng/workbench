@@ -504,11 +504,8 @@ async function recordVault(browser: Browser) {
   for (const name of noteNames.filter((name) => name !== vaultNote))
     await openNote(name);
   await openNote(vaultNote);
-  const preview = page.getByRole("button", {
-    name: "Toggle Markdown preview",
-  });
-  if ((await preview.getAttribute("aria-pressed")) !== "true")
-    await preview.click();
+  // A note opens rendered.
+  await page.locator(".med-md-prose .med-md-block").first().waitFor();
   await page.waitForTimeout(1500);
   await save(page, "vault.json", `/vault/${vaultId}`);
   await context.close();
@@ -538,11 +535,6 @@ async function drawDiagrams(browser: Browser) {
       .getByRole("complementary", { name: "Vault files" })
       .getByRole("treeitem", { name: vaultNote, exact: true })
       .dblclick();
-    const preview = page.getByRole("button", {
-      name: "Toggle Markdown preview",
-    });
-    if ((await preview.getAttribute("aria-pressed")) !== "true")
-      await preview.click();
     // A diagram draws when it comes near the view.
     const blocks = page.locator("pre[data-mermaid]");
     await blocks.first().waitFor();

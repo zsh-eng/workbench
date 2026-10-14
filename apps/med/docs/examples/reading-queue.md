@@ -24,7 +24,7 @@ A single newline is a soft break, so the sentence continues here.
 Only a blank line starts the next paragraph.
 
 This is a separate paragraph, with enough space to make the change in thought
-clear. Try editing it on the left: the preview updates before you save.
+clear. Press ⌘⇧V to edit it, and again to read the draft before you save.
 
 ### What the interface promises
 

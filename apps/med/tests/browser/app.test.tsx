@@ -61,7 +61,6 @@ const storedPreferences = [
   "med:vim",
   "med:zen",
   "med:history",
-  "med-markdown-preview",
   "med:pane-layout",
   "med:pane-width",
   "med:work",
@@ -1317,22 +1316,11 @@ describe("graphical review", () => {
       name: "Workspace files",
       exact: true,
     });
-    await files.getByRole("treeitem", { name: "GUIDE.md", exact: true }).click();
-    await page.getByRole("button", { name: "Toggle Markdown preview" }).click();
-
-    // The preview opens beside the review, and the source keeps the view's width.
-    const preview = page.getByRole("region", { name: "Markdown preview" });
-    await expect.element(preview.getByRole("heading", { name: "Guide" })).toBeVisible();
-    expect(document.querySelector(".med-markdown-shell")?.getAttribute("data-preview")).toBe(
-      "false",
-    );
     const panes = () =>
       [...document.querySelectorAll<HTMLElement>("[data-pane]:not([hidden])")]
         .map((pane) => [pane.dataset.pane!, pane.getBoundingClientRect()] as const)
         .sort((a, b) => a[1].left - b[1].left);
-    await expect
-      .poll(() => panes().map(([id]) => id))
-      .toEqual(["changed", "review", "preview", "files"]);
+    await expect.poll(() => panes().map(([id]) => id)).toEqual(["changed", "review", "files"]);
 
     // Zoom gives one pane the whole tree; the others wait behind it, inert.
     const tree = document.querySelector("[data-pane-tree]")!.getBoundingClientRect();
@@ -1347,7 +1335,7 @@ describe("graphical review", () => {
     // A gutter's arrow keys move the edge between two panes; ⌘⌃= gives each
     // pane the same width.
     const gutter = page.getByRole("separator", {
-      name: "Resize Preview and Files",
+      name: "Resize Changes and Files",
     });
     const share = () => Number(gutter.element().getAttribute("aria-valuenow"));
     const start = share();
@@ -1362,43 +1350,51 @@ describe("graphical review", () => {
       })
       .toBeLessThanOrEqual(2);
 
-    // Closing the preview is remembered, as the toggle in the file view was.
-    await preview.getByRole("button", { name: "Close preview" }).click();
-    await expect
-      .poll(() => document.querySelector('[data-pane="preview"]')?.checkVisibility())
-      .toBe(false);
-    expect(localStorage.getItem("med-markdown-preview")).toBe("false");
-
     // A window too small for every pane hides them from the left; the pane in
-    // use and the review stay. Smaller still, one shows: the pane in use, or
-    // else the review.
+    // use and the review stay. Smaller still, one shows: the pane in use,
+    // Files here, or else the review.
     const ids = () => panes().map(([id]) => id);
     await page.viewport(640, 800);
     await expect.poll(ids).toEqual(["review", "files"]);
     await page.viewport(400, 800);
-    await expect.poll(ids).toEqual(["review"]);
+    await expect.poll(ids).toEqual(["files"]);
     await page.viewport(1280, 800);
     await expect.poll(ids).toEqual(["changed", "review", "files"]);
   });
-  test("a wanted preview without free room shows with one click on its toggle", async () => {
+  test("a Markdown file reads rendered, and ⌘⇧V shows its source in its place", async () => {
     await page.viewport(1280, 800);
-    localStorage.setItem("med-markdown-preview", "true");
     await mountApp();
-    // Changed files, the review, and Files leave no free room for a quiet preview.
     await page.getByRole("button", { name: "Toggle files sidebar" }).click();
     const files = page.getByRole("region", {
       name: "Workspace files",
       exact: true,
     });
     await files.getByRole("treeitem", { name: "GUIDE.md", exact: true }).click();
-    const toggle = page.getByRole("button", {
-      name: "Toggle Markdown preview",
-    });
-    await expect.element(toggle).toHaveAttribute("aria-pressed", "false");
-    await toggle.click();
-    const preview = page.getByRole("region", { name: "Markdown preview" });
-    await expect.element(preview.getByRole("heading", { name: "Guide" })).toBeVisible();
-    expect(localStorage.getItem("med-markdown-preview")).toBe("true");
+    const reading = page.getByRole("region", { name: "Markdown preview" });
+    await expect.element(reading.getByRole("heading", { name: "Guide" })).toBeVisible();
+    const editor = page.getByRole("textbox", { name: "Edit docs/GUIDE.md", exact: true });
+    await expect.element(editor).not.toBeInTheDocument();
+
+    // The source shows in place of the text, never beside it.
+    await page.getByRole("button", { name: "Edit source" }).click();
+    await expect.element(editor).toBeVisible();
+    await expect.element(reading).not.toBeInTheDocument();
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "V", metaKey: true, shiftKey: true, bubbles: true }),
+    );
+    await expect.element(reading.getByRole("heading", { name: "Guide" })).toBeVisible();
+    await expect.element(editor).not.toBeInTheDocument();
+
+    // The file keeps the view that it showed last.
+    await page.getByRole("button", { name: "Edit source" }).click();
+    await expect.element(editor).toBeVisible();
+    await files.getByRole("treeitem", { name: "alpha.ts", exact: true }).click();
+    await expect.element(editor).not.toBeInTheDocument();
+    await files.getByRole("treeitem", { name: "GUIDE.md", exact: true }).click();
+    await expect.element(editor).toBeVisible();
+    await page.getByRole("button", { name: "Read" }).click();
+    await expect.element(reading.getByRole("heading", { name: "Guide" })).toBeVisible();
+    expect(document.querySelector('[data-pane="preview"]')).toBeNull();
   });
   test("a pane's header drags it beside another pane or swaps the two; Escape keeps it", async () => {
     await page.viewport(1280, 800);

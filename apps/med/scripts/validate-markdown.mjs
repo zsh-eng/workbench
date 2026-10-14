@@ -135,8 +135,9 @@ try {
   });
   const fileUrl = origin + "/file/" + doc.split("/").map(encodeURIComponent).join("/") + "?edit=1";
   await page.goto(fileUrl);
-  await page.getByRole("button", { name: "Toggle Markdown preview" }).click();
+  // A Markdown file opens as it reads; its source shows in place of the text.
   await page.locator(".med-md-prose h1").waitFor();
+  assert.equal(await page.locator(".med-editor").count(), 0);
   assert.equal(
     await page.locator(".med-md-prose h1").textContent(),
     "Designing a calmer reading queue",
@@ -157,16 +158,9 @@ try {
   );
   await page.getByRole("navigation", { name: "Table of contents" }).waitFor({ state: "visible" });
   await page.screenshot({ path: join(output, "preview-light.png") });
-  // Contents moves the source cursor; the preview follows without scrolling ancestors.
-  const sourceTop = await page
-    .locator(".med-editor")
-    .evaluate((node) => node.getBoundingClientRect().top);
+  results.rendering = "GFM tables, tasks, soft breaks, syntax colors, KaTeX, local image, headings";
+  // Contents scrolls the text to the heading, and no ancestor scrolls.
   await page.locator(".med-md-toc button").last().click();
-  const targetLine = source.split("\n").findIndex((line) => line.startsWith("[^retry]:")) + 1;
-  await page.waitForFunction(
-    (text) => document.querySelector(".cm-activeLine")?.textContent === text,
-    source.split("\n")[targetLine - 1],
-  );
   await page.waitForFunction(() => {
     const pane = document.querySelector(".med-md-scroll").getBoundingClientRect();
     const footnote = document.querySelector(".footnotes").getBoundingClientRect();
@@ -174,60 +168,71 @@ try {
   });
   await page.waitForTimeout(350);
   const layout = await page.evaluate(() => ({
-    sourceTop: document.querySelector(".med-editor").getBoundingClientRect().top,
+    readerScroll: document.querySelector(".med-markdown-reader").scrollTop,
     previewBottom: document.querySelector(".med-markdown").getBoundingClientRect().bottom,
-    shellScroll: document.querySelector(".med-markdown-shell").scrollTop,
     viewport: innerHeight,
   }));
-  assert.equal(layout.sourceTop, sourceTop);
-  assert.equal(layout.shellScroll, 0);
+  assert.equal(layout.readerScroll, 0);
   assert.equal(layout.previewBottom, layout.viewport);
   await page.screenshot({ path: join(output, "last-heading.png") });
-  results.contentsNavigation =
-    "last heading stays inside preview; both columns still fill the window";
-  await page.locator(".med-md-toc button").first().click();
-  await page.waitForFunction(
-    () => document.querySelector(".cm-activeLine")?.getAnimations().length > 0,
-  );
-  const arrival = await page.locator(".cm-activeLine").evaluate((row) => ({
-    color: getComputedStyle(row).backgroundColor,
-    duration: row.getAnimations()[0].effect.getTiming().duration,
-  }));
-  assert.equal(arrival.duration, 650);
-  await page.screenshot({ path: join(output, "heading-arrival.png") });
-  await page.waitForTimeout(700);
-  assert.notEqual(
-    await page.locator(".cm-activeLine").evaluate((row) => getComputedStyle(row).backgroundColor),
-    arrival.color,
-  );
+  results.contentsNavigation = "the last heading comes into view; the text still fills the window";
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.locator(".med-md-toc button").first().click();
-  assert.equal(
-    await page.locator(".cm-activeLine").evaluate((row) => row.getAnimations().length),
-    0,
-  );
+  const reducedFrames = await page.evaluate(async () => {
+    const samples = [];
+    for (let i = 0; i < 5; i++) {
+      await new Promise(requestAnimationFrame);
+      samples.push(document.querySelector(".med-md-scroll").scrollTop);
+    }
+    return samples;
+  });
+  assert.ok(new Set(reducedFrames).size <= 1, "Reduced motion must settle without easing");
   await page.emulateMedia({ reducedMotion: "no-preference" });
-  results.headingArrival = "single 650 ms destination fade; no pulse with reduced motion";
-  await page.waitForTimeout(450);
-  await page.locator(".cm-content").focus();
+  results.reducedMotion = true;
+  // ⌘⇧V shows the source at the text in view; ⌃⇧V reads again.
+  const lines = source.split("\n");
+  const line = (needle) => source.slice(0, source.indexOf(needle)).split("\n").length;
+  await page.locator(".med-md-toc button").last().click();
+  await page.waitForTimeout(500);
+  const topLine = await page.evaluate(() => {
+    const pane = document.querySelector(".med-md-scroll");
+    const top = pane.getBoundingClientRect().top;
+    const block = [...pane.querySelectorAll("[data-block-line]")].find(
+      (entry) => entry.getBoundingClientRect().bottom > top + 8,
+    );
+    return Number(block.dataset.blockLine);
+  });
+  assert.ok(topLine > 1);
   await page.keyboard.press("Meta+Shift+v");
+  await page.locator(".cm-content").waitFor();
   assert.equal(await page.locator(".med-markdown").count(), 0);
+  assert.equal(await page.locator(".cm-activeLine").textContent(), lines[topLine - 1]);
   await page.keyboard.press("Control+Shift+v");
   await page.locator(".med-md-prose h1").waitFor();
-  results.previewShortcut = "Cmd+Shift+V and Ctrl+Shift+V toggle the preview from the editor";
-  results.rendering = "GFM tables, tasks, soft breaks, syntax colors, KaTeX, local image, headings";
-  const content = page.locator(".cm-content");
-  const line = (needle) => source.slice(0, source.indexOf(needle)).split("\n").length;
-  await content.click();
-  await page.keyboard.press("Escape");
+  assert.equal(await page.locator(".med-editor").count(), 0);
+  results.previewShortcut =
+    "Cmd+Shift+V and Ctrl+Shift+V switch between the text and its source, each at the other's place";
+  // The text opens where the source's cursor is.
+  const toSource = async () => {
+    await page.keyboard.press("Meta+Shift+v");
+    await page.locator(".cm-content").click();
+    await page.keyboard.press("Escape");
+  };
+  const toText = async () => {
+    await page.keyboard.press("Control+Shift+v");
+    await page.locator(".med-md-prose .med-md-block").first().waitFor();
+  };
+  await toSource();
   await page.keyboard.type(`:${line("## Follow the data")}`);
   await page.keyboard.press("Enter");
+  await toText();
   await page.locator('[data-mermaid][data-rendered="true"]').first().waitFor();
   await page.waitForTimeout(400);
   await page.screenshot({ path: join(output, "diagram-light.png") });
+  await toSource();
   await page.keyboard.type(`:${line("## Put a budget on waiting")}`);
   await page.keyboard.press("Enter");
-  await page.waitForTimeout(450);
+  await toText();
   await page.waitForFunction(() => {
     const pane = document.querySelector(".med-md-scroll").getBoundingClientRect();
     const formula = document.querySelector(".katex-display").getBoundingClientRect();
@@ -236,120 +241,55 @@ try {
   await page.screenshot({ path: join(output, "math-light.png") });
   const followLine = Number(await page.locator(".med-md-scroll").getAttribute("data-follow-line"));
   assert.ok(followLine > 20);
+  results.cursorFollow = { line: followLine };
+  // An unsaved draft reads as written, without a disk write; undo restores it.
+  await toSource();
   await page.keyboard.type("gg0iA live draft: ");
   await page.keyboard.press("Escape");
+  await toText();
   await page.waitForFunction(() =>
     document.querySelector(".med-md-prose")?.textContent?.includes("A live draft:"),
   );
-  assert.equal(await readFile(doc, "utf8"), source, "Preview must not save the draft");
+  assert.equal(await readFile(doc, "utf8"), source, "Reading must not save the draft");
+  await toSource();
   await page.keyboard.press("u");
+  await toText();
   await page.waitForFunction(
     () =>
       document.querySelector(".med-md-prose h1")?.textContent ===
       "Designing a calmer reading queue",
   );
+  await toSource();
   await page.keyboard.type(`:${line("  A[Reader action]")}`);
   await page.keyboard.press("Enter");
   await page.keyboard.type("cc  A[Revised action] --> B[Local store]");
   await page.keyboard.press("Escape");
+  await toText();
   await page.waitForFunction(() =>
     [...document.querySelectorAll(".med-md-diagram")].some((node) =>
       node.textContent.includes("Revised action"),
     ),
   );
+  await toSource();
   await page.keyboard.press("u");
+  await toText();
   await page.waitForFunction(() =>
     [...document.querySelectorAll(".med-md-diagram")].some((node) =>
       node.textContent.includes("Reader action"),
     ),
   );
-  results.diagramEditing = "diagram labels update from unsaved text and recover on undo";
-  results.liveEditing = "unsaved draft and Vim undo update preview without a disk write";
-  await page.keyboard.press("G");
-  await page.waitForFunction(
-    () =>
-      document.querySelector(".med-md-scroll").scrollTop > 1000 &&
-      Number(document.querySelector(".med-md-scroll").dataset.followLine) > 100,
-  );
-  results.cursorFollow = {
-    line: Number(await page.locator(".med-md-scroll").getAttribute("data-follow-line")),
-  };
-  await page.waitForTimeout(400);
-  await page.locator(".cm-scroller").evaluate((node) => {
-    node.scrollTop = 400;
-  });
-  await page.waitForTimeout(300);
-  assert.ok(
-    Number(await page.locator(".med-md-scroll").getAttribute("data-follow-line")) < 40,
-    JSON.stringify(
-      await page.locator(".cm-scroller").evaluate((node) => ({
-        scrollTop: node.scrollTop,
-        follow: document.querySelector(".med-md-scroll").dataset.followLine,
-      })),
-    ),
-  );
-  const fractionalBefore = Number(
-    await page.locator(".med-md-scroll").getAttribute("data-follow-line"),
-  );
-  await page.locator(".cm-scroller").evaluate((node) => {
-    node.scrollTop += 5;
-  });
-  await page.waitForTimeout(350);
-  const fractionalAfter = Number(
-    await page.locator(".med-md-scroll").getAttribute("data-follow-line"),
-  );
-  assert.ok(Math.abs(fractionalAfter - fractionalBefore - 0.25) < 0.01);
-  const frames = await page.evaluate(async () => {
-    const source = document.querySelector(".cm-scroller"),
-      preview = document.querySelector(".med-md-scroll");
-    const samples = [preview.scrollTop];
-    source.scrollTop += 160;
-    for (let i = 0; i < 24; i++) {
-      await new Promise(requestAnimationFrame);
-      samples.push(preview.scrollTop);
-    }
-    return samples;
-  });
-  assert.ok(new Set(frames).size > 4, "Scrolling must pass through intermediate positions");
-  assert.ok(frames.at(-1) > frames[0]);
-  assert.ok(
-    frames.every((value, index) => !index || value >= frames[index - 1] - 1),
-    "Following must not reverse or bounce",
-  );
-  results.scrollMotion = {
-    fractionalLineDelta: fractionalAfter - fractionalBefore,
-    intermediatePositions: new Set(frames).size,
-    frames,
-  };
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  const reducedFrames = await page.evaluate(async () => {
-    document.querySelector(".cm-scroller").scrollTop += 100;
-    const samples = [];
-    for (let i = 0; i < 5; i++) {
-      await new Promise(requestAnimationFrame);
-      samples.push(document.querySelector(".med-md-scroll").scrollTop);
-    }
-    return samples;
-  });
-  assert.ok(new Set(reducedFrames.slice(1)).size <= 1, "Reduced motion must settle without easing");
-  await page.emulateMedia({ reducedMotion: "no-preference" });
-  results.reducedMotion = true;
-  results.scrollFollow = true;
-  await page.getByRole("button", { name: "Toggle Markdown preview" }).click();
-  assert.equal(await page.locator(".med-markdown").count(), 0);
-  await page.reload();
-  await page.getByRole("button", { name: "Toggle Markdown preview" }).waitFor();
-  assert.equal(await page.locator(".med-markdown").count(), 0);
-  await page.getByRole("button", { name: "Toggle Markdown preview" }).click();
-  await page.locator(".med-md-prose h1").waitFor();
+  results.diagramEditing = "diagram labels read from unsaved text and recover on undo";
+  results.liveEditing = "an unsaved draft and Vim undo show in the text without a disk write";
+  // A reload opens the file as it reads again, in the chosen theme.
   await page.evaluate(() => {
     localStorage.setItem("med:theme:v1", "tokyo-night");
   });
   await page.reload();
   await page.locator(".med-md-prose h1").waitFor();
+  assert.equal(await page.locator(".med-editor").count(), 0);
   await page.waitForFunction(() => document.querySelector(".med-md-prose img")?.naturalWidth > 0);
   await page.screenshot({ path: join(output, "preview-dark.png") });
-  results.persistedPreference = true;
+  results.opensAsText = true;
   await page.evaluate((source) => {
     const transfer = new DataTransfer();
     transfer.items.add(new File([source], "readonly.md", { type: "text/markdown" }));
@@ -357,27 +297,28 @@ try {
       new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }),
     );
   }, source);
+  // A read-only file reads too; its source opens in place, and the text
+  // follows the source's last line.
+  await page.locator(".med-md-prose h1").waitFor();
+  await page.keyboard.press("Meta+Shift+v");
   await page.getByRole("region", { name: "Full file", exact: true }).waitFor();
   await page.locator('[aria-label="File navigation"]').focus();
   await page.keyboard.press("G");
+  await page.keyboard.press("Control+Shift+v");
   await page.waitForFunction(
-    () => Number(document.querySelector(".med-md-scroll").dataset.followLine) > 100,
+    () => Number(document.querySelector(".med-md-scroll")?.dataset.followLine) > 100,
   );
   await page
     .getByRole("navigation", { name: "Table of contents" })
     .getByRole("button", { name: "Start with the experience", exact: true })
     .click();
-  const headingLine =
-    source.split("\n").findIndex((line) => line === "## Start with the experience") + 1;
-  await page.waitForFunction(
-    (line) =>
-      Number(document.querySelector('[aria-label="File navigation"]').dataset.vimLine) === line,
-    headingLine,
-  );
-  await page.waitForFunction(
-    (line) => Number(document.querySelector(".med-md-scroll").dataset.followLine) === line,
-    headingLine,
-  );
+  await page.waitForFunction(() => {
+    const pane = document.querySelector(".med-md-scroll").getBoundingClientRect();
+    const heading = [...document.querySelectorAll(".med-md-prose h2")]
+      .find((node) => node.textContent === "Start with the experience")
+      ?.getBoundingClientRect();
+    return heading && heading.top >= pane.top && heading.bottom <= pane.bottom;
+  });
   results.readOnlyFollow = true;
   // Narrow panes keep the preview usable and hide the optional contents rail.
   await page.setViewportSize({ width: 650, height: 900 });

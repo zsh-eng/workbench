@@ -778,10 +778,6 @@ const until = async (test: () => unknown) => {
   for (let waited = 0; waited < 15_000 && !test(); waited += 100) await pause(100);
 };
 /** Sets a toggle button, such as a pane, to shown or hidden. */
-const toggle = (label: string, pressed: boolean) => {
-  const button = visible(`button[aria-label='${label}']`);
-  if (button && (button.getAttribute("aria-pressed") === "true") !== pressed) button.click();
-};
 const tab = (name: string) =>
   all<HTMLElement>("[role='tab']")
     .find((node) => node.textContent?.trim().startsWith(name))
@@ -872,7 +868,7 @@ const scenes: Record<string, () => Promise<void>> = {
       await until(() => marks("unstage").length > count);
     }
   },
-  // A note in the vault beside its preview.
+  // A note in the vault, as it reads.
   async notes() {
     // The file tree renders in its own shadow root. A click selects the
     // note; a double click keeps it open.
@@ -883,8 +879,7 @@ const scenes: Record<string, () => Promise<void>> = {
     await until(note);
     note()?.click();
     note()?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, composed: true }));
-    await until(() => visible("button[aria-label='Toggle Markdown preview']"));
-    toggle("Toggle Markdown preview", true);
+    await until(() => visible("section[aria-label='Markdown preview'] .med-md-block"));
   },
 };
 await scenes[scene]?.();
