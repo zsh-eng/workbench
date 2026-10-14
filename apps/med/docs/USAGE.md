@@ -185,6 +185,9 @@ background shells and agents. It follows the session live.
   open every turn.
 - With focus in the thread, `[` and `]` step through prompts and replies. A
   task in **Background** goes to its call.
+- A session with subagents shows tabs above its thread: **Main** and one per
+  subagent, with a spinner while it works. Click a tab, or use `←` and `→` on
+  the tabs, to read that subagent's thread; `Esc` goes back to **Main**.
 - A prompt's images are square thumbnails. Click one to see it at full size,
   and use `←` and `→` for the others.
 - Links in a reply open files in Med. A web link shows as a pill with its
@@ -195,9 +198,10 @@ background shells and agents. It follows the session live.
 A Session pane without a session lists the agents that Med found, and its **+**
 menu starts one. Med starts Claude Code, OpenCode, Codex (`codex-acp`), or
 Gemini CLI in the review's repository, with your own sign-in; it does not
-install them. The message box has model, effort, and mode pickers, a context
-meter, `/` commands, and **Stop** (or `Esc`). A tool call that needs an answer
-shows **Allow** and **Deny**.
+install them. A thread's agent learns how to hand off its work to the thread
+with a guide, and gets your messages from Med as new turns. The message box has
+model, effort, and mode pickers, a context meter, `/` commands, and **Stop**
+(or `Esc`). A tool call that needs an answer shows **Allow** and **Deny**.
 
 Paste or drop images into the message box, or use its image button. Claude
 Code and ACP agents that take images get them with the message, up to ten of 5

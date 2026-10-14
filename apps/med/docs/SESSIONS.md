@@ -156,10 +156,12 @@ nothing.
   message in Med" and does not spin. The dock stays closed as the reader left
   it; **Hide** keeps it hidden until a new task starts.
 - A subagent is part of its parent's session, not a session of its own: the
-  host reads its transcript into the call that started it. **Open** on a
-  subagent's row, or its task in the Background dock, shows its whole thread
-  over the session's. Back or Escape returns to the session where the reader
-  left it; the arrows step through the session's other subagents.
+  host reads its transcript into the call that started it. When a session has
+  subagents, a row of tabs above the thread holds **Main** and one tab per
+  subagent, with a spinner while it works. A tab, **Open** on a subagent's
+  row, or its task in the Background dock shows its whole thread over the
+  session's. **Main** or Escape returns to the session where the reader left
+  it; the arrow keys, Home, and End move between the tabs.
 - A message from the composer shows in the thread at once, with "Sending…".
   The host keeps the browser's ID for it, so a retry after a lost answer does
   not send it twice. A failed send keeps the text with Retry and Discard. When

@@ -1,7 +1,9 @@
 # Dependencies: build or take
 
-Take a maintained dependency by default. Build a narrow subset only when
-measurements show a clear gain. This guide applies to every app.
+Build what we can build easily and well. Take a dependency when it is
+exceptional work that we would not match, such as Pierre Diffs, Base UI,
+StyleX, Vite, or Zoekt. Prefer what the runtime gives (Node, Bun, the browser)
+over a package. This guide applies to every app.
 
 ## Build our own when
 
@@ -57,6 +59,7 @@ Record these numbers in the change description or in the owning app's docs:
 | Twinkleplop replaces Shiki inside Pierre    | Tokenizing is 8–155× faster on repository files; the build has 9 MiB less lazy JavaScript.                                                 |
 | In-house Java, C++, and XML grammars        | 0.3–2.6% of visible characters differ from Shiki ([method](../apps/med/docs/validation/JAVA_CPP_HIGHLIGHTING.md)); Twinkleplop has no XML. |
 | In-house JSON and JSONC scanner             | No differences from Shiki in 4,149 random and repository files; 1.5–5.2× faster than the Twinkleplop grammar.                              |
-| In-house Go, Rust, and Swift scanners       | Shiki scope stacks in 1,148 of 1,150 files; 24–33× faster than Shiki. Go is 1.6× slower than the Twinkleplop grammar.                       |
+| In-house Go, Rust, and Swift scanners       | Shiki scope stacks in 1,148 of 1,150 files; 24–33× faster than Shiki. Go is 1.6× slower than the Twinkleplop grammar.                      |
 | Keep Mermaid, KaTeX, CodeMirror, and remark | Engines and large specifications. They load lazily.                                                                                        |
 | Keep Base UI in the first load              | Accessible menus, dialogs, and comboboxes need focus and keyboard rules that are expensive to own.                                         |
+| Own WebSocket server, no `ws` package       | About 130 lines for Node. Bun's `node:http` drops raw writes to an upgraded socket, so under Bun the host uses Bun's built-in `ws`.        |

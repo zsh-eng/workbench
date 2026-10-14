@@ -308,7 +308,7 @@ test("the Background dock lists this turn's tasks without Med's wait, and stays 
   localStorage.removeItem("med:background-hidden");
 });
 
-test("a subagent opens over the session, steps to the next one, and Escape goes back", async () => {
+test("tabs switch between the session and its subagents, and Escape goes back", async () => {
   await page.viewport(1280, 900);
   initializeTheme();
   const text = (value: string) => ({ type: "text" as const, text: value });
@@ -365,19 +365,41 @@ test("a subagent opens over the session, steps to the next one, and Escape goes 
   ]);
   root!.render(<SessionThread snapshot={store.getSnapshot()} showWork />);
   const thread = page.getByRole("log", { name: "Session" });
-  await userEvent.click(thread.getByRole("button", { name: "Open Find every place that fetches" }));
+  const tabs = page.getByRole("tablist", { name: "Session and subagents" });
+  const tab = (name: string) => tabs.getByRole("tab", { name });
   const view = page.getByRole("region", { name: "Subagent" });
+  // Each subagent has a tab beside the session's, which says whether it works.
+  await expect
+    .element(tabs)
+    .toHaveTextContent("MainFind every place that fetchesCheck the cache tests");
+  await expect.element(tab("Main")).toHaveAttribute("aria-selected", "true");
+  await expect
+    .element(tab("Find every place that fetches"))
+    .toHaveAttribute("title", "Find every place that fetches · Working");
+  await expect
+    .element(tab("Check the cache tests"))
+    .toHaveAttribute("title", "Check the cache tests · Done");
+
+  await userEvent.click(tab("Find every place that fetches"));
   await expect.element(view.getByText("List each fetch path.")).toBeVisible();
   await expect.element(view.getByText("Two paths fetch.")).toBeVisible();
-  await expect.element(view.getByText("1 of 2")).toBeVisible();
+  await expect
+    .element(tab("Find every place that fetches"))
+    .toHaveAttribute("aria-selected", "true");
   // The session's thread waits beneath, out of reach of the keys.
   expect(thread.element().closest("[inert]")).not.toBeNull();
 
-  await userEvent.click(view.getByRole("button", { name: "Next subagent" }));
+  // The arrow keys move between the tabs.
+  await userEvent.keyboard("{ArrowRight}");
   await expect.element(view.getByText("The tests cover a stale cache.")).toBeVisible();
-  await expect.element(view.getByText("2 of 2")).toBeVisible();
-  await expect.element(view.getByRole("button", { name: "Next subagent" })).toBeDisabled();
+  expect(document.activeElement).toBe(tab("Check the cache tests").element());
+  await userEvent.keyboard("{Home}");
+  await expect.element(view).not.toBeInTheDocument();
+  await expect.element(tab("Main")).toHaveAttribute("aria-selected", "true");
 
+  // Open on a subagent's row opens its tab; Escape goes back to the session.
+  await userEvent.click(thread.getByRole("button", { name: "Open Check the cache tests" }));
+  await expect.element(view.getByText("The tests cover a stale cache.")).toBeVisible();
   await userEvent.keyboard("{Escape}");
   await expect.element(view).not.toBeInTheDocument();
   expect(thread.element().closest("[inert]")).toBeNull();
