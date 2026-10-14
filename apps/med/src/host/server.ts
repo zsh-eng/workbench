@@ -86,6 +86,8 @@ import {
 import { AgentInbox } from "./agent-inbox";
 import { findAgents, OwnedSessions, type RunnableAgent } from "./owned-sessions";
 import { createAgentStatus } from "./agent-status";
+import { createFoundSessions } from "./found-sessions";
+import { foundUpdateSchema } from "../shared/found-sessions";
 import { ownedActionSchema, ownedStartSchema } from "../shared/owned-session";
 import {
   threadSlug,
@@ -299,10 +301,19 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   });
   // The windows' thread lists.
   const threadStreams = new Set<ServerResponse>();
+  // Claude Code and Codex sessions in the registered repositories that no
+  // saved review names; the thread list shows them too.
+  const found = createFoundSessions({
+    repositories: () => registry.snapshot(),
+    refreshRepositories: () => registry.list(),
+    settingsFile: join(options.stateDir ?? temporaryState!, "found-sessions.json"),
+  });
+  await found.restore();
   /** Every thread, newest first, with the repositories that threads start in. */
   const listThreads = async (): Promise<ThreadList> => {
     const repositories = registry.snapshot();
-    const reviews = (await savedReviews.list()).filter((review) => !review.archivedAt);
+    const saved = await savedReviews.list();
+    const reviews = saved.filter((review) => !review.archivedAt);
     const threads = await Promise.all(
       reviews.map(async (review): Promise<Thread> => {
         const target = review.targets.find((entry) => !entry.commentReviewId) ?? review.targets[0];
@@ -336,10 +347,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         };
       }),
     );
+    threads.push(...found.threads(saved));
     threads.sort((a, b) => b.updatedAt - a.updatedAt);
     return {
       threads,
       repositories: repositories.map(({ id, name, path }) => ({ id, name, path })),
+      found: found.settings(),
     };
   };
 
@@ -750,8 +763,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             url.pathname,
           );
         if (sessionPage && request.method === "GET") {
-          const bundle = await savedReviews.get(sessionPage[1]!);
-          const session = bundle.sessions?.find((entry) => entry.id === sessionPage[2]);
+          const sessions =
+            (await found.session(sessionPage[1]!)) ??
+            (await savedReviews.get(sessionPage[1]!)).sessions;
+          const session = sessions?.find((entry) => entry.id === sessionPage[2]);
           const path = session && session.agent !== "acp" && (await findTranscript(session));
           if (!session || !path)
             throw new HostError(
@@ -780,8 +795,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             url.pathname,
           );
         if (sessionRoute && request.method === "GET") {
-          const bundle = await savedReviews.get(sessionRoute[1]!);
-          const session = bundle.sessions?.find((entry) => entry.id === sessionRoute[2]);
+          // A found thread's ID names its one session (found-sessions.ts).
+          const sessions =
+            (await found.session(sessionRoute[1]!)) ??
+            (await savedReviews.get(sessionRoute[1]!)).sessions;
+          const session = sessions?.find((entry) => entry.id === sessionRoute[2]);
           if (!session)
             throw new HostError("session-not-found", "This review has no such agent session.", 404);
           const runner = ownedSessions.get(session.id);
@@ -945,6 +963,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               await new Promise((done) => setTimeout(done, STATUS_MS));
             }
           })();
+          return;
+        }
+        // Shows or hides the sessions that Med finds, or one of them.
+        if (url.pathname === "/api/found" && request.method === "POST") {
+          send(await found.update(foundUpdateSchema.parse(await readBody(request))));
           return;
         }
         if (url.pathname === "/api/agents" && request.method === "GET") {
@@ -2372,6 +2395,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       clearInterval(heartbeat);
       await ownedSessions.stopAll();
       closeTranscripts();
+      found.close();
       for (const abort of activeRequests.keys()) abort.abort();
       for (const stream of [...streams.keys(), ...windows]) stream.end();
       // A channel's handler stops when its response closes. Bun does not emit

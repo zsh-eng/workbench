@@ -34,12 +34,17 @@ export const threadSchema = z.object({
     })
     .optional(),
   pullRequestUrl: z.string().optional(),
+  /** A session that Med found by itself (src/host/found-sessions.ts): no
+   * saved review names it, and its ID is not a review's. */
+  found: z.boolean().optional(),
 });
 export type Thread = z.infer<typeof threadSchema>;
 
 export const threadListSchema = z.object({
   threads: z.array(threadSchema),
   repositories: z.array(z.object({ id: z.string(), name: z.string(), path: z.string() })),
+  /** Whether the list shows the sessions that Med finds by itself. */
+  found: z.object({ shown: z.boolean() }).optional(),
 });
 export type ThreadList = z.infer<typeof threadListSchema>;
 
