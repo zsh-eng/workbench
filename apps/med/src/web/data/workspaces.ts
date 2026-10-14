@@ -217,7 +217,8 @@ export const overlayAddress = (pathname: string) =>
   pathname === "/sources" ||
   pathname === "/welcome" ||
   pathname === "/files" ||
-  pathname === "/file";
+  pathname === "/file" ||
+  pathname === "/search";
 
 /** The workspace's address. A saved review keeps its link; branches use "/". */
 export const workspaceUrl = (workspace: Workspace) =>

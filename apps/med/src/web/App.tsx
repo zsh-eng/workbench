@@ -72,6 +72,9 @@ import {
 } from "./components/PaneTree";
 import type { PaneNode, Side } from "./data/pane-tree";
 import { FilePicker } from "./components/FilePicker";
+import { openSearchPage } from "./components/SearchPage";
+import { repoFilter } from "./data/search-query";
+import { subscribeFileOpens, takeFileOpen } from "./data/file-opens";
 import { SymbolPicker } from "./components/SymbolPicker";
 import { FullFileView, type BeginFileSymbolPreview } from "./components/FullFileView";
 import { FileViewTabs } from "./components/FileViewTabs";
@@ -260,6 +263,7 @@ export function App({
   const state = useReviewController(controller);
   // Inside a workspace host, the host owns the controller and the address.
   const workspace = useWorkspace();
+  const workspaceId = workspace?.id;
   const shown = useWorkspaceShown();
   // While the thread's agent works, its changes are expected: the drift bar waits.
   const agentWorking = useThreadState(state.savedReview?.id) === "working";
@@ -485,6 +489,18 @@ export function App({
     state.savedTargetId,
     state.status,
   ]);
+  // A file that the search page opens here, once the workspace reads its files.
+  const filesReady = !!fileState.source;
+  useEffect(() => {
+    if (!workspaceId || !filesReady) return;
+    const take = () => {
+      const request = takeFileOpen(workspaceId);
+      if (request)
+        fileWorkspace.open(request.path, true, request.line, request.source, request.label);
+    };
+    take();
+    return subscribeFileOpens(take);
+  }, [workspaceId, filesReady, fileWorkspace]);
   useDisposeOnClose(fileWorkspace.dispose);
   const repositoryFiles = useBrowseFiles(
     browseSource,
@@ -606,6 +622,34 @@ export function App({
     setPickerResume(false);
     setFilePickerOpen(true);
   }, []);
+  // In a workspace, ⌘⇧F opens the search page for this checkout's repository.
+  const sessionRepository = state.session?.repository;
+  const searchRepository = useMemo(() => {
+    if (!sessionRepository) return undefined;
+    const path = sessionRepository.path;
+    const registered =
+      state.repositories.find((repository) => repository.id === state.activeRepositoryId) ??
+      state.repositories.find(
+        (repository) =>
+          repository.path === path || repository.worktrees.some((tree) => tree.path === path),
+      );
+    return registered
+      ? { id: registered.id, name: registered.name, path: registered.path }
+      : { id: path, name: sessionRepository.name, path };
+  }, [sessionRepository, state.repositories, state.activeRepositoryId]);
+  const openSearch = useCallback(() => {
+    if (!workspaceId || !browseSource || !searchRepository) return openContentSearch();
+    const selected = (fileSelection.current?.() || window.getSelection()?.toString() || "")
+      .split("\n")[0]!
+      .trim()
+      .slice(0, 200);
+    const filter = repoFilter(searchRepository.name);
+    openSearchPage(selected ? `${filter} ${selected}` : `${filter} `, {
+      workspace: workspaceId,
+      repository: searchRepository,
+      source: browseSource,
+    });
+  }, [workspaceId, browseSource, searchRepository, openContentSearch]);
   const resumeFilePicker = useCallback(() => {
     setPickerQuery(undefined);
     setPickerResume(true);
@@ -2229,7 +2273,7 @@ export function App({
         event.preventDefault();
         event.stopPropagation();
         setCommandsOpen(false);
-        openContentSearch();
+        openSearch();
         return;
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
@@ -2382,7 +2426,7 @@ export function App({
     toggleZen,
     browseSource,
     openFilePicker,
-    openContentSearch,
+    openSearch,
     resumeFilePicker,
     helpOpen,
     rangeOpen,
@@ -2449,7 +2493,6 @@ export function App({
   };
   // The workspace list names each workspace and shows its changed-file count.
   const reportTo = workspace?.update;
-  const workspaceId = workspace?.id;
   const reportTitle = state.savedReview?.title ?? branches.current?.label ?? state.activeBranch;
   const reportPath = state.session?.repository.path;
   // A linked worktree, so closing the workspace can remove it.
@@ -2936,7 +2979,7 @@ export function App({
       label: "Search workspace file contents",
       shortcut: "⌘ ⇧ F",
       disabled: !browseSource,
-      run: openContentSearch,
+      run: openSearch,
     },
     {
       id: "resume-picker",

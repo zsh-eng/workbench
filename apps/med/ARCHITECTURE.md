@@ -261,6 +261,15 @@ The address follows the active workspace: `/review/<id>`, `/vault/<id>`, or `/`
 with the workspace ID in `history.state`. Back and Forward move between
 workspaces.
 
+`/search?q=…` is the search page (`components/SearchPage.tsx`). The host draws
+it over the workspaces and keeps the active one; while it shows, the keys are
+the page's. Its `history.state` names the workspace that opened it and that
+workspace's checkout, so a match in that repository opens there, and a match in
+another repository opens in that repository's workspace. The file opens when
+the workspace reads its files (`data/file-opens.ts`), at the commit that the
+search read. Each repository's search is its own `X-Med-Latest` stream, so the
+searches of one query do not cancel each other, and four run at once.
+
 ### Threads
 
 `GET /api/threads/events` sends the thread list and the registered

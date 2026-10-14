@@ -70,10 +70,12 @@ export function createBrowseApi(fetcher: typeof fetch, token: string) {
         throw new Error("The symbols belong to another commit.");
       return result;
     },
-    async search(source: BrowseSource, query: string, signal?: AbortSignal) {
+    /** `stream` names the query that this one replaces on the host, such as
+     * one for each repository that a search page searches at once. */
+    async search(source: BrowseSource, query: string, signal?: AbortSignal, stream = "search") {
       const result = await api.json("/api/browse/search", browseSearchResponseSchema, {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...latest("search") },
+        headers: { "Content-Type": "application/json", ...latest(stream) },
         body: JSON.stringify({ source, query }),
         signal,
       });

@@ -418,9 +418,19 @@ preview in Find file**, hides the preview in every picker and window.
 
 ### Search file contents
 
-**Search file contents** (`⌘⇧F`) reads committed branch content, and opens
-results at the exact commit shown. It does not include uncommitted or
-untracked changes. Without Zoekt, it searches with Git.
+**Search file contents** (`⌘⇧F`) opens the search page, with `repo:` set to the
+repository of the workspace. Results show as you type, by file. `repo:name`
+picks a repository; add more to search several, or remove them all to search
+every registered repository. The repository of the workspace is searched in
+its own checkout, such as a thread's worktree, and the others in their main
+checkout. `↑` and `↓` move through the matches, `↵` opens one at its line in
+that repository's workspace, and `Esc` or Back returns. The address
+(`/search?q=…`) keeps the query.
+
+Search reads committed branch content, and opens results at the exact commit
+shown. It does not include uncommitted or untracked changes. Without Zoekt, it
+searches with Git. A review outside the workspaces, such as a patch file, uses
+the content picker instead of the page.
 
 [Zoekt](https://github.com/sourcegraph/zoekt) makes search faster and adds
 project symbols. Setup builds pinned helpers once and needs Go

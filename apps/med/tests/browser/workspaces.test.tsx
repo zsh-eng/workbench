@@ -163,6 +163,8 @@ function createHost() {
   const removals: string[] = [];
   // Each request's path, in order.
   const requested: string[] = [];
+  // Each text search: the checkout it read, and the text.
+  const searches: string[] = [];
   // The talk thread's session sends its first view when the test releases it.
   let releaseSession!: () => void;
   const sessionHeld = new Promise<void>((resolve) => {
@@ -393,6 +395,27 @@ function createHost() {
           entries: [],
           truncated: false,
         });
+      case "/api/browse/search": {
+        const { source, query } = JSON.parse(String(init?.body));
+        searches.push(`${source.repo} ${query}`);
+        const text = "export const after = 2;";
+        return Response.json({
+          source,
+          query,
+          matches: text.toLowerCase().includes(query.toLowerCase())
+            ? [
+                {
+                  path: source.repo === "/test/other" ? "lib/other.ts" : "src/alpha.ts",
+                  line: 1,
+                  text,
+                },
+              ]
+            : [],
+          truncated: false,
+          resultSource: { kind: "commit", repo: source.repo, oid: head },
+          engine: "zoekt",
+        });
+      }
       case "/api/browse/read": {
         const { source, path } = JSON.parse(String(init?.body));
         return Response.json({
@@ -416,6 +439,7 @@ function createHost() {
     setThreads,
     threadRequests,
     requested,
+    searches,
     answers,
     pulls,
     setPull,
@@ -889,4 +913,57 @@ test("a pasted pull request link opens a workspace at once, which becomes its re
   host.setPull({ status: "done", reviewId: "agent" });
   await expect.poll(() => shown()?.dataset.reviewId).toBe("agent-target");
   expect(location.pathname).toBe("/review/agent");
+});
+
+test("⌘⇧F opens the search page for the workspace's repository, and a match opens at its line", async () => {
+  const host = createHost();
+  render(host);
+  host.setThreads(
+    [],
+    [
+      { id: "repo-0", name: "fixture", path: "/test/repo" },
+      { id: "repo-1", name: "other", path: "/test/other" },
+    ],
+  );
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+
+  await userEvent.keyboard("{Control>}{Shift>}f{/Shift}{/Control}");
+  const query = page.getByRole("combobox", { name: "Search query" });
+  await expect.element(query).toHaveValue("repo:fixture ");
+  expect(location.pathname).toBe("/search");
+  await expect.element(query).toHaveFocus();
+
+  // Results show as you type, from this checkout only.
+  await userEvent.keyboard("AFTER");
+  await expect.element(page.getByRole("status")).toHaveTextContent("1 result in 1 file in fixture");
+  expect(host.searches).toEqual(["/test/repo AFTER"]);
+  await expect
+    .element(page.getByRole("option", { selected: true }))
+    .toHaveTextContent("1export const after = 2;");
+  expect(document.querySelector("mark")?.textContent).toBe("after");
+
+  // Without a filter, every repository.
+  await query.fill("after");
+  await expect
+    .element(page.getByRole("status"))
+    .toHaveTextContent("2 results in 2 files across 2 repositories");
+  expect(host.searches).toContain("/test/other after");
+
+  // Enter opens the chosen match in this workspace, at the commit searched.
+  await query.fill("repo:fixture after");
+  await expect.element(page.getByRole("status")).toHaveTextContent("1 result in 1 file in fixture");
+  await userEvent.keyboard("{Enter}");
+  await expect.poll(() => shown()?.dataset.activeFile).toBe("src/alpha.ts");
+  expect(location.pathname).toBe("/");
+  expect(document.querySelector('[aria-label="Search query"]')).toBeNull();
+
+  // Back returns to the results; Escape leaves them.
+  history.back();
+  await expect
+    .element(page.getByRole("combobox", { name: "Search query" }))
+    .toHaveValue("repo:fixture after");
+  await userEvent.keyboard("{Escape}");
+  await expect.poll(() => location.pathname).toBe("/");
+  await expect.poll(() => document.querySelector('[aria-label="Search query"]')).toBeNull();
+  expect(shown()?.dataset.activeFile).toBe("src/alpha.ts");
 });
