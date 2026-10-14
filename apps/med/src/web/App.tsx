@@ -984,8 +984,7 @@ export function App({
   // The controller publishes the saved note before its save promise completes.
   // Replace that draft in the same render so the diff never reserves two cards.
   const draftSaved =
-    !!submitted &&
-    sameTarget(submitted.target, draft) &&
+    submitted?.target === draft &&
     submitted.reviewId === state.review?.id &&
     notes.some(
       (note) =>
@@ -3434,14 +3433,10 @@ export function App({
           key={JSON.stringify(annotation.metadata.draft)}
           target={annotation.metadata.draft}
           initialText={
-            sameTarget(pendingDraft?.target, annotation.metadata.draft)
-              ? pendingDraft!.note.text
-              : undefined
+            pendingDraft?.target === annotation.metadata.draft ? pendingDraft.note.text : undefined
           }
           initialError={
-            sameTarget(pendingDraft?.target, annotation.metadata.draft)
-              ? pendingDraft!.error
-              : undefined
+            pendingDraft?.target === annotation.metadata.draft ? pendingDraft.error : undefined
           }
           onSave={async (note) => {
             const submission = {
@@ -3467,11 +3462,11 @@ export function App({
           }}
           onCancel={() => {
             const target = annotation.metadata!.draft!;
-            if (sameTarget(draftRef.current, target)) {
+            if (draftRef.current === target) {
               setDraft(null);
               setSelection(null);
             }
-            setPendingDraft((current) => (sameTarget(current?.target, target) ? null : current));
+            setPendingDraft((current) => (current?.target === target ? null : current));
           }}
         />
       ) : annotation.metadata?.thread ? (

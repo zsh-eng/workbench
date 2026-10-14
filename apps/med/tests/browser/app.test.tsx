@@ -78,6 +78,8 @@ afterEach(() => {
   root = undefined;
   mount = undefined;
   for (const key of storedPreferences) localStorage.removeItem(key);
+  // As from another window: the viewed marks drop their in-memory copy.
+  window.dispatchEvent(new StorageEvent("storage", { key: "med:viewed:v1:saved" }));
 });
 
 function response(comparison: Comparison): ReviewResponse {
