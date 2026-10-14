@@ -36,6 +36,8 @@ const close = (controller: ReadableStreamDefaultController<Uint8Array>) => {
   }
 };
 
+/** The longest wait for a WebSocket to open before the event stream. */
+const OPEN_MS = 3000;
 /**
  * The page's live stream. A WebSocket takes none of the six connections that a
  * browser allows each host, so every Med window and tab can keep one; where it
@@ -59,10 +61,17 @@ function openStream(token: string): Promise<ReadableStream<Uint8Array> | undefin
   }
   return new Promise((resolve) => {
     let opened = false;
+    // A handshake that neither opens nor fails, as behind some proxies, gives way.
+    const timer = setTimeout(() => {
+      socket.onclose = null;
+      socket.close();
+      resolve(eventStream());
+    }, OPEN_MS);
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
         socket.onmessage = (event) => controller.enqueue(encoder.encode(String(event.data)));
         socket.onclose = () => {
+          clearTimeout(timer);
           if (opened) close(controller);
           else resolve(eventStream());
         };
@@ -70,6 +79,7 @@ function openStream(token: string): Promise<ReadableStream<Uint8Array> | undefin
       cancel: () => socket.close(),
     });
     socket.onopen = () => {
+      clearTimeout(timer);
       opened = true;
       resolve(body);
     };

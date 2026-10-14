@@ -618,7 +618,7 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
               <div
                 className="med-vault-resizer"
                 role="separator"
-                aria-label="Resize sidebar"
+                aria-label="Resize vault files"
                 aria-orientation="vertical"
                 aria-valuemin={220}
                 aria-valuemax={520}

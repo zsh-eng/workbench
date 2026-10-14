@@ -7,6 +7,8 @@ import { join, resolve } from "node:path";
 import { chromium } from "playwright";
 
 // Use the built CLI or standalone executable with isolated repositories and state.
+// A run from inside an agent session must not link that session to its reviews.
+delete process.env.CLAUDE_CODE_SESSION_ID;
 const executable = process.env.MED_EXECUTABLE;
 const command = executable ? resolve(executable) : process.execPath;
 const cliArgs = executable ? [] : ["dist/cli.js"];
@@ -98,6 +100,8 @@ try {
     await mkdir(repo);
     git(repo, "init", "-b", "main");
     git(repo, "config", "commit.gpgsign", "false");
+    // A parent for the baseline commit, which the check opens as a range.
+    git(repo, "commit", "--allow-empty", "-m", "root");
     await writeFile(
       join(repo, "same.ts"),
       `export const scope = "${name}";\nexport const ${name}Before = 1;\nexport const adjacent = 3;\n`,
@@ -428,7 +432,19 @@ process.stdout.write(process.env.MED_TEST_PR);
   await page.evaluate(() => window.restoreClipboard());
 
   // Browse a commit outside the initial snapshot, then return and copy all scopes.
-  await page.getByRole("option").filter({ hasText: "baseline" }).first().click();
+  // A commit opens as a range from its parent, from the command palette.
+  const baseline = git(repositories[0], "rev-parse", ":/baseline");
+  await page.keyboard.press("Meta+k");
+  await page
+    .getByRole("dialog")
+    .getByRole("combobox", { name: "Search commands" })
+    .fill("Compare branches or revisions");
+  await page.keyboard.press("Enter");
+  await page
+    .getByRole("textbox", { name: "Base revision", exact: true })
+    .fill(git(repositories[0], "rev-parse", `${baseline}~1`));
+  await page.getByRole("textbox", { name: "Head revision", exact: true }).fill(baseline);
+  await page.getByRole("button", { name: "Review", exact: true }).click();
   await page.locator('[data-review-status="ready"]').waitFor();
   await page
     .locator('[data-additions] [data-column-number="1"] [data-line-number-content]')

@@ -2183,6 +2183,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   // A page's live stream as a WebSocket: the same events as /api/live sends,
   // without holding one of the browser's six connections to the host.
   server.on("upgrade", (request: IncomingMessage, socket: Duplex) => {
+    // Bun's node:http does not send what an upgraded socket writes, so the
+    // compiled host refuses at once and the page keeps its event stream.
+    if (process.versions.bun) {
+      socket.destroy();
+      return;
+    }
     const host = request.headers.host;
     const url = new URL(request.url ?? "/", `http://${host ?? "127.0.0.1"}`);
     const cookie = request.headers.cookie

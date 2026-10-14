@@ -54,21 +54,26 @@ try {
   );
   await mkdir(repo);
   await exec("git", ["init", "-b", "main", repo]);
+  const commitAll = (message) =>
+    exec("git", [
+      "-C",
+      repo,
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.invalid",
+      "-c",
+      "commit.gpgsign=false",
+      "commit",
+      "--allow-empty",
+      "-m",
+      message,
+    ]);
+  // A commit before the one that the check opens, so it has a parent to compare with.
+  await commitAll("base");
   await writeFile(join(repo, "a.txt"), "a\n");
   await exec("git", ["-C", repo, "add", "."]);
-  await exec("git", [
-    "-C",
-    repo,
-    "-c",
-    "user.name=Test",
-    "-c",
-    "user.email=test@example.invalid",
-    "-c",
-    "commit.gpgsign=false",
-    "commit",
-    "-m",
-    "initial",
-  ]);
+  await commitAll("initial");
   const [addedText, url] = await Promise.all([
     run("add", vault, "--wait"),
     run("web", "--no-open"),
@@ -121,8 +126,17 @@ try {
   await page.goto(conn.origin);
   assert.equal((await openingReview).status(), 200, "managed host must open working changes");
   await page.locator('[data-review-status="ready"]').waitFor();
+  // A commit opens as a revision range, from the command palette.
+  const command = async (name) => {
+    await page.keyboard.press("Meta+k");
+    await page.getByRole("dialog").getByRole("combobox", { name: "Search commands" }).fill(name);
+    await page.keyboard.press("Enter");
+  };
+  await command("Compare branches or revisions");
+  await page.getByRole("textbox", { name: "Base revision", exact: true }).fill("HEAD~1");
+  await page.getByRole("textbox", { name: "Head revision", exact: true }).fill("HEAD");
   const commitReview = reviewResponse();
-  await page.getByRole("option").filter({ hasText: "initial" }).click();
+  await page.getByRole("button", { name: "Review", exact: true }).click();
   const commitResponse = await commitReview;
   assert.equal(commitResponse.status(), 200, "managed host must open commit diffs");
   const commit = await commitResponse.json();
@@ -130,7 +144,7 @@ try {
   assert.match(commit.patch, /\+a/);
   await page.locator('[data-review-status="ready"]').waitFor();
   const workingReview = reviewResponse();
-  await page.getByRole("button", { name: "Working changes", exact: true }).click();
+  await command("Review working changes");
   assert.equal((await workingReview).status(), 200);
   await page.locator('[data-review-status="ready"]').waitFor();
   const changedReview = page.waitForResponse(
@@ -151,7 +165,7 @@ try {
   const mainBox = await page.locator(".med-vault-main").boundingBox();
   // Workspaces and files keep the review sidebar's place on the left.
   assert.ok(sidebarBox.x + sidebarBox.width <= mainBox.x + 1, "Vault files stay on the left");
-  const resizer = page.getByRole("separator", { name: "Resize sidebar", exact: true });
+  const resizer = page.getByRole("separator", { name: "Resize vault files", exact: true });
   await resizer.focus();
   await page.keyboard.press("ArrowRight");
   assert.equal(Number(await resizer.getAttribute("aria-valuenow")), sidebarBox.width + 16);

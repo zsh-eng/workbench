@@ -620,8 +620,11 @@ export function App({
     !!activeFile &&
     fileState.file?.kind === "text" &&
     /\.(md|markdown|mdown|mkd)$/i.test(activeFile.path);
+  const previewOpen = panes.isOpen("preview");
+  // The toggle follows the pane on screen: a preview that is wanted but had no
+  // free room (see the quiet show below) shows with one click.
   const togglePreview = useCallback(() => {
-    const next = !previewWanted;
+    const next = !(previewWanted && previewOpen);
     setPreviewWanted(next);
     try {
       localStorage.setItem("med-markdown-preview", String(next));
@@ -630,12 +633,11 @@ export function App({
     }
     // Asked for, the preview takes room from the oldest pane.
     if (next && previewable) showPane("preview");
-  }, [previewWanted, previewable, showPane]);
+  }, [previewWanted, previewOpen, previewable, showPane]);
   useEffect(() => {
     if (previewWanted && previewable) showPane("preview", { quiet: true });
     else closePane("preview");
   }, [previewWanted, previewable, showPane, closePane]);
-  const previewOpen = panes.isOpen("preview");
   const previewPane = useMemo(
     () => ({ open: previewOpen, target: previewTarget, onToggle: togglePreview }),
     [previewOpen, previewTarget, togglePreview],

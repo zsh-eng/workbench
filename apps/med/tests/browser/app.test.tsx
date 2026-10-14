@@ -1217,6 +1217,21 @@ describe("graphical review", () => {
     await page.viewport(1280, 800);
     await expect.poll(ids).toEqual(["changed", "review", "files"]);
   });
+  test("a wanted preview without free room shows with one click on its toggle", async () => {
+    await page.viewport(1280, 800);
+    localStorage.setItem("med-markdown-preview", "true");
+    await mountApp();
+    // Changed files, the review, and Files leave no free room for a quiet preview.
+    await page.getByRole("button", { name: "Toggle files sidebar" }).click();
+    const files = page.getByRole("region", { name: "Workspace files", exact: true });
+    await files.getByRole("treeitem", { name: "GUIDE.md", exact: true }).click();
+    const toggle = page.getByRole("button", { name: "Toggle Markdown preview" });
+    await expect.element(toggle).toHaveAttribute("aria-pressed", "false");
+    await toggle.click();
+    const preview = page.getByRole("region", { name: "Markdown preview" });
+    await expect.element(preview.getByRole("heading", { name: "Guide" })).toBeVisible();
+    expect(localStorage.getItem("med-markdown-preview")).toBe("true");
+  });
   test("a pane's header drags it beside another pane or swaps the two; Escape keeps it", async () => {
     await page.viewport(1280, 800);
     await mountApp();
