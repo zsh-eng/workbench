@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { attemptRefSchema } from "./attempts";
 import { comparisonSchema, type ReviewResponse, type SourceResponse } from "./protocol";
 import {
   reviewGuideSchema,
@@ -139,6 +140,8 @@ export const savedReviewCreateSchema = z.object({
   brief: briefTextSchema.optional(),
   /** Segments to read the change in; see review-guide.ts. */
   guide: reviewGuideSchema.optional(),
+  /** One attempt at a task that several agents do; see attempts.ts. */
+  group: attemptRefSchema.optional(),
   targets: z
     .array(
       z.object({
@@ -213,6 +216,8 @@ export const savedReviewSchema = z.object({
   sessions: z.array(agentSessionSchema).optional(),
   /** Set when the thread is archived: the thread list leaves it out. */
   archivedAt: z.string().optional(),
+  /** One attempt at a task that several agents do; see attempts.ts. */
+  group: attemptRefSchema.optional(),
   /** Present once a key is used; the last one is current. */
   iterations: z.array(savedIterationSchema).optional(),
   totals: z

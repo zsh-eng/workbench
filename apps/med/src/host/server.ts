@@ -69,6 +69,7 @@ import { FileSymbolService } from "./search/symbols";
 import { type SearchOptions } from "./search/service";
 import { RepositoryRegistry } from "./repository/registry";
 import { removeWorktree } from "./repository/worktrees";
+import { AttemptGroups } from "./attempts";
 import { runProcess } from "./runtime/process";
 import { acceptWebSocket } from "./runtime/websocket";
 import { CodexReviews } from "./codex-reviews";
@@ -86,6 +87,7 @@ import { createFoundSessions } from "./found-sessions";
 import { createCheckoutWork } from "./checkout-work";
 import { foundUpdateSchema } from "../shared/found-sessions";
 import { ownedActionSchema, ownedStartSchema } from "../shared/owned-session";
+import { attemptLetter } from "../shared/attempts";
 import {
   threadSlug,
   threadStartSchema,
@@ -354,6 +356,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             },
           }),
           ...(review.pullRequestUrl && { pullRequestUrl: review.pullRequestUrl }),
+          ...(review.group && { group: review.group }),
         };
       }),
     );
@@ -493,6 +496,32 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     },
   });
   const pullStreams = new Set<ServerResponse>();
+  // Attempts: the threads of one task, compared, and one of them kept.
+  const attempts = new AttemptGroups({
+    reviews: () => savedReviews.list(),
+    status: (review) =>
+      review.sessions?.length
+        ? reviewStatus(review.id, review.sessions)
+        : Promise.resolve(undefined),
+    ownedEvents: (id) => ownedSessions.events(id),
+    ownedModel: (id) =>
+      ownedSessions
+        .get(id)
+        ?.state()
+        .settings.find((entry) => entry.category === "model")?.value,
+    archive: (id, archived) => savedReviews.archive(id, archived),
+    rename: (id, title) => savedReviews.details(id, { title }),
+    repository: (path) => registry.owner(path),
+    stopAgents(path) {
+      const working = ownedSessions
+        .within(path)
+        .filter((runner) => runner.state().status !== "idle");
+      for (const runner of working) ownedSessions.end(runner);
+      return working.length;
+    },
+    removeWorktree: (path, signal) => removeLinkedWorktree(path, signal),
+    refresh: (path) => registry.refreshOwner(path),
+  });
   if (repository.git !== false) {
     await registry.register(repository.path);
     for (const path of options.repos ?? []) await registry.register(path);
@@ -618,6 +647,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     route(commitRoutes.pushBranch, async (input, { requireRepo, signal }) =>
       pushCurrentBranch({ ...input, repo: await requireRepo(input.repo) }, signal),
     ),
+    ...attempts.routes(),
   ]);
   const handle = (request: IncomingMessage, response: ServerResponse) => {
     const abort = new AbortController();
@@ -1453,6 +1483,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           // its review, and an agent that starts on the task there.
           if (url.pathname === "/api/threads" && request.method === "POST") {
             const input = threadStartSchema.parse(await readBody(request));
+            if (input.group && !input.worktree)
+              throw new HostError("attempt-worktree", "Each attempt needs its own worktree.", 400);
             const entry = registry.snapshot().find((item) => item.id === input.repositoryId);
             if (!entry)
               throw new HostError("repository-not-found", "Add this repository to Med first.", 404);
@@ -1473,9 +1505,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               const branches = new Set(
                 (await git(["branch", "--format=%(refname:short)"])).stdout.toString().split("\n"),
               );
-              let name = slug;
+              // An attempt's branch ends in its letter, such as week-view-b.
+              const stem = input.group
+                ? `${slug}-${attemptLetter(input.group.attempt).toLowerCase()}`
+                : slug;
+              let name = stem;
               for (let n = 2; branches.has(name) || existsSync(join(base, name)); n++)
-                name = `${slug}-${n}`;
+                name = `${stem}-${n}`;
               assertRequestAccess();
               await git(["worktree", "add", "-b", name, join(base, name)]);
               await registry.refreshOwner(entry.path);
@@ -1492,6 +1528,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 title,
                 key,
                 sessions: [runner.session],
+                ...(input.group ? { group: input.group } : {}),
                 targets: [{ repo: cwd, comparison: { kind: "working" } }],
               },
               captureTarget,
@@ -2237,6 +2274,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         path.startsWith("/file/") ||
         path === "/files" ||
         path === "/search" ||
+        path.startsWith("/attempts/") ||
         path === "/" ||
         /^\/review\/[a-zA-Z0-9_-]+$/.test(path);
       const file = resolve(webRoot, `.${appRoute ? "/index.html" : path}`);

@@ -17,6 +17,7 @@ import {
 import { join } from "node:path";
 import { z } from "zod";
 import { parsePatchFiles, type FileDiffMetadata } from "@pierre/diffs";
+import { attemptRefSchema } from "../shared/attempts";
 import { normalizeDiffMetadataPaths } from "../shared/hunk/diffPaths";
 import {
   comparisonSchema,
@@ -166,6 +167,7 @@ const savedSchema = z.object({
   commentCount: natural,
   targets: z.array(targetSchema).min(1).max(128),
   archivedAt: text.optional(),
+  group: attemptRefSchema.optional(),
 });
 const recordSchema = z.object({
   version: z.literal(1),
@@ -665,6 +667,7 @@ export class SavedReviewStore {
             ? { brief: { text: input.brief, updatedAt: new Date().toISOString() } }
             : {}),
           ...(input.guide ? { guide: savedGuide(input.guide) } : {}),
+          ...(input.group ? { group: input.group } : {}),
           createdAt: new Date().toISOString(),
           revision: 0,
           commentCount: 0,

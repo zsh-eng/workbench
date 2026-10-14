@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { agentStatusSchema, threadTurnSchema } from "./agent-status";
+import { attemptRefSchema } from "./attempts";
 import { agentChoicesSchema } from "./owned-session";
 import { agentSessionSchema } from "./saved-review";
 
@@ -57,6 +58,8 @@ export const threadSchema = z.object({
       uncommitted: z.boolean(),
     })
     .optional(),
+  /** One attempt at a task that several agents do; the sidebar shows a group together. */
+  group: attemptRefSchema.optional(),
 });
 export type Thread = z.infer<typeof threadSchema>;
 
@@ -78,6 +81,8 @@ export const threadStartSchema = z.object({
   worktree: z.boolean().default(true),
   title: z.string().trim().min(1).max(120).optional(),
   choices: agentChoicesSchema.optional(),
+  /** One attempt of several at this task: its branch ends in the attempt's letter. */
+  group: attemptRefSchema.optional(),
 });
 export type ThreadStart = z.infer<typeof threadStartSchema>;
 
