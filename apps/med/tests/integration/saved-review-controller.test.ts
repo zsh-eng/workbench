@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startHost } from "../../src/host/server";
 import { createReviewController } from "../../src/web/data/controller";
+import { REVIEW_UPDATED } from "../../src/web/data/workspaces";
 import type { SavedReview } from "../../src/shared/saved-review";
 
 const cleanup: (() => Promise<unknown> | void)[] = [];
@@ -30,6 +31,8 @@ async function fixture({
   removeWorktreeDuringOpen = false,
   staleCatalogue = false,
   events = false,
+  // The review starts as a new thread's does: a working capture with no changes.
+  empty = false,
 } = {}) {
   const directory = await realpath(await mkdtemp(join(tmpdir(), "med-comment-transport-")));
   cleanup.push(() => rm(directory, { recursive: true, force: true }));
@@ -53,7 +56,7 @@ async function fixture({
   await writeFile(join(repo, "file.ts"), "export const before = 1;\n");
   git("add", "file.ts");
   git("commit", "-m", "baseline");
-  await writeFile(join(repo, "file.ts"), "export const after = 2;\n");
+  if (!empty) await writeFile(join(repo, "file.ts"), "export const after = 2;\n");
   const linked = join(directory, "linked");
   if (removeWorktreeDuringOpen || staleCatalogue) {
     git("worktree", "add", "-b", "linked", linked);
@@ -71,6 +74,7 @@ async function fixture({
   const saved: SavedReview = await (
     await api("/api/reviews", {
       title: "Comment races",
+      ...(empty ? { key: "thread" } : {}),
       targets: [
         {
           repo: removeWorktreeDuringOpen || staleCatalogue ? linked : repo,
@@ -172,6 +176,58 @@ test("a review whose worktree changes after the capture offers a refresh", async
   const iteration = await controller.startNotes();
   await controller.selectSavedTarget(iteration!.targetIds[0]!);
   await vi.waitFor(() => expect(controller.getSnapshot().savedDrift).toBeNull());
+});
+
+test("an empty capture shows the live changes until the agent hands off its work", async () => {
+  const { controller, saved, repo, api, windowEvents } = await fixture({
+    events: true,
+    empty: true,
+  });
+  const first = saved.targets.find((target) => target.captured)!;
+  await vi.waitFor(() => expect(controller.getSnapshot().connection).toBe("connected"));
+  expect(controller.getSnapshot().review?.files).toEqual([]);
+
+  // The agent edits a file: the review follows the worktree, with no drift bar.
+  await writeFile(join(repo, "file.ts"), "export const after = 2;\n");
+  await vi.waitFor(
+    () => {
+      const snapshot = controller.getSnapshot();
+      expect(snapshot.savedView).toBe(false);
+      expect(snapshot.comparison).toEqual({ kind: "working" });
+      expect(snapshot.review?.files.map((file) => file.path)).toEqual(["file.ts"]);
+    },
+    { timeout: 10_000 },
+  );
+  expect(controller.getSnapshot().savedDrift).toBeNull();
+
+  // The agent hands off: the review shows the new capture.
+  const handoff: SavedReview = await (
+    await api("/api/reviews", {
+      title: "Comment races",
+      key: "thread",
+      targets: [{ repo, comparison: { kind: "working" } }],
+    })
+  ).json();
+  windowEvents.dispatchEvent(new CustomEvent(REVIEW_UPDATED, { detail: { id: saved.id } }));
+  const latest = handoff.iterations!.at(-1)!.targetIds[0]!;
+  await vi.waitFor(() =>
+    expect(controller.getSnapshot()).toMatchObject({ savedView: true, savedTargetId: latest }),
+  );
+  expect(latest).not.toBe(first.id);
+});
+
+test("a reader who returns to an empty capture keeps it, with the drift bar", async () => {
+  const { controller, saved, repo } = await fixture({ events: true, empty: true });
+  const first = saved.targets.find((target) => target.captured)!;
+  await vi.waitFor(() => expect(controller.getSnapshot().connection).toBe("connected"));
+  await writeFile(join(repo, "file.ts"), "export const after = 2;\n");
+  await vi.waitFor(() => expect(controller.getSnapshot().savedView).toBe(false), {
+    timeout: 10_000,
+  });
+  await controller.returnToSavedReview();
+  await vi.waitFor(() =>
+    expect(controller.getSnapshot()).toMatchObject({ savedView: true, savedDrift: first.id }),
+  );
 });
 
 test("clearing while switching targets removes the newly visible comments too", async () => {

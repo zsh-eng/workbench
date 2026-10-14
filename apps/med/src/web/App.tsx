@@ -45,7 +45,13 @@ import "./pierre-theme";
 import { useTheme } from "./themes";
 import { ThemePicker } from "./components/ThemePicker";
 import { BranchStrip, BranchSwitch, useBranchTabs } from "./components/BranchTabs";
-import { useDisposeOnClose, useShell, useWorkspace, whenIdle } from "./components/Workspaces";
+import {
+  useDisposeOnClose,
+  useShell,
+  useThreadState,
+  useWorkspace,
+  whenIdle,
+} from "./components/Workspaces";
 import type { BranchEntry } from "./components/BranchPicker";
 import { visibleElement } from "./data/palette-focus";
 import { setFilePreviewShown, useFilePreviewShown } from "./data/picker-preferences";
@@ -252,6 +258,8 @@ export function App({
   const state = useReviewController(controller);
   // Inside a workspace host, the host owns the controller and the address.
   const workspace = useWorkspace();
+  // While the thread's agent works, its changes are expected: the drift bar waits.
+  const agentWorking = useThreadState(state.savedReview?.id) === "working";
   const onOpenReview =
     providedOpenReview ??
     ((id: string) =>
@@ -3956,35 +3964,39 @@ export function App({
           {state.savedReview && !zen && !sessionVisible && savedHeader(false)}
           {linkError}
           {zen ? <ZenExit onExit={toggleZen} /> : mainHeader(controls)}
-          {state.savedView && !zen && state.savedDrift && state.savedDrift !== dismissedDrift && (
-            <div role="status" {...stylex.props(styles.notice, styles.drift)}>
-              <span {...stylex.props(styles.driftText)}>
-                The worktree changed after this review.
-              </span>
-              <span {...stylex.props(ui.row)}>
-                <button
-                  type="button"
-                  disabled={refreshing}
-                  onClick={() => startNotes(true)}
-                  {...stylex.props(ui.button, ui.pressable, styles.driftAction)}
-                >
-                  {refreshing ? "Refreshing…" : "Refresh review"}
-                </button>
-                <button
-                  type="button"
-                  onClick={selectWorking}
-                  {...stylex.props(ui.button, ui.pressable, styles.driftAction)}
-                >
-                  Show live changes
-                </button>
-                <ToolButton
-                  label="Dismiss"
-                  icon="close"
-                  onClick={() => setDismissedDrift(state.savedDrift)}
-                />
-              </span>
-            </div>
-          )}
+          {state.savedView &&
+            !zen &&
+            !agentWorking &&
+            state.savedDrift &&
+            state.savedDrift !== dismissedDrift && (
+              <div role="status" {...stylex.props(styles.notice, styles.drift)}>
+                <span {...stylex.props(styles.driftText)}>
+                  The worktree changed after this review.
+                </span>
+                <span {...stylex.props(ui.row)}>
+                  <button
+                    type="button"
+                    disabled={refreshing}
+                    onClick={() => startNotes(true)}
+                    {...stylex.props(ui.button, ui.pressable, styles.driftAction)}
+                  >
+                    {refreshing ? "Refreshing…" : "Refresh review"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={selectWorking}
+                    {...stylex.props(ui.button, ui.pressable, styles.driftAction)}
+                  >
+                    Show live changes
+                  </button>
+                  <ToolButton
+                    label="Dismiss"
+                    icon="close"
+                    onClick={() => setDismissedDrift(state.savedDrift)}
+                  />
+                </span>
+              </div>
+            )}
           <div
             id={`${idPrefix}file-view-panel`}
             role="tabpanel"

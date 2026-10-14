@@ -98,10 +98,12 @@ first. A row shows the title, the branch, the age, and the change totals.
   thread back.
 - A thread's review is a capture. The agent's handoff
   (`med review create --key …`) captures its work again as a new iteration.
-  When the worktree changes after the last capture, such as by an agent that
-  does not hand off, a bar in the review lets you choose: **Refresh review**
-  captures it again, and **Show live changes** shows the working changes as
-  they are now, until **Return to review**.
+  Until the first handoff, the capture is empty, so the review shows the live
+  changes as the agent makes them. When the worktree changes after a capture,
+  such as by an agent that does not hand off, a bar in the review lets you
+  choose once the agent stops: **Refresh review** captures it again, and
+  **Show live changes** shows the working changes as they are now, until
+  **Return to review**.
 - **Repositories**, at the foot of the sidebar, lists the registered
   repositories and vaults by name. Click one to browse it without a thread;
   **+** opens the Sources page.

@@ -801,6 +801,10 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
   }
 
   let driftAbort: AbortController | undefined;
+  // The review shows the live changes in place of an empty capture, until the
+  // next capture or until the reader returns to the review.
+  let followingLive = false;
+  let declinedLive: string | null = null;
   /** Whether the checkout of the latest captured target changed after its
    * capture. The answer shows as `savedDrift`; a failed check shows nothing. */
   async function checkDrift() {
@@ -827,6 +831,21 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         { signal: abort.signal },
       );
       if (abort.signal.aborted || disposed || snapshot.savedReview?.id !== saved.id) return;
+      // An empty capture, such as a new thread's before its agent hands off,
+      // has nothing to read: the review follows the live changes instead.
+      if (
+        changed &&
+        snapshot.savedView &&
+        snapshot.savedTargetId === target.id &&
+        target.comparison.kind === "working" &&
+        snapshot.review?.files.length === 0 &&
+        declinedLive !== target.id
+      ) {
+        followingLive = true;
+        if (snapshot.savedDrift) update({ savedDrift: null });
+        await selectComparison({ kind: "working" });
+        return;
+      }
       const next = changed ? target.id : null;
       if (snapshot.savedDrift !== next) update({ savedDrift: next });
     } catch {
@@ -1221,6 +1240,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
   async function selectSavedTarget(id: string): Promise<void> {
     const target = snapshot.savedReview?.targets.find((entry) => entry.id === id);
     if (!target || disposed) return;
+    followingLive = false;
     // A thread's new worktree can be newer than the repository list that the
     // page read; read it again before the review falls back to the main checkout.
     const knows = (list: RegisteredRepository[]) =>
@@ -1600,7 +1620,12 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     if (!savedReview || disposed || snapshot.savedReview?.id !== before.id) return;
     update({ savedReview });
     const next = currentTargets(savedReview)[0];
-    if (wasCurrent && snapshot.savedView && next && next.id !== snapshot.savedTargetId)
+    if (
+      wasCurrent &&
+      (snapshot.savedView || followingLive) &&
+      next &&
+      next.id !== snapshot.savedTargetId
+    )
       await selectSavedTarget(next.id);
   };
   if (savedReviewId && typeof window !== "undefined") {
@@ -1673,8 +1698,11 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       }
     },
     selectSavedTarget,
-    returnToSavedReview: () =>
-      snapshot.savedTargetId ? selectSavedTarget(snapshot.savedTargetId) : Promise.resolve(),
+    returnToSavedReview: () => {
+      // The reader chose the capture, so it stays, with the drift bar.
+      declinedLive = snapshot.savedTargetId;
+      return snapshot.savedTargetId ? selectSavedTarget(snapshot.savedTargetId) : Promise.resolve();
+    },
     async copyFeedback() {
       await waitForNoteWrites();
       const saved = snapshot.savedReview;
@@ -1922,7 +1950,10 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     refreshRepositories,
     addRepository,
     removeRepository,
-    selectComparison: (comparison) => selectComparison(comparison),
+    selectComparison: (comparison) => {
+      followingLive = false;
+      return selectComparison(comparison);
+    },
     refresh,
     suspend() {
       if (suspended || disposed) return;

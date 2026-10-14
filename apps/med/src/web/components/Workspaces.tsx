@@ -117,6 +117,11 @@ const collator = new Intl.Collator(undefined, { sensitivity: "base", numeric: tr
 export const byName = (a: { name: string }, b: { name: string }) =>
   collator.compare(a.name, b.name);
 
+/** The state of a saved review's lead session, as the thread list shows it. */
+export function useThreadState(reviewId: string | undefined) {
+  return use(Statuses).get(reviewId ?? "")?.state;
+}
+
 /** The workspace that renders this App, with the host's actions. Outside a
  * host, such as in a test of App alone, it is null. */
 export function useWorkspace() {

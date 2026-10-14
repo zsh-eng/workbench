@@ -195,6 +195,12 @@ review**, which captures the current comparisons as a new iteration (`POST
 /api/reviews/:id/iterations`), and **Show live changes**, which shows the
 working changes until **Return to review**.
 
+Two rules keep the bar quiet. The bar waits while the thread's lead session
+works, because the agent may still hand off. An empty capture, such as a new
+thread's before its first handoff, has nothing to read: the review shows the
+live working changes instead, and the next capture replaces them. After the
+reader chooses **Return to review**, the empty capture stays, with the bar.
+
 ## Remaining work
 
 - **Compact** in the context meter's menu, and pinning a lead session.
