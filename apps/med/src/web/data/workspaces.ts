@@ -75,6 +75,9 @@ export interface WorkspaceSnapshot {
   recent: string[];
 }
 
+/** A saved review's workspace has this id in every window. */
+export const reviewWorkspaceId = (reviewId: string) => `review-${reviewId}`;
+
 /** Tells the workspace of a saved review that the review has new content,
  * such as an agent's next iteration. The event detail is `{ id }`. */
 export const REVIEW_UPDATED = "med:review-updated";
@@ -269,7 +272,7 @@ export function createWorkspaceStore(pathname: string, state?: unknown) {
       // at the same time agree.
       const id =
         input.kind === "review"
-          ? `review-${input.reviewId}`
+          ? reviewWorkspaceId(input.reviewId)
           : input.kind === "vault"
             ? `vault-${input.sourceId}`
             : newId();

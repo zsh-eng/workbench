@@ -50,6 +50,8 @@ import {
   useShell,
   useThreadState,
   useWorkspace,
+  useWorkspaceEntry,
+  useWorkspaceShown,
   whenIdle,
 } from "./components/Workspaces";
 import type { BranchEntry } from "./components/BranchPicker";
@@ -258,6 +260,7 @@ export function App({
   const state = useReviewController(controller);
   // Inside a workspace host, the host owns the controller and the address.
   const workspace = useWorkspace();
+  const shown = useWorkspaceShown();
   // While the thread's agent works, its changes are expected: the drift bar waits.
   const agentWorking = useThreadState(state.savedReview?.id) === "working";
   const onOpenReview =
@@ -288,7 +291,7 @@ export function App({
   const shell = useShell();
   // The workspace's panes: the review, its thread, the file trees, and the
   // preview, tiled as the reader leaves them. Each workspace keeps its own.
-  const entry = workspace?.getSnapshot().workspaces.find((item) => item.id === workspace.id);
+  const entry = useWorkspaceEntry();
   const layoutKey =
     entry?.kind === "review"
       ? `review:${entry.reviewId}`
@@ -2043,7 +2046,7 @@ export function App({
   }, []);
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
-      if (document.querySelector("[data-standalone-files]")) return;
+      if (document.querySelector("[data-standalone-files]") || !shown()) return;
       const editing = event
         .composedPath()
         .some(
@@ -2391,6 +2394,7 @@ export function App({
     setFilesViewed,
     streamFiles,
     toggleTopFileViewed,
+    shown,
   ]);
 
   const selectBranch = useCallback(

@@ -390,8 +390,8 @@ function render(host: ReturnType<typeof createHost>) {
 
 /** The review on screen; hidden workspaces stay in the document. */
 const shown = () =>
-  [...document.querySelectorAll<HTMLElement>("[data-review-status]")].find(
-    (element) => element.getClientRects().length > 0,
+  [...document.querySelectorAll<HTMLElement>("[data-review-status]")].find((element) =>
+    element.checkVisibility({ visibilityProperty: true }),
   );
 /** Each thread row's name, with its state, and whether it is the one shown. */
 const threadRows = () =>
@@ -478,6 +478,29 @@ test("keeps branch workspaces live, switches by shortcut, and restores them", as
   await userEvent.keyboard("{Enter}");
   await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
   expect(document.querySelectorAll("[data-review-status]")).toHaveLength(1);
+});
+
+test("a thread in view loads out of sight, and its first visit shows that slot", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  host.setThreads([thread("agent", { agent: "claude", state: "idle", updatedAt: Date.now() })]);
+  // Before any click, the thread loads in a slot of its own, out of sight.
+  const slot = () => document.querySelector<HTMLElement>('[data-workspace-slot="review-agent"]');
+  await expect
+    .poll(() => slot()?.querySelector<HTMLElement>("[data-review-status]")?.dataset.reviewStatus)
+    .toBe("ready");
+  const ahead = slot()!;
+  expect(
+    ahead.querySelector("[data-review-status]")!.checkVisibility({ visibilityProperty: true }),
+  ).toBe(false);
+  expect(shown()?.dataset.reviewId).not.toBe("agent-target");
+
+  await page.getByRole("button", { name: /^Agent review/ }).click();
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("agent-target");
+  // The click shows that slot; nothing reads the review again.
+  expect(slot()).toBe(ahead);
+  expect(host.requested.filter((path) => path === "/api/reviews/agent")).toHaveLength(1);
 });
 
 test("the sidebar lists every thread by repository with its agent's state", async () => {

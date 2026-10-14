@@ -157,8 +157,15 @@ nothing.
   the workspace on screen stays hidden. The 12 most recent sessions keep
   their threads (`keptSessionStore`), and Med reads a session's first view
   ahead while the pointer rests on its thread, and for the open workspaces
-  that load in the background. A first visit then shows the thread with the
-  workspace, and the stream's own first view replaces it in one step. The
+  that load in the background. The three newest threads in the sidebar that
+  are not open yet, and the thread under the pointer, also load out of sight
+  under their workspace's id. While the browser is idle, each shows out of
+  sight once, until nothing in it is pending and its DOM is quiet for two
+  frames, and hides again with its state. Its first visit then shows that
+  slot at once, as a revisit does (about 25 ms from the click to the painted
+  thread on an M1 Pro). A workspace out of sight runs its effects but takes
+  no keys (`useWorkspaceShown`). The stream's own first view replaces the
+  thread in one step. The
   view follows new items while the reader is at the bottom; only
   the reader's move up (wheel, touch, keys, or the pointer) stops it. A thread
   that gets shorter also moves the view up, and that move does not stop it.

@@ -199,12 +199,29 @@ const catalogues = new WeakMap<typeof fetch, Promise<z.infer<typeof repositories
 const WARM_MS = 10_000;
 /** A saved review read this recently is current enough to open a target. */
 const SAVED_FRESH_MS = 2000;
-const warmed = new WeakMap<typeof fetch, Map<string, { at: number; value: Promise<unknown> }>>();
-/** A warm read of `path`, which its schema already checked, or undefined. */
+const warmed = new WeakMap<
+  typeof fetch,
+  Map<string, { at: number; value: Promise<unknown>; taken?: boolean }>
+>();
+/** A warm read of `path`, which its schema already checked, or undefined.
+ * Each read serves one window; it stays known, so the pointer that rests on
+ * the thread again does not read it twice. */
 function takeWarm<T>(fetcher: typeof fetch, path: string) {
   const known = warmed.get(fetcher)?.get(path);
-  warmed.get(fetcher)?.delete(path);
-  return known && performance.now() - known.at < WARM_MS ? (known.value as Promise<T>) : undefined;
+  if (!known || known.taken || performance.now() - known.at >= WARM_MS) return undefined;
+  known.taken = true;
+  return known.value as Promise<T>;
+}
+/** A warm read of `path`, or a new one that a pointer's read ahead then skips. */
+function readWarm<T>(fetcher: typeof fetch, path: string, read: () => Promise<T>) {
+  const known = takeWarm<T>(fetcher, path);
+  if (known) return known;
+  let paths = warmed.get(fetcher);
+  if (!paths) warmed.set(fetcher, (paths = new Map()));
+  const value = read();
+  paths.set(path, { at: performance.now(), value, taken: true });
+  value.catch(() => paths.get(path)?.value === value && paths.delete(path));
+  return value;
 }
 
 /**
@@ -1115,8 +1132,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
   ) {
     const start = performance.now();
     const path = `/api/reviews/${encodeURIComponent(reviewId)}/targets/${encodeURIComponent(targetId)}/review`;
-    const response = await (takeWarm<ReviewResponse>(fetcher, path) ??
-      api.json(path, reviewSchema, { signal }));
+    const response = await readWarm(fetcher, path, () => api.json(path, reviewSchema, { signal }));
     if (!mayParse()) throw new DOMException("A review load needs the parser.", "AbortError");
     const parseStart = performance.now();
     const parsed = await parse(response.patch);
@@ -1670,8 +1686,9 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       try {
         const savedPath = `/api/reviews/${encodeURIComponent(savedReviewId)}`;
         savedReadAt = performance.now();
-        const savedReview = await (takeWarm<SavedReview>(fetcher, savedPath) ??
-          api.json(savedPath, savedReviewSchema));
+        const savedReview = await readWarm(fetcher, savedPath, () =>
+          api.json(savedPath, savedReviewSchema),
+        );
         if (disposed) return;
         update({ savedReview });
         const first = currentTargets(savedReview)[0] ?? savedReview.targets[0];
@@ -1966,7 +1983,10 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       suspended = false;
       if (!snapshot.session) return;
       startEvents();
-      if (snapshot.savedReview) refreshSavedOnFocus();
+      // A review read ahead a moment ago, as for a thread under the pointer,
+      // needs no second read.
+      if (snapshot.savedReview && performance.now() - savedReadAt > SAVED_FRESH_MS)
+        refreshSavedOnFocus();
       reconcile();
     },
     async loadCommitDetails(id, signal) {

@@ -28,6 +28,7 @@ import { createPatchParser } from "../workers/client";
 import { diffSurfaceStyle } from "./diff-surface";
 import { Icon } from "./Icon";
 import { ShortcutKeys } from "./ShortcutKeys";
+import { useWorkspaceShown } from "./Workspaces";
 
 type Change = NonNullable<WorkingFile["staged"]>;
 const letters: Record<Change, string> = {
@@ -199,6 +200,7 @@ export default function CommitView({
   /** "view" takes keys only while focus is inside, as on the elements page. */
   keys?: "window" | "view";
 }) {
+  const workspaceShown = useWorkspaceShown();
   const { active: theme } = useTheme();
   // Git's last answer, and the stages it has not answered yet.
   const [server, setServer] = useState<WorkingStatus | null>(null);
@@ -537,7 +539,7 @@ export default function CommitView({
   useEffect(() => {
     if (!active) return;
     const keydown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing) return;
+      if (event.defaultPrevented || event.isComposing || !workspaceShown()) return;
       const target = event.target instanceof HTMLElement ? event.target : null;
       if (keys === "view" && !root.current?.contains(target)) return;
       const typing =
@@ -581,7 +583,19 @@ export default function CommitView({
     };
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
-  }, [active, compose, filter, focusedFile, keys, move, onOpenFile, push, toggle, toggleShown]);
+  }, [
+    active,
+    compose,
+    filter,
+    focusedFile,
+    keys,
+    move,
+    onOpenFile,
+    push,
+    toggle,
+    toggleShown,
+    workspaceShown,
+  ]);
 
   const options = useMemo<CodeViewReactOptions<undefined, undefined>>(
     () => ({

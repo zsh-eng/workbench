@@ -48,6 +48,7 @@ import { diffSurfaceStyle, EXPANSION_LINES } from "./diff-surface";
 import "./MarkdownPreview.css";
 import "./BriefView.css";
 import { visibleElement } from "../data/palette-focus";
+import { useWorkspaceShown } from "./Workspaces";
 import {
   blockOf,
   findPassage,
@@ -209,6 +210,7 @@ export default function BriefView({
   briefIteration,
   onCommentBrief,
 }: BriefViewProps) {
+  const workspaceShown = useWorkspaceShown();
   const { active: theme } = useTheme();
   const sections = useMemo<NoteSection[]>(
     () => [
@@ -393,7 +395,7 @@ export default function BriefView({
   useEffect(() => {
     if (!active) return;
     const keydown = (event: KeyboardEvent) => {
-      if (event.key !== "[" && event.key !== "]") return;
+      if ((event.key !== "[" && event.key !== "]") || !workspaceShown()) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const editing = event
         .composedPath()
@@ -423,7 +425,7 @@ export default function BriefView({
     };
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
-  }, [active]);
+  }, [active, workspaceShown]);
 
   // Selected text of a note offers a comment on that passage.
   const commentable = !!onCommentBrief;
@@ -472,7 +474,8 @@ export default function BriefView({
   useEffect(() => {
     if (!active || (!selected && !passage)) return;
     const keydown = (event: KeyboardEvent) => {
-      if (event.key !== "c" || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key !== "c" || event.metaKey || event.ctrlKey || event.altKey || !workspaceShown())
+        return;
       const target = event.target as HTMLElement | null;
       if (target?.closest("input, textarea, select, [contenteditable]")) return;
       if (visibleElement('[role="dialog"]')) return;
@@ -482,7 +485,7 @@ export default function BriefView({
     };
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
-  }, [active, selected, passage, startPassage]);
+  }, [active, selected, passage, startPassage, workspaceShown]);
 
   // Each comment finds its passage in the rendered notes; the browser marks it.
   const [placement, setPlacement] = useState<Placement>(() => ({

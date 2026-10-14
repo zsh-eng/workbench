@@ -24,6 +24,7 @@ import {
   overlayAddress,
   pinned,
   REVIEW_UPDATED,
+  reviewWorkspaceId,
   workspaceUrl,
   type PullWorkspace,
   type RepositoryWorkspace,
@@ -54,8 +55,12 @@ import { prefetchSavedReview } from "../data/controller";
 
 /** Workspaces kept mounted, most recently shown first. Older ones reload. */
 const MOUNTED = 6;
+/** Threads not open yet that load out of sight, so a first visit shows at once. */
+const WARM = 3;
 /** The longest that a new workspace prepares out of sight before it shows. */
 const PREPARE_MS = 600;
+/** The longest that a thread loaded ahead renders out of sight to settle. */
+const SETTLE_MS = 1500;
 
 type ControllerOptions = Omit<ReviewControllerOptions, "savedReviewId" | "start">;
 /** A patch parser keeps only its latest request, so each workspace has its own:
@@ -110,6 +115,18 @@ const LOST = "Med restarted before it opened this pull request.";
 const removedSchema = z.object({ removed: z.literal(true) });
 /** Disposers that run when a workspace closes or leaves memory. */
 const Lifetime = createContext<Set<() => void> | null>(null);
+/** Threads to load before their first visit: the one under the pointer
+ * (`next`), then the threads in view, in the sidebar's order. */
+interface WarmThreads {
+  threads: { workspace: ReviewWorkspace; session?: string }[];
+  next: string | null;
+}
+const Warm = createContext<WarmThreads>({ threads: [], next: null });
+/** Whether this workspace is the one on screen. One that renders out of
+ * sight runs its effects but takes no keys. */
+const ShownCheck = createContext<() => boolean>(() => true);
+/** The workspace that a slot renders, also for a thread not open yet. */
+const Entry = createContext<Workspace | null>(null);
 
 const collator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
 
@@ -159,6 +176,21 @@ export function useWorkspaceActions() {
 /** The host's fetch, for pages that cover every workspace. */
 export function useHostFetch() {
   return use(HostFetch);
+}
+
+/** The workspace that renders this App: its kind, review, or branch. A
+ * thread loaded ahead has one before it opens, so it lays out as it will. */
+export function useWorkspaceEntry() {
+  return use(Entry);
+}
+
+/**
+ * Whether the workspace around a component is on screen, read when a key
+ * comes. A workspace out of sight, as one that prepares, runs its effects;
+ * its window key handlers check this and leave the key to the one on screen.
+ */
+export function useWorkspaceShown() {
+  return use(ShownCheck);
 }
 
 /**
@@ -709,6 +741,30 @@ export function WorkspaceHost({
     window.addEventListener("keydown", keydown, true);
     return () => window.removeEventListener("keydown", keydown, true);
   }, [actions, threadOrder]);
+  // The thread under the pointer, and the threads in view, load ahead.
+  const [pointed, setPointed] = useState<string | null>(null);
+  const [now] = useState(Date.now);
+  const warm = useMemo<WarmThreads>(() => {
+    const open = new Set(
+      snapshot.workspaces.flatMap((entry) => (entry.kind === "review" ? [entry.reviewId] : [])),
+    );
+    return {
+      threads: threadOrder
+        .filter(
+          (thread) => !open.has(thread.id) && (thread.id === pointed || isRecent(thread, now)),
+        )
+        .map((thread) => ({
+          workspace: {
+            id: reviewWorkspaceId(thread.id),
+            kind: "review",
+            reviewId: thread.id,
+            title: thread.title,
+          },
+          ...(thread.sessions?.length ? { session: thread.sessions.at(-1)!.id } : {}),
+        })),
+      next: pointed && !open.has(pointed) ? reviewWorkspaceId(pointed) : null,
+    };
+  }, [threadOrder, snapshot.workspaces, pointed, now]);
   const activeEntry = snapshot.workspaces.find((entry) => entry.id === snapshot.active);
   const activeRepositoryId =
     activeEntry?.kind === "repository"
@@ -795,6 +851,7 @@ export function WorkspaceHost({
                             prefetchSavedReview(thread.id, fetcher);
                             const session = thread.sessions?.at(-1);
                             if (session) prefetchThreadSession(thread.id, session.id, fetcher);
+                            setPointed(thread.id);
                           }}
                         />
                       </aside>
@@ -843,7 +900,7 @@ export function WorkspaceHost({
                       </div>
                     )}
                     <div inert={newThread || undefined} {...stylex.props(styles.shellLayer)}>
-                      {children}
+                      <Warm value={warm}>{children}</Warm>
                     </div>
                     {newThread && (
                       <NewThread
@@ -952,13 +1009,27 @@ export function WorkspaceViews({
   const snapshot = use(Snapshot);
   if (!snapshot) throw new Error("WorkspaceViews needs a WorkspaceHost.");
   const fetcher = use(HostFetch);
+  const warm = use(Warm);
   const [pool] = useState(() => createControllerPool(options, createParser));
   const [mounted, setMounted] = useState<string[]>([]);
   const active = snapshot.workspaces.find((entry) => entry.id === snapshot.active);
   const onScreen = active && active.kind !== "vault" ? active.id : null;
-  let next = mounted.filter((id) => snapshot.workspaces.some((entry) => entry.id === id));
-  if (onScreen && next[0] !== onScreen)
-    next = [onScreen, ...next.filter((id) => id !== onScreen)].slice(0, MOUNTED);
+  // A thread that is not open yet mounts under its workspace's id, so its
+  // first visit shows the same slot.
+  const workspaceOf = useCallback(
+    (id: string): Workspace | undefined =>
+      snapshot.workspaces.find((entry) => entry.id === id) ??
+      warm.threads.find((entry) => entry.workspace.id === id)?.workspace,
+    [snapshot.workspaces, warm.threads],
+  );
+  const isOpen = (id: string) => snapshot.workspaces.some((entry) => entry.id === id);
+  let next = mounted.filter((id) => workspaceOf(id));
+  if (warm.next && !next.includes(warm.next)) next = [warm.next, ...next];
+  if (onScreen && next[0] !== onScreen) next = [onScreen, ...next.filter((id) => id !== onScreen)];
+  // The most recent of each: open workspaces, and threads loading ahead.
+  let opened = 0;
+  let ahead = 0;
+  next = next.filter((id) => (isOpen(id) ? ++opened <= MOUNTED : ++ahead <= WARM));
   if (next.length !== mounted.length || next.some((id, index) => id !== mounted[index]))
     setMounted(next);
 
@@ -991,6 +1062,72 @@ export function WorkspaceViews({
     });
     return () => cancelAnimationFrame(frame);
   }, [preparing]);
+  // A thread loaded ahead shows out of sight once while the browser is idle,
+  // so its effects measure it and render its Markdown, as a visit would.
+  // Its state stays when it hides again, and its first visit then shows it
+  // at once, as a revisit does.
+  const [settling, setSettling] = useState<string | null>(null);
+  // One try each: a thread whose agent writes all the time never settles.
+  const [tried] = useState(() => new Set<string>());
+  if (settling && (settling === onScreen || !next.includes(settling))) setSettling(null);
+  const unsettled = preparing
+    ? []
+    : next.filter(
+        (id) =>
+          id !== onScreen && !seen.has(id) && !tried.has(id) && workspaceOf(id)?.kind === "review",
+      );
+  const unsettledKey = unsettled.join(" ");
+  useEffect(() => {
+    if (settling || !unsettledKey) return;
+    const controllers = unsettledKey.split(" ").map((id) => {
+      const workspace = workspaceOf(id) as ReviewWorkspace;
+      return { id, controller: pool.get(workspace).controller };
+    });
+    let cancel: (() => void) | undefined;
+    const check = () => {
+      const loaded = controllers.find(
+        ({ controller }) => controller.getSnapshot().status !== "loading",
+      );
+      if (!loaded || cancel) return;
+      cancel = whenIdle(() => setSettling(loaded.id));
+    };
+    const stops = controllers.map(({ controller }) => controller.subscribe(check));
+    check();
+    return () => {
+      for (const stop of stops) stop();
+      cancel?.();
+    };
+  }, [settling, unsettledKey, workspaceOf, pool]);
+  useEffect(() => {
+    if (!settling) return;
+    tried.add(settling);
+    const slot = document.querySelector(`[data-workspace-slot="${CSS.escape(settling)}"]`);
+    if (!slot) {
+      const frame = requestAnimationFrame(() => setSettling(null));
+      return () => cancelAnimationFrame(frame);
+    }
+    // Panes size themselves after the first frame, so a slot is ready when
+    // nothing in it is pending and nothing changed for two frames.
+    let quiet = 0;
+    const changes = new MutationObserver(() => (quiet = 0));
+    changes.observe(slot, { subtree: true, childList: true, attributes: true });
+    const started = performance.now();
+    let frame = requestAnimationFrame(function check() {
+      quiet = slot.firstElementChild && !slot.querySelector("[data-pending]") ? quiet + 1 : 0;
+      if (quiet > 2) seen.add(settling);
+      if (quiet > 2 || performance.now() - started > SETTLE_MS) setSettling(null);
+      else frame = requestAnimationFrame(check);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      changes.disconnect();
+    };
+  }, [seen, tried, settling]);
+
+  // Key handlers read which workspace is on screen when a key comes.
+  const [screen] = useState(createScreen);
+  useLayoutEffect(() => screen.show(visible), [screen, visible]);
+
   // A workspace that shows ends its entrance animations at once for a moment
   // (see reset.css): they restart when display: none ends.
   useLayoutEffect(() => {
@@ -1005,16 +1142,24 @@ export function WorkspaceViews({
   }, [visible]);
 
   // When every mounted workspace has loaded, the next one in the list loads
-  // hidden while the browser is idle, until MOUNTED are ready. A first visit
-  // then shows a rendered review instead of loading in front of the reviewer,
-  // as a browser keeps a pool of warm tabs.
-  const cold = orderedWorkspaces(snapshot).find(
-    (entry) => entry.kind !== "vault" && entry.kind !== "pull" && !mounted.includes(entry.id),
-  )?.id;
+  // hidden while the browser is idle, until MOUNTED are ready, and then the
+  // next threads in view, until WARM are ready. A first visit then shows a
+  // rendered review instead of loading in front of the reviewer, as a
+  // browser keeps a pool of warm tabs.
+  const openCount = mounted.filter(isOpen).length;
+  const cold =
+    (openCount < MOUNTED
+      ? orderedWorkspaces(snapshot).find(
+          (entry) => entry.kind !== "vault" && entry.kind !== "pull" && !mounted.includes(entry.id),
+        )?.id
+      : undefined) ??
+    (mounted.length - openCount < WARM
+      ? warm.threads.find((entry) => !mounted.includes(entry.workspace.id))?.workspace.id
+      : undefined);
   useEffect(() => {
-    if (!cold || !onScreen || mounted.length >= MOUNTED) return;
+    if (!cold || !onScreen) return;
     const controllers = mounted.flatMap((id) => {
-      const workspace = snapshot.workspaces.find((entry) => entry.id === id);
+      const workspace = workspaceOf(id);
       return workspace && workspace.kind !== "vault" && workspace.kind !== "pull"
         ? [pool.get(workspace).controller]
         : [];
@@ -1033,13 +1178,13 @@ export function WorkspaceViews({
       for (const stop of stops) stop();
       cancel?.();
     };
-  }, [cold, onScreen, mounted, pool, snapshot.workspaces]);
+  }, [cold, onScreen, mounted, pool, workspaceOf]);
 
   // A hidden workspace runs no effects, so its brief renders here, ahead of
   // its first visit, with the briefs of its other iterations.
   useEffect(() => {
     const stops = mounted.flatMap((id) => {
-      const workspace = snapshot.workspaces.find((entry) => entry.id === id);
+      const workspace = workspaceOf(id);
       if (id === onScreen || workspace?.kind !== "review") return [];
       const { controller } = pool.get(workspace);
       let warmed: unknown;
@@ -1060,22 +1205,25 @@ export function WorkspaceViews({
     return () => {
       for (const stop of stops) stop();
     };
-  }, [mounted, onScreen, pool, snapshot.workspaces]);
+  }, [mounted, onScreen, pool, workspaceOf]);
   // Its newest session reads ahead too, one at a time while the browser is
   // idle, so a first visit shows the thread with the review.
   useEffect(() => {
     const queue = mounted.flatMap((id) => {
-      const workspace = snapshot.workspaces.find((entry) => entry.id === id);
-      return id !== onScreen && workspace?.kind === "review" && workspace.sessions?.length
-        ? [workspace]
+      const workspace = workspaceOf(id);
+      const session =
+        workspace?.sessions?.at(-1)?.id ??
+        warm.threads.find((entry) => entry.workspace.id === id)?.session;
+      return id !== onScreen && workspace?.kind === "review" && session
+        ? [{ reviewId: workspace.reviewId, session }]
         : [];
     });
     let cancel: (() => void) | undefined;
     const next = () => {
-      const workspace = queue.shift();
-      if (workspace)
+      const entry = queue.shift();
+      if (entry)
         cancel = whenIdle(() =>
-          prefetchThreadSession(workspace.reviewId, workspace.sessions!.at(-1)!.id, fetcher, next),
+          prefetchThreadSession(entry.reviewId, entry.session, fetcher, next),
         );
     };
     next();
@@ -1083,7 +1231,7 @@ export function WorkspaceViews({
       queue.length = 0;
       cancel?.();
     };
-  }, [mounted, onScreen, snapshot.workspaces, fetcher]);
+  }, [mounted, onScreen, workspaceOf, warm.threads, fetcher]);
   useEffect(() => {
     const leave = () => pool.dispose();
     window.addEventListener("pagehide", leave, { once: true });
@@ -1097,7 +1245,7 @@ export function WorkspaceViews({
   // moved in the DOM would lose its scroll offsets, as a thread that jumps to
   // its top while the next workspace prepares.
   return mounted.toSorted().flatMap((id) => {
-    const workspace = snapshot.workspaces.find((entry) => entry.id === id);
+    const workspace = workspaceOf(id);
     if (!workspace || workspace.kind === "vault") return [];
     if (workspace.kind === "pull")
       return (
@@ -1108,14 +1256,19 @@ export function WorkspaceViews({
         </Activity>
       );
     const { controller, disposers } = pool.get(workspace);
+    const outOfSight = id === preparing || id === settling;
     return (
-      <Activity key={id} mode={id === visible || id === preparing ? "visible" : "hidden"}>
+      <Activity key={id} mode={id === visible || outOfSight ? "visible" : "hidden"}>
         <Current value={id}>
-          <Lifetime value={disposers}>
-            <KeepScroll id={id} preparing={id === preparing}>
-              {render(controller)}
-            </KeepScroll>
-          </Lifetime>
+          <Entry value={workspace}>
+            <ShownCheck value={screen.check(id)}>
+              <Lifetime value={disposers}>
+                <KeepScroll id={id} preparing={outOfSight}>
+                  {render(controller)}
+                </KeepScroll>
+              </Lifetime>
+            </ShownCheck>
+          </Entry>
         </Current>
       </Activity>
     );
@@ -1193,6 +1346,22 @@ function prefetchThreadSession(
     )
     .catch(() => {})
     .finally(() => onDone?.());
+}
+
+/** The workspace on screen, and a check of it for each workspace. */
+function createScreen() {
+  let shown: string | null = null;
+  const checks = new Map<string, () => boolean>();
+  return {
+    show(id: string | null) {
+      shown = id;
+    },
+    check(id: string) {
+      let check = checks.get(id);
+      if (!check) checks.set(id, (check = () => shown === id));
+      return check;
+    },
+  };
 }
 
 export function whenIdle(run: () => void) {
