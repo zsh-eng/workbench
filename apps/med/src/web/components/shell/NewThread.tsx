@@ -105,10 +105,11 @@ export function NewThread({
     () => (root ? { root, entries: listed.entries } : undefined),
     [root, listed.entries],
   );
-  const threads = useMemo(
+  const sorted = useMemo(
     () => [...(list?.threads ?? [])].sort((a, b) => b.updatedAt - a.updatedAt),
     [list],
   );
+  const threads = useCallback(() => sorted, [sorted]);
   const vaults = useVaults(api, mentionRound > 0);
   const mentionSources = useMentionSources(api, files, threads, vaults, mentionRound);
   const mentions = useMentions({

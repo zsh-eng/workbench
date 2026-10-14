@@ -22,8 +22,9 @@ export interface MentionSources {
   /** The checkout and its files. */
   files?: { root: string; entries: readonly BrowseEntry[] };
   notes: readonly { vault: { name: string; path: string }; entries: readonly BrowseEntry[] }[];
-  /** The most recent first. */
-  threads: readonly Thread[];
+  /** The most recent first, read when @ lists them, so the list does not
+   * render the message box again each time a thread changes. */
+  threads(): readonly Thread[];
   /** The absolute path that names a thread to an agent: its session's transcript. */
   resolveThread(thread: Thread): Promise<string>;
 }
@@ -88,9 +89,10 @@ export function findMentions(sources: MentionSources, query: string) {
     }));
     if (items.length) sections.push({ kind: "note", items, top: found.top });
   }
+  const listed = sources.threads();
   const threads = query
-    ? best(sources.threads, (thread) => matchScore(thread.title, query), 4)
-    : { items: sources.threads.slice(0, 5), top: 0 };
+    ? best(listed, (thread) => matchScore(thread.title, query), 4)
+    : { items: listed.slice(0, 5), top: 0 };
   if (threads.items.length)
     sections.push({
       kind: "thread",
@@ -182,7 +184,7 @@ export async function threadPath(api: BrowseApi, thread: Thread) {
 export function useMentionSources(
   api: BrowseApi,
   files: MentionSources["files"],
-  threads: readonly Thread[],
+  threads: MentionSources["threads"],
   vaults: readonly Vault[],
   round: number,
 ): MentionSources {

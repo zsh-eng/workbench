@@ -113,8 +113,36 @@ const subscribeNarrow = (listener: () => void) => {
 
 const Actions = createContext<WorkspaceActions | null>(null);
 const Snapshot = createContext<WorkspaceSnapshot | null>(null);
-/** The lead session's state of each saved review, by review ID. */
-const Statuses = createContext<ReadonlyMap<string, Thread>>(new Map());
+/** The window's threads by review ID, with their lead sessions' states, as
+ * the host last sent them. A component reads only what it shows, so a change
+ * to one thread renders only what shows it, not every workspace that stays
+ * mounted. */
+interface ThreadStore {
+  get(): ReadonlyMap<string, Thread>;
+  /** The threads, the most recently changed first. */
+  list(): readonly Thread[];
+  subscribe(listener: () => void): () => void;
+}
+function createThreadStore() {
+  let threads: ReadonlyMap<string, Thread> = new Map();
+  let sorted: readonly Thread[] | null = null;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => threads,
+    list: () => (sorted ??= [...threads.values()].sort((a, b) => b.updatedAt - a.updatedAt)),
+    set(next: ReadonlyMap<string, Thread>) {
+      if (next === threads) return;
+      threads = next;
+      sorted = null;
+      for (const listener of listeners) listener();
+    },
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
+  };
+}
+const Threads = createContext<ThreadStore>(createThreadStore());
 const Current = createContext<string | null>(null);
 /** Why the host refused a pull request link, by workspace. */
 const PullErrors = createContext<ReadonlyMap<string, string>>(new Map());
@@ -147,16 +175,15 @@ export const byName = (a: { name: string }, b: { name: string }) =>
 
 /** The state of a saved review's lead session, as the thread list shows it. */
 export function useThreadState(reviewId: string | undefined) {
-  return use(Statuses).get(reviewId ?? "")?.state;
+  const store = use(Threads);
+  return useSyncExternalStore(store.subscribe, () => store.get().get(reviewId ?? "")?.state);
 }
 
-/** The window's threads, the most recently changed first. Outside a host, none. */
-export function useThreadList() {
-  const statuses = use(Statuses);
-  return useMemo(
-    () => [...statuses.values()].sort((a, b) => b.updatedAt - a.updatedAt),
-    [statuses],
-  );
+/** Reads the window's threads, the most recently changed first, when called.
+ * A component that lists them on demand, as @ does, does not render again
+ * for each change. Outside a host, none. */
+export function useThreadReader() {
+  return use(Threads).list;
 }
 
 /** The workspace that renders this App, with the host's actions. Outside a
@@ -743,6 +770,8 @@ export function WorkspaceHost({
     () => new Map((threadList?.threads ?? []).map((thread) => [thread.id, thread])),
     [threadList],
   );
+  const [threads] = useState(createThreadStore);
+  useLayoutEffect(() => threads.set(statuses), [threads, statuses]);
   // A vault is one more repository: one list, by name.
   const sources = useMemo<SidebarSource[]>(
     () =>
@@ -858,10 +887,22 @@ export function WorkspaceHost({
   // The thread under the pointer, and the threads in view, load ahead.
   const [pointed, setPointed] = useState<string | null>(null);
   const [now] = useState(Date.now);
+  // A thread loaded ahead keeps one workspace object while its title stays,
+  // so a list update or a switch does not render its view again.
+  const [warmWorkspaces] = useState(() => new Map<string, ReviewWorkspace>());
   const warm = useMemo<WarmThreads>(() => {
     const open = new Set(
       snapshot.workspaces.flatMap((entry) => (entry.kind === "review" ? [entry.reviewId] : [])),
     );
+    const workspaceFor = (thread: Thread) => {
+      const id = reviewWorkspaceId(thread.id);
+      let workspace = warmWorkspaces.get(id);
+      if (workspace?.title !== thread.title) {
+        workspace = { id, kind: "review", reviewId: thread.id, title: thread.title };
+        warmWorkspaces.set(id, workspace);
+      }
+      return workspace;
+    };
     return {
       threads: threadOrder
         .filter(
@@ -871,12 +912,7 @@ export function WorkspaceHost({
             (thread.id === pointed || isRecent(thread, now)),
         )
         .map((thread) => ({
-          workspace: {
-            id: reviewWorkspaceId(thread.id),
-            kind: "review",
-            reviewId: thread.id,
-            title: thread.title,
-          },
+          workspace: workspaceFor(thread),
           ...(thread.sessions?.length ? { session: thread.sessions.at(-1)!.id } : {}),
         })),
       next: pointed && !open.has(pointed) ? reviewWorkspaceId(pointed) : null,
@@ -886,7 +922,7 @@ export function WorkspaceHost({
           .map((thread) => reviewWorkspaceId(thread.id)),
       ),
     };
-  }, [threadOrder, snapshot.workspaces, pointed, now]);
+  }, [threadOrder, snapshot.workspaces, pointed, now, warmWorkspaces]);
   const activeEntry = snapshot.workspaces.find((entry) => entry.id === snapshot.active);
   const activeRepositoryId =
     activeEntry?.kind === "repository"
@@ -928,7 +964,7 @@ export function WorkspaceHost({
   return (
     <Actions value={actions}>
       <Snapshot value={snapshot}>
-        <Statuses value={statuses}>
+        <Threads value={threads}>
           <HostFetch value={fetcher}>
             <PullErrors value={pullErrors}>
               {pulls.map((workspace) => (
@@ -1076,7 +1112,7 @@ export function WorkspaceHost({
               onCancel={() => setSwitcher(null)}
             />
           )}
-        </Statuses>
+        </Threads>
       </Snapshot>
     </Actions>
   );
@@ -1685,7 +1721,8 @@ function WorkspaceSwitcher({
   onChoose(id: string): void;
   onCancel(): void;
 }) {
-  const statuses = use(Statuses);
+  const threads = use(Threads);
+  const statuses = useSyncExternalStore(threads.subscribe, threads.get);
   const ordered = orderedWorkspaces(snapshot);
   const rows = snapshot.recent.flatMap((id) => ordered.find((entry) => entry.id === id) ?? []);
   const [index, setIndex] = useState(() =>

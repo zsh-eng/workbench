@@ -48,7 +48,7 @@ import { BranchStrip, BranchSwitch, useBranchTabs } from "./components/BranchTab
 import {
   useDisposeOnClose,
   useShell,
-  useThreadList,
+  useThreadReader,
   useThreadState,
   useWorkspace,
   useWorkspaceEntry,
@@ -548,11 +548,11 @@ export function App({
   const [mentionRound, setMentionRound] = useState(0);
   const wantMentions = useCallback(() => setMentionRound((round) => round + 1), []);
   const vaults = useVaults(browseApi, filePickerOpen || vaultTab || mentionRound > 0);
-  const allThreads = useThreadList();
+  const readThreads = useThreadReader();
   const ownThread = state.savedReview?.id;
-  const otherThreads = useMemo(
-    () => allThreads.filter((thread) => thread.id !== ownThread),
-    [allThreads, ownThread],
+  const otherThreads = useCallback(
+    () => readThreads().filter((thread) => thread.id !== ownThread),
+    [readThreads, ownThread],
   );
   const checkoutFiles = useMemo(
     () =>
