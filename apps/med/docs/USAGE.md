@@ -486,7 +486,7 @@ left.
 
 Open a `.md`, `.markdown`, `.mdown`, or `.mkd` file and select **Preview**, or
 press `⌘⇧V`. In a repository, the preview opens as the Preview
-[side pane](#side-panes) and follows the Markdown file in the main view. In a
+[pane](#panes) and follows the Markdown file in the main view. In a
 vault or a dropped file, it shows beside the source, or below it in a narrow
 window. Med remembers whether Preview is open.
 
