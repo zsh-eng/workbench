@@ -89,6 +89,13 @@ import { prefetchSavedReview } from "../data/controller";
 import { whenIdle } from "../data/idle";
 import { AttemptsHost } from "./attempts/AttemptsHost";
 import { attemptsGroupOf, useAttemptsAddress } from "../data/attempts";
+import {
+  chooseNotify,
+  needsCount,
+  useAppBadge,
+  useNeedsYouNotifications,
+  useNotifyChoice,
+} from "../data/signals";
 
 /** Workspaces kept mounted besides the tabs, such as branches, most recently
  * shown first. Older ones reload. */
@@ -206,19 +213,22 @@ interface TabActions {
   /** Shows the next tab that needs the reader, else the next that works. */
   next(): void;
   move(threadId: string, by: -1 | 1): void;
+  /** Turns the notifications for tabs that need the reader on or off. */
+  notify(on: boolean): void;
   subscribe(listener: () => void): () => void;
 }
 const Tabs = createContext<TabActions | null>(null);
 
 /** The palette's commands for tabs: close this workspace's tab, reopen a
- * closed one, open one from history, go to the next that needs you, and
- * move this tab. Outside a window with tabs, none. */
+ * closed one, open one from history, go to the next that needs you, move
+ * this tab, and notifications. Outside a window with tabs, none. */
 export function useTabCommands(): ReviewCommand[] {
   const tabs = use(Tabs);
   const thread = workspaceThread(use(Entry) ?? undefined);
   const isTab = useSyncExternalStore(tabs?.subscribe ?? noSubscription, () =>
     tabs ? tabs.isTab(thread) : false,
   );
+  const notifying = useNotifyChoice();
   return useMemo(() => {
     if (!tabs) return [];
     const run = (action: (id: string) => void) => () => thread && action(thread);
@@ -250,8 +260,15 @@ export function useTabCommands(): ReviewCommand[] {
         disabled: !isTab,
         run: run((id) => tabs.move(id, 1)),
       },
+      {
+        id: "notify-needs-you",
+        label: notifying
+          ? "Stop notifying me when a tab needs you"
+          : "Notify me when a tab needs you",
+        run: () => tabs.notify(!notifying),
+      },
     ];
-  }, [isTab, tabs, thread]);
+  }, [isTab, notifying, tabs, thread]);
 }
 /** Whether this workspace is the one on screen. One that renders out of
  * sight runs its effects but takes no keys. */
@@ -1239,6 +1256,12 @@ export function WorkspaceHost({
   // ⌘0: the next tab that needs the reader, else the next one that works.
   const nextAttention = useCallback(() => nextTab(needsYou) || nextTab(isWorking), [nextTab]);
 
+  // While the reader looks elsewhere: the Dock badge counts the tabs that
+  // need them, and an opt-in notification tells when one starts to.
+  const needs = needsCount(tabs);
+  useAppBadge(threadList ? needs : null);
+  useNeedsYouNotifications(threadList ? tabs : null, openTab);
+
   // ⌘1–⌘9 show the tab at that place in the sidebar; ⌘0 the next that needs
   // the reader; ⌘⌥W closes the tab on screen and ⌘⌥T opens it again.
   useEffect(() => {
@@ -1382,6 +1405,22 @@ export function WorkspaceHost({
       move(id, by) {
         const thread = find(id);
         if (thread) latest.current.moveTab(thread, by);
+      },
+      notify(on) {
+        void chooseNotify(on).then((result) =>
+          setNotice(
+            result === "on"
+              ? { text: "Med notifies you when a tab needs you and no Med window shows." }
+              : result === "off"
+                ? { text: "Notifications are off." }
+                : result === "blocked"
+                  ? {
+                      problem: true,
+                      text: "The browser blocks Med's notifications. Allow them in its site settings.",
+                    }
+                  : { problem: true, text: "This browser cannot show notifications." },
+          ),
+        );
       },
       subscribe(listener) {
         tabListeners.add(listener);
@@ -1582,6 +1621,7 @@ export function WorkspaceHost({
                             : barContext(activeEntry, threadList ?? null)
                         }
                         showSidebar={!showsSidebar || narrow ? toggleSidebar : undefined}
+                        needs={showsSidebar ? 0 : needs}
                       />
                       <div {...stylex.props(styles.shellViews)}>
                         <div

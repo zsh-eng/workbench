@@ -39,6 +39,7 @@ export function ToolButton({
   icon,
   active,
   busy,
+  dot,
   ...props
 }: Omit<ComponentProps<"button">, "children" | "title"> & {
   label: string;
@@ -47,6 +48,9 @@ export function ToolButton({
   active?: boolean;
   /** Turn the icon while this button's own request is running. */
   busy?: boolean;
+  /** A small accent dot at the icon's corner: something behind this control
+   * needs the reader. The label says what. */
+  dot?: boolean;
 }) {
   return (
     <ActionTooltip label={label} shortcut={shortcut}>
@@ -59,6 +63,7 @@ export function ToolButton({
       >
         <span {...stylex.props(styles.icon, busy && styles.spinning)}>
           <Icon name={icon} size={15} />
+          {dot && <span data-dot="" aria-hidden="true" {...stylex.props(styles.dot)} />}
         </span>
       </button>
     </ActionTooltip>
@@ -67,7 +72,18 @@ export function ToolButton({
 const spin = stylex.keyframes({ to: { transform: "rotate(360deg)" } });
 
 const styles = stylex.create({
-  icon: { display: "inline-flex" },
+  icon: { position: "relative", display: "inline-flex" },
+  // On the icon's top right corner, cut from it by a ring of the panel's colour.
+  dot: {
+    position: "absolute",
+    top: -2,
+    right: -2,
+    width: 6,
+    height: 6,
+    borderRadius: "50%",
+    backgroundColor: tokens.accent,
+    boxShadow: `0 0 0 1.5px ${tokens.panel}`,
+  },
   spinning: {
     animationName: { default: spin, "@media (prefers-reduced-motion: reduce)": "none" },
     animationDuration: "800ms",
