@@ -17,6 +17,9 @@ import { join, resolve } from "node:path";
 import { once } from "node:events";
 import { performance } from "node:perf_hooks";
 import { chromium } from "playwright";
+import { removeGitEnvironment } from "./git-environment.mjs";
+
+removeGitEnvironment();
 const root = await realpath(await mkdtemp(join(tmpdir(), "med-media-")));
 const repo = join(root, "repo"),
   state = join(root, "state");

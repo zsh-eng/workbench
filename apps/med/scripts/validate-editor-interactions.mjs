@@ -5,6 +5,9 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { once } from "node:events";
 import { chromium } from "playwright";
+import { removeGitEnvironment } from "./git-environment.mjs";
+
+removeGitEnvironment();
 const root = await realpath(await mkdtemp(join(tmpdir(), "med-editor-interactions-")));
 const repo = join(root, "repo");
 let host, browser;

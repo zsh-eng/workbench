@@ -20,6 +20,9 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright";
+import { removeGitEnvironment } from "./git-environment.mjs";
+
+removeGitEnvironment();
 
 const exec = promisify(execFile);
 const dir = await realpath(await mkdtemp(join(tmpdir(), "med-welcome-check-")));

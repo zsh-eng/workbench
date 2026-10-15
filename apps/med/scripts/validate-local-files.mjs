@@ -5,6 +5,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
+import { removeGitEnvironment } from "./git-environment.mjs";
+
+removeGitEnvironment();
 const directory = await realpath(await mkdtemp(join(tmpdir(), "med-local-ui-")));
 const repo = join(directory, "example"),
   state = join(directory, "state");

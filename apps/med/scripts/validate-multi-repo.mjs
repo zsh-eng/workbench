@@ -6,6 +6,9 @@ import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { join } from "node:path";
 import { chromium } from "playwright";
+import { removeGitEnvironment } from "./git-environment.mjs";
+
+removeGitEnvironment();
 
 // Exercise the built CLI, host and browser together against isolated Git repositories.
 const directory = await realpath(await mkdtemp(join(tmpdir(), "med-multi-repo-")));
