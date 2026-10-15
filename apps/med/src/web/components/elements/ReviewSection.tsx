@@ -111,7 +111,10 @@ export function ReviewSection() {
             data={pullRequest}
             error={null}
             loading={false}
-            placement={{ kind: "inline", ids: new Set([pullRequest.threads[0]!.id]) }}
+            placement={{
+              inline: new Set([pullRequest.threads[0]!.id]),
+              reasons: new Map([[pullRequest.threads[1]!.id, "Outdated on GitHub."]]),
+            }}
             now={now}
             onRefresh={() => {}}
           />
@@ -144,7 +147,7 @@ export function ReviewSection() {
             data={null}
             error="Install the GitHub CLI (gh) and run gh auth login to show pull request comments."
             loading={false}
-            placement={{ kind: "inline", ids: new Set() }}
+            placement={{ inline: new Set(), reasons: new Map() }}
             now={now}
             onRefresh={() => {}}
           />

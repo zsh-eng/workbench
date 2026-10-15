@@ -575,6 +575,8 @@ export class ReviewService {
     let head: string;
     let args: string[];
     let label: string;
+    // Working changes: HEAD, which pull request lines can refer to.
+    let headCommit: string | undefined;
     const mutable =
       comparison.kind === "working" ||
       comparison.kind === "unstaged" ||
@@ -637,6 +639,7 @@ export class ReviewService {
       args = [];
       label = "Unstaged changes";
     } else {
+      let unborn = false;
       base = await resolveCommit(repo, "HEAD", signal).catch(async (error) => {
         signal?.throwIfAborted();
         const refs = await git(repo, ["rev-parse", "--verify", "HEAD"], {
@@ -645,8 +648,10 @@ export class ReviewService {
           maxBytes: 8192,
         });
         if (refs.length) throw error;
+        unborn = true;
         return emptyTree();
       });
+      if (comparison.kind === "working" && !unborn) headCommit = base;
       head = comparison.kind === "staged" ? "index" : "worktree";
       label = comparison.kind === "staged" ? "Staged changes" : "Working changes";
       // A branch's changes: from where it left its base, with the uncommitted ones.
@@ -703,6 +708,8 @@ export class ReviewService {
     const warnings: string[] = [];
     let patch = "";
     let untracked: string[] = [];
+    // A branch's files that differ from HEAD; see `uncommitted` in the response.
+    let fromHead: string[] = [];
     try {
       if (index && !none)
         files = parseRawDiff(await git(repo, rawArgs, { signal, env, maxBytes: 4 * 1024 * 1024 }));
@@ -742,6 +749,28 @@ export class ReviewService {
               env,
               maxBytes: 2 * 1024 * 1024,
             },
+          )
+        )
+          .toString("utf8")
+          .split("\0")
+          .filter(Boolean);
+      // Branch changes start at the merge base, so some of their files can
+      // be as HEAD has them.
+      if (headCommit && comparison.kind === "working" && comparison.base && !none)
+        fromHead = (
+          await git(
+            repo,
+            [
+              "diff",
+              "--no-ext-diff",
+              "--no-textconv",
+              "--name-only",
+              "-z",
+              headCommit,
+              "--",
+              ...pathspecs,
+            ],
+            { signal, env, maxBytes: 4 * 1024 * 1024 },
           )
         )
           .toString("utf8")
@@ -846,6 +875,14 @@ export class ReviewService {
         patchBytes: Buffer.byteLength(patch),
         cacheHit: false,
       },
+      ...(headCommit && {
+        headCommit,
+        // From HEAD, every file of working changes is uncommitted.
+        uncommitted:
+          comparison.kind === "working" && comparison.base
+            ? [...new Set([...fromHead, ...untracked])]
+            : files.map((file) => file.path),
+      }),
     };
     this.reviews.set(
       id,

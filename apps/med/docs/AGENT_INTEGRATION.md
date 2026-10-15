@@ -147,7 +147,8 @@ med review update --key feat/parser --pr https://github.com/owner/repository/pul
 ```
 
 The next `review create` with the key also finds a matching pull request by
-itself.
+itself. While a thread is an open tab, Med also links the first open pull
+request from its branch that `gh pr list --head <branch>` finds.
 
 ### Link your session
 

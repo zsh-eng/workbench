@@ -488,7 +488,17 @@ resolves each link to a changed file and line range (exact path, then a unique
 path suffix) and shows the cited range as an excerpt. A bundle with a pull
 request URL can show GitHub comments: `GET /api/reviews/:id/pull-request` runs
 `gh api` with GET requests only and keeps the result for 30 seconds. Med never
-writes to GitHub.
+writes to GitHub. Thread lines refer to the pull request's head commit, so
+`src/web/data/pull-request.ts` shows a thread at its line only when the diff's
+head is that commit: a Review version, or Changes. For working changes,
+`/api/review` gives `headCommit` (HEAD) and `uncommitted` (the files that differ
+from HEAD: staged, unstaged, or untracked); a thread in such a file stays in
+the panel with its reason. A thread that New thread or adopt made has no pull
+request link at first. While its tab is open, `src/host/pull-request-links.ts`
+asks `gh pr list --head <branch> --state open` for its branch: at once, after
+its refs change, and at most every 5 minutes. It links the first open pull
+request that it finds, and then stops. It does not ask for threads in history,
+for the base branch, or when `gh` is missing or not signed in.
 
 A bundle and each version can hold a guide (`src/shared/review-guide.ts`): a
 summary and segments, each with file patterns and the agent's comments on

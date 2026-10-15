@@ -216,6 +216,17 @@ test("Changes show a branch's changes, and in a shared checkout only one session
   // Working: the checkout's uncommitted changes. Branch: since it left main.
   expect(await changes(feature, { kind: "working" })).toEqual(["b.ts"]);
   expect(await changes(feature, { kind: "working", base: "main" })).toEqual(["a.ts", "b.ts"]);
+  // Branch names its HEAD commit and the files whose lines differ from it,
+  // which keep a pull request's threads off their lines (data/pull-request.ts).
+  const branchChanges = () =>
+    api<ReviewResponse>("/api/review", {
+      repo: feature,
+      comparison: { kind: "working", base: "main" },
+    });
+  expect((await branchChanges()).data).toMatchObject({
+    headCommit: git(feature, ["rev-parse", "HEAD"]),
+    uncommitted: ["b.ts"],
+  });
   expect(await changes(repo, { kind: "working" })).toEqual([
     "a.ts",
     "b.ts",
@@ -289,6 +300,14 @@ test("Changes show a branch's changes, and in a shared checkout only one session
     },
     { timeout: 10_000 },
   );
+  // A new file differs from HEAD too; a committed one does not.
+  await writeFile(join(feature, "new.ts"), "new\n");
+  const some = await api<ReviewResponse>("/api/review", {
+    repo: feature,
+    comparison: { kind: "working", base: "main", paths: ["a.ts", "b.ts", "new.ts"] },
+  });
+  expect(some.data.files.map((file) => file.path).sort()).toEqual(["a.ts", "b.ts", "new.ts"]);
+  expect(some.data.uncommitted?.sort()).toEqual(["b.ts", "new.ts"]);
 });
 
 test("Keep in Med and adopt capture nothing, also for an inactive session; the row counts live Changes", async () => {

@@ -106,8 +106,8 @@ import {
   type FindingPlacement,
   useCodexReviews,
   usePullRequestComments,
-  type ThreadPlacement,
 } from "./components/PullRequestComments";
+import { placeThreads } from "./data/pull-request";
 import { createPathValue, hoveredPath, usePathValue, type PathValue } from "./data/hovered-path";
 import { PathLabel } from "./components/PathLabel";
 import type { CodexFinding, CodexReviewRun } from "../shared/codex-review";
@@ -1111,45 +1111,18 @@ export function App({
       : null,
   );
   // GitHub thread lines refer to the pull request's head commit. Threads show
-  // in the diff only when it compares that commit and shows the line.
-  const pullRequestThreads = useMemo(() => {
-    const byPath = new Map<string, PullRequestThread[]>();
-    const data = pullRequest.data;
-    const ids = new Set<number>();
-    const inline: ThreadPlacement = { kind: "inline", ids };
-    if (!data) return { byPath, placement: inline };
-    const head = `Lines refer to the pull request head, ${data.head.slice(0, 7)}.`;
-    if (!state.savedView || !savedTarget)
-      return {
-        byPath,
-        placement: {
-          kind: "elsewhere",
-          reason: `${head} Return to the saved review to see them in the diff.`,
-        } as ThreadPlacement,
-      };
-    if (savedTarget.captured || savedTarget.head !== data.head)
-      return {
-        byPath,
-        placement: {
-          kind: "elsewhere",
-          reason: `${head} This comparison shows ${savedTarget.captured ? "captured working changes" : savedTarget.head.slice(0, 7)}, so they are listed here.`,
-        } as ThreadPlacement,
-      };
-    for (const thread of data.threads) {
-      const line = thread.line;
-      const metadata = files.find((file) => file.path === thread.path)?.metadata;
-      if (line === null || !metadata) continue;
-      const shown = metadata.hunks.some((hunk) => {
-        const start = thread.side === "old" ? hunk.deletionStart : hunk.additionStart;
-        const count = thread.side === "old" ? hunk.deletionCount : hunk.additionCount;
-        return line >= start && line < start + count;
-      });
-      if (!shown) continue;
-      ids.add(thread.id);
-      byPath.set(thread.path, [...(byPath.get(thread.path) ?? []), thread]);
-    }
-    return { byPath, placement: inline };
-  }, [pullRequest.data, state.savedView, savedTarget, files]);
+  // in the diff only when it shows that commit and the line (data/pull-request.ts).
+  const pullRequestThreads = useMemo(
+    () =>
+      placeThreads(
+        pullRequest.data,
+        files,
+        state.savedView
+          ? { kind: "review", target: savedTarget }
+          : { kind: "changes", review: state.review },
+      ),
+    [pullRequest.data, state.savedView, savedTarget, state.review, files],
+  );
   const codexReviews = useCodexReviews(
     useCallback(() => controller.loadCodexReviews(), [controller]),
     state.savedReview?.id ?? null,
@@ -1983,7 +1956,7 @@ export function App({
     pendingDraft?.error,
     [...collapsed],
     pullRequest.threadsRevision,
-    pullRequestThreads.placement.kind === "inline" ? [...pullRequestThreads.placement.ids] : [],
+    [...pullRequestThreads.placement.inline],
     codexReviews.revision,
     [...codexFindings.placement.inline],
     savedGuide?.updatedAt ?? null,
@@ -3349,6 +3322,13 @@ export function App({
   // A shared checkout holds other sessions' work too. Its Changes can keep
   // only the files that the thread's lead session edited.
   const thread = useThread(state.savedReview?.id);
+  // The host links a pull request that the thread's branch opened later
+  // (src/host/pull-request-links.ts); the thread list names it first.
+  const linkedPullRequest = thread?.pullRequestUrl;
+  useEffect(() => {
+    if (linkedPullRequest && linkedPullRequest !== state.savedReview?.pullRequestUrl)
+      void controller.refreshSavedReview().catch(() => {});
+  }, [linkedPullRequest, state.savedReview?.pullRequestUrl, controller]);
 
   // The turn recap (data/turn-recap.ts): a turn that ended while the reader
   // did not see its session ends the session thread with its facts, Review,
@@ -4815,6 +4795,7 @@ export function App({
         controller={controller}
         state={state}
         compact={compact}
+        quiet={quiet}
         more={compact ? (quiet ? quietSections : [moreActions]) : undefined}
         notesPickIteration={hasNotes}
         pullRequest={pullRequest}

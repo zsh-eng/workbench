@@ -458,9 +458,15 @@ A saved review with a pull request shows its GitHub comments. Med reads them
 with `gh`; it never posts, replies, or resolves.
 
 - When the diff shows the pull request's head commit, each code thread shows on
-  its line with the GitHub mark.
-- The comment count beside the title opens the reviews, the general comments,
-  and the threads that the diff cannot show.
+  its line with the GitHub mark. This includes Changes when the branch tip is
+  the pull request's head. A file with changes after that commit lists its
+  threads instead.
+- The comment count beside the title, such as "3 comments", opens the reviews,
+  the general comments, and the threads that the diff cannot show, each with
+  the reason.
+- A thread whose agent opens a pull request later gets the link by itself: while
+  the thread's tab is open, Med asks `gh` for an open pull request from its
+  branch.
 - Hover a comment for **Copy** and **Open on GitHub**. **Copy comments** copies
   only Med's comments.
 - Med reads again when the window gets focus, at most every 30 seconds, or when
