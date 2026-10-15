@@ -5,6 +5,7 @@ import type { RegisteredRepository } from "../../shared/protocol";
 import { HostError } from "../runtime/errors";
 import { git } from "../runtime/process";
 import { ZoektSearchService, type SearchOptions } from "../search/service";
+import { gitSignature } from "./cache";
 import { listBranches, listWorktrees, resolveRepository } from "./history";
 
 interface Entry {
@@ -16,6 +17,8 @@ interface Entry {
   search?: ZoektSearchService;
   searchUsers: number;
   used: number;
+  /** The Git state that the catalogue was read at; see `gitSignature`. */
+  signature?: string;
 }
 
 /** Keep registration and resource ownership in one serialized registry. */
@@ -84,6 +87,16 @@ export class RepositoryRegistry {
         "This path now belongs to another repository. Remove it and add it again.",
         409,
       );
+    // Unchanged Git metadata gives the same worktrees and branches: no Git.
+    // The signature is taken before the reads, so a change during them reads again.
+    const signature = await gitSignature(entry.commonDir, [entry.catalogue.path, ...entry.paths]);
+    if (
+      signature !== undefined &&
+      signature === entry.signature &&
+      (!preferredPath || entry.paths.has(preferredPath))
+    )
+      return;
+    entry.signature = undefined;
     const candidates = new Set([
       entry.catalogue.path,
       ...(preferredPath ? [preferredPath] : []),
@@ -134,6 +147,17 @@ export class RepositoryRegistry {
     for (const path of paths) entry.retainedPaths.add(path);
     entry.catalogue = { ...entry.catalogue, path, branches, worktrees: availableWorktrees };
     delete entry.catalogue.error;
+    entry.signature = signature;
+  }
+
+  /** The Git state of the family that owns a checkout, for answers that come
+   * from Git metadata only; see `gitSignature`. */
+  async gitState(path: string) {
+    const owner = this.owner(path);
+    const entry = owner && this.entries.get(owner.id);
+    if (!entry) return undefined;
+    const signature = await gitSignature(entry.commonDir, [entry.catalogue.path, ...entry.paths]);
+    return signature && `${entry.commonDir}\n${signature}`;
   }
 
   register(input: string, signal?: AbortSignal) {
@@ -192,6 +216,7 @@ export class RepositoryRegistry {
           try {
             await this.refresh(entry);
           } catch (error) {
+            entry.signature = undefined;
             entry.paths.clear();
             await entry.search?.close();
             entry.search = undefined;

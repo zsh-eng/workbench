@@ -547,7 +547,9 @@ function ThreadRow({
         >
           <span {...stylex.props(styles.mark)} aria-hidden="true">
             {asking ? (
-              <span {...stylex.props(styles.dot, thread.state === "waiting" && styles.waiting)} />
+              <span {...stylex.props(styles.dot, thread.state === "waiting" && styles.waiting)}>
+                {thread.state === "waiting" && <span {...stylex.props(styles.pulse)} />}
+              </span>
             ) : (
               <Icon name={agentIcon(thread.agent)} size={13} />
             )}
@@ -724,10 +726,11 @@ function ThreadRow({
   );
 }
 
+// The 7 px dot's ring grows by 5 px on each side: 17 / 7.
 const pulse = stylex.keyframes({
-  "0%": { boxShadow: `0 0 0 0 color-mix(in srgb, ${tokens.accent} 45%, transparent)` },
-  "70%": { boxShadow: `0 0 0 5px color-mix(in srgb, ${tokens.accent} 0%, transparent)` },
-  "100%": { boxShadow: `0 0 0 0 color-mix(in srgb, ${tokens.accent} 0%, transparent)` },
+  "0%": { transform: "scale(1)", opacity: 1 },
+  "70%": { transform: "scale(2.43)", opacity: 0 },
+  "100%": { transform: "scale(1)", opacity: 0 },
 });
 const reduced = "@media (prefers-reduced-motion: reduce)";
 
@@ -965,11 +968,16 @@ const styles = stylex.create({
   added: { color: tokens.green },
   removed: { color: tokens.red },
   dot: { width: 7, height: 7, borderRadius: "50%", backgroundColor: tokens.accent },
-  waiting: {
-    width: 7,
-    height: 7,
+  waiting: { position: "relative", isolation: "isolate" },
+  // A disc behind the dot grows and fades: transform and opacity only, which
+  // the compositor runs without a style recalculation in each frame.
+  pulse: {
+    position: "absolute",
+    inset: 0,
+    zIndex: -1,
     borderRadius: "50%",
-    backgroundColor: tokens.accent,
+    backgroundColor: `color-mix(in srgb, ${tokens.accent} 45%, transparent)`,
+    opacity: 0,
     animationName: { default: pulse, [reduced]: "none" },
     animationDuration: "2s",
     animationIterationCount: "infinite",

@@ -4016,6 +4016,14 @@ export function App({
       !fileState.source
     )
       return;
+    // A thread chooses its first tab when its view is ready (`reviewOpened`).
+    // The file opens after that, so that the choice does not replace it.
+    if (
+      state.savedReview &&
+      reviewOpened.current !== state.savedReview.id &&
+      state.status !== "error"
+    )
+      return;
     const params = new URLSearchParams(location.search);
     const repo = params.get("repo"),
       path = params.get("path");
@@ -4043,6 +4051,8 @@ export function App({
     fileWorkspace.open(path, true, undefined, browseSource, "Working files");
   }, [
     state.session,
+    state.savedReview,
+    state.status,
     state.repositories,
     browseSource,
     fileState.source,

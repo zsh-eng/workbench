@@ -11,12 +11,15 @@ import { git } from "./runtime/process";
 // checkout that several sessions share.
 //
 // The thread list never waits for Git: it takes the last result, and reads
-// run in the background, one at a time.
+// run in the background, one at a time. A checkout whose state token is the
+// same as at its last read is not read again, until SAFETY_MS.
 
-/** A checkout's work is read again this often, and at most this often
- * (`SOON_MS`) after its thread changed. */
+/** A checkout's work is checked this often, and at most this often
+ * (`SOON_MS`) after its thread changed. A check with a token costs no Git. */
 const AGAIN_MS = 30_000;
 const SOON_MS = 4000;
+/** A result with an unchanged token is read again after this long. */
+const SAFETY_MS = 10 * 60_000;
 /** Threads that changed within this time are read; older ones are not. */
 const RECENT_MS = 3 * 24 * 60 * 60 * 1000;
 
@@ -24,10 +27,25 @@ type Unlanded = NonNullable<Thread["unlanded"]>;
 
 export { baseOf, changesBase };
 
-export function createCheckoutWork(options: { now?: () => number } = {}) {
+export function createCheckoutWork(
+  options: {
+    now?: () => number;
+    /**
+     * A token that stays the same while the checkout's commits, and with
+     * `working` its uncommitted changes, stay the same; undefined when there is
+     * none. See repository/cache.ts and repository/events.ts.
+     */
+    state?: (checkout: string, working: boolean) => Promise<string | undefined>;
+    /** A read gave a new result. */
+    onChange?: () => void;
+  } = {},
+) {
   const now = options.now ?? Date.now;
   const abort = new AbortController();
-  const known = new Map<string, { at: number; value?: Unlanded }>();
+  const known = new Map<
+    string,
+    { at: number; checked: number; token?: string; value?: Unlanded }
+  >();
   let reading: Promise<void> | undefined;
 
   const read = async (checkout: string, base: string, working: boolean) => {
@@ -69,10 +87,10 @@ export function createCheckoutWork(options: { now?: () => number } = {}) {
         const onWorking = working(thread);
         const key = `${thread.checkout}\0${base}\0${onWorking}`;
         const last = known.get(key);
-        const age = last ? time - last.at : Infinity;
+        const age = last ? time - last.checked : Infinity;
         // A thread changed since the last read, such as a turn that ended;
         // read it again soon. A turn that runs is read when it ends.
-        const changed = !!last && thread.updatedAt > last.at;
+        const changed = !!last && thread.updatedAt > last.checked;
         const busy = thread.state === "working" && !!last;
         if (!busy && (age > AGAIN_MS || (changed && age > SOON_MS)))
           due.push({ key, checkout: thread.checkout, base, working: onWorking });
@@ -83,10 +101,20 @@ export function createCheckoutWork(options: { now?: () => number } = {}) {
           for (const entry of due) {
             if (abort.signal.aborted) return;
             const at = now();
+            // The token comes before the read, so a change during it reads again.
+            const token = await options
+              .state?.(entry.checkout, entry.working)
+              .catch(() => undefined);
+            const last = known.get(entry.key);
+            if (last && token !== undefined && token === last.token && at - last.at < SAFETY_MS) {
+              last.checked = at;
+              continue;
+            }
             const value = await read(entry.checkout, entry.base, entry.working).catch(
               () => undefined,
             );
-            known.set(entry.key, { at, ...(value && { value }) });
+            known.set(entry.key, { at, checked: at, token, ...(value && { value }) });
+            if (JSON.stringify(value) !== JSON.stringify(last?.value)) options.onChange?.();
           }
           if (known.size > 512) known.clear();
         })().finally(() => {

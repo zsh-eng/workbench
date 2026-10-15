@@ -31,6 +31,7 @@ import {
   type ChangeEvent,
   type Comparison,
   type Repository,
+  type ReviewRequest,
   type ReviewResponse,
   type Session,
 } from "../shared/protocol";
@@ -55,7 +56,7 @@ import { loadPullRequestComments } from "./repository/pull-request";
 import { ReviewService } from "./repository/review";
 import { HostError } from "./runtime/errors";
 import { ProcessFailure } from "./runtime/process";
-import { watchRepository } from "./runtime/watch";
+import { watchRepository, type WatchOptions } from "./runtime/watch";
 import { createCodeCheck, webEntry } from "./runtime/build";
 import { NoteService } from "./notes";
 import {
@@ -70,6 +71,8 @@ import { symbolSearchRequestSchema } from "../shared/symbols";
 import { FileSymbolService } from "./search/symbols";
 import { type SearchOptions } from "./search/service";
 import { RepositoryRegistry } from "./repository/registry";
+import { Memo } from "./repository/cache";
+import { CheckoutRevisions } from "./repository/events";
 import { removeWorktree } from "./repository/worktrees";
 import { AttemptGroups } from "./attempts";
 import { runProcess } from "./runtime/process";
@@ -92,6 +95,7 @@ import { createFoundSessions } from "./found-sessions";
 import { Questions } from "./questions";
 import { createSessionSearch, sessionEntry, type SessionInfo } from "./session-search";
 import { createCheckoutWork } from "./checkout-work";
+import { createThreadFeed } from "./thread-feed";
 import { createCheckoutChanges } from "./checkout-changes";
 import { createSessionEdits } from "./session-edits";
 import {
@@ -158,6 +162,9 @@ export interface StartHostOptions {
   gh?: { command: string; args: string[] };
   /** The command that runs this Med again; agents that Med starts get it as `med`. */
   cli?: readonly string[];
+  /** Repository watchers. Tests turn file events off, change the safety
+   * check, and learn when a watcher that sees file edits is ready. */
+  watch?: WatchOptions & { onReady?: (repo: string) => void };
 }
 export interface RunningHost {
   url: string;
@@ -339,8 +346,27 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   });
   // The windows' thread lists.
   const threadStreams = new Set<ServerResponse>();
-  // The counts of each thread's live Changes, for its row.
-  const checkoutChanges = createCheckoutChanges();
+  /**
+   * A token that stays the same while a checkout's commits, and with
+   * `working` its files, stay the same (repository/cache.ts,
+   * repository/events.ts). The registry and the revisions come later in
+   * this function; a call before them fails, and the caller reads Git.
+   */
+  async function checkoutState(checkout: string, working: boolean) {
+    const metadata = await registry.gitState(checkout);
+    if (!metadata || !working) return metadata;
+    const files = revisions.token(checkout);
+    return files && `${files}\n${metadata}`;
+  }
+  // The thread list reads again when a checkout's counts or work change. The
+  // feed comes later in this function.
+  let listChanged = () => {};
+  // The counts of each thread's live Changes, for its row. Reads run only
+  // when the checkout's Git state or files changed.
+  const checkoutChanges = createCheckoutChanges({
+    state: (checkout) => checkoutState(checkout, true),
+    onChange: () => listChanged(),
+  });
   // The files that each agent session edited, for "Only this session's files".
   const sessionEdits = createSessionEdits();
   // Questions about lines: one-shot runs of a thread's agent, whose answers
@@ -408,7 +434,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     );
   };
   // Each thread's work that its base branch does not have yet.
-  const checkoutWork = createCheckoutWork();
+  // Reads run only when a checkout's Git state or, for working changes, its
+  // files changed (repository/cache.ts, repository/events.ts).
+  const checkoutWork = createCheckoutWork({
+    state: checkoutState,
+    onChange: () => listChanged(),
+  });
   // The tabs and history; the thread list polls only the tabs.
   const threads = createThreadService({
     savedReviews,
@@ -452,8 +483,48 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   const SESSION_EVENT_BYTES = 1024 * 1024;
   // The workspace list's states update this often.
   const STATUS_MS = 1500;
+  // One thread list for all windows; a change to the tabs sends it at once.
+  const threadFeed = createThreadFeed({ list: () => threads.list(), intervalMs: STATUS_MS });
+  tabs.subscribe(() => threadFeed.changed());
+  listChanged = () => threadFeed.changed();
   const activeRequests = new Map<AbortController, Set<string>>();
-  let revision = 0;
+  // Each checkout's revision: watcher events change it at once.
+  const revisions = new CheckoutRevisions();
+  // Answers from Git metadata stay while the family's Git signature is the
+  // same; answers from working files also need a watcher that sees edits.
+  const checkoutInfo = new Memo<Awaited<ReturnType<typeof resolveRepository>>>();
+  const targetsCache = new Memo<Awaited<ReturnType<typeof gitTargets>>>();
+  const browseCache = new Memo<Awaited<ReturnType<typeof listBrowse>>>(32);
+  const driftCache = new Memo<boolean>();
+  // A live comparison's last review (its ID), while its checkout's token is
+  // the same: Changes that open again load without Git.
+  const liveReviews = new Map<string, { token: string; id: string }>();
+  const loadLive = async (request: ReviewRequest, signal: AbortSignal) => {
+    const key = JSON.stringify(request);
+    // The token comes before the read, so a change during it reads again.
+    const token = await checkoutState(request.repo, true).catch(() => undefined);
+    const hit = liveReviews.get(key);
+    if (token !== undefined && hit?.token === token) {
+      // The loader can drop a review; then this loads again.
+      const kept = (() => {
+        try {
+          return reviews.get(hit.id).response;
+        } catch {
+          return undefined;
+        }
+      })();
+      if (kept) {
+        liveReviews.delete(key);
+        liveReviews.set(key, hit);
+        return { ...kept, metrics: { ...kept.metrics, cacheHit: true, gitMs: 0 } };
+      }
+    }
+    const review = await reviews.load(request, signal);
+    if (token === undefined) liveReviews.delete(key);
+    else liveReviews.set(key, { token, id: review.id });
+    while (liveReviews.size > 64) liveReviews.delete(liveReviews.keys().next().value!);
+    return review;
+  };
   let closing = false;
   let port = 0;
   let expensiveRequests = 0;
@@ -594,13 +665,15 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       return;
     }
     let evicted: Promise<void> | undefined;
-    if (!watchers.has(repo) && watchers.size >= 8) {
+    // One watcher for each checkout of the tabs that stay loaded (16): a
+    // watcher that stops costs its cached answers and a new start.
+    if (!watchers.has(repo) && watchers.size >= 16) {
       const pinned = new Set(streams.values());
       const oldest = [...watchers.keys()].find((path) => !pinned.has(path));
       if (!oldest)
         throw new HostError(
           "too-many-watchers",
-          "Eight working folders are in use. Close another viewer before opening this source.",
+          "Sixteen working folders are in use. Close another viewer before opening this source.",
           503,
         );
       const stop = watchers.get(oldest)!;
@@ -610,7 +683,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       evicted = retireWatcher(stop);
     }
     const previous = watchers.get(repo);
-    const promise = (async () => {
+    // Until the new watcher is ready, a change can go unseen.
+    revisions.watching(repo, false);
+    const promise: Promise<() => Promise<void>> = (async () => {
       await evicted;
       if (previous) {
         try {
@@ -621,15 +696,30 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           /* Replace a failed watcher. */
         }
       }
-      return watchRepository(
+      const stop = await watchRepository(
         repo,
-        () => {
-          if (!registry.owner(repo)) return;
-          registry.refreshSearch(repo);
-          publish({ type: "changed", repo, revision: ++revision });
+        {
+          change() {
+            if (!registry.owner(repo)) return;
+            registry.refreshSearch(repo);
+            publish({ type: "changed", repo, revision: revisions.revision(repo) });
+          },
+          hint: () => revisions.changed(repo),
+          ready() {
+            if (!live || watchers.get(repo) !== promise) return;
+            revisions.watching(repo, true);
+            options.watch?.onReady?.(repo);
+          },
+          // A window that shows the checkout has its event stream open.
+          shown: () => [...streams.values()].includes(repo),
         },
         live,
+        options.watch,
       );
+      return async () => {
+        revisions.watching(repo, false);
+        await stop();
+      };
     })();
     watchers.set(repo, promise);
     watcherModes.set(repo, live);
@@ -651,7 +741,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       };
     // The checkout's own Git state reads while its repository refreshes; a
     // refresh that fails still gives its error first.
-    const checkout = resolveRepository(repo, signal);
+    const checkout = registry
+      .gitState(repo)
+      .then((state) => checkoutInfo.get(repo, state, () => resolveRepository(repo)));
     checkout.catch(() => {});
     await registry.refreshOwner(repo, signal);
     const repositories = registry.snapshot();
@@ -874,7 +966,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             "x-accel-buffering": "no",
           });
           response.write(
-            `event: ready\ndata: ${JSON.stringify({ type: "ready", repo: eventRepo, revision })}\n\n`,
+            `event: ready\ndata: ${JSON.stringify({ type: "ready", repo: eventRepo, revision: revisions.revision(eventRepo) })}\n\n`,
           );
           streams.set(response, eventRepo);
           response.once("close", () => streams.delete(response));
@@ -1076,31 +1168,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             "x-accel-buffering": "no",
           });
           threadStreams.add(response);
-          let wake: (() => void) | undefined;
-          const unsubscribe = tabs.subscribe(() => wake?.());
+          const remove = threadFeed.add((text) => {
+            if (!abort.signal.aborted) response.write(`event: state\ndata: ${text}\n\n`);
+          });
           response.once("close", () => {
             threadStreams.delete(response);
-            unsubscribe();
-            wake?.();
+            remove();
           });
-          void (async () => {
-            let last = "";
-            while (!abort.signal.aborted && !closing) {
-              const text = JSON.stringify(await threads.list());
-              if (text !== last && !abort.signal.aborted) {
-                last = text;
-                response.write(`event: state\ndata: ${text}\n\n`);
-              }
-              await new Promise<void>((done) => {
-                const timer = setTimeout(done, STATUS_MS);
-                wake = () => {
-                  clearTimeout(timer);
-                  done();
-                };
-              });
-              wake = undefined;
-            }
-          })();
           return;
         }
         // Shows or hides the sessions that Med finds, or one of them.
@@ -1913,8 +1987,26 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 );
             }
             if (request.method === "GET") {
-              if (targetAction === "review") send(await savedReviews.review(id!, targetId!));
-              else if (targetAction === "source")
+              if (targetAction === "review") {
+                // A saved target never changes: the browser keeps its diff and
+                // asks again with this tag, as when a thread is read ahead again.
+                const tag = `"${id}.${targetId}"`;
+                const headers = { etag: tag, "cache-control": "private, no-cache" };
+                if (request.headers["if-none-match"] === tag) {
+                  assertRequestAccess();
+                  response.writeHead(304, headers);
+                  response.end();
+                  return;
+                }
+                const body = JSON.stringify(await savedReviews.review(id!, targetId!));
+                assertRequestAccess();
+                response.writeHead(200, {
+                  ...headers,
+                  "content-type": "application/json; charset=utf-8",
+                  "x-content-type-options": "nosniff",
+                });
+                response.end(body);
+              } else if (targetAction === "source")
                 send(await savedReviews.source(id!, targetId!, url.searchParams.get("path") ?? ""));
               else if (targetAction === "notes") send(await savedReviews.notes(id!, targetId!));
               else if (targetAction === "drift") {
@@ -1924,14 +2016,21 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 else {
                   // Later edits to its files send change events, as for a working review.
                   observe(target.repo, true);
-                  const [saved, live] = await Promise.all([
-                    savedReviews.review(id!, targetId!),
-                    reviews.load(
-                      { repo: target.repo, comparison: target.comparison },
-                      abort.signal,
-                    ),
-                  ]);
-                  send({ changed: captureChanged(saved, live) });
+                  // The answer stays while the watcher sees no edit and Git is the same.
+                  const files = revisions.token(target.repo);
+                  const state = files && (await registry.gitState(target.repo));
+                  const changed = await driftCache.get(
+                    `${id}\n${targetId}\n${bundle.revision}`,
+                    state && `${files}\n${state}`,
+                    async () => {
+                      const [saved, live] = await Promise.all([
+                        savedReviews.review(id!, targetId!),
+                        reviews.load({ repo: target.repo, comparison: target.comparison }),
+                      ]);
+                      return captureChanged(saved, live);
+                    },
+                  );
+                  send({ changed });
                 }
               } else if (action === "feedback") send(await savedReviews.feedback(id!));
               else if (action === "pull-request") {
@@ -2256,6 +2355,17 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             if (input.source.kind === "worktree") {
               browseLiveSources.add(input.source.repo);
               observe(input.source.repo, true);
+              // Ignored folders have no file events, so a list with them reads again.
+              const files = input.ignored ? undefined : revisions.token(input.source.repo);
+              const state = files && (await registry.gitState(input.source.repo));
+              const { repo } = input.source;
+              const { ignored } = input;
+              send(
+                await browseCache.get(repo, state && `${files}\n${state}`, () =>
+                  listBrowse({ kind: "worktree", repo }, ignored),
+                ),
+              );
+              return;
             }
             send(await listBrowse(input.source, input.ignored, abort.signal));
             return;
@@ -2322,7 +2432,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           if (url.pathname === "/api/git/targets" && request.method === "GET") {
-            send(await gitTargets(await requireRepo(url.searchParams.get("repo")), abort.signal));
+            const repo = await requireRepo(url.searchParams.get("repo"));
+            send(
+              await targetsCache.get(repo, await registry.gitState(repo), () => gitTargets(repo)),
+            );
             return;
           }
           if (url.pathname === "/api/git/push" && request.method === "POST") {
@@ -2461,6 +2574,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   input.comparison.kind === "working" ||
                   input.comparison.kind === "unstaged",
               );
+            // Changes in the checkout's files: the last review serves again
+            // while the checkout's token stays the same.
+            const live =
+              input.comparison.kind === "working" ||
+              input.comparison.kind === "unstaged" ||
+              input.comparison.kind === "staged";
             // "Only this session's files": the files that the session edited,
             // from its transcript, read again for each load.
             const scoped =
@@ -2474,16 +2593,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               const paths = (listed ? edited.filter((path) => listed.has(path)) : edited).slice(
                 -MAX_COMPARISON_PATHS,
               );
-              const review = await reviews.load(
-                { repo: input.repo, comparison: { ...comparison, paths } },
-                abort.signal,
-              );
+              const scopedRequest = { repo: input.repo, comparison: { ...comparison, paths } };
+              const review = await (live
+                ? loadLive(scopedRequest, abort.signal)
+                : reviews.load(scopedRequest, abort.signal));
               abort.signal.throwIfAborted();
               notes.adopt(review.id);
               send({ ...review, comparison: input.comparison });
               return;
             }
-            const review = await reviews.load(input, abort.signal);
+            const review = await (live
+              ? loadLive(input, abort.signal)
+              : reviews.load(input, abort.signal));
             abort.signal.throwIfAborted();
             notes.adopt(review.id);
             send(review);
@@ -2715,6 +2836,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       closeTranscripts();
       found.close();
       checkoutWork.close();
+      threadFeed.close();
       checkoutChanges.close();
       threads.stop();
       for (const abort of activeRequests.keys()) abort.abort();

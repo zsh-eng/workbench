@@ -3,6 +3,7 @@
     "dist/**",
     "node_modules/**",
     ".benchmarks/**",
+    "scripts/perf/baseline.json",
     ".test-artifacts/**",
     "docs/validation/highlighters-comparison.html",
     "upstream/**",

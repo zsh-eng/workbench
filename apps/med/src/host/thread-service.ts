@@ -293,8 +293,11 @@ export function createThreadService(options: ThreadServiceOptions) {
         else tabs.open(owner, { replace: id });
       }
       const live = new Map(found.map((thread) => [thread.id, thread]));
+      // The tabs as this read lists them: a tab that opens while it waits is
+      // not one of them.
+      const order = [...tabs.order()];
       const listed = await Promise.all(
-        tabs.order().map(async (id) => {
+        order.map(async (id) => {
           const review = byId.get(id);
           if (review) return reviewTab(review, repositories);
           const thread = live.get(id);
@@ -304,9 +307,12 @@ export function createThreadService(options: ThreadServiceOptions) {
         }),
       );
       // A tab whose record is gone, such as one deleted outside Med, leaves.
-      tabs.order().forEach((id, at) => {
-        if (!listed[at]) tabs.forget(id);
-      });
+      // Only with an index that has every saved review: a review saved while
+      // this read ran is a tab that the index does not have yet.
+      if (index?.changes === savedReviews.changes)
+        order.forEach((id, at) => {
+          if (!listed[at] && tabs.isOpen(id)) tabs.forget(id);
+        });
       const threads = await Promise.all(
         listed.flatMap((thread) => (thread ? [withSubagents(thread)] : [])),
       );

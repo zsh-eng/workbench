@@ -1,0 +1,3735 @@
+{
+  "version": 1,
+  "createdAt": "2026-10-15T08:17:41.821Z",
+  "commit": "e6da1193",
+  "machine": {
+    "cpus": 8,
+    "model": "Apple M1 Pro",
+    "memoryGB": 16,
+    "os": "darwin 27.0.0",
+    "node": "v25.3.0",
+    "chromium": "153.0.8010.12",
+    "git": "git version 2.52.0",
+    "shim": "c",
+    "headless": true
+  },
+  "fixture": {
+    "transcripts": "real",
+    "digest": "7e8e68c27a2f",
+    "threads": 14,
+    "transcriptMB": [
+      294,
+      111,
+      79,
+      78,
+      30,
+      16
+    ],
+    "largeDiffLines": 10056
+  },
+  "options": {
+    "runs": 5,
+    "idleSeconds": 60,
+    "react": true
+  },
+  "seconds": 323,
+  "pageErrors": [],
+  "actions": {
+    "pageLoad": {
+      "runs": 5,
+      "load": 3.5,
+      "min": {
+        "git.count": 13,
+        "http.count": 62,
+        "http.api": 17,
+        "ws.messages": 5
+      },
+      "mean": {
+        "http.bytes": 2461961,
+        "ws.bytes": 200626
+      },
+      "median": {
+        "git": {
+          "count": 13,
+          "ms": 176.1,
+          "cpu": 115.5,
+          "byCommand": {
+            "rev-parse --show-toplevel": 1,
+            "worktree list": 2,
+            "rev-parse --is-shallow-repository": 1,
+            "symbolic-ref --quiet": 2,
+            "rev-parse --verify": 2,
+            "for-each-ref --count=": 1,
+            "remote": 1,
+            "for-each-ref --format=": 1,
+            "ls-files --others": 1,
+            "ls-files --stage": 1,
+            "status --porcelain=": 0,
+            "rev-parse --path-format=": 0,
+            "show-ref --head": 0
+          }
+        },
+        "http": {
+          "count": 62,
+          "api": 17,
+          "bytes": 2461961,
+          "dropped": 0,
+          "byPath": {
+            "GET /review/:review": {
+              "count": 1,
+              "bytes": 3550
+            },
+            "GET /assets/*": {
+              "count": 42,
+              "bytes": 2308905
+            },
+            "GET /api/reviews/:review": {
+              "count": 1,
+              "bytes": 1057
+            },
+            "GET /fonts/*": {
+              "count": 2,
+              "bytes": 124193
+            },
+            "GET /api/build": {
+              "count": 1,
+              "bytes": 343
+            },
+            "POST /api/service/status": {
+              "count": 1,
+              "bytes": 1279
+            },
+            "GET /api/session?repo": {
+              "count": 1,
+              "bytes": 10304
+            },
+            "GET /api/reviews/:review/targets/:target/review": {
+              "count": 1,
+              "bytes": 3910
+            },
+            "GET /api/agents": {
+              "count": 1,
+              "bytes": 522
+            },
+            "GET /api/reviews/:review/codex-reviews": {
+              "count": 1,
+              "bytes": 257
+            },
+            "POST /api/live/:uuid": {
+              "count": 6,
+              "bytes": 1811
+            },
+            "GET /api/reviews/:review/targets/:target/notes": {
+              "count": 1,
+              "bytes": 339
+            },
+            "GET /api/git/targets?repo": {
+              "count": 1,
+              "bytes": 1067
+            },
+            "GET /api/branches?repo": {
+              "count": 1,
+              "bytes": 3511
+            },
+            "POST /api/browse/list": {
+              "count": 1,
+              "bytes": 913
+            }
+          }
+        },
+        "ws": {
+          "messages": 5,
+          "bytes": 200555,
+          "byChannel": {
+            "-": {
+              "count": 1,
+              "bytes": 65
+            },
+            "/api/windows": {
+              "count": 1,
+              "bytes": 40
+            },
+            "/api/threads/events": {
+              "count": 1,
+              "bytes": 14393
+            },
+            "/api/reviews/:review/sessions/:uuid/events": {
+              "count": 1,
+              "bytes": 185993
+            },
+            "/api/reviews/:review/agent/events": {
+              "count": 1,
+              "bytes": 64
+            },
+            "/api/events?repo": {
+              "count": 0,
+              "bytes": 0
+            }
+          }
+        },
+        "host": {
+          "cpu": 70
+        },
+        "main": {
+          "other": 29.2,
+          "script": 180.7,
+          "gc": 6.2,
+          "style": 17.7,
+          "layout": 29.4,
+          "paint": 9.2,
+          "parse": 2.1,
+          "react": 0
+        },
+        "other": {
+          "ThreadControllerImpl::RunTask": 9.9,
+          "Receive mojo message": 6.7,
+          "RunTask": 5.6,
+          "SimpleWatcher::OnHandleReady": 4.2,
+          "HTMLDocumentParser::MaybeFetchQueuedPreloads": 1.2
+        },
+        "forcedLayout": 25.2,
+        "forcedStyle": 16.6,
+        "tasks": 1069,
+        "longTasks": 0,
+        "longTaskMs": 0,
+        "longestTask": 48.1,
+        "workerMs": 72.8,
+        "workers": 5,
+        "breakdown": {
+          "react": 0,
+          "script": 180.7,
+          "style": 17.7,
+          "layout": 29.4,
+          "paint": 9.2,
+          "gc": 6.2,
+          "other": 31.3,
+          "worker": 26.8,
+          "git": 0,
+          "host": 15.1,
+          "idle": 0.1
+        },
+        "toList": {
+          "react": 0,
+          "script": 126.2,
+          "style": 13.8,
+          "layout": 12,
+          "paint": 3.3,
+          "gc": 4,
+          "other": 19.3,
+          "worker": 0,
+          "git": 0,
+          "host": 4.2,
+          "idle": 0.1
+        },
+        "ms": {
+          "LIST": 183.7,
+          "COMMIT": 117.1,
+          "VISIBLE": 118.7,
+          "SESSION": 274.5,
+          "SHOWN": 318.4
+        },
+        "load": 3.5,
+        "heapMB": 48.4,
+        "nodes": 30052,
+        "react": {
+          "ms": 159.2,
+          "phases": {
+            "Render": 80.7,
+            "Commit": 55.4,
+            "Remaining Effects": 23.2
+          },
+          "renders": 883,
+          "reconnects": 5,
+          "reconnectMs": 26,
+          "commits": 35,
+          "top": {
+            "MenuRoot": 61.5,
+            "TooltipRoot": 48.5,
+            "ActionTooltip": 48,
+            "ForwardRef(TooltipTrigger)": 43,
+            "FloatingTree": 39,
+            "CompositeList": 31,
+            "ThreadRow": 29,
+            "DialogRoot": 25,
+            "App": 25,
+            "ContextMenuRoot": 24.5,
+            "SessionThread": 24,
+            "AriaCombobox": 20
+          },
+          "shareOfScript": 0.61,
+          "toList": {
+            "react": 72.9,
+            "script": 68.1,
+            "style": 12.8,
+            "layout": 11.7,
+            "paint": 3.6,
+            "gc": 4,
+            "other": 24.6,
+            "worker": 0,
+            "git": 0,
+            "host": 3.9,
+            "idle": 0.7
+          }
+        }
+      },
+      "each": [
+        {
+          "load": 3.64,
+          "ms": {
+            "LIST": 178.2,
+            "COMMIT": 114.8,
+            "VISIBLE": 116.4,
+            "SESSION": 274.5,
+            "SHOWN": 317.2
+          },
+          "git": 13,
+          "http": 62,
+          "ws": 5,
+          "wsKB": 196,
+          "hostCpu": 80,
+          "script": 177.3
+        },
+        {
+          "load": 3.5,
+          "ms": {
+            "LIST": 181.5,
+            "COMMIT": 117.1,
+            "VISIBLE": 118.7,
+            "SESSION": 274.9,
+            "SHOWN": 318.4
+          },
+          "git": 13,
+          "http": 62,
+          "ws": 5,
+          "wsKB": 196,
+          "hostCpu": 70,
+          "script": 180.6
+        },
+        {
+          "load": 3.5,
+          "ms": {
+            "LIST": 188.8,
+            "COMMIT": 123.7,
+            "VISIBLE": 125.3,
+            "SESSION": 291.3,
+            "SHOWN": 337.4
+          },
+          "git": 17,
+          "http": 62,
+          "ws": 6,
+          "wsKB": 196,
+          "hostCpu": 60,
+          "script": 184.3
+        },
+        {
+          "load": 3.38,
+          "ms": {
+            "LIST": 183.7,
+            "COMMIT": 117.1,
+            "VISIBLE": 118.7,
+            "SESSION": 274.5,
+            "SHOWN": 318
+          },
+          "git": 13,
+          "http": 62,
+          "ws": 5,
+          "wsKB": 196,
+          "hostCpu": 60,
+          "script": 180.7
+        },
+        {
+          "load": 3.19,
+          "ms": {
+            "LIST": 185.4,
+            "COMMIT": 118.6,
+            "VISIBLE": 120.4,
+            "SESSION": 274.5,
+            "SHOWN": 319.1
+          },
+          "git": 17,
+          "http": 62,
+          "ws": 6,
+          "wsKB": 196,
+          "hostCpu": 90,
+          "script": 186.3
+        }
+      ]
+    },
+    "firstKey": {
+      "runs": 5,
+      "load": 3.5,
+      "min": {
+        "git.count": 75,
+        "http.count": 66,
+        "http.api": 60,
+        "ws.messages": 18
+      },
+      "mean": {
+        "http.bytes": 91343,
+        "ws.bytes": 1128425
+      },
+      "median": {
+        "git": {
+          "count": 79,
+          "ms": 812.9,
+          "cpu": 576.4,
+          "byCommand": {
+            "rev-parse --show-toplevel": 4,
+            "diff --no-ext-diff": 12,
+            "worktree list": 8,
+            "rev-parse --verify": 12,
+            "rev-parse --is-shallow-repository": 4,
+            "symbolic-ref --quiet": 8,
+            "for-each-ref --count=": 8,
+            "ls-files --others": 8,
+            "remote": 4,
+            "for-each-ref --format=": 4,
+            "ls-files --stage": 4,
+            "status --porcelain=": 1,
+            "rev-parse --path-format=": 0,
+            "show-ref --head": 0
+          }
+        },
+        "http": {
+          "count": 69,
+          "api": 63,
+          "bytes": 94120,
+          "dropped": 0,
+          "byPath": {
+            "GET /api/reviews/:review": {
+              "count": 4,
+              "bytes": 4265
+            },
+            "POST /api/live/:uuid": {
+              "count": 23,
+              "bytes": 4385
+            },
+            "GET /api/reviews/:review/targets/:target/review": {
+              "count": 4,
+              "bytes": 14600
+            },
+            "GET /api/session?repo": {
+              "count": 4,
+              "bytes": 41216
+            },
+            "GET /api/agents": {
+              "count": 4,
+              "bytes": 2088
+            },
+            "GET /api/reviews/:review/codex-reviews": {
+              "count": 4,
+              "bytes": 1028
+            },
+            "GET /assets/*": {
+              "count": 6,
+              "bytes": 2096
+            },
+            "GET /api/reviews/:review/targets/:target/notes": {
+              "count": 4,
+              "bytes": 1356
+            },
+            "GET /api/git/targets?repo": {
+              "count": 4,
+              "bytes": 4268
+            },
+            "GET /api/branches?repo": {
+              "count": 4,
+              "bytes": 14044
+            },
+            "POST /api/browse/list": {
+              "count": 4,
+              "bytes": 3652
+            },
+            "GET /api/reviews/:review/targets/:target/drift": {
+              "count": 4,
+              "bytes": 1056
+            }
+          }
+        },
+        "ws": {
+          "messages": 19,
+          "bytes": 1113149,
+          "byChannel": {
+            "/api/reviews/:review/sessions/:uuid/events": {
+              "count": 10,
+              "bytes": 1112614
+            },
+            "/api/events?repo": {
+              "count": 2,
+              "bytes": 202
+            },
+            "/api/reviews/:review/agent/events": {
+              "count": 7,
+              "bytes": 333
+            }
+          }
+        },
+        "host": {
+          "cpu": 210
+        },
+        "main": {
+          "other": 71.2,
+          "script": 287.5,
+          "gc": 29.1,
+          "style": 43.5,
+          "layout": 31.4,
+          "paint": 26.1,
+          "parse": 15.6,
+          "react": 0
+        },
+        "other": {
+          "RunTask": 27.3,
+          "Receive mojo message": 20.1,
+          "ThreadControllerImpl::RunTask": 15.4,
+          "SimpleWatcher::OnHandleReady": 10.8,
+          "Receive mojo reply": 0.8
+        },
+        "forcedLayout": 22.7,
+        "forcedStyle": 22.3,
+        "tasks": 1687,
+        "longTasks": 0,
+        "longTaskMs": 0,
+        "longestTask": 23.2,
+        "workerMs": 72.7,
+        "workers": 7,
+        "breakdown": {
+          "react": 0,
+          "script": 287.5,
+          "style": 43.5,
+          "layout": 31.4,
+          "paint": 26.1,
+          "gc": 29.1,
+          "other": 87.6,
+          "worker": 3.5,
+          "git": 57.7,
+          "host": 36,
+          "idle": 0
+        },
+        "browser": {
+          "taskMs": 473.7,
+          "scriptMs": 274.4,
+          "layoutMs": 25.7,
+          "styleMs": 46.6,
+          "layouts": 51,
+          "styles": 104
+        },
+        "toCommit": {
+          "react": 0,
+          "script": 34.2,
+          "style": 5.9,
+          "layout": 2.8,
+          "paint": 2.8,
+          "gc": 8.8,
+          "other": 14.3,
+          "worker": 0,
+          "git": 7.9,
+          "host": 1.9,
+          "idle": 0
+        },
+        "toShown": {
+          "react": 0,
+          "script": 49.2,
+          "style": 6.9,
+          "layout": 4.6,
+          "paint": 4.1,
+          "gc": 8.8,
+          "other": 15.6,
+          "worker": 0,
+          "git": 7.9,
+          "host": 1.9,
+          "idle": 0
+        },
+        "ms": {
+          "COMMIT": 80.9,
+          "FRAME": 100.2,
+          "PAINTED": 103.2,
+          "VISIBLE": 100.2,
+          "SESSION": 100.2,
+          "SHOWN": 100.2,
+          "SETTLED": 603.8
+        },
+        "markLagMs": 0.5,
+        "cold": 5,
+        "slotsBefore": 2,
+        "load": 3.5,
+        "react": {
+          "ms": 234.3,
+          "phases": {
+            "Prepared": 10.3,
+            "Commit": 62,
+            "Remaining Effects": 49.6,
+            "Render": 112.4
+          },
+          "renders": 2374,
+          "reconnects": 16,
+          "reconnectMs": 8.7,
+          "commits": 124.5,
+          "top": {
+            "MenuRoot": 159.5,
+            "ActionTooltip": 137,
+            "TooltipRoot": 136,
+            "FloatingTree": 113.5,
+            "ForwardRef(TooltipTrigger)": 110.5,
+            "CompositeList": 96,
+            "App": 93.5,
+            "SessionThread": 81,
+            "ForwardRef(TabsRoot)": 59.5,
+            "PaneTree": 57,
+            "DialogRoot": 56.5,
+            "AriaCombobox": 56
+          },
+          "shareOfScript": 0.7,
+          "toCommit": {
+            "react": 30.7,
+            "script": 16.1,
+            "style": 6,
+            "layout": 2.9,
+            "paint": 2.5,
+            "gc": 1.5,
+            "other": 16.7,
+            "worker": 0,
+            "git": 9.2,
+            "host": 0.1,
+            "idle": 0.1
+          },
+          "toShown": {
+            "react": 46,
+            "script": 18.3,
+            "style": 7.1,
+            "layout": 4.9,
+            "paint": 3.9,
+            "gc": 3,
+            "other": 20,
+            "worker": 0,
+            "git": 9.2,
+            "host": 0.1,
+            "idle": 0.1
+          }
+        }
+      },
+      "each": [
+        {
+          "load": 3.64,
+          "cold": true,
+          "ms": {
+            "COMMIT": 83,
+            "FRAME": 103,
+            "PAINTED": 106.1,
+            "VISIBLE": 103,
+            "SESSION": 103,
+            "SHOWN": 103,
+            "SETTLED": 607.7
+          },
+          "git": 79,
+          "http": 72,
+          "ws": 21,
+          "wsKB": 1162,
+          "hostCpu": 210,
+          "script": 276.1,
+          "toCommit": {
+            "react": 0,
+            "script": 33.3,
+            "style": 5.9,
+            "layout": 2.9,
+            "paint": 2.8,
+            "gc": 8.5,
+            "other": 15.8,
+            "worker": 0,
+            "git": 13.6,
+            "host": 0,
+            "idle": 0.2
+          }
+        },
+        {
+          "load": 3.5,
+          "cold": true,
+          "ms": {
+            "COMMIT": 80.9,
+            "FRAME": 100.2,
+            "PAINTED": 102.7,
+            "VISIBLE": 100.2,
+            "SESSION": 100.2,
+            "SHOWN": 100.2,
+            "SETTLED": 603.8
+          },
+          "git": 75,
+          "http": 66,
+          "ws": 19,
+          "wsKB": 1087,
+          "hostCpu": 200,
+          "script": 287.5,
+          "toCommit": {
+            "react": 0,
+            "script": 41,
+            "style": 5.8,
+            "layout": 2.8,
+            "paint": 2.9,
+            "gc": 8.8,
+            "other": 16.8,
+            "worker": 0,
+            "git": 1.1,
+            "host": 1.8,
+            "idle": 0
+          }
+        },
+        {
+          "load": 3.5,
+          "cold": true,
+          "ms": {
+            "COMMIT": 81.9,
+            "FRAME": 103.3,
+            "PAINTED": 106.2,
+            "VISIBLE": 103.3,
+            "SESSION": 103.3,
+            "SHOWN": 103.3,
+            "SETTLED": 605.9
+          },
+          "git": 79,
+          "http": 72,
+          "ws": 19,
+          "wsKB": 1087,
+          "hostCpu": 200,
+          "script": 291.4,
+          "toCommit": {
+            "react": 0,
+            "script": 33.5,
+            "style": 5.8,
+            "layout": 2.7,
+            "paint": 2.8,
+            "gc": 9.5,
+            "other": 14.3,
+            "worker": 0,
+            "git": 9.1,
+            "host": 4.3,
+            "idle": 0
+          }
+        },
+        {
+          "load": 3.38,
+          "cold": true,
+          "ms": {
+            "COMMIT": 80,
+            "FRAME": 100.1,
+            "PAINTED": 103.2,
+            "VISIBLE": 100.1,
+            "SESSION": 100.1,
+            "SHOWN": 100.1,
+            "SETTLED": 600.5
+          },
+          "git": 77,
+          "http": 67,
+          "ws": 19,
+          "wsKB": 1087,
+          "hostCpu": 250,
+          "script": 293.1,
+          "toCommit": {
+            "react": 0,
+            "script": 42.8,
+            "style": 5.9,
+            "layout": 2.8,
+            "paint": 3.3,
+            "gc": 9.1,
+            "other": 13,
+            "worker": 0,
+            "git": 1.2,
+            "host": 1.9,
+            "idle": 0
+          }
+        },
+        {
+          "load": 3.19,
+          "cold": true,
+          "ms": {
+            "COMMIT": 78.7,
+            "FRAME": 98.2,
+            "PAINTED": 101.2,
+            "VISIBLE": 98.2,
+            "SESSION": 98.2,
+            "SHOWN": 98.2,
+            "SETTLED": 600.9
+          },
+          "git": 96,
+          "http": 69,
+          "ws": 18,
+          "wsKB": 1087,
+          "hostCpu": 340,
+          "script": 277,
+          "toCommit": {
+            "react": 0,
+            "script": 34.2,
+            "style": 6.8,
+            "layout": 2.8,
+            "paint": 2.7,
+            "gc": 8.3,
+            "other": 11.7,
+            "worker": 0,
+            "git": 7.9,
+            "host": 4.2,
+            "idle": 0.1
+          }
+        }
+      ]
+    },
+    "coldOpen": {
+      "runs": 5,
+      "load": 3.13,
+      "min": {
+        "git.count": 19,
+        "http.count": 19,
+        "http.api": 18,
+        "ws.messages": 7
+      },
+      "mean": {
+        "http.bytes": 23063,
+        "ws.bytes": 166125
+      },
+      "median": {
+        "git": {
+          "count": 19,
+          "ms": 163.1,
+          "cpu": 134.4,
+          "byCommand": {
+            "rev-parse --show-toplevel": 1,
+            "worktree list": 2,
+            "rev-parse --is-shallow-repository": 1,
+            "symbolic-ref --quiet": 2,
+            "rev-parse --verify": 3,
+            "for-each-ref --count=": 2,
+            "remote": 1,
+            "for-each-ref --format=": 1,
+            "ls-files --stage": 1,
+            "ls-files --others": 2,
+            "diff --no-ext-diff": 3
+          }
+        },
+        "http": {
+          "count": 19,
+          "api": 18,
+          "bytes": 23063,
+          "dropped": 0,
+          "byPath": {
+            "GET /api/reviews/:review": {
+              "count": 1,
+              "bytes": 1054
+            },
+            "POST /api/live/:uuid": {
+              "count": 8,
+              "bytes": 1239
+            },
+            "GET /api/reviews/:review/targets/:target/review": {
+              "count": 1,
+              "bytes": 3593
+            },
+            "GET /api/session?repo": {
+              "count": 1,
+              "bytes": 10304
+            },
+            "GET /api/agents": {
+              "count": 1,
+              "bytes": 522
+            },
+            "GET /api/reviews/:review/codex-reviews": {
+              "count": 1,
+              "bytes": 257
+            },
+            "GET /assets/*": {
+              "count": 1,
+              "bytes": 0
+            },
+            "GET /api/reviews/:review/targets/:target/notes": {
+              "count": 1,
+              "bytes": 339
+            },
+            "GET /api/git/targets?repo": {
+              "count": 1,
+              "bytes": 1067
+            },
+            "GET /api/branches?repo": {
+              "count": 1,
+              "bytes": 3511
+            },
+            "POST /api/browse/list": {
+              "count": 1,
+              "bytes": 913
+            },
+            "GET /api/reviews/:review/targets/:target/drift": {
+              "count": 1,
+              "bytes": 264
+            }
+          }
+        },
+        "ws": {
+          "messages": 7,
+          "bytes": 166125,
+          "byChannel": {
+            "/api/events?repo": {
+              "count": 2,
+              "bytes": 202
+            },
+            "/api/reviews/:review/sessions/:uuid/events": {
+              "count": 3,
+              "bytes": 165834
+            },
+            "/api/reviews/:review/agent/events": {
+              "count": 2,
+              "bytes": 89
+            }
+          }
+        },
+        "host": {
+          "cpu": 40
+        },
+        "main": {
+          "other": 16.4,
+          "script": 84.5,
+          "gc": 10.9,
+          "style": 20.9,
+          "layout": 5.8,
+          "paint": 10.3,
+          "parse": 2.7,
+          "react": 0
+        },
+        "other": {
+          "ThreadControllerImpl::RunTask": 5.5,
+          "Receive mojo message": 4.6,
+          "RunTask": 4.1,
+          "SimpleWatcher::OnHandleReady": 1.4,
+          "Responsiveness.Renderer.UserInteraction": 0,
+          "Receive mojo reply": 0.3
+        },
+        "forcedLayout": 5.4,
+        "forcedStyle": 8.1,
+        "tasks": 594,
+        "longTasks": 0,
+        "longTaskMs": 0,
+        "longestTask": 12.3,
+        "workerMs": 20.3,
+        "workers": 4,
+        "breakdown": {
+          "react": 0,
+          "script": 84.5,
+          "style": 20.9,
+          "layout": 5.8,
+          "paint": 10.3,
+          "gc": 10.9,
+          "other": 18.8,
+          "worker": 0.8,
+          "git": 40.8,
+          "host": 412.6,
+          "idle": 0
+        },
+        "browser": {
+          "taskMs": 141.1,
+          "scriptMs": 76.3,
+          "layoutMs": 4.7,
+          "styleMs": 21.4,
+          "layouts": 11,
+          "styles": 29
+        },
+        "toCommit": {
+          "react": 0,
+          "script": 32.1,
+          "style": 5.2,
+          "layout": 2.7,
+          "paint": 3.4,
+          "gc": 9.2,
+          "other": 12.9,
+          "worker": 0.8,
+          "git": 2.1,
+          "host": 12.9,
+          "idle": 0
+        },
+        "toShown": {
+          "react": 0,
+          "script": 45.9,
+          "style": 6.2,
+          "layout": 4.6,
+          "paint": 4.6,
+          "gc": 9.2,
+          "other": 14.2,
+          "worker": 0.8,
+          "git": 2.1,
+          "host": 12.9,
+          "idle": 0
+        },
+        "ms": {
+          "COMMIT": 80.8,
+          "FRAME": 99.3,
+          "PAINTED": 102.3,
+          "VISIBLE": 99.3,
+          "SESSION": 99.3,
+          "SHOWN": 99.3,
+          "SETTLED": 151.7
+        },
+        "markLagMs": 0.3,
+        "cold": 5,
+        "slotsBefore": 2,
+        "load": 3.1,
+        "held": 1,
+        "react": {
+          "ms": 89.5,
+          "phases": {
+            "Render": 46.5,
+            "Commit": 21.5,
+            "Remaining Effects": 19,
+            "Prepared": 2.6
+          },
+          "renders": 916,
+          "reconnects": 4,
+          "reconnectMs": 4.7,
+          "commits": 40.5,
+          "top": {
+            "MenuRoot": 72.5,
+            "ActionTooltip": 54,
+            "TooltipRoot": 53,
+            "FloatingTree": 42,
+            "ForwardRef(TooltipTrigger)": 41.5,
+            "ThreadRow": 35.5,
+            "CompositeList": 33.5,
+            "ContextMenuRoot": 32.5,
+            "App": 29.5,
+            "SessionThread": 25,
+            "ForwardRef(TabsRoot)": 20.5,
+            "PaneTree": 20
+          },
+          "shareOfScript": 0.74,
+          "toCommit": {
+            "react": 34.9,
+            "script": 12.2,
+            "style": 5.6,
+            "layout": 3.2,
+            "paint": 4.1,
+            "gc": 9,
+            "other": 16.3,
+            "worker": 0,
+            "git": 0,
+            "host": 10.3,
+            "idle": 0.3
+          },
+          "toShown": {
+            "react": 50.1,
+            "script": 14.3,
+            "style": 6.6,
+            "layout": 5.2,
+            "paint": 5.4,
+            "gc": 9,
+            "other": 19,
+            "worker": 0,
+            "git": 0,
+            "host": 10.3,
+            "idle": 0.3
+          }
+        }
+      },
+      "each": [
+        {
+          "load": 2.94,
+          "cold": true,
+          "ms": {
+            "COMMIT": 75.4,
+            "FRAME": 94.7,
+            "PAINTED": 97.7,
+            "VISIBLE": 94.7,
+            "SESSION": 94.7,
+            "SHOWN": 94.7,
+            "SETTLED": 146.9
+          },
+          "git": 19,
+          "http": 19,
+          "ws": 7,
+          "wsKB": 162,
+          "hostCpu": 40,
+          "script": 84.5,
+          "toCommit": {
+            "react": 0,
+            "script": 32.8,
+            "style": 5.5,
+            "layout": 2.7,
+            "paint": 3.4,
+            "gc": 8.6,
+            "other": 13.2,
+            "worker": 0.6,
+            "git": 2.3,
+            "host": 6.3,
+            "idle": 0.1
+          }
+        },
+        {
+          "load": 3.26,
+          "cold": true,
+          "ms": {
+            "COMMIT": 80.8,
+            "FRAME": 100.4,
+            "PAINTED": 102.8,
+            "VISIBLE": 100.4,
+            "SESSION": 100.4,
+            "SHOWN": 100.4,
+            "SETTLED": 166.1
+          },
+          "git": 19,
+          "http": 19,
+          "ws": 7,
+          "wsKB": 162,
+          "hostCpu": 40,
+          "script": 88,
+          "toCommit": {
+            "react": 0,
+            "script": 32.7,
+            "style": 5.2,
+            "layout": 2.9,
+            "paint": 3.3,
+            "gc": 9.4,
+            "other": 12.2,
+            "worker": 0,
+            "git": 0.8,
+            "host": 14.3,
+            "idle": 0
+          }
+        },
+        {
+          "load": 2.99,
+          "cold": true,
+          "ms": {
+            "COMMIT": 80.8,
+            "FRAME": 99.3,
+            "PAINTED": 102.3,
+            "VISIBLE": 99.3,
+            "SESSION": 99.3,
+            "SHOWN": 99.3,
+            "SETTLED": 151.7
+          },
+          "git": 19,
+          "http": 19,
+          "ws": 7,
+          "wsKB": 162,
+          "hostCpu": 40,
+          "script": 82.7,
+          "toCommit": {
+            "react": 0,
+            "script": 31.8,
+            "style": 5.1,
+            "layout": 2.7,
+            "paint": 3.2,
+            "gc": 9.2,
+            "other": 12.9,
+            "worker": 0.8,
+            "git": 2,
+            "host": 12.9,
+            "idle": 0.2
+          }
+        },
+        {
+          "load": 3.23,
+          "cold": true,
+          "ms": {
+            "COMMIT": 76.5,
+            "FRAME": 95.3,
+            "PAINTED": 98.2,
+            "VISIBLE": 95.3,
+            "SESSION": 95.3,
+            "SHOWN": 95.3,
+            "SETTLED": 146.4
+          },
+          "git": 19,
+          "http": 19,
+          "ws": 7,
+          "wsKB": 162,
+          "hostCpu": 40,
+          "script": 84.6,
+          "toCommit": {
+            "react": 0,
+            "script": 32.1,
+            "style": 5.5,
+            "layout": 2.8,
+            "paint": 3.6,
+            "gc": 7.1,
+            "other": 13.7,
+            "worker": 2,
+            "git": 2.6,
+            "host": 7.1,
+            "idle": 0
+          }
+        },
+        {
+          "load": 3.13,
+          "cold": true,
+          "ms": {
+            "COMMIT": 82.9,
+            "FRAME": 101.3,
+            "PAINTED": 104.3,
+            "VISIBLE": 101.3,
+            "SESSION": 101.3,
+            "SHOWN": 101.3,
+            "SETTLED": 153.5
+          },
+          "git": 19,
+          "http": 19,
+          "ws": 7,
+          "wsKB": 162,
+          "hostCpu": 40,
+          "script": 82.5,
+          "toCommit": {
+            "react": 0,
+            "script": 32,
+            "style": 5.1,
+            "layout": 2.5,
+            "paint": 3.4,
+            "gc": 10.3,
+            "other": 12.1,
+            "worker": 0.8,
+            "git": 2.1,
+            "host": 14.6,
+            "idle": 0
+          }
+        }
+      ]
+    },
+    "coldLargeDiff": {
+      "runs": 5,
+      "load": 3.06,
+      "min": {
+        "git.count": 14,
+        "http.count": 18,
+        "http.api": 17,
+        "ws.messages": 7
+      },
+      "mean": {
+        "http.bytes": 604094,
+        "ws.bytes": 66992
+      },
+      "median": {
+        "git": {
+          "count": 14,
+          "ms": 184.8,
+          "cpu": 120.8,
+          "byCommand": {
+            "rev-parse --show-toplevel": 1,
+            "worktree list": 2,
+            "rev-parse --is-shallow-repository": 1,
+            "symbolic-ref --quiet": 2,
+            "rev-parse --verify": 2,
+            "for-each-ref --count=": 2,
+            "remote": 1,
+            "for-each-ref --format=": 1,
+            "ls-files --stage": 1,
+            "ls-files --others": 1,
+            "status --porcelain=": 0
+          }
+        },
+        "http": {
+          "count": 18,
+          "api": 17,
+          "bytes": 604094,
+          "dropped": 0,
+          "byPath": {
+            "GET /api/reviews/:review": {
+              "count": 1,
+              "bytes": 1510
+            },
+            "POST /api/live/:uuid": {
+              "count": 8,
+              "bytes": 1241
+            },
+            "GET /api/reviews/:review/targets/:target/review": {
+              "count": 1,
+              "bytes": 581184
+            },
+            "GET /api/session?repo": {
+              "count": 1,
+              "bytes": 10301
+            },
+            "GET /api/agents": {
+              "count": 1,
+              "bytes": 522
+            },
+            "GET /api/reviews/:review/codex-reviews": {
+              "count": 1,
+              "bytes": 257
+            },
+            "GET /assets/*": {
+              "count": 1,
+              "bytes": 0
+            },
+            "GET /api/reviews/:review/targets/:target/notes": {
+              "count": 1,
+              "bytes": 339
+            },
+            "GET /api/git/targets?repo": {
+              "count": 1,
+              "bytes": 1066
+            },
+            "GET /api/branches?repo": {
+              "count": 1,
+              "bytes": 3511
+            },
+            "POST /api/browse/list": {
+              "count": 1,
+              "bytes": 4163
+            }
+          }
+        },
+        "ws": {
+          "messages": 7,
+          "bytes": 66992,
+          "byChannel": {
+            "/api/events?repo": {
+              "count": 2,
+              "bytes": 202
+            },
+            "/api/reviews/:review/sessions/:uuid/events": {
+              "count": 2,
+              "bytes": 66675
+            },
+            "/api/reviews/:review/agent/events": {
+              "count": 2,
+              "bytes": 90
+            },
+            "/api/reviews/:review/sessions/:uuid/events?feed&count": {
+              "count": 1,
+              "bytes": 25
+            }
+          }
+        },
+        "host": {
+          "cpu": 40
+        },
+        "main": {
+          "other": 15.9,
+          "script": 101.1,
+          "gc": 13.2,
+          "style": 21.9,
+          "layout": 6.3,
+          "paint": 10.7,
+          "parse": 2.4,
+          "react": 0
+        },
+        "other": {
+          "ThreadControllerImpl::RunTask": 8.7,
+          "Receive mojo message": 3.3,
+          "RunTask": 2.3,
+          "SimpleWatcher::OnHandleReady": 1.2,
+          "Receive mojo reply": 0.2,
+          "Responsiveness.Renderer.UserInteraction": 0
+        },
+        "forcedLayout": 4.3,
+        "forcedStyle": 6.6,
+        "tasks": 499,
+        "longTasks": 0,
+        "longTaskMs": 0,
+        "longestTask": 35.6,
+        "workerMs": 49.6,
+        "workers": 3,
+        "breakdown": {
+          "react": 0,
+          "script": 101.1,
+          "style": 21.9,
+          "layout": 6.3,
+          "paint": 10.7,
+          "gc": 13.2,
+          "other": 18.3,
+          "worker": 13.3,
+          "git": 5.7,
+          "host": 427.8,
+          "idle": 0.1
+        },
+        "browser": {
+          "taskMs": 166.1,
+          "scriptMs": 82.5,
+          "layoutMs": 5.6,
+          "styleMs": 23.3,
+          "layouts": 11,
+          "styles": 26
+        },
+        "toCommit": {
+          "react": 0,
+          "script": 29.6,
+          "style": 5.4,
+          "layout": 2.5,
+          "paint": 3,
+          "gc": 0,
+          "other": 10.3,
+          "worker": 13.3,
+          "git": 2.3,
+          "host": 8.3,
+          "idle": 0.1
+        },
+        "toShown": {
+          "react": 0,
+          "script": 66.6,
+          "style": 6.5,
+          "layout": 4.8,
+          "paint": 5.5,
+          "gc": 2.5,
+          "other": 11.7,
+          "worker": 13.3,
+          "git": 2.3,
+          "host": 8.3,
+          "idle": 0.1
+        },
+        "ms": {
+          "COMMIT": 74.6,
+          "FRAME": 122.4,
+          "PAINTED": 124.9,
+          "VISIBLE": 122.3,
+          "SESSION": 122.4,
+          "SHOWN": 122.4,
+          "SETTLED": 175.7
+        },
+        "markLagMs": 0.2,
+        "cold": 5,
+        "slotsBefore": 3,
+        "load": 3.1,
+        "held": 1,
+        "react": {
+          "ms": 93.8,
+          "phases": {
+            "Render": 46.9,
+            "Commit": 25.5,
+            "Remaining Effects": 18.4,
+            "Prepared": 3.2
+          },
+          "renders": 909.5,
+          "reconnects": 4,
+          "reconnectMs": 4.4,
+          "commits": 38.5,
+          "top": {
+            "MenuRoot": 70,
+            "ActionTooltip": 58.5,
+            "TooltipRoot": 57.5,
+            "FloatingTree": 47,
+            "ForwardRef(TooltipTrigger)": 42,
+            "App": 32.5,
+            "ThreadRow": 31.5,
+            "CompositeList": 31,
+            "ContextMenuRoot": 26.5,
+            "ForwardRef(MenuTrigger)": 22,
+            "SessionThread": 21.5,
+            "ToolButton": 20.5
+          },
+          "shareOfScript": 0.67,
+          "toCommit": {
+            "react": 33.4,
+            "script": 10.6,
+            "style": 5.8,
+            "layout": 2.7,
+            "paint": 4,
+            "gc": 8.8,
+            "other": 15.7,
+            "worker": 7.6,
+            "git": 4,
+            "host": 0,
+            "idle": 0.2
+          },
+          "toShown": {
+            "react": 49.2,
+            "script": 28.4,
+            "style": 6.6,
+            "layout": 4.7,
+            "paint": 5.6,
+            "gc": 17.5,
+            "other": 19,
+            "worker": 7.6,
+            "git": 4,
+            "host": 0,
+            "idle": 0.2
+          }
+        }
+      },
+      "each": [
+        {
+          "load": 2.94,
+          "cold": true,
+          "ms": {
+            "COMMIT": 78.1,
+            "FRAME": 124.9,
+            "PAINTED": 127.6,
+            "VISIBLE": 124.9,
+            "SESSION": 124.9,
+            "SHOWN": 124.9,
+            "SETTLED": 184.6
+          },
+          "git": 14,
+          "http": 18,
+          "ws": 7,
+          "wsKB": 65,
+          "hostCpu": 100,
+          "script": 105.6,
+          "toCommit": {
+            "react": 0,
+            "script": 32.2,
+            "style": 5.6,
+            "layout": 2.6,
+            "paint": 3.3,
+            "gc": 0,
+            "other": 10.9,
+            "worker": 12.5,
+            "git": 2.6,
+            "host": 8.3,
+            "idle": 0.1
+          }
+        },
+        {
+          "load": 3.08,
+          "cold": true,
+          "ms": {
+            "COMMIT": 66.8,
+            "FRAME": 112.6,
+            "PAINTED": 117.2,
+            "VISIBLE": 112.6,
+            "SESSION": 112.6,
+            "SHOWN": 112.6,
+            "SETTLED": 168.2
+          },
+          "git": 14,
+          "http": 18,
+          "ws": 7,
+          "wsKB": 65,
+          "hostCpu": 40,
+          "script": 99.6,
+          "toCommit": {
+            "react": 0,
+            "script": 29.1,
+            "style": 5.2,
+            "layout": 2.6,
+            "paint": 2.8,
+            "gc": 0,
+            "other": 10.3,
+            "worker": 13.4,
+            "git": 2.3,
+            "host": 1,
+            "idle": 0.1
+          }
+        },
+        {
+          "load": 2.99,
+          "cold": true,
+          "ms": {
+            "COMMIT": 74.6,
+            "FRAME": 122.4,
+            "PAINTED": 124.9,
+            "VISIBLE": 122.3,
+            "SESSION": 122.4,
+            "SHOWN": 122.4,
+            "SETTLED": 175.7
+          },
+          "git": 14,
+          "http": 18,
+          "ws": 7,
+          "wsKB": 65,
+          "hostCpu": 40,
+          "script": 101.1,
+          "toCommit": {
+            "react": 0,
+            "script": 28.5,
+            "style": 5.2,
+            "layout": 2.2,
+            "paint": 3,
+            "gc": 0,
+            "other": 9.4,
+            "worker": 13.3,
+            "git": 2.9,
+            "host": 10,
+            "idle": 0.1
+          }
+        },
+        {
+          "load": 3.06,
+          "cold": true,
+          "ms": {
+            "COMMIT": 76.4,
+            "FRAME": 124.2,
+            "PAINTED": 128.9,
+            "VISIBLE": 124.2,
+            "SESSION": 124.2,
+            "SHOWN": 124.2,
+            "SETTLED": 186.2
+          },
+          "git": 18,
+          "http": 18,
+          "ws": 7,
+          "wsKB": 65,
+          "hostCpu": 40,
+          "script": 103.8,
+          "toCommit": {
+            "react": 0,
+            "script": 29.6,
+            "style": 5.4,
+            "layout": 2.5,
+            "paint": 3.3,
+            "gc": 0,
+            "other": 9.9,
+            "worker": 13.4,
+            "git": 2.2,
+            "host": 10.2,
+            "idle": 0
+          }
+        },
+        {
+          "load": 3.13,
+          "cold": true,
+          "ms": {
+            "COMMIT": 72.3,
+            "FRAME": 119.4,
+            "PAINTED": 121.9,
+            "VISIBLE": 119.4,
+            "SESSION": 119.4,
+            "SHOWN": 119.4,
+            "SETTLED": 174.4
+          },
+          "git": 14,
+          "http": 18,
+          "ws": 7,
+          "wsKB": 65,
+          "hostCpu": 30,
+          "script": 101.1,
+          "toCommit": {
+            "react": 0,
+            "script": 30.1,
+            "style": 5.9,
+            "layout": 2.4,
+            "paint": 2.8,
+            "gc": 0,
+            "other": 10.6,
+            "worker": 12.1,
+            "git": 2.2,
+            "host": 6.1,
+            "idle": 0.1
+          }
+        }
+      ]
+    },
+    "warmSwitch": {
+      "runs": 35,
+      "load": 2.59,
+      "min": {
+        "git.count": 19,
+        "http.count": 15,
+        "http.api": 15,
+        "ws.messages": 7
+      },
+      "mean": {
+        "http.bytes": 25617,
+        "ws.bytes": 233607
+      },
+      "median": {
+        "git": {
+          "count": 22,
+          "ms": 239.6,
+          "cpu": 171.2,
+          "byCommand": {
+            "remote": 1,
+            "symbolic-ref --quiet": 2,
+            "for-each-ref --format=": 1,
+            "rev-parse --verify": 3,
+            "worktree list": 2,
+            "rev-parse --path-format=": 0,
+            "ls-files --stage": 1,
+            "ls-files --others": 2,
+            "diff --no-ext-diff": 3,
+            "status --porcelain=": 0,
+            "for-each-ref --count=": 2,
+            "merge-base refs/heads/main": 0,
+            "rev-parse --show-toplevel": 1,
+            "rev-parse --is-shallow-repository": 1,
+            "diff 30ee9b475981d7e6cf32e13cf9b733152ed6b395": 0,
+            "rev-list --count": 0
+          }
+        },
+        "http": {
+          "count": 16,
+          "api": 16,
+          "bytes": 18964,
+          "dropped": 0,
+          "byPath": {
+            "GET /api/reviews/:review/codex-reviews": {
+              "count": 1,
+              "bytes": 257
+            },
+            "GET /api/git/targets?repo": {
+              "count": 1,
+              "bytes": 1067
+            },
+            "GET /api/reviews/:review": {
+              "count": 1,
+              "bytes": 1157
+            },
+            "GET /api/branches?repo": {
+              "count": 1,
+              "bytes": 3511
+            },
+            "GET /api/reviews/:review/targets/:target/drift": {
+              "count": 1,
+              "bytes": 264
+            },
+            "POST /api/browse/list": {
+              "count": 1,
+              "bytes": 913
+            },
+            "POST /api/live/:uuid": {
+              "count": 9,
+              "bytes": 1534
+            },
+            "GET /api/session?repo": {
+              "count": 1,
+              "bytes": 10310
+            },
+            "GET /api/reviews/:review/targets/:target/review": {
+              "count": 0,
+              "bytes": 0
+            }
+          }
+        },
+        "ws": {
+          "messages": 8,
+          "bytes": 214724,
+          "byChannel": {
+            "/api/reviews/:review/agent/events": {
+              "count": 2,
+              "bytes": 92
+            },
+            "/api/reviews/:review/sessions/:uuid/events": {
+              "count": 2,
+              "bytes": 25629
+            },
+            "/api/events?repo": {
+              "count": 2,
+              "bytes": 205
+            },
+            "/api/reviews/:review/sessions/:uuid/events?feed&count": {
+              "count": 2,
+              "bytes": 165814
+            }
+          }
+        },
+        "host": {
+          "cpu": 60
+        },
+        "main": {
+          "other": 18,
+          "script": 36.1,
+          "gc": 2.3,
+          "style": 17.2,
+          "layout": 5.9,
+          "paint": 10.5,
+          "parse": 0,
+          "react": 0
+        },
+        "other": {
+          "RunTask": 5.9,
+          "Receive mojo message": 2.6,
+          "ThreadControllerImpl::RunTask": 5.2,
+          "SimpleWatcher::OnHandleReady": 1.6,
+          "Receive mojo reply": 0.3,
+          "Responsiveness.Renderer.UserInteraction": 0,
+          "V8.HandleInterrupts": 0
+        },
+        "forcedLayout": 5.1,
+        "forcedStyle": 6.6,
+        "tasks": 428,
+        "longTasks": 0,
+        "longTaskMs": 0,
+        "longestTask": 24.4,
+        "workerMs": 0,
+        "workers": 0,
+        "breakdown": {
+          "react": 0,
+          "script": 36.1,
+          "style": 17.2,
+          "layout": 5.9,
+          "paint": 10.5,
+          "gc": 2.3,
+          "other": 18,
+          "worker": 0,
+          "git": 40,
+          "host": 307.9,
+          "idle": 0.1
+        },
+        "browser": {
+          "taskMs": 87.1,
+          "scriptMs": 28.7,
+          "layoutMs": 3.2,
+          "styleMs": 19.2,
+          "layouts": 4,
+          "styles": 17
+        },
+        "toCommit": {
+          "react": 0,
+          "script": 12.8,
+          "style": 6.3,
+          "layout": 5.2,
+          "paint": 0.1,
+          "gc": 0,
+          "other": 0.2,
+          "worker": 0,
+          "git": 0,
+          "host": 0,
+          "idle": 0.1
+        },
+        "toShown": {
+          "react": 0,
+          "script": 14,
+          "style": 6.3,
+          "layout": 5.2,
+          "paint": 0.1,
+          "gc": 0,
+          "other": 0.6,
+          "worker": 0,
+          "git": 0,
+          "host": 0,
+          "idle": 0.1
+        },
+        "ms": {
+          "COMMIT": 25,
+          "FRAME": 26.7,
+          "PAINTED": 44.5,
+          "VISIBLE": 26.6,
+          "SESSION": 26.6,
+          "SHOWN": 26.6,
+          "SETTLED": 130.6
+        },
+        "markLagMs": 0.2,
+        "cold": 0,
+        "slotsBefore": 14,
+        "load": 2.6,
+        "visit": "first",
+        "react": {
+          "ms": 44,
+          "phases": {
+            "Render": 15.1,
+            "Commit": 13.7,
+            "Remaining Effects": 13.3,
+            "Prepared": 2.3
+          },
+          "renders": 342.5,
+          "reconnects": 3,
+          "reconnectMs": 15.5,
+          "commits": 12,
+          "top": {
+            "MenuRoot": 29.4,
+            "ActionTooltip": 19.5,
+            "TooltipRoot": 19.4,
+            "FloatingTree": 18,
+            "ForwardRef(TooltipTrigger)": 15.6,
+            "ContextMenuRoot": 13.3,
+            "App": 12.4,
+            "ThreadRow": 12,
+            "SessionThread": 10.3,
+            "CompositeList": 10.1,
+            "SessionPanel": 8.2,
+            "AriaCombobox": 7.5
+          },
+          "shareOfScript": 0.65,
+          "toCommit": {
+            "react": 15.4,
+            "script": 3.3,
+            "style": 6.9,
+            "layout": 6,
+            "paint": 0.2,
+            "gc": 0,
+            "other": 0.2,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.1
+          },
+          "toShown": {
+            "react": 15.5,
+            "script": 4.7,
+            "style": 6.9,
+            "layout": 6,
+            "paint": 0.2,
+            "gc": 0,
+            "other": 2.2,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.1
+          }
+        }
+      },
+      "each": [
+        {
+          "load": 3.02,
+          "cold": false,
+          "visit": "first",
+          "ms": {
+            "COMMIT": 31.3,
+            "FRAME": 33.3,
+            "PAINTED": 51.6,
+            "VISIBLE": 33.1,
+            "SESSION": 33.2,
+            "SHOWN": 33.2,
+            "SETTLED": 156.8
+          },
+          "git": 26,
+          "http": 16,
+          "ws": 8,
+          "wsKB": 593,
+          "hostCpu": 130,
+          "script": 52.8,
+          "toCommit": {
+            "react": 0,
+            "script": 17,
+            "style": 6.4,
+            "layout": 5.2,
+            "paint": 0.1,
+            "gc": 2.1,
+            "other": 0.2,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.3
+          }
+        },
+        {
+          "load": 3.02,
+          "cold": false,
+          "visit": "first",
+          "ms": {
+            "COMMIT": 25.1,
+            "FRAME": 26.7,
+            "PAINTED": 39,
+            "VISIBLE": 26.6,
+            "SESSION": 26.6,
+            "SHOWN": 26.6,
+            "SETTLED": 109.3
+          },
+          "git": 22,
+          "http": 15,
+          "ws": 7,
+          "wsKB": 75,
+          "hostCpu": 110,
+          "script": 37.3,
+          "toCommit": {
+            "react": 0,
+            "script": 14.2,
+            "style": 5.3,
+            "layout": 4.2,
+            "paint": 0.1,
+            "gc": 0,
+            "other": 0.3,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 1
+          }
+        },
+        {
+          "load": 3.02,
+          "cold": false,
+          "visit": "first",
+          "ms": {
+            "COMMIT": 24.9,
+            "FRAME": 26.5,
+            "PAINTED": 52.6,
+            "VISIBLE": 26.4,
+            "SESSION": 26.4,
+            "SHOWN": 26.4,
+            "SETTLED": 149.5
+          },
+          "git": 22,
+          "http": 16,
+          "ws": 8,
+          "wsKB": 297,
+          "hostCpu": 60,
+          "script": 35.8,
+          "toCommit": {
+            "react": 0,
+            "script": 13.8,
+            "style": 5.9,
+            "layout": 4.9,
+            "paint": 0.1,
+            "gc": 0,
+            "other": 0.2,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.1
+          }
+        },
+        {
+          "load": 3.02,
+          "cold": false,
+          "visit": "first",
+          "ms": {
+            "COMMIT": 24.3,
+            "FRAME": 26,
+            "PAINTED": 45,
+            "VISIBLE": 25.8,
+            "SESSION": 25.8,
+            "SHOWN": 25.8,
+            "SETTLED": 136.5
+          },
+          "git": 22,
+          "http": 16,
+          "ws": 8,
+          "wsKB": 93,
+          "hostCpu": 60,
+          "script": 36.1,
+          "toCommit": {
+            "react": 0,
+            "script": 13.5,
+            "style": 5.5,
+            "layout": 4.9,
+            "paint": 0.2,
+            "gc": 0,
+            "other": 0.2,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0
+          }
+        },
+        {
+          "load": 2.94,
+          "cold": false,
+          "visit": "first",
+          "ms": {
+            "COMMIT": 24.6,
+            "FRAME": 26.4,
+            "PAINTED": 43.3,
+            "VISIBLE": 26.4,
+            "SESSION": 26.4,
+            "SHOWN": 26.4,
+            "SETTLED": 130.6
+          },
+          "git": 22,
+          "http": 16,
+          "ws": 8,
+          "wsKB": 233,
+          "hostCpu": 60,
+          "script": 43.9,
+          "toCommit": {
+            "react": 0,
+            "script": 13.8,
+            "style": 5.9,
+            "layout": 4.4,
+            "paint": 0.3,
+            "gc": 0,
+            "other": 0.1,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.1
+          }
+        },
+        {
+          "load": 2.94,
+          "cold": false,
+          "visit": "first",
+          "ms": {
+            "COMMIT": 23.5,
+            "FRAME": 25.5,
+            "PAINTED": 42.6,
+            "VISIBLE": 25.3,
+            "SESSION": 25.4,
+            "SHOWN": 25.4,
+            "SETTLED": 124.2
+          },
+          "git": 28,
+          "http": 19,
+          "ws": 8,
+          "wsKB": 25,
+          "hostCpu": 60,
+          "script": 34,
+          "toCommit": {
+            "react": 0,
+            "script": 14.9,
+            "style": 5.6,
+            "layout": 2.6,
+            "paint": 0.1,
+            "gc": 0,
+            "other": 0.2,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.1
+          }
+        },
+        {
+          "load": 2.94,
+          "cold": false,
+          "visit": "first",
+          "ms": {
+            "COMMIT": 22.2,
+            "FRAME": 23.9,
+            "PAINTED": 39.2,
+            "VISIBLE": 23.8,
+            "SESSION": 23.8,
+            "SHOWN": 23.8,
+            "SETTLED": 137.5
+          },
+          "git": 29,
+          "http": 19,
+          "ws": 8,
+          "wsKB": 195,
+          "hostCpu": 70,
+          "script": 36.1,
+          "toCommit": {
+            "react": 0,
+            "script": 10.4,
+            "style": 5,
+            "layout": 6.6,
+            "paint": 0,
+            "gc": 0,
+            "other": 0.1,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.1
+          }
+        },
+        {
+          "load": 2.94,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 20.3,
+            "FRAME": 22.1,
+            "PAINTED": 38.8,
+            "VISIBLE": 21.9,
+            "SESSION": 21.9,
+            "SHOWN": 22,
+            "SETTLED": 132.7
+          },
+          "git": 25,
+          "http": 19,
+          "ws": 8,
+          "wsKB": 436,
+          "hostCpu": 110,
+          "script": 40.9,
+          "toCommit": {
+            "react": 0,
+            "script": 10.4,
+            "style": 5.5,
+            "layout": 4.1,
+            "paint": 0,
+            "gc": 0,
+            "other": 0.3,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0
+          }
+        },
+        {
+          "load": 2.79,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 20,
+            "FRAME": 21.8,
+            "PAINTED": 51.6,
+            "VISIBLE": 21.7,
+            "SESSION": 21.7,
+            "SHOWN": 21.7,
+            "SETTLED": 88.2
+          },
+          "git": 25,
+          "http": 19,
+          "ws": 8,
+          "wsKB": 167,
+          "hostCpu": 50,
+          "script": 33.4,
+          "toCommit": {
+            "react": 0,
+            "script": 10.6,
+            "style": 5.3,
+            "layout": 3.9,
+            "paint": 0.1,
+            "gc": 0,
+            "other": 0.1,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0
+          }
+        },
+        {
+          "load": 2.79,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 19.3,
+            "FRAME": 21,
+            "PAINTED": 45.8,
+            "VISIBLE": 21,
+            "SESSION": 21,
+            "SHOWN": 21,
+            "SETTLED": 107.8
+          },
+          "git": 25,
+          "http": 19,
+          "ws": 8,
+          "wsKB": 237,
+          "hostCpu": 100,
+          "script": 32.1,
+          "toCommit": {
+            "react": 0,
+            "script": 9.7,
+            "style": 5.2,
+            "layout": 4.2,
+            "paint": 0.1,
+            "gc": 0,
+            "other": 0,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.1
+          }
+        },
+        {
+          "load": 2.79,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 21.7,
+            "FRAME": 23.4,
+            "PAINTED": 34.3,
+            "VISIBLE": 23.3,
+            "SESSION": 23.3,
+            "SHOWN": 23.3,
+            "SETTLED": 131.5
+          },
+          "git": 25,
+          "http": 19,
+          "ws": 8,
+          "wsKB": 210,
+          "hostCpu": 50,
+          "script": 35.8,
+          "toCommit": {
+            "react": 0,
+            "script": 10.1,
+            "style": 5.8,
+            "layout": 5.6,
+            "paint": 0.1,
+            "gc": 0,
+            "other": 0.1,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0
+          }
+        },
+        {
+          "load": 2.79,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 20.7,
+            "FRAME": 22.4,
+            "PAINTED": 39.2,
+            "VISIBLE": 22.4,
+            "SESSION": 22.4,
+            "SHOWN": 22.4,
+            "SETTLED": 142.6
+          },
+          "git": 25,
+          "http": 19,
+          "ws": 8,
+          "wsKB": 287,
+          "hostCpu": 60,
+          "script": 34.5,
+          "toCommit": {
+            "react": 0,
+            "script": 10.2,
+            "style": 5.8,
+            "layout": 4.6,
+            "paint": 0,
+            "gc": 0,
+            "other": 0.1,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0
+          }
+        },
+        {
+          "load": 2.64,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 32.5,
+            "FRAME": 34.6,
+            "PAINTED": 48,
+            "VISIBLE": 34.4,
+            "SESSION": 34.4,
+            "SHOWN": 34.4,
+            "SETTLED": 145
+          },
+          "git": 19,
+          "http": 16,
+          "ws": 8,
+          "wsKB": 25,
+          "hostCpu": 30,
+          "script": 38.7,
+          "toCommit": {
+            "react": 0,
+            "script": 18.5,
+            "style": 8.1,
+            "layout": 5.4,
+            "paint": 0.2,
+            "gc": 0,
+            "other": 0.2,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.1
+          }
+        },
+        {
+          "load": 2.64,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 30.8,
+            "FRAME": 32.5,
+            "PAINTED": 48.4,
+            "VISIBLE": 32.4,
+            "SESSION": 32.4,
+            "SHOWN": 32.4,
+            "SETTLED": 95
+          },
+          "git": 19,
+          "http": 16,
+          "ws": 8,
+          "wsKB": 195,
+          "hostCpu": 30,
+          "script": 38.5,
+          "toCommit": {
+            "react": 0,
+            "script": 15.9,
+            "style": 7.4,
+            "layout": 7.1,
+            "paint": 0,
+            "gc": 0,
+            "other": 0.2,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.2
+          }
+        },
+        {
+          "load": 2.64,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 21.6,
+            "FRAME": 23.2,
+            "PAINTED": 38.6,
+            "VISIBLE": 23.1,
+            "SESSION": 23.1,
+            "SHOWN": 23.1,
+            "SETTLED": 145.4
+          },
+          "git": 19,
+          "http": 16,
+          "ws": 8,
+          "wsKB": 436,
+          "hostCpu": 100,
+          "script": 38.8,
+          "toCommit": {
+            "react": 0,
+            "script": 10.8,
+            "style": 6.1,
+            "layout": 4,
+            "paint": 0.2,
+            "gc": 0,
+            "other": 0.4,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.1
+          }
+        },
+        {
+          "load": 2.64,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 25,
+            "FRAME": 26.7,
+            "PAINTED": 45.5,
+            "VISIBLE": 26.7,
+            "SESSION": 26.7,
+            "SHOWN": 26.7,
+            "SETTLED": 93.5
+          },
+          "git": 19,
+          "http": 16,
+          "ws": 8,
+          "wsKB": 167,
+          "hostCpu": 50,
+          "script": 35.8,
+          "toCommit": {
+            "react": 0,
+            "script": 12.8,
+            "style": 6.5,
+            "layout": 5.2,
+            "paint": 0.2,
+            "gc": 0,
+            "other": 0.2,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.1
+          }
+        },
+        {
+          "load": 2.59,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 28.6,
+            "FRAME": 30.6,
+            "PAINTED": 44.5,
+            "VISIBLE": 30.4,
+            "SESSION": 30.5,
+            "SHOWN": 30.5,
+            "SETTLED": 106.5
+          },
+          "git": 19,
+          "http": 16,
+          "ws": 8,
+          "wsKB": 237,
+          "hostCpu": 100,
+          "script": 40,
+          "toCommit": {
+            "react": 0,
+            "script": 14.5,
+            "style": 7.3,
+            "layout": 6.4,
+            "paint": 0.2,
+            "gc": 0,
+            "other": 0.1,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.1
+          }
+        },
+        {
+          "load": 2.59,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 20.8,
+            "FRAME": 22.5,
+            "PAINTED": 40.9,
+            "VISIBLE": 22.4,
+            "SESSION": 22.4,
+            "SHOWN": 22.4,
+            "SETTLED": 104
+          },
+          "git": 19,
+          "http": 16,
+          "ws": 8,
+          "wsKB": 210,
+          "hostCpu": 40,
+          "script": 31.2,
+          "toCommit": {
+            "react": 0,
+            "script": 9.8,
+            "style": 6.2,
+            "layout": 4.4,
+            "paint": 0.2,
+            "gc": 0,
+            "other": 0.1,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.1
+          }
+        },
+        {
+          "load": 2.59,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 22.9,
+            "FRAME": 24.6,
+            "PAINTED": 45.6,
+            "VISIBLE": 24.5,
+            "SESSION": 24.5,
+            "SHOWN": 24.5,
+            "SETTLED": 175.7
+          },
+          "git": 19,
+          "http": 16,
+          "ws": 8,
+          "wsKB": 287,
+          "hostCpu": 60,
+          "script": 34,
+          "toCommit": {
+            "react": 0,
+            "script": 10.8,
+            "style": 6.6,
+            "layout": 5.2,
+            "paint": 0.2,
+            "gc": 0,
+            "other": 0.2,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0
+          }
+        },
+        {
+          "load": 2.46,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 30.4,
+            "FRAME": 32.6,
+            "PAINTED": 40.8,
+            "VISIBLE": 32.6,
+            "SESSION": 32.6,
+            "SHOWN": 32.6,
+            "SETTLED": 138.4
+          },
+          "git": 25,
+          "http": 19,
+          "ws": 8,
+          "wsKB": 25,
+          "hostCpu": 40,
+          "script": 41,
+          "toCommit": {
+            "react": 0,
+            "script": 17.5,
+            "style": 7.6,
+            "layout": 4.8,
+            "paint": 0.2,
+            "gc": 0,
+            "other": 0.2,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.1
+          }
+        },
+        {
+          "load": 2.46,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 25.9,
+            "FRAME": 27.6,
+            "PAINTED": 41.6,
+            "VISIBLE": 27.6,
+            "SESSION": 27.6,
+            "SHOWN": 27.6,
+            "SETTLED": 117
+          },
+          "git": 25,
+          "http": 19,
+          "ws": 8,
+          "wsKB": 195,
+          "hostCpu": 40,
+          "script": 40.7,
+          "toCommit": {
+            "react": 0,
+            "script": 12.9,
+            "style": 6.3,
+            "layout": 6.3,
+            "paint": 0,
+            "gc": 0,
+            "other": 0.1,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.4
+          }
+        },
+        {
+          "load": 2.46,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 29.6,
+            "FRAME": 31.7,
+            "PAINTED": 51.1,
+            "VISIBLE": 31.5,
+            "SESSION": 31.5,
+            "SHOWN": 31.5,
+            "SETTLED": 164.8
+          },
+          "git": 26,
+          "http": 19,
+          "ws": 8,
+          "wsKB": 436,
+          "hostCpu": 70,
+          "script": 44.5,
+          "toCommit": {
+            "react": 0,
+            "script": 15.3,
+            "style": 7.6,
+            "layout": 6,
+            "paint": 0.2,
+            "gc": 0,
+            "other": 0.3,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.2
+          }
+        },
+        {
+          "load": 2.46,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 26.8,
+            "FRAME": 28.8,
+            "PAINTED": 40.7,
+            "VISIBLE": 28.6,
+            "SESSION": 28.6,
+            "SHOWN": 28.7,
+            "SETTLED": 104
+          },
+          "git": 35,
+          "http": 19,
+          "ws": 8,
+          "wsKB": 167,
+          "hostCpu": 60,
+          "script": 40,
+          "toCommit": {
+            "react": 0,
+            "script": 13.2,
+            "style": 7.2,
+            "layout": 5.9,
+            "paint": 0.1,
+            "gc": 0,
+            "other": 0.2,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.2
+          }
+        },
+        {
+          "load": 2.35,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 21.5,
+            "FRAME": 23,
+            "PAINTED": 41.7,
+            "VISIBLE": 23,
+            "SESSION": 23,
+            "SHOWN": 23,
+            "SETTLED": 114.1
+          },
+          "git": 39,
+          "http": 19,
+          "ws": 8,
+          "wsKB": 237,
+          "hostCpu": 120,
+          "script": 32.9,
+          "toCommit": {
+            "react": 0,
+            "script": 10,
+            "style": 5.8,
+            "layout": 5.1,
+            "paint": 0.1,
+            "gc": 0,
+            "other": 0.4,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.1
+          }
+        },
+        {
+          "load": 2.35,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 20.3,
+            "FRAME": 22,
+            "PAINTED": 47.7,
+            "VISIBLE": 21.9,
+            "SESSION": 22,
+            "SHOWN": 22,
+            "SETTLED": 111.7
+          },
+          "git": 26,
+          "http": 19,
+          "ws": 8,
+          "wsKB": 210,
+          "hostCpu": 50,
+          "script": 30.9,
+          "toCommit": {
+            "react": 0,
+            "script": 9.9,
+            "style": 5.6,
+            "layout": 4.6,
+            "paint": 0.1,
+            "gc": 0,
+            "other": 0,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.1
+          }
+        },
+        {
+          "load": 2.35,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 28.8,
+            "FRAME": 30.8,
+            "PAINTED": 48.3,
+            "VISIBLE": 30.7,
+            "SESSION": 30.7,
+            "SHOWN": 30.7,
+            "SETTLED": 151.6
+          },
+          "git": 26,
+          "http": 19,
+          "ws": 8,
+          "wsKB": 287,
+          "hostCpu": 60,
+          "script": 39.9,
+          "toCommit": {
+            "react": 0,
+            "script": 14.3,
+            "style": 8.2,
+            "layout": 5.8,
+            "paint": 0.3,
+            "gc": 0,
+            "other": 0.1,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.1
+          }
+        },
+        {
+          "load": 2.35,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 25.1,
+            "FRAME": 27.2,
+            "PAINTED": 50.2,
+            "VISIBLE": 27.1,
+            "SESSION": 27.2,
+            "SHOWN": 27.2,
+            "SETTLED": 148.9
+          },
+          "git": 20,
+          "http": 16,
+          "ws": 8,
+          "wsKB": 23,
+          "hostCpu": 30,
+          "script": 32.4,
+          "toCommit": {
+            "react": 0,
+            "script": 14.3,
+            "style": 6.4,
+            "layout": 4,
+            "paint": 0.2,
+            "gc": 0,
+            "other": 0,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.2
+          }
+        },
+        {
+          "load": 2.24,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 23.6,
+            "FRAME": 25.5,
+            "PAINTED": 50.3,
+            "VISIBLE": 25.4,
+            "SESSION": 25.4,
+            "SHOWN": 25.4,
+            "SETTLED": 90
+          },
+          "git": 20,
+          "http": 16,
+          "ws": 8,
+          "wsKB": 207,
+          "hostCpu": 80,
+          "script": 33.5,
+          "toCommit": {
+            "react": 0,
+            "script": 11.4,
+            "style": 6,
+            "layout": 6,
+            "paint": 0,
+            "gc": 0,
+            "other": 0,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.2
+          }
+        },
+        {
+          "load": 2.24,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 25.1,
+            "FRAME": 26.7,
+            "PAINTED": 50.5,
+            "VISIBLE": 26.6,
+            "SESSION": 26.6,
+            "SHOWN": 26.6,
+            "SETTLED": 96.5
+          },
+          "git": 20,
+          "http": 16,
+          "ws": 8,
+          "wsKB": 416,
+          "hostCpu": 60,
+          "script": 39.3,
+          "toCommit": {
+            "react": 0,
+            "script": 12.6,
+            "style": 7.6,
+            "layout": 4.5,
+            "paint": 0.1,
+            "gc": 0,
+            "other": 0.1,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.2
+          }
+        },
+        {
+          "load": 2.24,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 25.4,
+            "FRAME": 27.5,
+            "PAINTED": 44.4,
+            "VISIBLE": 27.4,
+            "SESSION": 27.4,
+            "SHOWN": 27.4,
+            "SETTLED": 118.5
+          },
+          "git": 20,
+          "http": 16,
+          "ws": 8,
+          "wsKB": 573,
+          "hostCpu": 50,
+          "script": 40.7,
+          "toCommit": {
+            "react": 0,
+            "script": 12.1,
+            "style": 7.1,
+            "layout": 5.8,
+            "paint": 0.1,
+            "gc": 0,
+            "other": 0.2,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.1
+          }
+        },
+        {
+          "load": 2.24,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 25,
+            "FRAME": 26.9,
+            "PAINTED": 51.3,
+            "VISIBLE": 26.8,
+            "SESSION": 26.8,
+            "SHOWN": 26.8,
+            "SETTLED": 116.4
+          },
+          "git": 19,
+          "http": 16,
+          "ws": 8,
+          "wsKB": 85,
+          "hostCpu": 100,
+          "script": 33,
+          "toCommit": {
+            "react": 0,
+            "script": 11.6,
+            "style": 6.9,
+            "layout": 6,
+            "paint": 0.1,
+            "gc": 0,
+            "other": 0.3,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.1
+          }
+        },
+        {
+          "load": 2.46,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 25.5,
+            "FRAME": 27.4,
+            "PAINTED": 43.4,
+            "VISIBLE": 27.3,
+            "SESSION": 27.3,
+            "SHOWN": 27.3,
+            "SETTLED": 159.1
+          },
+          "git": 19,
+          "http": 16,
+          "ws": 8,
+          "wsKB": 250,
+          "hostCpu": 40,
+          "script": 33.7,
+          "toCommit": {
+            "react": 0,
+            "script": 11.5,
+            "style": 7.3,
+            "layout": 6.3,
+            "paint": 0.1,
+            "gc": 0,
+            "other": 0.3,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0
+          }
+        },
+        {
+          "load": 2.46,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 30.6,
+            "FRAME": 32.5,
+            "PAINTED": 43.8,
+            "VISIBLE": 32.4,
+            "SESSION": 32.4,
+            "SHOWN": 32.4,
+            "SETTLED": 158.5
+          },
+          "git": 19,
+          "http": 16,
+          "ws": 8,
+          "wsKB": 236,
+          "hostCpu": 40,
+          "script": 41,
+          "toCommit": {
+            "react": 0,
+            "script": 14.2,
+            "style": 9,
+            "layout": 7,
+            "paint": 0.2,
+            "gc": 0,
+            "other": 0.1,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.1
+          }
+        },
+        {
+          "load": 2.46,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 20.4,
+            "FRAME": 22.9,
+            "PAINTED": 38.5,
+            "VISIBLE": 22.8,
+            "SESSION": 22.9,
+            "SHOWN": 22.9,
+            "SETTLED": 101.8
+          },
+          "git": 25,
+          "http": 19,
+          "ws": 8,
+          "wsKB": 23,
+          "hostCpu": 40,
+          "script": 34.3,
+          "toCommit": {
+            "react": 0,
+            "script": 12,
+            "style": 5.1,
+            "layout": 3,
+            "paint": 0.1,
+            "gc": 0,
+            "other": 0.2,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.1
+          }
+        },
+        {
+          "load": 2.42,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 27.9,
+            "FRAME": 29.9,
+            "PAINTED": 47.6,
+            "VISIBLE": 29.8,
+            "SESSION": 29.8,
+            "SHOWN": 29.8,
+            "SETTLED": 142.9
+          },
+          "git": 25,
+          "http": 19,
+          "ws": 8,
+          "wsKB": 207,
+          "hostCpu": 50,
+          "script": 38.8,
+          "toCommit": {
+            "react": 0,
+            "script": 12.9,
+            "style": 7.3,
+            "layout": 7.3,
+            "paint": 0,
+            "gc": 0,
+            "other": 0.1,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.4
+          }
+        }
+      ]
+    },
+    "warmLargeDiff": {
+      "runs": 5,
+      "load": 2.59,
+      "min": {
+        "git.count": 14,
+        "http.count": 15,
+        "http.api": 15,
+        "ws.messages": 8
+      },
+      "mean": {
+        "http.bytes": 378138,
+        "ws.bytes": 84143
+      },
+      "median": {
+        "git": {
+          "count": 20,
+          "ms": 186,
+          "cpu": 149,
+          "byCommand": {
+            "symbolic-ref --quiet": 3,
+            "remote": 1,
+            "for-each-ref --format=": 1,
+            "rev-parse --verify": 3,
+            "worktree list": 3,
+            "ls-files --others": 1,
+            "rev-parse --path-format=": 0,
+            "ls-files --stage": 1,
+            "rev-parse --show-toplevel": 2,
+            "rev-parse --is-shallow-repository": 2,
+            "for-each-ref --count=": 3,
+            "status --porcelain=": 0
+          }
+        },
+        "http": {
+          "count": 18,
+          "api": 18,
+          "bytes": 615332,
+          "dropped": 0,
+          "byPath": {
+            "GET /api/reviews/:review": {
+              "count": 2,
+              "bytes": 3020
+            },
+            "GET /api/reviews/:review/codex-reviews": {
+              "count": 1,
+              "bytes": 257
+            },
+            "GET /api/git/targets?repo": {
+              "count": 1,
+              "bytes": 1066
+            },
+            "GET /api/branches?repo": {
+              "count": 1,
+              "bytes": 3511
+            },
+            "POST /api/browse/list": {
+              "count": 1,
+              "bytes": 4163
+            },
+            "POST /api/live/:uuid": {
+              "count": 9,
+              "bytes": 1534
+            },
+            "GET /api/reviews/:review/targets/:target/review": {
+              "count": 1,
+              "bytes": 581184
+            },
+            "GET /api/session?repo": {
+              "count": 2,
+              "bytes": 20602
+            }
+          }
+        },
+        "ws": {
+          "messages": 8,
+          "bytes": 81051,
+          "byChannel": {
+            "/api/reviews/:review/agent/events": {
+              "count": 2,
+              "bytes": 92
+            },
+            "/api/reviews/:review/sessions/:uuid/events?feed&count": {
+              "count": 2,
+              "bytes": 66677
+            },
+            "/api/events?repo": {
+              "count": 2,
+              "bytes": 204
+            },
+            "/api/reviews/:review/sessions/:uuid/events": {
+              "count": 2,
+              "bytes": 14078
+            }
+          }
+        },
+        "host": {
+          "cpu": 40
+        },
+        "main": {
+          "other": 14.1,
+          "script": 33.2,
+          "gc": 0,
+          "style": 16.7,
+          "layout": 7.4,
+          "paint": 10.9,
+          "parse": 0,
+          "react": 0
+        },
+        "other": {
+          "ThreadControllerImpl::RunTask": 5.7,
+          "SimpleWatcher::OnHandleReady": 3.4,
+          "Receive mojo message": 2.7,
+          "RunTask": 2.8,
+          "Receive mojo reply": 0.3
+        },
+        "forcedLayout": 6.5,
+        "forcedStyle": 7.1,
+        "tasks": 422,
+        "longTasks": 0,
+        "longTaskMs": 0,
+        "longestTask": 26.6,
+        "workerMs": 0,
+        "workers": 0,
+        "breakdown": {
+          "react": 0,
+          "script": 33.2,
+          "style": 16.7,
+          "layout": 7.4,
+          "paint": 10.9,
+          "gc": 0,
+          "other": 14.1,
+          "worker": 0,
+          "git": 34.6,
+          "host": 317.3,
+          "idle": 0.1
+        },
+        "browser": {
+          "taskMs": 79.6,
+          "scriptMs": 24.6,
+          "layoutMs": 3.5,
+          "styleMs": 19.9,
+          "layouts": 2,
+          "styles": 15
+        },
+        "toCommit": {
+          "react": 0,
+          "script": 12.9,
+          "style": 7.1,
+          "layout": 6.8,
+          "paint": 0.1,
+          "gc": 0,
+          "other": 0.3,
+          "worker": 0,
+          "git": 0,
+          "host": 0,
+          "idle": 0.1
+        },
+        "toShown": {
+          "react": 0,
+          "script": 14.3,
+          "style": 7.1,
+          "layout": 6.8,
+          "paint": 0.1,
+          "gc": 0,
+          "other": 0.7,
+          "worker": 0,
+          "git": 0,
+          "host": 0,
+          "idle": 0.1
+        },
+        "ms": {
+          "COMMIT": 26.7,
+          "FRAME": 28.7,
+          "PAINTED": 46,
+          "VISIBLE": 28.6,
+          "SESSION": 28.6,
+          "SHOWN": 28.6,
+          "SETTLED": 142.8
+        },
+        "markLagMs": 0.3,
+        "cold": 0,
+        "slotsBefore": 14,
+        "load": 2.6,
+        "visit": "first",
+        "react": {
+          "ms": 49,
+          "phases": {
+            "Render": 17.5,
+            "Commit": 15.8,
+            "Remaining Effects": 13.3,
+            "Prepared": 2.3
+          },
+          "renders": 389.5,
+          "reconnects": 3.5,
+          "reconnectMs": 18.4,
+          "commits": 12,
+          "top": {
+            "MenuRoot": 32,
+            "TooltipRoot": 24,
+            "ActionTooltip": 23.5,
+            "ForwardRef(TooltipTrigger)": 20,
+            "FloatingTree": 18,
+            "ThreadRow": 16.5,
+            "ContextMenuRoot": 16.5,
+            "App": 12.5,
+            "CompositeList": 11.5,
+            "ToolButton": 10.5,
+            "ForwardRef(MenuTrigger)": 10,
+            "SessionThread": 8.5
+          },
+          "shareOfScript": 0.72,
+          "toCommit": {
+            "react": 17.4,
+            "script": 3.7,
+            "style": 7.5,
+            "layout": 6.9,
+            "paint": 0.2,
+            "gc": 0,
+            "other": 0.1,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.2
+          },
+          "toShown": {
+            "react": 17.4,
+            "script": 5.2,
+            "style": 7.5,
+            "layout": 6.9,
+            "paint": 0.2,
+            "gc": 0,
+            "other": 2.3,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.2
+          }
+        }
+      },
+      "each": [
+        {
+          "load": 2.94,
+          "cold": false,
+          "visit": "first",
+          "ms": {
+            "COMMIT": 23.9,
+            "FRAME": 25.5,
+            "PAINTED": 38.4,
+            "VISIBLE": 25.4,
+            "SESSION": 25.4,
+            "SHOWN": 25.4,
+            "SETTLED": 132.8
+          },
+          "git": 23,
+          "http": 18,
+          "ws": 8,
+          "wsKB": 79,
+          "hostCpu": 50,
+          "script": 37.6,
+          "toCommit": {
+            "react": 0,
+            "script": 13.5,
+            "style": 5.3,
+            "layout": 5,
+            "paint": 0.1,
+            "gc": 0,
+            "other": 0.1,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0
+          }
+        },
+        {
+          "load": 2.64,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 28.5,
+            "FRAME": 30.3,
+            "PAINTED": 49.3,
+            "VISIBLE": 30.2,
+            "SESSION": 30.2,
+            "SHOWN": 30.2,
+            "SETTLED": 145.4
+          },
+          "git": 14,
+          "http": 15,
+          "ws": 8,
+          "wsKB": 79,
+          "hostCpu": 30,
+          "script": 33.2,
+          "toCommit": {
+            "react": 0,
+            "script": 13.9,
+            "style": 7.2,
+            "layout": 6.8,
+            "paint": 0.2,
+            "gc": 0,
+            "other": 0.3,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.1
+          }
+        },
+        {
+          "load": 2.59,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 26.5,
+            "FRAME": 28.1,
+            "PAINTED": 46,
+            "VISIBLE": 28.1,
+            "SESSION": 28.1,
+            "SHOWN": 28.1,
+            "SETTLED": 142.8
+          },
+          "git": 20,
+          "http": 18,
+          "ws": 8,
+          "wsKB": 79,
+          "hostCpu": 40,
+          "script": 30.1,
+          "toCommit": {
+            "react": 0,
+            "script": 12.8,
+            "style": 6.7,
+            "layout": 6.5,
+            "paint": 0.2,
+            "gc": 0,
+            "other": 0.3,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0
+          }
+        },
+        {
+          "load": 2.35,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 26.7,
+            "FRAME": 28.7,
+            "PAINTED": 53.9,
+            "VISIBLE": 28.6,
+            "SESSION": 28.6,
+            "SHOWN": 28.6,
+            "SETTLED": 93
+          },
+          "git": 15,
+          "http": 16,
+          "ws": 10,
+          "wsKB": 94,
+          "hostCpu": 30,
+          "script": 29,
+          "toCommit": {
+            "react": 0,
+            "script": 12.2,
+            "style": 7.1,
+            "layout": 7.3,
+            "paint": 0.1,
+            "gc": 0,
+            "other": 0,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.1
+          }
+        },
+        {
+          "load": 2.46,
+          "cold": false,
+          "visit": "again",
+          "ms": {
+            "COMMIT": 28.4,
+            "FRAME": 30.3,
+            "PAINTED": 42.7,
+            "VISIBLE": 30.2,
+            "SESSION": 30.3,
+            "SHOWN": 30.3,
+            "SETTLED": 152.4
+          },
+          "git": 20,
+          "http": 18,
+          "ws": 8,
+          "wsKB": 80,
+          "hostCpu": 40,
+          "script": 34.9,
+          "toCommit": {
+            "react": 0,
+            "script": 12.9,
+            "style": 7.7,
+            "layout": 7.4,
+            "paint": 0.1,
+            "gc": 0,
+            "other": 0.3,
+            "worker": 0,
+            "git": 0,
+            "host": 0,
+            "idle": 0.1
+          }
+        }
+      ]
+    },
+    "agentSteps": {
+      "runs": 1,
+      "load": 2.42,
+      "min": {
+        "git.count": 7,
+        "http.count": 1,
+        "http.api": 1,
+        "ws.messages": 4
+      },
+      "mean": {
+        "http.bytes": 343,
+        "ws.bytes": 43192
+      },
+      "median": {
+        "git": {
+          "count": 7,
+          "ms": 114.7,
+          "cpu": 101.5,
+          "byCommand": {
+            "status --porcelain=": 5,
+            "worktree list": 1,
+            "for-each-ref --count=": 1
+          }
+        },
+        "http": {
+          "count": 1,
+          "api": 1,
+          "bytes": 343,
+          "dropped": 0,
+          "byPath": {
+            "GET /api/build": {
+              "count": 1,
+              "bytes": 343
+            }
+          }
+        },
+        "ws": {
+          "messages": 4,
+          "bytes": 43192,
+          "byChannel": {
+            "/api/threads/events": {
+              "count": 3,
+              "bytes": 43179
+            },
+            "-": {
+              "count": 1,
+              "bytes": 13
+            }
+          }
+        },
+        "host": {
+          "cpu": 150
+        },
+        "main": {
+          "other": 25.7,
+          "script": 47.7,
+          "gc": 74.3,
+          "style": 0.2,
+          "layout": 1.2,
+          "paint": 1.7,
+          "parse": 0,
+          "react": 0
+        },
+        "other": {
+          "ThreadControllerImpl::RunTask": 18.2,
+          "RunTask": 4.8,
+          "Receive mojo message": 2.3,
+          "SimpleWatcher::OnHandleReady": 0.4
+        },
+        "forcedLayout": 0,
+        "forcedStyle": 0,
+        "tasks": 3659,
+        "longTasks": 0,
+        "longTaskMs": 0,
+        "longestTask": 15.1,
+        "workerMs": 2.6,
+        "workers": 18,
+        "breakdown": {
+          "react": 0,
+          "script": 47.7,
+          "style": 0.2,
+          "layout": 1.2,
+          "paint": 1.7,
+          "gc": 74.3,
+          "other": 25.7,
+          "worker": 0.4,
+          "git": 115.5,
+          "host": 0.1,
+          "idle": 6373.2
+        },
+        "browser": {
+          "taskMs": 140.7,
+          "scriptMs": 32.7,
+          "layoutMs": 0.6,
+          "styleMs": 0.2,
+          "layouts": 1,
+          "styles": 3
+        },
+        "steps": 3,
+        "seconds": 6.6,
+        "load": 2.4,
+        "react": {
+          "ms": 45.6,
+          "phases": {
+            "Render": 29.6,
+            "Commit": 5.4,
+            "Remaining Effects": 10.2,
+            "Prepared": 0.4
+          },
+          "renders": 427,
+          "reconnects": 0,
+          "reconnectMs": 0,
+          "commits": 10,
+          "top": {
+            "MenuRoot": 57,
+            "ThreadRow": 48,
+            "ContextMenuRoot": 48,
+            "FloatingTree": 31,
+            "ForwardRef(ContextMenuTrigger)": 22,
+            "ActionTooltip": 21,
+            "TooltipRoot": 21,
+            "ForwardRef(TooltipTrigger)": 16,
+            "ToolButton": 12,
+            "WorkspaceHost": 8,
+            "DialogRoot": 8,
+            "WorkspaceViews": 6
+          },
+          "shareOfScript": 0.59
+        }
+      },
+      "each": [
+        {
+          "load": 2.42,
+          "git": 7,
+          "http": 1,
+          "ws": 4,
+          "wsKB": 42,
+          "hostCpu": 150,
+          "script": 47.7
+        }
+      ]
+    },
+    "idle1": {
+      "runs": 1,
+      "load": 2.28,
+      "min": {
+        "git.count": 100,
+        "http.count": 1,
+        "http.api": 1,
+        "ws.messages": 4
+      },
+      "mean": {
+        "http.bytes": 343,
+        "ws.bytes": 52
+      },
+      "median": {
+        "git": {
+          "count": 100,
+          "ms": 1329.1,
+          "cpu": 1153.9,
+          "byCommand": {
+            "status --porcelain=": 66,
+            "rev-list --count": 26,
+            "merge-base refs/heads/main": 2,
+            "ls-files --others": 2,
+            "diff 30ee9b475981d7e6cf32e13cf9b733152ed6b395": 2,
+            "worktree list": 1,
+            "for-each-ref --count=": 1
+          }
+        },
+        "http": {
+          "count": 1,
+          "api": 1,
+          "bytes": 343,
+          "dropped": 0,
+          "byPath": {
+            "GET /api/build": {
+              "count": 1,
+              "bytes": 343
+            }
+          }
+        },
+        "ws": {
+          "messages": 4,
+          "bytes": 52,
+          "byChannel": {
+            "-": {
+              "count": 4,
+              "bytes": 52
+            }
+          }
+        },
+        "host": {
+          "cpu": 1000
+        },
+        "browser": {
+          "taskMs": 45.4,
+          "scriptMs": 21.2,
+          "layoutMs": 1,
+          "styleMs": 0,
+          "layouts": 3,
+          "styles": 1
+        },
+        "longTasks": 0,
+        "seconds": 60,
+        "load": 2.3
+      },
+      "each": [
+        {
+          "load": 2.28,
+          "git": 100,
+          "http": 1,
+          "ws": 4,
+          "wsKB": 0,
+          "hostCpu": 1000
+        }
+      ]
+    },
+    "idle2": {
+      "runs": 1,
+      "load": 1.89,
+      "min": {
+        "git.count": 100,
+        "http.count": 2,
+        "http.api": 2,
+        "ws.messages": 8
+      },
+      "mean": {
+        "http.bytes": 686,
+        "ws.bytes": 104
+      },
+      "median": {
+        "git": {
+          "count": 100,
+          "ms": 1275.7,
+          "cpu": 1081.8,
+          "byCommand": {
+            "status --porcelain=": 66,
+            "rev-list --count": 26,
+            "merge-base refs/heads/main": 2,
+            "ls-files --others": 2,
+            "diff 30ee9b475981d7e6cf32e13cf9b733152ed6b395": 2,
+            "worktree list": 1,
+            "for-each-ref --count=": 1
+          }
+        },
+        "http": {
+          "count": 2,
+          "api": 2,
+          "bytes": 686,
+          "dropped": 0,
+          "byPath": {
+            "GET /api/build": {
+              "count": 2,
+              "bytes": 686
+            }
+          }
+        },
+        "ws": {
+          "messages": 8,
+          "bytes": 104,
+          "byChannel": {
+            "-": {
+              "count": 8,
+              "bytes": 104
+            }
+          }
+        },
+        "host": {
+          "cpu": 1190
+        },
+        "browser": {
+          "taskMs": 204,
+          "scriptMs": 63.2,
+          "layoutMs": 3.9,
+          "styleMs": 0.5,
+          "layouts": 6,
+          "styles": 2
+        },
+        "longTasks": 0,
+        "seconds": 60,
+        "load": 1.9
+      },
+      "each": [
+        {
+          "load": 1.89,
+          "git": 100,
+          "http": 2,
+          "ws": 8,
+          "wsKB": 0,
+          "hostCpu": 1190
+        }
+      ]
+    },
+    "memory": {
+      "runs": 1,
+      "min": {},
+      "mean": {},
+      "median": {
+        "heapMB": 46.2,
+        "nodes": 43052,
+        "listeners": 10234,
+        "workers": 18,
+        "workersMade": 18,
+        "slots": 14,
+        "heapPerSlotMB": 3.3
+      },
+      "each": [
+        {
+          "heapMB": 46.2,
+          "nodes": 43052,
+          "listeners": 10234,
+          "workers": 18,
+          "workersMade": 18,
+          "slots": 14,
+          "heapPerSlotMB": 3.3
+        }
+      ]
+    }
+  }
+}
