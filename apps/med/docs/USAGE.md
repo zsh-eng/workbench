@@ -228,8 +228,9 @@ question and press `⌘↵`. Med asks a fork of the thread's Claude Code session
 in plan mode, with the lines and their numbers. The answer shows in the pane;
 the thread does not get the question or the answer. Escape or **Stop** ends the
 answer. **Keep as comment** adds the question and the answer as a comment on
-the lines. **Close** discards them, and Med keeps no record. A review has one
-question at a time, and Ask waits while an answer comes. A Codex thread is
+the lines. **Close** discards them; Med keeps no copy of the question or the
+answer. A review has one question at a time, and Ask waits while an answer
+comes. A Codex thread is
 asked in the same way when Codex has `codex exec fork`; an older Codex answers
 from the lines only, and the pane says so.
 
