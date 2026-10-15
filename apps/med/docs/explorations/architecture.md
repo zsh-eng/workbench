@@ -2,7 +2,7 @@
 
 Status: exploration, 15 October 2026. Base: `18642fb2` (Med 0.4.2 and the
 exploration harness). Two proof-of-concept commits follow it on this branch:
-`bd3e0bf4` (thread store) and `f01b717e` (route table). The
+`3b7bedfe` (thread store) and `2ec37c58` (route table). The
 [method](#method) section tells how I measured.
 
 ## 1. Verdict
@@ -63,7 +63,7 @@ Medians of five runs, or of the nine `⌘` keys.
 | DOM nodes / event listeners                          | 8.8k / 2.9k      | 30k / 10k        | 67k / 24.5k      |
 | Web workers                                          | 9                |                  | 34               |
 | Script time of 3 agent steps in another thread, base | 80 ms            | 175 ms           | 318 ms           |
-| The same with the thread store (`bd3e0bf4`)          |                  | 14 ms            | 42 ms            |
+| The same with the thread store (`3b7bedfe`)          |                  | 14 ms            | 42 ms            |
 | Host CPU in 30 idle seconds, one window              | 190–310 ms       |                  |                  |
 
 The entry chunk and its static imports are 24 chunks: 1,916 KiB, or 584 KiB
@@ -139,7 +139,7 @@ with each thread. No long task appeared, because React slices the work. But
 the main thread is busy when you type or switch.
 
 **Fix.** One window store with selector hooks. Contexts carry only stable store
-handles. `bd3e0bf4` does this for the thread list and keeps warm workspace
+handles. `3b7bedfe` does this for the thread list and keeps warm workspace
 objects stable: 0 `App` renders per agent step or pointer rest. Next, move
 the other window contexts (`Snapshot`, `Warm`, `PullErrors`, `ShellContext`)
 behind the same store.
@@ -183,7 +183,7 @@ response". Fakes drift from the host.
 **Fix.** A route table with shared contracts. A contract names the method,
 path, input schema, and output schema. The host parses the input, and the
 type checker holds the handler's answer to the output schema. The browser
-calls `api.call(route, input)`. `f01b717e` moves the Commit tab's five routes
+calls `api.call(route, input)`. `2ec37c58` moves the Commit tab's five routes
 to this form.
 
 ### 5. Saved reviews are the thread database, with a hard cap and no delete
@@ -250,7 +250,7 @@ Each step lands alone and keeps behaviour. "Measure" says what proves it.
 
 | Step | Change                                                                                                               | Measure                                                                                       |
 | ---- | -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| 0    | Land `bd3e0bf4` (thread store).                                                                                      | Render table above; done.                                                                     |
+| 0    | Land `3b7bedfe` (thread store).                                                                                      | Render table above; done.                                                                     |
 | 1    | Add render and memory budgets to `scripts/explorations`: count renders per agent step, heap and nodes per thread.    | Fail when an agent step renders an `App` that does not show that thread.                      |
 | 2    | Window store for `Snapshot`, `Warm`, `PullErrors`, and the shell.                                                    | At most 4 `App` renders per `⌘` switch (now 7); switch time does not change.                  |
 | 3    | Command registry; generate the shortcut guide from it.                                                               | Keydown listeners 25 → 5 or fewer; `app.test.tsx` key tests pass without change.              |
@@ -270,7 +270,7 @@ Each step lands alone and keeps behaviour. "Measure" says what proves it.
 | Response schemas in `web/data/api.ts`              | 20 schemas repeat `shared/protocol.ts`. `historySchema` has no user.                                                                                                                                                                          | Derive from the shared contracts (step 6).                      |
 | The hand-kept shortcut guide                       | 422 lines that must mirror 25 listeners by hand.                                                                                                                                                                                              | Generate it from the command registry.                          |
 | The Elements page in the product bundle            | 5,771 lines (6% of `src`) and a 143 KB chunk: a design gallery and session replays.                                                                                                                                                           | Keep the page; build it from a development entry only.          |
-| Pointer-rest prefetch for threads in view          | Threads in view mount and settle when the browser is idle. First visits and revisits match (31 and 30 ms at 13 threads) without a pointer. Before `bd3e0bf4`, five pointer rests rendered 40 `App`s.                                          | Keep it for threads out of view; measure, then remove the rest. |
+| Pointer-rest prefetch for threads in view          | Threads in view mount and settle when the browser is idle. First visits and revisits match (31 and 30 ms at 13 threads) without a pointer. Before `3b7bedfe`, five pointer rests rendered 40 `App`s.                                          | Keep it for threads out of view; measure, then remove the rest. |
 | One patch worker for each workspace                | 29 threads gave 34 workers.                                                                                                                                                                                                                   | A shared pool (step 9).                                         |
 | Rare code in the entry chunk                       | `SourcesPage` imports `displayPath` from `Welcome` (23 KB); `App` and `SavedReviewHeader` import `PullRequestComments` (96 KB) at once.                                                                                                       | Move `displayPath`; load pull request comments on demand.       |
 | Dead exports                                       | 17 exports have no reference anywhere, such as `readTranscriptTail`, `useHostFetch`, `WorkspaceStore`, and `historySchema`.                                                                                                                   | Remove them in one change.                                      |
