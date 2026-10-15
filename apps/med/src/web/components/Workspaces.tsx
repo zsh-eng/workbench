@@ -113,9 +113,11 @@ const SETTLE_MS = 1500;
 
 type ControllerOptions = Omit<ReviewControllerOptions, "savedReviewId" | "start">;
 /** A patch parser keeps only its latest request, so each workspace has its own:
- * one workspace's load never cancels another's. */
+ * one workspace's load never cancels another's. The parsers can share
+ * workers: the one of the workspace on screen (`show`) goes first. */
 type ParserFactory = () => {
   parse: NonNullable<ReviewControllerOptions["parsePatch"]>;
+  show?(shown: boolean): void;
   dispose(): void;
 };
 
@@ -1709,7 +1711,14 @@ export function WorkspaceHost({
  * its review owns. Only the one on screen listens for changes; the rest catch
  * up when they are shown again. */
 function createControllerPool(options: ControllerOptions, createParser?: ParserFactory) {
-  const live = new Map<string, { controller: ReviewController; disposers: Set<() => void> }>();
+  const live = new Map<
+    string,
+    {
+      controller: ReviewController;
+      parser?: ReturnType<ParserFactory>;
+      disposers: Set<() => void>;
+    }
+  >();
   const end = (id: string) => {
     const entry = live.get(id);
     if (!entry) return;
@@ -1735,7 +1744,7 @@ function createControllerPool(options: ControllerOptions, createParser?: ParserF
                 },
               },
         );
-        entry = { controller, disposers: new Set(parser ? [parser.dispose] : []) };
+        entry = { controller, parser, disposers: new Set(parser ? [parser.dispose] : []) };
         live.set(workspace.id, entry);
         void controller.initialize();
       }
@@ -1745,7 +1754,8 @@ function createControllerPool(options: ControllerOptions, createParser?: ParserF
       for (const id of [...live.keys()]) if (!ids.includes(id)) end(id);
     },
     focus(id: string | null) {
-      for (const [key, { controller }] of live) {
+      for (const [key, { controller, parser }] of live) {
+        parser?.show?.(key === id);
         if (key === id) controller.resume();
         else controller.suspend();
       }

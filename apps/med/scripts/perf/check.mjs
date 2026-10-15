@@ -44,7 +44,7 @@ export const BUDGET = [
     ],
   ],
   ["bytes", ["http.bytes", "ws.bytes"]],
-  ["memory", ["heapMB", "nodes", "listeners"]],
+  ["memory", ["heapMB", "workerHeapMB", "nodes", "listeners"]],
   [
     "time",
     [

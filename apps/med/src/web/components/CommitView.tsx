@@ -281,7 +281,7 @@ export default function CommitView({
   const parse = useCallback(
     (patch: string) =>
       patch.length > 256 * 1024
-        ? (parser.current ??= createPatchParser()).parse(patch)
+        ? (parser.current ??= createPatchParser({ shown: true })).parse(patch)
         : Promise.resolve(parseReviewPatch(patch)),
     [],
   );
