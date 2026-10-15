@@ -44,6 +44,7 @@ import {
 import { commitRoutes, pushRequestSchema } from "../shared/git-actions";
 import { route, routeTable } from "./routes";
 import {
+  endpointNames,
   loadCommitDetails,
   loadHistory,
   loadRangeCommits,
@@ -1492,11 +1493,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 throw error;
               }
             }
-            // A range keeps its commits, so the Guide can show them one by one.
-            const commits =
+            const branch = info.branch === "Detached HEAD" ? null : info.branch;
+            // A range keeps its commits, so the Guide can show them one by one,
+            // and its endpoints' names, so the review's row can say them.
+            const [commits, names] =
               review.comparison.kind === "range"
-                ? await loadRangeCommits(repo, review.base, review.head, abort.signal)
-                : undefined;
+                ? await Promise.all([
+                    loadRangeCommits(repo, review.base, review.head, abort.signal),
+                    endpointNames(repo, review.comparison, review, branch, abort.signal),
+                  ])
+                : [];
             abort.signal.throwIfAborted();
             if (!owner.valid())
               throw new HostError(
@@ -1507,11 +1513,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return {
               repositoryId: owner.repository.id,
               repo,
-              branch: info.branch === "Detached HEAD" ? null : info.branch,
+              branch,
               review,
               sources,
               images,
               ...(commits ? { commits } : {}),
+              ...(names ? { names } : {}),
             };
           };
           if (url.pathname === "/api/reviews" && request.method === "POST") {
@@ -1746,14 +1753,23 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                         );
                       sources.push(source);
                     }
+                    const branch = info.branch === "Detached HEAD" ? null : info.branch;
+                    const names = await endpointNames(
+                      review.repo,
+                      review.comparison,
+                      review,
+                      branch,
+                      abort.signal,
+                    );
                     assertRequestAccess();
                     return {
                       repositoryId: owner.repository.id,
                       repo: review.repo,
-                      branch: info.branch === "Detached HEAD" ? null : info.branch,
+                      branch,
                       review,
                       sources,
                       images,
+                      ...(names ? { names } : {}),
                     };
                   },
             );

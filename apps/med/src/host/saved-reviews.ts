@@ -47,6 +47,7 @@ import {
   MAX_SESSIONS,
   pinSourceSchema,
   briefCommentSchema,
+  endpointNamesSchema,
   type AgentSession,
   type BriefCommentMutation,
   type PinMutation,
@@ -122,6 +123,7 @@ const targetSchema = z.object({
   commentReviewId: text.optional(),
   commits: z.array(savedCommitSchema).max(MAX_SAVED_COMMITS).optional(),
   moreCommits: z.boolean().optional(),
+  names: endpointNamesSchema.optional(),
 });
 const briefSchema = z.object({ text: text.max(MAX_BRIEF_LENGTH), updatedAt: text });
 const pinsSchema = z
@@ -624,6 +626,7 @@ export class SavedReviewStore {
       captured: ["working", "staged", "unstaged"].includes(review.comparison.kind),
       ...(result.commits?.list.length ? { commits: result.commits.list } : {}),
       ...(result.commits?.more ? { moreCommits: true } : {}),
+      ...(result.names ? { names: result.names } : {}),
     });
     record.captures.push({
       targetId,
