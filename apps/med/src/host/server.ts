@@ -31,6 +31,7 @@ import {
   type ChangeEvent,
   type Comparison,
   type Repository,
+  type ReviewRequest,
   type ReviewResponse,
   type Session,
 } from "../shared/protocol";
@@ -344,8 +345,27 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   });
   // The windows' thread lists.
   const threadStreams = new Set<ServerResponse>();
-  // The counts of each thread's live Changes, for its row.
-  const checkoutChanges = createCheckoutChanges();
+  /**
+   * A token that stays the same while a checkout's commits, and with
+   * `working` its files, stay the same (repository/cache.ts,
+   * repository/events.ts). The registry and the revisions come later in
+   * this function; a call before them fails, and the caller reads Git.
+   */
+  async function checkoutState(checkout: string, working: boolean) {
+    const metadata = await registry.gitState(checkout);
+    if (!metadata || !working) return metadata;
+    const files = revisions.token(checkout);
+    return files && `${files}\n${metadata}`;
+  }
+  // The thread list reads again when a checkout's counts or work change. The
+  // feed comes later in this function.
+  let listChanged = () => {};
+  // The counts of each thread's live Changes, for its row. Reads run only
+  // when the checkout's Git state or files changed.
+  const checkoutChanges = createCheckoutChanges({
+    state: (checkout) => checkoutState(checkout, true),
+    onChange: () => listChanged(),
+  });
   // The files that each agent session edited, for "Only this session's files".
   const sessionEdits = createSessionEdits();
   // Claude Code and Codex sessions in the registered repositories that no
@@ -397,13 +417,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   // Reads run only when a checkout's Git state or, for working changes, its
   // files changed (repository/cache.ts, repository/events.ts).
   const checkoutWork = createCheckoutWork({
-    async state(checkout, working) {
-      const metadata = await registry.gitState(checkout);
-      if (!metadata || !working) return metadata;
-      const files = revisions.token(checkout);
-      return files && `${files}\n${metadata}`;
-    },
-    onChange: () => threadFeed.changed(),
+    state: checkoutState,
+    onChange: () => listChanged(),
   });
   // The tabs and history; the thread list polls only the tabs.
   const threads = createThreadService({
@@ -451,6 +466,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   // One thread list for all windows; a change to the tabs sends it at once.
   const threadFeed = createThreadFeed({ list: () => threads.list(), intervalMs: STATUS_MS });
   tabs.subscribe(() => threadFeed.changed());
+  listChanged = () => threadFeed.changed();
   const activeRequests = new Map<AbortController, Set<string>>();
   // Each checkout's revision: watcher events change it at once.
   const revisions = new CheckoutRevisions();
@@ -460,6 +476,35 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   const targetsCache = new Memo<Awaited<ReturnType<typeof gitTargets>>>();
   const browseCache = new Memo<Awaited<ReturnType<typeof listBrowse>>>(32);
   const driftCache = new Memo<boolean>();
+  // A live comparison's last review (its ID), while its checkout's token is
+  // the same: Changes that open again load without Git.
+  const liveReviews = new Map<string, { token: string; id: string }>();
+  const loadLive = async (request: ReviewRequest, signal: AbortSignal) => {
+    const key = JSON.stringify(request);
+    // The token comes before the read, so a change during it reads again.
+    const token = await checkoutState(request.repo, true).catch(() => undefined);
+    const hit = liveReviews.get(key);
+    if (token !== undefined && hit?.token === token) {
+      // The loader can drop a review; then this loads again.
+      const kept = (() => {
+        try {
+          return reviews.get(hit.id).response;
+        } catch {
+          return undefined;
+        }
+      })();
+      if (kept) {
+        liveReviews.delete(key);
+        liveReviews.set(key, hit);
+        return { ...kept, metrics: { ...kept.metrics, cacheHit: true, gitMs: 0 } };
+      }
+    }
+    const review = await reviews.load(request, signal);
+    if (token === undefined) liveReviews.delete(key);
+    else liveReviews.set(key, { token, id: review.id });
+    while (liveReviews.size > 64) liveReviews.delete(liveReviews.keys().next().value!);
+    return review;
+  };
   let closing = false;
   let port = 0;
   let expensiveRequests = 0;
@@ -2472,6 +2517,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   input.comparison.kind === "working" ||
                   input.comparison.kind === "unstaged",
               );
+            // Changes in the checkout's files: the last review serves again
+            // while the checkout's token stays the same.
+            const live =
+              input.comparison.kind === "working" ||
+              input.comparison.kind === "unstaged" ||
+              input.comparison.kind === "staged";
             // "Only this session's files": the files that the session edited,
             // from its transcript, read again for each load.
             const scoped =
@@ -2485,16 +2536,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               const paths = (listed ? edited.filter((path) => listed.has(path)) : edited).slice(
                 -MAX_COMPARISON_PATHS,
               );
-              const review = await reviews.load(
-                { repo: input.repo, comparison: { ...comparison, paths } },
-                abort.signal,
-              );
+              const scopedRequest = { repo: input.repo, comparison: { ...comparison, paths } };
+              const review = await (live
+                ? loadLive(scopedRequest, abort.signal)
+                : reviews.load(scopedRequest, abort.signal));
               abort.signal.throwIfAborted();
               notes.adopt(review.id);
               send({ ...review, comparison: input.comparison });
               return;
             }
-            const review = await reviews.load(input, abort.signal);
+            const review = await (live
+              ? loadLive(input, abort.signal)
+              : reviews.load(input, abort.signal));
             abort.signal.throwIfAborted();
             notes.adopt(review.id);
             send(review);

@@ -6,12 +6,16 @@ import { git } from "./runtime/process";
 // on a branch other than its base, the branch's changes since it left the
 // base (its commits and its uncommitted changes); otherwise the uncommitted
 // changes. The thread list never waits for Git: it takes the last counts,
-// and reads run in the background, one at a time.
+// and reads run in the background, one at a time. A checkout whose state
+// token is the same as at its last read is not read again, until SAFETY_MS.
 
-/** A checkout's counts are read again this often, and at most this often
- * (`RECOUNT_MS`) while one of its sessions changes. */
+/** A checkout's counts are checked this often, and at most this often
+ * (`RECOUNT_MS`) while one of its sessions changes. A check with a token
+ * costs no Git. */
 const CHANGES_MS = 30_000;
 const RECOUNT_MS = 4000;
+/** Counts with an unchanged token are read again after this long. */
+const SAFETY_MS = 10 * 60_000;
 
 export interface ChangeCounts {
   files: number;
@@ -57,10 +61,25 @@ export async function countChanges(
   return changes;
 }
 
-export function createCheckoutChanges(options: { now?: () => number } = {}) {
+export function createCheckoutChanges(
+  options: {
+    now?: () => number;
+    /**
+     * A token that stays the same while the checkout's commits and files stay
+     * the same; undefined when there is none. See repository/cache.ts and
+     * repository/events.ts.
+     */
+    state?: (path: string) => Promise<string | undefined>;
+    /** A read gave new counts. */
+    onChange?: () => void;
+  } = {},
+) {
   const now = options.now ?? Date.now;
   const abort = new AbortController();
-  const known = new Map<string, { at: number; value?: ChangeCounts }>();
+  const known = new Map<
+    string,
+    { at: number; checked: number; token?: string; value?: ChangeCounts }
+  >();
   const due = new Map<string, { path: string; base?: string }>();
   let counting: Promise<void> | undefined;
   let reading: string | undefined;
@@ -73,11 +92,20 @@ export function createCheckoutChanges(options: { now?: () => number } = {}) {
         due.delete(key);
         reading = key;
         const at = now();
+        // The token comes before the read, so a change during it reads again.
+        const token = await options.state?.(entry.path).catch(() => undefined);
+        const last = known.get(key);
+        if (last && token !== undefined && token === last.token && at - last.at < SAFETY_MS) {
+          last.checked = at;
+          reading = undefined;
+          continue;
+        }
         const value = await countChanges(entry.path, entry.base, abort.signal).catch(
           () => undefined,
         );
-        known.set(key, { at, ...(value ? { value } : {}) });
+        known.set(key, { at, checked: at, token, ...(value ? { value } : {}) });
         reading = undefined;
+        if (JSON.stringify(value) !== JSON.stringify(last?.value)) options.onChange?.();
       }
       if (known.size > 256) known.clear();
     })().finally(() => {
@@ -95,8 +123,8 @@ export function createCheckoutChanges(options: { now?: () => number } = {}) {
     get(path: string, base: string | undefined, changedAt = 0) {
       const key = `${path}\0${base ?? ""}`;
       const last = known.get(key);
-      const age = last ? now() - last.at : Infinity;
-      if (key !== reading && (age > CHANGES_MS || (changedAt > last!.at && age > RECOUNT_MS)))
+      const age = last ? now() - last.checked : Infinity;
+      if (key !== reading && (age > CHANGES_MS || (changedAt > last!.checked && age > RECOUNT_MS)))
         due.set(key, { path, ...(base ? { base } : {}) });
       run();
       return last?.value;

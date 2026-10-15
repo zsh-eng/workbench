@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { startHost, type RunningHost, type StartHostOptions } from "../../src/host/server";
 import type { BrowseList } from "../../src/shared/browse";
 import type { GitTargets } from "../../src/shared/git-actions";
-import type { Branch, Session } from "../../src/shared/protocol";
+import type { Branch, ReviewResponse, Session } from "../../src/shared/protocol";
 import type { SavedReview } from "../../src/shared/saved-review";
 
 // The host answers Git questions from a cache. These tests change the
@@ -224,6 +224,37 @@ test("a file edit updates the cached drift answer through the watcher's event", 
   expect(await until(drift, (changed) => changed, 3000)).toBe(true);
   await writeFile(join(value.repo, "file.ts"), "export const value = 2;\n");
   expect(await until(drift, (changed) => !changed, 3000)).toBe(false);
+});
+
+test("live Changes that open again come from the cache until a file edit, a stage, or a commit", async () => {
+  const value = await fixture({ safetyMs: 600_000 });
+  const { repo, read } = value;
+  await writeFile(join(repo, "file.ts"), "export const value = 2;\n");
+  const load = (kind: "working" | "staged" = "working") =>
+    read<ReviewResponse>("/api/review", { repo, comparison: { kind } });
+  // The first load starts the checkout's watcher; a load before it is ready reads Git.
+  await load();
+  await value.watching();
+  const first = await load();
+  const again = await load();
+  expect(again).toMatchObject({ id: first.id, metrics: { cacheHit: true, gitMs: 0 } });
+
+  await writeFile(join(repo, "file.ts"), "export const value = 3;\n");
+  const edited = await until(load, (review) => review.patch.includes("value = 3"), 3000);
+  expect(edited.patch).toContain("value = 3");
+  expect(edited.metrics.cacheHit).toBe(false);
+
+  expect((await load("staged")).files).toEqual([]);
+  git(repo, "add", "file.ts");
+  const staged = await until(
+    () => load("staged"),
+    (review) => review.files.length === 1,
+    3000,
+  );
+  expect(staged.files.map((file) => file.path)).toEqual(["file.ts"]);
+
+  git(repo, "commit", "--quiet", "-m", "value 3");
+  expect((await until(load, (review) => !review.files.length, 3000)).files).toEqual([]);
 });
 
 test("the safety check corrects a cached answer after a missed file event: each minute on screen, each 10 minutes off screen", async () => {
