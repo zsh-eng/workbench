@@ -1,6 +1,16 @@
 import { ContextMenu } from "@base-ui/react/context-menu";
 import * as stylex from "@stylexjs/stylex";
-import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
+import {
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type ReactNode,
+  type SyntheticEvent,
+} from "react";
 import type { Thread, ThreadSubagent } from "../../../shared/threads";
 import { useAttemptsAddress } from "../../data/attempts";
 import { foundSessionThread, threadInput } from "../../data/found-threads";
@@ -224,6 +234,57 @@ export function ThreadSidebar({
         ?.focus({ preventScroll: false }),
     );
   };
+  // The rows share one object of actions that reads the newest props, so a
+  // row renders again only when its own thread or state changes.
+  const handlers = {
+    openThread,
+    onOpenSubagent,
+    onClose,
+    onPrefetch,
+    move,
+    drag,
+    drop,
+    dropOn,
+    groups,
+  };
+  const latest = useRef(handlers);
+  useLayoutEffect(() => {
+    latest.current = handlers;
+  });
+  const [actions] = useState<RowActions>(() => ({
+    open: (thread) => latest.current.openThread(thread),
+    openSubagent: (thread, subagent) => latest.current.onOpenSubagent?.(thread, subagent),
+    close: (thread, removeWorktree) => latest.current.onClose?.(thread, removeWorktree),
+    move: (thread, by) => latest.current.move(thread, by),
+    prefetch: (thread) => latest.current.onPrefetch?.(thread),
+    dragStart: (thread, group) => setDrag({ id: thread.id, group }),
+    dragOver: (thread, group, after) => {
+      const { drag, drop } = latest.current;
+      if (!drag || drag.group !== group || drag.id === thread.id) return false;
+      if (drop?.id !== thread.id || drop.after !== after) setDrop({ id: thread.id, after });
+      return true;
+    },
+    drop: (thread, key, after) => {
+      const { groups, dropOn } = latest.current;
+      const group = groups.find((entry) => entry.key === key);
+      if (group) dropOn(group, thread.id, after);
+      else endDrag();
+    },
+    dragEnd: () => endDrag(),
+  }));
+
+  // One right-click menu serves all tabs: it opens for the tab under the
+  // pointer, or the focused one for the menu key.
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const located = useRef<string | null>(null);
+  const locate = (event: SyntheticEvent) => {
+    const row = (event.target as Element).closest?.("[data-thread-row]");
+    located.current = row?.getAttribute("data-thread-row") ?? null;
+    if (located.current) setMenuFor(located.current);
+  };
+  const menuThread = menuFor ? threads.find((thread) => thread.id === menuFor) : undefined;
+  if (menuOpen && !menuThread) setMenuOpen(false);
 
   const [sourcesOpen, setSourcesOpen] = useState(() => readJson(SOURCES_KEY, false));
   const toggleSources = () =>
@@ -273,99 +334,115 @@ export function ThreadSidebar({
           onClick={onHide}
         />
       </div>
-      <div {...stylex.props(styles.scroll)}>
-        {onNewThread && (
-          <button
-            type="button"
-            data-sidebar-row=""
-            aria-current={newThread ? "page" : undefined}
-            onClick={onNewThread}
-            {...stylex.props(styles.row, styles.newRow, newThread && styles.current)}
-          >
-            <Icon name="plus" size={14} />
-            <span {...stylex.props(styles.title)}>New thread</span>
-            <ShortcutKeys value="Alt+N" />
-          </button>
-        )}
-        {(needs > 0 || working > 0) && (
-          <div role="group" aria-label="Tabs at work" {...stylex.props(styles.counts)}>
-            {needs > 0 && (
-              <button
-                type="button"
-                title="Show the next tab that needs you (⌘0)"
-                onClick={() => onNext?.("needs")}
-                {...stylex.props(styles.count, styles.countNeeds)}
-              >
-                {needs} needs you
-              </button>
+      <ContextMenu.Root
+        open={menuOpen}
+        onOpenChange={(open) => setMenuOpen(open && !!located.current)}
+      >
+        <ContextMenu.Trigger
+          render={<div />}
+          {...stylex.props(styles.scroll)}
+          onContextMenuCapture={locate}
+          onTouchStartCapture={locate}
+        >
+          {onNewThread && (
+            <button
+              type="button"
+              data-sidebar-row=""
+              aria-current={newThread ? "page" : undefined}
+              onClick={onNewThread}
+              {...stylex.props(styles.row, styles.newRow, newThread && styles.current)}
+            >
+              <Icon name="plus" size={14} />
+              <span {...stylex.props(styles.title)}>New thread</span>
+              <ShortcutKeys value="Alt+N" />
+            </button>
+          )}
+          {(needs > 0 || working > 0) && (
+            <div role="group" aria-label="Tabs at work" {...stylex.props(styles.counts)}>
+              {needs > 0 && (
+                <button
+                  type="button"
+                  title="Show the next tab that needs you (⌘0)"
+                  onClick={() => onNext?.("needs")}
+                  {...stylex.props(styles.count, styles.countNeeds)}
+                >
+                  {needs} needs you
+                </button>
+              )}
+              {needs > 0 && working > 0 && <span aria-hidden="true">·</span>}
+              {working > 0 && (
+                <button
+                  type="button"
+                  title="Show the next tab that works"
+                  onClick={() => onNext?.("working")}
+                  {...stylex.props(styles.count)}
+                >
+                  {working} working
+                </button>
+              )}
+            </div>
+          )}
+          {loaded && !threads.length && (
+            <p {...stylex.props(styles.empty)}>
+              Tabs show here: each agent task that you have open, with its changes. Start one, or
+              ask an agent to hand off its work with{" "}
+              <code {...stylex.props(styles.code)}>med review</code>. ⌃Tab finds closed ones.
+            </p>
+          )}
+          {groups.map((group) => {
+            const row = (thread: Thread, name?: string) => {
+              const subagents = shownSubagents(thread, read);
+              return (
+                <ThreadRow
+                  key={thread.id}
+                  thread={thread}
+                  name={name}
+                  group={group.key}
+                  current={thread.id === currentThread}
+                  unread={read.isUnread(thread)}
+                  copied={copied === thread.id}
+                  now={now}
+                  subagents={subagents}
+                  fresh={subagents
+                    .filter((subagent) => read.isSubagentUnread(subagent))
+                    .map((subagent) => subagent.id)
+                    .join(" ")}
+                  drop={drop?.id === thread.id ? (drop.after ? "after" : "before") : undefined}
+                  closable={!!onClose}
+                  movable={!!onMove}
+                  draggable={!!onReorder}
+                  // A found session has no saved review to read ahead.
+                  prefetch={!!onPrefetch && !thread.found}
+                  actions={actions}
+                />
+              );
+            };
+            return (
+              <section key={group.key} aria-label={group.name} {...stylex.props(styles.group)}>
+                <h2 {...stylex.props(ui.label, styles.groupName)}>{group.name}</h2>
+                <ul {...stylex.props(styles.list)}>
+                  {withAttempts(group.threads, row, { current: currentThread, now })}
+                </ul>
+              </section>
+            );
+          })}
+        </ContextMenu.Trigger>
+        <ContextMenu.Portal>
+          <ContextMenu.Positioner {...stylex.props(styles.menuPositioner)}>
+            {menuThread && (
+              <ThreadMenu
+                thread={menuThread}
+                unread={read.isUnread(menuThread)}
+                onOpen={() => openThread(menuThread)}
+                onCopy={(text) => copy(menuThread, text)}
+                onUnread={(unread) => read.setUnread(menuThread, unread)}
+                onClose={onClose && ((removeWorktree) => onClose(menuThread, removeWorktree))}
+                onDelete={onDelete && (() => onDelete(menuThread))}
+              />
             )}
-            {needs > 0 && working > 0 && <span aria-hidden="true">·</span>}
-            {working > 0 && (
-              <button
-                type="button"
-                title="Show the next tab that works"
-                onClick={() => onNext?.("working")}
-                {...stylex.props(styles.count)}
-              >
-                {working} working
-              </button>
-            )}
-          </div>
-        )}
-        {loaded && !threads.length && (
-          <p {...stylex.props(styles.empty)}>
-            Tabs show here: each agent task that you have open, with its changes. Start one, or ask
-            an agent to hand off its work with{" "}
-            <code {...stylex.props(styles.code)}>med review</code>. ⌃Tab finds closed ones.
-          </p>
-        )}
-        {groups.map((group) => {
-          const row = (thread: Thread, name?: string) => (
-            <ThreadRow
-              key={thread.id}
-              thread={thread}
-              name={name}
-              current={thread.id === currentThread}
-              unread={read.isUnread(thread)}
-              copied={copied === thread.id}
-              now={now}
-              subagents={shownSubagents(thread, read)}
-              isSubagentUnread={read.isSubagentUnread}
-              drop={drop?.id === thread.id ? (drop.after ? "after" : "before") : undefined}
-              onOpen={() => openThread(thread)}
-              onOpenSubagent={onOpenSubagent && ((subagent) => onOpenSubagent(thread, subagent))}
-              onCopy={(text) => copy(thread, text)}
-              onUnread={(unread) => read.setUnread(thread, unread)}
-              onClose={onClose && ((removeWorktree) => onClose(thread, removeWorktree))}
-              onDelete={onDelete && (() => onDelete(thread))}
-              onMove={onMove && ((by) => move(thread, by))}
-              // A found session has no saved review to read ahead.
-              onPrefetch={onPrefetch && !thread.found ? () => onPrefetch(thread) : undefined}
-              drag={
-                onReorder && {
-                  start: () => setDrag({ id: thread.id, group: group.key }),
-                  over: (after) => {
-                    if (!drag || drag.group !== group.key || drag.id === thread.id) return false;
-                    if (drop?.id !== thread.id || drop.after !== after)
-                      setDrop({ id: thread.id, after });
-                    return true;
-                  },
-                  drop: (after) => dropOn(group, thread.id, after),
-                  end: endDrag,
-                }
-              }
-            />
-          );
-          return (
-            <section key={group.key} aria-label={group.name} {...stylex.props(styles.group)}>
-              <h2 {...stylex.props(ui.label, styles.groupName)}>{group.name}</h2>
-              <ul {...stylex.props(styles.list)}>
-                {withAttempts(group.threads, row, { current: currentThread, now })}
-              </ul>
-            </section>
-          );
-        })}
-      </div>
+          </ContextMenu.Positioner>
+        </ContextMenu.Portal>
+      </ContextMenu.Root>
       {notice}
       <section aria-label="Repositories" {...stylex.props(styles.sources)}>
         <div {...stylex.props(styles.sourcesHeader)}>
@@ -422,65 +499,80 @@ export function ThreadSidebar({
 
 const agentNames = { claude: "Claude Code", codex: "Codex" } as const;
 
-/** A tab's row, with its subagents under it and its right-click menu: resume
- * its agent in a terminal, mark it read or unread, close it, with the
- * worktree Med made for it, or delete it. */
-function ThreadRow({
-  thread,
-  name,
-  current,
-  unread,
-  copied,
-  now,
-  subagents,
-  isSubagentUnread,
-  drop,
-  drag,
-  onOpen,
-  onOpenSubagent,
-  onCopy,
-  onUnread,
-  onClose,
-  onDelete,
-  onMove,
-  onPrefetch,
-}: {
+/** What the rows do: one object for all rows, so that a row renders again
+ * only when its own thread or state changes. */
+interface RowActions {
+  open(thread: Thread): void;
+  openSubagent(thread: Thread, subagent: ThreadSubagent): void;
+  close(thread: Thread, removeWorktree: boolean): void;
+  move(thread: Thread, by: -1 | 1): void;
+  prefetch(thread: Thread): void;
+  dragStart(thread: Thread, group: string): void;
+  /** Whether the dragged tab can land here. */
+  dragOver(thread: Thread, group: string, after: boolean): boolean;
+  drop(thread: Thread, group: string, after: boolean): void;
+  dragEnd(): void;
+}
+
+interface RowProps {
   thread: Thread;
   /** In place of the title, such as an attempt's letter and agent. */
   name?: string;
+  /** The repository group, in which a drag moves the tab. */
+  group: string;
   current: boolean;
   unread: boolean;
   copied: boolean;
   now: number;
   subagents: readonly ThreadSubagent[];
-  isSubagentUnread(subagent: ThreadSubagent): boolean;
+  /** The IDs of subagents with results that the reader has not seen. */
+  fresh: string;
   /** A dragged tab lands before or after this one. */
   drop?: "before" | "after";
-  drag?: {
-    start(): void;
-    /** Whether the dragged tab can land here. */
-    over(after: boolean): boolean;
-    drop(after: boolean): void;
-    end(): void;
-  };
-  onOpen(): void;
-  onOpenSubagent?(subagent: ThreadSubagent): void;
-  onCopy(text: string): void;
-  onUnread(unread: boolean): void;
-  onClose?(removeWorktree: boolean): void;
-  onDelete?(): void;
-  onMove?(by: -1 | 1): void;
-  onPrefetch?(): void;
-}) {
-  // A pointer that rests on the row, or a press, reads the thread ahead.
+  closable: boolean;
+  movable: boolean;
+  draggable: boolean;
+  /** A pointer that rests on the row, or a press, reads the thread ahead. */
+  prefetch: boolean;
+  actions: RowActions;
+}
+
+/** Rows are equal when their props are, with the subagents by element. */
+const sameRow = (before: RowProps, after: RowProps) => {
+  const keys = Object.keys(after) as (keyof RowProps)[];
+  return (
+    keys.length === Object.keys(before).length &&
+    keys.every((key) =>
+      key === "subagents"
+        ? before.subagents.length === after.subagents.length &&
+          before.subagents.every((subagent, index) => subagent === after.subagents[index])
+        : Object.is(before[key], after[key]),
+    )
+  );
+};
+
+/** A tab's row, with its subagents under it. Its right-click menu is the
+ * sidebar's (ThreadMenu). */
+const ThreadRow = memo(function ThreadRow({
+  thread,
+  name,
+  group,
+  current,
+  unread,
+  copied,
+  now,
+  subagents,
+  fresh,
+  drop,
+  closable,
+  movable,
+  draggable,
+  prefetch,
+  actions,
+}: RowProps) {
   const rest = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(rest.current), []);
   const branch = thread.branch ?? thread.checkout?.split("/").at(-1);
-  const sessions = (thread.sessions ?? []).flatMap((session) =>
-    session.agent === "acp" ? [] : [{ ...session, agent: session.agent }],
-  );
-  const item = (state: { highlighted: boolean }) =>
-    stylex.props(ui.menuItem, state.highlighted && [ui.menuHighlighted, picked]).className;
   const busy = thread.state === "working";
   const asking = needsYou(thread);
   // A turn that runs shows what it does now in place of its branch, unless
@@ -494,235 +586,258 @@ function ThreadRow({
     const box = event.currentTarget.getBoundingClientRect();
     return event.clientY > box.top + box.height / 2;
   };
+  const read = () => !current && prefetch && actions.prefetch(thread);
   return (
-    <ContextMenu.Root>
-      <ContextMenu.Trigger
-        render={<li />}
-        {...stylex.props(
-          styles.item,
-          drop === "before" && styles.dropBefore,
-          drop === "after" && styles.dropAfter,
-          stylex.defaultMarker(),
-        )}
+    <li
+      data-thread-row={thread.id}
+      {...stylex.props(
+        styles.item,
+        drop === "before" && styles.dropBefore,
+        drop === "after" && styles.dropAfter,
+        stylex.defaultMarker(),
+      )}
+    >
+      <button
+        type="button"
+        data-sidebar-row=""
+        data-thread={thread.id}
+        data-found={thread.found || undefined}
+        aria-current={current ? "page" : undefined}
+        aria-keyshortcuts={movable ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
+        draggable={draggable}
+        onDragStart={(event) => {
+          if (!draggable) return;
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("text/plain", thread.title);
+          actions.dragStart(thread, group);
+        }}
+        onDragOver={(event) => {
+          if (draggable && actions.dragOver(thread, group, after(event))) event.preventDefault();
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          if (draggable) actions.drop(thread, group, after(event));
+        }}
+        onDragEnd={() => draggable && actions.dragEnd()}
+        onClick={() => actions.open(thread)}
+        onKeyDown={(event) => {
+          if (!movable || !event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
+          if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+          event.preventDefault();
+          actions.move(thread, event.key === "ArrowUp" ? -1 : 1);
+        }}
+        onPointerEnter={() => {
+          if (current || !prefetch) return;
+          clearTimeout(rest.current);
+          rest.current = setTimeout(read, 60);
+        }}
+        onPointerLeave={() => clearTimeout(rest.current)}
+        onPointerDown={read}
+        onFocus={read}
+        {...stylex.props(styles.row, styles.thread, current && styles.current)}
       >
-        <button
-          type="button"
-          data-sidebar-row=""
-          data-thread={thread.id}
-          data-found={thread.found || undefined}
-          aria-current={current ? "page" : undefined}
-          aria-keyshortcuts={onMove ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
-          draggable={!!drag}
-          onDragStart={(event) => {
-            if (!drag) return;
-            event.dataTransfer.effectAllowed = "move";
-            event.dataTransfer.setData("text/plain", thread.title);
-            drag.start();
-          }}
-          onDragOver={(event) => {
-            if (drag?.over(after(event))) event.preventDefault();
-          }}
-          onDrop={(event) => {
-            event.preventDefault();
-            drag?.drop(after(event));
-          }}
-          onDragEnd={() => drag?.end()}
-          onClick={onOpen}
-          onKeyDown={(event) => {
-            if (!onMove || !event.altKey || event.metaKey || event.ctrlKey || event.shiftKey)
-              return;
-            if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
-            event.preventDefault();
-            onMove(event.key === "ArrowUp" ? -1 : 1);
-          }}
-          onPointerEnter={() => {
-            if (current || !onPrefetch) return;
-            clearTimeout(rest.current);
-            rest.current = setTimeout(onPrefetch, 60);
-          }}
-          onPointerLeave={() => clearTimeout(rest.current)}
-          onPointerDown={() => !current && onPrefetch?.()}
-          onFocus={() => !current && onPrefetch?.()}
-          {...stylex.props(styles.row, styles.thread, current && styles.current)}
-        >
-          <span {...stylex.props(styles.mark)} aria-hidden="true">
-            {asking ? (
-              <span {...stylex.props(styles.dot, thread.state === "waiting" && styles.waiting)}>
-                {thread.state === "waiting" && <span {...stylex.props(styles.pulse)} />}
+        <span {...stylex.props(styles.mark)} aria-hidden="true">
+          {asking ? (
+            <span {...stylex.props(styles.dot, thread.state === "waiting" && styles.waiting)}>
+              {thread.state === "waiting" && <span {...stylex.props(styles.pulse)} />}
+            </span>
+          ) : (
+            <Icon name={agentIcon(thread.agent)} size={13} />
+          )}
+        </span>
+        <span {...stylex.props(styles.lines)}>
+          <span {...stylex.props(styles.titleLine)}>
+            <span
+              {...stylex.props(
+                styles.title,
+                busy && !asking && styles.busy,
+                unread && styles.unread,
+                asking && styles.asking,
+              )}
+            >
+              {name ?? thread.title}
+            </span>
+            {copied ? (
+              <span role="status" {...stylex.props(styles.age)}>
+                Copied
               </span>
             ) : (
-              <Icon name={agentIcon(thread.agent)} size={13} />
+              (asking || !busy) && (
+                <span
+                  {...stylex.props(
+                    styles.age,
+                    asking && styles.needsYou,
+                    closable && styles.ageHides,
+                  )}
+                >
+                  {asking ? "Needs you" : shortAge(thread.updatedAt, now)}
+                </span>
+              )
             )}
           </span>
-          <span {...stylex.props(styles.lines)}>
-            <span {...stylex.props(styles.titleLine)}>
-              <span
-                {...stylex.props(
-                  styles.title,
-                  busy && !asking && styles.busy,
-                  unread && styles.unread,
-                  asking && styles.asking,
-                )}
-              >
-                {name ?? thread.title}
+          <span {...stylex.props(styles.detailLine)}>
+            {activity ? (
+              <span title={activity} {...stylex.props(styles.activity)}>
+                {activity}
               </span>
-              {copied ? (
-                <span role="status" {...stylex.props(styles.age)}>
-                  Copied
-                </span>
-              ) : (
-                (asking || !busy) && (
-                  <span
-                    {...stylex.props(
-                      styles.age,
-                      asking && styles.needsYou,
-                      onClose && styles.ageHides,
-                    )}
-                  >
-                    {asking ? "Needs you" : shortAge(thread.updatedAt, now)}
-                  </span>
-                )
-              )}
-            </span>
-            <span {...stylex.props(styles.detailLine)}>
-              {activity ? (
-                <span title={activity} {...stylex.props(styles.activity)}>
-                  {activity}
-                </span>
-              ) : (
-                branch && <span {...stylex.props(styles.branch)}>{branch}</span>
-              )}
-              {thread.changes && thread.changes.files > 0 && (
-                <span {...stylex.props(styles.changes)}>
-                  <span {...stylex.props(styles.added)}>+{thread.changes.additions}</span>
-                  <span {...stylex.props(styles.removed)}>−{thread.changes.deletions}</span>
-                </span>
-              )}
-            </span>
+            ) : (
+              branch && <span {...stylex.props(styles.branch)}>{branch}</span>
+            )}
+            {thread.changes && thread.changes.files > 0 && (
+              <span {...stylex.props(styles.changes)}>
+                <span {...stylex.props(styles.added)}>+{thread.changes.additions}</span>
+                <span {...stylex.props(styles.removed)}>−{thread.changes.deletions}</span>
+              </span>
+            )}
           </span>
-          <span {...stylex.props(styles.hidden)}>
-            {asking ? ", needs you" : busy ? ", working" : unread ? ", new" : ""}
-          </span>
+        </span>
+        <span {...stylex.props(styles.hidden)}>
+          {asking ? ", needs you" : busy ? ", working" : unread ? ", new" : ""}
+        </span>
+      </button>
+      {closable && (
+        <button
+          type="button"
+          aria-label={`Close ${thread.title}`}
+          title="Close tab (⌘⌥W)"
+          onClick={() => actions.close(thread, false)}
+          {...stylex.props(styles.close)}
+        >
+          <Icon name="close" size={12} />
         </button>
-        {onClose && (
-          <button
-            type="button"
-            aria-label={`Close ${thread.title}`}
-            title="Close tab (⌘⌥W)"
-            onClick={() => onClose(false)}
-            {...stylex.props(styles.close)}
-          >
-            <Icon name="close" size={12} />
-          </button>
-        )}
-        {subagents.length > 0 && (
-          <ul aria-label={`${thread.title} subagents`} {...stylex.props(styles.subagents)}>
-            {subagents.map((subagent) => {
-              const working = subagent.state === "working";
-              const fresh = !working && isSubagentUnread(subagent);
-              return (
-                <li key={subagent.id}>
-                  <button
-                    type="button"
-                    data-sidebar-row=""
-                    data-subagent={subagent.id}
-                    onClick={() => onOpenSubagent?.(subagent)}
-                    {...stylex.props(styles.row, styles.subagent)}
-                  >
-                    <span {...stylex.props(styles.lines, styles.subagentLines)}>
-                      <span
-                        {...stylex.props(
-                          styles.subagentName,
-                          working && styles.busy,
-                          fresh && styles.unread,
-                        )}
-                      >
-                        {subagent.description}
-                      </span>
-                      {working ? (
-                        <span
-                          title={subagent.activity}
-                          {...stylex.props(styles.subagentActivity, styles.activity)}
-                        >
-                          {subagent.activity ?? "Working"}
-                        </span>
-                      ) : (
-                        <span aria-hidden="true" {...stylex.props(styles.subagentActivity)}>
-                          Done · {shortAge(subagent.updatedAt, now)}
-                        </span>
+      )}
+      {subagents.length > 0 && (
+        <ul aria-label={`${thread.title} subagents`} {...stylex.props(styles.subagents)}>
+          {subagents.map((subagent) => {
+            const working = subagent.state === "working";
+            const done = !working && fresh.split(" ").includes(subagent.id);
+            return (
+              <li key={subagent.id}>
+                <button
+                  type="button"
+                  data-sidebar-row=""
+                  data-subagent={subagent.id}
+                  onClick={() => actions.openSubagent(thread, subagent)}
+                  {...stylex.props(styles.row, styles.subagent)}
+                >
+                  <span {...stylex.props(styles.lines, styles.subagentLines)}>
+                    <span
+                      {...stylex.props(
+                        styles.subagentName,
+                        working && styles.busy,
+                        done && styles.unread,
                       )}
+                    >
+                      {subagent.description}
                     </span>
-                    <span {...stylex.props(styles.hidden)}>
-                      {working ? ", working" : fresh ? ", done" : ""}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </ContextMenu.Trigger>
-      <ContextMenu.Portal>
-        <ContextMenu.Positioner {...stylex.props(styles.menuPositioner)}>
-          <ContextMenu.Popup
-            aria-label={`${thread.title} actions`}
-            {...stylex.props(ui.popup, styles.menu)}
-          >
-            <ContextMenu.Item onClick={onOpen} className={item}>
-              Open
-            </ContextMenu.Item>
-            {(sessions.length > 0 || thread.checkout) && (
-              <ContextMenu.Separator {...stylex.props(styles.separator)} />
-            )}
-            {[...sessions].reverse().map((session) => (
-              <ContextMenu.Item
-                key={`${session.agent}:${session.id}`}
-                onClick={() => onCopy(resumeCommand(session))}
-                className={item}
-              >
-                <span {...stylex.props(styles.menuLabel)}>
-                  <Icon name={session.agent} size={13} />
-                  Copy {agentNames[session.agent]} resume command
-                </span>
-                <span {...stylex.props(styles.menuHint)}>{session.id.slice(0, 8)}</span>
-              </ContextMenu.Item>
-            ))}
-            {thread.checkout && (
-              <ContextMenu.Item
-                onClick={() => onCopy(lazygitCommand(thread.checkout!))}
-                className={item}
-              >
-                <span {...stylex.props(styles.menuLabel)}>
-                  <Icon name="command" size={13} />
-                  Copy lazygit command
-                </span>
-              </ContextMenu.Item>
-            )}
-            <ContextMenu.Separator {...stylex.props(styles.separator)} />
-            <ContextMenu.Item onClick={() => onUnread(!unread)} className={item}>
-              {unread ? "Mark as read" : "Mark as unread"}
-            </ContextMenu.Item>
-            {onClose && (
-              <ContextMenu.Item onClick={() => onClose(false)} className={item}>
-                Close tab
-                <span {...stylex.props(styles.menuHint)}>⌘⌥W</span>
-              </ContextMenu.Item>
-            )}
-            {onClose && thread.linked && !thread.found && (
-              <ContextMenu.Item disabled={busy} onClick={() => onClose(true)} className={item}>
-                Close and remove worktree
-                <span {...stylex.props(styles.menuHint)}>{thread.checkout?.split("/").at(-1)}</span>
-              </ContextMenu.Item>
-            )}
-            {onDelete && (
-              <ContextMenu.Item onClick={onDelete} className={item}>
-                Delete…
-              </ContextMenu.Item>
-            )}
-          </ContextMenu.Popup>
-        </ContextMenu.Positioner>
-      </ContextMenu.Portal>
-    </ContextMenu.Root>
+                    {working ? (
+                      <span
+                        title={subagent.activity}
+                        {...stylex.props(styles.subagentActivity, styles.activity)}
+                      >
+                        {subagent.activity ?? "Working"}
+                      </span>
+                    ) : (
+                      <span aria-hidden="true" {...stylex.props(styles.subagentActivity)}>
+                        Done · {shortAge(subagent.updatedAt, now)}
+                      </span>
+                    )}
+                  </span>
+                  <span {...stylex.props(styles.hidden)}>
+                    {working ? ", working" : done ? ", done" : ""}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </li>
+  );
+}, sameRow);
+
+/** A tab's right-click menu: resume its agent in a terminal, mark it read or
+ * unread, close it, with the worktree Med made for it, or delete it. */
+function ThreadMenu({
+  thread,
+  unread,
+  onOpen,
+  onCopy,
+  onUnread,
+  onClose,
+  onDelete,
+}: {
+  thread: Thread;
+  unread: boolean;
+  onOpen(): void;
+  onCopy(text: string): void;
+  onUnread(unread: boolean): void;
+  onClose?(removeWorktree: boolean): void;
+  onDelete?(): void;
+}) {
+  const sessions = (thread.sessions ?? []).flatMap((session) =>
+    session.agent === "acp" ? [] : [{ ...session, agent: session.agent }],
+  );
+  const item = (state: { highlighted: boolean }) =>
+    stylex.props(ui.menuItem, state.highlighted && [ui.menuHighlighted, picked]).className;
+  return (
+    <ContextMenu.Popup
+      aria-label={`${thread.title} actions`}
+      {...stylex.props(ui.popup, styles.menu)}
+    >
+      <ContextMenu.Item onClick={onOpen} className={item}>
+        Open
+      </ContextMenu.Item>
+      {(sessions.length > 0 || thread.checkout) && (
+        <ContextMenu.Separator {...stylex.props(styles.separator)} />
+      )}
+      {[...sessions].reverse().map((session) => (
+        <ContextMenu.Item
+          key={`${session.agent}:${session.id}`}
+          onClick={() => onCopy(resumeCommand(session))}
+          className={item}
+        >
+          <span {...stylex.props(styles.menuLabel)}>
+            <Icon name={session.agent} size={13} />
+            Copy {agentNames[session.agent]} resume command
+          </span>
+          <span {...stylex.props(styles.menuHint)}>{session.id.slice(0, 8)}</span>
+        </ContextMenu.Item>
+      ))}
+      {thread.checkout && (
+        <ContextMenu.Item onClick={() => onCopy(lazygitCommand(thread.checkout!))} className={item}>
+          <span {...stylex.props(styles.menuLabel)}>
+            <Icon name="command" size={13} />
+            Copy lazygit command
+          </span>
+        </ContextMenu.Item>
+      )}
+      <ContextMenu.Separator {...stylex.props(styles.separator)} />
+      <ContextMenu.Item onClick={() => onUnread(!unread)} className={item}>
+        {unread ? "Mark as read" : "Mark as unread"}
+      </ContextMenu.Item>
+      {onClose && (
+        <ContextMenu.Item onClick={() => onClose(false)} className={item}>
+          Close tab
+          <span {...stylex.props(styles.menuHint)}>⌘⌥W</span>
+        </ContextMenu.Item>
+      )}
+      {onClose && thread.linked && !thread.found && (
+        <ContextMenu.Item
+          disabled={thread.state === "working"}
+          onClick={() => onClose(true)}
+          className={item}
+        >
+          Close and remove worktree
+          <span {...stylex.props(styles.menuHint)}>{thread.checkout?.split("/").at(-1)}</span>
+        </ContextMenu.Item>
+      )}
+      {onDelete && (
+        <ContextMenu.Item onClick={onDelete} className={item}>
+          Delete…
+        </ContextMenu.Item>
+      )}
+    </ContextMenu.Popup>
   );
 }
 

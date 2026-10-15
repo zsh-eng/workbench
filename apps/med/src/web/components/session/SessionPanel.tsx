@@ -30,6 +30,7 @@ import {
   type SessionTurn,
 } from "../../data/session-stream";
 import { picked, tokens, ui } from "../../theme.stylex";
+import { QuietMenuRoot } from "../Controls";
 import { tooltip } from "../ToolButton";
 import { Icon } from "../Icon";
 import { ToolButton } from "../ToolButton";
@@ -117,8 +118,9 @@ function SessionMenu({
     stylex.props(ui.menuItem, styles.menuItem, state.highlighted && [ui.menuHighlighted, picked])
       .className;
   const check = (indicator: ReactNode) => <span {...stylex.props(styles.check)}>{indicator}</span>;
+  const [open, setOpen] = useState(false);
   return (
-    <Menu.Root>
+    <QuietMenuRoot open={open} onOpenChange={setOpen} look={`${agent}\n${leads}`}>
       <Menu.Trigger
         aria-label={`${agent} session menu`}
         {...tooltip("Sessions, work, and turns")}
@@ -226,7 +228,7 @@ function SessionMenu({
           </Menu.Popup>
         </Menu.Positioner>
       </Menu.Portal>
-    </Menu.Root>
+    </QuietMenuRoot>
   );
 }
 

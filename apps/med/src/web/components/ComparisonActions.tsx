@@ -6,7 +6,7 @@ import type { Comparison } from "../../shared/protocol";
 import { gitTargetsSchema, pushResultSchema, type GitTargets } from "../../shared/git-actions";
 import { createApi } from "../data/api";
 import { readBrowserToken } from "../data/auth";
-import { ChoiceSelect } from "./Controls";
+import { ChoiceSelect, QuietMenuRoot } from "./Controls";
 import { Icon } from "./Icon";
 import { tooltip } from "./ToolButton";
 import { picked, tokens, ui } from "../theme.stylex";
@@ -135,8 +135,9 @@ export function ComparisonActions({
   }));
   return (
     <>
-      <Menu.Root
+      <QuietMenuRoot
         open={compareOpen}
+        look={triggers ? JSON.stringify(comparison) : ""}
         onOpenChange={changeCompare}
         onOpenChangeComplete={(open) => {
           if (open) filterRef.current?.focus();
@@ -249,7 +250,7 @@ export function ComparisonActions({
             </Menu.Popup>
           </Menu.Positioner>
         </Menu.Portal>
-      </Menu.Root>
+      </QuietMenuRoot>
       <Dialog.Root open={pushOpen} onOpenChange={changePush}>
         {triggers && (
           <Dialog.Trigger

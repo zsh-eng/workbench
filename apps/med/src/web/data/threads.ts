@@ -19,6 +19,9 @@ export const NO_THREADS: ThreadList = { threads: [], repositories: [] };
  * The tabs, in the user's order, and the registered repositories. The host
  * sends the list again when a tab or its agent changes; the stream reconnects
  * with a backoff. `null` until the host answers. History is not in it.
+ *
+ * A thread that did not change keeps its object, so that its row and its
+ * workspace render again only for their own thread's changes.
  */
 export function useThreads(fetcher: typeof fetch): ThreadList | null {
   const [list, setList] = useState<ThreadList | null>(null);
@@ -26,6 +29,19 @@ export function useThreads(fetcher: typeof fetch): ThreadList | null {
     const controller = new AbortController();
     const { signal } = controller;
     const api = createApi(fetcher, readBrowserToken());
+    let known = new Map<string, { text: string; thread: Thread }>();
+    const keep = (next: ThreadList): ThreadList => {
+      const seen = new Map<string, { text: string; thread: Thread }>();
+      const threads = next.threads.map((thread) => {
+        const text = JSON.stringify(thread);
+        const before = known.get(thread.id);
+        const kept = before?.text === text ? before.thread : thread;
+        seen.set(thread.id, { text, thread: kept });
+        return kept;
+      });
+      known = seen;
+      return { ...next, threads };
+    };
     void (async () => {
       let delay = 1000;
       while (!signal.aborted) {
@@ -41,7 +57,7 @@ export function useThreads(fetcher: typeof fetch): ThreadList | null {
               if (event.event !== "state") return;
               const parsed = threadListSchema.safeParse(JSON.parse(event.data));
               if (!parsed.success) return;
-              setList(parsed.data);
+              setList(keep(parsed.data));
               noteFoundSettings(parsed.data);
             },
             signal,

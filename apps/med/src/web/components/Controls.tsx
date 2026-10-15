@@ -4,7 +4,17 @@ import * as stylex from "@stylexjs/stylex";
 import { Menu } from "@base-ui/react/menu";
 import { Select } from "@base-ui/react/select";
 import { Dialog } from "@base-ui/react/dialog";
-import { Fragment, useEffect, useRef, useState, type ReactNode, type Ref } from "react";
+import {
+  Fragment,
+  isValidElement,
+  memo,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+  type Ref,
+} from "react";
 import { ShortcutKeys } from "./ShortcutKeys";
 export { ShortcutKeys } from "./ShortcutKeys";
 import { Icon, type IconName } from "./Icon";
@@ -219,13 +229,14 @@ export function ActionMenu({
     window.addEventListener("keydown", choose, true);
     return () => window.removeEventListener("keydown", choose, true);
   }, [open, sections]);
+  const triggerProps = stylex.props(trigger ?? [ui.button, children ? null : ui.iconButton]);
   return (
-    <Menu.Root open={open} onOpenChange={setOpen}>
-      <Menu.Trigger
-        {...stylex.props(trigger ?? [ui.button, children ? null : ui.iconButton])}
-        {...tooltip(label)}
-        aria-label={label}
-      >
+    <QuietMenuRoot
+      open={open}
+      onOpenChange={setOpen}
+      look={[label, align, triggerProps.className, lookOf(children)].join("\n")}
+    >
+      <Menu.Trigger {...triggerProps} {...tooltip(label)} aria-label={label}>
         {children ?? <Icon name="settings" size={15} />}
       </Menu.Trigger>
       <Menu.Portal>
@@ -235,9 +246,30 @@ export function ActionMenu({
           </Menu.Popup>
         </Menu.Positioner>
       </Menu.Portal>
-    </Menu.Root>
+    </QuietMenuRoot>
   );
 }
+
+/**
+ * A menu's root that renders again only while the menu is open, or when
+ * `look` changes: all that its closed trigger shows. A closed menu shows
+ * only its trigger, so its owner's renders, as for a switch of threads, skip
+ * Base UI's root. The root stays mounted, so the trigger keeps Base UI's
+ * keyboard access and focus return.
+ */
+export const QuietMenuRoot = memo(
+  function QuietMenuRoot(
+    props: ComponentProps<typeof Menu.Root> & { open: boolean; look: string },
+  ) {
+    const { look: _look, ...root } = props;
+    return <Menu.Root {...root} />;
+  },
+  (before, after) => !before.open && !after.open && before.look === after.look,
+);
+
+/** A fixed trigger content's look, such as an icon's name and size. */
+export const lookOf = (node: ReactNode) =>
+  isValidElement(node) ? JSON.stringify(node.props) : String(node ?? "");
 
 /** A menu's groups of items, with a check column when any item toggles. */
 function MenuSections({ sections }: { sections: MenuEntry[][] }) {
