@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, mkdir, realpath, rm, writeFile, chmod } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright";
 import { removeGitEnvironment } from "./git-environment.mjs";
+import { useFakeGh } from "./fake-gh.mjs";
 
 removeGitEnvironment();
+// Med must never reach GitHub here: gh is a stand-in (scripts/fake-gh.mjs).
+const fakeGh = useFakeGh();
 
 // Use the built CLI or standalone executable with isolated repositories and state.
 // A run from inside an agent session, or a Med thread, must not link that
@@ -139,34 +142,51 @@ try {
       targets: repositories.map((repo) => ({ repo, comparison: { kind: "working" } })),
     }),
   );
-  const bin = join(directory, "bin");
-  await mkdir(bin);
-  await writeFile(
-    join(bin, "gh"),
-    `#!/usr/bin/env node
-if (process.argv[2] !== "pr" || process.argv[3] !== "view" || !process.argv[4]) process.exit(1);
-process.stdout.write(process.env.MED_TEST_PR);
-`,
-  );
-  await chmod(join(bin, "gh"), 0o755);
   let prResult = {
     title: "Faster lookups",
     url: "https://github.com/example/repo/pull/42",
     headRefOid: git(repositories[0], "rev-parse", "HEAD"),
   };
+  // gh's fixed answers: the pull request for the CLI's metadata inference,
+  // and its comments for the host. GitHub's comments read as JSON lines, as
+  // gh api --jq prints them (src/host/repository/pull-request.ts).
+  const pull = "repos/example/repo/pulls/42";
+  const by = { author: "reviewer", createdAt: "2026-10-01T00:00:00Z" };
+  const lines = (...entries) => entries.map((entry) => JSON.stringify(entry) + "\n").join("");
+  const answerGh = () =>
+    fakeGh.answer([
+      { args: ["pr", "view"], stdout: prResult },
+      { args: ["api", pull, ".head.sha"], stdout: `${prResult.headRefOid}\n` },
+      {
+        args: ["api", `${pull}/comments?per_page=100`],
+        stdout: lines({
+          id: 1,
+          ...by,
+          body: "Name the scope after the package.",
+          url: `${prResult.url}#discussion_r1`,
+          reply: null,
+          path: "same.ts",
+          line: 1,
+          startLine: null,
+          originalLine: 1,
+          side: "RIGHT",
+        }),
+      },
+      {
+        args: ["api", "repos/example/repo/issues/42/comments?per_page=100"],
+        stdout: lines({ id: 2, ...by, body: "Ready for review.", url: `${prResult.url}#c2` }),
+      },
+      {
+        args: ["api", `${pull}/reviews?per_page=100`],
+        stdout: lines({ id: 3, ...by, body: "", url: `${prResult.url}#r3`, state: "APPROVED" }),
+      },
+    ]);
+  answerGh();
   const runCli = (...args) =>
     execFileSync(
       command,
       [...cliArgs, "review", ...args, "--state-dir", stateDir, "--port", String(connection.port)],
-      {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-        env: {
-          ...process.env,
-          PATH: `${bin}:${process.env.PATH}`,
-          MED_TEST_PR: JSON.stringify(prResult),
-        },
-      },
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
     ).trim();
   const catalogue = JSON.parse(runCli("repos"));
   assert.equal(catalogue.repositories.length, 2);
@@ -209,6 +229,7 @@ process.stdout.write(process.env.MED_TEST_PR);
     runCli("create", "--repo", repositories[0], "--working", "--pr", "javascript:alert(1)"),
   );
   prResult = { ...prResult, headRefOid: "0".repeat(40) };
+  answerGh();
   const mismatch = await fromLink(
     runCli("create", "--repo", repositories[0], "--base", "HEAD", "--head", "HEAD"),
   );
@@ -296,6 +317,11 @@ process.stdout.write(process.env.MED_TEST_PR);
   assert.equal(new URL(page.url()).hash, "");
   const header = page.getByRole("region", { name: "Saved review" });
   await header.getByText("Faster lookups", { exact: true }).waitFor();
+  // The host reads the pull request's comments from gh's fixed answers.
+  await header
+    .getByRole("button", { name: "3 pull request comments", exact: true })
+    .filter({ visible: true })
+    .waitFor();
   assert.equal(await page.getByRole("button", { name: "Push", exact: true }).isEnabled(), false);
   await page.getByRole("button", { name: "Split", exact: true }).click();
   // Select the changed line itself. A hover-only gutter button can disappear
@@ -577,12 +603,17 @@ process.stdout.write(process.env.MED_TEST_PR);
   assert.deepEqual(pageErrors, []);
   if (process.env.MED_VALIDATION_SCREENSHOT)
     await page.screenshot({ path: process.env.MED_VALIDATION_SCREENSHOT });
+  // The stand-in answered the CLI and the host, and no gh call went past it.
+  const ghCalls = fakeGh.check();
+  assert.ok(ghCalls.some(({ args }) => args[0] === "pr" && args[1] === "view"));
+  assert.ok(ghCalls.some(({ args }) => args[0] === "api" && args.includes(pull)));
   console.log(
     JSON.stringify({
       checks:
-        "PR metadata inference and exact-head guard; custom browser title and clickable PR; built CLI discovery and multi-repo snapshot manifest; token-free link and new-tab cookie auth; UI comments on saved and browsed commits; stable copy controls through delayed and rejected clipboard writes; UI push to temporary bare remote and merge-base dropdown; copied cross-repo and cross-tab source context; same-port restart and frozen snapshots; persistent comments; cancel and confirm clear",
+        "PR metadata inference and exact-head guard; custom browser title and clickable PR; pull request comments from a fake gh; built CLI discovery and multi-repo snapshot manifest; token-free link and new-tab cookie auth; UI comments on saved and browsed commits; stable copy controls through delayed and rejected clipboard writes; UI push to temporary bare remote and merge-base dropdown; copied cross-repo and cross-tab source context; same-port restart and frozen snapshots; persistent comments; cancel and confirm clear",
       repositories: 2,
       commentsCopied: 3,
+      ghCalls: ghCalls.length,
       pageErrors,
     }),
   );

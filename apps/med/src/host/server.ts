@@ -96,6 +96,7 @@ import { createFoundSessions } from "./found-sessions";
 import { Questions } from "./questions";
 import { createSessionSearch, sessionEntry, type SessionInfo } from "./session-search";
 import { createCheckoutWork } from "./checkout-work";
+import { createPullRequestLinks } from "./pull-request-links";
 import { createThreadFeed } from "./thread-feed";
 import { createCheckoutChanges } from "./checkout-changes";
 import { createSessionEdits } from "./session-edits";
@@ -503,6 +504,20 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     state: checkoutState,
     onChange: () => listChanged(),
   });
+  // The open pull request of a tab's branch, for a thread that has none yet.
+  const pullRequestLinks = createPullRequestLinks({
+    gh: options.gh ?? { command: "gh", args: [] },
+    refs: (checkout) => checkoutState(checkout, false),
+    async link(reviewId, pull) {
+      // The agent or the reader can link one first.
+      if ((await savedReviews.get(reviewId)).pullRequestUrl) return;
+      await savedReviews.details(reviewId, {
+        pullRequestUrl: pull.url,
+        pullRequestTitle: pull.title,
+      });
+      listChanged();
+    },
+  });
   // The tabs and history; the thread list polls only the tabs.
   const threads = createThreadService({
     savedReviews,
@@ -512,6 +527,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     lastMessage: (reviewId) => inbox.last(reviewId),
     found,
     checkoutWork,
+    pullRequestLinks,
     checkoutChanges,
     subagents: createThreadSubagents(),
     removeWorktree: (path, signal) => removeLinkedWorktree(path, signal),
@@ -2957,6 +2973,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       closeTranscripts();
       found.close();
       checkoutWork.close();
+      pullRequestLinks.close();
       threadFeed.close();
       checkoutChanges.close();
       threads.stop();

@@ -17,9 +17,12 @@ import type {
   PullRequestThread,
 } from "../../shared/protocol";
 import type { GuideNote } from "../data/guide";
+import type { ThreadPlacement } from "../data/pull-request";
 import { relativeTime } from "../data/relative-time";
 import { tokens, ui } from "../theme.stylex";
 import { Icon, type IconName } from "./Icon";
+import { useRowPart } from "./QuietChrome";
+import { tooltip } from "./ToolButton";
 
 // Review comments that Med reads but does not write: GitHub pull request
 // comments, and the findings of Codex reviews. Med shows them beside its own
@@ -402,21 +405,23 @@ export function PullRequestThreadCard({
   );
 }
 
-/** Why the threads are not in the diff, for the panel. */
-export type ThreadPlacement =
-  | { kind: "inline"; ids: ReadonlySet<number> }
-  | { kind: "elsewhere"; reason: string };
+export type { ThreadPlacement };
 
 /** The pull request's conversation and the code comments that are not in the
  * diff, in a popover beside the pull request link. */
 export function PullRequestPanel({
   state,
   placement,
+  words = false,
 }: {
   state: PullRequestState;
   placement: ThreadPlacement;
+  /** Quiet chrome: the count in words, such as "3 comments", and nothing
+   * while the comments load. */
+  words?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [part, setPart] = useState<HTMLSpanElement | null>(null);
   const { data, error, loading, refresh } = state;
   const count = data
     ? data.conversation.length +
@@ -428,6 +433,7 @@ export function PullRequestPanel({
     : count === null
       ? "Pull request comments"
       : `${count} pull request ${count === 1 ? "comment" : "comments"}`;
+  const room = useRowPart(words ? part : null, error ? "error" : "count");
   return (
     <Popover.Root
       open={open}
@@ -439,12 +445,35 @@ export function PullRequestPanel({
       <Popover.Trigger
         {...stylex.props(ui.button, ui.pressable, styles.trigger)}
         aria-label={label}
-        title={label}
+        {...(words ? tooltip(error ?? label) : { title: label })}
       >
         <Icon name="note" size={14} />
-        <span {...stylex.props(styles.count, error ? styles.bad : null)}>
-          {error ? "!" : (count ?? "…")}
-        </span>
+        {words ? (
+          (error || count !== null) && (
+            // The words give way before the row's tabs do: "7", or "!".
+            <span {...stylex.props(styles.words, !room && error ? styles.bad : null)}>
+              {error ? (
+                <>
+                  <span ref={setPart} {...stylex.props(!room && styles.hidden)}>
+                    Comments could not load
+                  </span>
+                  {!room && "!"}
+                </>
+              ) : (
+                <>
+                  {count}
+                  <span ref={setPart} {...stylex.props(!room && styles.hidden)}>
+                    {count === 1 ? " comment" : " comments"}
+                  </span>
+                </>
+              )}
+            </span>
+          )
+        ) : (
+          <span {...stylex.props(styles.count, error ? styles.bad : null)}>
+            {error ? "!" : (count ?? "…")}
+          </span>
+        )}
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Positioner
@@ -495,9 +524,7 @@ export function PanelContent({
         ...data.conversation.map((comment) => ({ comment, state: undefined })),
       ].sort((a, b) => a.comment.createdAt.localeCompare(b.comment.createdAt))
     : [];
-  const others = data
-    ? data.threads.filter((thread) => placement.kind !== "inline" || !placement.ids.has(thread.id))
-    : [];
+  const others = data ? data.threads.filter((thread) => !placement.inline.has(thread.id)) : [];
   const inline = data ? data.threads.length - others.length : 0;
   return (
     <div {...stylex.props(styles.content)}>
@@ -573,7 +600,7 @@ export function PanelContent({
                 {inline} {inline === 1 ? "thread shows" : "threads show"} in the diff.
               </p>
             )}
-            {placement.kind === "elsewhere" && others.length > 0 && (
+            {placement.reason && others.length > 0 && (
               <p {...stylex.props(styles.lede)}>{placement.reason}</p>
             )}
             {others.map((thread) => (
@@ -583,8 +610,10 @@ export function PanelContent({
                     {thread.path}
                   </span>
                   <span {...stylex.props(styles.line)}>{lineLabel(thread)}</span>
-                  {thread.line === null && <span {...stylex.props(styles.state)}>Outdated</span>}
                 </div>
+                {placement.reasons.get(thread.id) && (
+                  <p {...stylex.props(styles.why)}>{placement.reasons.get(thread.id)}</p>
+                )}
                 <PullRequestThreadCard thread={thread} now={now} embedded />
               </div>
             ))}
@@ -1094,6 +1123,16 @@ const styles = stylex.create({
   },
   trigger: { flexShrink: 0, gap: 5 },
   count: { fontVariantNumeric: "tabular-nums" },
+  // The header's muted text.
+  words: {
+    color: tokens.muted,
+    fontSize: 12,
+    fontWeight: 400,
+    whiteSpace: "nowrap",
+    fontVariantNumeric: "tabular-nums",
+  },
+  hidden: { display: "none" },
+  why: { margin: 0, paddingTop: 2, color: tokens.faint, fontSize: 11.5, lineHeight: 1.45 },
   positioner: { zIndex: 60 },
   panel: {
     width: "min(460px, calc(100vw - 24px))",

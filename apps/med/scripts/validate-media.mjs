@@ -18,8 +18,11 @@ import { once } from "node:events";
 import { performance } from "node:perf_hooks";
 import { chromium } from "playwright";
 import { removeGitEnvironment } from "./git-environment.mjs";
+import { useFakeGh } from "./fake-gh.mjs";
 
 removeGitEnvironment();
+// Med must never reach GitHub here: gh is a stand-in (scripts/fake-gh.mjs).
+const fakeGh = useFakeGh();
 const root = await realpath(await mkdtemp(join(tmpdir(), "med-media-")));
 const repo = join(root, "repo"),
   state = join(root, "state");
@@ -339,6 +342,8 @@ try {
     "SVG-script-isolation",
     "browser-only-drops",
   ];
+  // No gh call went past the stand-in.
+  fakeGh.check();
   await writeFile(join(output, "results.json"), JSON.stringify(results, null, 2) + "\n");
   console.log(JSON.stringify(results));
 } finally {

@@ -130,6 +130,9 @@ export interface ReviewController {
   /** The saved review's GitHub pull request comments, read-only. `refresh`
    * skips the host's 30-second cache. */
   loadPullRequestComments(refresh?: boolean): Promise<PullRequestComments>;
+  /** Reads the saved review's details again, such as a pull request that
+   * the host linked. */
+  refreshSavedReview(): Promise<void>;
   /** Codex reviews of the saved review's checkouts, with their findings. */
   loadCodexReviews(): Promise<CodexReviewRun[]>;
   clearSavedComments(expectedRevision: number): Promise<void>;
@@ -2148,6 +2151,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         pullRequestCommentsSchema,
       );
     },
+    refreshSavedReview: () => refreshSavedMetadata(),
     async revealPath(repo, path) {
       await api.json("/api/reveal", revealSchema, {
         method: "POST",

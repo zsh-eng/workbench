@@ -119,6 +119,8 @@ export const reviewSchema = z.object({
     patchBytes: z.number(),
     cacheHit: z.boolean(),
   }),
+  headCommit: z.string().optional(),
+  uncommitted: z.array(z.string()).optional(),
 });
 export const notesSchema = z.object({
   reviewId: z.string(),

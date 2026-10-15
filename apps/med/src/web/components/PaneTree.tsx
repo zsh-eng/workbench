@@ -34,6 +34,7 @@ import {
   type Side,
 } from "../data/pane-tree";
 import { tokens, ui } from "../theme.stylex";
+import { resizeLine } from "./ColumnResize";
 import { Icon, type IconName } from "./Icon";
 import { ToolButton, tooltip } from "./ToolButton";
 
@@ -902,7 +903,7 @@ function PaneGutter({
         }
       }}
     >
-      <span {...stylex.props(styles.gutterLine, row ? styles.lineRow : styles.lineColumn)} />
+      <span {...stylex.props(resizeLine.line, row ? resizeLine.row : resizeLine.column)} />
     </div>
   );
 }
@@ -1014,25 +1015,6 @@ const styles = stylex.create({
   },
   gutterRow: { cursor: "col-resize" },
   gutterColumn: { cursor: "row-resize" },
-  // The line shows after a short hover, at once while dragged or focused.
-  gutterLine: {
-    borderRadius: 2,
-    backgroundColor: tokens.accentLine,
-    opacity: {
-      default: 0,
-      [stylex.when.ancestor(":hover")]: 1,
-      [stylex.when.ancestor(":focus-visible")]: 1,
-      [stylex.when.ancestor(":active")]: 1,
-    },
-    transitionProperty: "opacity",
-    transitionDuration: "120ms",
-    transitionDelay: {
-      default: "0ms",
-      [stylex.when.ancestor(":hover")]: "250ms",
-      [stylex.when.ancestor(":active")]: "0ms",
-    },
-  },
-  lineRow: { width: 2, height: "min(48px, 40%)" },
   header: {
     display: "flex",
     alignItems: "center",
@@ -1057,5 +1039,4 @@ const styles = stylex.create({
     fontSize: 12,
   },
   grow: { flex: "1" },
-  lineColumn: { height: 2, width: "min(48px, 40%)" },
 });

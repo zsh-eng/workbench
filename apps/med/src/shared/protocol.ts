@@ -199,6 +199,11 @@ export interface ReviewResponse {
   patch: string;
   metrics: ReviewMetrics;
   warnings: string[];
+  /** Working changes: the commit at HEAD when Med read them. */
+  headCommit?: string;
+  /** Working changes: the files that differ from HEAD, staged, unstaged, or
+   * untracked. Lines in them do not match the HEAD commit's lines. */
+  uncommitted?: string[];
 }
 export interface SourceResponse {
   reviewId: string;
