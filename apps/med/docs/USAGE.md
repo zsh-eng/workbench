@@ -147,7 +147,10 @@ load it or read its agents until you open it again.
   current branch. Claude Code starts on Opus 5.5 at medium effort and Codex on
   `gpt-6-astra`; Med keeps your last choice for each agent. `⌘↵` starts the
   agent on the task at once. **2 attempts** or **3 attempts** gives the same
-  task to several agents ([Attempts](#attempts)).
+  task to several agents ([Attempts](#attempts)). Above the repository picker,
+  **Recent** lists the repositories of your newest threads, tabs and history,
+  newest first, up to 5; click one to choose it. The chosen repository has a
+  highlight. With fewer than 2 such repositories, the list does not show.
 - `⌃Tab` steps through recent workspaces: hold Control, press Tab to step, and
   release to go.
 - Rest the pointer on a row, and Med reads the thread before you click.

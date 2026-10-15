@@ -2,7 +2,7 @@ import * as stylex from "@stylexjs/stylex";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { savedReviewSchema, type SavedReview } from "../../../shared/saved-review";
-import { threadSlug, threadTitle, type ThreadList } from "../../../shared/threads";
+import { threadSlug, threadTitle, type Thread, type ThreadList } from "../../../shared/threads";
 import { createApi } from "../../data/api";
 import { readBrowserToken } from "../../data/auth";
 import type { AgentChoices, AgentOptions } from "../../../shared/owned-session";
@@ -15,6 +15,7 @@ import { createBrowseApi, useBrowseFiles, useVaults } from "../../data/browse";
 import { useMentionSources } from "../../data/mentions";
 import type { BrowseSource } from "../../../shared/browse";
 import { openAttempts } from "../../data/attempts";
+import { readHistory } from "../../data/tabs";
 import {
   AttemptRows,
   AttemptsCount,
@@ -44,6 +45,21 @@ function readChoice(): Choice {
   } catch {
     return { worktree: true };
   }
+}
+
+type Repository = ThreadList["repositories"][number];
+
+/** The registered repositories of the newest threads, newest first, at most five. */
+function recentRepositories(threads: readonly Thread[], repositories: readonly Repository[]) {
+  const known = new Map(repositories.map((entry) => [entry.id, entry]));
+  const recent = new Map<string, Repository>();
+  const newest = threads.toSorted((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  for (const thread of newest) {
+    const entry = thread.repository && known.get(thread.repository.id);
+    if (entry) recent.set(entry.id, entry);
+    if (recent.size === 5) break;
+  }
+  return [...recent.values()];
 }
 
 /**
@@ -94,6 +110,22 @@ export function NewThread({
     [picked, suggested, choice.repositoryId, list?.threads[0]?.repository?.id]
       .map((id) => repositories.find((entry) => entry.id === id))
       .find(Boolean) ?? repositories[0];
+  // The repositories of the newest threads, tabs and history, one click each.
+  const [past, setPast] = useState<readonly Thread[] | null>(null);
+  useEffect(() => {
+    let current = true;
+    readHistory(fetcher).then(
+      (threads) => current && setPast(threads),
+      () => current && setPast([]),
+    );
+    return () => {
+      current = false;
+    };
+  }, [fetcher]);
+  const recent = useMemo(
+    () => (past && list ? recentRepositories([...list.threads, ...past], list.repositories) : []),
+    [list, past],
+  );
   const agent = agents?.find((entry) => entry.id === choice.preset) ?? agents?.[0];
   const options = useAgentOptions(agent?.id, fetcher);
   const { model, effort, efforts } = sessionChoices(options, agent && choice.agents?.[agent.id]);
@@ -160,6 +192,11 @@ export function NewThread({
     } catch {
       /* The choice lasts for this view. */
     }
+  };
+
+  const pick = (repositoryId: string) => {
+    setPicked(repositoryId);
+    remember({ repositoryId });
   };
 
   const ready = !!prompt.trim() && !!repository && !!agent && !busy && attempts.ready;
@@ -260,16 +297,39 @@ export function NewThread({
               branch={branch}
             />
           )}
+          {recent.length > 1 && (
+            <div
+              role="radiogroup"
+              aria-label="Recent repositories"
+              {...stylex.props(styles.recent)}
+            >
+              <span aria-hidden="true" {...stylex.props(styles.recentLabel)}>
+                Recent
+              </span>
+              {recent.map((entry) => (
+                <button
+                  key={entry.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={entry.id === repository?.id}
+                  onClick={() => pick(entry.id)}
+                  {...stylex.props(
+                    styles.recentItem,
+                    entry.id === repository?.id && styles.recentOn,
+                  )}
+                >
+                  {entry.name}
+                </button>
+              ))}
+            </div>
+          )}
           <div {...stylex.props(styles.controls)}>
             <Select
               label="Repository"
               icon="gitBranch"
               value={repository?.id ?? ""}
               options={repositories.map((entry) => ({ value: entry.id, label: entry.name }))}
-              onChange={(value) => {
-                setPicked(value);
-                remember({ repositoryId: value });
-              }}
+              onChange={pick}
             />
             <div
               role="radiogroup"
@@ -481,6 +541,39 @@ const styles = stylex.create({
     flexWrap: "wrap",
     gap: 6,
     padding: 8,
+  },
+  // Above the controls. The label starts where the Repository picker's icon does.
+  recent: {
+    display: "flex",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 2,
+    paddingInline: 8,
+    paddingTop: 4,
+    marginBottom: -4,
+  },
+  recentLabel: {
+    paddingInline: 8,
+    color: tokens.faint,
+    fontFamily: tokens.ui,
+    fontSize: 12,
+  },
+  recentItem: {
+    height: 24,
+    paddingInline: 8,
+    borderWidth: 0,
+    borderRadius: tokens.buttonRound,
+    backgroundColor: { default: "transparent", ":hover": tokens.fill },
+    color: { default: tokens.muted, ":hover": tokens.text },
+    fontFamily: tokens.ui,
+    fontSize: 12,
+    cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+  },
+  // The repository that the thread starts in, as the sidebar marks its current row.
+  recentOn: {
+    backgroundColor: { default: tokens.pick, ":hover": tokens.pick },
+    color: { default: tokens.text, ":hover": tokens.text },
   },
   // The agent and its choices, with Start; on a narrow card they wrap as one.
   agent: {

@@ -9,7 +9,8 @@ import type { Thread } from "../../src/shared/threads";
 import { initializeTheme, themeController } from "../../src/web/themes";
 
 // Quiet signals for tabs that need the reader (src/web/data/signals.ts): the
-// dot on Show sidebar, the Dock badge, and opt-in OS notifications.
+// dot on Show sidebar, the Dock badge, opt-in OS notifications, and the
+// recent repositories in New thread.
 
 const head = "a".repeat(40);
 const repositories = [
@@ -21,6 +22,7 @@ const repositories = [
     worktrees: [{ path: "/test/repo", head, branch: "main" }],
   },
 ];
+const listed = (id: string, name: string) => ({ id, name, path: `/test/${name}` });
 const tide = { id: "repo-0", name: "tide", path: "/test/repo" };
 const patch =
   "diff --git a/src/tides.ts b/src/tides.ts\nindex 1111111..2222222 100644\n--- a/src/tides.ts\n+++ b/src/tides.ts\n@@ -1 +1 @@\n-before\n+after\n";
@@ -443,4 +445,63 @@ test("a blocked permission keeps notifications off and says so", async () => {
     .element(page.getByRole("alert").getByText(/The browser blocks Med's notifications/))
     .toBeVisible();
   expect(localStorage.getItem("med:notify")).toBeNull();
+});
+
+test("New thread offers the repositories of the newest threads, one click each", async () => {
+  const names = ["tide", "harbour", "almanac", "charts", "buoys", "pilot", "moon"];
+  const known = names.map((name, index) => listed(`repo-${index}`, name));
+  // Each thread is a day newer than the one before; "moon" is not registered.
+  const at = (day: number) => new Date(Date.UTC(2026, 9, day)).toISOString();
+  const made = (id: string, repository: number, day: number) =>
+    thread(id, { repository: known[repository], createdAt: at(day) });
+  const host = createHost([made("agent", 0, 10), made("second", 1, 3)], {
+    past: [
+      made("old-almanac", 2, 2),
+      made("charts", 3, 12),
+      made("buoys", 4, 9),
+      made("pilot", 5, 1),
+      thread("moon", {
+        repository: { id: "repo-9", name: "moon", path: "/test/moon" },
+        createdAt: at(14),
+      }),
+      made("tide-again", 0, 11),
+    ],
+    listedRepositories: known.slice(0, 6),
+  });
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  await userEvent.keyboard("{Alt>}n{/Alt}");
+  const dialog = page.getByRole("dialog", { name: "New thread" });
+  const recent = dialog.getByRole("radiogroup", { name: "Recent repositories" });
+  await expect.element(recent).toBeVisible();
+  // Newest first, each once, at most five; the current choice is marked.
+  const choices = () =>
+    [...recent.element().querySelectorAll('[role="radio"]')].map(
+      (radio) => `${radio.textContent}${radio.getAttribute("aria-checked") === "true" ? " ✓" : ""}`,
+    );
+  expect(choices()).toEqual(["charts", "tide ✓", "buoys", "harbour", "almanac"]);
+  const picker = dialog.getByRole("combobox", { name: "Repository" });
+  await expect.element(picker).toHaveValue("repo-0");
+
+  // A click chooses the repository, as the picker does, and the thread starts there.
+  await recent.getByRole("radio", { name: "buoys" }).click();
+  await expect.element(picker).toHaveValue("repo-4");
+  expect(choices()).toEqual(["charts", "tide", "buoys ✓", "harbour", "almanac"]);
+  await picker.selectOptions("harbour");
+  expect(choices()).toEqual(["charts", "tide", "buoys", "harbour ✓", "almanac"]);
+  await dialog.getByRole("combobox", { name: "Task" }).fill("Add the moon's phase");
+  await userEvent.keyboard("{Control>}{Enter}{/Control}");
+  await expect.poll(() => host.started).toMatchObject([{ repositoryId: "repo-1" }]);
+});
+
+test("New thread shows no recent list with one repository", async () => {
+  const host = createHost([thread("agent"), thread("second")], {
+    past: [thread("third")],
+  });
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  await userEvent.keyboard("{Alt>}n{/Alt}");
+  const dialog = page.getByRole("dialog", { name: "New thread" });
+  await expect.element(dialog.getByRole("combobox", { name: "Repository" })).toBeVisible();
+  await expect.poll(() => document.querySelector('[aria-label="Recent repositories"]')).toBeNull();
 });
