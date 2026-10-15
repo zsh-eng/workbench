@@ -9,17 +9,20 @@ import { ShortcutKeys } from "./ShortcutKeys";
 export function ActionTooltip({
   label,
   shortcut,
+  side = "bottom",
   children,
 }: {
   label: string;
   shortcut?: string;
+  /** Beside a menu's item, the tooltip goes to its side, off the items below. */
+  side?: "bottom" | "inline-start";
   children: ReactElement;
 }) {
   return (
     <Tooltip.Root>
       <Tooltip.Trigger render={children} />
       <Tooltip.Portal>
-        <Tooltip.Positioner side="bottom" sideOffset={6} {...stylex.props(styles.positioner)}>
+        <Tooltip.Positioner side={side} sideOffset={6} {...stylex.props(styles.positioner)}>
           <Tooltip.Popup role="tooltip" {...stylex.props(styles.popup, ui.pop)}>
             <span>{label}</span>
             <ShortcutKeys value={shortcut} />

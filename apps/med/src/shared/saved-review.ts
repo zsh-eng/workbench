@@ -170,6 +170,17 @@ export const savedCheckoutSchema = z.object({
   branch: z.string().nullable(),
 });
 export type SavedCheckout = z.infer<typeof savedCheckoutSchema>;
+/** The names of a range's endpoints when Med captured it, such as main and
+ * week-view. The review's row shows them in place of object IDs; older
+ * records have none, and show short IDs. */
+export const endpointNamesSchema = z.object({
+  base: z.string().max(256).optional(),
+  head: z.string().max(256).optional(),
+  /** The range is the newest commits of this branch at capture, such as an
+   * agent's commit on main. */
+  on: z.object({ branch: z.string().max(256), commits: z.number().int().positive() }).optional(),
+});
+export type EndpointNames = z.infer<typeof endpointNamesSchema>;
 export const savedReviewTargetSchema = z.object({
   id: z.string(),
   repositoryId: z.string(),
@@ -185,6 +196,7 @@ export const savedReviewTargetSchema = z.object({
   commits: z.array(savedCommitSchema).optional(),
   /** The range has more commits than `commits` keeps. */
   moreCommits: z.boolean().optional(),
+  names: endpointNamesSchema.optional(),
 });
 export type SavedReviewTarget = z.infer<typeof savedReviewTargetSchema>;
 /** One round of agent work: the comparisons it captured and its brief. */
@@ -267,6 +279,7 @@ export const savedFeedbackSchema = z.object({
 export type SavedFeedback = z.infer<typeof savedFeedbackSchema>;
 export interface CapturedReviewTarget {
   commits?: { list: SavedCommit[]; more: boolean };
+  names?: EndpointNames;
   images?: { path: string; side: "old" | "new"; mime: string; data: string }[];
   repositoryId: string;
   repo: string;

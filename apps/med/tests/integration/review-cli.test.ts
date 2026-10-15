@@ -133,10 +133,29 @@ describe("agent review CLI through the production host", () => {
         head,
       ),
     );
-    expect(bundle.targets).toMatchObject([{ repo, base, head }]);
+    // Object IDs at the tip of main are main's newest commit.
+    expect(bundle.targets).toMatchObject([
+      { repo, base, head, names: { head: "main", on: { branch: "main", commits: 1 } } },
+    ]);
     const review = await f.api(`/api/reviews/${bundle.id}/targets/${bundle.targets[0].id}/review`);
     expect(review.files.map((file: { path: string }) => file.path)).toEqual(["file.txt"]);
     expect(review.patch).toContain("-before\n+after 0");
+  });
+
+  it("saves the names of a range's endpoints with the commits they name", async () => {
+    const f = await fixture();
+    const repo = f.repos[0]!;
+    git(repo, "switch", "-c", "week-view");
+    git(repo, "commit", "-am", "after");
+    const named = await f.saved(
+      await f.run("create", "--title", "Week", "--repo", repo, "--base", "main", "--head", "HEAD"),
+    );
+    expect(named.targets[0]).toMatchObject({
+      base: git(repo, "rev-parse", "main"),
+      head: git(repo, "rev-parse", "HEAD"),
+      names: { base: "main", head: "week-view" },
+    });
+    expect(named.targets[0].names.on).toBeUndefined();
   });
 
   it("captures working changes from a multi-repository manifest and keeps the capture when files change", async () => {

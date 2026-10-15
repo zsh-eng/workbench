@@ -26,12 +26,15 @@ export interface MenuAction {
   /** A letter that chooses the item while its menu is open. The label
    * underlines it. */
   letter?: string;
+  /** The item's tooltip, such as why it is disabled. */
+  hint?: string;
   onClick(): void;
 }
-/** Items that open beside their item, such as a menu's view options. */
+/** Items that open beside their item, such as a menu's view options, in
+ * groups separated by rules. */
 export interface MenuSubmenu {
   label: string;
-  items: MenuAction[];
+  sections: MenuAction[][];
 }
 export type MenuEntry = MenuAction | MenuSubmenu;
 export interface ReviewCommand {
@@ -56,6 +59,7 @@ export function ChoiceSelect({
   disabled,
   actions = [],
   triggerRef,
+  display,
 }: {
   value: string;
   choices: Choice[];
@@ -69,6 +73,8 @@ export function ChoiceSelect({
    * `checked` item is a toggle and shows its state. */
   actions?: { label: string; checked?: boolean; onSelect(): void }[];
   triggerRef?: Ref<HTMLButtonElement>;
+  /** The trigger's text in place of the choice's label, such as a short one. */
+  display?: string;
 }) {
   return (
     <Select.Root
@@ -87,7 +93,9 @@ export function ChoiceSelect({
         aria-label={label}
       >
         {icon}
-        <Select.Value {...stylex.props(styles.value)} />
+        <Select.Value data-choice-value="" {...stylex.props(styles.value)}>
+          {display}
+        </Select.Value>
         <Select.Icon {...stylex.props(styles.chevron)}>
           <Icon name="chevron" size={14} />
         </Select.Icon>
@@ -187,7 +195,7 @@ export function ActionMenu({
       const key = event.key.toLowerCase();
       const action = sections
         .flat()
-        .flatMap((entry) => ("items" in entry ? entry.items : [entry]))
+        .flatMap((entry) => ("sections" in entry ? entry.sections.flat() : [entry]))
         .find((entry) => entry.letter === key && !entry.disabled);
       if (!action) return;
       event.preventDefault();
@@ -222,7 +230,7 @@ export function ActionMenu({
 /** A menu's groups of items, with a check column when any item toggles. */
 function MenuSections({ sections }: { sections: MenuEntry[][] }) {
   const toggles = sections.some((section) =>
-    section.some((action) => !("items" in action) && action.checked !== undefined),
+    section.some((action) => !("sections" in action) && action.checked !== undefined),
   );
   const className = (state: { highlighted: boolean }) =>
     stylex.props(ui.menuItem, state.highlighted && [ui.menuHighlighted, picked]).className;
@@ -235,13 +243,13 @@ function MenuSections({ sections }: { sections: MenuEntry[][] }) {
         {index > 0 && <Menu.Separator {...stylex.props(ui.separator)} />}
         <Menu.Group>
           {section.map((action) => {
-            if ("items" in action)
+            if ("sections" in action)
               return (
                 <Menu.SubmenuRoot key={action.label}>
                   <Menu.SubmenuTrigger className={className}>
-                    <span {...stylex.props(ui.row)}>
+                    <span {...stylex.props(ui.row, styles.submenuLabel)}>
                       {check(null)}
-                      {action.label}
+                      <span {...stylex.props(styles.ellipsis)}>{action.label}</span>
                     </span>
                     <span {...stylex.props(styles.submenuArrow)}>
                       <Icon name="chevron" size={12} />
@@ -250,7 +258,7 @@ function MenuSections({ sections }: { sections: MenuEntry[][] }) {
                   <Menu.Portal>
                     <Menu.Positioner sideOffset={4} {...stylex.props(styles.positioner)}>
                       <Menu.Popup {...stylex.props(ui.popup, ui.pop, styles.menu)}>
-                        <MenuSections sections={[action.items]} />
+                        <MenuSections sections={action.sections} />
                       </Menu.Popup>
                     </Menu.Positioner>
                   </Menu.Portal>
@@ -271,17 +279,28 @@ function MenuSections({ sections }: { sections: MenuEntry[][] }) {
                 <ShortcutKeys value={action.shortcut} />
               </>
             );
-            return action.checked === undefined ? (
-              <Menu.Item
-                key={action.label}
-                aria-keyshortcuts={action.letter}
-                onClick={action.onClick}
-                disabled={action.disabled}
-                className={className}
-              >
-                {content}
-              </Menu.Item>
-            ) : (
+            if (action.checked === undefined) {
+              const item = (
+                <Menu.Item
+                  key={action.label}
+                  aria-keyshortcuts={action.letter}
+                  aria-description={action.hint}
+                  onClick={action.onClick}
+                  disabled={action.disabled}
+                  className={className}
+                >
+                  {content}
+                </Menu.Item>
+              );
+              return action.hint ? (
+                <ActionTooltip key={action.label} label={action.hint} side="inline-start">
+                  {item}
+                </ActionTooltip>
+              ) : (
+                item
+              );
+            }
+            return (
               <Menu.CheckboxItem
                 key={action.label}
                 aria-keyshortcuts={action.letter}
@@ -514,6 +533,8 @@ const styles = stylex.create({
   check: { display: "inline-flex", flexShrink: 0, width: 14, color: tokens.accent },
   indicator: { display: "inline-flex", color: tokens.accent },
   submenuArrow: { display: "inline-flex", transform: "rotate(-90deg)", color: tokens.faint },
+  submenuLabel: { minWidth: 0 },
+  ellipsis: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   letter: {
     textDecorationLine: "underline",
     textDecorationThickness: 1,

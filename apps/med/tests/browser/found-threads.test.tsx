@@ -420,11 +420,11 @@ test("a kept thread on a shared checkout shows its Changes, keeps its session's 
   await review.click();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("r_kept-v1");
   const version = page.getByRole("combobox", { name: "Review version" });
-  await expect.element(version).toHaveTextContent("Hand-off 1");
+  await expect.element(version).toHaveTextContent("Working changes");
   // A new version moves the Review that shows the latest one.
   host.setKept(kept("r_kept", "README glossary", "/test/repo", 2));
   window.dispatchEvent(new CustomEvent("med:review-updated", { detail: { id: "r_kept" } }));
   await expect.poll(() => shown()?.dataset.reviewId).toBe("r_kept-v2");
-  await expect.element(version).toHaveTextContent("Version 2 · Hand-off 2");
+  await expect.element(version).toHaveTextContent("Version 2 · Working changes");
   await expect.element(review).toHaveAttribute("aria-selected", "true");
 });

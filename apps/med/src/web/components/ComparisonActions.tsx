@@ -1,16 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { Menu } from "@base-ui/react/menu";
 import { Dialog } from "@base-ui/react/dialog";
-import {
-  useEffect,
-  useId,
-  useImperativeHandle,
-  useMemo,
-  useRef,
-  useState,
-  type Ref,
-  type RefObject,
-} from "react";
+import { useEffect, useId, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import type { Comparison } from "../../shared/protocol";
 import { gitTargetsSchema, pushResultSchema, type GitTargets } from "../../shared/git-actions";
 import { createApi } from "../data/api";
@@ -29,12 +20,41 @@ export interface ComparisonActionsHandle {
   openPush(): void;
 }
 
+/** A checkout's branches and remotes, which the base branch menu and Push
+ * need: undefined while Med reads them, with the error of a failed read. */
+export function useGitTargets(repo: string | undefined, head: string) {
+  const api = useMemo(() => createApi(fetch, readBrowserToken()), []);
+  const key = repo ? `${repo}\0${head}` : "";
+  const [read, setRead] = useState<{ key: string; targets?: GitTargets; error?: string }>({
+    key: "",
+  });
+  useEffect(() => {
+    if (!repo) return;
+    const abort = new AbortController();
+    void api
+      .json(`/api/git/targets?repo=${encodeURIComponent(repo)}`, gitTargetsSchema, {
+        signal: abort.signal,
+      })
+      .then((targets) => {
+        if (!abort.signal.aborted) setRead({ key, targets });
+      })
+      .catch((error: Error) => {
+        if (!abort.signal.aborted) setRead({ key, error: error.message });
+      });
+    return () => abort.abort();
+  }, [api, repo, key]);
+  // A read for another checkout or head is not this one's.
+  return read.key === key ? read : { key };
+}
+
 export function ComparisonActions({
   repo,
   head,
   sourceBranch,
   comparison,
   onCompare,
+  targets,
+  targetsError = "",
   triggers = true,
   anchor,
   ref,
@@ -44,16 +64,19 @@ export function ComparisonActions({
   sourceBranch: string;
   comparison: Comparison;
   onCompare(base: string, head: string): void;
+  /** From useGitTargets. */
+  targets?: GitTargets;
+  targetsError?: string;
   /** Without them, the menu and the dialog open only through `ref`. */
   triggers?: boolean;
   /** Where the base branch menu opens without its own trigger. */
-  anchor?: RefObject<HTMLElement | null>;
+  anchor?: () => HTMLElement | null;
   ref?: Ref<ComparisonActionsHandle>;
 }) {
   const branchList = useId();
   const api = useMemo(() => createApi(fetch, readBrowserToken()), []);
-  const [targets, setTargets] = useState<GitTargets>();
-  const [error, setError] = useState("");
+  const [pushError, setError] = useState("");
+  const error = pushError || targetsError;
   const [query, setQuery] = useState("");
   const filterRef = useRef<HTMLInputElement>(null);
   const [pushOpen, setPushOpen] = useState(false);
@@ -63,20 +86,6 @@ export function ComparisonActions({
   const [pushing, setPushing] = useState(false);
   const [published, setPublished] = useState("");
   const [pushHead, setPushHead] = useState("");
-  useEffect(() => {
-    const abort = new AbortController();
-    void api
-      .json(`/api/git/targets?repo=${encodeURIComponent(repo)}`, gitTargetsSchema, {
-        signal: abort.signal,
-      })
-      .then((value) => {
-        if (!abort.signal.aborted) setTargets(value);
-      })
-      .catch((error: Error) => {
-        if (!abort.signal.aborted) setError(error.message);
-      });
-    return () => abort.abort();
-  }, [api, repo, head]);
   const commitHead = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(head) ? head : "";
   const destination = targets?.remotes.find((item) => item.name === remote);
   const existing = destination?.branches.includes(branch.trim());
@@ -164,7 +173,7 @@ export function ComparisonActions({
             {...stylex.props(styles.positioner)}
           >
             <Menu.Popup
-              {...(triggers ? {} : { finalFocus: anchor })}
+              {...(triggers ? {} : { finalFocus: () => anchor?.() ?? true })}
               {...stylex.props(ui.popup, ui.pop, styles.menu)}
             >
               <div {...stylex.props(styles.filter)}>

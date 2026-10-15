@@ -8,6 +8,7 @@ import {
   type CodeViewReactOptions,
 } from "@pierre/diffs/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ReviewFile } from "../../shared/protocol";
 import { normalizeDiffMetadataPaths } from "../../shared/hunk/diffPaths";
 import { emptyMetadata, parseReviewPatch, reviewFileMatchesFilter } from "../../shared/review";
@@ -188,7 +189,12 @@ export default function CommitView({
   draftKey,
   keys = "window",
   onOpenFile,
+  stageIn,
 }: {
+  /** With quiet chrome, a place in the review's row: Stage all goes there,
+   * and the view has no header, as the title band names the branch. Null
+   * while the row does not show. */
+  stageIn?: HTMLElement | null;
   api: CommitApi;
   /** Changes when the checkout changes; the view reads its status again. */
   revision: number;
@@ -633,30 +639,37 @@ export default function CommitView({
       : null;
   const bodyRows = Math.min(14, Math.max(4, body.split("\n").length + 1));
   const summaryLength = summary.trim().length;
+  const inRow = stageIn !== undefined;
+  const stageButton = (
+    <button
+      type="button"
+      disabled={!shown.length}
+      onClick={() => void toggleShown()}
+      title="Stage or unstage every file shown (a)"
+      {...stylex.props(ui.button, inRow ? ui.pressable : styles.small)}
+    >
+      {`${stageShown ? "Stage" : "Unstage"} ${filter ? `${shown.length} shown` : "all"}`}
+    </button>
+  );
   return (
     <div ref={root} {...stylex.props(styles.root)}>
+      {stageIn && createPortal(stageButton, stageIn)}
       <div {...stylex.props(styles.layout)}>
         <div {...stylex.props(styles.side)}>
-          <header data-lift-row="" {...stylex.props(styles.header)}>
-            <Icon name="gitBranch" size={14} />
-            <span {...stylex.props(styles.branch)}>{status?.branch || "Detached HEAD"}</span>
-            {status?.upstream && (
-              <span {...stylex.props(ui.faint)} title="Commits ahead and behind the upstream">
-                {status.ahead > 0 && `↑${status.ahead}`}
-                {status.behind > 0 && ` ↓${status.behind}`}
-              </span>
-            )}
-            <span {...stylex.props(ui.grow)} />
-            <button
-              type="button"
-              disabled={!shown.length}
-              onClick={() => void toggleShown()}
-              title="Stage or unstage every file shown (a)"
-              {...stylex.props(ui.button, styles.small)}
-            >
-              {`${stageShown ? "Stage" : "Unstage"} ${filter ? `${shown.length} shown` : "all"}`}
-            </button>
-          </header>
+          {!inRow && (
+            <header data-lift-row="" {...stylex.props(styles.header)}>
+              <Icon name="gitBranch" size={14} />
+              <span {...stylex.props(styles.branch)}>{status?.branch || "Detached HEAD"}</span>
+              {status?.upstream && (
+                <span {...stylex.props(ui.faint)} title="Commits ahead and behind the upstream">
+                  {status.ahead > 0 && `↑${status.ahead}`}
+                  {status.behind > 0 && ` ↓${status.behind}`}
+                </span>
+              )}
+              <span {...stylex.props(ui.grow)} />
+              {stageButton}
+            </header>
+          )}
           <div {...stylex.props(styles.filter)}>
             <Icon name="search" size={13} />
             <input
@@ -805,6 +818,10 @@ export default function CommitView({
                   <Icon name="push" size={14} />
                   {busy === "push" ? "Pushing…" : "Push"}
                   {!!status?.ahead && <span {...stylex.props(ui.faint)}>↑{status.ahead}</span>}
+                  {/* Without the header, Push also says how far the upstream is ahead. */}
+                  {inRow && !!status?.behind && (
+                    <span {...stylex.props(ui.faint)}>↓{status.behind}</span>
+                  )}
                 </button>
                 <button
                   type="button"

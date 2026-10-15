@@ -326,7 +326,8 @@ test("opening a file shows the selected path before the read completes", async (
   complete();
   await opened;
   await expect.element(region).toHaveAttribute("aria-busy", "false");
-  await expect.element(page.getByTitle("main.ts", { exact: true })).toBeVisible();
+  // Quiet chrome has no status bar; the path's tooltip gives the file's size.
+  await expect.element(page.getByTitle(/^main\.ts · [\d,]+ bytes$/)).toBeVisible();
   expect(Math.abs(status.element().getBoundingClientRect().top - before)).toBeLessThan(1);
   await expect.poll(() => document.activeElement?.getAttribute("data-file-pane")).toBe("main");
 });

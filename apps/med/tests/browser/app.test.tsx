@@ -831,8 +831,8 @@ describe("graphical review", () => {
     await expect.poll(() => controller.getSnapshot().savedView).toBe(true);
     await expect.element(reviewTab).toHaveAttribute("aria-selected", "true");
     for (const [index, name] of [
-      [0, /^repo · main · Captured 0/],
-      [1, /^feature · feature · Captured 1/],
+      [0, /^repo · main · Working changes/],
+      [1, /^feature · feature · Working changes/],
     ] as const) {
       await page.getByRole("combobox", { name: "Review version" }).click();
       await page.getByRole("option", { name }).click();
