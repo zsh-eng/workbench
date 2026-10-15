@@ -388,6 +388,19 @@ test("a narrow row shortens the comparison, then moves it into ⋯, and keeps �
   await frame();
   const changes = row()!.querySelector<HTMLElement>('[role="tab"]')!;
   expect(changes.getBoundingClientRect().width).toBeGreaterThan(0);
+
+  // On the Commit tab, a row without room for Stage all gives it back to
+  // the view's header, and the tabs keep that room. It returns to the row as
+  // the row widens.
+  await page.getByRole("tab", { name: "Commit", exact: true }).click();
+  const stage = () =>
+    [...row()!.querySelectorAll("button")].find((button) =>
+      /^(Un)?[Ss]tage /.test(button.textContent ?? ""),
+    );
+  await expect.element(page.getByRole("button", { name: /^(Un)?[Ss]tage all$/ })).toBeVisible();
+  await expect.poll(() => stage()).toBeUndefined();
+  await page.viewport(1280, 800);
+  await expect.poll(() => stage()?.textContent).toMatch(/^(Un)?[Ss]tage all$/);
 });
 
 test("Push… waits for the remotes, with the reason in its tooltip", async () => {

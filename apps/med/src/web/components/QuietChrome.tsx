@@ -244,6 +244,63 @@ export function comparisonLabel(
 export type RowFit = "long" | "short" | "menu";
 
 /**
+ * The room that a slot of the review's row has: the row's width less its
+ * tabs and its other controls. The slot counts while it is hidden too, so
+ * that the room it needs does not change as it shows.
+ */
+function rowRoom(row: HTMLElement, slot: HTMLElement) {
+  const style = getComputedStyle(row);
+  const gap = parseFloat(style.columnGap) || 0;
+  let used = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+  let items = 1;
+  for (const child of row.children) {
+    if (child === slot) continue;
+    const { display, position } = getComputedStyle(child);
+    if (display === "none" || position === "absolute" || position === "fixed") continue;
+    items++;
+    if (child.getAttribute("role") === "tablist") {
+      // The tabs' own width, not the room that the list takes.
+      const first = child.firstElementChild?.getBoundingClientRect();
+      const last = child.lastElementChild?.getBoundingClientRect();
+      used += first && last ? last.right - first.left : 0;
+    } else used += child.getBoundingClientRect().width;
+  }
+  return row.clientWidth - used - gap * (items - 1) - 2;
+}
+
+/**
+ * Whether a control of a fixed width, such as the Commit tab's Stage all,
+ * fits in the review's row beside the tabs. `slot` is its place in the row,
+ * also while it is hidden; its width is the one that it had when it showed.
+ */
+export function useSlotFits(slot: HTMLElement | null, fallbackWidth: number) {
+  const [fits, setFits] = useState(true);
+  const width = useRef(fallbackWidth);
+  useLayoutEffect(() => {
+    const row = slot?.parentElement;
+    if (!slot || !row) return;
+    const measure = () => {
+      // A hidden workspace has no width; it keeps its fit for its return.
+      if (!row.clientWidth) return;
+      const shown = slot.getBoundingClientRect().width;
+      if (shown) width.current = shown;
+      setFits(rowRoom(row, slot) >= width.current);
+    };
+    measure();
+    const resize = new ResizeObserver(measure);
+    resize.observe(row);
+    for (const child of row.children) resize.observe(child);
+    const mutation = new MutationObserver(measure);
+    mutation.observe(row, { childList: true, subtree: true, characterData: true });
+    return () => {
+      resize.disconnect();
+      mutation.disconnect();
+    };
+  }, [slot]);
+  return fits;
+}
+
+/**
  * Which label of the comparison fits in the review's row: its full one, its
  * short one, or none, when the comparison goes into ⋯. The row's tabs and
  * other controls keep their width; the comparison has the room that is left.
@@ -278,25 +335,7 @@ export function useRowFit(
       }
       if (!seen.current.font) return;
       context.font = seen.current.font;
-      const style = getComputedStyle(row);
-      const gap = parseFloat(style.columnGap) || 0;
-      let used = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
-      // The slot counts while it is hidden too, so that the room it needs
-      // does not change as it shows.
-      let items = 1;
-      for (const child of row.children) {
-        if (child === element) continue;
-        const { display, position } = getComputedStyle(child);
-        if (display === "none" || position === "absolute" || position === "fixed") continue;
-        items++;
-        if (child.getAttribute("role") === "tablist") {
-          // The tabs' own width, not the room that the list takes.
-          const first = child.firstElementChild?.getBoundingClientRect();
-          const last = child.lastElementChild?.getBoundingClientRect();
-          used += first && last ? last.right - first.left : 0;
-        } else used += child.getBoundingClientRect().width;
-      }
-      const room = row.clientWidth - used - gap * (items - 1) - 2;
+      const room = rowRoom(row, element);
       const needs = (text: string) => context.measureText(text).width + seen.current.padding;
       setFit(room >= needs(long) ? "long" : room >= needs(shortLabel) ? "short" : "menu");
     };

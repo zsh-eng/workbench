@@ -63,10 +63,11 @@ head is the branch's tip shows the branch's name.
 
 **Primary actions stay in view; rare ones go to ⋯ and ⌘K.** The review's row
 keeps its tabs, the comparison, the totals (when the pane has room), the
-comments button (when the review has comments), **Live** or **Return to
-review**, **Send to** (when there are comments to send), and **⋯**. On the
-Commit tab the row also has **Stage all**, and the tab has no header of its
-own. The session's row keeps the agent's menu, its state, and Hide session.
+comments button (when the review has comments), **Send to** (when there are
+comments to send), and **⋯**. On the Commit tab the row also has **Stage
+all**, and the tab has no header of its own; in a row without room for it,
+**Stage all** goes back to the tab's header, which names the branch. The
+session's row keeps the agent's menu, its state, and Hide session.
 
 ![The Commit tab: Stage all in the review's row](img/quiet-commit.png)
 
@@ -151,8 +152,8 @@ where it was.
 | **Toggle agent session**                       | Tab row, without a session               | **⋯ › Agent session**; `⌘⇧B`                                                                     | The session pane has its own Hide                     |
 | **Toggle files sidebar**                       | Tab row, without a session               | **⋯ › Files**; `⌘K` **Show files sidebar**                                                       | Rare                                                  |
 | **Copy comments**, **Clear**                   | Saved review's header, without a session | **⋯ › Copy comments**, **Clear all comments…**; `⌘K`                                             | They were in ⋯ beside a session already               |
-| **Live changes**                               | Saved review's header                    | **Live** in the review's row                                                                     | Kept in view: it changes what the diff shows          |
-| Commit tab's header: branch, ↑↓, **Stage all** | Commit tab                               | Removed; **Stage all** in the review's row, ↑↓ on **Push**                                       | The band names the branch                             |
+| **Live changes**                               | Saved review's header                    | The **Changes** tab, which is always live                                                        | Kept in view: it changes what the diff shows          |
+| Commit tab's header: branch, ↑↓, **Stage all** | Commit tab                               | Removed; **Stage all** in the review's row (header if narrow), ↑↓ on **Push**                    | The band names the branch                             |
 | Status bar: Vim mode                           | Under the workspace                      | The editor's header: "Vim · NORMAL"                                                              | You need it while you edit                            |
 | Status bar: a file's size                      | Under the workspace                      | The tooltip of the file's path                                                                   | Rarely needed; one hover away                         |
 | Status bar: request timing                     | Under the workspace                      | Removed; full chrome only                                                                        | A diagnostic, not news                                |
@@ -288,10 +289,12 @@ table above by the diff's scroll position.
 3. **Without the window's shell** (only in tests), quiet chrome keeps the
    branch switch and the sidebar toggle before the tabs.
 4. **The Commit tab in a narrow pane.** With **Live** and **Stage all** in the
-   row, the tabs scroll by 5 px at 900 px with the session open, and by
-   19 px at 600 px; the Commit tab's label is cut. ⋯ stays in view. The
-   Live toggle goes away when the Changes tab is always live; that frees the
-   room.
+   row, the tabs scrolled by 5 px at 900 px with the session open, and by
+   19 px at 600 px; the Commit tab's label was cut. Fixed: the Changes tab
+   is always live, so **Live** is gone, and the tabs are now **Review**,
+   **Changes**, and **Commit**. In a row without room for **Stage all**, it
+   goes back to the Commit tab's header (`useSlotFits`), and the label is
+   whole at 900 and 600 px.
 5. **Older saved reviews have no names.** Their comparison shows short object
    IDs. Med does not add names to old records.
 

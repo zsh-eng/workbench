@@ -113,6 +113,7 @@ import {
   ConnectionNotice,
   useQuietMenu,
   useRowFit,
+  useSlotFits,
 } from "./components/QuietChrome";
 import { setChromeMode, useQuietChrome } from "./data/chrome";
 import { ShortcutGuide } from "./components/ShortcutGuide";
@@ -394,7 +395,10 @@ export function App({
     [],
   );
   // With quiet chrome, the Commit tab's Stage all goes in the review's row.
+  // In a narrow row it goes back to the Commit view's own header, so that
+  // the tabs keep their labels.
   const [stageSlot, setStageSlot] = useState<HTMLElement | null>(null);
+  const stageFits = useSlotFits(stageSlot, 72);
   const savedActions = useRef<SavedReviewActions>(null);
   // The base branch menu opens below the comparison once the select closes.
   const openCompare = useCallback(
@@ -5296,7 +5300,7 @@ export function App({
                     active={fileState.active === "commit"}
                     draftKey={`med:commit-message:${commitRepo}`}
                     onOpenFile={openCommitFile}
-                    stageIn={quiet && !zen ? stageSlot : undefined}
+                    stageIn={quiet && !zen && (!stageSlot || stageFits) ? stageSlot : undefined}
                   />
                 </Suspense>
               </div>
