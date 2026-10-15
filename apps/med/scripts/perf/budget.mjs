@@ -36,12 +36,17 @@ import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { cpus, platform, release, tmpdir, totalmem } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { chromium } from "playwright";
+import { removeGitEnvironment } from "../git-environment.mjs";
 import { compare } from "./check.mjs";
 import { buildFixture } from "./fixture.mjs";
 import { loadAverage, makeGitShim, readGitLog, startHost } from "./host.mjs";
 import { instrument, sidebarOrder, slotState } from "./page.mjs";
 import { markTime, readTrace, summarize, TRACE_CATEGORIES } from "./trace.mjs";
 
+// Git in the test bed and the host must not follow a `GIT_DIR` of the
+// parent, such as a Git hook's, to another repository. The test bed's own
+// Git variables come after this.
+removeGitEnvironment();
 const app = resolve(import.meta.dirname, "../..");
 const args = process.argv.slice(2);
 const option = (name, fallback) => {
