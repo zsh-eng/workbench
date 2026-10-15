@@ -118,7 +118,9 @@ const SESSION_VARIABLES = [
   "CLAUDE_AGENT_SDK_MCP_NO_PREFIX",
   "CLAUDE_PID",
 ];
-function agentEnvironment(extra: Record<string, string> = {}) {
+/** The environment of an agent that Med starts: Med's own, without the
+ * variables of the session that started Med, and with `extra`. */
+export function agentEnvironment(extra: Record<string, string> = {}) {
   const env = { ...process.env };
   for (const name of SESSION_VARIABLES) delete env[name];
   return { ...env, ...extra };
@@ -144,7 +146,9 @@ function createState(initial: OwnedState) {
 const lastLines = (text: string) => text.trim().split("\n").slice(-3).join("\n").slice(-600);
 
 /** Whether another process names the session, such as Claude Code that the
- * user resumed in a terminal. Two processes on one transcript would mix it. */
+ * user resumed in a terminal. Two processes on one transcript would mix it. A
+ * fork for a question (questions.ts) names the session too, but writes its
+ * own transcript. */
 async function runsElsewhere(sessionId: string) {
   try {
     const { stdout } = await runProcess("ps", ["-A", "-o", "args="], {
@@ -154,7 +158,10 @@ async function runsElsewhere(sessionId: string) {
     return stdout
       .toString()
       .split("\n")
-      .some((line) => line.includes(sessionId) && /claude/i.test(line));
+      .some(
+        (line) =>
+          line.includes(sessionId) && /claude/i.test(line) && !line.includes("--fork-session"),
+      );
   } catch {
     return false;
   }
@@ -1413,6 +1420,18 @@ export class OwnedSessions {
   agentSessions(): [string, string][] {
     return Object.entries(this.records).flatMap(([id, record]) =>
       record.agentSessionId ? [[record.agentSessionId, id] as [string, string]] : [],
+    );
+  }
+  /** What Med keeps of a session that it started: its agent, its model and
+   * effort, and an ACP agent's own ID for it. */
+  recorded(sessionId: string) {
+    const record = this.records[sessionId];
+    return (
+      record && {
+        preset: record.preset,
+        choices: record.choices,
+        ...(record.agentSessionId ? { agentSessionId: record.agentSessionId } : {}),
+      }
     );
   }
   /** Stops a session for the user: it stays stopped after a restart. */

@@ -7,6 +7,8 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 
 const args = process.argv.slice(2);
+// `claude -p` with a text prompt, as a question runs it; it does not return.
+if (!args.includes("--input-format")) await (await import("./fake-claude-print.mjs")).run(args);
 const flag = (name) => {
   const index = args.indexOf(name);
   return index < 0 ? undefined : args[index + 1];
