@@ -25,15 +25,15 @@ median of each run's percentile, from 1,000 queries per run over the 100 most
 linked destinations. Each query includes result materialization, capped at
 1,001 rows. These are local function calls, not HTTP/browser timings.
 
-| Operation | Time |
-| --- | ---: |
-| Enumerate/stat 6,638 files | 51.8 ms |
-| Fresh full index | 4,591.7 ms |
-| Warm full reconciliation, zero notes reparsed | 56.4 ms |
-| Reopen database plus full reconciliation | 56.2 ms |
-| One-note edit plus full reconciliation | 53.6 ms |
-| Backlink query, p50 | 0.0196 ms |
-| Backlink query, p95 | 0.0380 ms |
+| Operation                                     |       Time |
+| --------------------------------------------- | ---------: |
+| Enumerate/stat 6,638 files                    |    51.8 ms |
+| Fresh full index                              | 4,591.7 ms |
+| Warm full reconciliation, zero notes reparsed |    56.4 ms |
+| Reopen database plus full reconciliation      |    56.2 ms |
+| One-note edit plus full reconciliation        |    53.6 ms |
+| Backlink query, p50                           |  0.0196 ms |
+| Backlink query, p95                           |  0.0380 ms |
 
 The index contains 10,662 link occurrences and 2,876 embed occurrences. Embeds
 include note embeds as well as images; this is not an image-only count. No notes

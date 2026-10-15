@@ -33,10 +33,10 @@ Suffix ranges, invalid ranges (416), HEAD, and committed video ranges passed.
 
 Two local runs exercised the same bounded read:
 
-| Runtime | Metadata | 64 KiB seek | Server RSS change |
-| --- | --- | --- | --- |
-| Node production host | 23.8 ms | 12.0 ms | 1.66 MiB |
-| Bun standalone executable | 26.9 ms | 17.9 ms | 13.12 MiB |
+| Runtime                   | Metadata | 64 KiB seek | Server RSS change |
+| ------------------------- | -------- | ----------- | ----------------- |
+| Node production host      | 23.8 ms  | 12.0 ms     | 1.66 MiB          |
+| Bun standalone executable | 26.9 ms  | 17.9 ms     | 13.12 MiB         |
 
 These are bounded-I/O checks, not a latency benchmark or peak-memory measurement.
 RSS is sampled before and after the requests and excludes browser/GPU memory.

@@ -87,13 +87,19 @@ window.watercolor = function watercolor({ width: W, height: H, seed = 7, scene }
           0.25 * noise(x * mottle, y * mottle);
         settle[i] =
           0.4 * paper[i] +
-          0.6 * (0.65 * noise(x * clump + 11, y * clump + 3) + 0.35 * noise(x * clump * 2.3 + 2, y * clump * 2.3 + 9));
-        drag[i] = 0.55 * noise(x * 0.04 / unit + 3, y * 0.22 / unit + 1) + 0.45 * paper[i];
-        blotch[i] = fbm(x * 0.006 / unit, y * 0.006 / unit, 3);
-        streak[i] = fbm(x * 0.0025 / unit + 40, y * 0.02 / unit, 3);
+          0.6 *
+            (0.65 * noise(x * clump + 11, y * clump + 3) +
+              0.35 * noise(x * clump * 2.3 + 2, y * clump * 2.3 + 9));
+        drag[i] = 0.55 * noise((x * 0.04) / unit + 3, (y * 0.22) / unit + 1) + 0.45 * paper[i];
+        blotch[i] = fbm((x * 0.006) / unit, (y * 0.006) / unit, 3);
+        streak[i] = fbm((x * 0.0025) / unit + 40, (y * 0.02) / unit, 3);
         const wx = x * warp;
         const wy = y * warp;
-        frill[i] = fbm(wx * 1.7 + 2.4 * noise(wx + 1.7, wy + 9.2), wy * 1.7 + 2.4 * noise(wx + 8.3, wy + 2.8), 5);
+        frill[i] = fbm(
+          wx * 1.7 + 2.4 * noise(wx + 1.7, wy + 9.2),
+          wy * 1.7 + 2.4 * noise(wx + 8.3, wy + 2.8),
+          5,
+        );
       }
   }
   // The level of `frill` above which a share `p` of the sheet lies.
@@ -134,7 +140,8 @@ window.watercolor = function watercolor({ width: W, height: H, seed = 7, scene }
     sctx.globalAlpha = 1;
     sctx.globalCompositeOperation = "source-over";
   };
-  const pixels = (ctx, [x0, y0, x1, y1]) => ctx.getImageData(x0 + bleed, y0 + bleed, x1 - x0, y1 - y0).data;
+  const pixels = (ctx, [x0, y0, x1, y1]) =>
+    ctx.getImageData(x0 + bleed, y0 + bleed, x1 - x0, y1 - y0).data;
   const alpha = (ctx, box) => {
     const data = pixels(ctx, box);
     const a = new Float32Array(data.length / 4);
@@ -310,7 +317,10 @@ window.watercolor = function watercolor({ width: W, height: H, seed = 7, scene }
         const r = 1 + rough * (fbm(Math.cos(a) * 1.6 + offset, Math.sin(a) * 1.6, 3) - 0.5) * 2;
         const x = Math.cos(a) * rx * r;
         const y = Math.sin(a) * ry * r;
-        points.push([cx + x * Math.cos(turn) - y * Math.sin(turn), cy + x * Math.sin(turn) + y * Math.cos(turn)]);
+        points.push([
+          cx + x * Math.cos(turn) - y * Math.sin(turn),
+          cy + x * Math.sin(turn) + y * Math.cos(turn),
+        ]);
       }
       shapes.outline(ctx, points);
     },
@@ -320,11 +330,11 @@ window.watercolor = function watercolor({ width: W, height: H, seed = 7, scene }
       const steps = Math.max(8, Math.round((x1 - x0) / (6 * unit)));
       for (let n = 0; n <= steps; n += 1) {
         const x = x0 + ((x1 - x0) * n) / steps;
-        points.push([x, top(x) + (noise(x * 0.03 / unit, 3) - 0.5) * rough * unit]);
+        points.push([x, top(x) + (noise((x * 0.03) / unit, 3) - 0.5) * rough * unit]);
       }
       for (let n = steps; n >= 0; n -= 1) {
         const x = x0 + ((x1 - x0) * n) / steps;
-        points.push([x, bottom(x) + (noise(x * 0.03 / unit, 9) - 0.5) * rough * unit]);
+        points.push([x, bottom(x) + (noise((x * 0.03) / unit, 9) - 0.5) * rough * unit]);
       }
       shapes.outline(ctx, points, rough * 0.4);
     },
@@ -332,7 +342,15 @@ window.watercolor = function watercolor({ width: W, height: H, seed = 7, scene }
      * held at `tilt` from square, drawn `length` along `turn`, bowing a
      * little. It is full where it starts and thins as the brush runs dry,
      * where the bristles leave gaps. */
-    flat(ctx, cx, cy, length, width, turn = 0, { bow = 0.06, tilt = 0.35, dry = 0.5, fade = 0.7 } = {}) {
+    flat(
+      ctx,
+      cx,
+      cy,
+      length,
+      width,
+      turn = 0,
+      { bow = 0.06, tilt = 0.35, dry = 0.5, fade = 0.7 } = {},
+    ) {
       const c = Math.cos(turn);
       const s = Math.sin(turn);
       const to = (a, b) => [cx + a * c - b * s, cy + a * s + b * c];
@@ -358,7 +376,12 @@ window.watercolor = function watercolor({ width: W, height: H, seed = 7, scene }
       const end = [];
       for (let n = 1; n < 4; n += 1) {
         const t = n / 4;
-        end.push(to(length / 2 + (rand() - 0.3) * width * 0.35 * dry + lean * (t - 0.5), (t - 0.5) * width * 0.9));
+        end.push(
+          to(
+            length / 2 + (rand() - 0.3) * width * 0.35 * dry + lean * (t - 0.5),
+            (t - 0.5) * width * 0.9,
+          ),
+        );
       }
       const fill = ctx.fillStyle;
       if (typeof fill === "string" && fill.startsWith("#") && fade < 1) {
@@ -371,7 +394,9 @@ window.watercolor = function watercolor({ width: W, height: H, seed = 7, scene }
         ctx.fillStyle = gradient;
       }
       ctx.beginPath();
-      [...start, ...top, ...end, ...bottom.reverse()].forEach(([x, y], n) => (n ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      [...start, ...top, ...end, ...bottom.reverse()].forEach(([x, y], n) =>
+        n ? ctx.lineTo(x, y) : ctx.moveTo(x, y),
+      );
       ctx.closePath();
       ctx.fill();
       ctx.fillStyle = fill;
