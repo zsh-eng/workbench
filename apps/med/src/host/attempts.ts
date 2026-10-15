@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { open, stat } from "node:fs/promises";
-import type { SessionEvent, ToolCallContent } from "../shared/agent-session";
+import type { SessionEvent } from "../shared/agent-session";
 import {
   attemptLetter,
   attemptRoutes,
@@ -25,6 +25,7 @@ import { addedPatch, DIFF_FLAGS, parseRawDiff, readWorkingFile } from "./reposit
 import { route, type Route, type RouteContext } from "./routes";
 import { HostError } from "./runtime/errors";
 import { git, ProcessFailure } from "./runtime/process";
+import { sessionChecks } from "./session-checks";
 
 // Attempts compare the threads of one task (saved reviews with the same
 // group) and keep one of them. Compare reads each attempt's checkout and its
@@ -86,86 +87,6 @@ const reason = (error: unknown) =>
     ?.replace(/^(fatal|error): /, "") ?? "";
 
 // ------------------------------------------------------------ the session
-
-/** Programs that check work: tests, type checks, linters, and builds. */
-const CHECK_PROGRAM =
-  /^(?:bunx\s+|npx\s+|pnpm\s+(?:exec|dlx)\s+|yarn\s+(?:dlx\s+)?)?(?:bun\s+test\b|bun\s+run\s+(?:test|check|lint|typecheck|build)\b|(?:npm|pnpm|yarn)\s+(?:test\b|run\s+(?:test|check|lint|typecheck|build)\b)|vitest\b|jest\b|mocha\b|playwright\s+test\b|pytest\b|python3?\s+-m\s+(?:pytest|unittest)\b|cargo\s+(?:test|check|clippy|build)\b|go\s+(?:test|vet|build)\b|make\s+(?:test|check)\b|tsc\b|oxlint\b|eslint\b|biome\s+(?:check|lint)\b|ruff\b|mypy\b|swift\s+(?:test|build)\b|xcodebuild\b.*\btest\b|deno\s+(?:test|check|lint)\b|\.\/gradlew\s+test\b|mvn\s+test\b)/;
-
-/** Whether a shell command runs a check, such as `TZ=UTC bun test` or `cd app && cargo test`. */
-export function isCheckCommand(command: string) {
-  return command.split(/&&|\|\||;|\||\n/).some((part) =>
-    CHECK_PROGRAM.test(
-      part
-        .trim()
-        .replace(/^(?:[A-Za-z_]\w*=\S*\s+)+/, "")
-        .replace(/^(?:time|exec|env)\s+/, ""),
-    ),
-  );
-}
-
-/** Counts from a check's output, such as "5 pass · 1 fail", or its exit code. */
-function checkSummary(output: string, failed: boolean) {
-  const tail = output.slice(-8000);
-  const number = (...patterns: RegExp[]) => {
-    for (const pattern of patterns) {
-      const match = pattern.exec(tail);
-      if (match) return Number(match[1]);
-    }
-    return undefined;
-  };
-  // bun test, then Vitest, Jest, pytest, and cargo.
-  const pass = number(/^\s*(\d+) pass\b/m, /\b(\d+) passed\b/);
-  const fail = number(/^\s*(\d+) fail\b/m, /\b(\d+) failed\b/);
-  if (pass !== undefined || fail !== undefined)
-    return [pass !== undefined ? `${pass} pass` : "", fail ? `${fail} fail` : ""]
-      .filter(Boolean)
-      .join(" · ");
-  const exit = number(/^Exit code:? (\d+)/m);
-  return failed && exit ? `Exit ${exit}` : undefined;
-}
-
-const contentText = (content: ToolCallContent[] | undefined) =>
-  (content ?? [])
-    .map((part) =>
-      part.type === "content" && part.content.type === "text" ? part.content.text : "",
-    )
-    .join("\n");
-
-/** The checks in a session's updates, the latest last. */
-export function sessionChecks(events: SessionEvent[], working: boolean): AttemptCheck[] {
-  const calls = new Map<string, { command: string; at: number; status?: string; output: string }>();
-  for (const { at, update } of events) {
-    if (update.sessionUpdate === "tool_call") {
-      const input = update.rawInput as { command?: unknown } | undefined;
-      const command = typeof input?.command === "string" ? input.command.trim() : "";
-      if (!command || !isCheckCommand(command)) continue;
-      calls.set(update.toolCallId, {
-        command,
-        at,
-        status: update.status,
-        output: contentText(update.content),
-      });
-    } else if (update.sessionUpdate === "tool_call_update") {
-      const call = calls.get(update.toolCallId);
-      if (!call) continue;
-      if (update.status) call.status = update.status;
-      const output = contentText(update.content);
-      if (output) call.output = output;
-    }
-  }
-  return [...calls.values()].slice(-MAX_CHECKS).map((call) => {
-    const status =
-      call.status === "completed"
-        ? "passed"
-        : call.status === "failed"
-          ? "failed"
-          : working
-            ? "running"
-            : "unknown";
-    const summary = checkSummary(call.output, status === "failed");
-    return { command: call.command, status, ...(summary ? { summary } : {}), at: call.at };
-  });
-}
 
 /** The agent's last message: the chunks of its last reply. */
 export function lastMessage(events: SessionEvent[]) {
@@ -440,7 +361,7 @@ export class AttemptGroups {
           ...(model ? { model: modelName(model) } : {}),
           startedAt: events[0]?.at,
           endedAt: events.at(-1)?.at,
-          checks: sessionChecks(events, working),
+          checks: sessionChecks(events, working, MAX_CHECKS),
           lastMessage: lastMessage(events),
         };
       }
@@ -465,7 +386,7 @@ export class AttemptGroups {
         ...(model ? { model: modelName(model) } : {}),
         startedAt: turns[0]?.at ?? events[0]?.at,
         endedAt: events.at(-1)?.at,
-        checks: sessionChecks(events, working),
+        checks: sessionChecks(events, working, MAX_CHECKS),
         lastMessage: lastMessage(events),
       };
       this.facts.set(session.id, { key, facts });

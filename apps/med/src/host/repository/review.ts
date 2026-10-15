@@ -152,7 +152,7 @@ export async function readWorkingFile(repo: string, path: string) {
 export function parseRawDiff(data: Buffer): SourceFile[] {
   const fields = data.toString("utf8").split("\0");
   const files: SourceFile[] = [];
-  for (let i = 0; i < fields.length; ) {
+  for (let i = 0; i < fields.length;) {
     const header = fields[i++]!;
     if (!header) continue;
     const match = /^:(\d+) (\d+) ([0-9a-f]+) ([0-9a-f]+) ([A-Z])\d*$/.exec(header);

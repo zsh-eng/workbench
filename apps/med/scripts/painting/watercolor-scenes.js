@@ -67,23 +67,31 @@ function cezanne(night) {
     paint(api) {
       const { W, H, unit, rand, fbm, smooth, wash, pencil, protect, lift, shapes } = api;
       const horizon = place.horizon * H;
-      const sun = { x: place.sun.u * W, y: place.sun.v * H, r: place.sun.r * H * (night ? 0.8 : 1) };
+      const sun = {
+        x: place.sun.u * W,
+        y: place.sun.v * H,
+        r: place.sun.r * H * (night ? 0.8 : 1),
+      };
       const ridge = headland(api, horizon);
       const path = pathOf(W, H, horizon, sun);
       const pick = (list) => list[Math.floor(rand() * list.length)];
       // Strokes gather where the forms are, and leave paper elsewhere.
-      const cluster = (x, y, k = 1) => smooth(0.36, 0.6, fbm((x * 0.003) / unit + k, (y * 0.008) / unit + k));
+      const cluster = (x, y, k = 1) =>
+        smooth(0.36, 0.6, fbm((x * 0.003) / unit + k, (y * 0.008) / unit + k));
       const nearSun = (x, y) => Math.hypot(x - sun.x, (y - sun.y) * 1.3) / sun.r;
       // The sky's strokes: steep up high, flatter toward the horizon.
       const slant = (x, y) =>
-        -0.7 + 0.5 * smooth(0.3, 1, y / horizon) + 0.5 * (fbm((x * 0.002) / unit + 3, (y * 0.01) / unit) - 0.5);
+        -0.7 +
+        0.5 * smooth(0.3, 1, y / horizon) +
+        0.5 * (fbm((x * 0.002) / unit + 3, (y * 0.01) / unit) - 0.5);
       // Above the land and the horizon.
       const sky = (ctx) => {
         ctx.beginPath();
         ctx.moveTo(0, 0);
         ctx.lineTo(W, 0);
         ctx.lineTo(W, horizon - 1.5 * unit);
-        for (let x = W; x >= 0; x -= 6 * unit) ctx.lineTo(x, Math.min(horizon, ridge(x)) - 1.5 * unit);
+        for (let x = W; x >= 0; x -= 6 * unit)
+          ctx.lineTo(x, Math.min(horizon, ridge(x)) - 1.5 * unit);
         ctx.closePath();
         ctx.clip();
       };
@@ -92,9 +100,25 @@ function cezanne(night) {
       pencil({
         strength: night ? 0.16 : 0.26,
         draw(ctx) {
-          shapes.line(ctx, along(0.02 * W, 0.98 * W, (x) => horizon + (fbm(x * 0.01, 1) - 0.5) * 2 * unit, 14 * unit));
+          shapes.line(
+            ctx,
+            along(
+              0.02 * W,
+              0.98 * W,
+              (x) => horizon + (fbm(x * 0.01, 1) - 0.5) * 2 * unit,
+              14 * unit,
+            ),
+          );
           shapes.line(ctx, along(0.005 * W, 0.4 * W, ridge, 9 * unit));
-          shapes.line(ctx, along(0.03 * W, 0.2 * W, (x) => ridge(x) + 0.01 * H + (fbm(x * 0.006, 4) - 0.5) * 8 * unit, 12 * unit));
+          shapes.line(
+            ctx,
+            along(
+              0.03 * W,
+              0.2 * W,
+              (x) => ridge(x) + 0.01 * H + (fbm(x * 0.006, 4) - 0.5) * 8 * unit,
+              12 * unit,
+            ),
+          );
           const arc = [];
           for (let a = -2.7; a < 1.1; a += 0.12)
             arc.push([sun.x + Math.cos(a) * sun.r * 1.06, sun.y + Math.sin(a) * sun.r * 1.06]);
@@ -103,7 +127,11 @@ function cezanne(night) {
             const y = horizon + (0.03 + rand() ** 1.5 * 0.55) * H;
             const x = rand() * W;
             const length = (0.06 + rand() * 0.18) * W;
-            shapes.line(ctx, along(x, x + length, (t) => y + Math.sin((t - x) * 0.01) * 3 * unit, 16 * unit), 0.9);
+            shapes.line(
+              ctx,
+              along(x, x + length, (t) => y + Math.sin((t - x) * 0.01) * 3 * unit, 16 * unit),
+              0.9,
+            );
           }
         },
       });
@@ -119,7 +147,14 @@ function cezanne(night) {
         granulation: 0.04,
         draw(ctx) {
           shapes.blob(ctx, sun.x, sun.y + 0.02 * H, 0.2 * W, 0.06 * H, 0.35);
-          shapes.band(ctx, 0.1 * W, 0.95 * W, () => horizon - 0.03 * H, () => horizon + 0.01 * H, 30);
+          shapes.band(
+            ctx,
+            0.1 * W,
+            0.95 * W,
+            () => horizon - 0.03 * H,
+            () => horizon + 0.01 * H,
+            30,
+          );
         },
       });
       if (night) {
@@ -166,7 +201,10 @@ function cezanne(night) {
               if (rand() > 0.15 + 0.85 * keep) continue;
               const turn = slant(gx, gy) + (rand() - 0.5) * 0.2;
               const t = gy / horizon;
-              const warm = Math.min(0.9, smooth(0.55, 1, t) * 0.6 + (1 - smooth(4, 9, nearSun(gx, gy))) * 0.8);
+              const warm = Math.min(
+                0.9,
+                smooth(0.55, 1, t) * 0.6 + (1 - smooth(4, 9, nearSun(gx, gy))) * 0.8,
+              );
               let color = pick(rand() < warm ? warmSky : coolSky);
               const count = 2 + Math.floor(rand() * 5);
               const length = (34 + rand() * 60) * unit;
@@ -178,10 +216,18 @@ function cezanne(night) {
                 const x = gx - Math.sin(turn) * across + Math.cos(turn) * shift;
                 const y = gy + Math.cos(turn) * across + Math.sin(turn) * shift;
                 ctx.fillStyle = color;
-                shapes.flat(ctx, x, y, length * (0.7 + rand() * 0.5), width * (0.85 + rand() * 0.3), turn + (rand() - 0.5) * 0.08, {
-                  dry: 0.2 + rand() * 0.5,
-                  fade: 0.65,
-                });
+                shapes.flat(
+                  ctx,
+                  x,
+                  y,
+                  length * (0.7 + rand() * 0.5),
+                  width * (0.85 + rand() * 0.3),
+                  turn + (rand() - 0.5) * 0.08,
+                  {
+                    dry: 0.2 + rand() * 0.5,
+                    fade: 0.65,
+                  },
+                );
               }
             }
             ctx.restore();
@@ -221,12 +267,22 @@ function cezanne(night) {
             const sunward = slope > 0;
             ctx.fillStyle = night
               ? pick(["#24273a", "#2e3047", "#262c3c"])
-              : pick(sunward ? ["#d8c4a0", "#b7bfa0", "#c5b2c4"] : ["#a7b5a2", "#ac9fc0", "#9fae9a"]);
+              : pick(
+                  sunward ? ["#d8c4a0", "#b7bfa0", "#c5b2c4"] : ["#a7b5a2", "#ac9fc0", "#9fae9a"],
+                );
             const length = (12 + rand() * 26) * unit;
-            shapes.flat(ctx, x, y, length, length * (0.25 + rand() * 0.15), Math.atan(slope) * 0.8 + (rand() - 0.5) * 0.3, {
-              dry: 0.3,
-              fade: 0.75,
-            });
+            shapes.flat(
+              ctx,
+              x,
+              y,
+              length,
+              length * (0.25 + rand() * 0.15),
+              Math.atan(slope) * 0.8 + (rand() - 0.5) * 0.3,
+              {
+                dry: 0.3,
+                fade: 0.75,
+              },
+            );
           }
           ctx.restore();
         },
@@ -240,12 +296,22 @@ function cezanne(night) {
         granulation: 0.2,
         box: [0, horizon - 4 * unit, W, horizon + 0.03 * H],
         draw(ctx) {
-          for (let x = -20 * unit; x < W; ) {
+          for (let x = -20 * unit; x < W;) {
             const length = (24 + rand() * 80) * unit;
             const y = horizon + (1 + rand() * 6) * unit;
             if (path(x, y + 20 * unit) < 0.4 && rand() < 0.85) {
-              ctx.fillStyle = night ? pick(["#2a3354", "#353a5e"]) : pick(["#9fadd0", "#a7b4cc", "#aba6cc"]);
-              shapes.flat(ctx, x + length / 2, y, length, (2.5 + rand() * 3) * unit, (rand() - 0.5) * 0.02, { dry: 0.4, tilt: 0.2 });
+              ctx.fillStyle = night
+                ? pick(["#2a3354", "#353a5e"])
+                : pick(["#9fadd0", "#a7b4cc", "#aba6cc"]);
+              shapes.flat(
+                ctx,
+                x + length / 2,
+                y,
+                length,
+                (2.5 + rand() * 3) * unit,
+                (rand() - 0.5) * 0.02,
+                { dry: 0.4, tilt: 0.2 },
+              );
             }
             x += length * (1 + rand() * 0.4);
           }
@@ -284,7 +350,7 @@ function cezanne(night) {
             while (y < H + 20 * unit) {
               const depth = (y - horizon) / (H - horizon);
               const reach = (0.35 + 1.5 * depth) * unit;
-              for (let x = -60 * unit - rand() * 80 * unit; x < W; ) {
+              for (let x = -60 * unit - rand() * 80 * unit; x < W;) {
                 const length = (30 + rand() * 80) * reach;
                 const width = (5 + rand() * 8) * reach;
                 const mid = x + length / 2;
@@ -293,15 +359,26 @@ function cezanne(night) {
                 if (lit > 0.45) {
                   if (rand() < 0.22) {
                     ctx.fillStyle = pick(glow);
-                    shapes.flat(ctx, mid, y, length * 0.5, width * 0.6, (rand() - 0.5) * 0.03, { dry: 0.8, tilt: 0.15 });
+                    shapes.flat(ctx, mid, y, length * 0.5, width * 0.6, (rand() - 0.5) * 0.03, {
+                      dry: 0.8,
+                      tilt: 0.15,
+                    });
                   }
                 } else if (rand() < keep) {
                   ctx.fillStyle = rand() < lit * 1.6 ? pick(glow) : pick(seaColors);
-                  shapes.flat(ctx, mid, y + (rand() - 0.5) * 3 * reach, length, width, (rand() - 0.5) * 0.04, {
-                    bow: 0.02,
-                    tilt: 0.2,
-                    dry: 0.2 + rand() * 0.5,
-                  });
+                  shapes.flat(
+                    ctx,
+                    mid,
+                    y + (rand() - 0.5) * 3 * reach,
+                    length,
+                    width,
+                    (rand() - 0.5) * 0.04,
+                    {
+                      bow: 0.02,
+                      tilt: 0.2,
+                      dry: 0.2 + rand() * 0.5,
+                    },
+                  );
                 }
                 x += length * (1.1 + rand() * 0.7);
               }
@@ -321,7 +398,15 @@ function cezanne(night) {
               const depth = (y - horizon) / (H - horizon);
               const x = sun.x + (rand() - 0.5) * 2.2 * (0.01 + 0.07 * Math.sqrt(depth)) * W;
               const length = (20 + rand() * 60) * unit * (0.35 + depth * 1.5);
-              shapes.flat(ctx, x, y, length, length * (0.1 + rand() * 0.06), (rand() - 0.5) * 0.03, { tilt: 0.2, dry: 0.5, fade: 1 });
+              shapes.flat(
+                ctx,
+                x,
+                y,
+                length,
+                length * (0.1 + rand() * 0.06),
+                (rand() - 0.5) * 0.03,
+                { tilt: 0.2, dry: 0.5, fade: 1 },
+              );
             }
             for (let n = 0; n < 22; n += 1) {
               const a = rand() * Math.PI * 2;
@@ -329,12 +414,25 @@ function cezanne(night) {
               const x = sun.x + Math.cos(a) * r * 1.6;
               const y = sun.y + Math.sin(a) * r * 0.6;
               if (y > horizon - 3 * unit) continue;
-              shapes.flat(ctx, x, y, (24 + rand() * 40) * unit, (6 + rand() * 6) * unit, slant(x, y), { dry: 0.4, fade: 0.4 });
+              shapes.flat(
+                ctx,
+                x,
+                y,
+                (24 + rand() * 40) * unit,
+                (6 + rand() * 6) * unit,
+                slant(x, y),
+                { dry: 0.4, fade: 0.4 },
+              );
             }
           },
         });
       // The sun, and at night the moon's halo, lifted out.
-      if (night) lift({ amount: 0.3, wet: 40, draw: (ctx) => shapes.blob(ctx, sun.x, sun.y, sun.r * 2.4, sun.r * 2.2, 0.2) });
+      if (night)
+        lift({
+          amount: 0.3,
+          wet: 40,
+          draw: (ctx) => shapes.blob(ctx, sun.x, sun.y, sun.r * 2.4, sun.r * 2.2, 0.2),
+        });
       wash({
         color: night ? "#efe6cf" : "#fbe9c4",
         density: 0.5,
@@ -353,7 +451,11 @@ function turner(night) {
     paint(api) {
       const { W, H, unit, rand, wash, protect, lift, shapes } = api;
       const horizon = place.horizon * H;
-      const sun = { x: place.sun.u * W, y: place.sun.v * H, r: place.sun.r * H * (night ? 0.8 : 1) };
+      const sun = {
+        x: place.sun.u * W,
+        y: place.sun.v * H,
+        r: place.sun.r * H * (night ? 0.8 : 1),
+      };
       const ridge = headland(api, horizon);
       const path = pathOf(W, H, horizon, sun);
 
@@ -377,7 +479,15 @@ function turner(night) {
         bloom: 0.5,
         granulation: 0.03,
         box: [0, 0, W, horizon + 0.08 * H],
-        draw: (ctx) => shapes.band(ctx, -api.bleed, W + api.bleed, () => horizon - 0.06 * H, () => horizon + 0.012 * H, 50),
+        draw: (ctx) =>
+          shapes.band(
+            ctx,
+            -api.bleed,
+            W + api.bleed,
+            () => horizon - 0.06 * H,
+            () => horizon + 0.012 * H,
+            50,
+          ),
       });
       // The sky above, cool, running into the warm wash, with a bloom where
       // it met the damp.
@@ -389,7 +499,14 @@ function turner(night) {
         granulation: 0.05,
         bloom: 0.55,
         draw(ctx) {
-          shapes.band(ctx, -api.bleed, W + api.bleed, () => -api.bleed, (x) => (0.045 + 0.03 * Math.sin(x * 0.002)) * H, 60);
+          shapes.band(
+            ctx,
+            -api.bleed,
+            W + api.bleed,
+            () => -api.bleed,
+            (x) => (0.045 + 0.03 * Math.sin(x * 0.002)) * H,
+            60,
+          );
           ctx.globalCompositeOperation = "destination-out";
           shapes.blob(ctx, sun.x, sun.y, sun.r * 4.5, sun.r * 3, 0.35);
           ctx.globalCompositeOperation = "source-over";
@@ -411,7 +528,8 @@ function turner(night) {
             if (Math.abs(x - sun.x) < 0.12 * W && Math.abs(y - sun.y) < 0.05 * H) continue;
             const length = (0.12 + rand() * 0.22) * W;
             const points = [];
-            for (let t = 0; t <= 1; t += 0.1) points.push([x + (t - 0.5) * length, y + Math.sin(t * 3 + n) * 3 * unit]);
+            for (let t = 0; t <= 1; t += 0.1)
+              points.push([x + (t - 0.5) * length, y + Math.sin(t * 3 + n) * 3 * unit]);
             shapes.stroke(ctx, points, (6 + rand() * 12) * unit);
           }
         },
@@ -455,7 +573,14 @@ function turner(night) {
         streaks: 0.6,
         box: [0, horizon - 0.02 * H, W, H],
         draw(ctx) {
-          shapes.band(ctx, -api.bleed, W + api.bleed, () => horizon, () => H + api.bleed, 20);
+          shapes.band(
+            ctx,
+            -api.bleed,
+            W + api.bleed,
+            () => horizon,
+            () => H + api.bleed,
+            20,
+          );
           cutPath(ctx, api, horizon, sun, 0.75, 1.07);
         },
       });
@@ -469,7 +594,14 @@ function turner(night) {
         streaks: 0.7,
         box: [0, horizon, W, H],
         draw(ctx) {
-          shapes.band(ctx, -api.bleed, W + api.bleed, (x) => horizon + (0.12 + 0.05 * Math.sin(x * 0.0015)) * H, () => H + api.bleed, 60);
+          shapes.band(
+            ctx,
+            -api.bleed,
+            W + api.bleed,
+            (x) => horizon + (0.12 + 0.05 * Math.sin(x * 0.0015)) * H,
+            () => H + api.bleed,
+            60,
+          );
           cutPath(ctx, api, horizon, sun, 0.9, 1.07);
         },
       });
@@ -490,12 +622,20 @@ function turner(night) {
             const x = rand() * W;
             if (path(x, y) > 0.3) continue;
             const length = (0.04 + rand() * 0.12) * W * (0.5 + depth);
-            shapes.flat(ctx, x, y, length, (4 + depth * 24) * unit * (0.6 + rand() * 0.8), (rand() - 0.5) * 0.02, {
-              bow: 0.015,
-              tilt: 0.15,
-              dry: 0.3 + rand() * 0.6,
-              fade: 0.55,
-            });
+            shapes.flat(
+              ctx,
+              x,
+              y,
+              length,
+              (4 + depth * 24) * unit * (0.6 + rand() * 0.8),
+              (rand() - 0.5) * 0.02,
+              {
+                bow: 0.015,
+                tilt: 0.15,
+                dry: 0.3 + rand() * 0.6,
+                fade: 0.55,
+              },
+            );
           }
         },
       });
@@ -514,7 +654,12 @@ function turner(night) {
             const depth = (y - horizon) / (H - horizon);
             const x = sun.x + (rand() - 0.5) * 2.4 * (0.012 + 0.075 * Math.sqrt(depth)) * W;
             const length = (30 + rand() * 90) * unit * (0.3 + depth * 1.4);
-            shapes.flat(ctx, x, y, length, (2 + depth * 9) * unit, 0, { bow: 0, tilt: 0.1, dry: 0.6, fade: 0.8 });
+            shapes.flat(ctx, x, y, length, (2 + depth * 9) * unit, 0, {
+              bow: 0,
+              tilt: 0.1,
+              dry: 0.6,
+              fade: 0.8,
+            });
           }
         },
       });
@@ -526,11 +671,21 @@ function turner(night) {
             const depth = (y - horizon) / (H - horizon);
             const x = sun.x + (rand() - 0.5) * 2 * (0.008 + 0.06 * Math.sqrt(depth)) * W;
             const length = (14 + rand() * 40) * unit * (0.3 + depth);
-            shapes.flat(ctx, x, y, length, Math.max(1.5 * unit, length * 0.07), 0, { bow: 0, tilt: 0.1, dry: 0.4, fade: 1 });
+            shapes.flat(ctx, x, y, length, Math.max(1.5 * unit, length * 0.07), 0, {
+              bow: 0,
+              tilt: 0.1,
+              dry: 0.4,
+              fade: 1,
+            });
           }
         },
       });
-      if (night) lift({ amount: 0.3, wet: 50, draw: (ctx) => shapes.blob(ctx, sun.x, sun.y, sun.r * 2.6, sun.r * 2.4, 0.2) });
+      if (night)
+        lift({
+          amount: 0.3,
+          wet: 50,
+          draw: (ctx) => shapes.blob(ctx, sun.x, sun.y, sun.r * 2.6, sun.r * 2.4, 0.2),
+        });
       wash({
         color: night ? "#efe6cf" : "#fbe8bd",
         density: 0.45,

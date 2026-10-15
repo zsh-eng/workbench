@@ -388,7 +388,11 @@ med thread delete r_6d1f…                # deletes the thread with its Review 
 
 The lines have tabs between the fields. The state is `working`, `needs-you`,
 `idle`, or, in history, `closed`. `--json` prints the threads with all their
-details. `--key` names a thread by its review's key. `--remove-worktree` also
+details. A thread's `turn` tells what the user sees at the end of its session:
+when the last turn ended, whether it asked a question, and `checks`, the last
+run of each test, type check, linter, or build in the turn, such as
+`{ "name": "bun test", "status": "passed", "pass": 5, "fail": 0 }`. Its
+`changes` count the files and lines. `--key` names a thread by its review's key. `--remove-worktree` also
 removes the linked worktree that Med made for the thread, when Git can do that
 without force; the branch stays. Close or delete only the threads that the
 user names.

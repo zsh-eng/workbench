@@ -188,6 +188,20 @@ export const guideContexts: GuideContext[] = [
         ],
       },
       {
+        title: "Session",
+        description:
+          "The agent's thread beside the review. A turn that ended while you did not see it ends with a recap.",
+        entries: [
+          { label: "Send the message", keys: ["Mod+Enter"], note: "Enter adds a line" },
+          {
+            label: "Review the turn",
+            keys: ["Alt+Enter"],
+            note: "While its recap shows: the Guide's first segment not viewed, or Changes",
+          },
+          { label: "Hide the recap until the next turn", keys: ["Esc"], note: "In the recap" },
+        ],
+      },
+      {
         title: "Layout",
         entries: [
           { label: "Toggle the sidebar", keys: ["Mod+B"], command: "sidebar" },

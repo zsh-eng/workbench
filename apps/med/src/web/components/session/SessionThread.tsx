@@ -26,6 +26,7 @@ import { ZenContext } from "../ZenExit";
 import { motion, rowStyles } from "./session-styles";
 import { BackgroundDock } from "./BackgroundDock";
 import { SessionMarkdown } from "./SessionMarkdown";
+import { TurnRecap, type TurnRecapProps } from "./TurnRecap";
 import { ImageThumbs } from "./ImageThumbs";
 import { promptBlocks, type PromptBlock } from "./prompt-blocks";
 import {
@@ -905,9 +906,13 @@ export function SessionThread({
   openAgent,
   loading = false,
   showWork = false,
+  recap,
   onOpenLink,
 }: {
   snapshot: SessionSnapshot;
+  /** The recap of a turn that ended unseen, at the end of the thread. It
+   * takes the place of the plan for that turn. */
+  recap?: TurnRecapProps;
   /** Opens this subagent's tab once for each nonce, once the session has it. */
   openAgent?: { id: string; nonce: number };
   /** The first view has not come yet. */
@@ -1657,6 +1662,16 @@ export function SessionThread({
                     </div>
                   )
                 )}
+                {recap && !snapshot.running && (
+                  <TurnRecap
+                    {...recap}
+                    onDismiss={() => {
+                      recap.onDismiss();
+                      // The recap leaves sight; the thread keeps the focus.
+                      scroller.current?.focus({ preventScroll: true });
+                    }}
+                  />
+                )}
               </div>
             </div>
             {!atBottom && (
@@ -1687,7 +1702,7 @@ export function SessionThread({
                 agents.some((item) => item.id === id) ? setAgentId(id) : showCall(id)
               }
             />
-            {snapshot.plan.length > 0 && <PlanDock entries={snapshot.plan} />}
+            {snapshot.plan.length > 0 && !recap && <PlanDock entries={snapshot.plan} />}
           </div>
           {agent && (
             <AgentView

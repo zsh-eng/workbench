@@ -1,5 +1,6 @@
 import type { SessionEvent, SessionUpdate } from "../shared/agent-session";
 import type { ThreadTurn } from "../shared/agent-status";
+import { turnChecks } from "./session-checks";
 
 // The thread list tells three things of each thread: what does its agent do now,
 // what did it say last, and did its turn end on a question to the user. The
@@ -18,6 +19,8 @@ import type { ThreadTurn } from "../shared/agent-status";
 //   code, ends with a question mark. When that paragraph is a list of
 //   choices, the paragraph before it counts. A turn that waits on Claude
 //   Code's AskUserQuestion tool asks too.
+// - Checks: the tests, type checks, linters, and builds that finished in the
+//   turn, the last run of each (session-checks.ts). A subagent's do not count.
 
 const MAX_SAID = 280;
 const MAX_COMMAND = 72;
@@ -124,10 +127,14 @@ export function summarizeTurn(events: readonly SessionEvent[], idle: boolean): T
   let lastAt: number | undefined;
   let message: { id: string | null | undefined; text: string } | undefined;
   const open = new Map<string, ToolCall>();
-  for (const { at, update } of events) {
+  // The turn's own updates, for its checks.
+  let own: SessionEvent[] = [];
+  for (const event of events) {
+    const { at, update } = event;
     // A subagent's updates belong to its call.
     if (update._meta?.med?.parentToolCallId) continue;
     lastAt = at;
+    own.push(event);
     switch (update.sessionUpdate) {
       case "user_message_chunk": {
         const text = update.content.type === "text" ? update.content.text.trim() : "";
@@ -136,6 +143,7 @@ export function summarizeTurn(events: readonly SessionEvent[], idle: boolean): T
         startedAt = at;
         message = undefined;
         open.clear();
+        own = [event];
         break;
       }
       case "agent_message_chunk": {
@@ -167,6 +175,8 @@ export function summarizeTurn(events: readonly SessionEvent[], idle: boolean): T
   if (startedAt !== undefined) turn.startedAt = startedAt;
   const said = message ? lastSaid(message.text) : undefined;
   if (said) turn.said = said;
+  const checks = turnChecks(own);
+  if (checks.length) turn.checks = checks;
   if (idle) {
     if (lastAt !== undefined) turn.endedAt = lastAt;
     if (message && asksUser(message.text)) turn.asks = true;

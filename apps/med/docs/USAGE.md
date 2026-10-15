@@ -285,6 +285,14 @@ background shells and agents. It follows the session live.
   open every turn.
 - With focus in the thread, `[` and `]` step through prompts and replies. A
   task in **Background** goes to its call.
+- A turn that ended while you did not see its session ends with a recap,
+  under the last reply. The recap is one line of facts that Med knows, such as
+  `2 files · +14 −3 · bun test 5 pass · tsc fail`, then **Review** and
+  **Reply**. **Review** (`⌥↵`) opens the Review tab at the Guide's first
+  segment that is not viewed; before the agent hands off a Review, it opens
+  Changes at the first file. **Reply** puts the focus in the message box. ×,
+  or `Esc` in the recap, hides it until the next turn. A turn that ends while
+  you watch its session has no recap.
 - A session with subagents shows tabs above its thread: **Main** and one per
   subagent, with a spinner while it works. Click a tab, or use `←` and `→` on
   the tabs, to read that subagent's thread; `Esc` goes back to **Main**.

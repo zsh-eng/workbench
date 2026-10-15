@@ -89,6 +89,7 @@ import { openSearchPage } from "./components/SearchPage";
 import { repoFilter } from "./data/search-query";
 import { subscribeFileOpens, takeFileOpen } from "./data/file-opens";
 import { subscribeSubagentOpens, takeSubagentOpen } from "./data/tabs";
+import { useTurnRecap } from "./data/turn-recap";
 import { SymbolPicker } from "./components/SymbolPicker";
 import { FullFileView, type BeginFileSymbolPreview } from "./components/FullFileView";
 import { FileViewTabs } from "./components/FileViewTabs";
@@ -2010,23 +2011,19 @@ export function App({
                   note.resolution !== "orphaned" &&
                   note.resolution !== "stale",
               )
-              .map(
-                (note): DiffLineAnnotation<Annotation> => ({
-                  side: note.side === "old" ? "deletions" : "additions",
-                  lineNumber: noteLine(file.metadata, note),
-                  metadata: { note },
-                }),
-              ),
+              .map((note): DiffLineAnnotation<Annotation> => ({
+                side: note.side === "old" ? "deletions" : "additions",
+                lineNumber: noteLine(file.metadata, note),
+                metadata: { note },
+              })),
             ...(guideNotesByFile?.get(file.id) ?? [])
               .filter(onLines)
               .filter((note) => shownLine(file.metadata, note))
-              .map(
-                (note): DiffLineAnnotation<Annotation> => ({
-                  side: note.side === "old" ? "deletions" : "additions",
-                  lineNumber: noteLine(file.metadata, note),
-                  metadata: { guide: note },
-                }),
-              ),
+              .map((note): DiffLineAnnotation<Annotation> => ({
+                side: note.side === "old" ? "deletions" : "additions",
+                lineNumber: noteLine(file.metadata, note),
+                metadata: { guide: note },
+              })),
           ]
         : [];
       if (visibleDraft?.path === file.path)
@@ -3323,6 +3320,86 @@ export function App({
   // A shared checkout holds other sessions' work too. Its Changes can keep
   // only the files that the thread's lead session edited.
   const thread = useThread(state.savedReview?.id);
+
+  // The turn recap (data/turn-recap.ts): a turn that ended while the reader
+  // did not see its session ends the session thread with its facts, Review,
+  // and Reply. A turn that ends while the session shows is seen.
+  const watchingSession = useCallback(() => sessionVisible && shown(), [sessionVisible, shown]);
+  const recap = useTurnRecap(hasSessions ? thread : undefined, watchingSession);
+  const recapKey =
+    thread && recap.endedAt !== undefined ? `${thread.id}:${recap.endedAt}` : undefined;
+  // A recap that showed keeps its place once seen, out of sight, so nothing in
+  // the thread moves. The next turn, a closed pane, or a hidden tab drops it.
+  const [keptRecap, setKeptRecap] = useState<string>();
+  if (recap.unseen && recapKey !== keptRecap) setKeptRecap(recapKey);
+  else if (keptRecap !== undefined && !recap.unseen && (!sessionVisible || recapKey !== keptRecap))
+    setKeptRecap(undefined);
+  useEffect(() => () => setKeptRecap(undefined), []);
+  // Review from the recap waits for the diff that it opens, then goes to the
+  // Guide's first segment not viewed, or to the first file.
+  const recapJump = useRef<"guide" | "review" | "changes" | null>(null);
+  const firstUnviewed = useCallback(() => {
+    const next =
+      guideSections.find((section) => section.fileIds.some((id) => !guideViewedIds.has(id))) ??
+      guideSections[0];
+    openGuide(next ? { kind: "segment", key: next.key } : { kind: "overview" });
+  }, [guideSections, guideViewedIds, openGuide]);
+  const jumpReady = (jump: "guide" | "review" | "changes") => {
+    const snapshot = controller.getSnapshot();
+    if (snapshot.status !== "ready") return false;
+    return jump === "changes" ? !snapshot.savedView && !snapshot.inReview : snapshot.savedView;
+  };
+  const finishJump = (jump: "guide" | "review" | "changes") => {
+    recapJump.current = null;
+    if (jump === "guide") firstUnviewed();
+    else if (files[0]) reveal(files[0].id);
+  };
+  useEffect(() => {
+    const jump = recapJump.current;
+    if (jump && jumpReady(jump)) finishJump(jump);
+  });
+  const reviewTurn = () => {
+    recap.see();
+    // The review's keys, such as j and k in the Guide, go to the review.
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active.closest("[data-session-panel]")) active.blur();
+    const jump = !reviewAvailable ? "changes" : hasGuide ? "guide" : "review";
+    if (jump === "guide") {
+      if (!jumpReady("guide")) openGuide({ kind: "overview" });
+    } else selectTab(jump);
+    if (jumpReady(jump)) finishJump(jump);
+    else recapJump.current = jump;
+  };
+  const reviewTurnRef = useRef(reviewTurn);
+  useLayoutEffect(() => {
+    reviewTurnRef.current = reviewTurn;
+  });
+  // ⌥↵ opens the review while the recap shows, also from the message box.
+  const recapKeyShown = recap.unseen && sessionVisible;
+  useEffect(() => {
+    if (!recapKeyShown) return;
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key !== "Enter" || !event.altKey || event.metaKey || event.ctrlKey) return;
+      if (event.shiftKey || event.isComposing || !shown()) return;
+      event.preventDefault();
+      event.stopPropagation();
+      reviewTurnRef.current();
+    };
+    window.addEventListener("keydown", keydown, true);
+    return () => window.removeEventListener("keydown", keydown, true);
+  }, [recapKeyShown, shown]);
+  const recapProps = useMemo(
+    () =>
+      keptRecap !== undefined && keptRecap === recapKey
+        ? {
+            facts: { changes: thread?.changes, checks: thread?.turn?.checks },
+            hidden: !recap.unseen,
+            onReview: () => reviewTurnRef.current(),
+            onDismiss: recap.see,
+          }
+        : undefined,
+    [keptRecap, recapKey, thread?.changes, thread?.turn?.checks, recap.unseen, recap.see],
+  );
   const ownSession =
     leadSession && (leadSession.agent === "claude" || leadSession.agent === "codex")
       ? { agent: leadSession.agent, id: leadSession.id }
@@ -4855,6 +4932,7 @@ export function App({
                     mentions={mentionSources}
                     onMentionsWanted={wantMentions}
                     openAgent={openAgent}
+                    recap={recapProps}
                   />
                 )}
               </Suspense>
@@ -5784,17 +5862,19 @@ export function App({
                     : vimEnabled
                       ? "Read-only file · Vim"
                       : "Read-only file"
-              : state.comparison.kind === "patch"
-                ? "Patch review"
-                : state.comparison.kind === "files"
-                  ? "File comparison"
-                  : state.comparison.kind === "commit" || state.comparison.kind === "range"
-                    ? "Commit review"
-                    : state.connection === "connected"
-                      ? "Live review"
-                      : state.connection === "reconnecting"
-                        ? "Reconnecting…"
-                        : "Connecting…"}
+              : state.savedView
+                ? "Saved review"
+                : state.comparison.kind === "patch"
+                  ? "Patch review"
+                  : state.comparison.kind === "files"
+                    ? "File comparison"
+                    : state.comparison.kind === "commit" || state.comparison.kind === "range"
+                      ? "Commit review"
+                      : state.connection === "connected"
+                        ? "Live changes"
+                        : state.connection === "reconnecting"
+                          ? "Reconnecting…"
+                          : "Connecting…"}
           </span>
           {activeFile && (
             <span>
