@@ -9,7 +9,7 @@ import type { Thread, ThreadList } from "../../src/shared/threads";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { claudeProjectFolder } from "../../src/host/found-sessions";
 import { readServerEvents } from "../../src/web/data/sse";
-import { openInTerminal } from "../fixtures/terminal-claude";
+import { openSession } from "../fixtures/terminal-claude";
 
 // The thread list reads each thread's last turn from its transcript's tail: what
 // the agent does now, what it said last, and whether it asked the user; and
@@ -371,7 +371,7 @@ test("each thread tells what its agent does now, what it said, and whether it as
 
   // A reply from Med waits in the thread's agent inbox while the session runs
   // in a terminal, and the list says so.
-  ends.push((await openInTerminal(home, ids.ask)).end);
+  ends.push((await openSession(home, ids.ask)).end);
   const sent = await api(`/api/reviews/${asked.data.id}/agent/messages`, {
     sessionId: ids.ask,
     text: "Keep the station's own time.",

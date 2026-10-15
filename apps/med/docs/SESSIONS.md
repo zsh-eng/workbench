@@ -214,15 +214,23 @@ Claude Code session that Med did not start. A message to it
   `owned-sessions.json`, so it resumes after a restart too, and the thread
   shows the turn live. Before the send, the message box says "Med resumes
   Claude with this message".
-- **Another process runs it**, such as Claude Code in a terminal or in Claude
-  Desktop. Med cannot type there, and two writers would mix one transcript.
-  The message box says so in one line: "Claude has this session open in a
-  terminal. Med can't type there." A message then waits, with "Waiting for the
-  terminal session to close". While a message waits, the host checks the
-  process every 3 seconds (`src/host/held-messages.ts`); nothing polls
-  otherwise. When the process ends, Med resumes the session as above and
-  sends the waiting messages once. Med keeps a held message's mark in its
+- **Another process runs it**, such as Claude Code in a terminal or in the
+  Claude app. Med cannot type there, and two writers would mix one
+  transcript. The message box says so in one line, and a message then waits
+  with a label. Both name where the session is open, by the process record's
+  `entrypoint`:
+
+  | `entrypoint`                          | Line                                                                    | Label                                                |
+  | ------------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------- |
+  | `cli` (a terminal)                    | "Claude has this session open in a terminal. Med can't type there."     | "Waiting for the terminal session to close"          |
+  | `claude-desktop`, `claude-desktop-3p` | "Claude has this session open in the Claude app. Med can't type there." | "Waiting for the session in the Claude app to close" |
+  | any other, none, or no record         | "Claude has this session open in another app. Med can't type there."    | "Waiting for the session to close there"             |
+
+  While a message waits, the host checks the process every 3 seconds
+  (`src/host/held-messages.ts`); nothing polls otherwise. When the process
+  ends, Med resumes the session as above and sends the waiting messages once. Med keeps a held message's mark in its
   inbox file, so a restart checks it again.
+
 - **The session takes messages with `med review wait`**, as after a hand-off.
   A wait that waits gets the message at once; a later wait takes the messages
   that waited, and Med does not send them again. If the process ends first,
@@ -233,20 +241,27 @@ Claude Code session that Med did not start. A message to it
 that Med chooses (`POST /api/reviews/:id/owned` with `fork`). The fork is a
 session of the thread that Med runs, after the original in the thread's
 sessions, so the thread follows it. The waiting messages go to the fork as its
-first prompt. The terminal keeps its session as it is. Unlike a question's
+first prompt. The terminal or app keeps its session as it is. Unlike a question's
 fork, this fork is not left out of the found sessions or session search.
 
 **Detection** (`src/host/session-processes.ts`). Claude Code keeps a record
 for each running process in `~/.claude/sessions/<pid>.json`. Med reads only
-two fields: `sessionId`, and `procStart`, which is the output of
+three fields: `sessionId`; `procStart`, which is the output of
 `ps -o lstart= -p <pid>` with `LC_ALL=C` and `TZ=UTC` when the process
-started, such as `Thu Oct 15 09:12:03 2026`. A record counts when its
+started, such as `Thu Oct 15 09:12:03 2026`; and `entrypoint`, the
+process's `CLAUDE_CODE_ENTRYPOINT`. Claude Code 2.1 sets `cli` for `claude`
+in a terminal, and the Claude app sets `claude-desktop`, or
+`claude-desktop-3p` with another model provider. The other values that
+Claude Code knows name an IDE (`claude-vscode`), the SDK (`sdk-cli`,
+`sdk-ts`, `sdk-py`), Cowork (`local-agent`), an integration, or a remote
+session; Med says "another app" for them. A record counts when its
 `sessionId` matches, its process is alive (`kill(pid, 0)`), and `ps` gives
 the same start time now, so a pid that the system gave to a newer process
 does not count. Med's own agents and `--fork-session` processes (questions)
 do not count. A process that names the session in its arguments, such as
-`claude --resume <id>`, also counts. When Med cannot tell, as for a record
-that it cannot read, the session counts as running elsewhere: a held message
+`claude --resume <id>`, also counts, in another app. When Med cannot tell, as
+for a record that it cannot read, the session counts as running in another
+app: a held message
 is safe, and Continue in Med is still there; two writers on one transcript
 are not safe. Med does not use Claude Code's messaging socket: Claude treats
 those messages as another session's, not as the user's.
@@ -326,9 +341,10 @@ those messages as another session's, not as the user's.
 - A message from the composer shows in the thread at once, with "Sending…".
   The host keeps the browser's ID for it, so a retry after a lost answer does
   not send it twice. A failed send keeps the text with Retry and Discard. A
-  message that waits says for what: "Waiting for Claude to take it", or
-  "Waiting for the terminal session to close" while a terminal runs the
-  session ([messages to adopted sessions](#messages-to-adopted-sessions)).
+  message that waits says for what: "Waiting for Claude to take it", or, while
+  a terminal or another app runs the session, for that session to close, such
+  as "Waiting for the terminal session to close"
+  ([messages to adopted sessions](#messages-to-adopted-sessions)).
   When the agent takes the message, it replaces the agent's own copy in the
   transcript, so the turn before keeps its reply and its "Worked for" row.
 - The thread is a virtual list. Only the units within 1,200 px of the view

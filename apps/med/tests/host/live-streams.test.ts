@@ -87,7 +87,7 @@ test("a page reads all its event streams over one connection", async () => {
     messages: [],
     waiting: [],
     drafts: [],
-    elsewhere: [],
+    elsewhere: {},
     resumable: [],
   });
   // The thread list names the saved review and the repository.

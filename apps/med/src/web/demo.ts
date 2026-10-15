@@ -234,7 +234,7 @@ function inbox(id: string): AgentInboxState {
     read<AgentInboxState>(path) ?? {
       messages: [],
       waiting: [],
-      elsewhere: [],
+      elsewhere: {},
       resumable: [],
       drafts: [],
     }

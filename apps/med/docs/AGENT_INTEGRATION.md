@@ -547,16 +547,16 @@ the agent in the pull request panel, adds GitHub comments. Press `⌘↵` or **S
   session and sends them.
 - **A Claude Code session that no process runs**, such as an adopted one
   after its terminal closed, resumes in Med with the message as its next
-  turn, and Med runs it from then on. A session open in a terminal that does
-  not run `med review wait` gets its messages when the terminal session ends,
-  or in a fork with **Continue in Med**
+  turn, and Med runs it from then on. A session open in a terminal or another
+  app that does not run `med review wait` gets its messages when that session
+  ends, or in a fork with **Continue in Med**
   ([messages to adopted sessions](SESSIONS.md#messages-to-adopted-sessions)).
 - **Codex** gets the message in its queue (`codex queue`), and the thread's
   next turn reads it first, as a user message. Med finds `codex` on the PATH,
   in the ChatGPT app, or at `MED_CODEX_PATH`.
 
 The thread shows each sent message as waiting (for the agent, or for its
-terminal session to close), taken, or queued. A sent comment leaves the
+session in a terminal or another app to close), taken, or queued. A sent comment leaves the
 drafts until you edit it or reply to it.
 
 ## Link to a current file

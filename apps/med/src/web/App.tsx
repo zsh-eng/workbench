@@ -159,7 +159,7 @@ import type { PathActions } from "./components/PathMenu";
 import { diffSurfaceStyle, EXPANSION_LINES } from "./components/diff-surface";
 import { highlightRules } from "./code-colors";
 import { createDiffFindHighlights } from "./data/diff-find-highlights";
-import { useAgentInbox } from "./data/agent-inbox";
+import { openIn, useAgentInbox } from "./data/agent-inbox";
 import type { ComposerAttachment } from "./components/session/SessionComposer";
 import type { SessionPins, SessionStarter } from "./components/session/SessionPanel";
 import { useAgentPresets } from "./data/owned-session";
@@ -3773,8 +3773,9 @@ export function App({
                     label: `New ${agent.name} session`,
                     run: () => void sessionStarter.start(agent.id).catch(() => {}),
                   })),
-                // The lead session is open in a terminal, where Med cannot type.
-                ...(leadSession && agentInbox.state?.elsewhere.includes(leadSession.id)
+                // The lead session is open in a terminal or another app, where
+                // Med cannot type.
+                ...(leadSession && openIn(agentInbox.state, leadSession.id)
                   ? [
                       {
                         id: "continue-in-med",

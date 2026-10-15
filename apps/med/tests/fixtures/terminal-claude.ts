@@ -12,9 +12,10 @@ export const processStart = (pid: number) =>
     .toString()
     .trim();
 
-/** A process that runs until the test ends it. Its arguments name no session. */
-export async function longProcess() {
-  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+/** A process that runs until the test ends it. Its arguments name no session
+ * unless `args` does. */
+export async function longProcess(args: string[] = []) {
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", ...args], {
     stdio: "ignore",
   });
   const exited = once(child, "exit");
@@ -39,10 +40,15 @@ export async function writeProcessRecord(home: string, pid: number, record: obje
 }
 
 /**
- * Claude Code with a session open in a terminal: a process that runs, and
- * its record, with the fields that Claude Code 2.1 writes.
+ * Claude Code with a session open: a process that runs, and its record, with
+ * the fields that Claude Code 2.1 writes. `entrypoint` is `cli` in a
+ * terminal and `claude-desktop` in the Claude app; `null` leaves it out.
  */
-export async function openInTerminal(home: string, sessionId: string) {
+export async function openSession(
+  home: string,
+  sessionId: string,
+  entrypoint: string | null = "cli",
+) {
   const process = await longProcess();
   await writeProcessRecord(home, process.pid, {
     pid: process.pid,
@@ -52,7 +58,7 @@ export async function openInTerminal(home: string, sessionId: string) {
     procStart: processStart(process.pid),
     version: "2.1.295",
     kind: "interactive",
-    entrypoint: "cli",
+    ...(entrypoint === null ? {} : { entrypoint }),
     status: "idle",
   });
   return process;

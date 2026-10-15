@@ -87,17 +87,27 @@ export const draftCommentSchema = z.object({
 });
 export type DraftComment = z.infer<typeof draftCommentSchema>;
 
+/**
+ * Where another process has a Claude session open, by the `entrypoint` of
+ * Claude Code's process record: `cli` is a terminal, `claude-desktop` and
+ * `claude-desktop-3p` are the Claude app, and the others (an IDE, the SDK, a
+ * record without one, or a process found only by its arguments) are another
+ * app.
+ */
+export const sessionPlaceSchema = z.enum(["terminal", "claude-app", "other-app"]);
+export type SessionPlace = z.infer<typeof sessionPlaceSchema>;
+
 export const agentInboxStateSchema = z.object({
   messages: z.array(agentMessageSchema),
   /** Sessions whose agent waits in `med review wait` now. */
   waiting: z.array(z.string()),
   /**
    * Claude sessions that another process runs, such as Claude Code in a
-   * terminal, and that do not take messages with `med review wait`. Med
-   * cannot type there: a message waits until that process ends, and
-   * Continue in Med forks the session.
+   * terminal, and that do not take messages with `med review wait`, with
+   * where each is open. Med cannot type there: a message waits until that
+   * process ends, and Continue in Med forks the session.
    */
-  elsewhere: z.array(z.string()).default([]),
+  elsewhere: z.record(z.string(), sessionPlaceSchema).default({}),
   /** Claude sessions that no process runs: a message resumes the session,
    * which Med then runs. */
   resumable: z.array(z.string()).default([]),

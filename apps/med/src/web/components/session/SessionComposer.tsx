@@ -6,7 +6,9 @@ import {
   type AgentMessage,
   type DraftComment,
   type PromptImage,
+  type SessionPlace,
 } from "../../../shared/agent-inbox";
+import { SESSION_PLACES } from "../../data/agent-inbox";
 import type {
   OwnedAction,
   OwnedCommand,
@@ -140,9 +142,9 @@ export function PermissionCard({
 /**
  * Writes to the agent from the review: the user's text, the comments not yet
  * sent, and other text such as GitHub comments. A Claude session that no
- * process runs resumes in Med with the message; one that a terminal runs
- * takes it when it runs `med review wait`, or gets it when the terminal
- * closes. A Codex session reads its queue.
+ * process runs resumes in Med with the message; one that a terminal or
+ * another app runs takes it when it runs `med review wait`, or gets it when
+ * that session closes. A Codex session reads its queue.
  */
 export function SessionComposer({
   agent,
@@ -158,10 +160,10 @@ export function SessionComposer({
   mentions: mentionSources,
   onMentionsWanted,
 }: {
-  /** Where a Claude session runs, when Med does not run it: in another
-   * process, such as a terminal, or nowhere, so a message resumes it. */
-  presence?: "elsewhere" | "resumable";
-  /** Continue in Med: a fork of a session that a terminal runs. */
+  /** Where a Claude session runs, when Med does not run it: in a terminal or
+   * another app, or nowhere, so a message resumes it. */
+  presence?: SessionPlace | "resumable";
+  /** Continue in Med: a fork of a session that a terminal or another app runs. */
   onContinue?(): Promise<void>;
   /** What @ can name: files, vault notes, and threads. Without it, @ is text. */
   mentions?: MentionSources;
@@ -298,19 +300,19 @@ export function SessionComposer({
       void act({ action: "interrupt" });
     }
   };
-  const terminal =
-    presence === "elsewhere"
-      ? `${name} has this session open in a terminal. Med can't type there.`
+  const openThere =
+    presence && presence !== "resumable"
+      ? `${name} has this session open ${SESSION_PLACES[presence].open}. Med can't type there.`
       : undefined;
   // Without a Med runner, the line takes the footer's status place.
-  const elsewhere = !!terminal && !owned && !error;
+  const elsewhere = !!openThere && !owned && !error;
   const ownedStatus = error
     ? error
     : status === "starting"
       ? `Starting ${name}…`
       : stopped
         ? `${name} stopped. Start a new session to continue.`
-        : (owned?.state.error ?? terminal);
+        : (owned?.state.error ?? openThere);
 
   return (
     <>
@@ -512,10 +514,11 @@ export function SessionComposer({
         )}
         <div {...stylex.props(styles.footer, elsewhere && styles.footerWraps)}>
           {elsewhere ? (
-            // A session that a terminal runs: one quiet line, and Continue in Med.
-            // In a narrow pane the line takes its own row above the buttons.
+            // A session that a terminal or another app runs: one quiet line,
+            // and Continue in Med. In a narrow pane the line takes its own row
+            // above the buttons.
             <span role="status" {...stylex.props(styles.elsewhere)}>
-              {terminal}
+              {openThere}
             </span>
           ) : owned ? (
             <div {...stylex.props(styles.pickers)}>
@@ -556,70 +559,77 @@ export function SessionComposer({
               )}
             </span>
           )}
-          {terminal && onContinue && (
-            <button
-              type="button"
-              disabled={continuing}
-              {...tooltip("Fork the session into one that Med runs; the terminal keeps its own")}
-              onClick={() => {
-                setContinuing(true);
-                setError(null);
-                onContinue()
-                  .catch((reason: unknown) =>
-                    setError(reason instanceof Error ? reason.message : "Med did not continue it."),
-                  )
-                  .finally(() => setContinuing(false));
+          {/* The buttons stay together, at the end, when the line wraps. */}
+          <div {...stylex.props(styles.actions)}>
+            {openThere && onContinue && (
+              <button
+                type="button"
+                disabled={continuing}
+                {...tooltip(
+                  "Fork the session into one that Med runs; the open session stays as it is",
+                )}
+                onClick={() => {
+                  setContinuing(true);
+                  setError(null);
+                  onContinue()
+                    .catch((reason: unknown) =>
+                      setError(
+                        reason instanceof Error ? reason.message : "Med did not continue it.",
+                      ),
+                    )
+                    .finally(() => setContinuing(false));
+                }}
+                {...stylex.props(ui.button, ui.pressable, ui.outlined, styles.continue)}
+              >
+                {continuing ? "Continuing…" : "Continue in Med"}
+              </button>
+            )}
+            {owned?.state.context && (
+              <ContextMeter used={owned.state.context.used} total={owned.state.context.total} />
+            )}
+            <input
+              ref={imageInput}
+              type="file"
+              accept={PROMPT_IMAGE_TYPES.join(",")}
+              multiple
+              hidden
+              onChange={(event) => {
+                void addImages([...(event.target.files ?? [])]);
+                event.target.value = "";
               }}
-              {...stylex.props(ui.button, ui.pressable, ui.outlined, styles.continue)}
-            >
-              {continuing ? "Continuing…" : "Continue in Med"}
-            </button>
-          )}
-          {owned?.state.context && (
-            <ContextMeter used={owned.state.context.used} total={owned.state.context.total} />
-          )}
-          <input
-            ref={imageInput}
-            type="file"
-            accept={PROMPT_IMAGE_TYPES.join(",")}
-            multiple
-            hidden
-            onChange={(event) => {
-              void addImages([...(event.target.files ?? [])]);
-              event.target.value = "";
-            }}
-          />
-          <button
-            type="button"
-            aria-label="Add images"
-            title="Add images, or paste them"
-            disabled={stopped}
-            onClick={() => imageInput.current?.click()}
-            {...stylex.props(ui.button, ui.iconButton, styles.attach)}
-          >
-            <Icon name="image" size={15} />
-          </button>
-          {working ? (
+            />
             <button
               type="button"
-              aria-label="Stop"
-              title="Stop (Esc)"
-              onClick={() => void act({ action: "interrupt" })}
-              {...stylex.props(ui.button, ui.iconButton, ui.pressable, styles.send)}
+              aria-label="Add images"
+              title="Add images, or paste them"
+              disabled={stopped}
+              onClick={() => imageInput.current?.click()}
+              {...stylex.props(ui.button, ui.iconButton, styles.attach)}
             >
-              <Icon name="stop" size={14} />
+              <Icon name="image" size={15} />
             </button>
-          ) : (
-            <button
-              type="submit"
-              aria-label="Send"
-              title="Send (⌘↩)"
-              disabled={empty || stopped}
-              {...stylex.props(ui.button, ui.iconButton, ui.pressable, styles.send)}
-            >
-              <Icon name="arrowUp" size={14} />
-            </button>
-          )}
+            {working ? (
+              <button
+                type="button"
+                aria-label="Stop"
+                title="Stop (Esc)"
+                onClick={() => void act({ action: "interrupt" })}
+                {...stylex.props(ui.button, ui.iconButton, ui.pressable, styles.send)}
+              >
+                <Icon name="stop" size={14} />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                aria-label="Send"
+                title="Send (⌘↩)"
+                disabled={empty || stopped}
+                {...stylex.props(ui.button, ui.iconButton, ui.pressable, styles.send)}
+              >
+                <Icon name="arrowUp" size={14} />
+              </button>
+            )}
+          </div>
         </div>
       </form>
     </>
@@ -771,9 +781,9 @@ const styles = stylex.create({
     fontWeight: 400,
   },
   ownedStatus: { flex: "none", whiteSpace: "normal" },
-  // A session that a terminal runs: one quiet line, and Continue in Med. The
-  // line keeps its natural width as its basis, so in a narrow pane it wraps to
-  // a row of its own and the buttons go below it.
+  // A session that a terminal or another app runs: one quiet line, and
+  // Continue in Med. The line keeps its natural width as its basis, so in a
+  // narrow pane it wraps to a row of its own and the buttons go below it.
   footerWraps: { flexWrap: "wrap", rowGap: 6 },
   elsewhere: {
     flexGrow: 1,
@@ -784,10 +794,16 @@ const styles = stylex.create({
     fontSize: 11.5,
     lineHeight: 1.45,
   },
+  actions: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    flexShrink: 0,
+    marginInlineStart: "auto",
+  },
   continue: {
     flexShrink: 0,
     minHeight: 24,
-    marginInlineEnd: "auto",
     paddingInline: 8,
     color: { default: tokens.text, ":hover:not(:disabled)": tokens.text },
     fontSize: 11.5,

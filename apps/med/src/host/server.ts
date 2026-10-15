@@ -120,6 +120,7 @@ import {
   agentMessageInputSchema,
   deliveredText,
   type AgentInboxState,
+  type SessionPlace,
 } from "../shared/agent-inbox";
 import type { SessionEvent } from "../shared/agent-session";
 import {
@@ -340,8 +341,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   /**
    * The review's Claude sessions that Med does not run now, or restored
    * without a process: those that another process runs, such as Claude Code
-   * in a terminal, and those that a message resumes in Med. A session that
-   * takes messages with `med review wait` is in neither.
+   * in a terminal, with where each is open, and those that a message resumes
+   * in Med. A session that takes messages with `med review wait` is in
+   * neither.
    */
   const claudeSessions = async (
     reviewId: string,
@@ -355,9 +357,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ? [session.id]
         : [];
     });
-    const running = ids.length ? await ownedSessions.elsewhere(ids, maxAgeMs) : new Set<string>();
+    const running = ids.length
+      ? await ownedSessions.elsewhere(ids, maxAgeMs)
+      : new Map<string, SessionPlace>();
     return {
-      elsewhere: ids.filter((id) => running.has(id) && !inbox.usesWait(reviewId, id)),
+      elsewhere: Object.fromEntries([...running].filter(([id]) => !inbox.usesWait(reviewId, id))),
       resumable: ids.filter((id) => !running.has(id)),
     };
   };

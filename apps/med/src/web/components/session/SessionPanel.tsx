@@ -15,7 +15,12 @@ import {
 import type { AgentPreset } from "../../../shared/owned-session";
 import { agentName, type AgentSession, type PinMutation } from "../../../shared/saved-review";
 import type { AgentMessageInput, SentComment } from "../../../shared/agent-inbox";
-import { withSentMessages, type AgentInbox, type SentMessage } from "../../data/agent-inbox";
+import {
+  openIn,
+  withSentMessages,
+  type AgentInbox,
+  type SentMessage,
+} from "../../data/agent-inbox";
 import { useOwnedSession } from "../../data/owned-session";
 import { useQuietChrome } from "../../data/chrome";
 import type { SessionItem } from "../../data/session-store";
@@ -413,13 +418,11 @@ export function SessionPanel({
   const chosen = pick.latest === latest ? pick.id : latest;
   const setChosen = (id: string) => setPick({ latest, id });
   const session = sessions.find((entry) => entry.id === chosen) ?? sessions.at(-1)!;
-  // A Claude session that Med does not run: open in a terminal, or nowhere.
-  // When Med resumes it, the session's controls come.
-  const presence = inbox?.state?.elsewhere.includes(session.id)
-    ? ("elsewhere" as const)
-    : inbox?.state?.resumable.includes(session.id)
-      ? ("resumable" as const)
-      : undefined;
+  // A Claude session that Med does not run: open in a terminal or another
+  // app, or nowhere. When Med resumes it, the session's controls come.
+  const presence =
+    openIn(inbox?.state, session.id) ??
+    (inbox?.state?.resumable.includes(session.id) ? ("resumable" as const) : undefined);
   const owned = useOwnedSession(reviewId, session.id, fetcher, presence);
   const store = useMemo(() => keptSessionStore(reviewId, session.id), [reviewId, session.id]);
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -601,8 +604,8 @@ export function SessionPanel({
             message.sessionId === session.id && !outgoing.some((entry) => entry.id === message.id),
         )
         .map((message) =>
-          presence === "elsewhere" && message.delivery === "pending"
-            ? { ...message, waitsFor: "terminal" as const }
+          presence && presence !== "resumable" && message.delivery === "pending"
+            ? { ...message, waitsFor: presence }
             : message,
         ) ?? []),
       ...outgoing

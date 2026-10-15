@@ -292,7 +292,7 @@ async function mountApp(
   const sentNotes = new Set<string>();
   const inboxState = (): AgentInboxState => ({
     ...inbox!,
-    elsewhere: inbox!.elsewhere ?? [],
+    elsewhere: inbox!.elsewhere ?? {},
     resumable: inbox!.resumable ?? [],
     drafts: [
       ...inbox!.drafts,
@@ -487,8 +487,8 @@ async function mountApp(
           comments,
           attachmentCount: 0,
           createdAt: new Date().toISOString(),
-          // A session that a terminal runs takes the message later.
-          delivery: inbox.elsewhere?.includes("s1") ? "pending" : "delivered",
+          // A session that a terminal or another app runs takes the message later.
+          delivery: inbox.elsewhere?.s1 ? "pending" : "delivered",
         };
         inbox = {
           ...inbox,
@@ -3504,7 +3504,7 @@ describe("agent session", () => {
     const { agentMessages, ownedStarts } = await mountApp({
       savedReview: true,
       session: `event: reset\ndata: ${JSON.stringify({ events: [reply(1000, "user_message_chunk", "Check the durations."), reply(5000, "agent_message_chunk", "They read in seconds.")], idle: true, modifiedAt: 0, truncated: false })}\n\n`,
-      inbox: { messages: [], waiting: [], elsewhere: ["s1"], drafts: [] },
+      inbox: { messages: [], waiting: [], elsewhere: { s1: "terminal" }, drafts: [] },
       agents: [{ id: "claude", name: "Claude Code", kind: "claude", available: true }],
     });
     await userEvent.click(page.getByRole("button", { name: "Toggle agent session" }));
@@ -3543,6 +3543,40 @@ describe("agent session", () => {
       .element(page.getByText("Waiting for the terminal session to close"))
       .not.toBeInTheDocument();
   });
+
+  test.each([
+    {
+      place: "claude-app" as const,
+      line: "Claude has this session open in the Claude app. Med can't type there.",
+      label: "Waiting for the session in the Claude app to close",
+    },
+    {
+      place: "other-app" as const,
+      line: "Claude has this session open in another app. Med can't type there.",
+      label: "Waiting for the session to close there",
+    },
+  ])(
+    "a session open in $place says where, and a message waits for it there",
+    async ({ place, line, label }) => {
+      await page.viewport(1280, 800);
+      const { agentMessages } = await mountApp({
+        savedReview: true,
+        session: `event: reset\ndata: ${JSON.stringify({ events: [], idle: true, modifiedAt: 0, truncated: false })}\n\n`,
+        inbox: { messages: [], waiting: [], elsewhere: { s1: place }, drafts: [] },
+        agents: [{ id: "claude", name: "Claude Code", kind: "claude", available: true }],
+      });
+      await userEvent.click(page.getByRole("button", { name: "Toggle agent session" }));
+      const composer = page.getByRole("form", { name: "Message Claude" });
+      await expect.element(composer.getByText(line)).toBeVisible();
+      await expect.element(composer.getByRole("button", { name: "Continue in Med" })).toBeVisible();
+      await userEvent.click(composer.getByRole("combobox", { name: "Message Claude" }));
+      await userEvent.keyboard("Round to minutes.{Meta>}{Enter}{/Meta}");
+      await expect.poll(() => agentMessages).toMatchObject([{ text: "Round to minutes." }]);
+      await expect
+        .element(page.getByRole("region", { name: "Agent session" }).getByText(label))
+        .toBeVisible();
+    },
+  );
 
   test("a saved review starts an agent in the Session pane, and the composer drives it", async () => {
     await page.viewport(1280, 800);
