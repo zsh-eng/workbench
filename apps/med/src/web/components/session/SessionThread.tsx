@@ -2070,13 +2070,17 @@ const styles = stylex.create({
     whiteSpace: "nowrap",
   },
   queued: { color: tokens.faint, fontSize: 11 },
+  // The dot sits on the label's first line, also when the label wraps: a
+  // fixed line height (the 14 px of `normal` at 11 px), and a top margin of
+  // (14 − 6) / 2 on the 6 px dot.
   delivery: {
     display: "flex",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 6,
     maxWidth: "86%",
     color: tokens.faint,
     fontSize: 11,
+    lineHeight: "14px",
     textAlign: "right",
   },
   deliveryFailed: { color: tokens.red },
@@ -2084,6 +2088,7 @@ const styles = stylex.create({
     width: 6,
     height: 6,
     flexShrink: 0,
+    marginTop: 4,
     borderRadius: "50%",
     backgroundColor: tokens.accent,
   },
