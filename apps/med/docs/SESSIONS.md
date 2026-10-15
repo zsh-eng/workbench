@@ -147,11 +147,17 @@ nothing.
 
 ## Found sessions
 
-Med also shows the Claude Code and Codex sessions that no agent handed off
-(`src/host/found-sessions.ts`). The thread list shows a session when its
-transcript changed in the last 7 days (`FOUND_DAYS`, one window for both
-agents) and its folder is in a registered repository or one of its worktrees.
-Its thread ID is `found-<agent>-<session>`, and the session routes accept it.
+Med also finds the Claude Code and Codex sessions that no agent handed off
+(`src/host/found-sessions.ts`). Med finds a session when its transcript
+changed in the last 7 days (`FOUND_DAYS`, one window for both agents) and its
+folder is in a registered repository or one of its worktrees. Its thread ID is
+`found-<agent>-<session>`, and the session routes accept it.
+
+A found session opens as a tab once, when Med first sees its agent work
+(`src/host/thread-service.ts`). The others, and the ones that the user
+closed, are in history, where `⌃Tab` and `med thread list --history` find
+them. A found tab keeps a short record (title, checkout, branch, sessions), so
+it stays a tab after its session leaves the 7-day window.
 
 - Claude Code: the project folders of the registered checkouts.
 - Codex files a rollout under the day that its session started. Each scan
@@ -334,9 +340,9 @@ the replay do not change.
 [Agent workspaces](AGENT_WORKSPACES.md) records the design and the remaining
 work.
 
-- The sidebar shows sessions recorded with saved reviews, and the
-  [found sessions](#found-sessions) of the last 7 days. Branch workspaces have
-  no session.
+- The sidebar shows the tabs: sessions recorded with saved reviews, and the
+  [found sessions](#found-sessions) that are open. Branch workspaces have no
+  session.
 - Subagent threads render whole, inside their call and in the subagent view;
   they are not virtual lists.
 - Estimates of open edits miss Pierre's hunk separators. A wrong estimate

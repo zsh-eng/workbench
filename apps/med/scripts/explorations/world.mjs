@@ -383,10 +383,41 @@ const glossary = [
     user: "Add a short glossary to the README: chart datum, high water, range, spring and neap tides.",
   },
   { read: "README.md" },
+  // A subagent that found the terms in the code, and finished.
+  {
+    agent: "Find each term in the code",
+    prompt:
+      "Find where the code uses chart datum, high water, range, and spring and neap tides. Report each file and line.",
+    steps: [
+      { read: "src/tides.ts" },
+      {
+        bash: "rg -n -i 'datum|high water|range|spring|neap' src",
+        description: "Search the source for the terms",
+        output: "src/tides.ts:6:  /** Height above chart datum, in metres. */",
+      },
+      {
+        say: "Only src/tides.ts names one of the terms: chart datum, on line 6. The code does not name range, spring, or neap tides.",
+      },
+      { end: true },
+    ],
+    result:
+      "Only src/tides.ts names one of the terms: chart datum, on line 6. The code does not name range, spring, or neap tides.",
+  },
   {
     edit: "README.md",
     old: "  low  10:53  0.0 m\n",
     new: "  low  10:53  0.0 m\n\n## Glossary\n\n**Chart datum.** The level that heights count from: about the lowest tide.\n\n**High water.** The highest level of one tide.\n",
+  },
+  // A subagent in the background that still works.
+  {
+    agent: "Check the glossary against the model",
+    background: true,
+    prompt:
+      "Read the prediction model in src/tides.ts. Check that each glossary term in the README agrees with it.",
+    steps: [
+      { read: "src/tides.ts" },
+      { running: "bun test tests/format.test.ts", description: "Run the format tests" },
+    ],
   },
 ];
 /** Steps that the glossary agent takes while the video records. */
@@ -448,11 +479,14 @@ class ClaudeTranscript {
     this.parent = null;
     this.title = title;
     this.lines = [];
+    /** The transcripts of its subagents. */
+    this.subagents = [];
   }
   base(at) {
     return {
       parentUuid: this.parent,
-      isSidechain: false,
+      isSidechain: !!this.agentId,
+      ...(this.agentId && { agentId: this.agentId }),
       userType: "external",
       entrypoint: "claude-desktop",
       cwd: this.cwd,
@@ -510,6 +544,105 @@ class ClaudeTranscript {
         extra ? { toolUseResult: extra } : {},
       );
     };
+    if (step.agent) {
+      // A subagent: its call here, and its own transcript and meta file beside
+      // this one, as Claude Code writes them (src/host/thread-subagents.ts).
+      const id = `toolu_${randomUUID().replace(/-/g, "").slice(0, 24)}`;
+      const agentId = randomUUID().replace(/-/g, "").slice(0, 17);
+      this.assistant(
+        at,
+        [
+          {
+            type: "tool_use",
+            id,
+            name: "Agent",
+            input: {
+              description: step.agent,
+              prompt: step.prompt,
+              subagent_type: "general-purpose",
+              ...(step.background && { run_in_background: true }),
+            },
+          },
+        ],
+        "tool_use",
+      );
+      const folder = join(dirname(this.path), this.id, "subagents");
+      const sub = new ClaudeTranscript({
+        home: "",
+        cwd: this.cwd,
+        branch: this.branch,
+        id: this.id,
+      });
+      sub.path = join(folder, `agent-${agentId}.jsonl`);
+      sub.agentId = agentId;
+      sub.user(at + 100, [{ type: "text", text: step.prompt }]);
+      for (const [index, inner] of step.steps.entries())
+        await sub.step(inner, at + 300 + index * 300);
+      await sub.save();
+      await writeFile(
+        join(folder, `agent-${agentId}.meta.json`),
+        JSON.stringify({ agentType: "general-purpose", description: step.agent, toolUseId: id }),
+      );
+      this.subagents.push(sub.path);
+      // A background agent's call returns at once, as Claude Code's does.
+      if (step.background)
+        this.user(
+          at + 200,
+          [
+            {
+              tool_use_id: id,
+              type: "tool_result",
+              content: [
+                { type: "text", text: `Async agent launched successfully. agentId: ${agentId}` },
+              ],
+            },
+          ],
+          {
+            toolUseResult: {
+              isAsync: true,
+              status: "async_launched",
+              agentId,
+              description: step.agent,
+              prompt: step.prompt,
+            },
+          },
+        );
+      if (step.result !== undefined)
+        this.user(
+          at + 300 + step.steps.length * 300,
+          [
+            {
+              tool_use_id: id,
+              type: "tool_result",
+              content: [{ type: "text", text: step.result }],
+            },
+          ],
+          {
+            toolUseResult: {
+              status: "completed",
+              agentId,
+              content: [{ type: "text", text: step.result }],
+            },
+          },
+        );
+      return;
+    }
+    if (step.running) {
+      // A command that has not returned yet.
+      this.assistant(
+        at,
+        [
+          {
+            type: "tool_use",
+            id: `toolu_${randomUUID().replace(/-/g, "").slice(0, 24)}`,
+            name: "Bash",
+            input: { command: step.running, description: step.description ?? "Run a command" },
+          },
+        ],
+        "tool_use",
+      );
+      return;
+    }
     if (step.user) {
       if (this.title && this.lines.length === 0)
         this.lines.push(
@@ -1471,6 +1604,13 @@ export async function buildWorld(root, now = Date.now()) {
     );
     registerWeekView(cli, weekTree);
     attempts.register(cli);
+  };
+
+  /** Marks the subagents' transcripts as written now, so the one that works
+   * shows as working however long the scenes before took. */
+  world.touchSubagents = async () => {
+    const at = new Date();
+    for (const path of glossarySession.subagents) await utimes(path, at, at);
   };
 
   /** The glossary agent's next step, as it works during a recording. */

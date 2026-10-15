@@ -26,8 +26,9 @@ Related: [file browsing](docs/FILE_BROWSING.md), [agent sessions](docs/SESSIONS.
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-The sidebar lists threads: each saved review that the host keeps, by
-repository, with its lead session's state. The workspace beside it is a tree of
+The sidebar lists the tabs: the threads that the user has open, by repository
+in the user's order, with each lead session's state and its Claude subagents.
+The other threads are history ([threads](#threads)). The workspace beside it is a tree of
 panes ([panes](#panes)): the review, and Changes, Session, Files, and Preview
 around it.
 
@@ -214,11 +215,13 @@ is the home and cannot close. A branch change in a workspace cancels old
 requests, restores that branch's navigation, and reloads mutable content.
 
 `WorkspaceHost` (`components/Workspaces.tsx`) owns the store, the address,
-the thread sidebar, `⌘1`–`⌘9` (the threads in sidebar order), and the `⌃Tab`
-switcher. Each workspace has its own review controller and `App`. The threads
-in view in the sidebar stay mounted in React `<Activity>`, open or not, as a
-terminal keeps its open tabs: one leaves memory when it is archived or folds
-into the older threads. Of the other workspaces, the six most recently shown
+the thread sidebar, `⌘1`–`⌘9` (the tabs in sidebar order), `⌘0`, `⌘⌥W`, `⌘⌥T`,
+and the `⌃Tab` switcher, which also searches history. Each workspace has its
+own review controller and `App`. The tabs stay mounted in React `<Activity>`,
+shown in this window or not, as a terminal keeps its open tabs: one leaves
+memory when it closes. Beyond 16 tabs (`TABS_MOUNTED`), the ones shown least
+recently leave memory and stay in the sidebar. History never mounts until it
+opens. Of the other workspaces, such as branches, the six most recently shown
 stay mounted; older ones are disposed and load again when shown. A thread
 takes about 5 MB of JavaScript heap and 15 MB of renderer memory; one with a
 12,000-line diff about 14 MB of heap. Activity runs effect cleanups when it
@@ -272,19 +275,49 @@ searches of one query do not cancel each other, and four run at once.
 
 ### Threads
 
-`GET /api/threads/events` sends the thread list and the registered
-repositories, and sends them again when they change; the host checks every
-1.5 seconds. A thread is a saved review that is not archived; its state comes
-from its lead session (`src/host/agent-status.ts`).
+A thread is a saved review, or a session that Med found
+([found sessions](docs/SESSIONS.md#found-sessions)). The threads that the user
+has open are tabs; the others are history. `src/host/thread-tabs.ts` keeps
+which threads are tabs, their order, and when each closed, in `tabs.json` in
+the state directory. `src/host/thread-service.ts` builds the lists:
+
+- `GET /api/threads/events` sends the tabs, in order, with the registered
+  repositories, and sends them again when they change; the host checks every
+  1.5 seconds, and at once when a tab opens, closes, or moves. A tab's state
+  comes from its lead session (`src/host/agent-status.ts`), its Git work from
+  `checkout-work.ts`, and its Claude subagents from `thread-subagents.ts`
+  (`<session>/subagents/agent-<id>.jsonl` and its `.meta.json`, which names
+  the task and the tool call that started it).
+- `GET /api/threads/history` lists the closed threads, the found sessions that
+  are not tabs, and the records of pruned threads, newest first. The host reads
+  no agent state for history; it reads each first prompt once, for search.
+- `POST /api/threads/:id/open` (with `restore` for its old place),
+  `/close` (with `removeWorktree`), `/delete`, `POST /api/threads/reopen`, and
+  `POST /api/threads/order` change the tabs. `med thread` uses the same routes.
+  `/archive`, from before tabs, closes or opens.
+
+A new thread, a hand-off, an adopted session, and Keep in Med open as tabs. A
+found session opens as a tab once, when Med first sees it work. The browser
+closes a tab on its own when its work has landed (`landed` in
+`web/data/tabs.ts`), from the window used last, never when `unlanded` is
+unknown.
+
+The first start with tabs makes them from the saved reviews: an archived
+review closes at `archivedAt`; one that works, waits, or changed in the last 3
+days opens; the others close. At start and once a day, the host prunes
+history: 30 days after the close it replaces the saved review with a short
+record (title, repository, branch, sessions), which opens as its newest
+session's found thread; after 180 days it deletes the record. Over the 512 MiB
+storage budget, the reviews that closed first give up their captures first.
 
 `POST /api/threads` starts a thread. With a worktree, the default, the host
 names a branch for the task (with `-2`, `-3`, … when the name is taken), adds a
 linked worktree for it in the state directory
 (`worktrees/<repository>-<id>/<branch>`), saves the review on its working
-changes, and starts the agent there on the task. `POST /api/threads/:id/archive`
-sets or clears `archivedAt`. With `removeWorktree`, it also runs `git worktree
-remove` without force, so Git keeps a worktree with changes and the host
-returns 409; it refuses a worktree that another thread uses. The branch stays.
+changes, and starts the agent there on the task. `POST /api/threads/:id/close`
+with `removeWorktree` also runs `git worktree remove` without force, so Git
+keeps a worktree with changes and the host returns 409; it refuses a worktree
+that another tab uses. The branch stays.
 
 **Attempts.** A start with `group: { id, attempt }` is one attempt at a task
 that several agents do. It needs a worktree; its branch is the task's name
@@ -296,7 +329,7 @@ attempt's diff against the attempts' common ancestor (`git merge-base
 checks (test, lint, type-check, and build commands in its tool calls), and
 last message, cached by transcript size and time. Keep stops the other
 attempts' agents, saves their changes as a commit on their branches (no hooks,
-no signing), removes their worktrees without force, and archives them. Undo,
+no signing), removes their worktrees without force, and closes them. Undo,
 kept in host memory, adds each worktree back from its branch and resets the
 saved commit, so the work is uncommitted again.
 

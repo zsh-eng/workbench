@@ -75,16 +75,62 @@ See [notes and vaults](VAULTS.md) for vaults.
 
 ## Threads
 
-A thread is one task: an agent's work and its changes, as a saved review. The
-sidebar lists threads by repository. The repository with the newest work comes
-first, and each group shows its newest thread first. A row shows the title, the
-branch, the age, and the change totals.
+A thread is one task: an agent's work and its changes, as a saved review, or
+a Claude Code or Codex session that Med found. The threads that you have open
+are **tabs**. All other threads are **history**.
 
-A thread stays in view while its agent works or waits for you, while it is
-open, and for three days after its last change. Each repository folds its
-older threads into one **N older** row, which opens them below. `⌘1`–`⌘9` count
-only the threads in view. Nothing is archived on its own.
+The sidebar shows only the tabs, by repository, in your order. A new tab goes
+to the top of its repository. Drag a row, or press `⌥↑` or `⌥↓` on a focused
+row, to move it in its repository. A row does not move when its agent's state
+changes, so `⌘1`–`⌘9` always open the tab at that place. A row shows the
+title, the branch, the age, and the change totals.
 
+Tabs stay loaded and Med follows their agents. History is cold: Med does not
+load it or read its agents until you open it again.
+
+- A thread opens as a tab when you start it, when an agent hands off its work
+  (`med review create`), when you keep a found session in Med, and when you
+  open it from history. A found session opens as a tab once, when Med first
+  sees its agent work. After you close it, it stays in history.
+- A row shows its agent's state by its type. The title is dim while the agent
+  works, and the second line shows what the agent does now, such as "Running
+  bun test". The title is bold when a turn ended while you were elsewhere.
+  **Needs you** shows, with a dot, while the agent waits for a permission
+  answer or for your review, and after a turn that ended on a question, until
+  you send a message from Med.
+- Above the tabs, a line counts the tabs that need you and the tabs whose
+  agents work, such as **1 needs you · 2 working**. It shows only when a count
+  is more than 0. Click a count to open the next tab of that kind. `⌘0` opens
+  the next tab that needs you, or else the next tab whose agent works.
+- A Claude Code tab lists its subagents under it: each one's task, and what
+  it does now. The title is dim while the subagent works and bold when it has
+  a result that you did not see. Click a subagent to open the thread with the
+  subagent's tab in its Session pane. A finished subagent stays until you see
+  the thread, then it goes from the list.
+- **Close a tab** with the **×** on its row, **Close tab** in `⌘K` or in the
+  row's menu, or `⌘⌥W`. Closing does not stop the agent: Med stops its streams
+  and Git checks, and the thread goes to history. **Undo** in the notice, or
+  `⌘⌥T` (**Reopen closed tab**), opens it again at its place. **Close and
+  remove worktree** also removes the worktree that Med made; the branch
+  stays, and Git keeps a worktree with changes.
+- Med closes a tab on its own when its work has landed: you read it, it was
+  off screen for 5 minutes, it does not need you, its agent does not work, and
+  its branch has no commits ahead of its base and no uncommitted changes. The
+  window that you used last does this, and a notice with **Undo** tells you.
+  Med never closes a tab whose work it cannot check.
+- **Open from history.** `⌃Tab` shows the tabs and other workspaces first.
+  Type a word, also while you hold Control, to search history too: closed
+  threads and found sessions that are not tabs, by title, branch, repository,
+  and first prompt, newest first. A history row has a hollow mark. `↵` opens
+  it as a tab. **Open from history…** in `⌘K` lists history at once. `⌘⌫` on a
+  history row, or its trash button, deletes the thread after you confirm.
+- **Delete…** in a row's menu deletes the thread after you confirm: its saved
+  review, captures, and comments. The agent's session stays in Claude Code or
+  Codex; Med does not show it as a found session again.
+- History does not grow without limit. Med keeps a closed thread's captures
+  and comments for 30 days. Then it keeps only the title, the repository, the
+  branch, and the sessions, for 180 days after the close; such a thread opens
+  as its agent's session. Med prunes when it starts and once a day.
 - **New thread** (`⌥N`) asks for the task, the repository, where the agent
   works, and the agent with its model and effort. **New worktree**, the
   default, makes a branch named for the task in a new linked worktree, so the
@@ -93,19 +139,12 @@ only the threads in view. Nothing is archived on its own.
   `gpt-6-astra`; Med keeps your last choice for each agent. `⌘↵` starts the
   agent on the task at once. **2 attempts** or **3 attempts** gives the same
   task to several agents ([Attempts](#attempts)).
-- A turning mark shows while the agent works, and the row shows what the agent
-  does now, such as "Running bun test", in place of its branch. **Needs you**
-  shows while the agent waits for a permission answer or for your review, and
-  after a turn that ended on a question, until you send a message from Med. A
-  dot shows when a turn ended while you were elsewhere.
-- `⌘1`–`⌘9` open the thread at that place in the list. `⌃Tab` shows recent
-  workspaces: hold Control, press Tab to step, and release to go.
+- `⌃Tab` steps through recent workspaces: hold Control, press Tab to step, and
+  release to go.
 - Rest the pointer on a row, and Med reads the thread before you click.
 - Right-click a row to open it, copy a command that resumes the agent's
-  session or opens lazygit in its checkout, mark it read or unread, or archive
-  it. **Archive and remove worktree** also removes the worktree that Med made;
-  the branch stays, and Git keeps a worktree with changes. **Undo** brings the
-  thread back.
+  session or opens lazygit in its checkout, mark it read or unread, close it,
+  or delete it.
 - A thread's review is a capture. The agent's handoff
   (`med review create --key …`) captures its work again as a new iteration.
   Until the first handoff, the capture is empty, so the review shows the live
@@ -130,11 +169,13 @@ The branch switcher (`⌘⇧G`) searches the branches and worktrees of every
 registered repository. `↵` opens a branch in the current workspace; `⌘↵` opens
 it as a new workspace.
 
-The six most recent workspaces stay loaded, so a switch back is immediate. Only
-the workspace on screen gets live updates; the others catch up when you
-return. A thread keeps its `/review/…` address, and Back and Forward move
-between workspaces. In a browser tab, which keeps `⌘1`–`⌘9`, use
-`Ctrl+1`–`Ctrl+9` or the installed app.
+Tabs stay loaded, so a switch is immediate; with more than 16 tabs, the ones
+shown least recently unload and stay in the sidebar. Of the other workspaces,
+such as branches, the six most recent stay loaded. Only the workspace on screen
+gets live updates; the others catch up when you return. A thread keeps its
+`/review/…` address, and Back and Forward move between workspaces. In a
+browser tab, which keeps `⌘1`–`⌘9`, use `Ctrl+1`–`Ctrl+9` or the installed
+app.
 
 ## Review changes
 
@@ -237,8 +278,9 @@ MB each. Other agents get the paths of saved copies, which Claude Code and
 Codex open themselves; Med keeps the copies for 30 days. Med stops its agents when the server stops. See
 [agent sessions](SESSIONS.md).
 
-Saved reviews persist in the state folder. Notes on a branch last until the
-server stops.
+Saved reviews persist in the state folder, until 30 days after you close
+their tabs ([Threads](#threads)). Notes on a branch last until the server
+stops.
 
 ## The Guide
 
@@ -408,7 +450,7 @@ in a new worktree. Start starts them all and opens the Attempts page.
   back.
 - **Keep** makes that attempt the thread. Med stops the agents of the others,
   commits their work to their branches ("Attempt A of …, not kept"), removes
-  their worktrees, and archives their threads. Their branches stay. A worktree
+  their worktrees, and closes their tabs. Their branches stay. A worktree
   that another thread uses, or one with an agent that Med cannot stop, stays,
   and the notice says why. The notice offers **Undo**, which brings back the
   other attempts with their worktrees and uncommitted work. Undo lasts until
@@ -704,8 +746,11 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Symbols in this file             | `⌘O`          |
 | Symbols in the project           | `⌘⇧O`         |
 | Open a branch or worktree        | `⌘⇧G`         |
-| Open thread 1–9                  | `⌘1`–`⌘9`     |
-| Switch to a recent workspace     | `⌃Tab`        |
+| Open tab 1–9                     | `⌘1`–`⌘9`     |
+| Next tab that needs you          | `⌘0`          |
+| Close tab / reopen closed tab    | `⌘⌥W` / `⌘⌥T` |
+| Move the focused tab             | `⌥↑` / `⌥↓`   |
+| Switch, or search history        | `⌃Tab`        |
 | Toggle the sidebar / session     | `⌘B` / `⌘⇧B`  |
 | New thread                       | `⌥N`          |
 | Previous / next attempt          | `←` / `→`     |
