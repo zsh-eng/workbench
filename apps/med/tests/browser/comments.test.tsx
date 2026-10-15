@@ -200,8 +200,11 @@ test("comment cards keep their height when saving and editing wrapped text", asy
   const input = mount!.querySelector("textarea")!;
   expect(input.scrollHeight).toBeLessThanOrEqual(input.clientHeight + 1);
   await page.getByRole("button", { name: "Save note" }).click();
-  // The saved comment reads as Markdown, on the lines the reader typed.
-  await expect.poll(() => mount!.querySelector("article .med-md-block br")).toBeTruthy();
+  // The saved comment reads as Markdown, on the lines the reader typed. The
+  // first render starts the Markdown worker, which takes longer beside other files.
+  await expect
+    .poll(() => mount!.querySelector("article .med-md-block br"), { timeout: 10_000 })
+    .toBeTruthy();
   expect(Math.abs(mount!.getBoundingClientRect().height - draftHeight)).toBeLessThanOrEqual(1);
   await page.getByRole("button", { name: "Edit", exact: true }).click();
   await expect.element(page.getByRole("textbox", { name: "Edit note text" })).toHaveValue(text);
@@ -226,12 +229,18 @@ test("a typed comment reads as Markdown, and its code block scrolls inside the c
   render(<Comment />);
   mount!.style.width = "480px";
   const code = `const total = items.reduce((sum, item) => sum + item.price, 0); // ${"wide ".repeat(30)}`;
-  const text = `Check \`total\`:\n\n\`\`\`ts\n${code}\n\`\`\``;
+  const text = `Check \`total\` with $HOME and $PATH set:\n\n\`\`\`ts\n${code}\n\`\`\``;
   await page.getByRole("textbox", { name: "Review note text" }).fill(text);
   await page.getByRole("button", { name: "Save note" }).click();
   const card = page.getByRole("article");
-  await expect.poll(() => card.element().querySelector("pre code")?.textContent).toContain(code);
+  await expect
+    .poll(() => card.element().querySelector("pre code")?.textContent, { timeout: 10_000 })
+    .toContain(code);
   expect(card.element().querySelector("p code")?.textContent).toBe("total");
+  // Shell variables are text, not math.
+  expect(card.element().querySelector("p")?.textContent).toBe(
+    "Check total with $HOME and $PATH set:",
+  );
   const pre = card.element().querySelector("pre")!;
   expect(pre.scrollWidth).toBeGreaterThan(pre.clientWidth);
   expect(card.element().getBoundingClientRect().right).toBeLessThanOrEqual(

@@ -12,6 +12,12 @@ import { supportedLanguage } from "../highlighting/languages";
 import type { MarkdownBlock, MarkdownHeading } from "./model";
 import { siteIcon } from "./site-icons";
 const parser = unified().use(remarkParse).use(remarkGfm).use(remarkMath).use(remarkRehype);
+// Replies and comments: a single dollar is text, as in $HOME or $3; $$ is math.
+const replyParser = unified()
+  .use(remarkParse)
+  .use(remarkGfm)
+  .use(remarkMath, { singleDollarTextMath: false })
+  .use(remarkRehype);
 const stringify = unified().use(rehypeStringify);
 const highlighter = await createHighlighter();
 const codeCache = new Map<string, Element["children"]>();
@@ -38,6 +44,8 @@ type Task = {
   briefLinks?: boolean;
   /** Web links are pills with their site's icon, as in an agent's replies. */
   webLinks?: boolean;
+  /** Only $$ starts math; a single dollar stays text, as in an agent's replies. */
+  plainDollars?: boolean;
 };
 // A preview keeps only its latest task. A batch, as of a thread's replies,
 // renders each task in order and replies to each.
@@ -60,9 +68,10 @@ async function drain() {
       const started = performance.now();
       if (task.text.length > 512 * 1024)
         throw new Error("Markdown preview supports up to 512 KiB. The source remains available.");
-      const markdown = parser.parse(task.text);
+      const markdownParser = task.plainDollars ? replyParser : parser;
+      const markdown = markdownParser.parse(task.text);
       if (task.vault) wikiLinks(markdown, task.text);
-      let tree = (await parser.run(markdown)) as Root;
+      let tree = (await markdownParser.run(markdown)) as Root;
       const headings: MarkdownHeading[] = [];
       const slugs = new Map<string, number>();
       let hasMath = false;

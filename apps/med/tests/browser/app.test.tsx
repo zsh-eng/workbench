@@ -3796,12 +3796,20 @@ describe("ask about these lines", () => {
       .fill("Which name?");
     await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
     await expect.poll(() => questions.asks).toHaveLength(1);
-    const answer = "Keep `after`:\n\n```ts\nexport const after = 2;\n```";
+    const answer = "Keep `after`; it costs $3 and $4 less:\n\n```ts\nexport const after = 2;\n```";
     questions.set({ status: "done", answer });
-    await page
-      .getByRole("region", { name: "Question" })
-      .getByRole("button", { name: "Keep as comment" })
-      .click();
+    // The pane reads dollars as text, not as math. The first render can start
+    // the Markdown worker.
+    const pane = page.getByRole("region", { name: "Question" });
+    await expect
+      .poll(() => pane.element().querySelector(".med-md-block p code")?.textContent, {
+        timeout: 10_000,
+      })
+      .toBe("after");
+    expect(pane.element().querySelector(".med-md-block p")?.textContent).toBe(
+      "Keep after; it costs $3 and $4 less:",
+    );
+    await pane.getByRole("button", { name: "Keep as comment" }).click();
     const text = `Question: Which name?\n\nClaude: ${answer}`;
     expect(savedNotes).toMatchObject([{ text }]);
 
@@ -3831,8 +3839,6 @@ describe("ask about these lines", () => {
     await expect
       .poll(() => agentMessages)
       .toMatchObject([{ text: "See the comment.", noteIds: ["saved-note-0"] }]);
-    await expect
-      .poll(() => panel.element().textContent)
-      .toContain("Claude: Keep `after`:\n\n```ts\nexport const after = 2;\n```");
+    await expect.poll(() => panel.element().textContent).toContain(`Claude: ${answer}`);
   });
 });
