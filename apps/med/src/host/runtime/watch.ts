@@ -2,18 +2,40 @@ import { createHash } from "node:crypto";
 import { lstat } from "node:fs/promises";
 import { watch as nativeWatch, type FSWatcher as NativeWatcher } from "node:fs";
 import { join, resolve } from "node:path";
-import { watch } from "chokidar";
+import { watch, type FSWatcher } from "chokidar";
 import { git } from "./process";
 
+export interface WatchHandlers {
+  /** A change, after a short delay that joins a burst of file events. */
+  change(): void;
+  /** Each file event, at once, before the delay. */
+  hint?(): void;
+  /** The watchers are ready: from now on, they see each change. */
+  ready?(): void;
+}
+
+export interface WatchOptions {
+  /** How often a check finds a change that the file events missed. */
+  safetyMs?: number;
+  /** Tests turn file events off, so that only the safety check finds changes. */
+  events?: boolean;
+}
+
 /** Watch filesystem hints and periodically reconcile changed-path metadata. */
-export async function watchRepository(repo: string, onChange: () => void, live = false) {
+export async function watchRepository(
+  repo: string,
+  handlers: WatchHandlers,
+  live = false,
+  options: WatchOptions = {},
+) {
+  const events = options.events ?? true;
   const abort = new AbortController();
   const [metadata, ignored] = await Promise.all([
     git(repo, ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"], {
       signal: abort.signal,
       maxBytes: 8192,
     }),
-    live
+    live && events
       ? git(
           repo,
           ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"],
@@ -42,35 +64,40 @@ export async function watchRepository(repo: string, onChange: () => void, live =
     if (maximum) clearTimeout(maximum);
     timer = undefined;
     maximum = undefined;
-    if (!closed) onChange();
+    if (!closed) handlers.change();
   };
   const hint = () => {
     if (closed) return;
+    handlers.hint?.();
     if (timer) clearTimeout(timer);
     timer = setTimeout(flush, 200);
     maximum ??= setTimeout(flush, 1000);
   };
-  const watcher = watch([...new Set(gitDirectories)], {
-    ignoreInitial: true,
-    followSymlinks: false,
-    depth: 8,
-    ignored: (path) => excludes.some((root) => path === root || path.startsWith(`${root}/`)),
-  });
-  watcher.on("all", hint);
+  let watcher: FSWatcher | undefined;
   let native: NativeWatcher | undefined;
-  if (live && (process.platform === "darwin" || process.platform === "win32")) {
-    try {
-      native = nativeWatch(repo, { recursive: true }, (_event, name) => {
-        const path = name ? resolve(repo, name.toString()) : "";
-        if (!path || !excludes.some((root) => path === root || path.startsWith(`${root}/`))) hint();
-      });
-      native.on("error", () => hint());
-    } catch {
-      /* Periodic reconciliation recovers unavailable native watching. */
+  if (events) {
+    watcher = watch([...new Set(gitDirectories)], {
+      ignoreInitial: true,
+      followSymlinks: false,
+      depth: 8,
+      ignored: (path) => excludes.some((root) => path === root || path.startsWith(`${root}/`)),
+    });
+    watcher.on("all", hint);
+    if (live && (process.platform === "darwin" || process.platform === "win32")) {
+      try {
+        native = nativeWatch(repo, { recursive: true }, (_event, name) => {
+          const path = name ? resolve(repo, name.toString()) : "";
+          if (!path || !excludes.some((root) => path === root || path.startsWith(`${root}/`)))
+            hint();
+        });
+        native.on("error", () => hint());
+      } catch {
+        /* Periodic reconciliation recovers unavailable native watching. */
+      }
+    } else if (live) {
+      // Bound recursion on portable platforms; reconciliation covers deeper changed files.
+      watcher.add(repo);
     }
-  } else if (live) {
-    // Bound recursion on portable platforms; reconciliation covers deeper changed files.
-    watcher.add(repo);
   }
   // A missed watcher hint is recovered by periodic status plus file metadata.
   const reconcile = async () => {
@@ -105,17 +132,23 @@ export async function watchRepository(repo: string, onChange: () => void, live =
       checking = false;
     }
   };
-  watcher.on("error", () => {
-    void reconcile();
-  });
-  watcher.on("ready", () => {
-    void reconcile();
-  });
+  const first = reconcile();
+  if (watcher) {
+    watcher.on("error", () => {
+      void reconcile();
+    });
+    watcher.on("ready", () => {
+      void reconcile();
+      if (!closed) handlers.ready?.();
+    });
+  } else
+    void first.then(() => {
+      if (!closed) handlers.ready?.();
+    });
   const interval = setInterval(() => {
     void reconcile();
-  }, 10_000);
+  }, options.safetyMs ?? 10_000);
   interval.unref();
-  void reconcile();
   return async () => {
     closed = true;
     abort.abort();
@@ -123,6 +156,6 @@ export async function watchRepository(repo: string, onChange: () => void, live =
     clearInterval(interval);
     if (timer) clearTimeout(timer);
     if (maximum) clearTimeout(maximum);
-    await watcher.close();
+    await watcher?.close();
   };
 }

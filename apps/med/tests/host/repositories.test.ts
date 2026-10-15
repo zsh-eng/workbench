@@ -402,7 +402,8 @@ test("active event streams keep their watchers while inactive sources are evicte
   });
   const { repo, parent } = await fixture();
   const paths = [repo];
-  for (let index = 0; index < 9; index++) {
+  // One more source than the 16 watchers.
+  for (let index = 0; index < 17; index++) {
     const path = join(parent, `watched-${index}`);
     git(repo, "worktree", "add", "-b", `watched-${index}`, path);
     paths.push(path);
@@ -431,13 +432,15 @@ test("active event streams keep their watchers while inactive sources are evicte
       ).toBe(200);
     expect(stopped.length).toBeGreaterThan(0);
     expect(stopped).not.toContain(repo);
-    // Pin the seven most recent sources as well. All eight watchers now have clients.
-    for (const path of paths.slice(-7)) await openEvents(path);
-    const stopCount = stopped.length;
-    expect(
-      (await request("/api/browse/list", { source: { kind: "worktree", repo: paths[1] } })).status,
-    ).toBe(503);
-    expect(stopped).toHaveLength(stopCount);
+    // Pin the seven most recent sources as well: eight event streams, the most
+    // that the host keeps. New sources evict only the watchers without a stream.
+    const pinned = paths.slice(-7);
+    for (const path of pinned) await openEvents(path);
+    for (const path of paths.slice(1, 10))
+      expect(
+        (await request("/api/browse/list", { source: { kind: "worktree", repo: path } })).status,
+      ).toBe(200);
+    for (const path of [repo, ...pinned]) expect(stopped).not.toContain(path);
   } finally {
     for (const controller of controllers) controller.abort();
     await Promise.allSettled(readers.map((reader) => reader.cancel()));

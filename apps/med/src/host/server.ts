@@ -54,7 +54,7 @@ import { loadPullRequestComments } from "./repository/pull-request";
 import { ReviewService } from "./repository/review";
 import { HostError } from "./runtime/errors";
 import { ProcessFailure } from "./runtime/process";
-import { watchRepository } from "./runtime/watch";
+import { watchRepository, type WatchOptions } from "./runtime/watch";
 import { createCodeCheck, webEntry } from "./runtime/build";
 import { NoteService } from "./notes";
 import {
@@ -69,6 +69,8 @@ import { symbolSearchRequestSchema } from "../shared/symbols";
 import { FileSymbolService } from "./search/symbols";
 import { type SearchOptions } from "./search/service";
 import { RepositoryRegistry } from "./repository/registry";
+import { Memo } from "./repository/cache";
+import { CheckoutRevisions } from "./repository/events";
 import { removeWorktree } from "./repository/worktrees";
 import { AttemptGroups } from "./attempts";
 import { runProcess } from "./runtime/process";
@@ -152,6 +154,9 @@ export interface StartHostOptions {
   gh?: { command: string; args: string[] };
   /** The command that runs this Med again; agents that Med starts get it as `med`. */
   cli?: readonly string[];
+  /** Repository watchers. Tests turn file events off, change the safety
+   * check, and learn when a watcher that sees file edits is ready. */
+  watch?: WatchOptions & { onReady?: (repo: string) => void };
 }
 export interface RunningHost {
   url: string;
@@ -419,7 +424,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   // The workspace list's states update this often.
   const STATUS_MS = 1500;
   const activeRequests = new Map<AbortController, Set<string>>();
-  let revision = 0;
+  // Each checkout's revision: watcher events change it at once.
+  const revisions = new CheckoutRevisions();
+  // Answers from Git metadata stay while the family's Git signature is the
+  // same; answers from working files also need a watcher that sees edits.
+  const checkoutInfo = new Memo<Awaited<ReturnType<typeof resolveRepository>>>();
+  const targetsCache = new Memo<Awaited<ReturnType<typeof gitTargets>>>();
+  const browseCache = new Memo<Awaited<ReturnType<typeof listBrowse>>>(32);
+  const driftCache = new Memo<boolean>();
   let closing = false;
   let port = 0;
   let expensiveRequests = 0;
@@ -560,13 +572,15 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       return;
     }
     let evicted: Promise<void> | undefined;
-    if (!watchers.has(repo) && watchers.size >= 8) {
+    // One watcher for each checkout of the tabs that stay loaded (16): a
+    // watcher that stops costs its cached answers and a new start.
+    if (!watchers.has(repo) && watchers.size >= 16) {
       const pinned = new Set(streams.values());
       const oldest = [...watchers.keys()].find((path) => !pinned.has(path));
       if (!oldest)
         throw new HostError(
           "too-many-watchers",
-          "Eight working folders are in use. Close another viewer before opening this source.",
+          "Sixteen working folders are in use. Close another viewer before opening this source.",
           503,
         );
       const stop = watchers.get(oldest)!;
@@ -576,7 +590,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       evicted = retireWatcher(stop);
     }
     const previous = watchers.get(repo);
-    const promise = (async () => {
+    // Until the new watcher is ready, a change can go unseen.
+    revisions.watching(repo, false);
+    const promise: Promise<() => Promise<void>> = (async () => {
       await evicted;
       if (previous) {
         try {
@@ -587,15 +603,28 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           /* Replace a failed watcher. */
         }
       }
-      return watchRepository(
+      const stop = await watchRepository(
         repo,
-        () => {
-          if (!registry.owner(repo)) return;
-          registry.refreshSearch(repo);
-          publish({ type: "changed", repo, revision: ++revision });
+        {
+          change() {
+            if (!registry.owner(repo)) return;
+            registry.refreshSearch(repo);
+            publish({ type: "changed", repo, revision: revisions.revision(repo) });
+          },
+          hint: () => revisions.changed(repo),
+          ready() {
+            if (!live || watchers.get(repo) !== promise) return;
+            revisions.watching(repo, true);
+            options.watch?.onReady?.(repo);
+          },
         },
         live,
+        options.watch,
       );
+      return async () => {
+        revisions.watching(repo, false);
+        await stop();
+      };
     })();
     watchers.set(repo, promise);
     watcherModes.set(repo, live);
@@ -617,7 +646,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       };
     // The checkout's own Git state reads while its repository refreshes; a
     // refresh that fails still gives its error first.
-    const checkout = resolveRepository(repo, signal);
+    const checkout = registry
+      .gitState(repo)
+      .then((state) => checkoutInfo.get(repo, state, () => resolveRepository(repo)));
     checkout.catch(() => {});
     await registry.refreshOwner(repo, signal);
     const repositories = registry.snapshot();
@@ -839,7 +870,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             "x-accel-buffering": "no",
           });
           response.write(
-            `event: ready\ndata: ${JSON.stringify({ type: "ready", repo: eventRepo, revision })}\n\n`,
+            `event: ready\ndata: ${JSON.stringify({ type: "ready", repo: eventRepo, revision: revisions.revision(eventRepo) })}\n\n`,
           );
           streams.set(response, eventRepo);
           response.once("close", () => streams.delete(response));
@@ -1820,14 +1851,21 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 else {
                   // Later edits to its files send change events, as for a working review.
                   observe(target.repo, true);
-                  const [saved, live] = await Promise.all([
-                    savedReviews.review(id!, targetId!),
-                    reviews.load(
-                      { repo: target.repo, comparison: target.comparison },
-                      abort.signal,
-                    ),
-                  ]);
-                  send({ changed: captureChanged(saved, live) });
+                  // The answer stays while the watcher sees no edit and Git is the same.
+                  const files = revisions.token(target.repo);
+                  const state = files && (await registry.gitState(target.repo));
+                  const changed = await driftCache.get(
+                    `${id}\n${targetId}\n${bundle.revision}`,
+                    state && `${files}\n${state}`,
+                    async () => {
+                      const [saved, live] = await Promise.all([
+                        savedReviews.review(id!, targetId!),
+                        reviews.load({ repo: target.repo, comparison: target.comparison }),
+                      ]);
+                      return captureChanged(saved, live);
+                    },
+                  );
+                  send({ changed });
                 }
               } else if (action === "feedback") send(await savedReviews.feedback(id!));
               else if (action === "pull-request") {
@@ -2152,6 +2190,17 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             if (input.source.kind === "worktree") {
               browseLiveSources.add(input.source.repo);
               observe(input.source.repo, true);
+              // Ignored folders have no file events, so a list with them reads again.
+              const files = input.ignored ? undefined : revisions.token(input.source.repo);
+              const state = files && (await registry.gitState(input.source.repo));
+              const { repo } = input.source;
+              const { ignored } = input;
+              send(
+                await browseCache.get(repo, state && `${files}\n${state}`, () =>
+                  listBrowse({ kind: "worktree", repo }, ignored),
+                ),
+              );
+              return;
             }
             send(await listBrowse(input.source, input.ignored, abort.signal));
             return;
@@ -2218,7 +2267,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           if (url.pathname === "/api/git/targets" && request.method === "GET") {
-            send(await gitTargets(await requireRepo(url.searchParams.get("repo")), abort.signal));
+            const repo = await requireRepo(url.searchParams.get("repo"));
+            send(
+              await targetsCache.get(repo, await registry.gitState(repo), () => gitTargets(repo)),
+            );
             return;
           }
           if (url.pathname === "/api/git/push" && request.method === "POST") {

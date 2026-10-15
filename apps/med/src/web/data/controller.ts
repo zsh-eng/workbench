@@ -377,6 +377,11 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
   let eventAbort: AbortController | undefined;
   let eventTimer: ReturnType<typeof setTimeout> | undefined;
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+  /** A change event came, and its reload has not run yet. */
+  let refreshPending = false;
+  /** The checkout's revision that this workspace's event stream named last. A
+   * stream that starts again after `resume()` compares its first one with it. */
+  let eventRevision: { workspace: number; value: number } | undefined;
   let reconnectDelay = 500;
   const sourceRequests = new Map<
     string,
@@ -879,7 +884,6 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     if (options.events === false || disposed || suspended) return;
     const workspace = workspaceGeneration;
     const repo = snapshot.session?.repository.path;
-    let lastRevision: number | undefined;
     let connections = 0;
     const connect = async () => {
       if (disposed || workspace !== workspaceGeneration) return;
@@ -916,16 +920,23 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
             const result = eventSchema.safeParse(raw);
             if (!result.success || result.data.repo !== repo) return;
             const notice = result.data;
-            // Reconnect always reconciles: events may have been missed while disconnected.
+            // Reconnect always reconciles: events may have been missed while
+            // disconnected. A stream after `resume()` reconciles only when the
+            // checkout's revision changed while the workspace was hidden.
+            const seen = eventRevision?.workspace === workspace ? eventRevision.value : undefined;
             const needsRefresh =
               notice.type === "changed" ||
               connections > 1 ||
-              (lastRevision !== undefined && lastRevision !== notice.revision);
-            lastRevision = notice.revision;
+              (seen !== undefined && seen !== notice.revision);
+            eventRevision = { workspace, value: notice.revision };
             reconnectDelay = 500;
             if (needsRefresh) {
               clearTimeout(refreshTimer);
-              refreshTimer = setTimeout(reconcile, 150);
+              refreshPending = true;
+              refreshTimer = setTimeout(() => {
+                refreshPending = false;
+                reconcile();
+              }, 150);
             }
           },
           abort.signal,
@@ -2029,7 +2040,16 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       // needs no second read.
       if (snapshot.savedReview && performance.now() - savedReadAt > SAVED_FRESH_MS)
         refreshSavedOnFocus();
-      reconcile();
+      // Without a revision from before, or with a reload that did not run,
+      // reload now; otherwise the stream's first event decides.
+      if (
+        options.events === false ||
+        refreshPending ||
+        eventRevision?.workspace !== workspaceGeneration
+      ) {
+        refreshPending = false;
+        reconcile();
+      }
     },
     async loadCommitDetails(id, signal) {
       const repo = snapshot.session?.repository.path;
