@@ -356,8 +356,7 @@ process.stdout.write(process.env.MED_TEST_PR);
   await page.mouse.up();
   await page.waitForFunction(
     () =>
-      window.shown('button[aria-label="Copy comments"]')?.getAttribute("data-copied") ===
-      "true",
+      window.shown('button[aria-label="Copy comments"]')?.getAttribute("data-copied") === "true",
   );
   const clipboard = await page.evaluate(() => navigator.clipboard.readText());
   for (const expected of [
@@ -507,9 +506,7 @@ process.stdout.write(process.env.MED_TEST_PR);
   await page.getByRole("textbox", { name: "Filter comparison branches" }).fill("main");
   await page.getByRole("menuitem", { name: "main", exact: true }).click();
   await page.waitForFunction(
-    () =>
-      window.shown('[data-review-status="ready"]')?.getAttribute("data-file-count") ===
-      "0",
+    () => window.shown('[data-review-status="ready"]')?.getAttribute("data-file-count") === "0",
   );
   await header.getByRole("button", { name: "Return to review", exact: true }).click();
   await page.locator('[data-review-status="ready"]').filter({ visible: true }).waitFor();
