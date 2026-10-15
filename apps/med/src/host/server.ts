@@ -23,6 +23,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import {
   apiErrorMessage,
+  MAX_COMPARISON_PATHS,
   notesRequestSchema,
   noteMutationSchema,
   reviewRequestSchema,
@@ -93,6 +94,8 @@ import { createFoundSessions } from "./found-sessions";
 import { createSessionSearch, sessionEntry, type SessionInfo } from "./session-search";
 import { createCheckoutWork } from "./checkout-work";
 import { createThreadFeed } from "./thread-feed";
+import { createCheckoutChanges } from "./checkout-changes";
+import { createSessionEdits } from "./session-edits";
 import {
   foundUpdateSchema,
   sessionAdoptSchema,
@@ -121,7 +124,9 @@ import {
   briefCommentMutationSchema,
   reviewKeySchema,
   savedReviewCreateSchema,
+  threadCheckout,
   type CapturedReviewTarget,
+  type SavedCheckout,
   type SavedReviewCreate,
 } from "../shared/saved-review";
 import { getPersistentToken, publishConnection } from "./runtime/connection";
@@ -286,15 +291,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         .closed()
         .map((entry) => entry.id)
         .reverse(),
-    evicted: (review) =>
+    evicted: (review) => {
+      // A thread without a Review names its checkout; the stub keeps it.
+      const checkout = threadCheckout(review);
       tabs.setStub(review.id, {
         title: review.pullRequestTitle ?? review.title,
         createdAt: review.createdAt,
         sessions: review.sessions ?? [],
-        ...(review.targets[0] && { checkout: review.targets[0].repo }),
-        ...(review.targets[0]?.branch && { branch: review.targets[0].branch }),
+        ...(checkout && { checkout: checkout.repo }),
+        ...(checkout?.branch && { branch: checkout.branch }),
         ...(review.pullRequestUrl && { pullRequestUrl: review.pullRequestUrl }),
-      }),
+      });
+    },
   });
   const inbox = new AgentInbox(join(options.stateDir ?? temporaryState!, "agent-messages"), {
     ...(options.queueCodex ? { queueCodex: options.queueCodex } : {}),
@@ -336,6 +344,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   });
   // The windows' thread lists.
   const threadStreams = new Set<ServerResponse>();
+  // The counts of each thread's live Changes, for its row.
+  const checkoutChanges = createCheckoutChanges();
+  // The files that each agent session edited, for "Only this session's files".
+  const sessionEdits = createSessionEdits();
   // Claude Code and Codex sessions in the registered repositories that no
   // saved review names; the thread list shows them too.
   const found = createFoundSessions({
@@ -343,6 +355,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     refreshRepositories: () => registry.list(),
     owned: () => ownedSessions.agentSessions(),
     settingsFile: join(options.stateDir ?? temporaryState!, "found-sessions.json"),
+    changes: checkoutChanges,
   });
   await found.restore();
   // Sessions of any age, for `med thread find` and `med thread adopt`.
@@ -401,6 +414,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     lastMessage: (reviewId) => inbox.last(reviewId),
     found,
     checkoutWork,
+    checkoutChanges,
     subagents: createThreadSubagents(),
     removeWorktree: (path, signal) => removeLinkedWorktree(path, signal),
   });
@@ -1135,8 +1149,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             const input = ownedStartSchema.parse(await readBody(request));
             const target =
               bundle.targets.find((entry) => entry.id === input.targetId) ??
-              bundle.targets.find((entry) => !entry.commentReviewId) ??
-              bundle.targets[0]!;
+              threadCheckout(bundle)!;
             const entry = registry.snapshot().find((item) => item.id === target.repositoryId);
             if (!entry)
               throw new HostError(
@@ -1467,6 +1480,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             send({ windows: windows.size });
             return;
           }
+          /** A thread's checkout, which it keeps without a capture: its
+           * Changes are live until the agent hands off a Review. */
+          const placeCheckout = async (path: string): Promise<SavedCheckout> => {
+            const repo = await requireRepo(path);
+            const owner = await registry.require(repo, abort.signal);
+            const info = await resolveRepository(repo, abort.signal);
+            return {
+              repositoryId: owner.repository.id,
+              repo,
+              branch: info.branch === "Detached HEAD" ? null : info.branch,
+            };
+          };
           // A comparison of a saved review, with its sources and images.
           const captureTarget = async (
             target: SavedReviewCreate["targets"][number],
@@ -1556,6 +1581,24 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             send(review);
             return;
           }
+          // A new Review version of a thread: what its agent shows now
+          // (`med thread show`, `med review update --paths`).
+          const version = /^\/api\/reviews\/(r_[a-f0-9]{24})\/versions$/.exec(url.pathname);
+          if (version && request.method === "POST") {
+            const body = savedReviewCreateSchema
+              .omit({ title: true })
+              .parse(await readBody(request, MAX_BRIEF_BODY + MAX_GUIDE_BODY));
+            const review = await savedReviews.addVersion(
+              version[1]!,
+              body,
+              captureTarget,
+              assertRequestAccess,
+            );
+            // As a hand-off does, a new version opens a closed thread as a tab.
+            await threads.opened(review);
+            send(review);
+            return;
+          }
           // `med thread adopt`: a Claude Code or Codex session of any age
           // becomes a saved thread, as Keep in Med makes one. A session that
           // a thread names already gives that thread, back from history as a tab.
@@ -1600,15 +1643,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               repo = place.checkout.path;
             }
             const title = input.title ?? info.title.slice(0, 200);
+            // The thread captures nothing: its Changes are live, and it has a
+            // Review once the agent shows one (`med thread show`).
             const review = await savedReviews.create(
               {
                 title,
                 key: `${threadSlug(title)}-${info.id.slice(0, 8)}`,
                 sessions: [{ agent: info.agent, id: info.id, cwd: info.cwd ?? repo }],
-                targets: [{ repo, comparison: { kind: "working" } }],
+                targets: [],
               },
               captureTarget,
               assertRequestAccess,
+              await placeCheckout(repo),
             );
             // An adopted session is a new thread: it opens as a tab.
             await threads.opened(review);
@@ -1670,10 +1716,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 key,
                 sessions: [runner.session],
                 ...(input.group ? { group: input.group } : {}),
-                targets: [{ repo: cwd, comparison: { kind: "working" } }],
+                targets: [],
               },
               captureTarget,
               assertRequestAccess,
+              await placeCheckout(cwd),
             );
             await threads.opened(review, input.prompt);
             await runner.prompt(input.prompt);
@@ -2425,6 +2472,28 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   input.comparison.kind === "working" ||
                   input.comparison.kind === "unstaged",
               );
+            // "Only this session's files": the files that the session edited,
+            // from its transcript, read again for each load.
+            const scoped =
+              input.comparison.kind !== "patch" && input.comparison.kind !== "files"
+                ? input.comparison
+                : undefined;
+            if (scoped?.session) {
+              const { session, ...comparison } = scoped;
+              const edited = await sessionEdits.paths(session, input.repo);
+              const listed = comparison.paths && new Set(comparison.paths);
+              const paths = (listed ? edited.filter((path) => listed.has(path)) : edited).slice(
+                -MAX_COMPARISON_PATHS,
+              );
+              const review = await reviews.load(
+                { repo: input.repo, comparison: { ...comparison, paths } },
+                abort.signal,
+              );
+              abort.signal.throwIfAborted();
+              notes.adopt(review.id);
+              send({ ...review, comparison: input.comparison });
+              return;
+            }
             const review = await reviews.load(input, abort.signal);
             abort.signal.throwIfAborted();
             notes.adopt(review.id);
@@ -2656,6 +2725,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       found.close();
       checkoutWork.close();
       threadFeed.close();
+      checkoutChanges.close();
       threads.stop();
       for (const abort of activeRequests.keys()) abort.abort();
       for (const stream of [...streams.keys(), ...windows]) stream.end();

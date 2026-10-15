@@ -69,7 +69,9 @@ export default async function scene(stage) {
   await stage.wait(1000);
   await stage.shot("01-resume");
 
-  await stage.say("<b>Keep in Med</b> saves it as a thread, so you can comment and reply.");
+  await stage.say(
+    "<b>Keep in Med</b> saves it as a thread, so you can comment and reply. It saves no diff: Changes stay live until the agent shows a Review.",
+  );
   await stage.click(bar.getByRole("button", { name: "Keep in Med" }));
   await page.waitForURL(/\/review\//, { timeout: 20_000 });
   await page

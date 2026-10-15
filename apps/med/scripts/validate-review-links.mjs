@@ -511,7 +511,8 @@ process.stdout.write(process.env.MED_TEST_PR);
   await page.waitForFunction(
     () => window.shown('[data-review-status="ready"]')?.getAttribute("data-file-count") === "0",
   );
-  await header.getByRole("button", { name: "Return to review", exact: true }).click();
+  // The base branch comparison shows in Changes; the Review tab shows the hand-off again.
+  await page.getByRole("tab", { name: "Review", exact: true }).filter({ visible: true }).click();
   await page.locator('[data-review-status="ready"]').filter({ visible: true }).waitFor();
   await copyButton.click();
   await page.waitForFunction(async () =>
@@ -548,7 +549,13 @@ process.stdout.write(process.env.MED_TEST_PR);
     .getByRole("article")
     .getByText("Frontend feedback from the browser", { exact: true })
     .waitFor();
-  await header.getByRole("combobox", { name: "Review target" }).selectOption(second.id);
+  await page
+    .getByRole("combobox", { name: "Review version", exact: true })
+    .filter({ visible: true })
+    .click();
+  await page
+    .getByRole("option", { name: new RegExp(`^${second.repo.split("/").at(-1)} · `) })
+    .click();
   await page.getByText("Backend feedback across repositories", { exact: true }).waitFor();
   await page.getByRole("button", { name: "Clear all comments", exact: true }).click();
   await page.getByRole("button", { name: "Cancel", exact: true }).click();

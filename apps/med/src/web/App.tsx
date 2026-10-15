@@ -25,11 +25,19 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import type { Comparison, Note, NoteInput, PullRequestThread } from "../shared/protocol";
-import { useReviewController, type ReviewController } from "./data/controller";
+import {
+  changesBase,
+  type Comparison,
+  type Note,
+  type NoteInput,
+  type PullRequestThread,
+} from "../shared/protocol";
+import { hasReview, useReviewController, type ReviewController } from "./data/controller";
 import { tokens, ui } from "./theme.stylex";
+import { relativeTime, useMinuteClock } from "./data/relative-time";
 import {
   ActionMenu,
+  ChoiceLabel,
   ChoiceSelect,
   CommandDialog,
   SegmentedControl,
@@ -49,6 +57,7 @@ import {
   useDisposeOnClose,
   useShell,
   useTabCommands,
+  useThread,
   useThreadReader,
   useThreadState,
   useWorkspace,
@@ -61,7 +70,13 @@ import { visibleElement } from "./data/palette-focus";
 import { setFilePreviewShown, useFilePreviewShown } from "./data/picker-preferences";
 import { BranchPicker } from "./components/BranchPicker";
 import type { BrowseSource } from "../shared/browse";
-import { agentName, type AgentSession } from "../shared/saved-review";
+import {
+  agentName,
+  handoffTargets,
+  threadCheckout,
+  type AgentSession,
+  type SavedReviewTarget,
+} from "../shared/saved-review";
 import { createBrowseApi, useBrowseFiles, useVaults, type BrowseApi } from "./data/browse";
 import { useMentionSources } from "./data/mentions";
 import { isBrowseFile, type FileRead } from "../shared/local-file";
@@ -96,9 +111,11 @@ import type { CodexFinding, CodexReviewRun } from "../shared/codex-review";
 import { SavedReviewHeader, type SavedReviewActions } from "./components/SavedReviewHeader";
 import {
   comparisonLabel,
+  type ComparisonLabel,
   ConnectionNotice,
   useQuietMenu,
   useRowFit,
+  useSlotFits,
 } from "./components/QuietChrome";
 import { setChromeMode, useQuietChrome } from "./data/chrome";
 import { ShortcutGuide } from "./components/ShortcutGuide";
@@ -380,7 +397,10 @@ export function App({
     [],
   );
   // With quiet chrome, the Commit tab's Stage all goes in the review's row.
+  // In a narrow row it goes back to the Commit view's own header, so that
+  // the tabs keep their labels.
   const [stageSlot, setStageSlot] = useState<HTMLElement | null>(null);
+  const stageFits = useSlotFits(stageSlot, 72);
   const savedActions = useRef<SavedReviewActions>(null);
   // The base branch menu opens below the comparison once the select closes.
   const openCompare = useCallback(
@@ -513,6 +533,7 @@ export function App({
   const pendingSavedChanges = useRef<string | null>(null);
   // An iteration chosen in the brief: its comparison loads, then the brief shows.
   const pendingIteration = useRef<string | null>(null);
+  const pendingTab = useRef<"review" | "changes" | null>(null);
   useEffect(() => {
     // The Notes and the Guide belong to the saved review, so they stay in front
     // while another iteration's comparison, or a commit of the guide, loads.
@@ -520,7 +541,7 @@ export function App({
       workspaceKey,
       browseSource,
       sourceLabel,
-      state.savedView ? ["brief", "guide"] : state.savedReview ? ["guide"] : [],
+      state.savedReview ? ["brief", "guide"] : [],
     );
     if (
       pendingSavedChanges.current &&
@@ -540,12 +561,23 @@ export function App({
       fileWorkspace.select("brief");
       pendingIteration.current = null;
     }
+    // The Review or Changes tab, chosen while another checkout's diff loads:
+    // that checkout's own tab choice does not replace it.
+    if (
+      pendingTab.current &&
+      state.status === "ready" &&
+      (pendingTab.current === "review" ? state.savedView : !state.savedView && !state.inReview)
+    ) {
+      fileWorkspace.select("changes");
+      pendingTab.current = null;
+    }
   }, [
     fileWorkspace,
     workspaceKey,
     browseSource,
     sourceLabel,
     state.savedView,
+    state.inReview,
     state.savedReview,
     state.savedTargetId,
     state.status,
@@ -1238,21 +1270,16 @@ export function App({
   const briefSource = shownIteration
     ? iterations.findLast((entry) => entry.number <= shownIteration && (entry.brief || entry.fresh))
     : undefined;
-  const savedBrief = !state.savedView
-    ? undefined
-    : shownIteration
-      ? briefSource?.brief
-      : state.savedReview?.brief;
+  // The Notes belong to the Review's version, also while Changes show.
+  const savedBrief = shownIteration ? briefSource?.brief : state.savedReview?.brief;
   // The Notes are the brief and the agent replies pinned to the shown iteration.
-  const savedPins = !state.savedView
-    ? undefined
-    : shownIteration
-      ? iterations.find((entry) => entry.number === shownIteration)?.pins
-      : state.savedReview?.pins;
+  const savedPins = shownIteration
+    ? iterations.find((entry) => entry.number === shownIteration)?.pins
+    : state.savedReview?.pins;
   const hasNotes =
     !!savedBrief ||
     !!savedPins?.length ||
-    (!!state.savedView && briefSource?.fresh === true && briefSource.number === shownIteration);
+    (briefSource?.fresh === true && briefSource.number === shownIteration);
   // Comments on passages of the shown brief and pins.
   const allBriefComments = state.savedReview?.briefComments;
   const briefComments = useMemo(
@@ -1334,10 +1361,22 @@ export function App({
         state.comparison.kind === "commit" &&
         state.comparison.commit === guideCommit.id));
   const guideOverview = guideTab && !guideDiff;
-  // The diff stream shows in Changes, and in the Guide for a segment or commit.
+  // The tab row is Review · Changes · Commit. Review is what the agent handed
+  // off: a saved version, with its Guide. Changes are the checkout's live
+  // diff. The pane's "changes" view shows either diff, and "guide" is Review's.
+  const reviewAvailable = !!state.savedReview && hasReview(state.savedReview);
+  const reviewShown =
+    reviewAvailable &&
+    (fileState.active === "guide" || (fileState.active === "changes" && state.inReview));
+  const shownTab = reviewShown
+    ? "review"
+    : fileState.active === "guide"
+      ? "changes"
+      : fileState.active;
+  // The diff stream shows in Review and Changes, and in the Guide for a segment or commit.
   const streamShown = fileState.active === "changes" || guideDiff;
-  // A saved review's Changes tab lists its files and commits beside the diff,
-  // unless the Changed files pane shows them.
+  // A thread's Review and Changes list their files beside the diff, and
+  // Review its commits, unless the Changed files pane shows them.
   const changesRail =
     fileState.active === "changes" &&
     !!state.savedReview &&
@@ -1469,13 +1508,10 @@ export function App({
       setPendingGuideFile(fileId ?? null);
       if (scope.kind === "commit") {
         if (snapshot.comparison.kind !== "commit" || snapshot.comparison.commit !== scope.id)
-          void controller.selectComparison({
-            kind: "commit",
-            commit: scope.id,
-          });
+          void controller.selectComparison({ kind: "commit", commit: scope.id }, true);
         return;
       }
-      if (!snapshot.savedView) void controller.returnToSavedReview();
+      if (!snapshot.savedView) void controller.showReview();
       // A segment's viewed files start folded.
       const section =
         scope.kind === "segment" ? guideSections.find((entry) => entry.key === scope.key) : null;
@@ -1580,19 +1616,51 @@ export function App({
   // The tab row in order, for Alt+number and ⌘⇧[ / ⌘⇧]; empty when the row is hidden.
   // Keys read the store at event time, so a quick second key sees the first one's tab.
   const tabRow = useCallback(() => {
-    if (!browseSource && !hasNotes && !hasGuide) return { order: [] as string[], active: "" };
+    if (!browseSource && !hasNotes && !reviewAvailable)
+      return { order: [] as string[], active: "" };
     const { tabs, active } = fileWorkspace.getSnapshot();
+    const inReview =
+      reviewAvailable &&
+      (active === "guide" || (active === "changes" && controller.getSnapshot().inReview));
     return {
       order: [
-        ...(hasGuide ? ["guide"] : []),
+        ...(reviewAvailable ? ["review"] : []),
         ...(hasNotes ? ["brief"] : []),
         "changes",
         ...(commitApi ? ["commit"] : []),
         ...tabs.map((tab) => tab.id),
       ],
-      active,
+      active: inReview ? "review" : active === "guide" ? "changes" : active,
     };
-  }, [browseSource, hasNotes, hasGuide, commitApi, fileWorkspace]);
+  }, [browseSource, hasNotes, reviewAvailable, commitApi, fileWorkspace, controller]);
+  /** Shows a tab of the row: Review (its Guide, or its saved diff), Changes
+   * (the checkout's live diff), Notes, Commit, or a file. */
+  const selectTab = useCallback(
+    (id: string) => {
+      pendingTab.current = null;
+      if (id === "review") {
+        if (hasGuide) openGuide(guideScope);
+        else {
+          fileWorkspace.select("changes");
+          if (!controller.getSnapshot().savedView) {
+            pendingTab.current = "review";
+            void controller.showReview();
+          }
+        }
+        return;
+      }
+      if (id === "changes") {
+        fileWorkspace.select("changes");
+        if (controller.getSnapshot().inReview) {
+          pendingTab.current = "changes";
+          void controller.showChanges();
+        }
+        return;
+      }
+      fileWorkspace.select(id);
+    },
+    [hasGuide, openGuide, guideScope, fileWorkspace, controller],
+  );
   const toggleCommit = useCallback(() => {
     if (fileState.active !== "commit") {
       commitReturn.current = fileState.active;
@@ -1629,31 +1697,35 @@ export function App({
     }),
     [controller, showToast],
   );
-  const briefShown = useRef<string | null>(null);
   useEffect(() => {
-    if (!hasNotes) {
-      if (fileState.active === "brief") fileWorkspace.select("changes");
-      return;
-    }
-    if (state.status !== "ready" || !state.savedReview) return;
-    // Open on the brief once per review and after each paste; tab choices stay.
-    // A review with a guide opens on the guide instead.
-    if (briefShown.current === state.savedReview.id) return;
-    briefShown.current = state.savedReview.id;
-    if (!hasGuide) fileWorkspace.select("brief");
-  }, [hasNotes, hasGuide, state.savedReview, state.status, fileState.active, fileWorkspace]);
-  const guideShown = useRef<string | null>(null);
+    if (!hasNotes && fileState.active === "brief") fileWorkspace.select("changes");
+  }, [hasNotes, fileState.active, fileWorkspace]);
   useEffect(() => {
-    if (!hasGuide) {
-      if (fileState.active === "guide") fileWorkspace.select(hasNotes ? "brief" : "changes");
-      return;
-    }
+    if (!hasGuide && fileState.active === "guide") fileWorkspace.select("changes");
+  }, [hasGuide, fileState.active, fileWorkspace]);
+  // A thread opens on its Review once the agent has handed one off: on its
+  // Guide, or on its brief in Notes, or on its diff. Before a hand-off, it
+  // opens on its Changes. A hand-off that arrives later adds the Review tab
+  // and does not move the reader. Tab choices stay until the next open.
+  const reviewOpened = useRef<string | null>(null);
+  useEffect(() => {
     if (state.status !== "ready" || !state.savedReview) return;
-    // Open on the guide once per review; tab choices stay.
-    if (guideShown.current === state.savedReview.id) return;
-    guideShown.current = state.savedReview.id;
-    fileWorkspace.select("guide");
-  }, [hasGuide, hasNotes, state.savedReview, state.status, fileState.active, fileWorkspace]);
+    if (reviewOpened.current === state.savedReview.id) return;
+    reviewOpened.current = state.savedReview.id;
+    // The controller opens a thread with a hand-off on its Review's diff.
+    if (reviewAvailable)
+      fileWorkspace.select(hasGuide ? "guide" : savedBrief ? "brief" : "changes");
+    else if (fileState.active === "guide" || fileState.active === "brief")
+      fileWorkspace.select("changes");
+  }, [
+    reviewAvailable,
+    hasGuide,
+    savedBrief,
+    state.savedReview,
+    state.status,
+    fileState.active,
+    fileWorkspace,
+  ]);
   useEffect(() => {
     if (fileState.active === "commit" && !commitApi) fileWorkspace.select("changes");
   }, [commitApi, fileState.active, fileWorkspace]);
@@ -1672,9 +1744,8 @@ export function App({
         showToast(error instanceof Error ? error.message : "The brief could not be saved.");
         return false;
       }
-      briefShown.current = null;
-      if (text && !controller.getSnapshot().savedView) void controller.returnToSavedReview();
-      if (!text) fileWorkspace.select("changes");
+      // A pasted brief shows in Notes.
+      fileWorkspace.select(text ? "brief" : "changes");
       showToast(message, undo);
       return true;
     },
@@ -1739,8 +1810,8 @@ export function App({
             void controller.selectSavedTarget(first);
             showToast(
               refresh
-                ? `Refreshed the review as iteration ${iteration.number}.`
-                : `Started the notes of iteration ${iteration.number}.`,
+                ? `Refreshed the Review as version ${iteration.number}.`
+                : `Started the notes of version ${iteration.number}.`,
             );
           },
           (error: unknown) =>
@@ -1924,19 +1995,23 @@ export function App({
                   note.resolution !== "orphaned" &&
                   note.resolution !== "stale",
               )
-              .map((note): DiffLineAnnotation<Annotation> => ({
-                side: note.side === "old" ? "deletions" : "additions",
-                lineNumber: noteLine(file.metadata, note),
-                metadata: { note },
-              })),
+              .map(
+                (note): DiffLineAnnotation<Annotation> => ({
+                  side: note.side === "old" ? "deletions" : "additions",
+                  lineNumber: noteLine(file.metadata, note),
+                  metadata: { note },
+                }),
+              ),
             ...(guideNotesByFile?.get(file.id) ?? [])
               .filter(onLines)
               .filter((note) => shownLine(file.metadata, note))
-              .map((note): DiffLineAnnotation<Annotation> => ({
-                side: note.side === "old" ? "deletions" : "additions",
-                lineNumber: noteLine(file.metadata, note),
-                metadata: { guide: note },
-              })),
+              .map(
+                (note): DiffLineAnnotation<Annotation> => ({
+                  side: note.side === "old" ? "deletions" : "additions",
+                  lineNumber: noteLine(file.metadata, note),
+                  metadata: { guide: note },
+                }),
+              ),
           ]
         : [];
       if (visibleDraft?.path === file.path)
@@ -2320,7 +2395,7 @@ export function App({
           event.stopPropagation();
           const place = Number(key.slice(5));
           const id = place === 9 ? row.order.at(-1) : row.order[place - 1];
-          if (id && id !== row.active) fileWorkspace.select(id);
+          if (id && id !== row.active) selectTab(id);
           return;
         }
         if (["KeyW", "KeyO", "KeyP", "KeyB", "KeyR", "KeyZ"].includes(key)) {
@@ -2401,7 +2476,7 @@ export function App({
         event.stopPropagation();
         const step = bracket === "BracketRight" ? 1 : -1;
         const index = Math.max(0, order.indexOf(active));
-        fileWorkspace.select(order[(index + step + order.length) % order.length]!);
+        selectTab(order[(index + step + order.length) % order.length]!);
         return;
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "o") {
@@ -2585,6 +2660,7 @@ export function App({
     commitApi,
     toggleCommit,
     tabRow,
+    selectTab,
     streamShown,
     guideTab,
     guideDiff,
@@ -2918,10 +2994,11 @@ export function App({
     ["search-word", "Search file for word at cursor", "*"],
     ["search-word-back", "Search file backward for word at cursor", "#"],
   ];
-  const returnToReview = () => {
+  /** Shows the whole diff of the Review's version, not one of its commits. */
+  const showReviewDiff = () => {
     pendingSavedChanges.current = state.savedTargetId;
     fileWorkspace.select("changes");
-    void controller.returnToSavedReview();
+    void controller.showReview();
   };
   const actionRepo = state.review?.repo ?? state.session?.repository.path;
   const actionBranch = state.savedView
@@ -2950,6 +3027,207 @@ export function App({
     fileWorkspace.select("changes");
     // The menu opens below the comparison, once the Changes tab shows it.
     openCompare();
+  };
+  // Changes on a branch other than the base start at the base: the branch's
+  // commits and its uncommitted changes.
+  const branchBase =
+    (state.comparison.kind === "working" ? state.comparison.base : undefined) ??
+    changesBase(
+      state.repositories.find((entry) => entry.id === state.activeRepositoryId),
+      state.activeBranch,
+    );
+  const liveValue =
+    state.comparison.kind === "working" && state.comparison.base ? "branch" : state.comparison.kind;
+  // Quiet chrome names a live range by the branch at its head.
+  const liveText = comparisonLabel(
+    state.comparison,
+    undefined,
+    state.activeBranch ? { name: state.activeBranch, head: liveHead } : undefined,
+  );
+  // In Review, the row names the hand-off: its version and its age. The menu
+  // lists the versions, newest first, then the commits that you commented
+  // on. Git's comparisons are the Changes tab's. A version of several
+  // checkouts has an item for each.
+  const reviewNow = useMinuteClock(reviewShown);
+  const handoffs = state.savedReview ? handoffTargets(state.savedReview) : [];
+  const versionOf = (target: SavedReviewTarget) =>
+    iterations.find((entry) => entry.targetIds.includes(target.id));
+  const versionNumber = (target: SavedReviewTarget) => versionOf(target)?.number ?? 1;
+  const latestVersion = iterations.at(-1)?.number ?? 1;
+  // A version's description: its checkout, and for a range or a commit, the
+  // names that Med saved with it.
+  const placeOf = (target: SavedReviewTarget) =>
+    [
+      `${target.repo.split(/[\\/]/).at(-1)} · ${target.branch ?? "detached"}`,
+      ...(target.comparison.kind === "range" || target.comparison.kind === "commit"
+        ? [comparisonLabel(target.comparison, target.names).long]
+        : []),
+    ].join(" · ");
+  const versionChoices = reviewShown
+    ? [
+        ...handoffs
+          .map((target, index) => ({ target, index, number: versionNumber(target) }))
+          .sort((a, b) => b.number - a.number || a.index - b.index)
+          .map(({ target, number }) => {
+            const places = handoffs.filter((other) => versionNumber(other) === number).length;
+            const time = Date.parse(
+              versionOf(target)?.createdAt ?? state.savedReview?.createdAt ?? "",
+            );
+            return {
+              value: target.id,
+              label: [
+                `Version ${number}`,
+                ...(places > 1 ? [target.repo.split(/[\\/]/).at(-1)!] : []),
+                ...(Number.isFinite(time) ? [relativeTime(time, Math.max(reviewNow, time))] : []),
+              ].join(" · "),
+              description:
+                number === latestVersion && latestVersion > 1
+                  ? `${placeOf(target)} · the latest version`
+                  : placeOf(target),
+            };
+          }),
+        ...(state.savedReview?.targets ?? [])
+          .filter((target) => target.commentReviewId)
+          .map((target) => ({
+            value: target.id,
+            label: `Commit ${target.label}`,
+            description: `${placeOf(target)} · a commit that you commented on`,
+          })),
+      ]
+    : [];
+  const reviewCommit =
+    reviewShown && !state.savedView && state.comparison.kind === "commit"
+      ? state.comparison.commit
+      : null;
+  const comparisonValue = reviewShown ? (reviewCommit ?? state.savedTargetId ?? "") : liveValue;
+  const sessionFilter = "session" in state.comparison ? (state.comparison.session ?? null) : null;
+  const liveChoices = [
+    ...(workingAvailable && branchBase
+      ? [
+          {
+            value: "branch",
+            label: "Branch changes",
+            description: `Commits since ${branchBase}, and uncommitted changes`,
+          },
+        ]
+      : []),
+    ...(workingAvailable
+      ? [
+          {
+            value: "working",
+            label: "Working changes",
+            description: "HEAD to working files, including untracked",
+          },
+          {
+            value: "staged",
+            label: "Staged changes",
+            description: "HEAD to the index",
+          },
+          {
+            value: "unstaged",
+            label: "Unstaged changes",
+            description: "Index to working files",
+          },
+        ]
+      : []),
+    ...(!["branch", "working", "staged", "unstaged"].includes(liveValue)
+      ? [
+          {
+            value: liveValue,
+            label:
+              state.comparison.kind === "commit"
+                ? state.comparison.commit.slice(0, 7)
+                : state.comparison.kind === "patch"
+                  ? "Patch review"
+                  : state.comparison.kind === "files"
+                    ? "File comparison"
+                    : // Quiet chrome names the range here, and only here.
+                      quiet && state.comparison.kind === "range"
+                      ? liveText.long
+                      : "Revision range",
+            description:
+              state.comparison.kind === "commit"
+                ? "This commit against its first parent"
+                : state.comparison.kind === "range"
+                  ? state.comparison.mergeBase
+                    ? "Changes since the common ancestor"
+                    : "Between two revisions"
+                  : undefined,
+          },
+        ]
+      : []),
+  ];
+  const comparisonChoices: { value: string; label: string; description?: string }[] = reviewShown
+    ? [
+        ...versionChoices,
+        ...(reviewCommit
+          ? [
+              {
+                value: reviewCommit,
+                label: reviewCommit.slice(0, 7),
+                description: "A commit of the Review's range",
+              },
+            ]
+          : []),
+      ]
+    : liveChoices.map((choice) =>
+        // The trigger says when Changes keep only the session's files.
+        sessionFilter && choice.value === liveValue
+          ? { ...choice, label: `${choice.label} · this session` }
+          : choice,
+      );
+  // The row's label: in full, or short in a narrow row (QuietChrome.tsx).
+  const chosenLabel = comparisonChoices.find((choice) => choice.value === comparisonValue)?.label;
+  const shownVersion = state.savedTargetId
+    ? iterations.find((entry) => entry.targetIds.includes(state.savedTargetId!))?.number
+    : undefined;
+  const comparisonText: ComparisonLabel = reviewShown
+    ? {
+        long: chosenLabel ?? "",
+        // A narrow row drops the age.
+        short:
+          reviewCommit || shownTarget?.commentReviewId
+            ? (chosenLabel ?? "")
+            : `Version ${shownVersion ?? 1}`,
+      }
+    : {
+        long: chosenLabel ?? liveText.long,
+        short: `${liveValue === "branch" ? "Branch" : liveText.short}${sessionFilter ? " · session" : ""}`,
+      };
+  // A shared checkout holds other sessions' work too. Its Changes can keep
+  // only the files that the thread's lead session edited.
+  const thread = useThread(state.savedReview?.id);
+  const ownSession =
+    leadSession && (leadSession.agent === "claude" || leadSession.agent === "codex")
+      ? { agent: leadSession.agent, id: leadSession.id }
+      : null;
+  const canFilterSession =
+    !reviewShown &&
+    !!ownSession &&
+    (!!thread?.shared || !!sessionFilter) &&
+    ["working", "staged", "unstaged", "commit", "range"].includes(state.comparison.kind);
+  const toggleSessionFilter = () => {
+    if (!ownSession) return;
+    const comparison = { ...state.comparison } as Comparison & { session?: unknown };
+    if (sessionFilter) delete comparison.session;
+    else comparison.session = ownSession;
+    fileWorkspace.select("changes");
+    void controller.selectComparison(comparison as Comparison);
+  };
+  const chooseComparison = (value: string) => {
+    if (reviewShown) {
+      if (value === reviewCommit) return;
+      pendingSavedChanges.current = value;
+      pendingIteration.current = null;
+      fileWorkspace.select("changes");
+      void controller.selectSavedTarget(value);
+      return;
+    }
+    const session = sessionFilter ? { session: sessionFilter } : {};
+    if (value === "branch" && branchBase)
+      void controller.selectComparison({ kind: "working", base: branchBase, ...session });
+    else if (value === "working" || value === "staged" || value === "unstaged")
+      void controller.selectComparison({ kind: value, ...session });
   };
   const commands: ReviewCommand[] = [
     {
@@ -3138,9 +3416,18 @@ export function App({
     },
     {
       id: "changes",
-      label: "Return to Changes",
-      run: () => fileWorkspace.select("changes"),
+      label: state.savedReview ? "Show Changes" : "Return to Changes",
+      run: () => selectTab("changes"),
     },
+    ...(reviewAvailable
+      ? [
+          {
+            id: "review",
+            label: "Show Review",
+            run: () => selectTab("review"),
+          },
+        ]
+      : []),
     ...(hasGuide
       ? [
           {
@@ -3465,21 +3752,12 @@ export function App({
           },
         ]
       : []),
-    ...(state.savedReview && (!state.savedView || isFileTab(fileState.active))
+    ...(canFilterSession
       ? [
           {
-            id: "return-to-review",
-            label: "Return to review",
-            run: returnToReview,
-          },
-        ]
-      : []),
-    ...(state.savedReview && state.savedView && workingAvailable
-      ? [
-          {
-            id: "show-live-changes",
-            label: "Show live changes",
-            run: selectWorking,
+            id: "session-files",
+            label: sessionFilter ? "Show every changed file" : "Show only this session's files",
+            run: toggleSessionFilter,
           },
         ]
       : []),
@@ -3512,65 +3790,6 @@ export function App({
   ];
   const guideContext: GuideContextId =
     activeFile && fileState.file?.kind === "text" ? (activeEditing ? "editor" : "file") : "review";
-  const comparisonValue = state.comparison.kind;
-  // Quiet chrome names the range by the names that Med saved with it, or,
-  // live, by the branch at its head.
-  const comparisonText = comparisonLabel(
-    state.comparison,
-    state.savedView
-      ? state.savedReview?.targets.find((target) => target.id === state.savedTargetId)?.names
-      : undefined,
-    !state.savedView && state.activeBranch
-      ? { name: state.activeBranch, head: liveHead }
-      : undefined,
-  );
-  const comparisonChoices = [
-    ...(workingAvailable
-      ? [
-          {
-            value: "working",
-            label: "Working changes",
-            description: "HEAD to working files, including untracked",
-          },
-          {
-            value: "staged",
-            label: "Staged changes",
-            description: "HEAD to the index",
-          },
-          {
-            value: "unstaged",
-            label: "Unstaged changes",
-            description: "Index to working files",
-          },
-        ]
-      : []),
-    ...(!["working", "staged", "unstaged"].includes(comparisonValue)
-      ? [
-          {
-            value: comparisonValue,
-            label:
-              state.comparison.kind === "commit"
-                ? state.comparison.commit.slice(0, 7)
-                : state.comparison.kind === "patch"
-                  ? "Patch review"
-                  : state.comparison.kind === "files"
-                    ? "File comparison"
-                    : // Quiet chrome names the range here, and only here.
-                      quiet && state.comparison.kind === "range"
-                      ? comparisonText.long
-                      : "Revision range",
-            description:
-              state.comparison.kind === "commit"
-                ? "This commit against its first parent"
-                : state.comparison.kind === "range"
-                  ? state.comparison.mergeBase
-                    ? "Changes since the common ancestor"
-                    : "Between two revisions"
-                  : undefined,
-          },
-        ]
-      : []),
-  ];
   const fileLinkOpened = useRef(false);
   const fileLinkSelecting = useRef(false);
   const [fileLinkError, setFileLinkError] = useState("");
@@ -4121,15 +4340,19 @@ export function App({
   // The diff's controls: in the toolbar above it, or in the review's one row
   // with quiet chrome, while the diff shows.
   const streamChrome = streamShown && !zen;
-  const selectComparison = (value: string) => {
-    if (["working", "staged", "unstaged"].includes(value))
-      void controller.selectComparison({
-        kind: value,
-      } as Comparison);
-  };
-  // After the choices: other ways to choose what the diff compares.
+  // After the choices: in a shared checkout, the session's own files; with
+  // quiet chrome, in Changes, other ways to choose what the diff compares.
   const compareActions = [
-    ...(comparisonActionsShown
+    ...(canFilterSession
+      ? [
+          {
+            label: "Only this session's files",
+            checked: !!sessionFilter,
+            onSelect: toggleSessionFilter,
+          },
+        ]
+      : []),
+    ...(quiet && !reviewShown && comparisonActionsShown
       ? [
           {
             label: "Compare against a branch…",
@@ -4137,27 +4360,35 @@ export function App({
           },
         ]
       : []),
-    ...(gitAvailable
+    ...(quiet && !reviewShown && gitAvailable
       ? [{ label: "Compare two revisions…", onSelect: () => setRangeOpen(true) }]
       : []),
   ];
   // In a narrow row the comparison takes its short label, then goes into ⋯.
   const comparisonFit = useRowFit(comparisonSlot, quiet && streamChrome ? comparisonText : null);
-  const comparisonSelect = (
-    <ChoiceSelect
-      label="Comparison"
-      value={comparisonValue}
-      choices={comparisonChoices}
-      onChange={selectComparison}
-      {...(quiet && {
-        // One control says what the diff compares, and changes it.
-        triggerRef: comparisonTrigger,
-        trigger: styles.rowComparisonTrigger,
-        actions: compareActions,
-        display: comparisonFit === "short" ? comparisonText.short : undefined,
-      })}
-    />
-  );
+  // A Review of one version names it, with nothing to choose. (Review has no
+  // compare actions.)
+  const comparisonSelect =
+    reviewShown && comparisonChoices.length <= 1 ? (
+      <ChoiceLabel
+        title={comparisonChoices[0]?.description ?? "Review version"}
+        text={comparisonFit === "short" ? comparisonText.short : comparisonText.long}
+      />
+    ) : (
+      <ChoiceSelect
+        label={reviewShown ? "Review version" : "Comparison"}
+        value={comparisonValue}
+        choices={comparisonChoices}
+        onChange={chooseComparison}
+        actions={compareActions}
+        {...(quiet && {
+          // One control says what the diff compares, and changes it.
+          triggerRef: comparisonTrigger,
+          trigger: styles.rowComparisonTrigger,
+          display: comparisonFit === "short" ? comparisonText.short : undefined,
+        })}
+      />
+    );
   const comparisonActionsElement = comparisonActionsShown && actionRepo && (
     <ComparisonActions
       key={`${actionRepo}:${actionHead}:${actionBranch}`}
@@ -4279,7 +4510,7 @@ export function App({
                   label: comparisonText.long,
                   value: comparisonValue,
                   choices: comparisonChoices,
-                  select: selectComparison,
+                  select: chooseComparison,
                   actions: compareActions,
                 }
               : undefined,
@@ -4323,10 +4554,7 @@ export function App({
               }
             : undefined
         }
-        browsing={isFileTab(fileState.active)}
-        browsingSourceLabel={activeFile?.sourceLabel ?? sourceLabel}
-        onReturn={returnToReview}
-        onLive={workingAvailable ? selectWorking : undefined}
+        pickVersion={reviewShown && !streamChrome}
         onTarget={(id) => {
           pendingSavedChanges.current = id;
           pendingIteration.current = null;
@@ -4392,7 +4620,7 @@ export function App({
           )
         }
         showBrief={hasNotes}
-        showGuide={hasGuide}
+        showReview={reviewAvailable}
         showCommit={!!commitApi}
         tabs={fileState.tabs.map((tab) => ({
           ...tab,
@@ -4404,9 +4632,11 @@ export function App({
               }),
           dirty: !!editorDrafts.get(JSON.stringify([tab.source, tab.path]))?.dirty,
         }))}
-        active={fileState.active}
-        changesCount={state.review ? state.files.length : undefined}
-        onSelect={fileWorkspace.select}
+        active={shownTab}
+        // The tabs keep their places as you switch: a thread with a Review
+        // has no count, which Changes could not keep while Review shows.
+        changesCount={state.review && !reviewAvailable ? state.files.length : undefined}
+        onSelect={selectTab}
         onClose={fileWorkspace.close}
         onPin={fileWorkspace.pin}
       />
@@ -4426,7 +4656,7 @@ export function App({
   );
   // Where the thread works: its repository, and its branch or worktree. The
   // window's title band names it; without the shell, the session header does.
-  const threadTarget = state.savedReview?.targets.find((target) => !target.commentReviewId);
+  const threadTarget = state.savedReview && threadCheckout(state.savedReview);
   const threadRepository =
     threadTarget &&
     state.repositories.find(
@@ -4618,7 +4848,7 @@ export function App({
             state.savedDrift !== dismissedDrift && (
               <div role="status" {...stylex.props(styles.notice, styles.drift)}>
                 <span {...stylex.props(styles.driftText)}>
-                  The worktree changed after this review.
+                  The checkout changed after this version of the Review.
                 </span>
                 <span {...stylex.props(ui.row)}>
                   <button
@@ -4631,10 +4861,10 @@ export function App({
                   </button>
                   <button
                     type="button"
-                    onClick={selectWorking}
+                    onClick={() => selectTab("changes")}
                     {...stylex.props(ui.button, ui.pressable, styles.driftAction)}
                   >
-                    Show live changes
+                    Show Changes
                   </button>
                   <ToolButton
                     label="Dismiss"
@@ -4656,7 +4886,9 @@ export function App({
                     ? "Guide"
                     : fileState.active === "commit"
                       ? "Commit"
-                      : "Changes"
+                      : reviewShown
+                        ? "Review"
+                        : "Changes"
             }
             {...stylex.props(styles.reviewSurface)}
           >
@@ -4704,17 +4936,15 @@ export function App({
                     onPrefetch={prefetchFile}
                     onOpen={browseSource ? openChangedFile : undefined}
                     filterRef={filterRef}
-                    commits={guideCommits}
-                    moreCommits={guideTarget?.moreCommits}
+                    // The Review's commits; Changes are live and list files only.
+                    commits={reviewShown ? guideCommits : NO_COMMITS}
+                    moreCommits={reviewShown ? guideTarget?.moreCommits : undefined}
                     commit={state.comparison.kind === "commit" ? state.comparison.commit : null}
                     whole={state.savedView}
                     onCommit={(commit) =>
-                      void controller.selectComparison({
-                        kind: "commit",
-                        commit,
-                      })
+                      void controller.selectComparison({ kind: "commit", commit }, true)
                     }
-                    onWhole={returnToReview}
+                    onWhole={showReviewDiff}
                   />
                 )}
                 {guideOverview && (
@@ -4739,6 +4969,7 @@ export function App({
                     total={shownGuideFiles.length}
                     done={guideViewedIds.size}
                     onScope={openGuide}
+                    onWhole={showReviewDiff}
                     onOpenLink={openGuideLink}
                   />
                 )}
@@ -5100,7 +5331,7 @@ export function App({
                     active={fileState.active === "commit"}
                     draftKey={`med:commit-message:${commitRepo}`}
                     onOpenFile={openCommitFile}
-                    stageIn={quiet && !zen ? stageSlot : undefined}
+                    stageIn={quiet && !zen && (!stageSlot || stageFits) ? stageSlot : undefined}
                   />
                 </Suspense>
               </div>

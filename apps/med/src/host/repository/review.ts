@@ -68,6 +68,30 @@ export function safeRepoPath(repo: string, path: string) {
   return absolute;
 }
 
+/** The one common ancestor of two commits. */
+async function mergeBase(repo: string, base: string, head: string, signal?: AbortSignal) {
+  const ancestors = (
+    await git(repo, ["merge-base", "--all", base, head], {
+      signal,
+      maxBytes: 8192,
+      acceptedExitCodes: [0, 1],
+    })
+  )
+    .toString("utf8")
+    .trim()
+    .split("\n")
+    .filter(Boolean);
+  if (ancestors.length !== 1)
+    throw new HostError(
+      "merge-base-unavailable",
+      ancestors.length
+        ? "This comparison has multiple merge bases. Choose an exact base commit."
+        : "These branches have no available common ancestor. Fetch more history or choose an exact base commit.",
+      422,
+    );
+  return ancestors[0]!;
+}
+
 async function fingerprint(repo: string, path: string) {
   try {
     const stat = await lstat(safeRepoPath(repo, path), { bigint: true });
@@ -128,7 +152,7 @@ export async function readWorkingFile(repo: string, path: string) {
 export function parseRawDiff(data: Buffer): SourceFile[] {
   const fields = data.toString("utf8").split("\0");
   const files: SourceFile[] = [];
-  for (let i = 0; i < fields.length;) {
+  for (let i = 0; i < fields.length; ) {
     const header = fields[i++]!;
     if (!header) continue;
     const match = /^:(\d+) (\d+) ([0-9a-f]+) ([0-9a-f]+) ([A-Z])\d*$/.exec(header);
@@ -598,26 +622,7 @@ export class ReviewService {
             "invalid-comparison",
             "Choose merge-base or inclusive range, not both.",
           );
-        const ancestors = (
-          await git(repo, ["merge-base", "--all", base, head], {
-            signal,
-            maxBytes: 8192,
-            acceptedExitCodes: [0, 1],
-          })
-        )
-          .toString("utf8")
-          .trim()
-          .split("\n")
-          .filter(Boolean);
-        if (ancestors.length !== 1)
-          throw new HostError(
-            "merge-base-unavailable",
-            ancestors.length
-              ? "This comparison has multiple merge bases. Choose an exact base commit."
-              : "These branches have no available common ancestor. Fetch more history or choose an exact base commit.",
-            422,
-          );
-        base = ancestors[0]!;
+        base = await mergeBase(repo, base, head, signal);
       }
       if (comparison.includeBase) base = (await parentOrEmpty(base)).parent;
       args = [base, head];
@@ -643,10 +648,21 @@ export class ReviewService {
         return emptyTree();
       });
       head = comparison.kind === "staged" ? "index" : "worktree";
-      args = comparison.kind === "staged" ? ["--cached", base] : [base];
       label = comparison.kind === "staged" ? "Staged changes" : "Working changes";
+      // A branch's changes: from where it left its base, with the uncommitted ones.
+      if (comparison.kind === "working" && comparison.base) {
+        const from = await resolveCommit(repo, comparison.base, signal);
+        base = await mergeBase(repo, from, base, signal);
+        label = `Branch changes · since ${comparison.base}`;
+      }
+      args = comparison.kind === "staged" ? ["--cached", base] : [base];
     }
-    const cacheKey = JSON.stringify([repo, base, head]);
+    // Only some files: literal pathspecs. An empty list keeps no file.
+    const only = comparison.paths;
+    for (const path of only ?? []) safeRepoPath(repo, path);
+    const pathspecs = only?.map((path) => `:(literal)${path}`) ?? [];
+    const none = only?.length === 0;
+    const cacheKey = JSON.stringify([repo, base, head, ...(only ? [only] : [])]);
     if (!mutable) {
       const cachedId = this.immutable.get(cacheKey);
       const cached = cachedId ? this.reviews.get(cachedId) : undefined;
@@ -662,8 +678,19 @@ export class ReviewService {
           },
         };
     }
-    const rawArgs = ["diff", ...DIFF_FLAGS, "--raw", "-z", "--no-abbrev", ...args, "--"];
-    const raw = await git(repo, rawArgs, { signal, maxBytes: 4 * 1024 * 1024 });
+    const rawArgs = [
+      "diff",
+      ...DIFF_FLAGS,
+      "--raw",
+      "-z",
+      "--no-abbrev",
+      ...args,
+      "--",
+      ...pathspecs,
+    ];
+    const raw = none
+      ? Buffer.alloc(0)
+      : await git(repo, rawArgs, { signal, maxBytes: 4 * 1024 * 1024 });
     let files = parseRawDiff(raw);
     // After `git rm --cached`, Git reports a file that is still on disk twice from
     // HEAD to the worktree: deleted, because the index no longer lists it, and
@@ -677,7 +704,7 @@ export class ReviewService {
     let patch = "";
     let untracked: string[] = [];
     try {
-      if (index)
+      if (index && !none)
         files = parseRawDiff(await git(repo, rawArgs, { signal, env, maxBytes: 4 * 1024 * 1024 }));
       if (files.some((file) => file.status === "U"))
         throw new HostError(
@@ -689,13 +716,15 @@ export class ReviewService {
         throw new HostError("too-many-files", "This comparison exceeds 10,000 changed files.", 413);
       if (live) for (const file of files) file.fingerprint = await fingerprint(repo, file.path);
       try {
-        patch = (
-          await git(repo, ["diff", ...DIFF_FLAGS, "--patch", "--full-index", ...args, "--"], {
-            signal,
-            env,
-            maxBytes: MAX_PATCH_BYTES,
-          })
-        ).toString("utf8");
+        patch = none
+          ? ""
+          : (
+              await git(
+                repo,
+                ["diff", ...DIFF_FLAGS, "--patch", "--full-index", ...args, "--", ...pathspecs],
+                { signal, env, maxBytes: MAX_PATCH_BYTES },
+              )
+            ).toString("utf8");
       } catch (error) {
         if (!(error instanceof ProcessFailure) || error.code !== "output-too-large") throw error;
         for (const file of files) file.tooLarge = true;
@@ -703,13 +732,17 @@ export class ReviewService {
           "The tracked patch exceeds 16 MiB. All changed paths are listed, but their content and counts are omitted.",
         );
       }
-      if (comparison.kind === "working" || comparison.kind === "unstaged")
+      if ((comparison.kind === "working" || comparison.kind === "unstaged") && !none)
         untracked = (
-          await git(repo, ["ls-files", "--others", "--exclude-standard", "-z"], {
-            signal,
-            env,
-            maxBytes: 2 * 1024 * 1024,
-          })
+          await git(
+            repo,
+            ["ls-files", "--others", "--exclude-standard", "-z", "--", ...pathspecs],
+            {
+              signal,
+              env,
+              maxBytes: 2 * 1024 * 1024,
+            },
+          )
         )
           .toString("utf8")
           .split("\0")
@@ -770,7 +803,7 @@ export class ReviewService {
         files.push(file);
       }
     }
-    if (mutable) {
+    if (mutable && !none) {
       const afterRaw = await git(repo, rawArgs, { signal, maxBytes: 4 * 1024 * 1024 });
       if (!raw.equals(afterRaw))
         throw new HostError(

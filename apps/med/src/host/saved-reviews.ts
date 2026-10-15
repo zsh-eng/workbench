@@ -40,6 +40,7 @@ import {
   briefTextSchema,
   savedReviewDetailsSchema,
   agentSessionSchema,
+  savedCheckoutSchema,
   MAX_BRIEF_LENGTH,
   MAX_ITERATIONS,
   MAX_PINS,
@@ -52,6 +53,7 @@ import {
   type PinMutation,
   type SavedReview,
   type SavedReviewCreate,
+  type SavedCheckout,
   type CapturedReviewTarget,
 } from "../shared/saved-review";
 import {
@@ -167,7 +169,9 @@ const savedSchema = z.object({
   createdAt: text,
   revision: natural,
   commentCount: natural,
-  targets: z.array(targetSchema).min(1).max(128),
+  // A thread that the agent has not handed off yet has no target.
+  targets: z.array(targetSchema).max(128),
+  checkout: savedCheckoutSchema.optional(),
   archivedAt: text.optional(),
   group: attemptRefSchema.optional(),
 });
@@ -190,7 +194,6 @@ const recordSchema = z.object({
         }),
       }),
     )
-    .min(1)
     .max(128),
 });
 type SavedRecord = z.infer<typeof recordSchema>;
@@ -668,17 +671,27 @@ export class SavedReviewStore {
     return record.saved.targets.at(-1)!;
   }
 
+  /** A new review, or a new version of the review with its key. A thread
+   * without targets names its `checkout`: it has no Review until the agent
+   * hands off one. */
   create(
     input: SavedReviewCreate,
     capture: (target: SavedReviewCreate["targets"][number]) => Promise<CapturedReviewTarget>,
     beforeCommit?: () => void,
+    checkout?: SavedCheckout,
   ): Promise<SavedReview> {
     return this.writing(async () => {
       const parsed = savedReviewCreateSchema.safeParse(input);
       if (!parsed.success) throw new HostError("invalid-saved-review", parsed.error.message);
       input = parsed.data;
       const known = input.key ? await this.findKey(input.key, true) : undefined;
-      if (known) return this.iterate(known, input, capture, beforeCommit);
+      if (known) {
+        if (!input.targets.length)
+          throw new HostError("saved-review-empty", "A new version needs a comparison.", 400);
+        return this.iterate(known, input, capture, beforeCommit);
+      }
+      if (!input.targets.length && !checkout)
+        throw new HostError("saved-review-empty", "Name the thread's checkout.", 400);
       const id = `r_${randomBytes(12).toString("hex")}`;
       const record: SavedRecord = {
         version: 1,
@@ -694,6 +707,7 @@ export class SavedReviewStore {
             : {}),
           ...(input.guide ? { guide: savedGuide(input.guide) } : {}),
           ...(input.group ? { group: input.group } : {}),
+          ...(checkout ? { checkout } : {}),
           createdAt: new Date().toISOString(),
           revision: 0,
           commentCount: 0,
@@ -706,8 +720,9 @@ export class SavedReviewStore {
         this.appendCapture(record, result);
       }
       addSessions(record.saved, input.sessions);
-      if (input.key) {
-        record.saved.key = input.key;
+      if (input.key) record.saved.key = input.key;
+      // The first hand-off is version 1.
+      if (input.key && record.saved.targets.length) {
         record.saved.iterations = [
           {
             number: 1,
@@ -750,6 +765,23 @@ export class SavedReviewStore {
     }, beforeCommit);
   }
 
+  /** A new version of a review: what the agent shows now (`med thread show`). */
+  addVersion(
+    id: string,
+    input: Omit<SavedReviewCreate, "title"> & { title?: string },
+    capture: (target: SavedReviewCreate["targets"][number]) => Promise<CapturedReviewTarget>,
+    beforeCommit?: () => void,
+  ): Promise<SavedReview> {
+    return this.writing(async () => {
+      const record = await this.read(id, true);
+      const parsed = savedReviewCreateSchema.safeParse({ ...input, title: record.saved.title });
+      if (!parsed.success) throw new HostError("invalid-saved-review", parsed.error.message);
+      if (!parsed.data.targets.length)
+        throw new HostError("saved-review-empty", "A new version needs a comparison.", 400);
+      return this.iterate(record, parsed.data, capture, beforeCommit);
+    }, beforeCommit);
+  }
+
   /** The agent's next round on a keyed review: new comparisons and brief as a
    * new iteration. Comments, earlier briefs, and earlier comparisons stay. */
   private async iterate(
@@ -760,16 +792,25 @@ export class SavedReviewStore {
     fresh = false,
   ): Promise<SavedReview> {
     const saved = record.saved;
-    const iterations = saved.iterations ?? [
-      {
-        number: 1,
-        createdAt: saved.createdAt,
-        targetIds: saved.targets.filter((target) => !target.commentReviewId).map((t) => t.id),
-        ...(saved.brief ? { brief: saved.brief } : {}),
-        ...(saved.guide ? { guide: saved.guide } : {}),
-        ...(saved.pins ? { pins: saved.pins } : {}),
-      },
-    ];
+    const own = saved.targets.filter((target) => !target.commentReviewId);
+    // A thread without a hand-off yet starts at version 1, which keeps the
+    // replies that the reader pinned before it.
+    const first = !saved.iterations && !own.length;
+    const pinned = first ? saved.pins : undefined;
+    const iterations =
+      saved.iterations ??
+      (first
+        ? []
+        : [
+            {
+              number: 1,
+              createdAt: saved.createdAt,
+              targetIds: own.map((t) => t.id),
+              ...(saved.brief ? { brief: saved.brief } : {}),
+              ...(saved.guide ? { guide: saved.guide } : {}),
+              ...(saved.pins ? { pins: saved.pins } : {}),
+            },
+          ]);
     delete saved.pins;
     // The brief of a review without iterations becomes the first iteration's.
     if (!saved.iterations)
@@ -790,11 +831,12 @@ export class SavedReviewStore {
     const brief = input.brief ? { text: input.brief, updatedAt: now } : undefined;
     const guide = input.guide ? savedGuide(input.guide, now) : undefined;
     iterations.push({
-      number: iterations.at(-1)!.number + 1,
+      number: (iterations.at(-1)?.number ?? 0) + 1,
       createdAt: now,
       targetIds,
       ...(brief ? { brief } : {}),
       ...(guide ? { guide } : {}),
+      ...(pinned ? { pins: pinned } : {}),
       ...(fresh ? { fresh } : {}),
     });
     saved.iterations = iterations;

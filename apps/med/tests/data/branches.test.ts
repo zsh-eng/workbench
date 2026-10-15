@@ -83,7 +83,11 @@ describe("branch targets", () => {
     const f = fixture();
     await f.controller.initialize();
     await f.controller.selectBranch("feature");
-    expect(f.reviews.at(-1)).toEqual({ repo: "/linked", comparison: { kind: "working" } });
+    // A branch other than the base opens on its changes since the base.
+    expect(f.reviews.at(-1)).toEqual({
+      repo: "/linked",
+      comparison: { kind: "working", base: "main" },
+    });
     await f.controller.selectBranch("topic");
     expect(f.reviews.at(-1)).toEqual({ repo: "/repo", comparison: { kind: "commit", commit: C } });
     expect(f.controller.getSnapshot().historyRef).toBe("refs/heads/topic");

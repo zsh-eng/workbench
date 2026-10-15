@@ -18,6 +18,7 @@ export const threadHelp = `Usage: med thread list [--history] [--json]
        med thread delete <id> | --key <key>
        med thread find [<words>] [--limit <n>] [--json]
        med thread adopt <session> [--repo <path>] [--title <title>] [--open] [--json]
+       med thread show --paths <path>... | --base <ref> | --commit <ref> | --working | --manifest <path>
 
 A thread is one task: an agent's session and its changes. Threads that the
 user opened are tabs: they show in Med's sidebar and stay loaded. The others
@@ -36,6 +37,8 @@ delete       deletes a thread: its saved review, comments, and history entry.
              Its agent sessions stay in Claude Code and Codex.
 find, adopt  find a Claude Code or Codex session of any age and make it a
              thread, which opens as a tab. med thread find --help tells more.
+show         adds a version to the Review of your session's thread: what you
+             want the user to read. med thread show --help tells more.
 
 --key names a thread by the key of its review, such as MED_THREAD_KEY in a
 thread that Med started.
@@ -130,9 +133,12 @@ export async function runThreadCommand(
     print?: (text: string) => void;
     environment?: NodeJS.ProcessEnv;
     openUrl?: (url: string) => void;
+    /** The directory that relative paths start from (`show --paths`). */
+    cwd?: string;
   } = {},
 ): Promise<void> {
-  if (args[0] === "find" || args[0] === "adopt") return runThreadSessionsCommand(args, options);
+  if (args[0] === "find" || args[0] === "adopt" || args[0] === "show")
+    return runThreadSessionsCommand(args, options);
   const command = await parseThreadCommand(args, options.environment);
   const print = options.print ?? console.log;
   if (command.kind === "help") {

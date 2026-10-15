@@ -27,8 +27,9 @@ import type { ThreadTurn } from "../shared/agent-status";
 import type { AgentSession } from "../shared/saved-review";
 import { threadTitle, type Thread } from "../shared/threads";
 import { findTranscript } from "./agent-transcripts";
+import { createCheckoutChanges } from "./checkout-changes";
+import { changesBase } from "./checkout-work";
 import { summarizeTurn } from "./thread-turns";
-import { git } from "./runtime/process";
 import { userHome } from "./service/discover";
 
 // Med lists the threads that `med review create` or New thread saved. The
@@ -63,10 +64,6 @@ const SCAN_MS = 3000;
  * checkout that the registry does not know. */
 const WORKTREES_MS = 60_000;
 const WORKTREES_SOON_MS = 10_000;
-/** A checkout's change counts are read again this often, and at most this
- * often (`RECOUNT_MS`) while one of its sessions changes. */
-const CHANGES_MS = 30_000;
-const RECOUNT_MS = 4000;
 /** The head of a transcript gives its directory, start, and first prompt. */
 export const HEAD_BYTES = 64 * 1024;
 /** Codex's first line holds its instructions and can be long. */
@@ -342,41 +339,6 @@ async function codexFiles(folders: Iterable<string>, since: number) {
   return files;
 }
 
-interface Changes {
-  files: number;
-  additions: number;
-  deletions: number;
-}
-
-/** A checkout's working changes against HEAD: tracked files from Git's
- * numstat, and untracked files with their lines when they are small. */
-async function checkoutChanges(path: string, signal: AbortSignal): Promise<Changes | undefined> {
-  const options = { signal, maxBytes: 4 * 1024 * 1024, timeoutMs: 10_000 };
-  const [numstat, untracked] = await Promise.all([
-    git(path, ["diff", "HEAD", "--numstat", "--no-renames", "-z"], options),
-    git(path, ["ls-files", "--others", "--exclude-standard", "-z"], options),
-  ]);
-  const changes = { files: 0, additions: 0, deletions: 0 };
-  for (const entry of numstat.toString("utf8").split("\0")) {
-    const match = /^(\d+|-)\t(\d+|-)\t/.exec(entry);
-    if (!match) continue;
-    changes.files++;
-    changes.additions += Number(match[1]) || 0;
-    changes.deletions += Number(match[2]) || 0;
-  }
-  const paths = untracked.toString("utf8").split("\0").filter(Boolean);
-  changes.files += paths.length;
-  for (const file of paths.slice(0, 20)) {
-    const info = await stat(join(path, file)).catch(() => undefined);
-    if (!info?.isFile() || info.size > 256 * 1024) continue;
-    const bytes = await readFile(join(path, file)).catch(() => undefined);
-    if (!bytes || bytes.includes(0)) continue;
-    const lines = bytes.toString("utf8").split("\n").length;
-    changes.additions += bytes.at(-1) === 10 ? lines - 1 : lines;
-  }
-  return changes;
-}
-
 /** A found session in its checkout. */
 interface Found extends SessionFile {
   threadId: string;
@@ -398,11 +360,14 @@ export function createFoundSessions(options: {
    * such as a Codex rollout's, and Med's ID for the session. */
   owned?(): Iterable<readonly [string, string]>;
   settingsFile: string;
+  /** The change counts of checkouts, which the thread list shares. */
+  changes?: ReturnType<typeof createCheckoutChanges>;
   home?: () => string;
   now?: () => number;
 }) {
   const home = options.home ?? userHome;
   const now = options.now ?? Date.now;
+  const counts = options.changes ?? createCheckoutChanges({ now });
   const abort = new AbortController();
   let settings: FoundSettings = { shown: true, hidden: [] };
   const files = new Map<string, SessionFile>();
@@ -417,8 +382,6 @@ export function createFoundSessions(options: {
   /** Codex day folders before the window that held a rollout in it, at the
    * last full listing. */
   let codexOlder = { at: -Infinity, folders: new Set<string>() };
-  const changes = new Map<string, { at: number; value?: Changes }>();
-  let counting: Promise<void> | undefined;
 
   /** Codex Desktop names its threads in session_index.jsonl; the last name wins. */
   const readCodexNames = async () => {
@@ -564,30 +527,6 @@ export function createFoundSessions(options: {
     return scanning;
   };
 
-  /** Reads the change counts of checkouts that changed, one at a time. */
-  const count = (listed: readonly Found[]) => {
-    if (counting) return;
-    const due = new Set<string>();
-    for (const session of listed) {
-      const path = session.checkout.path;
-      const known = changes.get(path);
-      const age = known ? now() - known.at : Infinity;
-      if (age > CHANGES_MS || (session.mtimeMs > known!.at && age > RECOUNT_MS)) due.add(path);
-    }
-    if (!due.size) return;
-    counting = (async () => {
-      for (const path of due) {
-        if (abort.signal.aborted) return;
-        const at = now();
-        const value = await checkoutChanges(path, abort.signal).catch(() => undefined);
-        changes.set(path, { at, ...(value ? { value } : {}) });
-      }
-      if (changes.size > 256) changes.clear();
-    })().finally(() => {
-      counting = undefined;
-    });
-  };
-
   const save = async () => {
     await mkdir(dirname(options.settingsFile), { recursive: true });
     const temporary = `${options.settingsFile}.${randomUUID()}.tmp`;
@@ -638,11 +577,16 @@ export function createFoundSessions(options: {
       const listed = found
         .filter((session) => !claimed.has(session.id) && !hidden.has(session.threadId))
         .slice(0, MAX_FOUND);
-      count(listed);
       const time = now();
+      const repositories = options.repositories();
       return listed.map((session): Thread => {
         const { checkout } = session;
-        const counts = changes.get(checkout.path)?.value;
+        // The counts of the checkout's Changes: the branch's, or the uncommitted ones.
+        const base = changesBase(
+          repositories.find((entry) => entry.id === checkout.repository.id),
+          checkout.branch,
+        );
+        const changes = counts.get(checkout.path, base, session.mtimeMs);
         const working = !session.idle && time - session.mtimeMs < STALE_MS;
         return {
           id: session.threadId,
@@ -656,7 +600,7 @@ export function createFoundSessions(options: {
           agent: session.agent,
           state: working ? "working" : "idle",
           sessions: [{ agent: session.agent, id: session.id, cwd: session.cwd }],
-          ...(counts ? { changes: counts } : {}),
+          ...(changes ? { changes } : {}),
           ...(session.turn && { turn: session.turn }),
           found: true,
         };
@@ -701,6 +645,7 @@ export function createFoundSessions(options: {
     codexNames: readCodexNames,
     close() {
       abort.abort();
+      if (!options.changes) counts.close();
     },
   };
 }

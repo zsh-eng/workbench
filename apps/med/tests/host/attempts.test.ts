@@ -119,7 +119,7 @@ test("two attempts start in their own worktrees, compare side by side with their
   const a = (await begin(1, "opus")).data.review;
   const b = (await begin(2, "haiku")).data.review;
   expect(a.group).toEqual({ id: "week-view", attempt: 1, label: "Claude Code · opus" });
-  const [treeA, treeB] = [a.targets[0]!.repo, b.targets[0]!.repo];
+  const [treeA, treeB] = [a.checkout!.repo, b.checkout!.repo];
   expect(git(treeA, "branch", "--show-current")).toBe("show-week-tides-cli-a");
   expect(git(treeB, "branch", "--show-current")).toBe("show-week-tides-cli-b");
   expect(

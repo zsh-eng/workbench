@@ -46,6 +46,19 @@ export interface ReviewCommand {
   run(): void;
 }
 
+/** A ChoiceSelect's place when there is nothing to choose: its text, as the
+ * trigger shows it, and no menu. `title` says more, as a choice's
+ * description does. */
+export function ChoiceLabel({ title, text }: { title: string; text: string }) {
+  return (
+    <span data-choice-static="" title={title} {...stylex.props(styles.static)}>
+      <span data-choice-value="" {...stylex.props(styles.value)}>
+        {text}
+      </span>
+    </span>
+  );
+}
+
 /** A value that no choice has: an action's item in a ChoiceSelect. */
 const ACTION = "\u0000action:";
 
@@ -69,8 +82,9 @@ export function ChoiceSelect({
   /** The trigger's look, in place of a toolbar button. */
   trigger?: stylex.StyleXStyles;
   disabled?: boolean;
-  /** Items after the choices, below a rule, that act and keep the value. */
-  actions?: { label: string; onSelect(): void }[];
+  /** Items after the choices, below a rule, that act and keep the value. A
+   * `checked` item is a toggle and shows its state. */
+  actions?: { label: string; checked?: boolean; onSelect(): void }[];
   triggerRef?: Ref<HTMLButtonElement>;
   /** The trigger's text in place of the choice's label, such as a short one. */
   display?: string;
@@ -141,6 +155,9 @@ export function ChoiceSelect({
                 <Select.Item
                   key={action.label}
                   value={`${ACTION}${index}`}
+                  {...(action.checked !== undefined && {
+                    "aria-label": `${action.label}, ${action.checked ? "on" : "off"}`,
+                  })}
                   className={(state) =>
                     stylex.props(
                       ui.menuItem,
@@ -149,7 +166,9 @@ export function ChoiceSelect({
                     ).className
                   }
                 >
-                  <span {...stylex.props(styles.check)} />
+                  <span {...stylex.props(styles.check)}>
+                    {action.checked && <Icon name="check" size={14} />}
+                  </span>
                   <Select.ItemText {...stylex.props(styles.choiceLabel)}>
                     {action.label}
                   </Select.ItemText>
@@ -542,6 +561,21 @@ const styles = stylex.create({
   choiceDescription: { color: tokens.faint, fontSize: 11, lineHeight: 1.35 },
   // In a narrow toolbar the value truncates before the trigger overflows.
   trigger: { gap: 4, minWidth: 0, paddingInlineEnd: 5 },
+  // A trigger's text and padding, without its button.
+  static: {
+    display: "inline-flex",
+    alignItems: "center",
+    boxSizing: "border-box",
+    minWidth: 0,
+    minHeight: 28,
+    paddingInline: 8,
+    color: tokens.muted,
+    fontFamily: tokens.ui,
+    fontSize: 12,
+    fontWeight: 450,
+    lineHeight: 1.5,
+    whiteSpace: "nowrap",
+  },
   value: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" },
   chevron: { display: "inline-flex", color: tokens.faint },
   backdrop: { zIndex: 110 },

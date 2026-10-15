@@ -196,7 +196,8 @@ describe("multi-repository targets", () => {
     await f.controller.selectWorktree("/one-detached", "one");
     await f.controller.selectComparison({ kind: "staged" });
     await f.controller.selectWorktree("/two-detached", "two");
-    expect(f.controller.getSnapshot().comparison).toEqual({ kind: "working" });
+    // A detached checkout opens on its changes since the base branch.
+    expect(f.controller.getSnapshot().comparison).toEqual({ kind: "working", base: "main" });
     await f.controller.selectWorktree("/one-detached", "one");
     expect(f.controller.getSnapshot().comparison).toEqual({ kind: "staged" });
     expect(f.controller.getSnapshot().activeBranch).toBeNull();

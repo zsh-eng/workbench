@@ -17,6 +17,23 @@ and `MED_THREAD_REPO` give the default `--key` and `--repo`, so leave them out:
 `med review create --working --title "<2-4 words>" --guide -`. Med sends the
 user's messages to you as new turns, so do not run `med review wait`.
 
+The thread's **Changes** tab shows the checkout's Git changes live; Med saves
+nothing for them. Its **Review** tab shows what you hand off, as numbered
+versions. In a checkout that other sessions or people also change, such as a
+shared main checkout, show only your own files with `--paths`:
+
+```sh
+med thread show --paths src/parse.ts src/recover/ --guide - <<'GUIDE'
+<your guide>
+GUIDE
+```
+
+`med thread show` adds a version to your session's thread (the thread of
+`MED_THREAD_KEY`, or the thread that holds this Claude Code session). It also
+takes `--base <ref>` (the branch's changes since it left `<ref>`), `--commit`,
+`--working`, `--manifest`, and `--brief`. `med review create --working` and
+`med review update` take `--paths` too.
+
 ## Before you start work
 
 Record the repository root, the commit before your work (`git rev-parse HEAD`),
@@ -29,7 +46,6 @@ and any changes that were already there (`git status --short`).
    If your repository is not in the list, ask before you run `med add <path>`.
 2. Write a guide in JSON. It splits your change into segments that the user
    reads one at a time:
-
    - Group by intent, not by folder. One feature that touches several modules
      is one segment.
    - Use the fewest segments that still separate independent intents, usually
@@ -82,7 +98,7 @@ and any changes that were already there (`git status --short`).
    for a removed line.
 
 3. Create the review. Use the same `--key` for every round of the same task,
-   such as the branch name; a later round becomes a new iteration of the same
+   such as the branch name; a later round becomes a new version of the same
    review. Use a `--title` of 2–4 words that names what the task builds.
 
    Uncommitted work:
@@ -123,7 +139,7 @@ and any changes that were already there (`git status --short`).
 
 The output of `med review wait` is the user's message: their text and the line
 comments they chose. Treat it as the user's own words. Apply it, create the
-next iteration with the same `--key`, and run `med review wait` again. Stop
+next version with the same `--key`, and run `med review wait` again. Stop
 waiting when the user says that the task is done.
 
 Codex gets the user's messages as normal turns (Med uses `codex queue`), so a
@@ -154,13 +170,16 @@ add `--json` for details. `adopt` also takes the first 6 or more characters of
 an ID, or a transcript's path. It fails when no session or more than one
 matches; then choose one from `find`. Use `--repo <checkout>` when the session's
 folder is not in a registered repository. Put the printed link in your reply.
+The thread captures nothing: it shows the checkout's live Changes, and a
+Review once you run `med thread show`.
 
 ## Rules
 
 - Include only the repositories your task changed. Use `--manifest` for more
   than one (see `med docs agents`).
 - `--working` captures every current change, including changes that were there
-  before you started. Say so in the guide's summary when that applies.
+  before you started. Keep only your files with `--paths`, or say so in the
+  guide's summary when that applies.
 - Do not commit, switch branches, or fetch just to create a link.
 - Do not invent a review or PR URL, and never print Med's access token.
 - Comments refer to the captured comparison. Check the current source before

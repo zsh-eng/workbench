@@ -27,7 +27,7 @@ export function FileViewTabs({
   panelId = "file-view-panel",
   showChanges = true,
   showBrief = false,
-  showGuide = false,
+  showReview = false,
   showCommit = false,
   changesCount,
   leading,
@@ -42,10 +42,10 @@ export function FileViewTabs({
   active: string;
   panelId?: string;
   showChanges?: boolean;
-  /** A saved review's brief comes first, before Changes. */
+  /** The Notes of a Review's version, after Review and before Changes. */
   showBrief?: boolean;
-  /** A saved review's guide comes before the brief. */
-  showGuide?: boolean;
+  /** What the agent handed off, with its Guide, comes first. */
+  showReview?: boolean;
   /** Stage, commit, and push a live checkout. */
   showCommit?: boolean;
   /** Changed-file count shown beside the Changes tab. */
@@ -74,19 +74,20 @@ export function FileViewTabs({
     >
       {leading}
       <Tabs.List aria-label="Open files" {...stylex.props(styles.list, keepTabs && styles.keep)}>
-        {showGuide && (
+        {showReview && (
           <Tabs.Tab
-            value="guide"
+            value="review"
             aria-controls={panelId}
-            aria-label="Guide"
+            aria-label="Review"
+            title="What the agent handed off"
             {...stylex.props(
               styles.tab,
               styles.changes,
               styles.enter,
-              active === "guide" && styles.active,
+              active === "review" && styles.active,
             )}
           >
-            Guide
+            Review
           </Tabs.Tab>
         )}
         {showBrief && (

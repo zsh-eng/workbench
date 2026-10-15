@@ -1,7 +1,12 @@
 import { useSyncExternalStore } from "react";
-import { z } from "zod";
-import { foundSettingsSchema, foundThreadId, type FoundUpdate } from "../../shared/found-sessions";
-import { threadSlug, type Thread, type ThreadList } from "../../shared/threads";
+import {
+  foundSettingsSchema,
+  foundThreadId,
+  sessionAdoptedSchema,
+  type FoundUpdate,
+  type SessionAdopt,
+} from "../../shared/found-sessions";
+import type { Thread, ThreadList } from "../../shared/threads";
 import { createApi } from "./api";
 import { readBrowserToken } from "./auth";
 import { browserFetch } from "./live";
@@ -15,7 +20,7 @@ import {
 // Found threads: Claude Code and Codex sessions in the registered
 // repositories that Med found by itself (src/host/found-sessions.ts). One
 // opens as a workspace on its checkout, with its live changes and its
-// session; Keep in Med saves it as a thread.
+// session; Keep in Med saves it as a thread and captures nothing.
 
 export const isFoundThread = (thread: Pick<Thread, "found">) => thread.found === true;
 
@@ -95,28 +100,20 @@ export function useFoundCommands(fetcher: typeof fetch = browserFetch) {
 }
 
 /**
- * Keep in Med: saves a found session as a thread, as `med review create
- * --working` does with the session linked. The review captures the
- * checkout's working changes; comments and Send to agent work from then on.
- * Its key is unique, so it never adds an iteration to another review.
+ * Keep in Med: saves a found session as a thread on its checkout, as `med
+ * thread adopt` does. It captures nothing: the thread shows the checkout's
+ * live Changes, and a Review once the agent shows one. A session that a
+ * thread holds already opens that thread.
  */
 export function keepFoundThread(
   input: { title: string; checkout: string; session: WorkspaceSession },
   fetcher: typeof fetch = browserFetch,
 ) {
   const { title, checkout, session } = input;
-  return createApi(fetcher, readBrowserToken()).json(
-    "/api/reviews",
-    z.object({ id: z.string(), title: z.string() }),
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title,
-        key: `${threadSlug(title)}-${session.id.slice(0, 8)}`,
-        sessions: [session],
-        targets: [{ repo: checkout, comparison: { kind: "working" } }],
-      }),
-    },
-  );
+  const body: SessionAdopt = { session: session.id, repo: checkout, title };
+  return createApi(fetcher, readBrowserToken()).json("/api/sessions/adopt", sessionAdoptedSchema, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }

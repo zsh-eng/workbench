@@ -14,7 +14,12 @@ import {
   type AttemptUndo,
 } from "../shared/attempts";
 import type { RegisteredRepository } from "../shared/protocol";
-import { agentName, type AgentSession, type SavedReview } from "../shared/saved-review";
+import {
+  agentName,
+  threadCheckout,
+  type AgentSession,
+  type SavedReview,
+} from "../shared/saved-review";
 import { findTranscript, readTranscriptPage, transcriptTurns } from "./agent-transcripts";
 import { addedPatch, DIFF_FLAGS, parseRawDiff, readWorkingFile } from "./repository/review";
 import { route, type Route, type RouteContext } from "./routes";
@@ -59,8 +64,12 @@ const MAX_UNTRACKED = 200;
 const MAX_CHECKS = 6;
 const MESSAGE_CHARS = 2400;
 
-const primary = (review: SavedReview) =>
-  review.targets.find((target) => !target.commentReviewId) ?? review.targets[0]!;
+/** Where an attempt works, and the commit that its first hand-off started from. */
+const primary = (review: SavedReview) => {
+  const checkout = threadCheckout(review)!;
+  const target = review.targets.find((entry) => !entry.commentReviewId);
+  return { repo: checkout.repo, branch: checkout.branch, base: target?.base ?? "" };
+};
 const byAttempt = (a: SavedReview, b: SavedReview) =>
   (a.group?.attempt ?? 0) - (b.group?.attempt ?? 0);
 const text = async (cwd: string, args: string[], signal?: AbortSignal) =>
@@ -629,7 +638,8 @@ export class AttemptGroups {
           (other) =>
             !other.archivedAt &&
             !all.includes(other) &&
-            other.targets.some((target) => target.repo === checkout),
+            (threadCheckout(other)?.repo === checkout ||
+              other.targets.some((target) => target.repo === checkout)),
         );
         if (linked && existsSync(checkout)) {
           stopped = this.host.stopAgents(checkout) > 0;

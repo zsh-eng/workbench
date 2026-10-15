@@ -28,8 +28,9 @@ Med adds nothing to an agent's prompt.
 When `MED_THREAD_KEY` is set, Med started you in a thread. When a piece of work
 is ready for review, run `med review create --working --title "<2-4 words>"
 --guide -` with a JSON guide on standard input; the med skill and
-`med docs agents` give the guide's format. Med sends the user's messages to you
-as new turns, so do not run `med review wait`.
+`med docs agents` give the guide's format. In a checkout that other sessions
+also change, add `--paths` with your files. Med sends the user's messages to
+you as new turns, so do not run `med review wait`.
 ```
 
 Review commands talk to the running server, so start Med with `med web`. They
@@ -99,7 +100,7 @@ user allows commits.
 `--title` names the review in the workspace list and the browser tab. The list
 is narrow, so use 2–4 words that name what the task builds, such as "Commit tab
 search" or "Parser recovery". Leave out the repository's name and words such as
-"review" and "changes". Keep the same title for each iteration.
+"review" and "changes". Keep the same title for each version.
 
 `--pr` links the review to its pull request. The header then shows the pull
 request's title, and the workspace keeps the short title. Med reads the title
@@ -128,9 +129,9 @@ request covers it all.
 ### Keep one review per task
 
 `--key` names the task, such as its branch. Create the review again with the
-same key after each round of work: Med adds an iteration to that review instead
+same key after each round of work: Med adds a version to that review instead
 of a new workspace. The review is marked new again, and its new comparison and
-brief become current. Earlier briefs stay as numbered iterations on the Notes
+brief become current. Earlier briefs stay as numbered versions on the Notes
 tab, and comments stay on their comparisons. Keys use letters, digits, and
 `. / @ : + # _ -`.
 
@@ -255,16 +256,16 @@ Guide check: put every changed file in exactly one segment.
 Fix the guide, then run: med review update --key "parser-recovery" --guide <file>
 ```
 
-The Guide tab opens first. Its Overview shows the summary, the segments, and
-the range's commits. A segment shows its summary and only its files, with your
+The **Review** tab opens on the Guide. Its Overview shows the summary, the
+segments, and the range's commits. A segment shows its summary and only its files, with your
 comments on their lines; comments on whole files, and on lines the diff does
 not show, follow the summary. `j` and `k` step between segments, `v` marks the
 top file viewed, and `⇧V` marks the segment viewed and goes on. Viewed marks
 stay in the browser until a file changes. A commit of the range shows on its
 own, with its message.
 
-To replace the guide of the current iteration, run
-`med review update --key <name> --guide guide.json`. A later iteration without
+To replace the guide of the current version, run
+`med review update --key <name> --guide guide.json`. A later version without
 a guide keeps the one before it.
 
 ### Attach a brief
@@ -324,8 +325,19 @@ med review create --title "Navigation draft" --repo ~/code/my-app --working
 
 `--working` captures the staged, unstaged, and untracked changes as they are
 now, including changes that were there before the task. Med cannot tell which
-lines an agent wrote. If other work is present, say so, and ask the user when
-the scope is unclear.
+lines an agent wrote. If other work is present, such as in a checkout that
+other sessions share, keep only your files with `--paths`; otherwise say so,
+and ask the user when the scope is unclear.
+
+```sh
+med review create --title "Navigation draft" --repo ~/code/my-app --working \
+  --paths src/nav.ts src/nav/
+```
+
+`--paths` takes files and folders, relative to the current folder or
+absolute, and it also limits a range (`--base`, `--head`). Each name must be
+in the repository. `med review update --key <name> --paths …` adds a new
+version of the working changes with those paths.
 
 ### Several repositories
 
@@ -371,7 +383,7 @@ med thread open r_6d1f…                  # opens a thread from history as a ta
 med thread close r_6d1f…                 # sends a tab to history; its agent keeps working
 med thread close --key "$MED_THREAD_KEY" --remove-worktree
 med thread reopen                        # opens the tab that closed last, at its place
-med thread delete r_6d1f…                # deletes the thread with its captures and comments
+med thread delete r_6d1f…                # deletes the thread with its Review versions and comments
 ```
 
 The lines have tabs between the fields. The state is `working`, `needs-you`,
@@ -403,10 +415,12 @@ med thread find tide prediction
 ```
 
 `med thread adopt <session>` makes the session a Med thread, as **Keep in Med**
-does: the thread captures the working changes of the session's checkout and
-shows the session. Give the session as `find` prints it, as an ID or its first
-6 or more characters, or as the path of its transcript. The command prints the
-thread's ID and a Markdown link; put the link in your reply.
+does: the thread shows the session and the live Changes of the session's
+checkout. It captures nothing; the thread has a Review once the agent shows
+one ([Show work in a thread](#show-work-in-a-thread)). Give the session as
+`find` prints it, as an ID or its first 6 or more characters, or as the path
+of its transcript. The command prints the thread's ID and a Markdown link; put
+the link in your reply.
 
 ```sh
 med thread adopt claude:2f0c4a91-6b0e-4d55-9a57-1f3e8c2d7b10
@@ -421,15 +435,51 @@ med thread adopt claude:2f0c4a91-6b0e-4d55-9a57-1f3e8c2d7b10
   exists, choose the checkout with `--repo <path>`. `--title` names the thread,
   and `--open` shows it.
 
+## Show work in a thread
+
+A thread has two views of its work. **Changes** are the checkout's Git
+changes as they are now: on a branch, its commits since the base branch and
+its uncommitted changes. Med saves nothing for them. **Review** is what the
+agent shows the user: each hand-off is a saved version, and comments attach
+to the version that they are on.
+
+`med thread show` adds a version to the Review of your session's thread. In a
+Med thread, `MED_THREAD_KEY` names the thread; in a Claude Code session, Med
+finds the thread that holds the session (adopt it first). `--key` or
+`--session codex:<id>` names another thread.
+
+```sh
+med thread show --paths src/nav.ts src/nav/ --guide - <<'GUIDE'
+<your guide>
+GUIDE
+```
+
+- `--paths <path>...` shows the uncommitted changes of these files or folders.
+  Use it in a checkout that other sessions or people also change, such as a
+  shared main checkout. With `--base <ref>`, it shows the files' changes since
+  the branch left `<ref>`.
+- `--base <ref>` shows the branch's commits since it left `<ref>`, and its
+  uncommitted changes; with `--head <ref>`, only the commits to `<head>`.
+- `--commit <ref>` shows one commit, `--working` all uncommitted changes, and
+  `--manifest <path>` the targets of a manifest.
+- `--guide` and `--brief` attach a guide or a brief to the version.
+
+The command prints the version and the thread's link. `med review create
+--key <thread-key>` with a comparison also adds a version, and
+`med review update --key <key> --paths …` adds one of those files' working
+changes.
+
 ## Review in Med
 
-A review opens on its latest iteration; the keys at the top of **Notes** show
-the others. Hover the title in the review bar for the time Med saved the review
-and its repository. When an iteration has more than one comparison, such as
-several repositories, a **Review target** picker in the bar chooses one.
-History and files stay available, and **Return to review** brings back the
-captured comparison. The saved diff
-and its context are captured; files that you open from the file tree are live.
+A thread's pane has the tabs **Review**, **Changes**, and **Commit**. It opens
+on **Review**, at the latest version, once the agent has shown one, and on
+**Changes** before that. The menu above the diff chooses a version; the keys
+at the top of **Notes** do too. Hover the title in the review bar for the time
+Med saved the review and its repository. A version with more than one
+comparison, such as one for each repository, lists each one in the menu.
+History and files stay available, and the **Review** tab brings back the saved
+comparison. The saved diff and its context are captured; files that you open
+from the file tree, and **Changes**, are live.
 
 - **Comment.** Select lines in the diff. The card shows the lines, **L** for
   the old side and **R** for the new. Write, then press **Comment** or `⌘↵`;
@@ -541,9 +591,9 @@ When you hand off code changes, give a Med review link if Med is running.
 ## Limits
 
 Reviews are local to the computer that runs Med; a localhost link does not
-open the review on another computer. Med keeps a closed thread's captures and
-comments for 30 days, then a short record of it (title, repository, branch,
-sessions) for 180 days after the close.
+open the review on another computer. Med keeps a closed thread's Review
+versions and comments for 30 days, then a short record of it (title,
+repository, branch, sessions) for 180 days after the close.
 
 - A review starts with up to 16 targets and keeps up to 128 captures, including
   comparisons that got comments later.

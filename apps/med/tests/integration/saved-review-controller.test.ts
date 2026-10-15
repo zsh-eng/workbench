@@ -209,29 +209,39 @@ test("a review whose worktree changes after the capture offers a refresh", async
   await vi.waitFor(() => expect(controller.getSnapshot().savedDrift).toBeNull());
 });
 
-test("an empty capture shows the live changes until the agent hands off its work", async () => {
+test("an old thread's capture is Review version 1, Changes stay live, and a hand-off is version 2", async () => {
   const { controller, saved, repo, api, windowEvents } = await fixture({
     events: true,
     empty: true,
   });
   const first = saved.targets.find((target) => target.captured)!;
   await vi.waitFor(() => expect(controller.getSnapshot().connection).toBe("connected"));
+  // The capture is what the thread shows first: its Review.
+  expect(controller.getSnapshot()).toMatchObject({ savedView: true, savedTargetId: first.id });
   expect(controller.getSnapshot().review?.files).toEqual([]);
 
-  // The agent edits a file: the review follows the worktree, with no drift bar.
+  // The agent edits a file. The Review stays; Changes show the checkout now.
   await writeFile(join(repo, "file.ts"), "export const after = 2;\n");
-  await vi.waitFor(
-    () => {
-      const snapshot = controller.getSnapshot();
-      expect(snapshot.savedView).toBe(false);
-      expect(snapshot.comparison).toEqual({ kind: "working" });
-      expect(snapshot.review?.files.map((file) => file.path)).toEqual(["file.ts"]);
-    },
-    { timeout: 10_000 },
-  );
-  expect(controller.getSnapshot().savedDrift).toBeNull();
+  await vi.waitFor(() => expect(controller.getSnapshot().savedDrift).toBe(first.id), {
+    timeout: 10_000,
+  });
+  expect(controller.getSnapshot().savedView).toBe(true);
+  await controller.showChanges();
+  expect(controller.getSnapshot()).toMatchObject({
+    savedView: false,
+    inReview: false,
+    comparison: { kind: "working" },
+  });
+  expect(controller.getSnapshot().review?.files.map((file) => file.path)).toEqual(["file.ts"]);
+  await controller.showReview();
+  expect(controller.getSnapshot()).toMatchObject({
+    savedView: true,
+    inReview: true,
+    savedTargetId: first.id,
+  });
 
-  // The agent hands off: the review shows the new capture.
+  // The agent hands off: the old capture is version 1, the hand-off version 2,
+  // and the Review that showed the latest version moves to it.
   const handoff: SavedReview = await (
     await api("/api/reviews", {
       title: "Comment races",
@@ -239,25 +249,12 @@ test("an empty capture shows the live changes until the agent hands off its work
       targets: [{ repo, comparison: { kind: "working" } }],
     })
   ).json();
+  expect(handoff.iterations?.map((entry) => entry.number)).toEqual([1, 2]);
+  expect(handoff.iterations?.[0]?.targetIds).toContain(first.id);
   windowEvents.dispatchEvent(new CustomEvent(REVIEW_UPDATED, { detail: { id: saved.id } }));
   const latest = handoff.iterations!.at(-1)!.targetIds[0]!;
   await vi.waitFor(() =>
     expect(controller.getSnapshot()).toMatchObject({ savedView: true, savedTargetId: latest }),
-  );
-  expect(latest).not.toBe(first.id);
-});
-
-test("a reader who returns to an empty capture keeps it, with the drift bar", async () => {
-  const { controller, saved, repo } = await fixture({ events: true, empty: true });
-  const first = saved.targets.find((target) => target.captured)!;
-  await vi.waitFor(() => expect(controller.getSnapshot().connection).toBe("connected"));
-  await writeFile(join(repo, "file.ts"), "export const after = 2;\n");
-  await vi.waitFor(() => expect(controller.getSnapshot().savedView).toBe(false), {
-    timeout: 10_000,
-  });
-  await controller.returnToSavedReview();
-  await vi.waitFor(() =>
-    expect(controller.getSnapshot()).toMatchObject({ savedView: true, savedDrift: first.id }),
   );
 });
 

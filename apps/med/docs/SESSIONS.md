@@ -92,6 +92,15 @@ is a list of parts: a status, then one JSON result per tool call, which the
 reader turns back into text and exit codes. The tests use small rollouts
 written to both formats.
 
+**Edited files** (`session-edits.ts`) is a smaller reader for a thread's
+Changes in a shared checkout (**Only this session's files**). It reads a
+transcript from where it stopped, in 4 MiB pieces, and keeps only the paths:
+Claude Code's Edit, Write, MultiEdit, and NotebookEdit calls, also in its
+subagents' transcripts, and Codex's `apply_patch` (as a custom call, a
+function call, a shell command, a `local_shell_call`, or a patch in an `exec`
+program). A relative path is read against the session's folder. Edits that a
+shell command makes, such as `sed -i` or a formatter, do not count.
+
 ## Host stream
 
 `review create` records the sessions that worked on a review
@@ -172,8 +181,15 @@ it stays a tab after its session leaves the 7-day window.
   Codex's thread ID. Med keeps that ID with the session (`owned-sessions.json`),
   so the rollout does not show again as a found thread.
 
-**Keep in Med** saves a found session as a thread. For older sessions, an
-agent runs `med thread find` and `med thread adopt`
+**Keep in Med** saves a found session as a thread on its checkout
+(`POST /api/sessions/adopt`). It captures nothing: the thread shows the
+checkout's live Changes, and a Review once the agent shows one with `med
+thread show`. A row counts the Changes (the branch's changes since the base,
+or the working changes on the base) until the first hand-off
+(`src/host/checkout-changes.ts`), and marks a checkout that is shared: the
+main checkout, or one where another tab's session works too. Keep in Med
+opens the thread as a tab. For older sessions, an agent runs `med thread find` and
+`med thread adopt`
 ([agent integration](AGENT_INTEGRATION.md#find-and-adopt-sessions)). These
 reach every session on the computer, of any age, also Codex's archived ones
 (`src/host/session-search.ts`). A search reads the first 64 KB of each

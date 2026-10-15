@@ -1,11 +1,14 @@
 import { spawn } from "node:child_process";
+import { realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { basename, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import {
   reviewKeySchema,
   savedReviewCreateSchema,
+  savedReviewSchema,
+  threadCheckout,
   type AgentSession,
 } from "../shared/saved-review";
 import { apiErrorMessage } from "../shared/protocol";
@@ -26,17 +29,20 @@ export const reviewManifestSchema = savedReviewCreateSchema.strict();
 export type ReviewManifest = z.infer<typeof reviewManifestSchema>;
 
 export const reviewHelp = `Usage: med-diff review create --title <title> --repo <path> --base <ref> --head <ref>
+       med-diff review create --title <title> --repo <path> --working --paths <path>...
        med-diff review create --title <title> --repo <path> --working
        med-diff review create --manifest <json-path>
-       med-diff review update --key <key> [--pr <https-url>] [--title <title>] [--guide <path|->] [--session <agent:id>]
+       med-diff review update --key <key> [--pr <https-url>] [--title <title>] [--guide <path|->] [--session <agent:id>] [--paths <path>...]
        med-diff review wait --key <key>
        med-diff review repos
 
---key <key> names your task, such as its branch. Create with the same key again to add an iteration to that review: its workspace stays, earlier briefs and comments stay, and the new comparison and brief become current.
-update sets the title or the PR link of the review with that key, such as after you open the PR.
+--key <key> names your task, such as its branch. Create with the same key again to add a version to that review: its workspace stays, earlier briefs and comments stay, and the new comparison and brief become current.
+update sets the title or the PR link of the review with that key, such as after you open the PR. With --paths, it adds a version that shows those files' uncommitted changes.
+--paths <path>... keeps only these files or folders, relative to this directory. In a checkout that other sessions or people also change, such as a shared main checkout, show only your own files with --paths. med thread show --paths <path>... does the same for your session's thread.
+--working shows the checkout's uncommitted changes: with --paths, only those files; without it, all of them, including changes that were there before you started.
 wait waits until the user sends a message to your session from the review, prints it, and exits. Run it in the background; it has no time limit.
 A Claude Code session that runs the command is recorded with the review, so Med can copy its resume command; --session codex:<id> or claude:<id> adds others, and --no-session records none.
-In a session that Med started, MED_PORT and MED_STATE_DIR choose its host, and in a thread MED_THREAD_KEY and MED_THREAD_REPO give the default --key and --repo, so "create --working --guide -" hands off to the thread. Med sends the user's messages to such a session itself, so wait exits at once.
+In a session that Med started, MED_PORT and MED_STATE_DIR choose its host, and in a thread MED_THREAD_KEY and MED_THREAD_REPO give the default --key and --repo, so "create --working --guide -" hands off the thread's worktree to its Review. Med sends the user's messages to such a session itself, so wait exits at once.
 
 --title names the review in the workspace list and the browser tab. Use 2–4 words, such as "Commit tab search". Without it, use the matching PR title or a comparison label. Once the review has a PR, its header shows the PR title, read with gh.
 --pr <https-url> adds a clickable GitHub PR link. A matching PR is inferred for a single GitHub origin repository when gh is available; --no-pr skips lookup.
@@ -46,22 +52,82 @@ In a session that Med started, MED_PORT and MED_STATE_DIR choose its host, and i
 Open Med windows add each new review to their workspaces, marked unread. --open also shows it in the window used last, or opens a browser when no window is open.
 Options: --port <port> (default ${DEFAULT_PORT}), --state-dir <path> (or MED_STATE_DIR)
 The running host must already have the target repositories registered.
---working captures the current changes, including pre-existing changes.
 --group <name> --attempt <1-3> marks the review as one attempt at a task that several agents do, each in its own worktree. Med shows a group's attempts together and compares them.
 A manifest is {"title":"Review title","targets":[{"repo":"/absolute/path","comparison":{"kind":"range","base":"<ref>","head":"<ref>"}}]}.
 The create command prints a Markdown review link without an access token.`;
+
+/**
+ * Takes `--paths a b c` (and `--paths=a`) out of the arguments: the words
+ * after it, up to the next option. Undefined when it is not there.
+ */
+export function takePaths(args: readonly string[]) {
+  const rest: string[] = [];
+  let paths: string[] | undefined;
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]!;
+    if (arg.startsWith("--paths=")) {
+      (paths ??= []).push(arg.slice("--paths=".length));
+      continue;
+    }
+    if (arg !== "--paths") {
+      rest.push(arg);
+      continue;
+    }
+    paths ??= [];
+    while (index + 1 < args.length && !args[index + 1]!.startsWith("-")) paths.push(args[++index]!);
+  }
+  if (paths && !paths.filter(Boolean).length)
+    throw new Error("Name one or more files or folders after --paths.");
+  return { args: rest, paths: paths?.filter(Boolean) };
+}
+
+/** Paths from this directory (or absolute), as paths in the checkout `repo`. */
+export function repoPaths(repo: string, paths: readonly string[], cwd = process.cwd()) {
+  const roots = [resolve(repo)];
+  try {
+    roots.push(realpathSync(repo));
+  } catch {
+    /* The host checks the checkout. */
+  }
+  const inside = (path: string, root: string) => {
+    const rel = relative(root, path);
+    return rel && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)
+      ? rel.split(sep).join("/")
+      : undefined;
+  };
+  return [
+    ...new Set(
+      paths.map((value) => {
+        const path = resolve(cwd, value);
+        let real = path;
+        try {
+          real = join(realpathSync(dirname(path)), basename(path));
+        } catch {
+          /* A folder that is gone keeps its path. */
+        }
+        const rel = roots.flatMap((root) => inside(path, root) ?? inside(real, root) ?? [])[0];
+        if (!rel) throw new Error(`${value} is not a file or folder in ${repo}.`);
+        return rel;
+      }),
+    ),
+  ];
+}
 
 export interface ReviewCommand {
   kind: "help" | "repos" | "create" | "update" | "wait";
   /** For wait: the review's key, and the session that waits. `owned`: Med started this session and sends it messages itself. */
   wait?: { key: string; session?: string; owned?: boolean };
-  /** For update: the review's key and its new details. */
+  /** For update: the review's key and its new details. With `paths`, a new
+   * version shows those files' uncommitted changes in `repo` (or the
+   * thread's checkout). */
   update?: {
     key: string;
     title?: string;
     pullRequestUrl?: string;
     sessions?: AgentSession[];
     guide?: ReviewGuide;
+    paths?: string[];
+    repo?: string;
   };
   port: number;
   stateDir: string;
@@ -73,7 +139,7 @@ export interface ReviewCommand {
 }
 
 /** Read and check a guide file, or standard input for "-". */
-async function readGuide(source: string): Promise<ReviewGuide> {
+export async function readGuide(source: string): Promise<ReviewGuide> {
   let text: string;
   try {
     text = source === "-" ? await readStandardInput() : await readFile(resolve(source), "utf8");
@@ -93,16 +159,17 @@ async function readGuide(source: string): Promise<ReviewGuide> {
   return parsed.data;
 }
 
-async function readStandardInput() {
+export async function readStandardInput() {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
   return Buffer.concat(chunks).toString("utf8");
 }
 
 export async function parseReviewCommand(
-  args: string[],
-  sessionOptions: { environment?: NodeJS.ProcessEnv; home?: string } = {},
+  given: string[],
+  sessionOptions: { environment?: NodeJS.ProcessEnv; home?: string; cwd?: string } = {},
 ): Promise<ReviewCommand> {
+  const { args, paths } = takePaths(given);
   const { values, positionals } = parseArgs({
     args,
     allowPositionals: true,
@@ -145,6 +212,8 @@ export async function parseReviewCommand(
   if (values.help) return { ...common, kind: "help" };
   if (positionals.length !== 1 || !["repos", "create", "update", "wait"].includes(positionals[0]!))
     throw new Error(reviewHelp);
+  if (paths && positionals[0] !== "create" && positionals[0] !== "update")
+    throw new Error("Use --paths with create or update.");
   if (positionals[0] === "wait") {
     if (owned) return { ...common, kind: "wait", wait: { key: values.key ?? "", owned } };
     if (!values.key) throw new Error("Use wait with --key, the key the review was created with.");
@@ -155,12 +224,19 @@ export async function parseReviewCommand(
   }
   if (positionals[0] === "update") {
     if (!values.key) throw new Error("Use update with --key, the key the review was created with.");
-    if (!values.pr && !values.title && !values.session?.length && values.guide === undefined)
-      throw new Error("Supply --pr, --title, --guide, or --session.");
+    if (
+      !values.pr &&
+      !values.title &&
+      !values.session?.length &&
+      values.guide === undefined &&
+      !paths
+    )
+      throw new Error("Supply --pr, --title, --guide, --session, or --paths.");
     const key = reviewKeySchema.safeParse(values.key);
     if (!key.success) throw new Error(key.error.issues[0]!.message);
     const guide = values.guide === undefined ? undefined : await readGuide(values.guide);
     const found = await sessions();
+    const repo = values.repo ?? (environment.MED_THREAD_REPO || undefined);
     return {
       ...common,
       kind: "update",
@@ -170,6 +246,11 @@ export async function parseReviewCommand(
         ...(values.pr ? { pullRequestUrl: values.pr } : {}),
         ...(found.length ? { sessions: found } : {}),
         ...(guide ? { guide } : {}),
+        // Paths stay relative to this directory until the checkout is known.
+        ...(paths && {
+          paths: paths.map((path) => resolve(sessionOptions.cwd ?? process.cwd(), path)),
+        }),
+        ...(paths && repo ? { repo: resolve(repo) } : {}),
       },
     };
   }
@@ -196,8 +277,10 @@ export async function parseReviewCommand(
   }
   let input: unknown;
   if (values.manifest !== undefined) {
-    if (targetOptions.some((value) => value !== undefined))
-      throw new Error("Use --manifest without --title, --repo, --base, --head, or --working.");
+    if (targetOptions.some((value) => value !== undefined) || paths)
+      throw new Error(
+        "Use --manifest without --title, --repo, --base, --head, --working, or --paths.",
+      );
     try {
       input = JSON.parse(await readFile(resolve(values.manifest), "utf8"));
     } catch {
@@ -216,6 +299,9 @@ export async function parseReviewCommand(
       throw new Error(
         "Supply both --base and --head, or use --working to capture current changes.",
       );
+    const only = paths && {
+      paths: repoPaths(values.repo, paths, sessionOptions.cwd ?? process.cwd()),
+    };
     input = {
       title:
         values.title ??
@@ -228,12 +314,13 @@ export async function parseReviewCommand(
         {
           repo: values.repo,
           comparison: values.working
-            ? { kind: "working" }
+            ? { kind: "working", ...only }
             : {
                 kind: "range",
                 base: values.base,
                 head: values.head,
                 ...(values["merge-base"] ? { mergeBase: true } : {}),
+                ...only,
               },
         },
       ],
@@ -371,7 +458,7 @@ export async function runReviewCommand(
     return;
   }
   if (command.kind === "update") {
-    const { key, guide, ...details } = command.update!;
+    const { key, guide, paths, repo, ...details } = command.update!;
     const title = details.pullRequestUrl && (await pullRequestTitle(details.pullRequestUrl));
     const found = z
       .object({ id: z.string().regex(/^[A-Za-z0-9_-]+$/) })
@@ -381,7 +468,17 @@ export async function runReviewCommand(
         ...details,
         ...(title ? { pullRequestTitle: title } : {}),
       });
-    if (guide) await request(connection, `/api/reviews/${found.id}/guide`, fetcher, { guide });
+    // --paths: a new version with those files; a guide goes with it.
+    if (paths) {
+      const checkout = repo ?? (await reviewCheckout(connection, found.id, fetcher));
+      await addVersion(connection, found.id, fetcher, {
+        targets: [
+          { repo: checkout, comparison: { kind: "working", paths: repoPaths(checkout, paths) } },
+        ],
+        ...(guide ? { guide } : {}),
+      });
+    } else if (guide)
+      await request(connection, `/api/reviews/${found.id}/guide`, fetcher, { guide });
     await showReview(connection, found.id, false, fetcher, options.openUrl, true);
     print(`[Review changes here](${connection.origin}/review/${found.id})`);
     if (guide) await printGuideCheck(connection, found.id, guide, key, fetcher, print);
@@ -420,12 +517,40 @@ export async function runReviewCommand(
     await printGuideCheck(connection, parsed.data.id, manifest.guide, manifest.key, fetcher, print);
 }
 
+/** The checkout that a thread works in. */
+export async function reviewCheckout(
+  connection: RunningConnection,
+  id: string,
+  fetcher: typeof fetch,
+) {
+  const saved = savedReviewSchema.parse(await request(connection, `/api/reviews/${id}`, fetcher));
+  const checkout = threadCheckout(saved)?.repo;
+  if (!checkout) throw new Error("The thread names no checkout. Supply --repo <path>.");
+  return checkout;
+}
+
+/** Adds a Review version to a thread: what its agent shows now. */
+export async function addVersion(
+  connection: RunningConnection,
+  id: string,
+  fetcher: typeof fetch,
+  body: Omit<ReviewManifest, "title">,
+) {
+  return z
+    .object({
+      id: z.string(),
+      title: z.string(),
+      iterations: z.array(z.object({ number: z.number() })).optional(),
+    })
+    .parse(await request(connection, `/api/reviews/${id}/versions`, fetcher, body));
+}
+
 /**
  * Check a guide against the comparisons of the review's current iteration and
  * print what it leaves out, so the agent can fix it. A check that cannot run
  * stays silent: the review exists either way.
  */
-async function printGuideCheck(
+export async function printGuideCheck(
   connection: RunningConnection,
   id: string,
   guide: ReviewGuide,

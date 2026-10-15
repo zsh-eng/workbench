@@ -769,10 +769,14 @@ async function openBranch(name: string) {
 }
 
 describe("graphical review", () => {
-  test("zen mode moves a saved review's header actions to the command palette", async () => {
+  test("zen mode keeps Review and Changes in the command palette", async () => {
     await mountApp({ savedReview: true, branches: true });
     await page.getByRole("link", { name: "src/alpha.ts", exact: true }).click();
-    await expect.element(page.getByRole("button", { name: "Return to review" })).toBeVisible();
+    // The tabs replace Live and Return: the review pane has neither.
+    await expect
+      .element(page.getByRole("tab", { name: "Review", exact: true }))
+      .toHaveAttribute("aria-selected", "false");
+    expect(document.body.textContent).not.toMatch(/Return to review|Live changes/);
     window.dispatchEvent(
       new KeyboardEvent("keydown", {
         key: "Z",
@@ -784,37 +788,38 @@ describe("graphical review", () => {
     await expect
       .element(page.getByRole("button", { name: "Exit zen mode", exact: true }))
       .toBeInTheDocument();
-    await expect
-      .element(page.getByRole("button", { name: "Return to review" }))
-      .not.toBeInTheDocument();
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
-    await page.getByRole("combobox", { name: "Search commands" }).fill("Return to review");
-    await page.getByRole("option", { name: /Return to review/ }).click();
+    const command = async (name: string) => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }),
+      );
+      await page.getByRole("combobox", { name: "Search commands" }).fill(name);
+      await page.getByRole("option", { name: new RegExp(`^${name}`) }).click();
+    };
     // Zen hides the tab strip, so the panel shows which tab is open.
+    await command("Show Review");
+    await expect.element(page.getByRole("tabpanel", { name: "Review", exact: true })).toBeVisible();
+    await command("Show Changes");
     await expect
       .element(page.getByRole("tabpanel", { name: "Changes", exact: true }))
       .toBeVisible();
   });
-  test("saved review return and target selection restore Changes after live file browsing", async () => {
+  test("the Review tab and its version restore the Review after live file browsing", async () => {
     const { controller } = await mountApp({
       savedReview: true,
       branches: true,
     });
+    const reviewTab = page.getByRole("tab", { name: "Review", exact: true });
+    await expect.element(reviewTab).toHaveAttribute("aria-selected", "true");
     await page.getByRole("link", { name: "src/alpha.ts", exact: true }).click();
     await expect
       .element(page.getByRole("textbox", { name: "Edit src/alpha.ts", exact: true }))
       .toBeVisible();
-    await expect.element(page.getByRole("button", { name: "Return to review" })).toBeVisible();
-    await expect.element(page.getByText(/Captured working changes/)).not.toBeInTheDocument();
-    await page.getByRole("button", { name: "Return to review" }).click();
-    await expect
-      .element(page.getByRole("tab", { name: "Changes", exact: true }))
-      .toHaveAttribute("aria-selected", "true");
-    await expect
-      .element(page.getByRole("button", { name: "Return to review" }))
-      .not.toBeInTheDocument();
+    await expect.element(reviewTab).toHaveAttribute("aria-selected", "false");
+    await reviewTab.click();
+    await expect.element(reviewTab).toHaveAttribute("aria-selected", "true");
+    expect(controller.getSnapshot().savedView).toBe(true);
 
-    // Retain an active file in both workspaces, then return to a target whose
+    // Retain an active file in both workspaces, then return to a version whose
     // stored file navigation would otherwise hide its saved comparison.
     await page.getByRole("link", { name: "src/alpha.ts", exact: true }).click();
     await openBranch("feature");
@@ -822,16 +827,18 @@ describe("graphical review", () => {
     await expect
       .element(page.getByRole("textbox", { name: "Edit src/beta.ts", exact: true }))
       .toBeVisible();
-    await page.getByRole("combobox", { name: "Review target" }).selectOptions("target-0");
-    await expect.poll(() => controller.getSnapshot().review?.id).toBe("target-0");
-    await expect
-      .element(page.getByRole("tab", { name: "Changes", exact: true }))
-      .toHaveAttribute("aria-selected", "true");
-    await page.getByRole("combobox", { name: "Review target" }).selectOptions("target-1");
-    await expect.poll(() => controller.getSnapshot().review?.id).toBe("target-1");
-    await expect
-      .element(page.getByRole("tab", { name: "Changes", exact: true }))
-      .toHaveAttribute("aria-selected", "true");
+    await reviewTab.click();
+    await expect.poll(() => controller.getSnapshot().savedView).toBe(true);
+    await expect.element(reviewTab).toHaveAttribute("aria-selected", "true");
+    for (const [index, name] of [
+      [0, /^Version 1 · repo · /],
+      [1, /^Version 1 · feature · /],
+    ] as const) {
+      await page.getByRole("combobox", { name: "Review version" }).click();
+      await page.getByRole("option", { name }).click();
+      await expect.poll(() => controller.getSnapshot().review?.id).toBe(`target-${index}`);
+      await expect.element(reviewTab).toHaveAttribute("aria-selected", "true");
+    }
   });
   test("hovering a full-file link shares the read with opening it", async () => {
     const { fileRequests } = await mountApp();
@@ -2458,7 +2465,7 @@ describe("review guide", () => {
       },
     });
     await expect
-      .element(page.getByRole("tab", { name: "Guide" }))
+      .element(page.getByRole("tab", { name: "Review" }))
       .toHaveAttribute("aria-selected", "true");
     const overview = page.getByRole("region", { name: "Guide overview" });
     await expect.element(overview.getByText(/^Renames the/)).toBeVisible();
@@ -2532,7 +2539,7 @@ describe("review brief", () => {
       .map((host) => host.shadowRoot?.textContent ?? "")
       .join("\n");
 
-  test("opens on the brief, shows the cited lines, and follows a link into Changes", async () => {
+  test("opens on the brief, shows the cited lines, and follows a link into the Review", async () => {
     await mountApp({
       savedReview: true,
       brief: "# Rename the export\n\nThe constant changes in [alpha.ts:1](src/alpha.ts:1).\n",
@@ -2551,7 +2558,7 @@ describe("review brief", () => {
 
     await page.getByRole("link", { name: "alpha.ts:1" }).click();
     await expect
-      .element(page.getByRole("tab", { name: "Changes" }))
+      .element(page.getByRole("tab", { name: "Review" }))
       .toHaveAttribute("aria-selected", "true");
     await expect
       .element(page.getByRole("button", { name: "Clear line selection" }))
@@ -2615,37 +2622,45 @@ describe("review brief", () => {
     await expect.poll(marked).toEqual([]);
   });
 
-  test("an agent's iterations switch the brief and its comparison together", async () => {
+  test("an agent's versions switch the brief and its comparison together", async () => {
     await page.viewport(1280, 800);
     const { controller } = await mountApp({
       savedReview: true,
       iterationBriefs: ["# First round\n", "# Second round\n"],
     });
-    // The current iteration opens: its brief and its comparison.
+    // The latest version opens: its brief and its comparison.
     await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
     expect(controller.getSnapshot().savedTargetId).toBe("target-1");
     await expect
-      .element(page.getByRole("button", { name: "Iteration 2" }))
+      .element(page.getByRole("button", { name: "Version 2" }))
       .toHaveAttribute("aria-pressed", "true");
-    await page.getByRole("button", { name: "Iteration 1" }).click();
+    await page.getByRole("button", { name: "Version 1" }).click();
     await expect.element(page.getByRole("heading", { name: "First round" })).toBeVisible();
     await expect.poll(() => controller.getSnapshot().savedTargetId).toBe("target-0");
     // The keys choose the comparison, so the header has no second picker.
     await expect
-      .element(page.getByRole("combobox", { name: "Review target" }))
+      .element(page.getByRole("combobox", { name: "Review version" }))
       .not.toBeInTheDocument();
-    await page.getByRole("button", { name: "Iteration 2" }).click();
+    await page.getByRole("button", { name: "Version 2" }).click();
     await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
     await expect.poll(() => controller.getSnapshot().savedTargetId).toBe("target-1");
   });
 
-  test("a saved review's Changes tab lists its files and commits, and shows the live changes", async () => {
+  test("a thread's Review lists its files and commits, and Changes shows the live changes", async () => {
     await page.viewport(1400, 900);
     const { controller } = await mountApp({
       savedReview: true,
       rangeCommits: true,
     });
-    await page.getByRole("tab", { name: "Changes", exact: true }).click();
+    const reviewTab = page.getByRole("tab", { name: "Review", exact: true });
+    const changesTab = page.getByRole("tab", { name: "Changes", exact: true });
+    await expect.element(reviewTab).toHaveAttribute("aria-selected", "true");
+    // The Review opens on its Guide, the range's commits; All files shows the whole diff.
+    await page
+      .getByRole("region", { name: "Guide overview" })
+      .getByRole("button", { name: "All files" })
+      .click();
+    await expect.element(reviewTab).toHaveAttribute("aria-selected", "true");
     // The Changed files pane holds the tree; without it, the rail does.
     const rail = page.getByRole("navigation", { name: "Files and commits" });
     await expect.element(rail).not.toBeInTheDocument();
@@ -2665,34 +2680,44 @@ describe("review brief", () => {
       .toHaveAttribute("aria-current", "page");
     await list.getByRole("button", { name: "Whole range" }).click();
     await expect.poll(() => controller.getSnapshot().savedView).toBe(true);
+    await expect.element(reviewTab).toHaveAttribute("aria-selected", "true");
+    // Changes are the checkout's live diff: on the base branch, its working
+    // changes. They list files, not the Review's commits.
+    await changesTab.click();
+    await expect.poll(() => controller.getSnapshot().savedView).toBe(false);
+    expect(controller.getSnapshot().comparison).toEqual({ kind: "working" });
+    await expect.element(changesTab).toHaveAttribute("aria-selected", "true");
+    await expect.element(rail).toBeVisible();
+    expect(list.query()).toBeNull();
     // The toolbar hides the rail, and the choice holds.
     await page.getByRole("button", { name: "Hide files and commits" }).click();
     await expect.element(rail).not.toBeInTheDocument();
     expect(localStorage.getItem("med:changes-rail")).toBe("closed");
-    // The header shows the live changes until Return to review.
-    await page.getByRole("button", { name: "Show live changes" }).click();
-    await expect.poll(() => controller.getSnapshot().savedView).toBe(false);
-    expect(controller.getSnapshot().comparison.kind).toBe("working");
-    await page.getByRole("button", { name: "Return to review" }).click();
+    await reviewTab.click();
     await expect.poll(() => controller.getSnapshot().savedView).toBe(true);
+    await expect.element(reviewTab).toHaveAttribute("aria-selected", "true");
   });
 
-  test("a review whose worktree changed offers a refresh or the live changes", async () => {
+  test("a Review whose checkout changed offers a refresh or the live Changes", async () => {
     await page.viewport(1280, 800);
     const { controller } = await mountApp({
       savedReview: true,
       iterationBriefs: ["# Only round\n"],
       drift: true,
     });
+    // The thread opens on the brief; the Review's diff has the notice.
+    await page.getByRole("tab", { name: "Review", exact: true }).click();
     const bar = page
       .getByRole("status")
-      .filter({ hasText: "The worktree changed after this review" });
+      .filter({ hasText: "The checkout changed after this version of the Review" });
     await expect.element(bar).toBeVisible();
-    // The live changes replace the capture until Return to review.
-    await bar.getByRole("button", { name: "Show live changes" }).click();
+    await bar.getByRole("button", { name: "Show Changes" }).click();
     await expect.poll(() => controller.getSnapshot().savedView).toBe(false);
     expect(controller.getSnapshot().comparison.kind).toBe("working");
-    await page.getByRole("button", { name: "Return to review" }).click();
+    await expect
+      .element(page.getByRole("tab", { name: "Changes", exact: true }))
+      .toHaveAttribute("aria-selected", "true");
+    await page.getByRole("tab", { name: "Review", exact: true }).click();
     await expect.element(bar).toBeVisible();
     // A refresh captures the worktree again, as a new iteration that matches it.
     await bar.getByRole("button", { name: "Refresh review" }).click();
@@ -2717,7 +2742,7 @@ describe("review brief", () => {
     // The new notes are empty: the brief before them stays with its iteration.
     await expect.element(page.getByText("No notes yet.", { exact: false })).toBeVisible();
     await expect
-      .element(page.getByRole("button", { name: "Iteration 3" }))
+      .element(page.getByRole("button", { name: "Version 3" }))
       .toHaveAttribute("aria-pressed", "true");
     await expect.poll(() => controller.getSnapshot().savedTargetId).toBe("target-2");
     await expect
@@ -2745,7 +2770,7 @@ describe("review brief", () => {
     await expect.poll(() => controller.getSnapshot().status).toBe("ready");
     observer.disconnect();
     expect([...tabs]).toEqual(["Notes"]);
-    await expect.element(page.getByRole("button", { name: "Iteration 3" })).not.toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: "Version 3" })).not.toBeInTheDocument();
     await expect.element(confirm).not.toBeInTheDocument();
   });
 
@@ -2756,7 +2781,7 @@ describe("review brief", () => {
       iterationBriefs: Array.from({ length: 12 }, (_, index) => `# Round ${index + 1}\n`),
     });
     await expect.element(page.getByRole("heading", { name: "Round 12" })).toBeVisible();
-    const keys = page.getByRole("group", { name: "Iterations" });
+    const keys = page.getByRole("group", { name: "Versions" });
     expect(
       keys
         .getByRole("button")
@@ -2766,15 +2791,15 @@ describe("review brief", () => {
     const header = keys.element().parentElement!;
     expect(header.scrollWidth).toBeLessThanOrEqual(header.clientWidth);
     // An earlier round opens from the menu, and the menu key shows it.
-    await page.getByRole("button", { name: "Earlier iterations" }).click();
-    await page.getByRole("menuitemcheckbox", { name: /^Iteration 3 · / }).click();
+    await page.getByRole("button", { name: "Earlier versions" }).click();
+    await page.getByRole("menuitemcheckbox", { name: /^Version 3 · / }).click();
     await expect.element(page.getByRole("heading", { name: "Round 3" })).toBeVisible();
     await expect
-      .element(page.getByRole("button", { name: "Iteration 3, earlier iterations" }))
+      .element(page.getByRole("button", { name: "Version 3, earlier versions" }))
       .toHaveTextContent("3");
-    await page.getByRole("button", { name: "Iteration 12" }).click();
+    await page.getByRole("button", { name: "Version 12" }).click();
     await expect.element(page.getByRole("heading", { name: "Round 12" })).toBeVisible();
-    await expect.element(page.getByRole("button", { name: "Earlier iterations" })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Earlier versions" })).toBeVisible();
     // A narrow pane keeps fewer keys; the label stays on one line.
     await page.viewport(600, 800);
     await expect.poll(() => keys.getByRole("button").elements().length).toBeLessThan(7);
@@ -2805,7 +2830,7 @@ describe("review brief", () => {
       childList: true,
       attributes: true,
     });
-    await page.getByRole("button", { name: "Iteration 1" }).click();
+    await page.getByRole("button", { name: "Version 1" }).click();
     await expect.element(page.getByRole("heading", { name: "First round" })).toBeVisible();
     observer.disconnect();
     expect([...shown].filter((state) => !/^ready Notes (First|Second) round$/.test(state))).toEqual(
@@ -2839,7 +2864,7 @@ describe("review brief", () => {
     });
   });
 
-  test("adds a note on excerpt lines that also shows in Changes", async () => {
+  test("adds a note on excerpt lines that also shows in the Review", async () => {
     const { controller } = await mountApp({
       savedReview: true,
       brief: "The constant changes in [alpha.ts:1](src/alpha.ts:1).\n",
@@ -2877,7 +2902,7 @@ describe("review brief", () => {
       .element(page.getByRole("textbox", { name: "Review note text" }))
       .not.toBeInTheDocument();
 
-    await page.getByRole("tab", { name: "Changes" }).click();
+    await page.getByRole("tab", { name: "Review", exact: true }).click();
     await expect
       .poll(() => page.getByText("Keep this name", { exact: true }).elements().length)
       .toBe(2);
@@ -3063,7 +3088,7 @@ describe("review brief", () => {
     await page.getByRole("button", { name: "Undo", exact: true }).click();
     await expect.element(page.getByRole("tab", { name: "Notes" })).not.toBeInTheDocument();
     await expect
-      .element(page.getByRole("tab", { name: "Changes" }))
+      .element(page.getByRole("tab", { name: "Review", exact: true }))
       .toHaveAttribute("aria-selected", "true");
     await expect.element(page.getByRole("status")).toHaveTextContent("Brief removed.");
   });

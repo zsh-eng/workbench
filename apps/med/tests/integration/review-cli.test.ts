@@ -662,6 +662,63 @@ exit 1
     expect(output).toEqual([]);
   });
 
+  it("shows only the files that --paths names, on create and as a new version on update", async () => {
+    const f = await fixture();
+    const repo = f.repos[0]!;
+    // file.txt changed before the agent started; the agent adds its own files.
+    await writeFile(join(repo, "mine.ts"), "export const mine = 1;\n");
+    await mkdir(join(repo, "docs"));
+    await writeFile(join(repo, "docs", "notes.md"), "# Notes\n");
+    const files = async (review: { id: string; iterations?: { targetIds: string[] }[] }) => {
+      const target = review.iterations!.at(-1)!.targetIds[0]!;
+      const shown = (await f.api(`/api/reviews/${review.id}/targets/${target}/review`)) as {
+        files: { path: string }[];
+        comparison: unknown;
+      };
+      return { comparison: shown.comparison, paths: shown.files.map((file) => file.path) };
+    };
+    const created = await f.saved(
+      await f.run(
+        "create",
+        "--title",
+        "Mine",
+        "--repo",
+        repo,
+        "--working",
+        "--key",
+        "mine",
+        "--no-pr",
+        "--paths",
+        join(repo, "mine.ts"),
+        join(repo, "docs"),
+      ),
+    );
+    expect(await files(created)).toEqual({
+      comparison: { kind: "working", paths: ["mine.ts", "docs"] },
+      paths: ["docs/notes.md", "mine.ts"],
+    });
+    // update --paths adds a version; the first one stays.
+    expect(await f.run("update", "--key", "mine", "--paths", join(repo, "file.txt"))).toMatch(
+      /^\[Review changes here\]/,
+    );
+    const updated = (await f.api(`/api/reviews/${created.id}`)) as typeof created;
+    expect(updated.iterations).toHaveLength(2);
+    expect(await files(updated)).toEqual({
+      comparison: { kind: "working", paths: ["file.txt"] },
+      paths: ["file.txt"],
+    });
+    // Mistakes say what to do.
+    await expect(f.run("update", "--key", "mine", "--paths")).rejects.toThrow(
+      "Name one or more files or folders after --paths.",
+    );
+    await expect(
+      f.run("update", "--key", "mine", "--paths", join(f.root, "elsewhere.ts")),
+    ).rejects.toThrow(`is not a file or folder in ${repo}.`);
+    await expect(f.run("repos", "--paths", "mine.ts")).rejects.toThrow(
+      "Use --paths with create or update.",
+    );
+  });
+
   it("reports a stopped host and does not expose its credential", async () => {
     const f = await fixture();
     await f.host.close();

@@ -334,8 +334,10 @@ review closes at `archivedAt`; of the others, the 8 newest that changed in the
 last 7 days (`FOUND_DAYS`) open, newest first; the others close. At start and once a day, the host prunes
 history: 30 days after the close it replaces the saved review with a short
 record (title, repository, branch, sessions), which opens as its newest
-session's found thread; after 180 days it deletes the record. Over the 512 MiB
-storage budget, the reviews that closed first give up their captures first.
+session's found thread; after 180 days it deletes the record. The captures
+that go are the thread's Review versions; a thread without a Review keeps its
+`checkout` in the short record. Over the 512 MiB storage budget, the reviews
+that closed first give up their captures first.
 
 `POST /api/threads` starts a thread. With a worktree, the default, the host
 names a branch for the task (with `-2`, `-3`, … when the name is taken), adds a
@@ -442,6 +444,32 @@ bundle. Revision checks stop a stale clear from deleting newer comments. Atomic
 private files and a cross-process write lock protect the records. Saved source
 does not follow watcher events.
 
+A thread's bundle is its **Review**: the versions (the bundle's iterations)
+that the agent hands off with `med thread show`, `med review create --key`, or
+`POST /api/reviews/:id/versions`. A thread that New thread, Keep in Med, or
+`med thread adopt` makes saves only its checkout (`checkout`: repository,
+path, branch) and no target. Its **Changes** are a live comparison of that
+checkout, which Med never saves: a `working` comparison with `base`, from the
+merge base of the base branch and HEAD to the working files, on a branch
+other than the base, and plain working changes on the base. A Git comparison
+can keep only `paths` (literal pathspecs; an empty list keeps no file), or the
+files that a Claude Code or Codex `session` edited: `/api/review` reads them
+from the transcript (`src/host/session-edits.ts`) and asks Git for those
+paths. A saved target keeps paths, never a session. The thread list
+(`src/host/thread-service.ts`) counts a tab's Changes until its first
+hand-off (`src/host/checkout-changes.ts`, read in the background every 30
+seconds, and at most every 4 seconds while a session changes), and marks a
+checkout that is shared: the repository's main checkout, or one with two or
+more tabs' sessions. A bundle made before Changes were live keeps its
+first capture as version 1; the browser treats an empty capture alone, with
+no brief or guide, as no Review (`hasReview` in `src/web/data/controller.ts`).
+
+In the browser, the controller's `inReview` says whether the diff is the
+Review's (a version, or a commit of its range) or the live Changes. The pane's
+tabs map to it: **Review** is the Guide or the `changes` view in Review, and
+**Changes** is the `changes` view outside it. The controller keeps the last
+live comparison that the reader chose, so Changes come back as they were.
+
 A bundle can hold a Markdown brief and pinned notes. `src/web/data/brief.ts`
 resolves each link to a changed file and line range (exact path, then a unique
 path suffix) and shows the cited range as an excerpt. A bundle with a pull
@@ -449,7 +477,7 @@ request URL can show GitHub comments: `GET /api/reviews/:id/pull-request` runs
 `gh api` with GET requests only and keeps the result for 30 seconds. Med never
 writes to GitHub.
 
-A bundle and each iteration can hold a guide (`src/shared/review-guide.ts`): a
+A bundle and each version can hold a guide (`src/shared/review-guide.ts`): a
 summary and segments, each with file patterns and the agent's comments on
 lines. The host checks it with the shared schema on create and on
 `POST /api/reviews/:id/guide`. For a commit range, a capture also records up to
@@ -458,8 +486,8 @@ paths, folders, and globs to changed files. The CLI uses it after create and
 update to print the files that the guide leaves out or names twice, after
 pulls.review's coverage check; `src/web/data/guide.ts` uses it to place each
 segment and comment, and files that no segment names form a last automatic
-segment. The Guide tab reuses the
-Changes stream with only the segment's files, so it keeps virtualization,
+segment. The Guide, in the Review tab, reuses the
+diff stream with only the segment's files, so it keeps virtualization,
 annotations, and notes. Viewed marks (`src/web/data/viewed.ts`) are kept in
 `localStorage` for each review, keyed by path and new blob ID, so a changed
 file shows as unviewed again.

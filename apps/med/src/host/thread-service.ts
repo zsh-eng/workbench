@@ -6,8 +6,13 @@ import {
   parseFoundThreadId,
   type FoundUpdate,
 } from "../shared/found-sessions";
-import type { RegisteredRepository } from "../shared/protocol";
-import type { AgentSession, SavedReview } from "../shared/saved-review";
+import { changesBase, type RegisteredRepository } from "../shared/protocol";
+import {
+  handoffTargets,
+  threadCheckout,
+  type AgentSession,
+  type SavedReview,
+} from "../shared/saved-review";
 import type { Thread, ThreadList } from "../shared/threads";
 import { findTranscript, transcriptPrompt } from "./agent-transcripts";
 import { HostError } from "./runtime/errors";
@@ -15,6 +20,7 @@ import type { SavedReviewStore } from "./saved-reviews";
 import { CAPTURES_KEPT_MS, STUBS_KEPT_MS, type TabStub, type ThreadTabs } from "./thread-tabs";
 import type { createThreadSubagents } from "./thread-subagents";
 import type { createCheckoutWork } from "./checkout-work";
+import type { createCheckoutChanges } from "./checkout-changes";
 
 // The threads of the host: the tabs, which the thread list polls, and history,
 // which a picker reads when it opens. See thread-tabs.ts for the store, and
@@ -46,6 +52,8 @@ export interface ThreadServiceOptions {
     settings(): { shown: boolean };
   };
   checkoutWork: ReturnType<typeof createCheckoutWork>;
+  /** The counts of a checkout's live Changes, for a tab without a Review. */
+  checkoutChanges?: Pick<ReturnType<typeof createCheckoutChanges>, "get">;
   subagents: ReturnType<typeof createThreadSubagents>;
   /** Removes a linked worktree that Med made, as `git worktree remove` does. */
   removeWorktree(path: string, signal: AbortSignal): Promise<void>;
@@ -53,9 +61,25 @@ export interface ThreadServiceOptions {
   home?: () => string;
 }
 
-/** The primary comparison of a review: its first that is not a comment's. */
-const primary = (review: SavedReview) =>
-  review.targets.find((entry) => !entry.commentReviewId) ?? review.targets[0];
+/** Where a review's thread works: its checkout, else its first comparison
+ * that is not a comment's. */
+const primary = (review: SavedReview) => threadCheckout(review);
+
+/**
+ * Marks the tabs whose checkout is shared: a repository's main checkout, or
+ * a worktree where more than one tab works. Their Changes offer "Only this
+ * session's files".
+ */
+function markShared(threads: Thread[]) {
+  const transcript = (thread: Thread) =>
+    !!thread.checkout && !!thread.sessions?.some((session) => session.agent !== "acp");
+  const counts = new Map<string, number>();
+  for (const thread of threads)
+    if (transcript(thread)) counts.set(thread.checkout!, (counts.get(thread.checkout!) ?? 0) + 1);
+  for (const thread of threads)
+    if (transcript(thread) && (!thread.linked || counts.get(thread.checkout!)! > 1))
+      thread.shared = true;
+}
 
 export function createThreadService(options: ThreadServiceOptions) {
   const { savedReviews, tabs } = options;
@@ -99,13 +123,16 @@ export function createThreadService(options: ThreadServiceOptions) {
       ...(target?.branch && { branch: target.branch }),
       ...(lead && { agent: lead.agent }),
       ...(review.sessions?.length && { sessions: review.sessions }),
-      ...(review.totals && {
-        changes: {
-          files: review.totals.files,
-          additions: review.totals.additions,
-          deletions: review.totals.deletions,
-        },
-      }),
+      // A thread's Review counts its hand-offs; before one, its tab counts
+      // the live Changes (`reviewTab`).
+      ...(review.totals &&
+        handoffTargets(review).length && {
+          changes: {
+            files: review.totals.files,
+            additions: review.totals.additions,
+            deletions: review.totals.deletions,
+          },
+        }),
       ...(review.pullRequestUrl && { pullRequestUrl: review.pullRequestUrl }),
       ...(review.group && { group: review.group }),
     } satisfies Thread;
@@ -179,9 +206,22 @@ export function createThreadService(options: ThreadServiceOptions) {
     const reply = review.sessions?.length
       ? await options.lastMessage(review.id).catch(() => undefined)
       : undefined;
+    // Before the agent hands off a Review, the tab counts the live Changes.
+    const target = primary(review);
+    const family = familyOf(repositories, target?.repo, target?.repositoryId);
+    const tree = family?.worktrees.find((entry) => entry.path === target?.repo);
+    const live =
+      target && !handoffTargets(review).length
+        ? options.checkoutChanges?.get(
+            target.repo,
+            changesBase(family, tree ? tree.branch : target.branch),
+            status?.updatedAt,
+          )
+        : undefined;
     return {
       ...base,
       updatedAt: Math.max(review.modifiedAt, status?.updatedAt ?? 0),
+      ...(live && { changes: live }),
       ...(status && { agent: status.agent, state: status.state }),
       ...(status?.turn && { turn: status.turn }),
       ...(reply && {
@@ -278,9 +318,16 @@ export function createThreadService(options: ThreadServiceOptions) {
       );
       for (const thread of threads) tabs.setGroup(thread.id, groupOf(thread));
       void tabs.save().catch(() => {});
+      markShared(threads);
+      // A tab's work counts the uncommitted changes when its Changes or its
+      // Review shows them.
       const onWorking = new Set(
         reviews
-          .filter((review) => review.targets.some((entry) => entry.comparison.kind === "working"))
+          .filter(
+            (review) =>
+              !handoffTargets(review).length ||
+              review.targets.some((entry) => entry.comparison.kind === "working"),
+          )
           .map((review) => review.id),
       );
       return {
@@ -442,7 +489,8 @@ export function createThreadService(options: ThreadServiceOptions) {
             (entry) =>
               entry.id !== id &&
               tabs.isOpen(entry.id) &&
-              entry.targets.some((target) => target.repo === path),
+              (primary(entry)?.repo === path ||
+                entry.targets.some((target) => target.repo === path)),
           );
           if (other)
             throw new HostError(

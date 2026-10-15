@@ -217,7 +217,10 @@ test("a closed thread keeps its captures for 30 days, then a stub that opens its
     join(folder, `${session}.jsonl`),
     transcript(repo, session, "Explain the tide model.", "ends"),
   );
-  const month = await save("Closed a month ago", [{ agent: "claude", id: session, cwd: repo }]);
+  // An adopted session captures nothing: it names its checkout, which its stub keeps.
+  const month = (
+    await api<{ id: string }>("/api/sessions/adopt", { session, title: "Closed a month ago" })
+  ).data;
   const year = await save("Closed half a year ago");
   const kept = await save("Closed last week");
   for (const thread of [month, year, kept])

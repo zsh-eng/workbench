@@ -32,9 +32,10 @@ the diff of a session while it runs.
   the right.
 - In place of the message box, the pane says where the session runs. It gives
   the resume command with Copy (`cd '<dir>' && claude --resume <id>`), and
-  **Keep in Med**. Keep in Med saves the checkout's working changes with the
-  session linked, as `med review create --working` does. The saved thread
-  then takes the place of the found one.
+  **Keep in Med**. Keep in Med saves the session as a thread on its checkout,
+  as `med thread adopt` does, and captures nothing: the thread shows the live
+  Changes, and a Review once the agent shows one. The saved thread then takes
+  the place of the found one.
 - Quiet controls: **Hide** in a found row's menu (with Undo), and the palette
   command "Hide sessions not kept in Med" (or "Show …"). Med keeps these
   choices in `<state dir>/found-sessions.json`.
@@ -160,9 +161,10 @@ tests/browser/workspaces.test.tsx`: 13 tests pass. The found-threads test
   rollout with that ID does not show again.
 - **Resume splits history.** `claude --resume` on a session that still runs
   in another terminal makes two writers. The bar does not warn about this.
-- **Keep in Med takes the whole checkout.** In a shared checkout (two
-  sessions in the main checkout), the saved thread captures the working
-  changes of both.
+- **Shared checkouts.** Done: Keep in Med captures nothing. In a shared
+  checkout (two sessions in the main checkout), Changes show the work of
+  both until the reader chooses **Only this session's files**, which keeps
+  the files that the session's transcript edited.
 - **Git cost.** Each checkout with a found session costs two Git commands
   every 30 s, and the registry reads worktrees every 60 s. This is small for
   some checkouts; it is not measured for 50.

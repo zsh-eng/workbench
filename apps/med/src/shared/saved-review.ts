@@ -142,20 +142,34 @@ export const savedReviewCreateSchema = z.object({
   guide: reviewGuideSchema.optional(),
   /** One attempt at a task that several agents do; see attempts.ts. */
   group: attemptRefSchema.optional(),
+  /** What the agent shows. A thread that Med makes for a session, such as
+   * Keep in Med, has none until the agent hands off a Review. */
   targets: z
     .array(
       z.object({
         repo: z.string().min(1).max(4096),
-        comparison: comparisonSchema.refine(
-          (comparison) => comparison.kind !== "files" && comparison.kind !== "patch",
-          "Saved reviews support Git comparisons and working changes.",
-        ),
+        comparison: comparisonSchema
+          .refine(
+            (comparison) => comparison.kind !== "files" && comparison.kind !== "patch",
+            "Saved reviews support Git comparisons and working changes.",
+          )
+          .refine(
+            (comparison) => !("session" in comparison && comparison.session),
+            "A saved review keeps paths, not a session's files. Use paths.",
+          ),
       }),
     )
-    .min(1)
     .max(16),
 });
 export type SavedReviewCreate = z.infer<typeof savedReviewCreateSchema>;
+/** The checkout that a thread works in, for its live Changes. A review
+ * without one uses its first target's. */
+export const savedCheckoutSchema = z.object({
+  repositoryId: z.string(),
+  repo: z.string(),
+  branch: z.string().nullable(),
+});
+export type SavedCheckout = z.infer<typeof savedCheckoutSchema>;
 /** The names of a range's endpoints when Med captured it, such as main and
  * week-view. The review's row shows them in place of object IDs; older
  * records have none, and show short IDs. */
@@ -225,6 +239,8 @@ export const savedReviewSchema = z.object({
   revision: z.number().int().nonnegative(),
   commentCount: z.number().int().nonnegative(),
   targets: z.array(savedReviewTargetSchema),
+  /** The thread's checkout, when the review has no target there. */
+  checkout: savedCheckoutSchema.optional(),
   sessions: z.array(agentSessionSchema).optional(),
   /** Set by Med before 0.5, when archive took a thread out of the list. The
    * first start with tabs closes such a thread (src/host/thread-service.ts). */
@@ -243,6 +259,18 @@ export const savedReviewSchema = z.object({
     .optional(),
 });
 export type SavedReview = z.infer<typeof savedReviewSchema>;
+/** Where a thread works: its checkout, or else its first own target's. */
+export function threadCheckout(
+  saved: Pick<SavedReview, "checkout" | "targets">,
+): SavedCheckout | undefined {
+  if (saved.checkout) return saved.checkout;
+  const target = saved.targets.find((entry) => !entry.commentReviewId) ?? saved.targets[0];
+  return target && { repositoryId: target.repositoryId, repo: target.repo, branch: target.branch };
+}
+/** The agent's hand-offs: the review's own comparisons, without the commits
+ * that the reader commented on. A thread has a Review once it has one. */
+export const handoffTargets = (saved: Pick<SavedReview, "targets">) =>
+  saved.targets.filter((target) => !target.commentReviewId);
 export const savedFeedbackSchema = z.object({
   text: z.string(),
   count: z.number().int().nonnegative(),

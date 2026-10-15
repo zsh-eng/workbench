@@ -112,7 +112,7 @@ test("a thread starts its agent on a new branch in a worktree, and archiving can
   expect(first.status).toBe(200);
   const review = first.data.review;
   expect(review.title).toBe("Show each result's age in the list");
-  const worktree = review.targets[0]!.repo;
+  const worktree = review.checkout!.repo;
   expect(git(worktree, ["branch", "--show-current"])).toBe("show-each-results-age-list");
   expect(git(repo, ["branch", "--show-current"])).toBe("main");
   const session = review.sessions![0]!;
@@ -128,7 +128,7 @@ test("a thread starts its agent on a new branch in a worktree, and archiving can
   // The same task again takes the next free branch name, here with a chosen model.
   const second = (await start("Show each result's age in the list", { model: "haiku" })).data
     .review;
-  expect(git(second.targets[0]!.repo, ["branch", "--show-current"])).toBe(
+  expect(git(second.checkout!.repo, ["branch", "--show-current"])).toBe(
     "show-each-results-age-list-2",
   );
   await vi.waitFor(async () => {
@@ -154,7 +154,7 @@ test("a thread starts its agent on a new branch in a worktree, and archiving can
   });
 
   // Git keeps a worktree with changes, and the tab stays.
-  await writeFile(join(second.targets[0]!.repo, "summary.ts"), "export const best = 2;\n");
+  await writeFile(join(second.checkout!.repo, "summary.ts"), "export const best = 2;\n");
   const kept = await api<{ error: { code: string } }>(`/api/threads/${second.id}/close`, {
     removeWorktree: true,
   });
@@ -215,7 +215,7 @@ test("a thread's agent hands off its work as the setup instructions say, with no
       preset: "claude",
     })
   ).data.review;
-  const worktree = review.targets[0]!.repo;
+  const worktree = review.checkout!.repo;
   const session = review.sessions![0]!;
   const project = join(home, ".claude", "projects", "-fake-repo");
   const args = await vi.waitFor(
@@ -264,11 +264,13 @@ test("a thread's agent hands off its work as the setup instructions say, with no
     runReviewCommand(words, { environment, home, print: (line) => printed.push(line) });
   await run(["create", "--working", "--title", "Best result", "--guide", guide]);
 
-  // The thread gets a second round with the change and its guide.
+  // The thread captured nothing at its start; the hand-off is its Review's
+  // version 1, with the change and its guide.
+  expect(review.targets).toEqual([]);
   const saved = (await api<SavedReview>(`/api/reviews/${review.id}`)).data;
-  expect(saved.iterations).toHaveLength(2);
+  expect(saved.iterations).toHaveLength(1);
   expect(saved.totals).toMatchObject({ files: 1, additions: 1, deletions: 1 });
-  expect(saved.iterations![1]!.guide?.segments.map((segment) => segment.title)).toEqual([
+  expect(saved.iterations![0]!.guide?.segments.map((segment) => segment.title)).toEqual([
     "Best result",
   ]);
 
