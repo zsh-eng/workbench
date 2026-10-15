@@ -847,11 +847,16 @@ async function pass({ react }) {
     log(`[${tag}] cold ⌘ after idle ×${runs} (the warm pool held at its first thread)`);
     for (let i = 0; i < runs; i++) {
       const session = await newPage({ react });
-      // The warm pool loads the threads in the list's order; hold the first.
+      // The warm pool loads the threads nearest in the list to the one on
+      // screen first, the one below before the one above; hold the first.
       const order = (await host.threads()).threads
         .filter((thread) => !thread.found)
         .map((thread) => thread.id);
-      const first = order.find((id) => id !== ids.open && id !== ids.cold && id !== ids.atlas);
+      const at = order.indexOf(ids.open);
+      const far = (id) => Math.abs(order.indexOf(id) - at) * 2 + (order.indexOf(id) < at ? 1 : 0);
+      const first = order
+        .filter((id) => id !== ids.open && id !== ids.cold && id !== ids.atlas)
+        .toSorted((a, b) => far(a) - far(b))[0];
       const held = await hold(session.context, first);
       await session.page.goto(`${host.origin}/review/${ids.open}`);
       await session.page.waitForFunction(() => window.__perf.marks.SHOWN !== undefined, null, {
