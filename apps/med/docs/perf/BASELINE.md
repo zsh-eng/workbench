@@ -2,14 +2,17 @@
 
 This document records where Med spends time on 2026-10-15, at commit
 `e6da1193` (`main`, with tabs, signals, live Changes, recaps, and questions).
-It gives a breakdown of each action, a ranked list of fixes, and the results
-of the host fixes (`med-perf-host`). The goal: only React rendering limits
-Med, and that rendering is well optimized. Git, polling, parsing, and start-up
-must not be on the critical path.
+It gives a breakdown of each action, a ranked list of fixes, the results of
+the host fixes (`med-perf-host`), and the results of the render fixes
+(`med-perf-render`). The goal: only React rendering limits Med, and that
+rendering is well optimized for first paint. Git, polling, parsing, and
+start-up must not be on the critical path.
 
-The numbers come from `scripts/perf/baseline.json`. All times are medians, in
-milliseconds. Git, HTTP, and WebSocket counts are the fewest over the runs;
-React counts are medians.
+The numbers up to "Host fixes" come from a run on `e6da1193`, the baseline of
+that time. `scripts/perf/baseline.json` is now a run on main `0bd0cbc4`
+(v0.5.0, with the host fixes); "Render fixes" compares with it. All times are
+medians, in milliseconds. Git, HTTP, and WebSocket counts are the fewest over
+the runs; React counts are medians.
 
 The first baseline was on the `med-explorations` branch (`e2e6db35`), the
 second on `main` at `3a118b9e`. The findings are the same on all three; the
@@ -89,8 +92,8 @@ To make a new baseline, run the budget with
 
 Machine: Apple M1 Pro, 8 cores, 16 GB, macOS 27, Node 25.3, Git 2.52. Other
 agents ran browser tests on the same machine. The 1-minute load average was
-1.9–3.5 during the main pass of the baseline run (each action records its
-own).
+1.9–3.5 during the main pass of the `e6da1193` run, and 2.0–3.0 during the
+`0bd0cbc4` run in `baseline.json` (each action records its own).
 
 ## Results by action
 
@@ -284,6 +287,75 @@ pool: in 1 of 14 runs, the pool loaded the large diff's review (596 kB) in the
 window, and the mean bytes of five runs doubled. Warm-switch style varies
 10–21 ms between runs of the same build.
 
+## Render fixes: before and after
+
+Fix 5 (React render scope) on `med-perf-render`, against main `0bd0cbc4`
+(`scripts/perf/baseline.json`): `budget.mjs --check` holds. Same transcripts;
+the load was 2.2–3.0 in both runs. The React columns come from the
+profiling build, the others from the production build.
+
+- **One tooltip for the app.** Controls get their tooltip from data
+  attributes (`tooltip()` in `ToolButton.tsx`). `AppTooltip`, one Base UI
+  tooltip in `main.tsx`, follows the pointer and the keyboard focus. It keeps
+  the delays: rest 400 ms, close 80 ms, and at once for 500 ms after a
+  tooltip closes. A press or Escape closes it.
+- **One right-click menu for the sidebar.** `ThreadMenu` opens for the tab
+  under the pointer, or for the focused tab with the menu key
+  (`ThreadSidebar.tsx`).
+- **Memoized rows.** `ThreadRow` is memoized and gets one stable object of
+  actions. The thread list keeps the objects of threads that did not change
+  (`data/threads.ts`), so a list update renders only the changed rows.
+- **Closed menus do not render again.** `QuietMenuRoot` (`Controls.tsx`)
+  skips the renders of a closed menu until it opens or its trigger changes.
+  The root stays mounted, so the trigger keeps Base UI's keyboard access and
+  focus return. The tool menus, the session menu, and the base branch menu
+  use it.
+
+| Action                        | React renders |  React ms |         COMMIT |     SHOWN |   SETTLED |
+| ----------------------------- | ------------: | --------: | -------------: | --------: | --------: |
+| Page load, to the thread      |     853 → 563 | 155 → 142 | LIST 170 → 152 | 297 → 277 |         – |
+| First ⌘ after the load (cold) | 2,737 → 1,825 | 271 → 233 |        82 → 70 |  109 → 93 | 610 → 594 |
+| Cold ⌘ after idle             |     889 → 549 |   88 → 69 |        73 → 75 |  106 → 98 | 157 → 141 |
+| Cold ⌘, large diff            |     897 → 481 |   89 → 65 |        75 → 80 | 128 → 127 | 172 → 167 |
+| Warm ⌘ switch                 |     269 → 153 |   40 → 34 |        28 → 26 |   30 → 28 |   87 → 83 |
+| Warm ⌘, large diff            |     269 → 169 |   36 → 37 |        26 → 28 |   28 → 30 |   84 → 86 |
+| Three agent steps, off screen |      410 → 48 |   49 → 18 |              – |         – |         – |
+
+The tooltip alone took a warm switch from 257 to 202 renders, and a cold open
+from 873 to 686 (main `6f94e430`). The top renders in a warm switch were
+MenuRoot 26, TooltipRoot 15, ActionTooltip 15, ContextMenuRoot 15,
+FloatingTree 14, ThreadRow 13, and TooltipTrigger 13. Now they are App 9,
+CompositeList 8, MenuRoot 7, SessionThread 7, and SessionPanel 7. Three agent
+steps in a thread off screen render ThreadRow 7 times, from 47. The JS heap
+with 14 threads is 41.8 MB, from 46.2 MB.
+
+React's time goes down 8–27%, and 63% for agent steps. COMMIT changes little:
+most of a warm switch is style, layout, and the `<Activity>` reveal. Warm
+COMMIT on main was 20 ms in one run (`6f94e430`, load 5.4) and 28 ms in a run
+45 minutes later (`0bd0cbc4`, load 2.5). Compare times only from runs made
+close together.
+
+Open, not done in this branch:
+
+- **Fix 6, worker pool.** Med has 18 workers for 14 threads: 14 patch parsers
+  (one for each workspace, `web/workers/client.ts`), 3 Pierre diff workers
+  (`poolSize: min(3, cores − 1)`, `main.tsx`), and 1 Markdown worker
+  (`brief-render.ts`; it has two parsers, and the "session" cache uses
+  `singleDollarTextMath: false`). The plan: 1–2 shared patch workers
+  (`floor(cores / 4)`, at most 2) with one queue. The shown workspace's job
+  goes first; a hidden workspace's job gives its worker up and runs again
+  after. Keep the Markdown worker as it is. Expected: 18 workers → 6.
+- **Fix 7, the first ⌘ after a load.** On this branch, its COMMIT (70 ms) is
+  the same as a cold open after idle (75 ms). The difference is after the
+  commit, and it comes from the warm pool, which loads in the same window:
+  SETTLED 594 ms against 141, 1,825 React renders against 549 (App renders
+  about 100 times as hidden workspaces mount), and 809–898 kB of WebSocket
+  data against 162 kB (9 session event messages from the pool's
+  prefetches). Ideas to measure: start the pool after the first paint and an
+  idle period with no key; pause it while a switch is pending; prefetch
+  session data before hidden workspaces mount; mount hidden workspaces in a
+  transition.
+
 ## Limits
 
 - The profiling build is not minified, so its times are longer. Use it for
@@ -297,8 +369,8 @@ window, and the mean bytes of five runs doubled. Warm-switch style varies
   three, because the demo agent has nine steps.
 - Warm switches visit threads that the sidebar shows in its first nine places;
   the order can change between rounds as threads update.
-- The machine was shared: the load was 1.9–3.5 during the main baseline, and
-  other agents ran browser tests.
+- The machine was shared: the load was 2.0–3.0 during the baseline run on
+  `0bd0cbc4`, and other agents ran browser tests.
 - Not measured: GPU and raster time, the installed app window, memory over
   hours, switch time with two windows open, and the file tree alone.
 - The real transcripts are on this computer only. On another computer, the
