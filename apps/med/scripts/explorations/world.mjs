@@ -17,6 +17,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { delimiter, dirname, join } from "node:path";
+import { removeGitEnvironment } from "../git-environment.mjs";
 import { buildWeekView, registerWeekView } from "./week-view.mjs";
 
 const MINUTE = 60_000;
@@ -1407,6 +1408,9 @@ async function weekAttempts({ root, home, state, worktree, now }) {
  * sessions; `register(cli)` adds the sources and threads to a running host.
  */
 export async function buildWorld(root, now = Date.now()) {
+  // The world's repositories are scratch ones; Git must not reach a checkout
+  // named in GIT_DIR or another GIT_* variable.
+  removeGitEnvironment();
   await rm(root, { recursive: true, force: true });
   await mkdir(root, { recursive: true });
   root = await realpath(root);

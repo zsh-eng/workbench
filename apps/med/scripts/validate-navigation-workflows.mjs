@@ -3,10 +3,15 @@ import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdtemp, mkdir, realpath, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { chromium } from "playwright";
+import { removeGitEnvironment } from "./git-environment.mjs";
+
+removeGitEnvironment();
 
 // Exercise the built CLI, host and browser together against isolated Git repositories.
+// MED_EXECUTABLE runs a standalone executable instead of dist/cli.js.
+const executable = process.env.MED_EXECUTABLE;
 const directory = await realpath(await mkdtemp(join(tmpdir(), "med-multi-repo-")));
 const git = (cwd, ...args) =>
   execFileSync("git", args, {
@@ -58,9 +63,9 @@ try {
     repositories.push(path);
   }
   host = spawn(
-    process.execPath,
+    executable ? resolve(executable) : process.execPath,
     [
-      "dist/cli.js",
+      ...(executable ? [] : ["dist/cli.js"]),
       ...repositories.slice(0, 2),
       "--no-open",
       "--port",
@@ -100,20 +105,16 @@ try {
   });
   browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-  // The branch switch beside the tabs; quiet chrome leaves the branch to the
-  // title band.
-  await page.addInitScript(() => {
-    try {
-      localStorage.setItem("med:chrome:v1", "full");
-    } catch {
-      /* A page without storage, such as a blank one. */
-    }
-  });
   const pageErrors = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
+  // Quiet chrome, the default, names the checkout in the band above the
+  // workspace.
+  const checkout = page
+    .getByRole("banner", { name: "Workspace", exact: true })
+    .getByRole("button", { name: "frontend, main. Copy path", exact: true });
   await page.goto(url);
-  await page.locator('[data-review-status="ready"]').waitFor();
-  await page.getByRole("option").filter({ hasText: "frontend initial commit" }).waitFor();
+  await page.locator('[data-review-status="ready"]:visible').waitFor();
+  await checkout.waitFor();
 
   const original = await Promise.all(
     repositories.map((repo) => readFile(join(repo, "same.ts"), "utf8")),
@@ -148,11 +149,9 @@ try {
   await page
     .getByRole("textbox", { name: "Edit src/test/java/Payment Test.java", exact: true })
     .waitFor();
-  // One open branch has no tab strip; the switcher names the current branch.
-  assert.match(
-    await page.getByRole("button", { name: "Open branch", exact: true }).innerText(),
-    /frontend\s*\/\s*main/,
-  );
+  // A file of another repository opens in this workspace's tabs; the band
+  // still names this workspace's checkout.
+  await checkout.waitFor();
   assert.ok(listed.some((repo) => repo === repositories[1]));
   assert.ok(listed.every((repo) => repositories.slice(0, 2).includes(repo)));
 
@@ -198,7 +197,9 @@ try {
   assert.equal(await picker.locator('[title="Test file"]').count(), 0);
   await input.fill("type:docs Notes here.md");
   await page.keyboard.press("Enter");
-  await page.getByRole("textbox", { name: "Edit docs/Notes here.md", exact: true }).waitFor();
+  // A Markdown file opens rendered.
+  await page.getByRole("tab", { name: "Notes here.md", exact: true, selected: true }).waitFor();
+  await page.locator(".med-md-prose h1").filter({ hasText: "Notes" }).waitFor();
 
   // Same filename in separate repos remains separate tabs and retains its bytes.
   await openPicker();
@@ -259,17 +260,34 @@ try {
   assert.equal(await find.count(), 0);
   await page.keyboard.press("Escape");
 
+  // In a narrow window without the sidebar, the long path does not fit in its
+  // file's header, but its basename does.
   await page.setViewportSize({ width: 900, height: 800 });
+  await page.getByRole("button", { name: "Hide sidebar", exact: true }).click();
+  await page.getByRole("complementary", { name: "Sidebar", exact: true }).waitFor({
+    state: "hidden",
+  });
   const longLink = page.getByRole("link", { name: longPath, exact: true });
   await longLink.scrollIntoViewIfNeeded();
-  const filenameVisible = await longLink.evaluate((link) => {
-    const name = link.lastElementChild;
-    return (
-      name.scrollWidth <= name.clientWidth + 1 &&
-      name.getBoundingClientRect().right <= link.getBoundingClientRect().right + 1
-    );
-  });
-  assert.ok(filenameVisible, "Keep the full basename visible before directory components");
+  await page
+    .waitForFunction(
+      (link) => {
+        const directory = link.firstElementChild;
+        const name = link.lastElementChild;
+        return (
+          directory.scrollWidth > directory.clientWidth + 1 &&
+          name.scrollWidth <= name.clientWidth + 1 &&
+          name.getBoundingClientRect().right <= link.getBoundingClientRect().right + 1
+        );
+      },
+      await longLink.elementHandle(),
+      { timeout: 5000 },
+    )
+    .catch((error) => {
+      throw new Error("Keep the full basename visible before directory components", {
+        cause: error,
+      });
+    });
   await longLink.screenshot({ path: "/private/tmp/med-long-filename.png" });
 
   assert.deepEqual(

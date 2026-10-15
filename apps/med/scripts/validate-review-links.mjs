@@ -5,6 +5,9 @@ import { mkdtemp, mkdir, realpath, rm, writeFile, chmod } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright";
+import { removeGitEnvironment } from "./git-environment.mjs";
+
+removeGitEnvironment();
 
 // Use the built CLI or standalone executable with isolated repositories and state.
 // A run from inside an agent session, or a Med thread, must not link that
