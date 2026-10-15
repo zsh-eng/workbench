@@ -1,0 +1,8 @@
+/* A comment as Markdown: the Question pane's prose in the card's type, at
+   13px on 20px lines. A wide code block scrolls, as in all prose. */
+.med-comment-prose > .med-md-prose.med-session-prose {
+  margin: 0;
+  font-family: var(--med-font-ui);
+  font-size: 13px;
+  line-height: 20px;
+}

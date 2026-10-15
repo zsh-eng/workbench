@@ -5,6 +5,7 @@ import { useState } from "react";
 import { FileDiff } from "@pierre/diffs/react";
 import { parsePatchFiles } from "@pierre/diffs";
 import { NoteCard, NoteComposer } from "../../src/web/components/NoteCard";
+import "../../src/web/pierre-theme";
 import type { Note, NoteInput, NoteMutation } from "../../src/shared/protocol";
 
 let root: Root | undefined;
@@ -199,13 +200,46 @@ test("comment cards keep their height when saving and editing wrapped text", asy
   const input = mount!.querySelector("textarea")!;
   expect(input.scrollHeight).toBeLessThanOrEqual(input.clientHeight + 1);
   await page.getByRole("button", { name: "Save note" }).click();
-  await expect.element(page.getByRole("article")).toBeVisible();
+  // The saved comment reads as Markdown, on the lines the reader typed.
+  await expect.poll(() => mount!.querySelector("article .med-md-block br")).toBeTruthy();
   expect(Math.abs(mount!.getBoundingClientRect().height - draftHeight)).toBeLessThanOrEqual(1);
   await page.getByRole("button", { name: "Edit", exact: true }).click();
   await expect.element(page.getByRole("textbox", { name: "Edit note text" })).toHaveValue(text);
   expect(Math.abs(mount!.getBoundingClientRect().height - draftHeight)).toBeLessThanOrEqual(1);
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   expect(Math.abs(mount!.getBoundingClientRect().height - draftHeight)).toBeLessThanOrEqual(1);
+});
+
+test("a typed comment reads as Markdown, and its code block scrolls inside the card", async () => {
+  function Comment() {
+    const [saved, setSaved] = useState<Note | null>(null);
+    return saved ? (
+      <NoteCard note={saved} replies={[]} onMutate={async () => {}} />
+    ) : (
+      <NoteComposer
+        target={target}
+        onSave={async (input) => setSaved({ ...note, ...input })}
+        onCancel={() => {}}
+      />
+    );
+  }
+  render(<Comment />);
+  mount!.style.width = "480px";
+  const code = `const total = items.reduce((sum, item) => sum + item.price, 0); // ${"wide ".repeat(30)}`;
+  const text = `Check \`total\`:\n\n\`\`\`ts\n${code}\n\`\`\``;
+  await page.getByRole("textbox", { name: "Review note text" }).fill(text);
+  await page.getByRole("button", { name: "Save note" }).click();
+  const card = page.getByRole("article");
+  await expect.poll(() => card.element().querySelector("pre code")?.textContent).toContain(code);
+  expect(card.element().querySelector("p code")?.textContent).toBe("total");
+  const pre = card.element().querySelector("pre")!;
+  expect(pre.scrollWidth).toBeGreaterThan(pre.clientWidth);
+  expect(card.element().getBoundingClientRect().right).toBeLessThanOrEqual(
+    mount!.getBoundingClientRect().right,
+  );
+  // Edit shows the text as typed.
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await expect.element(page.getByRole("textbox", { name: "Edit note text" })).toHaveValue(text);
 });
 
 test("a saved reply replaces its composer while the save promise is still pending", async () => {

@@ -218,7 +218,9 @@ app.
    its committed content.
 
 To comment, drag the gutter **+** across lines, or select line numbers and
-press `c`. Hover the **+/−** totals to split them into code, tests, docs,
+press `c`. A comment shows its Markdown rendered, such as code and lists, and
+keeps your line breaks; **Edit** shows the text as you wrote it, and the agent
+gets that text. Hover the **+/−** totals to split them into code, tests, docs,
 config and data, and lockfiles.
 
 To ask the thread's agent about lines, select line numbers in Review, Changes,

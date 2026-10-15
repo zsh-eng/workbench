@@ -4241,6 +4241,14 @@ export function App({
       setFilesViewed,
     ],
   );
+  // A link to a file in a comment opens the file at its line.
+  const openCommentLink = useCallback(
+    (href: string) => {
+      const target = parseBriefHref(href);
+      if (target) fileWorkspace.open(target.path, true, target.line);
+    },
+    [fileWorkspace],
+  );
   const renderAnnotation = useCallback(
     (annotation: { metadata?: Annotation }) =>
       annotation.metadata?.draft ? (
@@ -4304,9 +4312,10 @@ export function App({
           note={annotation.metadata.note}
           replies={notes.filter((note) => note.parentId === annotation.metadata?.note?.id)}
           onMutate={(mutation) => controller.mutateNote(mutation)}
+          onOpenLink={openCommentLink}
         />
       ) : null,
-    [pendingDraft, reviewId, notes, controller, guideAgent, replyToGuideNote],
+    [pendingDraft, reviewId, notes, controller, guideAgent, replyToGuideNote, openCommentLink],
   );
   // The Guide's segment or commit heads the stream and ends it with the next part.
   const guideStray = useMemo(() => {
@@ -5338,6 +5347,7 @@ export function App({
                           note={note}
                           replies={notes.filter((reply) => reply.parentId === note.id)}
                           onMutate={(mutation) => controller.mutateNote(mutation)}
+                          onOpenLink={openCommentLink}
                         />
                       ))}
                     </details>

@@ -1,10 +1,13 @@
 import { ShortcutKeys } from "./ShortcutKeys";
 import * as stylex from "@stylexjs/stylex";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { Note, NoteInput, NoteMutation } from "../../shared/protocol";
 import { relativeTime } from "../data/relative-time";
 import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
+
+// The Question pane's Markdown renderer loads with the first comment, not with the review.
+const CommentMarkdown = lazy(() => import("./CommentMarkdown"));
 
 export interface NoteTarget {
   path: string;
@@ -51,6 +54,17 @@ function Timestamp({ note }: { note: Note }) {
       {relativeTime(created, now)}
       {edited && " · edited"}
     </time>
+  );
+}
+
+/** A comment's text as Markdown; as plain text until the renderer loads. */
+function CommentText({ text, onOpenLink }: { text: string; onOpenLink?(href: string): void }) {
+  return (
+    <div className="med-comment-prose">
+      <Suspense fallback={<p {...stylex.props(styles.content)}>{text}</p>}>
+        <CommentMarkdown text={text} onOpenLink={onOpenLink} />
+      </Suspense>
+    </div>
   );
 }
 
@@ -227,11 +241,13 @@ function ThreadMessage({
   reply = false,
   onReply,
   onMutate,
+  onOpenLink,
 }: {
   note: Note;
   reply?: boolean;
   onReply?: () => void;
   onMutate(mutation: NoteMutation): Promise<void>;
+  onOpenLink?(href: string): void;
 }) {
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(note.text);
@@ -287,7 +303,7 @@ function ThreadMessage({
         />
       ) : (
         <>
-          <p {...stylex.props(styles.content)}>{note.text}</p>
+          <CommentText text={note.text} onOpenLink={onOpenLink} />
           <div {...stylex.props(styles.actions)}>
             <Timestamp note={note} />
             <span {...stylex.props(ui.grow)} />
@@ -343,12 +359,15 @@ export function NoteCard({
   replies,
   label,
   onMutate,
+  onOpenLink,
 }: {
   note: Note;
   replies: Note[];
   /** The thread's name, with no replies: a comment on a passage of prose. */
   label?: string;
   onMutate(mutation: NoteMutation): Promise<void>;
+  /** A link to a file in a comment's Markdown, such as src/summary.ts:5. */
+  onOpenLink?(href: string): void;
 }) {
   const [replying, setReplying] = useState(false);
   const [replyText, setReplyText] = useState("");
@@ -364,6 +383,7 @@ export function NoteCard({
         key={note.id}
         note={note}
         onMutate={onMutate}
+        onOpenLink={onOpenLink}
         onReply={
           replying || label
             ? undefined
@@ -376,7 +396,13 @@ export function NoteCard({
         }
       />
       {replies.map((reply) => (
-        <ThreadMessage key={reply.id} note={reply} reply onMutate={onMutate} />
+        <ThreadMessage
+          key={reply.id}
+          note={reply}
+          reply
+          onMutate={onMutate}
+          onOpenLink={onOpenLink}
+        />
       ))}
       {replying && (
         <NoteComposer
