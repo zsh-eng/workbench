@@ -553,8 +553,11 @@ process.stdout.write(process.env.MED_TEST_PR);
     .getByRole("combobox", { name: "Review version", exact: true })
     .filter({ visible: true })
     .click();
+  // Each version lists one target for each repository: "Version 1 · backend · just now".
   await page
-    .getByRole("option", { name: new RegExp(`^${second.repo.split("/").at(-1)} · `) })
+    .getByRole("option", {
+      name: new RegExp(`^Version \\d+ · ${second.repo.split("/").at(-1)} · `),
+    })
     .click();
   await page.getByText("Backend feedback across repositories", { exact: true }).waitFor();
   await page.getByRole("button", { name: "Clear all comments", exact: true }).click();
