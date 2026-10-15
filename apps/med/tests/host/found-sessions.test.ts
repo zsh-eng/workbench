@@ -455,11 +455,17 @@ test("found sessions hide one by one or all at once, and Keep in Med saves one a
     sessions: [{ agent: "claude", id, cwd: glossary }],
   });
   expect(saved.status).toBe(200);
-  await vi.waitFor(() => expect(foundIn(restarted.value)).toEqual(["Add feet"]), { timeout: 5000 });
-  expect(restarted.value!.threads.find((thread) => thread.id === saved.data.id)).toMatchObject({
-    title: "README glossary",
-    sessions: [{ agent: "claude", id }],
-  });
+  // The tabs come as a stream and the history from a poll, in either order.
+  await vi.waitFor(
+    () => {
+      expect(foundIn(restarted.value)).toEqual(["Add feet"]);
+      expect(restarted.value!.threads.find((thread) => thread.id === saved.data.id)).toMatchObject({
+        title: "README glossary",
+        sessions: [{ agent: "claude", id }],
+      });
+    },
+    { timeout: 5000 },
+  );
 });
 
 test("one window of 7 days lists Claude Code and Codex sessions by the time their transcripts changed", async () => {

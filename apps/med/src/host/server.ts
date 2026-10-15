@@ -92,6 +92,7 @@ import { createAgentStatus } from "./agent-status";
 import { createFoundSessions } from "./found-sessions";
 import { createSessionSearch, sessionEntry, type SessionInfo } from "./session-search";
 import { createCheckoutWork } from "./checkout-work";
+import { createThreadFeed } from "./thread-feed";
 import {
   foundUpdateSchema,
   sessionAdoptSchema,
@@ -380,7 +381,17 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     );
   };
   // Each thread's work that its base branch does not have yet.
-  const checkoutWork = createCheckoutWork();
+  // Reads run only when a checkout's Git state or, for working changes, its
+  // files changed (repository/cache.ts, repository/events.ts).
+  const checkoutWork = createCheckoutWork({
+    async state(checkout, working) {
+      const metadata = await registry.gitState(checkout);
+      if (!metadata || !working) return metadata;
+      const files = revisions.token(checkout);
+      return files && `${files}\n${metadata}`;
+    },
+    onChange: () => threadFeed.changed(),
+  });
   // The tabs and history; the thread list polls only the tabs.
   const threads = createThreadService({
     savedReviews,
@@ -423,6 +434,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   const SESSION_EVENT_BYTES = 1024 * 1024;
   // The workspace list's states update this often.
   const STATUS_MS = 1500;
+  // One thread list for all windows; a change to the tabs sends it at once.
+  const threadFeed = createThreadFeed({ list: () => threads.list(), intervalMs: STATUS_MS });
+  tabs.subscribe(() => threadFeed.changed());
   const activeRequests = new Map<AbortController, Set<string>>();
   // Each checkout's revision: watcher events change it at once.
   const revisions = new CheckoutRevisions();
@@ -617,6 +631,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             revisions.watching(repo, true);
             options.watch?.onReady?.(repo);
           },
+          // A window that shows the checkout has its event stream open.
+          shown: () => [...streams.values()].includes(repo),
         },
         live,
         options.watch,
@@ -1072,31 +1088,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             "x-accel-buffering": "no",
           });
           threadStreams.add(response);
-          let wake: (() => void) | undefined;
-          const unsubscribe = tabs.subscribe(() => wake?.());
+          const remove = threadFeed.add((text) => {
+            if (!abort.signal.aborted) response.write(`event: state\ndata: ${text}\n\n`);
+          });
           response.once("close", () => {
             threadStreams.delete(response);
-            unsubscribe();
-            wake?.();
+            remove();
           });
-          void (async () => {
-            let last = "";
-            while (!abort.signal.aborted && !closing) {
-              const text = JSON.stringify(await threads.list());
-              if (text !== last && !abort.signal.aborted) {
-                last = text;
-                response.write(`event: state\ndata: ${text}\n\n`);
-              }
-              await new Promise<void>((done) => {
-                const timer = setTimeout(done, STATUS_MS);
-                wake = () => {
-                  clearTimeout(timer);
-                  done();
-                };
-              });
-              wake = undefined;
-            }
-          })();
           return;
         }
         // Shows or hides the sessions that Med finds, or one of them.
@@ -2639,6 +2637,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       closeTranscripts();
       found.close();
       checkoutWork.close();
+      threadFeed.close();
       threads.stop();
       for (const abort of activeRequests.keys()) abort.abort();
       for (const stream of [...streams.keys(), ...windows]) stream.end();

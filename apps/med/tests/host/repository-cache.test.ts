@@ -72,7 +72,17 @@ async function fixture(watch: StartHostOptions["watch"] = {}) {
     await until(async () => ready.has(repo), Boolean);
     expect(ready.has(repo)).toBe(true);
   };
-  return { parent, repo, read, watching };
+  /** Opens the checkout's event stream, as a window that shows it does. */
+  const show = async () => {
+    const stream = new AbortController();
+    const response = await fetch(
+      `http://127.0.0.1:${host.port}/api/events?repo=${encodeURIComponent(repo)}`,
+      { headers: { authorization: `Bearer ${host.token}` }, signal: stream.signal },
+    );
+    await response.body!.getReader().read();
+    return () => stream.abort();
+  };
+  return { parent, repo, read, watching, show };
 }
 
 async function answers({ repo, read }: Awaited<ReturnType<typeof fixture>>) {
@@ -192,19 +202,32 @@ test("a file edit updates the cached drift answer through the watcher's event", 
   expect(await until(drift, (changed) => !changed, 3000)).toBe(false);
 });
 
-test("the safety check corrects a cached answer after a missed file event", async () => {
+test("the safety check corrects a cached answer after a missed file event: each minute on screen, each 10 minutes off screen", async () => {
   // File events are off, so the watcher misses each edit. Only the safety
-  // check, at its long interval, finds the change.
+  // check, at its default interval, finds the change.
   vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
-  const value = await fixture({ events: false, safetyMs: 60_000 });
+  const value = await fixture({ events: false });
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 300));
   const drift = await savedWorking(value);
   expect(await drift()).toBe(false);
   await value.watching();
   expect(await drift()).toBe(false);
+
+  // No window shows the checkout: the check runs every 10 minutes.
   await writeFile(join(value.repo, "file.ts"), "export const value = 3;\n");
-  // Until the safety check runs, the cache keeps the old answer.
-  await new Promise((resolve) => setTimeout(resolve, 300));
+  await settle();
+  vi.advanceTimersByTime(9 * 60_000);
+  await settle();
   expect(await drift()).toBe(false);
   vi.advanceTimersByTime(60_000);
   expect(await until(drift, (changed) => changed, 3000)).toBe(true);
+
+  // A window shows it, with the checkout's event stream: the check runs each minute.
+  const hide = await value.show();
+  await writeFile(join(value.repo, "file.ts"), "export const value = 2;\n");
+  await settle();
+  expect(await drift()).toBe(true);
+  vi.advanceTimersByTime(60_000);
+  expect(await until(drift, (changed) => !changed, 3000)).toBe(false);
+  hide();
 });

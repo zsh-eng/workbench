@@ -3,6 +3,7 @@ import { lstat } from "node:fs/promises";
 import { watch as nativeWatch, type FSWatcher as NativeWatcher } from "node:fs";
 import { join, resolve } from "node:path";
 import { watch, type FSWatcher } from "chokidar";
+import { gitSignature } from "../repository/cache";
 import { git } from "./process";
 
 export interface WatchHandlers {
@@ -12,10 +13,13 @@ export interface WatchHandlers {
   hint?(): void;
   /** The watchers are ready: from now on, they see each change. */
   ready?(): void;
+  /** Whether a window shows the checkout. One that no window shows has its
+   * safety check at a tenth of the rate. */
+  shown?(): boolean;
 }
 
 export interface WatchOptions {
-  /** How often a check finds a change that the file events missed. */
+  /** How often a check finds a change that the file events missed (60 s). */
   safetyMs?: number;
   /** Tests turn file events off, so that only the safety check finds changes. */
   events?: boolean;
@@ -99,16 +103,28 @@ export async function watchRepository(
       watcher.add(repo);
     }
   }
-  // A missed watcher hint is recovered by periodic status plus file metadata.
+  // A missed watcher hint is recovered by a periodic check: for working files,
+  // status plus file metadata; for Git metadata only, its signature, without Git.
+  const commonDir = gitDirectories[1] ?? gitDirectories[0]!;
   const reconcile = async () => {
     if (closed || checking) return;
     checking = true;
     try {
-      const status = await git(
-        repo,
-        live ? ["status", "--porcelain=v1", "-z", "--untracked-files=all"] : ["show-ref", "--head"],
-        { signal: abort.signal, maxBytes: 2 * 1024 * 1024, acceptedExitCodes: live ? [0] : [0, 1] },
-      );
+      const metadata = live ? undefined : await gitSignature(commonDir, [repo]);
+      const status =
+        metadata !== undefined
+          ? Buffer.from(metadata)
+          : await git(
+              repo,
+              live
+                ? ["status", "--porcelain=v1", "-z", "--untracked-files=all"]
+                : ["show-ref", "--head"],
+              {
+                signal: abort.signal,
+                maxBytes: 2 * 1024 * 1024,
+                acceptedExitCodes: live ? [0] : [0, 1],
+              },
+            );
       const hash = createHash("sha256").update(status);
       const fields = live ? status.toString("utf8").split("\0") : [];
       for (let i = 0; i < fields.length; i++) {
@@ -145,9 +161,13 @@ export async function watchRepository(
     void first.then(() => {
       if (!closed) handlers.ready?.();
     });
+  let unseen = 0;
   const interval = setInterval(() => {
-    void reconcile();
-  }, options.safetyMs ?? 10_000);
+    if ((handlers.shown?.() ?? true) || ++unseen >= 10) {
+      unseen = 0;
+      void reconcile();
+    }
+  }, options.safetyMs ?? 60_000);
   interval.unref();
   return async () => {
     closed = true;

@@ -184,9 +184,27 @@ byte snapshots; standalone patches do not claim full-source authority. A stale
 source request fails; it does not mix current contents with an old patch.
 
 Watch events are hints, not content. Commit comparisons watch Git metadata
-only; working views watch the worktree. Med coalesces events, and periodic status
-reconciliation finds missed changes. A reconnect refreshes, also when a
-revision repeats. A refresh can replace the whole patch.
+only; working views watch the worktree. Med coalesces events, and a periodic
+safety check finds missed changes: each minute while a window shows the
+checkout, else each 10 minutes. A watcher of Git metadata checks its signature
+(below) without Git; a worktree watcher runs `git status`. A reconnect
+refreshes, also when a revision repeats. A refresh can replace the whole patch.
+
+The host answers Git questions from a cache (`src/host/repository/cache.ts`,
+`events.ts`), so a switch or a cold open runs no Git when nothing changed:
+
+- Answers from Git metadata (a checkout's HEAD and branch, worktrees,
+  branches, push targets) stay while the family's Git signature is the same.
+  The signature is file metadata only: refs, HEADs, indexes, the config,
+  worktrees, and each checkout's folder and `.git` entry. Git writes these
+  through a rename, so a change gives a new inode.
+- Answers from working files (drift, the file list) also need a ready watcher
+  of the worktree and no event since. Each file event changes the checkout's
+  revision at once, before the watcher's delay.
+- The event stream's `ready` names the checkout's revision. A workspace that
+  shows again reloads only when it changed while it was hidden.
+- A checkout's work for the thread list reads again only when its Git
+  signature, or for working changes its revision, changed.
 
 Review and source caches have byte and entry limits (`src/shared/byte-lru.ts`).
 Pierre gets a separate render copy, because context hydration changes metadata.
@@ -252,7 +270,8 @@ dependent reads as it can. The host lists repositories in parallel and shares
 one listing among concurrent callers.
 
 Only the workspace on screen keeps its live-update stream; `resume()`
-reconciles without clearing the screen. Every event stream of a page is a
+reconciles without clearing the screen when the checkout's revision changed
+while the workspace was hidden. Every event stream of a page is a
 channel of one live stream (`data/live.ts`): a WebSocket at `/api/live`, or an
 event stream where a WebSocket cannot open. A WebSocket does not count toward
 the browser's six connections to one host, so windows and tabs do not starve
@@ -282,8 +301,10 @@ which threads are tabs, their order, and when each closed, in `tabs.json` in
 the state directory. `src/host/thread-service.ts` builds the lists:
 
 - `GET /api/threads/events` sends the tabs, in order, with the registered
-  repositories, and sends them again when they change; the host checks every
-  1.5 seconds, and at once when a tab opens, closes, or moves. A tab's state
+  repositories, and sends them again when they change. One read serves all
+  windows (`src/host/thread-feed.ts`): every 1.5 seconds while a window
+  listens, which reads file times only, and at once when a tab opens, closes,
+  or moves, or when a checkout's work changes. A tab's state
   comes from its lead session (`src/host/agent-status.ts`), its Git work from
   `checkout-work.ts`, and its Claude subagents from `thread-subagents.ts`
   (`<session>/subagents/agent-<id>.jsonl` and its `.meta.json`, which names
