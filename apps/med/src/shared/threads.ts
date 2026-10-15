@@ -107,7 +107,15 @@ export type Thread = z.infer<typeof threadSchema>;
 export const threadListSchema = z.object({
   /** The tabs, in the user's order. History is `GET /api/threads/history`. */
   threads: z.array(threadSchema),
-  repositories: z.array(z.object({ id: z.string(), name: z.string(), path: z.string() })),
+  repositories: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      path: z.string(),
+      /** The branch of the main checkout, which New thread's Checkout works on. */
+      branch: z.string().optional(),
+    }),
+  ),
   /** Whether the list shows the sessions that Med finds by itself. */
   found: z.object({ shown: z.boolean() }).optional(),
 });

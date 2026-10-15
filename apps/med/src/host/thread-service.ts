@@ -6,7 +6,7 @@ import {
   parseFoundThreadId,
   type FoundUpdate,
 } from "../shared/found-sessions";
-import { changesBase, type RegisteredRepository } from "../shared/protocol";
+import { baseOf, changesBase, type RegisteredRepository } from "../shared/protocol";
 import {
   handoffTargets,
   threadCheckout,
@@ -336,7 +336,15 @@ export function createThreadService(options: ThreadServiceOptions) {
           repositories,
           (thread) => !!thread.found || onWorking.has(thread.id),
         ),
-        repositories: repositories.map(({ id, name, path }) => ({ id, name, path })),
+        repositories: repositories.map((entry) => {
+          const branch = baseOf(entry);
+          return {
+            id: entry.id,
+            name: entry.name,
+            path: entry.path,
+            ...(branch && branch !== "Detached HEAD" && { branch }),
+          };
+        }),
         found: options.found.settings(),
       };
     },

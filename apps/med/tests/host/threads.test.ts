@@ -152,6 +152,10 @@ test("a thread starts its agent on a new branch in a worktree, and archiving can
     id: repositoryId,
     name: "trail-notes",
   });
+  // The list names the main checkout's branch, which New thread offers as Checkout.
+  expect(threads.value!.repositories).toEqual([
+    { id: repositoryId, name: "trail-notes", path: repo, branch: "main" },
+  ]);
 
   // Git keeps a worktree with changes, and the tab stays.
   await writeFile(join(second.checkout!.repo, "summary.ts"), "export const best = 2;\n");
