@@ -1,6 +1,11 @@
 import type { AgentStatus } from "../shared/agent-status";
 import type { AgentMessage } from "../shared/agent-inbox";
-import { foundThreadId, parseFoundThreadId, type FoundUpdate } from "../shared/found-sessions";
+import {
+  FOUND_DAYS,
+  foundThreadId,
+  parseFoundThreadId,
+  type FoundUpdate,
+} from "../shared/found-sessions";
 import type { RegisteredRepository } from "../shared/protocol";
 import type { AgentSession, SavedReview } from "../shared/saved-review";
 import type { Thread, ThreadList } from "../shared/threads";
@@ -16,9 +21,10 @@ import type { createCheckoutWork } from "./checkout-work";
 // docs/USAGE.md#threads for the rules.
 
 const DAY = 24 * 60 * 60 * 1000;
-/** Before tabs, a thread stayed in view this long after it changed. The first
- * start with tabs opens these threads, and closes the others. */
-const IN_VIEW_MS = 3 * DAY;
+/** The first start with tabs opens the threads that changed in this time, the
+ * window of found sessions, and at most `FIRST_TABS` of them. */
+const FIRST_TABS_MS = FOUND_DAYS * DAY;
+const FIRST_TABS = 8;
 /** A tab lists subagents while its session changed within this time. */
 const SUBAGENTS_MS = DAY;
 /** The list of saved reviews is read again after this time, or after a write. */
@@ -529,25 +535,26 @@ export function createThreadService(options: ThreadServiceOptions) {
             return {
               id: review.id,
               open: false,
+              archived: true,
               closedAt: Date.parse(review.archivedAt) || time,
               updatedAt: review.modifiedAt,
               group,
             };
+          // A thread's last change is its record's, or its session's.
           let updatedAt = review.modifiedAt;
-          let state: AgentStatus["state"] | undefined;
-          if (review.sessions?.length && time - updatedAt >= IN_VIEW_MS) {
+          if (review.sessions?.length && time - updatedAt >= FIRST_TABS_MS) {
             const status = await options.status(review.id, review.sessions).catch(() => undefined);
             updatedAt = Math.max(updatedAt, status?.updatedAt ?? 0);
-            state = status?.state;
           }
-          // The threads that were in view open, as the sidebar showed them.
-          const open = state === "working" || state === "waiting" || time - updatedAt < IN_VIEW_MS;
-          return { id: review.id, open, closedAt: time, updatedAt, group };
+          return { id: review.id, open: false, archived: false, closedAt: time, updatedAt, group };
         }),
       );
+      // The newest threads of the last 7 days open; the others close now.
+      rows.sort((a, b) => b.updatedAt - a.updatedAt);
+      const recent = rows.filter((row) => !row.archived && time - row.updatedAt < FIRST_TABS_MS);
+      for (const row of recent.slice(0, FIRST_TABS)) row.open = true;
       // The sidebar's order: the repository with the newest thread first, and
       // each repository's threads newest first.
-      rows.sort((a, b) => b.updatedAt - a.updatedAt);
       const groups = [...new Set(rows.map((row) => row.group))];
       rows.sort((a, b) => groups.indexOf(a.group) - groups.indexOf(b.group));
       tabs.migrate(rows);

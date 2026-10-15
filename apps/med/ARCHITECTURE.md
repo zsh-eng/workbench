@@ -303,8 +303,8 @@ closes a tab on its own when its work has landed (`landed` in
 unknown.
 
 The first start with tabs makes them from the saved reviews: an archived
-review closes at `archivedAt`; one that works, waits, or changed in the last 3
-days opens; the others close. At start and once a day, the host prunes
+review closes at `archivedAt`; of the others, the 8 newest that changed in the
+last 7 days (`FOUND_DAYS`) open, newest first; the others close. At start and once a day, the host prunes
 history: 30 days after the close it replaces the saved review with a short
 record (title, repository, branch, sessions), which opens as its newest
 session's found thread; after 180 days it deletes the record. Over the 512 MiB

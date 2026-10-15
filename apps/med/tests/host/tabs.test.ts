@@ -130,7 +130,7 @@ async function fixture() {
   return { api, save, tabs, history, restart, record, repo, home, stateDir };
 }
 
-test("the first start with tabs opens the threads in view, closes the rest, and keeps the order", async () => {
+test("the first start with tabs opens the recent threads, closes the rest, and keeps the order", async () => {
   const { api, save, tabs, history, restart, record, stateDir } = await fixture();
   const recent = await save("Recent work");
   const older = await save("Quiet for twenty days");
@@ -157,7 +157,7 @@ test("the first start with tabs opens the threads in view, closes the rest, and 
   await utimes(record(older.id), twentyDays, twentyDays);
   await restart();
 
-  // A thread in view opens; an archived one closes when it was archived, and
+  // A recent thread opens; an archived one closes when it was archived, and
   // the others close now, newest change first.
   expect(await tabs()).toEqual(["Recent work"]);
   const closed = await history();
@@ -181,6 +181,30 @@ test("the first start with tabs opens the threads in view, closes the rest, and 
     "Quiet for ten days",
     "Quiet for twenty days",
     "Archived before tabs",
+  ]);
+});
+
+test("the first start with tabs opens at most the 8 newest threads of the last 7 days", async () => {
+  const { save, tabs, history, restart, record, stateDir } = await fixture();
+  const titles = Array.from({ length: 10 }, (_, index) => `Thread ${index + 1}`);
+  const recent = [];
+  for (const title of titles) recent.push(await save(title));
+  const old = await save("Nine days old");
+  // As Med before tabs left them: ten threads in the last 7 days, 15 hours
+  // apart, newest first, and one of nine days ago.
+  await rm(join(stateDir, "tabs.json"));
+  for (const [index, review] of recent.entries()) {
+    const at = new Date(Date.now() - 60_000 - index * 15 * 60 * 60 * 1000);
+    await utimes(record(review.id), at, at);
+  }
+  const nineDays = new Date(Date.now() - 9 * DAY);
+  await utimes(record(old.id), nineDays, nineDays);
+  await restart();
+
+  expect(await tabs()).toEqual(titles.slice(0, 8));
+  expect((await history()).map((thread) => thread.title)).toEqual([
+    ...titles.slice(8),
+    "Nine days old",
   ]);
 });
 
