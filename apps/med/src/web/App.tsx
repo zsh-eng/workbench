@@ -34,8 +34,10 @@ import {
 } from "../shared/protocol";
 import { hasReview, useReviewController, type ReviewController } from "./data/controller";
 import { tokens, ui } from "./theme.stylex";
+import { relativeTime, useMinuteClock } from "./data/relative-time";
 import {
   ActionMenu,
+  ChoiceLabel,
   ChoiceSelect,
   CommandDialog,
   SegmentedControl,
@@ -3042,35 +3044,56 @@ export function App({
     undefined,
     state.activeBranch ? { name: state.activeBranch, head: liveHead } : undefined,
   );
-  // In Review, the select chooses the version that the agent handed off. A
-  // version's comparison has the names that Changes use; a range has the
-  // names that Med saved with it. A version of several checkouts names each.
-  const savedText = (target: SavedReviewTarget) =>
-    target.comparison.kind === "working" && target.comparison.base
-      ? { long: "Branch changes", short: "Branch" }
-      : comparisonLabel(target.comparison, target.names);
-  const ownTargets = state.savedReview ? handoffTargets(state.savedReview).length : 0;
-  const severalPlaces = ownTargets > Math.max(iterations.length, 1);
+  // In Review, the row names the hand-off: its version and its age. The menu
+  // lists the versions, newest first, then the commits that you commented
+  // on. Git's comparisons are the Changes tab's. A version of several
+  // checkouts has an item for each.
+  const reviewNow = useMinuteClock(reviewShown);
+  const handoffs = state.savedReview ? handoffTargets(state.savedReview) : [];
+  const versionOf = (target: SavedReviewTarget) =>
+    iterations.find((entry) => entry.targetIds.includes(target.id));
+  const versionNumber = (target: SavedReviewTarget) => versionOf(target)?.number ?? 1;
+  const latestVersion = iterations.at(-1)?.number ?? 1;
+  // A version's description: its checkout, and for a range or a commit, the
+  // names that Med saved with it.
+  const placeOf = (target: SavedReviewTarget) =>
+    [
+      `${target.repo.split(/[\\/]/).at(-1)} · ${target.branch ?? "detached"}`,
+      ...(target.comparison.kind === "range" || target.comparison.kind === "commit"
+        ? [comparisonLabel(target.comparison, target.names).long]
+        : []),
+    ].join(" · ");
   const versionChoices = reviewShown
-    ? (state.savedReview?.targets ?? []).map((target) => {
-        const version = iterations.find((entry) => entry.targetIds.includes(target.id))?.number;
-        const place = `${target.repo.split(/[\\/]/).at(-1)} · ${target.branch ?? "detached"}`;
-        return {
-          value: target.id,
-          label: target.commentReviewId
-            ? `Commit ${target.label}`
-            : [
-                ...(iterations.length > 1 && version ? [`Version ${version}`] : []),
-                ...(severalPlaces ? [place] : []),
-                savedText(target).long,
+    ? [
+        ...handoffs
+          .map((target, index) => ({ target, index, number: versionNumber(target) }))
+          .sort((a, b) => b.number - a.number || a.index - b.index)
+          .map(({ target, number }) => {
+            const places = handoffs.filter((other) => versionNumber(other) === number).length;
+            const time = Date.parse(
+              versionOf(target)?.createdAt ?? state.savedReview?.createdAt ?? "",
+            );
+            return {
+              value: target.id,
+              label: [
+                `Version ${number}`,
+                ...(places > 1 ? [target.repo.split(/[\\/]/).at(-1)!] : []),
+                ...(Number.isFinite(time) ? [relativeTime(time, Math.max(reviewNow, time))] : []),
               ].join(" · "),
-          description: target.commentReviewId
-            ? `${place} · a commit that you commented on`
-            : version && version === iterations.at(-1)?.number && iterations.length > 1
-              ? `${place} · the latest version`
-              : place,
-        };
-      })
+              description:
+                number === latestVersion && latestVersion > 1
+                  ? `${placeOf(target)} · the latest version`
+                  : placeOf(target),
+            };
+          }),
+        ...(state.savedReview?.targets ?? [])
+          .filter((target) => target.commentReviewId)
+          .map((target) => ({
+            value: target.id,
+            label: `Commit ${target.label}`,
+            description: `${placeOf(target)} · a commit that you commented on`,
+          })),
+      ]
     : [];
   const reviewCommit =
     reviewShown && !state.savedView && state.comparison.kind === "commit"
@@ -3161,13 +3184,11 @@ export function App({
   const comparisonText: ComparisonLabel = reviewShown
     ? {
         long: chosenLabel ?? "",
-        short: reviewCommit
-          ? (chosenLabel ?? "")
-          : iterations.length > 1 && shownVersion
-            ? `Version ${shownVersion}`
-            : shownTarget && !severalPlaces
-              ? savedText(shownTarget).short
-              : (chosenLabel ?? ""),
+        // A narrow row drops the age.
+        short:
+          reviewCommit || shownTarget?.commentReviewId
+            ? (chosenLabel ?? "")
+            : `Version ${shownVersion ?? 1}`,
       }
     : {
         long: chosenLabel ?? liveText.long,
@@ -4345,21 +4366,29 @@ export function App({
   ];
   // In a narrow row the comparison takes its short label, then goes into ⋯.
   const comparisonFit = useRowFit(comparisonSlot, quiet && streamChrome ? comparisonText : null);
-  const comparisonSelect = (
-    <ChoiceSelect
-      label={reviewShown ? "Review version" : "Comparison"}
-      value={comparisonValue}
-      choices={comparisonChoices}
-      onChange={chooseComparison}
-      actions={compareActions}
-      {...(quiet && {
-        // One control says what the diff compares, and changes it.
-        triggerRef: comparisonTrigger,
-        trigger: styles.rowComparisonTrigger,
-        display: comparisonFit === "short" ? comparisonText.short : undefined,
-      })}
-    />
-  );
+  // A Review of one version names it, with nothing to choose. (Review has no
+  // compare actions.)
+  const comparisonSelect =
+    reviewShown && comparisonChoices.length <= 1 ? (
+      <ChoiceLabel
+        title={comparisonChoices[0]?.description ?? "Review version"}
+        text={comparisonFit === "short" ? comparisonText.short : comparisonText.long}
+      />
+    ) : (
+      <ChoiceSelect
+        label={reviewShown ? "Review version" : "Comparison"}
+        value={comparisonValue}
+        choices={comparisonChoices}
+        onChange={chooseComparison}
+        actions={compareActions}
+        {...(quiet && {
+          // One control says what the diff compares, and changes it.
+          triggerRef: comparisonTrigger,
+          trigger: styles.rowComparisonTrigger,
+          display: comparisonFit === "short" ? comparisonText.short : undefined,
+        })}
+      />
+    );
   const comparisonActionsElement = comparisonActionsShown && actionRepo && (
     <ComparisonActions
       key={`${actionRepo}:${actionHead}:${actionBranch}`}
@@ -4604,7 +4633,9 @@ export function App({
           dirty: !!editorDrafts.get(JSON.stringify([tab.source, tab.path]))?.dirty,
         }))}
         active={shownTab}
-        changesCount={state.review && !reviewShown ? state.files.length : undefined}
+        // The tabs keep their places as you switch: a thread with a Review
+        // has no count, which Changes could not keep while Review shows.
+        changesCount={state.review && !reviewAvailable ? state.files.length : undefined}
         onSelect={selectTab}
         onClose={fileWorkspace.close}
         onPin={fileWorkspace.pin}

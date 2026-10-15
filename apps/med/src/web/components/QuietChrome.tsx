@@ -60,27 +60,30 @@ export function useQuietMenu(actions: QuietMenuActions): MenuEntry[][] {
   return [
     diff
       ? [
-          // Named by what the diff shows, as the row's control is.
-          ...(comparison
-            ? [
-                {
-                  label: comparison.label,
-                  sections: [
-                    comparison.choices.map((choice) => ({
-                      label: choice.label,
-                      checked: choice.value === comparison.value,
-                      choice: true,
-                      onClick: () => comparison.select(choice.value),
-                    })),
-                    comparison.actions.map((action) => ({
-                      label: action.label,
-                      ...(action.checked !== undefined && { checked: action.checked }),
-                      onClick: action.onSelect,
-                    })),
-                  ],
-                },
-              ]
-            : []),
+          // Named by what the diff shows, as the row's control is. With
+          // nothing to choose, it only says what the diff shows.
+          ...(comparison && comparison.choices.length <= 1 && !comparison.actions.length
+            ? [{ label: comparison.label, disabled: true, onClick: () => {} }]
+            : comparison
+              ? [
+                  {
+                    label: comparison.label,
+                    sections: [
+                      comparison.choices.map((choice) => ({
+                        label: choice.label,
+                        checked: choice.value === comparison.value,
+                        choice: true,
+                        onClick: () => comparison.select(choice.value),
+                      })),
+                      comparison.actions.map((action) => ({
+                        label: action.label,
+                        ...(action.checked !== undefined && { checked: action.checked }),
+                        onClick: action.onSelect,
+                      })),
+                    ],
+                  },
+                ]
+              : []),
           { label: "Find in diffs", shortcut: "Mod+F", letter: "f", onClick: diff.find },
           {
             label: "View",
@@ -324,7 +327,8 @@ export function useRowFit(
     const measure = () => {
       // A hidden workspace has no width; it keeps its fit for its return.
       if (!row.clientWidth || !context) return;
-      const trigger = element.querySelector("button");
+      // The select's trigger, or the text that stands for one (ChoiceLabel).
+      const trigger = element.querySelector("button, [data-choice-static]");
       const value = trigger?.querySelector<HTMLElement>("[data-choice-value]");
       if (trigger && value) {
         const style = getComputedStyle(value);

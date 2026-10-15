@@ -94,9 +94,10 @@ const kept = (id: string, title: string, repo = "/test/glossary", versions = 0) 
   ...(versions
     ? {
         key: "readme-glossary",
+        // The latest version is 5 minutes old, and each one before it 5 more.
         iterations: Array.from({ length: versions }, (_, index) => ({
           number: index + 1,
-          createdAt: "2026-10-15T00:00:00Z",
+          createdAt: new Date(Date.now() - (versions - index) * 5 * 60_000).toISOString(),
           targetIds: [`v${index + 1}`],
         })),
       }
@@ -444,12 +445,29 @@ test("a kept thread on a shared checkout shows its Changes, keeps its session's 
     .toHaveAttribute("aria-selected", "true");
   await review.click();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("r_kept-v1");
+  // One version: its number and age as text. Review has no Git comparisons.
+  await expect.element(page.getByText(/^Version 1 · [45] min ago$/)).toBeVisible();
   const version = page.getByRole("combobox", { name: "Review version" });
-  await expect.element(version).toHaveTextContent("Working changes");
-  // A new version moves the Review that shows the latest one.
+  expect(version.query()).toBeNull();
+  expect(select.query()).toBeNull();
+  // A new version moves the Review that shows the latest one, and the row
+  // lists the versions, newest first.
   host.setKept(kept("r_kept", "README glossary", "/test/repo", 2));
   window.dispatchEvent(new CustomEvent("med:review-updated", { detail: { id: "r_kept" } }));
   await expect.poll(() => shown()?.dataset.reviewId).toBe("r_kept-v2");
-  await expect.element(version).toHaveTextContent("Version 2 · Working changes");
+  await expect.poll(() => version.query()?.textContent).toMatch(/^Version 2 · [45] min ago$/);
   await expect.element(review).toHaveAttribute("aria-selected", "true");
+  await version.click();
+  const options = page.getByRole("option");
+  await expect.poll(() => options.elements().length).toBe(2);
+  const [latest, first] = options.elements().map((option) => option.textContent ?? "");
+  expect(latest).toMatch(/^Version 2 · [45] min ago/);
+  expect(first).toMatch(/^Version 1 · (9|10) min ago/);
+  expect(`${latest}${first}`).not.toMatch(/changes/i);
+  await userEvent.keyboard("{Escape}");
+  // Changes keep the Git comparisons.
+  await tabs.getByRole("tab", { name: "Changes", exact: true }).click();
+  await select.click();
+  await expect.element(page.getByRole("option", { name: /^Working changes/ })).toBeVisible();
+  await userEvent.keyboard("{Escape}");
 });

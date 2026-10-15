@@ -722,7 +722,7 @@ test("quiet chrome says each thing once, keeps rare actions in ⋯, and full chr
     .element(band.getByRole("button", { name: "fixture, main. Copy path" }))
     .toBeVisible();
   await expect.element(session.getByText("Talk review")).not.toBeInTheDocument();
-  await expect.element(page.getByRole("combobox", { name: "Review version" })).toBeVisible();
+  await expect.element(page.getByText(/^Version 1\b/)).toBeVisible();
   await expect.element(viewOptions).not.toBeInTheDocument();
   expect(statusBar()).toBe(false);
   // The ⋯ menu has the header's and the toolbar's actions; View has the diff's.

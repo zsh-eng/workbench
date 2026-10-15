@@ -46,6 +46,19 @@ export interface ReviewCommand {
   run(): void;
 }
 
+/** A ChoiceSelect's place when there is nothing to choose: its text, as the
+ * trigger shows it, and no menu. `title` says more, as a choice's
+ * description does. */
+export function ChoiceLabel({ title, text }: { title: string; text: string }) {
+  return (
+    <span data-choice-static="" title={title} {...stylex.props(styles.static)}>
+      <span data-choice-value="" {...stylex.props(styles.value)}>
+        {text}
+      </span>
+    </span>
+  );
+}
+
 /** A value that no choice has: an action's item in a ChoiceSelect. */
 const ACTION = "\u0000action:";
 
@@ -548,6 +561,21 @@ const styles = stylex.create({
   choiceDescription: { color: tokens.faint, fontSize: 11, lineHeight: 1.35 },
   // In a narrow toolbar the value truncates before the trigger overflows.
   trigger: { gap: 4, minWidth: 0, paddingInlineEnd: 5 },
+  // A trigger's text and padding, without its button.
+  static: {
+    display: "inline-flex",
+    alignItems: "center",
+    boxSizing: "border-box",
+    minWidth: 0,
+    minHeight: 28,
+    paddingInline: 8,
+    color: tokens.muted,
+    fontFamily: tokens.ui,
+    fontSize: 12,
+    fontWeight: 450,
+    lineHeight: 1.5,
+    whiteSpace: "nowrap",
+  },
   value: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" },
   chevron: { display: "inline-flex", color: tokens.faint },
   backdrop: { zIndex: 110 },

@@ -157,10 +157,13 @@ load it or read its agents until you open it again.
   session edited.
 - **Review** is what the agent hands off (`med thread show`, or
   `med review create --key …`): its Guide, its brief in **Notes**, or its diff.
-  Each hand-off is a new version, and the menu above the diff chooses a
-  version. A thread opens on **Review** after a hand-off and on **Changes**
-  before one. A hand-off that arrives while you read adds **Review** and does
-  not move you. When the checkout changes after a version, a bar offers
+  Each hand-off is a new version. The row above the diff names the version
+  and its age, such as "Version 2 · 5 min ago"; with more than one version,
+  it is a menu of the versions, newest first. Git's comparisons are only in
+  **Changes**. In a thread with a Review, the **Changes** tab has no file
+  count, so that the tabs keep their places. A thread opens on **Review**
+  after a hand-off and on **Changes** before one. A hand-off that arrives
+  while you read adds **Review** and does not move you. When the checkout changes after a version, a bar offers
   **Refresh review**, which saves the checkout again as a new version, and
   **Show Changes**. An older thread, which saved its checkout when it
   started, keeps that capture as version 1; an empty capture alone is not a
@@ -221,11 +224,12 @@ saved links then work in new tabs of that browser. See
 A saved review keeps its diff when the agent makes more changes. An agent that
 names its task with a key adds a version for each round of work. The Review
 opens on the latest one and is marked new again; comments on earlier versions
-stay. The version menu above the diff, and the version keys at the top of
-**Notes** (`1`, `2`, …), show each version's comparison; older versions move to
-a menu when the keys do not fit. A version with more than one comparison, such
-as one for each repository, lists each one in the menu, and so does a commit
-that you commented on while browsing.
+stay. The version menu above the diff names each version and its age, and
+the version keys at the top of **Notes** (`1`, `2`, …) show each version;
+older versions move to a menu when the keys do not fit. A version with more
+than one comparison, such as one for each repository, lists each one in the
+menu by its repository, and so does a commit that you commented on while
+browsing.
 
 **Copy comments** copies the comments of all targets, with paths, revisions,
 line numbers, and nearby source, for any agent. **Send to Claude** or **Send to

@@ -1,6 +1,24 @@
+import { useSyncExternalStore } from "react";
+
 const minute = 60_000;
 const hour = 60 * minute;
 const day = 24 * hour;
+
+// Now, for ages such as "5 min ago": read when a live clock starts, and
+// again each minute while it runs.
+let now = Date.now();
+const everyMinute = (listener: () => void) => {
+  now = Date.now();
+  const timer = setInterval(() => {
+    now = Date.now();
+    listener();
+  }, minute);
+  return () => clearInterval(timer);
+};
+const still = () => () => {};
+const readNow = () => now;
+export const useMinuteClock = (live: boolean) =>
+  useSyncExternalStore(live ? everyMinute : still, readNow);
 
 /** Compact elapsed time; future author dates remain explicit for clock skew. */
 export function relativeTime(timestamp: number, now: number): string {

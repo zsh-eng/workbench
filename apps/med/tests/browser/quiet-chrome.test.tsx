@@ -258,9 +258,14 @@ const shown = () =>
   );
 /** The review's row: its tabs and the controls after them. */
 const row = () => shown()?.querySelector<HTMLElement>('[role="tablist"]')?.parentElement;
-/** What the diff shows: in Changes the comparison, in Review the version. */
+/** What the diff shows: in Changes the comparison, in Review the version (a
+ * select, or text when there is one version). */
 const comparison = () =>
-  row()?.querySelector<HTMLElement>('[aria-label="Comparison"], [aria-label="Review version"]');
+  row()?.querySelector<HTMLElement>(
+    '[aria-label="Comparison"], [aria-label="Review version"], [data-choice-static]',
+  );
+/** A Review of one version: "Version 1" and its age. */
+const versionOne = /^Version 1 · (just now|\d+ (min|hr|day|days|mo|yr) ago)$/;
 const openThread = async (title: string) => {
   const sidebar = page.getByRole("navigation", { name: "Threads" });
   if (!sidebar.query()) await page.getByRole("button", { name: "Show sidebar" }).click();
@@ -269,21 +274,25 @@ const openThread = async (title: string) => {
 };
 const frame = () => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve)));
 
-test("the comparison names a range by the names saved with it, or by short object IDs", async () => {
+test("Review names its version and age, and says a range by the names saved with it, or by short object IDs", async () => {
   render();
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
   // Live, the row says the working changes in full.
   await expect.poll(() => comparison()?.textContent).toBe("Working changes");
 
+  // A Review of one version: its number and age, as text with no menu. The
+  // range that it shows is in the tooltip, with no Git comparison to choose.
   await openThread("Week view");
   await expect.poll(() => shown()?.dataset.reviewId).toBe("week-target");
-  await expect.poll(() => comparison()?.textContent).toBe("main → week-view");
+  await expect.poll(() => comparison()?.textContent).toMatch(versionOne);
+  expect(comparison()?.tagName).not.toBe("BUTTON");
+  expect(comparison()?.title).toBe("repo · main · main → week-view");
   // An older record has no names.
   await openThread("Older range");
-  await expect.poll(() => comparison()?.textContent).toBe("bbbbbbb → aaaaaaa");
+  await expect.poll(() => comparison()?.title).toBe("repo · main · bbbbbbb → aaaaaaa");
   // Object IDs on main: the branch's newest commits.
   await openThread("Prediction model");
-  await expect.poll(() => comparison()?.textContent).toBe("2 commits on main");
+  await expect.poll(() => comparison()?.title).toBe("repo · main · 2 commits on main");
 });
 
 test("the Commit tab's Stage all is in the review's row, and the tab does not name the branch again", async () => {
@@ -359,22 +368,22 @@ test("a narrow row shortens the comparison, then moves it into ⋯, and keeps �
     const label = value()?.textContent ?? "⋯";
     if (!seen.has(label)) seen.set(label, width);
   }
-  expect([...seen.keys()].sort()).toEqual(["Working", "Working changes", "⋯"]);
-  expect(seen.get("Working changes")).toBe(1280);
+  // Review's version: with its age, then without, then in ⋯.
+  const [long, short, menu] = [...seen.keys()];
+  expect(long).toMatch(versionOne);
+  expect([short, menu]).toEqual(["Version 1", "⋯"]);
+  expect(seen.get(long!)).toBe(1280);
 
-  // In ⋯, the comparison is the menu's first item, with its choices: in
-  // Review, the versions that the agent handed off; in Changes, the comparisons.
+  // In ⋯, the comparison is the menu's first item: in Review, the version,
+  // which has nothing to choose; in Changes, the comparisons.
   await page.viewport(seen.get("⋯")!, 800);
   await expect.poll(() => comparison()).toBeFalsy();
   const more = () =>
     [...row()!.querySelectorAll<HTMLElement>('[aria-label="More actions"]')].at(-1)!;
   more().click();
-  await page.getByRole("menuitem", { name: "Working changes" }).hover();
-  await expect
-    .element(page.getByRole("menuitemcheckbox", { name: "Working changes" }))
-    .toBeChecked();
-  expect(page.getByRole("menuitemcheckbox", { name: "Staged changes" }).query()).toBeNull();
-  await userEvent.keyboard("{Escape}{Escape}");
+  await expect.element(page.getByRole("menuitem", { name: versionOne })).toBeDisabled();
+  expect(page.getByRole("menuitem", { name: "Working changes" }).query()).toBeNull();
+  await userEvent.keyboard("{Escape}");
   await page.getByRole("tab", { name: /^Changes/ }).click();
   more().click();
   await page.getByRole("menuitem", { name: "Working changes" }).hover();
@@ -401,6 +410,36 @@ test("a narrow row shortens the comparison, then moves it into ⋯, and keeps �
   await expect.poll(() => stage()).toBeUndefined();
   await page.viewport(1280, 800);
   await expect.poll(() => stage()?.textContent).toMatch(/^(Un)?[Ss]tage all$/);
+});
+
+test("the tabs keep their places as you switch between Review, Changes, and Commit", async () => {
+  render();
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  await openThread("A thread about the export");
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("talk-target");
+  const names = ["Review", "Changes", "Commit"];
+  const tab = (name: string) =>
+    row()!.querySelector<HTMLElement>(`[role="tab"][aria-label="${name}"]`)!;
+  const boxes = () =>
+    names.map((name) => {
+      const box = tab(name).getBoundingClientRect();
+      return `${name} ${Math.round(box.left)}+${Math.round(box.width)}`;
+    });
+  for (const width of [1440, 900, 600]) {
+    await page.viewport(width, 800);
+    const seen: string[][] = [];
+    for (const name of [...names, "Review"]) {
+      await page.getByRole("tab", { name, exact: true }).click();
+      await expect.poll(() => tab(name).getAttribute("aria-selected")).toBe("true");
+      await frame();
+      await frame();
+      seen.push(boxes());
+    }
+    for (const entry of seen) expect(entry, `at ${width} px`).toEqual(seen[0]);
+    // Changes has no count in a thread with a Review: it could not keep one
+    // while Review shows.
+    expect(tab("Changes").textContent).toBe("Changes");
+  }
 });
 
 test("Push… waits for the remotes, with the reason in its tooltip", async () => {
