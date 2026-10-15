@@ -158,6 +158,8 @@ export function sessionEntry(
 export function createSessionSearch(options: {
   /** Codex Desktop's thread names, by session ID. */
   codexNames(): Promise<Map<string, string>>;
+  /** Transcripts that are not threads: the forks that a question made. */
+  excluded?(agent: FoundAgent, id: string): boolean;
   home?: () => string;
 }) {
   const home = options.home ?? userHome;
@@ -189,6 +191,7 @@ export function createSessionSearch(options: {
       : new Map<string, string>();
     const newest = new Map<string, SessionInfo>();
     for (const info of infos) {
+      if (options.excluded?.(info.agent, info.id)) continue;
       const name = (info.agent === "codex" && codexNames.get(info.id)) || info.name;
       // A session without a prompt or a name has done nothing to show.
       if (!info.prompt && !name) continue;

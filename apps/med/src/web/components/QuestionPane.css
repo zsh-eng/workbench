@@ -1,0 +1,10 @@
+.med-question-answer {
+  min-width: 0;
+}
+
+/* The answer reads at the size of the review's comments. */
+.med-question-answer .med-md-prose.med-session-prose {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+}

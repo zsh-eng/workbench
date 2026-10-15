@@ -262,6 +262,17 @@ export function balanced(node: PaneNode | null): boolean {
   return node.sizes.every((size) => Math.abs(size - even) < 0.01) && node.children.every(balanced);
 }
 
+/** Whether two layouts put the same panes in the same splits, whatever their sizes. */
+export function sameShape(a: PaneNode | null, b: PaneNode | null): boolean {
+  if (!a || !b) return a === b;
+  if (!isSplit(a) || !isSplit(b)) return !isSplit(a) && !isSplit(b) && a.id === b.id;
+  return (
+    a.axis === b.axis &&
+    a.children.length === b.children.length &&
+    a.children.every((child, index) => sameShape(child, b.children[index]!))
+  );
+}
+
 /** Exchanges the places of two panes; every size stays. */
 export function swap(root: PaneNode, a: string, b: string): PaneNode {
   if (!isSplit(root)) return root.id === a ? { id: b } : root.id === b ? { id: a } : root;

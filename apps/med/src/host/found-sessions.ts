@@ -359,6 +359,9 @@ export function createFoundSessions(options: {
   /** The sessions that Med runs through ACP: the agent's own session ID,
    * such as a Codex rollout's, and Med's ID for the session. */
   owned?(): Iterable<readonly [string, string]>;
+  /** Transcripts that are not threads: the forks that a question made
+   * (questions.ts). */
+  excluded?(agent: FoundAgent, id: string): boolean;
   settingsFile: string;
   /** The change counts of checkouts, which the thread list shares. */
   changes?: ReturnType<typeof createCheckoutChanges>;
@@ -495,7 +498,7 @@ export function createFoundSessions(options: {
         files.set(file.path, session);
       }
       const key = `${session.agent}:${session.id}`;
-      if (!session.cwd || seen.has(key)) continue;
+      if (!session.cwd || seen.has(key) || options.excluded?.(session.agent, session.id)) continue;
       seen.add(key);
       const checkout = await place(session.cwd, checkouts);
       const name = session.agent === "codex" ? names.get(session.id) : undefined;
@@ -574,8 +577,14 @@ export function createFoundSessions(options: {
       // A Codex session that Med runs through ACP has a rollout with Codex's ID.
       for (const [own, id] of options.owned?.() ?? []) if (claimed.has(id)) claimed.add(own);
       const hidden = new Set(settings.hidden);
+      // A fork can be named after the scan that read it.
       const listed = found
-        .filter((session) => !claimed.has(session.id) && !hidden.has(session.threadId))
+        .filter(
+          (session) =>
+            !claimed.has(session.id) &&
+            !hidden.has(session.threadId) &&
+            !options.excluded?.(session.agent, session.id),
+        )
         .slice(0, MAX_FOUND);
       const time = now();
       const repositories = options.repositories();
@@ -614,6 +623,7 @@ export function createFoundSessions(options: {
     async session(threadId: string): Promise<AgentSession[] | undefined> {
       const parsed = parseFoundThreadId(threadId);
       if (!parsed) return undefined;
+      if (options.excluded?.(parsed.agent, parsed.id)) return [];
       const known = found.find((session) => session.threadId === threadId);
       if (known) return [{ agent: known.agent, id: known.id, cwd: known.cwd }];
       const path = await findTranscript(parsed, home());

@@ -24,6 +24,7 @@ import {
   parseTree,
   remove,
   resize as resizeTree,
+  sameShape,
   swap as swapTree,
   withSizes,
   type Direction,
@@ -286,6 +287,22 @@ export function usePaneTree({
     },
     [update, view],
   );
+  /** Closes a short-lived pane and gives back the layout it found, when the
+   * other panes kept their places; otherwise closes it as `close` does. */
+  const closeTo = useCallback(
+    (id: string, before: PaneNode | null) => {
+      update(({ root, zoom }) => {
+        if (!has(root, id)) return {};
+        const next = remove(root, id);
+        return {
+          root: before && !has(before, id) && sameShape(next, before) ? before : next,
+          zoom: zoom === id ? null : zoom,
+        };
+      });
+      if (view.get().focused === id) view.set({ focused: null });
+    },
+    [update, view],
+  );
   const isOpen = useCallback((id: string) => open.includes(id), [open]);
   const toggle = useCallback(
     (id: string, place?: { near?: string; side?: Side; share?: number }) =>
@@ -362,6 +379,7 @@ export function usePaneTree({
       isOpen,
       show,
       close,
+      closeTo,
       toggle,
       toggleZoom,
       focus: (id: string | null) => view.set({ focused: id }),
@@ -383,6 +401,7 @@ export function usePaneTree({
       isOpen,
       show,
       close,
+      closeTo,
       toggle,
       toggleZoom,
       resize,

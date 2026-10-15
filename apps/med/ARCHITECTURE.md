@@ -501,6 +501,36 @@ session's Claude Code transcript or Codex rollout to Agent Client Protocol
 [agent sessions](docs/SESSIONS.md). The CLI contract and data limits are in
 [agent integration](docs/AGENT_INTEGRATION.md).
 
+**Questions.** `src/host/questions.ts` answers a question about lines in a
+fork of the thread's lead agent, so the thread gets nothing.
+`POST /api/questions` takes the thread, the question, and the excerpt
+(`src/shared/questions.ts`: the path, the side, and at most 400 lines with
+their numbers and marks). For Claude Code, the host runs `claude -p --resume
+<lead> --fork-session --session-id <new ID> --permission-mode plan
+--output-format stream-json --verbose --include-partial-messages` in the
+thread's folder, with the thread's model and effort when Med recorded them
+(else the transcript's last model), and the prompt on standard input. Med adds
+no system prompt. Med names the fork's ID before the process starts and keeps
+it in `question-forks.json` in the state directory; found sessions and session
+search leave these IDs out. Close deletes a fork's transcript only after a
+strict check: the exact path `~/.claude/projects/<encoded folder>/<fork
+ID>.jsonl`, for the folder or its real path; a plain file in a plain folder;
+and each record that names a session names the fork. Otherwise the file stays,
+and its ID stays left out. At start, the host removes the forks of an earlier
+run in the same way, when they have not changed for 2 minutes. For Codex, the
+host runs `codex exec fork <thread> --json --ephemeral` with a read-only
+sandbox and no approvals, when `codex exec fork --help` shows that command. An
+older Codex runs `codex exec --sandbox read-only` with only the question and
+the lines, and the state has `context: "excerpt"`. `GET
+/api/questions/:id/events` streams the state: the status, the answer, and the
+current tool. Stop sends SIGTERM, then SIGKILL after 3 seconds. Questions live
+in host memory: at most 4 run at a time, an answer keeps at most 256 KB, and a
+question closes 15 minutes after its answer ends when no window reads it. In
+the browser, `web/data/questions.ts` keeps one question for each workspace.
+The Question pane takes its room from the whole row, and Close gives back the
+layout that it found when the other panes kept their places. **Keep as
+comment** adds a note through the review's comments (`mutateNote`).
+
 ## Editing and file writes
 
 Eligible worktree and local files open in CodeMirror in Vim Normal mode.

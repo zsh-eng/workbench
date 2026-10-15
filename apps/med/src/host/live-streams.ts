@@ -18,7 +18,7 @@ export const liveInputSchema = z.object({
 
 /** The event streams that a channel can carry. */
 export const LIVE_PATH =
-  /^\/api\/(?:events|windows|threads\/events|agent-status\/events|sessions\/events|pulls\/[A-Za-z0-9-]+\/events|reviews\/[A-Za-z0-9_-]+\/(?:agent|sessions\/[A-Za-z0-9_-]+|owned\/[A-Za-z0-9_-]+)\/events)(?:\?[^#]*)?$/;
+  /^\/api\/(?:events|windows|threads\/events|agent-status\/events|sessions\/events|questions\/[A-Za-z0-9_-]+\/events|pulls\/[A-Za-z0-9-]+\/events|reviews\/[A-Za-z0-9_-]+\/(?:agent|sessions\/[A-Za-z0-9_-]+|owned\/[A-Za-z0-9_-]+)\/events)(?:\?[^#]*)?$/;
 
 /** The GET request that a channel gives to its stream handler. */
 export function channelRequest(request: IncomingMessage, path: string) {

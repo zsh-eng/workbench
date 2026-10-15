@@ -119,7 +119,7 @@ interface Row {
 }
 /** Every patch row with its line numbers. Removed rows carry the next new line;
  * added rows carry the next old line, so a range on one side selects both. */
-function patchRows(metadata: FileDiffMetadata): Row[] {
+export function patchRows(metadata: FileDiffMetadata): Row[] {
   const rows: Row[] = [];
   metadata.hunks.forEach((hunk, index) => {
     let oldLine = hunk.deletionCount ? hunk.deletionStart : hunk.deletionStart + 1;

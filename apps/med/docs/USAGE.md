@@ -221,6 +221,19 @@ To comment, drag the gutter **+** across lines, or select line numbers and
 press `c`. Hover the **+/−** totals to split them into code, tests, docs,
 config and data, and lockfiles.
 
+To ask the thread's agent about lines, select line numbers in Review, Changes,
+or a Guide segment, and click **Ask** or press `a`. The **Question** pane opens
+at the right of the review and names the file and the lines. Write the
+question and press `⌘↵`. Med asks a fork of the thread's Claude Code session,
+in plan mode, with the lines and their numbers. The answer shows in the pane;
+the thread does not get the question or the answer. Escape or **Stop** ends the
+answer. **Keep as comment** adds the question and the answer as a comment on
+the lines. **Close** discards them; Med keeps no copy of the question or the
+answer. A review has one question at a time, and Ask waits while an answer
+comes. A Codex thread is
+asked in the same way when Codex has `codex exec fork`; an older Codex answers
+from the lines only, and the pane says so.
+
 In a whole file, `⌥B` shows blame in the gutter; hover a label for the date and
 message. When the cursor rests on a line, its author, age, and commit subject
 show after the text. Click the short hash to copy the full hash. **Hide line
@@ -798,6 +811,7 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Balance the panes                | `⌘⌃=`         |
 | Zen mode                         | `⌥Z`          |
 | Comment on selected lines        | `c`           |
+| Ask about selected lines         | `a`           |
 | Paste a brief                    | `⌘V`          |
 | Next / previous guide segment    | `j` / `k`     |
 | Mark the top file viewed         | `v`           |
