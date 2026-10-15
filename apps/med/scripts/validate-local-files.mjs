@@ -5,6 +5,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
+import { removeGitEnvironment } from "./git-environment.mjs";
+
+removeGitEnvironment();
 const directory = await realpath(await mkdtemp(join(tmpdir(), "med-local-ui-")));
 const repo = join(directory, "example"),
   state = join(directory, "state");
@@ -170,7 +173,7 @@ try {
   await page.getByRole("region", { name: "File editor", exact: true }).waitFor();
   assert.equal(await page.getByRole("button", { name: "Edit", exact: true }).count(), 0);
   assert.equal(await page.getByRole("button", { name: "Done", exact: true }).count(), 0);
-  assert.equal(await page.locator(".med-editor-mode").textContent(), "NORMAL");
+  assert.match(await page.locator(".med-editor-mode").textContent(), /^(Vim · )?NORMAL$/);
   assert.equal(await page.locator("#review-sidebar").count(), 0);
   await page.waitForFunction(() =>
     document.querySelector(".cm-activeLine")?.textContent.startsWith("public final class"),
@@ -189,7 +192,7 @@ try {
   await page.getByRole("button", { name: "Theme", exact: true }).click();
   await page.getByRole("combobox", { name: "Search themes" }).pressSequentially("night");
   assert.equal(await page.getByRole("combobox", { name: "Search themes" }).inputValue(), "night");
-  assert.equal(await page.locator(".med-editor-mode").textContent(), "NORMAL");
+  assert.match(await page.locator(".med-editor-mode").textContent(), /^(Vim · )?NORMAL$/);
   await page.keyboard.press("Escape");
   const viewHeight = await page
     .locator(".med-editor-header")

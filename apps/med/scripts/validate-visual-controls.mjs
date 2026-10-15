@@ -3,6 +3,9 @@ import { resolve } from "node:path";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { execFileSync, spawn } from "node:child_process";
 import { chromium } from "playwright";
+import { removeGitEnvironment } from "./git-environment.mjs";
+
+removeGitEnvironment();
 const phase = process.env.MED_VISUAL_BASELINE ? "before" : "after";
 const out = process.env.MED_VISUAL_OUTPUT || "/private/tmp/med-visual-refresh";
 await mkdir(out, { recursive: true });

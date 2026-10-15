@@ -6,6 +6,9 @@ import { mkdtemp, mkdir, writeFile, readFile, rm, stat } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright";
+import { removeGitEnvironment } from "./git-environment.mjs";
+
+removeGitEnvironment();
 const exec = promisify(execFile),
   dir = await mkdtemp(join(tmpdir(), "med-service-check-"));
 const state = join(dir, "state"),

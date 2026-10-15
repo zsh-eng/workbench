@@ -6,6 +6,9 @@ import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { chromium } from "playwright";
 import assert from "node:assert/strict";
+import { removeGitEnvironment } from "./git-environment.mjs";
+
+removeGitEnvironment();
 const corpus = resolve(".benchmarks/bun-large-ui/corpus/http2.ts");
 let source;
 try {
