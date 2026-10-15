@@ -130,8 +130,11 @@ session that runs, then asks.
 Streams of one transcript share one follower (`createTranscriptFeeds`). A new
 stream gets the first view and the updates since from memory, so a click after
 a read ahead, a revisit, or a reconnect reads and parses nothing again. A
-follower stays 30 seconds after its last stream closes, and at most 6 stay
-without a stream. One that has read 8 MiB more since its first view starts
+follower stays 10 minutes after its last stream closes, and at most 16 stay
+without a stream: one for each tab that stays loaded. Without a stream, a
+follower does not read; the next stream wakes it, and it reads what is new at
+once. The browser keeps the threads of 16 sessions, so a revisit asks for
+`?feed&count` and gets only the updates since. One that has read 8 MiB more since its first view starts
 anew for the next stream, so that a first view stays small.
 The host finds lines in the bytes it reads and decodes them once.
 

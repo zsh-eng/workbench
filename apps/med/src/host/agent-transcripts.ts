@@ -278,6 +278,9 @@ export async function followTranscript(
       events: SessionEvent[],
       state: { idle: boolean; modifiedAt: number; end: number },
     ): void;
+    /** While nobody reads the updates, a promise that resolves when someone
+     * does. The follower stops reading until then, and then reads at once. */
+    unread?(): Promise<void> | undefined;
   },
   signal: AbortSignal,
 ) {
@@ -364,8 +367,14 @@ export async function followTranscript(
   });
 
   let lastModified = 0;
+  const aborted = new Promise<void>((resolve) =>
+    signal.addEventListener("abort", () => resolve(), { once: true }),
+  );
   while (!signal.aborted) {
     await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+    // Nobody reads the updates: wait for a reader, then read at once.
+    const waiting = handlers.unread?.();
+    if (waiting) await Promise.race([waiting, aborted]);
     if (signal.aborted) break;
     const next: SessionEvent[] = [];
     for (const source of [...sources]) next.push(...(await read(source)).events);
@@ -382,10 +391,12 @@ export async function followTranscript(
   }
 }
 
-/** A follower stays this long after its last stream closes. */
-const FEED_LINGER_MS = 30_000;
-/** At most this many followers stay without a stream. */
-const IDLE_FEEDS = 6;
+/** A follower stays this long after its last stream closes. Without a
+ * stream it does not read; a stream that comes back gets only what is new. */
+const FEED_LINGER_MS = 10 * 60_000;
+/** At most this many followers stay without a stream: one for each tab that
+ * stays loaded. */
+const IDLE_FEEDS = 16;
 
 type FeedHandlers = {
   /** `feed` names the follower; `resumed` marks the updates after what a
@@ -409,6 +420,8 @@ export function createTranscriptFeeds(linger = FEED_LINGER_MS) {
     /** Resolves when the follower stops, and rejects if it fails. */
     done: Promise<void>;
     listeners: Set<FeedHandlers["onEvents"]>;
+    /** Adds a listener, and wakes a follower that waits for one. */
+    listen(listener: FeedHandlers["onEvents"]): void;
     users: number;
     stop: AbortController;
     timer?: ReturnType<typeof setTimeout>;
@@ -427,6 +440,13 @@ export function createTranscriptFeeds(linger = FEED_LINGER_MS) {
     const view = new Promise<TranscriptFeed>((resolve) => (shown = resolve));
     const stop = new AbortController();
     const listeners = new Set<FeedHandlers["onEvents"]>();
+    // Resolves when a stream listens again.
+    let heard: { promise: Promise<void>; resolve: () => void } | undefined;
+    const listen = (listener: FeedHandlers["onEvents"]) => {
+      listeners.add(listener);
+      heard?.resolve();
+      heard = undefined;
+    };
     const done = followTranscript(
       session,
       path,
@@ -445,6 +465,15 @@ export function createTranscriptFeeds(linger = FEED_LINGER_MS) {
           }
           for (const listener of listeners) listener(events, state);
         },
+        unread() {
+          if (listeners.size) return undefined;
+          if (!heard) {
+            let resolve!: () => void;
+            const promise = new Promise<void>((done) => (resolve = done));
+            heard = { promise, resolve };
+          }
+          return heard.promise;
+        },
       },
       stop.signal,
     );
@@ -454,6 +483,7 @@ export function createTranscriptFeeds(linger = FEED_LINGER_MS) {
       view: Promise.race([view, done.then(() => view)]),
       done,
       listeners,
+      listen,
       users: 0,
       stop,
       grown: false,
@@ -493,7 +523,7 @@ export function createTranscriptFeeds(linger = FEED_LINGER_MS) {
           feed: feed.id,
           ...(resumed ? { resumed: true as const } : {}),
         });
-        feed.listeners.add(handlers.onEvents);
+        feed.listen(handlers.onEvents);
         try {
           await Promise.race([
             new Promise<void>((resolve) =>

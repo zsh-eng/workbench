@@ -22,7 +22,8 @@ const git = (repo: string, ...args: string[]) =>
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     env: {
-      ...process.env,
+      // Not the parent's GIT_* variables: a GIT_DIR would lead to another repository.
+      ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_"))),
       GIT_CONFIG_NOSYSTEM: "1",
       GIT_AUTHOR_NAME: "Test",
       GIT_AUTHOR_EMAIL: "test@example.com",
@@ -82,7 +83,12 @@ async function fixture(watch: StartHostOptions["watch"] = {}) {
     await response.body!.getReader().read();
     return () => stream.abort();
   };
-  return { parent, repo, read, watching, show };
+  /** A plain GET, for its status and headers. */
+  const get = (path: string, headers: Record<string, string> = {}) =>
+    fetch(`http://127.0.0.1:${host.port}${path}`, {
+      headers: { authorization: `Bearer ${host.token}`, ...headers },
+    });
+  return { parent, repo, read, get, watching, show };
 }
 
 async function answers({ repo, read }: Awaited<ReturnType<typeof fixture>>) {
@@ -189,6 +195,24 @@ async function savedWorking(value: Awaited<ReturnType<typeof fixture>>) {
     (await read<{ changed: boolean }>(`/api/reviews/${saved.id}/targets/${target.id}/drift`))
       .changed;
 }
+
+test("a saved target's diff answers a read again with 304 and no body", async () => {
+  const value = await fixture();
+  await writeFile(join(value.repo, "file.ts"), "export const value = 2;\n");
+  const saved = await value.read<SavedReview>("/api/reviews", {
+    title: "Working",
+    targets: [{ repo: value.repo, comparison: { kind: "working" } }],
+  });
+  const path = `/api/reviews/${saved.id}/targets/${saved.targets[0]!.id}/review`;
+  const first = await value.get(path);
+  expect(first.status).toBe(200);
+  const tag = first.headers.get("etag")!;
+  expect(first.headers.get("cache-control")).toBe("private, no-cache");
+  expect((await first.json()).files).toHaveLength(1);
+  const again = await value.get(path, { "if-none-match": tag });
+  expect(again.status).toBe(304);
+  expect(await again.text()).toBe("");
+});
 
 test("a file edit updates the cached drift answer through the watcher's event", async () => {
   const value = await fixture({ safetyMs: 600_000 });

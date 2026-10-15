@@ -169,8 +169,9 @@ export async function followSession(
 
 /** Each recent session keeps its thread, so a workspace that mounts again,
  * or a thread read ahead of a click, shows it at once. The stream's first
- * view then replaces it in one step. */
-const KEPT = 12;
+ * view then replaces it in one step, or the stream sends only the updates
+ * after it. One for each tab that stays loaded (16). */
+const KEPT = 16;
 const kept = new Map<string, SessionStore>();
 const reading = new Map<string, Promise<void>>();
 

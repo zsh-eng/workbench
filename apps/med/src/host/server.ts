@@ -1838,8 +1838,26 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 );
             }
             if (request.method === "GET") {
-              if (targetAction === "review") send(await savedReviews.review(id!, targetId!));
-              else if (targetAction === "source")
+              if (targetAction === "review") {
+                // A saved target never changes: the browser keeps its diff and
+                // asks again with this tag, as when a thread is read ahead again.
+                const tag = `"${id}.${targetId}"`;
+                const headers = { etag: tag, "cache-control": "private, no-cache" };
+                if (request.headers["if-none-match"] === tag) {
+                  assertRequestAccess();
+                  response.writeHead(304, headers);
+                  response.end();
+                  return;
+                }
+                const body = JSON.stringify(await savedReviews.review(id!, targetId!));
+                assertRequestAccess();
+                response.writeHead(200, {
+                  ...headers,
+                  "content-type": "application/json; charset=utf-8",
+                  "x-content-type-options": "nosniff",
+                });
+                response.end(body);
+              } else if (targetAction === "source")
                 send(await savedReviews.source(id!, targetId!, url.searchParams.get("path") ?? ""));
               else if (targetAction === "notes") send(await savedReviews.notes(id!, targetId!));
               else if (targetAction === "drift") {

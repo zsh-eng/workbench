@@ -324,6 +324,36 @@ test("a kept thread's next stream takes only the updates after the ones it has",
   expect(store.getSnapshot().items[0]).toBe(first[0]);
 });
 
+test("a stream that comes back to an unread follower gets only the updates after its count", async () => {
+  const { api, saved, transcript } = await fixture();
+  await writeFile(
+    transcript,
+    line(user(0, "Format the durations.")) +
+      line(assistant(1, "a1", { type: "text", text: "Durations read as minutes." }, "end_turn")),
+  );
+  const path = `/api/reviews/${saved.id}/sessions/${session}/events`;
+  const closed = new AbortController();
+  const first = listen(await api(path, { signal: closed.signal }));
+  await vi.waitFor(() => expect(first.some((entry) => entry.event === "reset")).toBe(true));
+  const reset = first.find((entry) => entry.event === "reset") as (typeof first)[number] & {
+    feed: string;
+  };
+  closed.abort();
+  // The follower has no stream now; the transcript grows while nobody reads it.
+  await appendFile(
+    transcript,
+    line(assistant(2, "a2", { type: "text", text: "Zero rounds to 0 min." }, "end_turn")),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  const again = listen(await api(`${path}?feed=${reset.feed}&count=${reset.events.length}`));
+  await vi.waitFor(() =>
+    expect(again.flatMap((entry) => entry.events).map((event) => event.update)).toEqual([
+      expect.objectContaining({ sessionUpdate: "agent_message_chunk" }),
+    ]),
+  );
+  expect(again[0]).toMatchObject({ event: "reset", resumed: true, events: [] });
+});
+
 test("a session the review does not record, or without a transcript, is not found", async () => {
   const { api, saved } = await fixture();
   expect((await api(`/api/reviews/${saved.id}/sessions/other-session/events`)).status).toBe(404);
