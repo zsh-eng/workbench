@@ -302,6 +302,12 @@ closes a tab on its own when its work has landed (`landed` in
 `web/data/tabs.ts`), from the window used last, never when `unlanded` is
 unknown.
 
+The signals for tabs that need the reader are in `web/data/signals.ts`. Each
+window sets the installed app's badge to the same count, from the same list.
+A window holds the shared Web Lock `med:looking` while it is visible or
+focused. The window that holds the lock `med:notifier` sends the opt-in
+notifications, and only when no window holds `med:looking`.
+
 The first start with tabs makes them from the saved reviews: an archived
 review closes at `archivedAt`; of the others, the 8 newest that changed in the
 last 7 days (`FOUND_DAYS`) open, newest first; the others close. At start and once a day, the host prunes

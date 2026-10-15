@@ -102,6 +102,15 @@ load it or read its agents until you open it again.
   agents work, such as **1 needs you · 2 working**. It shows only when a count
   is more than 0. Click a count to open the next tab of that kind. `⌘0` opens
   the next tab that needs you, or else the next tab whose agent works.
+- When you look elsewhere, Med tells you only that a tab needs you. While the
+  sidebar is hidden, **Show sidebar** has a dot, and its name gives the count,
+  such as "Show sidebar · 1 needs you". The installed app's Dock icon shows
+  the count as a badge. **Notify me when a tab needs you** in `⌘K` turns on OS
+  notifications for this browser; the browser asks for permission the first
+  time. When a tab starts to need you and no Med window shows, Med sends one
+  notification with the thread's title and the first line of its question.
+  Click it to open the tab. Work that starts or ends sends none. **Stop
+  notifying me when a tab needs you** turns them off.
 - A Claude Code tab lists its subagents under it: each one's task, and what
   it does now. The title is dim while the subagent works and bold when it has
   a result that you did not see. Click a subagent to open the thread with the

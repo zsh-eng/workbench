@@ -68,15 +68,19 @@ export function barContext(workspace: Workspace | undefined, list: ThreadList | 
  * moves the window, and its controls take clicks.
  *
  * With quiet chrome, the band is the one place for the thread's branch. While
- * the sidebar, which lists the thread, is hidden, the band names the thread too.
+ * the sidebar, which lists the thread, is hidden, the band names the thread
+ * too, and a dot on Show sidebar tells that a tab needs the reader.
  */
 export function WorkspaceBar({
   context,
   showSidebar,
+  needs = 0,
 }: {
   context?: BarContext;
   /** The sidebar is hidden or covers the workspace: the band starts with its toggle. */
   showSidebar?: () => void;
+  /** The tabs that need the reader, while the sidebar that counts them is hidden. */
+  needs?: number;
 }) {
   const quiet = useQuietChrome();
   const title = quiet && showSidebar && context?.kind === "checkout" ? context.title : undefined;
@@ -87,10 +91,10 @@ export function WorkspaceBar({
     >
       {showSidebar && (
         <ToolButton
-          label="Show sidebar"
+          label={needs > 0 ? `Show sidebar · ${needs} needs you` : "Show sidebar"}
           shortcut="Mod+B"
           icon="panelLeft"
-          aria-label="Show sidebar"
+          dot={needs > 0}
           onClick={showSidebar}
         />
       )}

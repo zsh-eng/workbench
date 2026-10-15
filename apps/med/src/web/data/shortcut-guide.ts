@@ -69,6 +69,12 @@ export const guideContexts: GuideContext[] = [
             command: "next-needs-you",
           },
           {
+            label: "Notify me when a tab needs you",
+            keys: [],
+            note: "While no Med window shows; run it again to stop",
+            command: "notify-needs-you",
+          },
+          {
             label: "Switch to a recent workspace",
             keys: ["Ctrl+Tab"],
             note: "Hold Control and press Tab to step; type to search history",
