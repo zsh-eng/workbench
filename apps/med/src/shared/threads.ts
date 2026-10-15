@@ -60,6 +60,10 @@ export const threadSchema = z.object({
     .optional(),
   /** One attempt at a task that several agents do; the sidebar shows a group together. */
   group: attemptRefSchema.optional(),
+  /** Other work can be in the checkout: it is a repository's main checkout,
+   * or more than one thread works in it. Changes then offer "Only this
+   * session's files". */
+  shared: z.boolean().optional(),
 });
 export type Thread = z.infer<typeof threadSchema>;
 

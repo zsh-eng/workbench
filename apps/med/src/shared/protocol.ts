@@ -1,16 +1,41 @@
 import { z } from "zod";
 
+/** An agent session whose edited files a comparison can keep (session-edits.ts). */
+export const editSessionSchema = z.object({
+  agent: z.enum(["claude", "codex"]),
+  id: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+});
+export type EditSession = z.infer<typeof editSessionSchema>;
+/** At most this many paths in one comparison. */
+export const MAX_COMPARISON_PATHS = 2000;
+/**
+ * A Git comparison can keep only some files: `paths`, relative to the
+ * checkout (a folder keeps the files in it), or the files that `session`
+ * edited. An empty list keeps no file.
+ */
+const scope = {
+  paths: z.array(z.string().min(1).max(4096)).max(MAX_COMPARISON_PATHS).optional(),
+  session: editSessionSchema.optional(),
+};
+
 export const comparisonSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("working") }),
-  z.object({ kind: z.literal("staged") }),
-  z.object({ kind: z.literal("unstaged") }),
-  z.object({ kind: z.literal("commit"), commit: z.string().min(1).max(256) }),
+  z.object({
+    kind: z.literal("working"),
+    /** From the merge base of this ref and HEAD, not from HEAD: the branch's
+     * commits since it left `base`, and its uncommitted changes. */
+    base: z.string().min(1).max(256).optional(),
+    ...scope,
+  }),
+  z.object({ kind: z.literal("staged"), ...scope }),
+  z.object({ kind: z.literal("unstaged"), ...scope }),
+  z.object({ kind: z.literal("commit"), commit: z.string().min(1).max(256), ...scope }),
   z.object({
     kind: z.literal("range"),
     base: z.string().min(1).max(256),
     head: z.string().min(1).max(256),
     includeBase: z.boolean().optional(),
     mergeBase: z.boolean().optional(),
+    ...scope,
   }),
   z.object({ kind: z.literal("patch"), path: z.string().min(1).max(4096) }),
   z.object({

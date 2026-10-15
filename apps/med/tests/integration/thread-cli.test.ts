@@ -221,7 +221,27 @@ async function fixture() {
     expect(output).not.toContain(host.token);
     return { id: match![1]!, title: match![2]!, again: !!match![4] };
   };
-  return { run, api, threads, adopted, repo, glossary, elsewhere, glossaryPath, archivedPath };
+  /** `med thread show` from a directory, with the session's environment. */
+  const show = async (args: string[], environment: NodeJS.ProcessEnv = {}, cwd = glossary) => {
+    const output: string[] = [];
+    await runThreadSessionsCommand(
+      ["show", ...args, "--state-dir", stateDir, "--port", String(host.port)],
+      { print: (text) => output.push(text), openUrl: () => {}, environment, cwd },
+    );
+    return output.join("\n");
+  };
+  return {
+    run,
+    show,
+    api,
+    threads,
+    adopted,
+    repo,
+    glossary,
+    elsewhere,
+    glossaryPath,
+    archivedPath,
+  };
 }
 
 test("find lists sessions of any age by title, first prompt, or folder, newest first", async () => {
@@ -269,12 +289,16 @@ test("adopt makes a Claude Code or Codex session a thread by ID or by path, and 
   const { run, api, threads, adopted, repo, glossary, elsewhere, glossaryPath, archivedPath } =
     await fixture();
 
-  // Claude Code by ID: a session of a month ago, on its checkout's working changes.
+  // Claude Code by ID: a session of a month ago. The thread captures
+  // nothing: it names its checkout, whose Changes stay live.
+  await writeFile(join(repo, "README.md"), "# tide\n\nSomeone else's change.\n");
   const tides = adopted(await run("adopt", ids.tides));
   expect(tides.title).toBe("Explain the tide prediction model in the README");
   const saved = (await api<SavedReview>(`/api/reviews/${tides.id}`)).data;
   expect(saved.sessions).toEqual([{ agent: "claude", id: ids.tides, cwd: repo }]);
-  expect(saved.targets).toMatchObject([{ repo, comparison: { kind: "working" } }]);
+  expect(saved.targets).toEqual([]);
+  expect(saved.iterations).toBeUndefined();
+  expect(saved.checkout).toEqual({ repositoryId: expect.any(String), repo, branch: "main" });
   // Its session pane reads the transcript.
   expect((await api(`/api/reviews/${tides.id}/sessions/${ids.tides}/turns`)).status).toBe(200);
   // Again: the same thread, also back from the archive.
@@ -347,6 +371,74 @@ test("adopt makes a Claude Code or Codex session a thread by ID or by path, and 
   const trip = adopted(await run("adopt", ids.elsewhere, "--repo", repo));
   expect((await api<SavedReview>(`/api/reviews/${trip.id}`)).data).toMatchObject({
     sessions: [{ agent: "claude", id: ids.elsewhere, cwd: elsewhere }],
-    targets: [{ repo }],
+    targets: [],
+    checkout: { repo },
   });
+});
+
+test("show adds a Review version to the session's thread: files, the branch, a commit, or a manifest", async () => {
+  const { run, show, api, adopted, glossary } = await fixture();
+  // The glossary branch has a commit, and the worktree has uncommitted changes.
+  await writeFile(join(glossary, "terms.md"), "Range: high water less low water.\n");
+  git(glossary, ["add", "terms.md"]);
+  git(glossary, ["commit", "-q", "-m", "Add terms"]);
+  await writeFile(join(glossary, "README.md"), "# tide\n\n## Glossary\n");
+  await writeFile(join(glossary, "scratch.txt"), "not for review\n");
+
+  // Not adopted yet: show says how.
+  await expect(
+    show(["--paths", "README.md"], { CLAUDE_CODE_SESSION_ID: ids.glossary }),
+  ).rejects.toThrow(
+    `No Med thread holds session ${ids.glossary}. Run med thread adopt ${ids.glossary} first`,
+  );
+  const thread = adopted(await run("adopt", ids.glossary));
+  const versions = async () => {
+    const saved = (await api<SavedReview>(`/api/reviews/${thread.id}`)).data;
+    const current = saved.iterations?.at(-1);
+    const target = saved.targets.find((entry) => entry.id === current?.targetIds[0])!;
+    const shown = (
+      await api<{ files: { path: string }[] }>(
+        `/api/reviews/${thread.id}/targets/${target.id}/review`,
+      )
+    ).data;
+    return {
+      count: saved.iterations?.length ?? 0,
+      comparison: target.comparison,
+      paths: shown.files.map((file) => file.path).sort(),
+    };
+  };
+  expect((await api<SavedReview>(`/api/reviews/${thread.id}`)).data.targets).toEqual([]);
+
+  // The Claude Code session that runs the command finds its thread.
+  expect(await show(["--paths", "README.md"], { CLAUDE_CODE_SESSION_ID: ids.glossary })).toMatch(
+    new RegExp(
+      `^Version 1 of \\[README glossary\\]\\(http://127\\.0\\.0\\.1:\\d+/review/${thread.id}\\)$`,
+    ),
+  );
+  expect(await versions()).toEqual({
+    count: 1,
+    comparison: { kind: "working", paths: ["README.md"] },
+    paths: ["README.md"],
+  });
+  // --base: the branch's commit and its uncommitted changes.
+  await show(["--base", "main"], { CLAUDE_CODE_SESSION_ID: ids.glossary });
+  expect(await versions()).toEqual({
+    count: 2,
+    comparison: { kind: "working", base: "main" },
+    paths: ["README.md", "scratch.txt", "terms.md"],
+  });
+  // --key names the thread (as MED_THREAD_KEY does in a Med thread).
+  const key = (await api<SavedReview>(`/api/reviews/${thread.id}`)).data.key!;
+  await show(["--commit", "HEAD"], { MED_THREAD_KEY: key });
+  expect(await versions()).toMatchObject({ count: 3, paths: ["terms.md"] });
+  await show(["--base", "main", "--head", "HEAD", "--key", key]);
+  expect(await versions()).toMatchObject({ count: 4, paths: ["terms.md"] });
+  // Mistakes say what to do.
+  await expect(show(["--key", key])).rejects.toThrow(
+    "Say what to show: --paths, --base, --commit, --working, or --manifest.",
+  );
+  await expect(show(["--commit", "HEAD", "--working", "--key", key])).rejects.toThrow(
+    /^Use one of --paths/,
+  );
+  await expect(show(["--paths", "README.md"])).rejects.toThrow(/^Med does not know this session/);
 });

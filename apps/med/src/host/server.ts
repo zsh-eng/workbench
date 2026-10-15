@@ -23,6 +23,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import {
   apiErrorMessage,
+  MAX_COMPARISON_PATHS,
   notesRequestSchema,
   noteMutationSchema,
   reviewRequestSchema,
@@ -85,7 +86,9 @@ import { findAgents, OwnedSessions, type RunnableAgent } from "./owned-sessions"
 import { createAgentStatus } from "./agent-status";
 import { createFoundSessions } from "./found-sessions";
 import { createSessionSearch, sessionEntry, type SessionInfo } from "./session-search";
-import { createCheckoutWork } from "./checkout-work";
+import { changesBase, createCheckoutWork } from "./checkout-work";
+import { createCheckoutChanges } from "./checkout-changes";
+import { createSessionEdits } from "./session-edits";
 import {
   foundUpdateSchema,
   sessionAdoptSchema,
@@ -112,7 +115,10 @@ import {
   briefCommentMutationSchema,
   reviewKeySchema,
   savedReviewCreateSchema,
+  handoffTargets,
+  threadCheckout,
   type CapturedReviewTarget,
+  type SavedCheckout,
   type SavedReviewCreate,
 } from "../shared/saved-review";
 import { getPersistentToken, publishConnection } from "./runtime/connection";
@@ -306,6 +312,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   });
   // The windows' thread lists.
   const threadStreams = new Set<ServerResponse>();
+  // The counts of each thread's live Changes, for its row.
+  const checkoutChanges = createCheckoutChanges();
+  // The files that each agent session edited, for "Only this session's files".
+  const sessionEdits = createSessionEdits();
   // Claude Code and Codex sessions in the registered repositories that no
   // saved review names; the thread list shows them too.
   const found = createFoundSessions({
@@ -313,6 +323,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     refreshRepositories: () => registry.list(),
     owned: () => ownedSessions.agentSessions(),
     settingsFile: join(options.stateDir ?? temporaryState!, "found-sessions.json"),
+    changes: checkoutChanges,
   });
   await found.restore();
   // Sessions of any age, for `med thread find` and `med thread adopt`.
@@ -348,6 +359,21 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   };
   // Each thread's work that its base branch does not have yet.
   const checkoutWork = createCheckoutWork();
+  /**
+   * Marks the threads whose checkout is shared: a repository's main
+   * checkout, or a worktree where more than one thread works. Their Changes
+   * offer "Only this session's files".
+   */
+  const markShared = (threads: Thread[]) => {
+    const transcript = (thread: Thread) =>
+      !!thread.checkout && !!thread.sessions?.some((session) => session.agent !== "acp");
+    const counts = new Map<string, number>();
+    for (const thread of threads)
+      if (transcript(thread)) counts.set(thread.checkout!, (counts.get(thread.checkout!) ?? 0) + 1);
+    for (const thread of threads)
+      if (transcript(thread) && (!thread.linked || counts.get(thread.checkout!)! > 1))
+        thread.shared = true;
+  };
   /** Every thread, newest first, with the repositories that threads start in. */
   const listThreads = async (): Promise<ThreadList> => {
     const repositories = registry.snapshot();
@@ -355,7 +381,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     const reviews = saved.filter((review) => !review.archivedAt);
     const threads = await Promise.all(
       reviews.map(async (review): Promise<Thread> => {
-        const target = review.targets.find((entry) => !entry.commentReviewId) ?? review.targets[0];
+        const target = threadCheckout(review);
         const family = repositories.find((entry) => entry.id === target?.repositoryId);
         const status = review.sessions?.length
           ? await reviewStatus(review.id, review.sessions).catch(() => undefined)
@@ -363,6 +389,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         const reply = review.sessions?.length
           ? await inbox.last(review.id).catch(() => undefined)
           : undefined;
+        const tree = family?.worktrees.find((entry) => entry.path === target?.repo);
+        // Before the agent hands off a Review, the row counts the live Changes.
+        const live =
+          target && !handoffTargets(review).length
+            ? checkoutChanges.get(
+                target.repo,
+                changesBase(family, tree ? tree.branch : target.branch),
+                status?.updatedAt,
+              )
+            : undefined;
         return {
           id: review.id,
           title: review.pullRequestTitle ?? review.title,
@@ -372,9 +408,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             repository: { id: family.id, name: family.name, path: family.path },
           }),
           ...(target && { checkout: target.repo }),
-          ...(family?.worktrees.some((tree) => tree.path === target?.repo && tree.linked) && {
-            linked: true,
-          }),
+          ...(tree?.linked && { linked: true }),
           ...(target?.branch && { branch: target.branch }),
           ...(status && { agent: status.agent, state: status.state }),
           ...(status?.turn && { turn: status.turn }),
@@ -386,13 +420,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             },
           }),
           ...(review.sessions?.length && { sessions: review.sessions }),
-          ...(review.totals && {
-            changes: {
-              files: review.totals.files,
-              additions: review.totals.additions,
-              deletions: review.totals.deletions,
-            },
-          }),
+          ...(live
+            ? { changes: live }
+            : review.totals &&
+              handoffTargets(review).length && {
+                changes: {
+                  files: review.totals.files,
+                  additions: review.totals.additions,
+                  deletions: review.totals.deletions,
+                },
+              }),
           ...(review.pullRequestUrl && { pullRequestUrl: review.pullRequestUrl }),
           ...(review.group && { group: review.group }),
         };
@@ -400,9 +437,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     );
     threads.push(...found.threads(saved));
     threads.sort((a, b) => b.updatedAt - a.updatedAt);
+    markShared(threads);
+    // A thread's work counts the uncommitted changes when its Changes or its
+    // Review shows them.
     const onWorking = new Set(
       reviews
-        .filter((review) => review.targets.some((entry) => entry.comparison.kind === "working"))
+        .filter(
+          (review) =>
+            !handoffTargets(review).length ||
+            review.targets.some((entry) => entry.comparison.kind === "working"),
+        )
         .map((review) => review.id),
     );
     return {
@@ -1116,8 +1160,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             const input = ownedStartSchema.parse(await readBody(request));
             const target =
               bundle.targets.find((entry) => entry.id === input.targetId) ??
-              bundle.targets.find((entry) => !entry.commentReviewId) ??
-              bundle.targets[0]!;
+              threadCheckout(bundle)!;
             const entry = registry.snapshot().find((item) => item.id === target.repositoryId);
             if (!entry)
               throw new HostError(
@@ -1448,6 +1491,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             send({ windows: windows.size });
             return;
           }
+          /** A thread's checkout, which it keeps without a capture: its
+           * Changes are live until the agent hands off a Review. */
+          const placeCheckout = async (path: string): Promise<SavedCheckout> => {
+            const repo = await requireRepo(path);
+            const owner = await registry.require(repo, abort.signal);
+            const info = await resolveRepository(repo, abort.signal);
+            return {
+              repositoryId: owner.repository.id,
+              repo,
+              branch: info.branch === "Detached HEAD" ? null : info.branch,
+            };
+          };
           // A comparison of a saved review, with its sources and images.
           const captureTarget = async (
             target: SavedReviewCreate["targets"][number],
@@ -1528,6 +1583,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             send(await savedReviews.create(input, captureTarget, assertRequestAccess));
             return;
           }
+          // A new Review version of a thread: what its agent shows now
+          // (`med thread show`, `med review update --paths`).
+          const version = /^\/api\/reviews\/(r_[a-f0-9]{24})\/versions$/.exec(url.pathname);
+          if (version && request.method === "POST") {
+            const body = savedReviewCreateSchema
+              .omit({ title: true })
+              .parse(await readBody(request, MAX_BRIEF_BODY + MAX_GUIDE_BODY));
+            send(
+              await savedReviews.addVersion(version[1]!, body, captureTarget, assertRequestAccess),
+            );
+            return;
+          }
           // `med thread adopt`: a Claude Code or Codex session of any age
           // becomes a saved thread, as Keep in Med makes one. A session that
           // a thread names already gives that thread, back from the archive.
@@ -1573,15 +1640,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               repo = place.checkout.path;
             }
             const title = input.title ?? info.title.slice(0, 200);
+            // The thread captures nothing: its Changes are live, and it has a
+            // Review once the agent shows one (`med thread show`).
             const review = await savedReviews.create(
               {
                 title,
                 key: `${threadSlug(title)}-${info.id.slice(0, 8)}`,
                 sessions: [{ agent: info.agent, id: info.id, cwd: info.cwd ?? repo }],
-                targets: [{ repo, comparison: { kind: "working" } }],
+                targets: [],
               },
               captureTarget,
               assertRequestAccess,
+              await placeCheckout(repo),
             );
             send({
               id: review.id,
@@ -1641,10 +1711,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 key,
                 sessions: [runner.session],
                 ...(input.group ? { group: input.group } : {}),
-                targets: [{ repo: cwd, comparison: { kind: "working" } }],
+                targets: [],
               },
               captureTarget,
               assertRequestAccess,
+              await placeCheckout(cwd),
             );
             await runner.prompt(input.prompt);
             send({ review });
@@ -2272,9 +2343,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             const id = archive[1]!;
             if (input.archived && input.removeWorktree) {
               const review = await savedReviews.get(id);
-              const path = (
-                review.targets.find((entry) => !entry.commentReviewId) ?? review.targets[0]
-              )?.repo;
+              const path = threadCheckout(review)?.repo;
               const linked =
                 !!path &&
                 registry.owner(path)?.worktrees.some((tree) => tree.path === path && tree.linked);
@@ -2284,7 +2353,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   (entry) =>
                     entry.id !== id &&
                     !entry.archivedAt &&
-                    entry.targets.some((target) => target.repo === path),
+                    (threadCheckout(entry)?.repo === path ||
+                      entry.targets.some((target) => target.repo === path)),
                 );
                 if (others.length)
                   throw new HostError(
@@ -2334,6 +2404,28 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   input.comparison.kind === "working" ||
                   input.comparison.kind === "unstaged",
               );
+            // "Only this session's files": the files that the session edited,
+            // from its transcript, read again for each load.
+            const scoped =
+              input.comparison.kind !== "patch" && input.comparison.kind !== "files"
+                ? input.comparison
+                : undefined;
+            if (scoped?.session) {
+              const { session, ...comparison } = scoped;
+              const edited = await sessionEdits.paths(session, input.repo);
+              const listed = comparison.paths && new Set(comparison.paths);
+              const paths = (listed ? edited.filter((path) => listed.has(path)) : edited).slice(
+                -MAX_COMPARISON_PATHS,
+              );
+              const review = await reviews.load(
+                { repo: input.repo, comparison: { ...comparison, paths } },
+                abort.signal,
+              );
+              abort.signal.throwIfAborted();
+              notes.adopt(review.id);
+              send({ ...review, comparison: input.comparison });
+              return;
+            }
             const review = await reviews.load(input, abort.signal);
             abort.signal.throwIfAborted();
             notes.adopt(review.id);
@@ -2564,6 +2656,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       closeTranscripts();
       found.close();
       checkoutWork.close();
+      checkoutChanges.close();
       for (const abort of activeRequests.keys()) abort.abort();
       for (const stream of [...streams.keys(), ...windows]) stream.end();
       // A channel's handler stops when its response closes. Bun does not emit
