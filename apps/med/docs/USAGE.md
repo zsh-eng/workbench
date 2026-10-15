@@ -141,17 +141,20 @@ load it or read its agents until you open it again.
   repository, the branch, and the sessions, for 180 days after the close; such
   a thread opens as its agent's session. Med prunes when it starts and once a
   day.
-- **New thread** (`⌥N`) asks for the task, the repository, where the agent
-  works, and the agent with its model and effort. **New worktree**, the
-  default, makes a branch named for the task in a new linked worktree, so the
-  work stays apart from your checkout. **Checkout** works on the checkout's
-  current branch. Claude Code starts on Opus 5.5 at medium effort and Codex on
-  `gpt-6-astra`; Med keeps your last choice for each agent. `⌘↵` starts the
-  agent on the task at once. **2 attempts** or **3 attempts** gives the same
-  task to several agents ([Attempts](#attempts)). Above the repository picker,
-  **Recent** lists the repositories of your newest threads, tabs and history,
-  newest first, up to 5; click one to choose it. The chosen repository has a
-  highlight. With fewer than 2 such repositories, the list does not show.
+- **New thread** (`⌥N`) asks for the task. Under the task box, one row for
+  each choice lists all its options; one click chooses, and the chosen option
+  has a highlight. **Repository** lists the repositories of your newest
+  threads, tabs and history, newest first, up to 5, then the others, as many
+  as fit on the line; **More…** lists them all, and you type to filter them.
+  **Works in**: **New worktree**, the default, makes a branch named for the
+  task in a new linked worktree, so the work stays apart from your checkout;
+  **Checkout** works on the checkout's current branch, which the option names.
+  **Attempts** gives the same task to 2 or 3 agents ([Attempts](#attempts)).
+  **Agent**, **Model**, and **Effort** follow. Claude Code starts on Opus 5.5
+  at medium effort and Codex on `gpt-6-astra`; Med keeps your last choice for
+  each agent. A row with one option shows it as text. In a row, `←` and `→`
+  choose; `Tab` goes to the next row. `⌘↵` starts the agent on the task at
+  once, from anywhere on the page.
 - `⌃Tab` steps through recent workspaces: hold Control, press Tab to step, and
   release to go.
 - Rest the pointer on a row, and Med reads the thread before you click.
@@ -486,9 +489,10 @@ command** on the workspace.
 ## Attempts
 
 Two agents seldom do a task the same way. **Attempts** in New thread (`⌥N`)
-gives one task to two or three agents. Each attempt has a line with its agent,
-model, and effort, and its own branch (the task's name with `-a`, `-b`, `-c`)
-in a new worktree. Start starts them all and opens the Attempts page.
+gives one task to two or three agents. Each attempt has its Agent, Model, and
+Effort rows under its letter, and its own branch (the task's name with `-a`,
+`-b`, `-c`) in a new worktree. Start starts them all and opens the Attempts
+page.
 
 - The sidebar shows the task as one row, with its attempts under it, such as
   **A · Claude** and **B · Codex**. They fold when all are done; the chevron,

@@ -4,8 +4,8 @@ import { attemptLetter, MAX_ATTEMPTS } from "../../../shared/attempts";
 import type { AgentOptions, AgentPreset } from "../../../shared/owned-session";
 import { startAttempts, type AttemptStart } from "../../data/attempts";
 import { useAgentOptions } from "../../data/owned-session";
-import { tokens } from "../../theme.stylex";
-import { Select, sessionChoices } from "../shell/NewThread";
+import { AgentRows, ChoiceRow, choiceStyles } from "../shell/ChoiceRows";
+import { sessionChoices } from "../shell/NewThread";
 
 // New thread with two or three attempts: the count, and for each attempt its
 // agent, model, and effort. Attempt A uses New thread's own choice; B and C
@@ -141,92 +141,54 @@ export function useAttempts(
 }
 export type Attempts = ReturnType<typeof useAttempts>;
 
-/** The count of attempts, in New thread's controls. */
+/** The count of attempts, a row of New thread's choices. */
 export function AttemptsCount({ attempts }: { attempts: Attempts }) {
   return (
-    <Select
+    <ChoiceRow
       label="Attempts"
-      icon="compare"
-      value={String(attempts.count)}
-      options={Array.from({ length: MAX_ATTEMPTS }, (_, index) => ({
+      choices={Array.from({ length: MAX_ATTEMPTS }, (_, index) => ({
         value: String(index + 1),
-        label: index ? `${index + 1} attempts` : "1 attempt",
+        text: String(index + 1),
       }))}
+      value={String(attempts.count)}
       onChange={(value) => attempts.setCount(Number(value))}
     />
   );
 }
 
-/**
- * One line for each attempt: its letter, agent, model, effort, and the branch
- * that Med creates for it.
- */
+/** The agent, model, and effort of each attempt, under its letter. */
 export function AttemptRows({
   attempts,
   agents,
   first,
   onFirst,
-  branch,
 }: {
   attempts: Attempts;
   agents: AgentPreset[];
   first: AttemptPick;
   onFirst(next: AttemptChoice): void;
-  branch: string;
 }) {
-  return (
-    <div role="group" aria-label="Attempts" {...stylex.props(styles.rows)}>
-      {[first, ...attempts.others].map((pick, index) => {
-        const letter = attemptLetter(index + 1);
-        const choose = (next: AttemptChoice) =>
-          index ? attempts.choose(index - 1, next) : onFirst(next);
-        return (
-          <div key={letter} {...stylex.props(styles.row)}>
-            <span aria-hidden {...stylex.props(styles.letter)}>
-              {letter}
-            </span>
-            <div {...stylex.props(styles.pickers)}>
-              <Select
-                label={`Agent for attempt ${letter}`}
-                icon={pick.agent?.kind === "claude" ? "claude" : "agent"}
-                value={pick.agent?.id ?? ""}
-                options={agents.map((entry) => ({ value: entry.id, label: entry.name }))}
-                onChange={(value) => choose({ preset: value })}
-              />
-              {pick.options?.model && pick.model && (
-                <Select
-                  label={`Model for attempt ${letter}`}
-                  value={pick.model}
-                  options={pick.options.model.options.map((option) => ({
-                    value: option.value,
-                    label: option.name,
-                  }))}
-                  onChange={(value) => choose({ model: value })}
-                />
-              )}
-              {pick.effort && (
-                <Select
-                  label={`Effort for attempt ${letter}`}
-                  value={pick.effort}
-                  options={pick.efforts.map((option) => ({
-                    value: option.value,
-                    label: option.name,
-                  }))}
-                  onChange={(value) => choose({ effort: value })}
-                />
-              )}
-            </div>
-            <code {...stylex.props(styles.branch)}>
-              {branch}-{letter.toLowerCase()}
-            </code>
-          </div>
-        );
-      })}
-    </div>
-  );
+  return [first, ...attempts.others].map((pick, index) => {
+    const letter = attemptLetter(index + 1);
+    return (
+      <div
+        key={letter}
+        role="group"
+        aria-label={`Attempt ${letter}`}
+        {...stylex.props(choiceStyles.attempt)}
+      >
+        <AgentRows
+          pick={pick}
+          agents={agents}
+          letter={letter}
+          onChoose={(next) => (index ? attempts.choose(index - 1, next) : onFirst(next))}
+        />
+      </div>
+    );
+  });
 }
 
-/** What Start does with several attempts, under the card. */
+/** What Start does with several attempts, under the choices. */
 export function AttemptsHint({ count, repository }: { count: number; repository?: string }) {
   return (
     <>
@@ -235,51 +197,3 @@ export function AttemptsHint({ count, repository }: { count: number; repository?
     </>
   );
 }
-
-/** Checkout is off while there are several attempts: each needs a worktree. */
-export const attemptStyles = stylex.create({
-  off: { opacity: 0.45, cursor: "default", pointerEvents: "none" },
-});
-
-const styles = stylex.create({
-  rows: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 2,
-    marginInline: 8,
-    paddingBlock: 6,
-    borderTopWidth: 1,
-    borderTopStyle: "solid",
-    borderTopColor: tokens.line,
-  },
-  row: { display: "flex", alignItems: "center", gap: 6, minWidth: 0, paddingInlineStart: 6 },
-  // As on the Attempts page.
-  letter: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-    width: 20,
-    height: 20,
-    marginInlineEnd: 2,
-    borderRadius: `calc(5px * ${tokens.round})`,
-    boxShadow: `inset 0 0 0 1px ${tokens.lineStrong}`,
-    color: tokens.text,
-    fontFamily: tokens.code,
-    fontSize: 11,
-    fontWeight: 500,
-  },
-  pickers: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: 2, minWidth: 0 },
-  branch: {
-    flexShrink: 1,
-    minWidth: 0,
-    marginInlineStart: "auto",
-    paddingInlineEnd: 8,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-    color: tokens.faint,
-    fontFamily: tokens.code,
-    fontSize: 11.5,
-  },
-});

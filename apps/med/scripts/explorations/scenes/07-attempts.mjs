@@ -25,21 +25,20 @@ export default async function scene(stage) {
   await task.waitFor({ timeout: 10_000 });
   await task.focus();
   await stage.type("Add a --week option to the CLI: seven days of tides for a station.", 28);
-  const count = dialog.getByRole("combobox", { name: "Attempts" });
+  const count = dialog.getByRole("radiogroup", { name: "Attempts" });
   await stage.say("New thread has one more choice: how many <b>attempts</b>.", 0);
-  await stage.point(count);
-  await count.selectOption("2");
-  const rows = dialog.getByRole("group", { name: "Attempts" });
-  const agentB = rows.getByRole("combobox", { name: "Agent for attempt B" });
+  await stage.click(count.getByRole("radio", { name: "2" }));
+  const agentB = dialog.getByRole("radiogroup", { name: "Agent for attempt B" });
   await agentB.waitFor({ timeout: 10_000 });
-  await stage.point(agentB);
-  await agentB.selectOption("codex");
-  await rows.getByRole("combobox", { name: "Model for attempt B" }).waitFor({ timeout: 10_000 });
+  await stage.click(agentB.getByRole("radio", { name: "Codex" }));
+  await dialog
+    .getByRole("radiogroup", { name: "Model for attempt B" })
+    .waitFor({ timeout: 10_000 });
   await stage.say(
     "Each attempt has its agent and model, and Med gives each its own branch and worktree.",
     0,
   );
-  await stage.point(rows.locator("code").last(), { dx: 0.3 });
+  await stage.point(dialog.getByText(/^New worktrees/), { dx: 0.3 });
   await stage.wait(1800);
   await stage.shot("07-new-thread");
   await stage.say("Start sends the same task to both. Here, two agents did it earlier.", 1800);

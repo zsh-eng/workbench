@@ -8,7 +8,6 @@ import { readBrowserToken } from "../../data/auth";
 import type { AgentChoices, AgentOptions } from "../../../shared/owned-session";
 import { useAgentOptions, useAgentPresets } from "../../data/owned-session";
 import { tokens, ui } from "../../theme.stylex";
-import { Icon, type IconName } from "../Icon";
 import { ShortcutKeys } from "../ShortcutKeys";
 import { useMentions } from "../Mentions";
 import { createBrowseApi, useBrowseFiles, useVaults } from "../../data/browse";
@@ -16,13 +15,8 @@ import { useMentionSources } from "../../data/mentions";
 import type { BrowseSource } from "../../../shared/browse";
 import { openAttempts } from "../../data/attempts";
 import { readHistory } from "../../data/tabs";
-import {
-  AttemptRows,
-  AttemptsCount,
-  AttemptsHint,
-  attemptStyles,
-  useAttempts,
-} from "../attempts/NewAttempts";
+import { AttemptRows, AttemptsCount, AttemptsHint, useAttempts } from "../attempts/NewAttempts";
+import { AgentRows, ChoiceRow, choiceStyles } from "./ChoiceRows";
 
 const PLACE_KEY = "med:new-thread";
 
@@ -60,6 +54,12 @@ function recentRepositories(threads: readonly Thread[], repositories: readonly R
     if (recent.size === 5) break;
   }
   return [...recent.values()];
+}
+
+/** The recent repositories, then the others in the host's order. */
+function repositoryOrder(threads: readonly Thread[], repositories: readonly Repository[]) {
+  const recent = recentRepositories(threads, repositories);
+  return [...recent, ...repositories.filter((entry) => !recent.includes(entry))];
 }
 
 /**
@@ -110,7 +110,7 @@ export function NewThread({
     [picked, suggested, choice.repositoryId, list?.threads[0]?.repository?.id]
       .map((id) => repositories.find((entry) => entry.id === id))
       .find(Boolean) ?? repositories[0];
-  // The repositories of the newest threads, tabs and history, one click each.
+  // The repositories of the newest threads, tabs and history, come first.
   const [past, setPast] = useState<readonly Thread[] | null>(null);
   useEffect(() => {
     let current = true;
@@ -122,8 +122,8 @@ export function NewThread({
       current = false;
     };
   }, [fetcher]);
-  const recent = useMemo(
-    () => (past && list ? recentRepositories([...list.threads, ...past], list.repositories) : []),
+  const ordered = useMemo(
+    () => (list ? repositoryOrder([...list.threads, ...(past ?? [])], list.repositories) : []),
     [list, past],
   );
   const agent = agents?.find((entry) => entry.id === choice.preset) ?? agents?.[0];
@@ -170,16 +170,27 @@ export function NewThread({
   }, [busy]);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => input.current?.focus(), []);
-  // Escape leaves, as it closes other views over the workspaces.
+  // Escape leaves, as it closes other views over the workspaces; a list over
+  // the page, such as More…'s, takes its own Escape first. ⌘↵ starts from
+  // anywhere on the page.
+  const page = useRef<HTMLDivElement>(null);
   const leave = useRef(onCancel);
-  useEffect(() => {
-    leave.current = onCancel;
-  });
+  const begin = useRef(() => {});
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented || busyRef.current) return;
-      event.preventDefault();
-      leave.current();
+      if (event.defaultPrevented) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (event.key === "Escape" && !busyRef.current) {
+        event.preventDefault();
+        leave.current();
+      } else if (
+        event.key === "Enter" &&
+        (event.metaKey || event.ctrlKey) &&
+        (!target || target === document.body || page.current?.contains(target))
+      ) {
+        event.preventDefault();
+        begin.current();
+      }
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
@@ -198,6 +209,14 @@ export function NewThread({
     setPicked(repositoryId);
     remember({ repositoryId });
   };
+  // Attempt A, or the thread's only agent.
+  const first = { agent, options, model, effort, efforts };
+  const chooseFirst = (next: AgentChoices & { preset?: string }) =>
+    remember(
+      next.preset
+        ? { preset: next.preset }
+        : { agents: { ...choice.agents, [agent!.id]: { ...choice.agents?.[agent!.id], ...next } } },
+    );
 
   const ready = !!prompt.trim() && !!repository && !!agent && !busy && attempts.ready;
   const start = async () => {
@@ -206,7 +225,6 @@ export function NewThread({
     setError(null);
     try {
       if (several) {
-        const first = { agent, options, model, effort, efforts };
         const started = await attempts.start(
           {
             repositoryId: repository.id,
@@ -243,10 +261,15 @@ export function NewThread({
       setBusy(false);
     }
   };
+  useEffect(() => {
+    leave.current = onCancel;
+    begin.current = () => void start();
+  });
 
   const branch = prompt.trim() ? threadSlug(threadTitle(prompt)) : "a-new-branch";
+  const branches = ["a", "b", "c"].slice(0, attempts.count).map((letter) => `${branch}-${letter}`);
   return (
-    <div role="dialog" aria-label="New thread" {...stylex.props(styles.page)}>
+    <div ref={page} role="dialog" aria-label="New thread" {...stylex.props(styles.page)}>
       <div {...stylex.props(styles.column)}>
         <h1 {...stylex.props(styles.heading)}>What should the agent do?</h1>
         <div {...stylex.props(styles.card)}>
@@ -266,153 +289,78 @@ export function NewThread({
                 setPrompt(event.target.value);
                 mentions.changed(event.target.selectionStart);
               }}
-              onKeyDown={(event) => {
-                if (mentions.onKeyDown(event)) return;
-                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                  event.preventDefault();
-                  void start();
-                }
-              }}
+              onKeyDown={(event) => void mentions.onKeyDown(event)}
               {...stylex.props(styles.input, mentions.over)}
             />,
           )}
           {mentions.menu && <div {...stylex.props(styles.mentions)}>{mentions.menu}</div>}
-          {several && agents && (
-            <AttemptRows
-              attempts={attempts}
-              agents={agents}
-              first={{ agent, options, model, effort, efforts }}
-              onFirst={(next) =>
-                remember(
-                  next.preset
-                    ? { preset: next.preset }
-                    : {
-                        agents: {
-                          ...choice.agents,
-                          [agent!.id]: { ...choice.agents?.[agent!.id], ...next },
-                        },
-                      },
-                )
-              }
-              branch={branch}
-            />
-          )}
-          {recent.length > 1 && (
-            <div
-              role="radiogroup"
-              aria-label="Recent repositories"
-              {...stylex.props(styles.recent)}
+          <div {...stylex.props(styles.footer)}>
+            <button
+              type="button"
+              disabled={!ready}
+              onClick={() => void start()}
+              {...stylex.props(ui.button, ui.primary, ui.pressable, styles.start)}
             >
-              <span aria-hidden="true" {...stylex.props(styles.recentLabel)}>
-                Recent
-              </span>
-              {recent.map((entry) => (
-                <button
-                  key={entry.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={entry.id === repository?.id}
-                  onClick={() => pick(entry.id)}
-                  {...stylex.props(
-                    styles.recentItem,
-                    entry.id === repository?.id && styles.recentOn,
-                  )}
-                >
-                  {entry.name}
-                </button>
-              ))}
-            </div>
-          )}
-          <div {...stylex.props(styles.controls)}>
-            <Select
-              label="Repository"
-              icon="gitBranch"
-              value={repository?.id ?? ""}
-              options={repositories.map((entry) => ({ value: entry.id, label: entry.name }))}
-              onChange={pick}
-            />
-            <div
-              role="radiogroup"
-              aria-label="Where the agent works"
-              {...stylex.props(styles.segments)}
-            >
-              {[
-                { value: true, label: "New worktree", icon: "gitWorktree" as const },
-                { value: false, label: "Checkout", icon: "folder" as const },
-              ].map((option) => (
-                <button
-                  key={option.label}
-                  type="button"
-                  role="radio"
-                  aria-checked={(choice.worktree || several) === option.value}
-                  disabled={several && !option.value}
-                  onClick={() => remember({ worktree: option.value })}
-                  {...stylex.props(
-                    styles.segment,
-                    (choice.worktree || several) === option.value && styles.segmentOn,
-                    several && !option.value && attemptStyles.off,
-                  )}
-                >
-                  <Icon name={option.icon} size={13} />
-                  {option.label}
-                </button>
-              ))}
-            </div>
-            <div {...stylex.props(styles.agent)}>
-              <AttemptsCount attempts={attempts} />
-              {!several && (
-                <Select
-                  label="Agent"
-                  icon={agent?.kind === "claude" ? "claude" : "agent"}
-                  value={agent?.id ?? ""}
-                  options={(agents ?? []).map((entry) => ({ value: entry.id, label: entry.name }))}
-                  onChange={(value) => remember({ preset: value })}
-                />
-              )}
-              {!several && options?.model && model && (
-                <Select
-                  label="Model"
-                  value={model}
-                  options={options.model.options.map((option) => ({
-                    value: option.value,
-                    label: option.name,
-                  }))}
-                  onChange={(value) =>
-                    remember({
-                      agents: {
-                        ...choice.agents,
-                        [agent!.id]: { ...choice.agents?.[agent!.id], model: value },
-                      },
-                    })
-                  }
-                />
-              )}
-              {!several && effort && (
-                <Select
-                  label="Effort"
-                  value={effort}
-                  options={efforts.map((option) => ({ value: option.value, label: option.name }))}
-                  onChange={(value) =>
-                    remember({
-                      agents: {
-                        ...choice.agents,
-                        [agent!.id]: { ...choice.agents?.[agent!.id], effort: value },
-                      },
-                    })
-                  }
-                />
-              )}
-              <button
-                type="button"
-                disabled={!ready}
-                onClick={() => void start()}
-                {...stylex.props(ui.button, ui.primary, ui.pressable, styles.start)}
-              >
-                {busy ? "Starting…" : "Start"}
-                <ShortcutKeys value="Mod+Enter" />
-              </button>
-            </div>
+              {busy ? "Starting…" : "Start"}
+              <ShortcutKeys value="Mod+Enter" />
+            </button>
           </div>
+        </div>
+        <div {...stylex.props(choiceStyles.sheet)}>
+          {ordered.length > 0 && (
+            <ChoiceRow
+              label="Repository"
+              choices={ordered.map((entry) => ({
+                value: entry.id,
+                text: entry.name,
+                title: entry.path,
+              }))}
+              value={repository?.id}
+              onChange={pick}
+              more="repositories"
+            />
+          )}
+          <ChoiceRow
+            label="Works in"
+            name="Where the agent works"
+            choices={
+              // Each attempt needs a worktree of its own.
+              several
+                ? [
+                    {
+                      value: "worktree",
+                      text: `New worktrees · ${branches.join(", ")}`,
+                      label: <Named text="New worktrees" code={branches.join(", ")} />,
+                    },
+                  ]
+                : [
+                    {
+                      value: "worktree",
+                      text: `New worktree · ${branch}`,
+                      label: <Named text="New worktree" code={branch} />,
+                    },
+                    {
+                      value: "checkout",
+                      text: repository?.branch ? `Checkout · ${repository.branch}` : "Checkout",
+                      label: <Named text="Checkout" code={repository?.branch} />,
+                    },
+                  ]
+            }
+            value={several || choice.worktree ? "worktree" : "checkout"}
+            onChange={(value) => remember({ worktree: value === "worktree" })}
+          />
+          <AttemptsCount attempts={attempts} />
+          {agents &&
+            (several ? (
+              <AttemptRows
+                attempts={attempts}
+                agents={agents}
+                first={first}
+                onFirst={chooseFirst}
+              />
+            ) : (
+              <AgentRows pick={first} agents={agents} onChoose={chooseFirst} />
+            ))}
         </div>
         <p {...stylex.props(styles.hint)} aria-live="polite">
           {error ? (
@@ -421,54 +369,21 @@ export function NewThread({
             "Add a repository to start a thread."
           ) : several ? (
             <AttemptsHint count={attempts.count} repository={repository?.name} />
-          ) : choice.worktree ? (
-            <>
-              Med creates the branch <code {...stylex.props(styles.code)}>{branch}</code> in a new
-              worktree of {repository?.name ?? "the repository"}, so this task stays apart from your
-              checkout.
-            </>
-          ) : (
-            <>
-              The agent works in {repository?.name ?? "the repository"}'s checkout, on its current
-              branch.
-            </>
-          )}
+          ) : null}
         </p>
       </div>
     </div>
   );
 }
 
-export function Select({
-  label,
-  icon,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  icon?: IconName;
-  value: string;
-  options: { value: string; label: string }[];
-  onChange(value: string): void;
-}) {
+/** "New worktree · show-week-tides": where the agent works, and its branch. */
+function Named({ text, code }: { text: string; code?: string }) {
+  if (!code) return text;
   return (
-    <label {...stylex.props(styles.select)}>
-      {icon && <Icon name={icon} size={13} />}
-      <select
-        aria-label={label}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        {...stylex.props(styles.native)}
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-      <Icon name="selector" size={12} />
-    </label>
+    <>
+      {text} <span {...stylex.props(choiceStyles.dot)}>·</span>{" "}
+      <span {...stylex.props(choiceStyles.code)}>{code}</span>
+    </>
   );
 }
 
@@ -491,6 +406,9 @@ const styles = stylex.create({
   column: {
     width: "min(680px, 100%)",
     paddingTop: "min(22vh, 200px)",
+    paddingBottom: 48,
+    // The choices lay out by the column's width (ChoiceRows.tsx).
+    containerType: "inline-size",
     animationName: { default: enter, "@media (prefers-reduced-motion: reduce)": "none" },
     animationDuration: "220ms",
     animationTimingFunction: tokens.easeOut,
@@ -535,118 +453,17 @@ const styles = stylex.create({
     outline: "none",
     "::placeholder": { color: tokens.faint },
   },
-  controls: {
-    display: "flex",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 6,
-    padding: 8,
-  },
-  // Above the controls. The label starts where the Repository picker's icon does.
-  recent: {
-    display: "flex",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 2,
-    paddingInline: 8,
-    paddingTop: 4,
-    marginBottom: -4,
-  },
-  recentLabel: {
-    paddingInline: 8,
-    color: tokens.faint,
-    fontFamily: tokens.ui,
-    fontSize: 12,
-  },
-  recentItem: {
-    height: 24,
-    paddingInline: 8,
-    borderWidth: 0,
-    borderRadius: tokens.buttonRound,
-    backgroundColor: { default: "transparent", ":hover": tokens.fill },
-    color: { default: tokens.muted, ":hover": tokens.text },
-    fontFamily: tokens.ui,
-    fontSize: 12,
-    cursor: "pointer",
-    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
-  },
-  // The repository that the thread starts in, as the sidebar marks its current row.
-  recentOn: {
-    backgroundColor: { default: tokens.pick, ":hover": tokens.pick },
-    color: { default: tokens.text, ":hover": tokens.text },
-  },
-  // The agent and its choices, with Start; on a narrow card they wrap as one.
-  agent: {
-    display: "flex",
-    alignItems: "center",
-    flexWrap: "wrap",
-    justifyContent: "flex-end",
-    gap: 2,
-    marginInlineStart: "auto",
-  },
-  select: {
-    position: "relative",
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 6,
-    height: 28,
-    paddingInline: 8,
-    borderRadius: tokens.buttonRound,
-    color: { default: tokens.muted, ":hover": tokens.text },
-    backgroundColor: { default: "transparent", ":hover": tokens.fill },
-    fontFamily: tokens.ui,
-    fontSize: 12,
-    cursor: "pointer",
-  },
-  // The native list opens from the whole control.
-  native: {
-    appearance: "none",
-    borderWidth: 0,
-    backgroundColor: "transparent",
-    color: "inherit",
-    font: "inherit",
-    cursor: "pointer",
-    outline: "none",
-    paddingInlineEnd: 0,
-    // As wide as the chosen option, not the longest one.
-    fieldSizing: "content",
-  },
-  segments: {
-    display: "inline-flex",
-    gap: 2,
-    padding: 2,
-    borderRadius: `calc(${tokens.buttonRound} + 2px)`,
-    backgroundColor: tokens.fill,
-  },
-  segment: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 6,
-    height: 24,
-    paddingInline: 8,
-    borderWidth: 0,
-    borderRadius: tokens.buttonRound,
-    backgroundColor: "transparent",
-    color: { default: tokens.faint, ":hover": tokens.text },
-    fontFamily: tokens.ui,
-    fontSize: 12,
-    cursor: "pointer",
-    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
-  },
-  segmentOn: {
-    backgroundColor: tokens.segment,
-    color: { default: tokens.text, ":hover": tokens.text },
-    boxShadow: `0 0 0 1px ${tokens.line}`,
-  },
-  start: { gap: 8, paddingInline: 12, marginInlineStart: 4 },
+  // Start at the box's bottom right, as the session composer sends.
+  footer: { display: "flex", justifyContent: "flex-end", padding: 8, paddingTop: 0 },
+  start: { gap: 8, paddingInline: 12 },
   hint: {
     marginTop: 12,
-    marginInline: 4,
+    marginInline: 16,
     color: tokens.faint,
     fontFamily: tokens.ui,
     fontSize: 12,
     lineHeight: 1.6,
+    display: { default: "block", ":empty": "none" },
   },
-  code: { fontFamily: tokens.code, fontSize: 11.5, color: tokens.muted },
   error: { color: tokens.red },
 });

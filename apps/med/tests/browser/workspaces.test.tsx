@@ -5,7 +5,7 @@ import { App } from "../../src/web/App";
 import { WorkspaceHost, WorkspaceViews } from "../../src/web/components/Workspaces";
 import { createBrowseApi } from "../../src/web/data/browse";
 import type { Comparison } from "../../src/shared/protocol";
-import type { Thread } from "../../src/shared/threads";
+import type { Thread, ThreadList } from "../../src/shared/threads";
 import { initializeTheme, themeController } from "../../src/web/themes";
 
 const head = "a".repeat(40);
@@ -144,7 +144,9 @@ function createHost() {
     past = next;
   };
   const places = new Map<string, number>();
-  let threadRepositories = [{ id: "repo-0", name: "fixture", path: "/test/repo" }];
+  let threadRepositories: ThreadList["repositories"] = [
+    { id: "repo-0", name: "fixture", path: "/test/repo", branch: "main" },
+  ];
   const threadStreams = new Set<ReadableStreamDefaultController<Uint8Array>>();
   const threadFrame = () =>
     new TextEncoder().encode(
@@ -1112,19 +1114,44 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
   await userEvent.keyboard("{Alt>}n{/Alt}");
   const dialog = page.getByRole("dialog", { name: "New thread" });
   await expect.element(dialog).toBeVisible();
+  const task = dialog.getByRole("combobox", { name: "Task" });
+  await expect.element(task).toHaveFocus();
+  // Each choice is a row of options, the chosen one marked.
+  const chosen = (name: string) =>
+    dialog
+      .getByRole("radiogroup", { name, exact: true })
+      .element()
+      .querySelector('[aria-checked="true"]')?.textContent;
+  const where = dialog.getByRole("radiogroup", { name: "Where the agent works" });
+  await task.fill("Show each result's age in the list");
+  // The worktree names the branch that Med creates; the checkout names its own.
   await expect
-    .element(dialog.getByRole("radio", { name: "New worktree" }))
-    .toHaveAttribute("aria-checked", "true");
-  await dialog.getByRole("combobox", { name: "Task" }).fill("Show each result's age in the list");
-  // The hint names the branch that Med creates.
-  await expect.element(dialog.getByText("show-each-results-age-list")).toBeVisible();
-  // Med chooses Opus at medium effort; a choice stays for the next thread.
-  const model = dialog.getByRole("combobox", { name: "Model" });
-  const effort = dialog.getByRole("combobox", { name: "Effort" });
-  await expect.element(model).toHaveValue("opus");
-  await expect.element(effort).toHaveValue("medium");
-  await effort.selectOptions("high");
-  await dialog.getByRole("combobox", { name: "Task" }).click();
+    .poll(() => chosen("Where the agent works"))
+    .toBe("New worktree · show-each-results-age-list");
+  await expect.element(where.getByRole("radio", { name: "Checkout · main" })).toBeVisible();
+  // The only agent is a fact, not a choice.
+  await expect.element(dialog.getByText("Claude Code", { exact: true })).toBeVisible();
+  await expect.element(dialog.getByRole("radiogroup", { name: "Agent" })).not.toBeInTheDocument();
+  // Med chooses Opus at medium effort; one click chooses, and the choice stays
+  // for the next thread.
+  await expect.poll(() => chosen("Model")).toBe("Opus 5.5");
+  expect(chosen("Effort")).toBe("medium");
+  await dialog
+    .getByRole("radiogroup", { name: "Effort" })
+    .getByRole("radio", { name: "high" })
+    .click();
+  expect(chosen("Effort")).toBe("high");
+  // Start sits in the task box, at its bottom right, above the choices.
+  const start = dialog
+    .getByRole("button", { name: /^Start/ })
+    .element()
+    .getBoundingClientRect();
+  const box = task.element().getBoundingClientRect();
+  const first = dialog.getByRole("radiogroup").first().element().getBoundingClientRect();
+  expect(start.top).toBeGreaterThanOrEqual(box.bottom);
+  expect(start.bottom).toBeLessThan(first.top);
+  expect(box.right - start.right).toBeLessThan(16);
+  // ⌘↵ starts from anywhere on the page: here, from the Effort row.
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
   await expect
     .poll(() => host.threadRequests)
@@ -1144,15 +1171,23 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
   await expect.element(dialog).not.toBeInTheDocument();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("agent-target");
 
-  // Escape leaves a new thread that has not started.
+  // ← and → move within a row and choose. A model without efforts has no
+  // effort to choose. Escape leaves a new thread that has not started.
   await userEvent.keyboard("{Alt>}n{/Alt}");
   await expect.element(dialog).toBeVisible();
-  await expect.element(effort).toHaveValue("high");
-  // A model without efforts has no effort to choose.
-  await model.selectOptions("haiku");
-  await expect.element(effort).not.toBeInTheDocument();
-  await model.selectOptions("opus");
-  await expect.element(effort).toHaveValue("high");
+  await expect.poll(() => chosen("Effort")).toBe("high");
+  const model = dialog.getByRole("radiogroup", { name: "Model" });
+  await model.getByRole("radio", { name: "Opus 5.5" }).click();
+  await userEvent.keyboard("{ArrowRight}");
+  expect(chosen("Model")).toBe("Haiku 4.5");
+  expect(document.activeElement?.textContent).toBe("Haiku 4.5");
+  await expect.element(dialog.getByRole("radiogroup", { name: "Effort" })).not.toBeInTheDocument();
+  await userEvent.keyboard("{ArrowLeft}");
+  expect(chosen("Model")).toBe("Opus 5.5");
+  await expect.poll(() => chosen("Effort")).toBe("high");
+  // Tab goes on to the next row, at its chosen option.
+  await userEvent.keyboard("{Tab}");
+  expect(document.activeElement?.textContent).toBe("high");
   await userEvent.keyboard("{Escape}");
   await expect.element(dialog).not.toBeInTheDocument();
   expect(shown()?.dataset.reviewId).toBe("agent-target");
@@ -1161,25 +1196,28 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
   host.setThreads(
     [thread("agent")],
     [
-      { id: "repo-0", name: "fixture", path: "/test/repo" },
+      { id: "repo-0", name: "fixture", path: "/test/repo", branch: "main" },
       { id: "repo-1", name: "other", path: "/test/other" },
     ],
   );
   await userEvent.keyboard("{Alt>}n{/Alt}");
-  const repository = dialog.getByRole("combobox", { name: "Repository" });
-  await expect.element(repository).toHaveValue("repo-0");
-  await repository.selectOptions("other");
-  await expect.element(repository).toHaveValue("repo-1");
-  await dialog.getByRole("combobox", { name: "Task" }).fill("Rank results by age");
-  await expect.element(dialog.getByText(/in a new worktree of other/)).toBeVisible();
+  await expect.poll(() => chosen("Repository")).toBe("fixture");
+  await dialog
+    .getByRole("radiogroup", { name: "Repository" })
+    .getByRole("radio", { name: "other" })
+    .click();
+  expect(chosen("Repository")).toBe("other");
+  // Med does not know the other checkout's branch. One click chooses it.
+  await where.getByRole("radio", { name: "Checkout", exact: true }).click();
+  expect(chosen("Where the agent works")).toBe("Checkout");
+  await task.fill("Rank results by age");
   await dialog.getByRole("button", { name: /^Start/ }).click();
   await expect
     .poll(() => host.threadRequests.at(-1)?.body)
-    .toMatchObject({ repositoryId: "repo-1", prompt: "Rank results by age" });
+    .toMatchObject({ repositoryId: "repo-1", prompt: "Rank results by age", worktree: false });
 
   // @ names a vault's note: the agent gets its path, and the title its name.
   await userEvent.keyboard("{Alt>}n{/Alt}");
-  const task = dialog.getByRole("combobox", { name: "Task" });
   await task.click();
   await userEvent.keyboard("Follow @ages");
   await expect

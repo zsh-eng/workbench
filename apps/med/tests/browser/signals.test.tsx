@@ -447,9 +447,13 @@ test("a blocked permission keeps notifications off and says so", async () => {
   expect(localStorage.getItem("med:notify")).toBeNull();
 });
 
-test("New thread offers the repositories of the newest threads, one click each", async () => {
+test("New thread lists the newest threads' repositories first, one click each, and More… finds the others", async () => {
   const names = ["tide", "harbour", "almanac", "charts", "buoys", "pilot", "moon"];
   const known = names.map((name, index) => listed(`repo-${index}`, name));
+  // More repositories than fit on the row's line.
+  const archives = Array.from({ length: 10 }, (_, index) =>
+    listed(`archive-${index}`, `station-archive-${index}`),
+  );
   // Each thread is a day newer than the one before; "moon" is not registered.
   const at = (day: number) => new Date(Date.UTC(2026, 9, day)).toISOString();
   const made = (id: string, repository: number, day: number) =>
@@ -466,35 +470,66 @@ test("New thread offers the repositories of the newest threads, one click each",
       }),
       made("tide-again", 0, 11),
     ],
-    listedRepositories: known.slice(0, 6),
+    listedRepositories: [...known.slice(0, 6), ...archives],
   });
   render(host);
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
   await userEvent.keyboard("{Alt>}n{/Alt}");
   const dialog = page.getByRole("dialog", { name: "New thread" });
-  const recent = dialog.getByRole("radiogroup", { name: "Recent repositories" });
-  await expect.element(recent).toBeVisible();
-  // Newest first, each once, at most five; the current choice is marked.
+  const row = dialog.getByRole("radiogroup", { name: "Repository" });
+  await expect.element(row).toBeVisible();
+  // Newest first, each once, at most five, then the others; the current
+  // choice is marked. The row shows what fits on its line.
   const choices = () =>
-    [...recent.element().querySelectorAll('[role="radio"]')].map(
+    [...row.element().querySelectorAll('[role="radio"]')].map(
       (radio) => `${radio.textContent}${radio.getAttribute("aria-checked") === "true" ? " ✓" : ""}`,
     );
-  expect(choices()).toEqual(["charts", "tide ✓", "buoys", "harbour", "almanac"]);
-  const picker = dialog.getByRole("combobox", { name: "Repository" });
-  await expect.element(picker).toHaveValue("repo-0");
+  await expect
+    .poll(() => choices().slice(0, 6))
+    .toEqual(["charts", "tide ✓", "buoys", "harbour", "almanac", "pilot"]);
+  expect(choices()).not.toContain("station-archive-9");
+  // More… ends the line, inside the task box's width.
+  const more = dialog.getByRole("combobox", { name: "More repositories" });
+  const task = dialog.getByRole("combobox", { name: "Task" });
+  expect(more.element().getBoundingClientRect().right).toBeLessThanOrEqual(
+    task.element().getBoundingClientRect().right,
+  );
 
-  // A click chooses the repository, as the picker does, and the thread starts there.
-  await recent.getByRole("radio", { name: "buoys" }).click();
-  await expect.element(picker).toHaveValue("repo-4");
-  expect(choices()).toEqual(["charts", "tide", "buoys ✓", "harbour", "almanac"]);
-  await picker.selectOptions("harbour");
-  expect(choices()).toEqual(["charts", "tide", "buoys", "harbour ✓", "almanac"]);
-  await dialog.getByRole("combobox", { name: "Task" }).fill("Add the moon's phase");
+  // One click chooses.
+  await row.getByRole("radio", { name: "buoys" }).click();
+  expect(choices().slice(0, 6)).toEqual([
+    "charts",
+    "tide",
+    "buoys ✓",
+    "harbour",
+    "almanac",
+    "pilot",
+  ]);
+
+  // More… lists them all, filtered as you type. Escape closes the list, not New thread.
+  await more.click();
+  const filter = page.getByRole("combobox", { name: "Filter repositories" });
+  await expect.element(filter).toHaveFocus();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(filter).not.toBeInTheDocument();
+  await expect.element(dialog).toBeVisible();
+  await more.click();
+  await userEvent.keyboard("archive-9");
+  const options = () =>
+    [...document.querySelectorAll('[role="listbox"] [role="option"]')].map(
+      (option) => option.textContent,
+    );
+  await expect.poll(options).toEqual(["station-archive-9"]);
+  await userEvent.keyboard("{Enter}");
+  // The chosen repository shows in the row, though it is not recent.
+  await expect.poll(choices).toContain("station-archive-9 ✓");
+  expect(choices().slice(0, 2)).toEqual(["charts", "tide"]);
+  await task.fill("Add the moon's phase");
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
-  await expect.poll(() => host.started).toMatchObject([{ repositoryId: "repo-1" }]);
+  await expect.poll(() => host.started).toMatchObject([{ repositoryId: "archive-9" }]);
 });
 
-test("New thread shows no recent list with one repository", async () => {
+test("New thread names its only repository as plain text", async () => {
   const host = createHost([thread("agent"), thread("second")], {
     past: [thread("third")],
   });
@@ -502,6 +537,8 @@ test("New thread shows no recent list with one repository", async () => {
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
   await userEvent.keyboard("{Alt>}n{/Alt}");
   const dialog = page.getByRole("dialog", { name: "New thread" });
-  await expect.element(dialog.getByRole("combobox", { name: "Repository" })).toBeVisible();
-  await expect.poll(() => document.querySelector('[aria-label="Recent repositories"]')).toBeNull();
+  await expect.element(dialog.getByText("tide", { exact: true })).toBeVisible();
+  await expect
+    .element(dialog.getByRole("radiogroup", { name: "Repository" }))
+    .not.toBeInTheDocument();
 });

@@ -418,23 +418,41 @@ test("New thread starts a task as two attempts, each with its agent and its own 
   render(<NewThread list={list} fetcher={fetcher} onStarted={onStarted} onCancel={() => {}} />);
   const dialog = page.getByRole("dialog", { name: "New thread" });
   await dialog.getByRole("combobox", { name: "Task" }).fill(title);
-  await expect.element(dialog.getByRole("combobox", { name: "Model" })).toHaveValue("opus");
-  await dialog.getByRole("combobox", { name: "Attempts" }).selectOptions("2");
+  const chosen = (name: string) =>
+    dialog
+      .getByRole("radiogroup", { name, exact: true })
+      .element()
+      .querySelector('[aria-checked="true"]')?.textContent;
+  await expect.poll(() => chosen("Model")).toBe("Opus 5.5");
+  await dialog
+    .getByRole("radiogroup", { name: "Attempts" })
+    .getByRole("radio", { name: "2" })
+    .click();
 
-  // One line for each attempt; B takes the other agent. Each needs a worktree.
-  const rows = dialog.getByRole("group", { name: "Attempts" });
+  // The agent's rows for each attempt, under its letter; B takes the other
+  // agent. Each needs a worktree, so the checkout is not offered.
+  await expect.element(dialog.getByRole("group", { name: "Attempt A" })).toBeVisible();
+  const b = dialog.getByRole("group", { name: "Attempt B" });
+  await expect.element(b).toBeVisible();
+  expect(chosen("Agent for attempt A")).toBe("Claude Code");
+  await expect.poll(() => chosen("Agent for attempt B")).toBe("Codex");
+  // One click changes an attempt's agent, and its models follow.
+  await b.getByRole("radio", { name: "Claude Code" }).click();
+  await expect.poll(() => chosen("Model for attempt B")).toBe("Opus 5.5");
+  await b.getByRole("radio", { name: "Codex" }).click();
   await expect
-    .element(rows.getByRole("combobox", { name: "Agent for attempt A" }))
-    .toHaveValue("claude");
-  await expect
-    .element(rows.getByRole("combobox", { name: "Agent for attempt B" }))
-    .toHaveValue("codex");
-  await expect
-    .element(dialog.getByRole("combobox", { name: "Model", exact: true }))
+    .element(dialog.getByRole("radiogroup", { name: "Model", exact: true }))
     .not.toBeInTheDocument();
-  await expect.element(dialog.getByRole("radio", { name: "Checkout" })).toBeDisabled();
-  await expect.element(dialog.getByText("show-week-tides-cli-b").first()).toBeVisible();
-  await rows.getByRole("combobox", { name: "Model for attempt B" }).selectOptions("gpt-6-astra");
+  await expect.element(dialog.getByRole("radio", { name: /^Checkout/ })).not.toBeInTheDocument();
+  await expect
+    .element(
+      dialog.getByText("New worktrees · show-week-tides-cli-a, show-week-tides-cli-b", {
+        exact: true,
+      }),
+    )
+    .toBeVisible();
+  await expect.poll(() => chosen("Model for attempt B")).toBe("gpt-6");
+  await b.getByRole("radio", { name: "gpt-6-astra" }).click();
 
   await dialog.getByRole("button", { name: /^Start/ }).click();
   await expect.poll(() => requests.length).toBe(2);
