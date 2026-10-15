@@ -387,8 +387,9 @@ const AGENT_NAMES = { claude: "Claude", codex: "Codex", acp: "the agent" } as co
 
 /**
  * Where a message sent from Med is, while that matters: on its way, waiting
- * for the agent, queued, or not sent. A message that the agent took says
- * nothing more; the thread goes on below it.
+ * for the agent or for the terminal session that runs it to close, queued, or
+ * not sent. A message that the agent took says nothing more; the thread goes
+ * on below it.
  */
 function Delivery({ message }: { message: SentMessage }) {
   const agent = AGENT_NAMES[message.agent];
@@ -398,7 +399,11 @@ function Delivery({ message }: { message: SentMessage }) {
     ...(message.delivery === "sending"
       ? ["Sending…"]
       : message.delivery === "pending"
-        ? [`Waiting for ${agent} to take it`]
+        ? [
+            message.waitsFor === "terminal"
+              ? "Waiting for the terminal session to close"
+              : `Waiting for ${agent} to take it`,
+          ]
         : message.delivery === "queued"
           ? [`Queued for ${agent}`]
           : message.delivery === "failed"

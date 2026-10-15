@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { constants } from "node:fs";
+import { constants, existsSync } from "node:fs";
 import { access, appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { delimiter, isAbsolute, join, relative } from "node:path";
 import { createInterface } from "node:readline";
@@ -21,8 +21,8 @@ import type { AgentSession } from "../shared/saved-review";
 import { compactUpdate } from "./agent-transcripts";
 import { createJsonRpc, RpcError, type JsonRpc } from "./json-rpc";
 import { HostError } from "./runtime/errors";
-import { runProcess } from "./runtime/process";
 import { userHome } from "./service/discover";
+import { createSessionProcesses, type SessionProcesses } from "./session-processes";
 import type { PromptImage } from "../shared/agent-inbox";
 
 /** An installed agent with the command that starts it. */
@@ -38,6 +38,8 @@ export interface OwnedRunner {
   /** A session from before the host restarted, whose agent starts again
    * with its next prompt. */
   dormant(): boolean;
+  /** The agent's process, while it runs. */
+  pid(): number | undefined;
   /** Updates that Med keeps for an ACP session; Claude Code writes a transcript. */
   readonly log?: SessionLog;
   prompt(text: string, images?: PromptImage[]): Promise<void>;
@@ -145,27 +147,11 @@ function createState(initial: OwnedState) {
 
 const lastLines = (text: string) => text.trim().split("\n").slice(-3).join("\n").slice(-600);
 
-/** Whether another process names the session, such as Claude Code that the
- * user resumed in a terminal. Two processes on one transcript would mix it. A
- * fork for a question (questions.ts) names the session too, but writes its
- * own transcript. */
-async function runsElsewhere(sessionId: string) {
-  try {
-    const { stdout } = await runProcess("ps", ["-A", "-o", "args="], {
-      cwd: "/",
-      timeoutMs: 5000,
-    });
-    return stdout
-      .toString()
-      .split("\n")
-      .some(
-        (line) =>
-          line.includes(sessionId) && /claude/i.test(line) && !line.includes("--fork-session"),
-      );
-  } catch {
-    return false;
-  }
-}
+/** Claude Code processes in the user's home, for a runner that no
+ * OwnedSessions starts (session-processes.ts). */
+let defaultProcesses: SessionProcesses | undefined;
+const runsElsewhere = async (sessionId: string) =>
+  (await (defaultProcesses ??= createSessionProcesses()).elsewhere([sessionId])).has(sessionId);
 
 /** A short line for a tool call's input: its command, path, or URL. */
 function inputSummary(input: Record<string, unknown> | undefined) {
@@ -299,6 +285,11 @@ export function startClaude(
     /** The session exists: it continues with `--resume` at its next prompt,
      * with the model, effort, and mode it had. */
     resume?: { model?: string; effort?: string; mode?: string };
+    /** A new session that starts from this one's history (`--fork-session`),
+     * until its first prompt makes its own transcript. */
+    fork?: string;
+    /** Whether another process runs a session (session-processes.ts). */
+    elsewhere?: (sessionId: string) => Promise<boolean>;
   } = {},
 ): OwnedRunner {
   const sessionId = options.sessionId ?? randomUUID();
@@ -316,8 +307,9 @@ export function startClaude(
   // No process until a restored session's next prompt.
   let child: ChildProcessWithoutNullStreams | undefined;
   let waking: Promise<void> | undefined;
-  // Claude Code has the session's transcript: a new process resumes it.
-  let exists = !!options.resume;
+  // Claude Code has the session's transcript: a new process resumes it. A
+  // fork has its own transcript after its first prompt.
+  let exists = !!options.resume && !options.fork;
   let stopping = false;
   let sequence = 0;
   const pending = new Map<string, (response: { error?: string; value?: unknown }) => void>();
@@ -483,7 +475,7 @@ export function startClaude(
     }
   };
 
-  const launch = (resume: boolean) => {
+  const launch = () => {
     const args = [
       "-p",
       "--input-format",
@@ -494,7 +486,11 @@ export function startClaude(
       "--verbose",
       "--permission-prompt-tool",
       "stdio",
-      ...(resume ? ["--resume", sessionId] : ["--session-id", sessionId]),
+      ...(exists
+        ? ["--resume", sessionId]
+        : options.fork
+          ? ["--resume", options.fork, "--fork-session", "--session-id", sessionId]
+          : ["--session-id", sessionId]),
       ...(chosen.model !== "default" ? ["--model", chosen.model] : []),
       ...(chosen.effort !== "default" ? ["--effort", chosen.effort] : []),
       ...(chosen.mode !== "default" ? ["--permission-mode", chosen.mode] : []),
@@ -539,7 +535,8 @@ export function startClaude(
         const parsed = claudeInitSchema.safeParse(value);
         if (!parsed.success) return;
         models = parsed.data.models;
-        if (parsed.data.current_permission_mode && !resume)
+        // A session that Med restores keeps the mode it had.
+        if (parsed.data.current_permission_mode && !options.resume?.mode)
           chosen.mode = parsed.data.current_permission_mode;
         store.set({
           status: store.get().status === "starting" ? "idle" : store.get().status,
@@ -559,13 +556,13 @@ export function startClaude(
   };
   /** Starts a restored session's process, unless another one runs it. */
   const wake = async () => {
-    if (await runsElsewhere(sessionId))
+    if (await (options.elsewhere ?? runsElsewhere)(sessionId))
       throw new HostError(
         "session-busy",
         `Another ${agent.name} process runs this session, such as one in a terminal. End it, then send again.`,
         409,
       );
-    if (!child && !stopping) launch(true);
+    if (!child && !stopping) launch();
   };
   if (options.resume) {
     store.set({ status: "idle", settings: settings() });
@@ -575,12 +572,13 @@ export function startClaude(
       models = offered;
       store.set({ settings: settings() });
     });
-  } else launch(false);
+  } else launch();
 
   return {
     session,
     state: store.get,
     dormant: () => !child,
+    pid: () => (child && child.exitCode === null && !child.signalCode ? child.pid : undefined),
     subscribe: store.subscribe,
     async prompt(text, images = []) {
       if (store.get().status === "exited")
@@ -646,7 +644,7 @@ export function startClaude(
         const previous = child;
         for (const done of pending.values()) done({ error: "Claude Code started again." });
         pending.clear();
-        launch(exists);
+        launch();
         previous.kill("SIGTERM");
       }
       store.set({ settings: settings() });
@@ -678,6 +676,7 @@ function stoppedRunner(session: AgentSession, preset: string, name: string): Own
     session,
     state: () => state,
     dormant: () => false,
+    pid: () => undefined,
     subscribe: () => () => {},
     prompt: async () => stopped(),
     answer() {},
@@ -983,6 +982,7 @@ export function startAcp(
     log,
     state: store.get,
     dormant: () => false,
+    pid: () => (child.exitCode === null && !child.signalCode ? child.pid : undefined),
     subscribe: store.subscribe,
     async prompt(text, images = []) {
       await ready;
@@ -1176,6 +1176,8 @@ const recordSchema = z.object({
   stopped: z.boolean().optional(),
   /** An ACP agent's own ID for the session, such as Codex's thread ID. */
   agentSessionId: z.string().max(200).optional(),
+  /** A fork (Continue in Med) before its first prompt: the session it starts from. */
+  forkOf: z.string().max(128).optional(),
   updatedAt: z.number(),
 });
 type SessionRecord = z.infer<typeof recordSchema>;
@@ -1205,6 +1207,8 @@ export class OwnedSessions {
   private offered: Promise<Record<string, OwnedSetting[]>> | undefined;
   private records: Record<string, SessionRecord> = {};
   private writing: Promise<void> = Promise.resolve();
+  /** The Claude Code processes that Med does not run (session-processes.ts). */
+  private processes: SessionProcesses;
   constructor(
     private options: {
       agents: () => Promise<RunnableAgent[]>;
@@ -1216,8 +1220,29 @@ export class OwnedSessions {
       recordsFile?: string;
       /** The variables of an agent in a thread with `key`, working in `cwd`. */
       environment?: (key: string | undefined, cwd: string) => Record<string, string>;
+      /** The home directory whose `.claude/sessions` Claude Code writes. */
+      home?: () => string;
     },
-  ) {}
+  ) {
+    this.processes = createSessionProcesses({
+      ...(options.home ? { home: options.home } : {}),
+      ownPids: () => this.pids(),
+    });
+  }
+  /** The processes of the agents that Med runs now. */
+  private pids() {
+    return [...this.runners.values()].flatMap((runner) => runner.pid() ?? []);
+  }
+  /**
+   * The Claude Code sessions of `ids` that another process runs, such as
+   * `claude` in a terminal. `maxAgeMs` accepts an answer of that age.
+   */
+  elsewhere(ids: readonly string[], maxAgeMs = 0) {
+    return this.processes.elsewhere(ids, maxAgeMs);
+  }
+  async runsElsewhere(sessionId: string) {
+    return (await this.processes.elsewhere([sessionId])).has(sessionId);
+  }
   async agents(): Promise<AgentPreset[]> {
     return (await this.options.agents()).map(({ id, name, kind, available }) => ({
       id,
@@ -1322,6 +1347,7 @@ export class OwnedSessions {
             env: () => this.environment(key, cwd),
             choices: wanted,
             models: await this.models(agent),
+            elsewhere: (id) => this.runsElsewhere(id),
           })
         : startAcp(agent, cwd, {
             ...(this.options.logDirectory ? { logDirectory: this.options.logDirectory } : {}),
@@ -1337,6 +1363,74 @@ export class OwnedSessions {
       cwd,
       ...(key ? { key } : {}),
       choices: {},
+      updatedAt: Date.now(),
+    });
+    return runner;
+  }
+  /** Claude Code, as installed here, to run a session that Med did not start. */
+  private async claude(cwd: string) {
+    const agent = (await this.options.agents()).find(
+      (entry) => entry.kind === "claude" && entry.available,
+    );
+    if (!agent) throw new HostError("agent-unavailable", "Claude Code is not installed here.", 409);
+    if (!existsSync(cwd))
+      throw new HostError(
+        "session-folder-gone",
+        `The session's folder ${cwd} no longer exists, so Claude Code cannot resume it.`,
+        409,
+      );
+    return agent;
+  }
+  /**
+   * Runs a Claude Code session that Med did not start, such as an adopted one
+   * that no process runs now. It waits without a process, and its next prompt
+   * starts `claude --resume`. Med keeps its record, as for the sessions that
+   * it starts, so it resumes after a restart too.
+   */
+  async resume(session: AgentSession, { key }: { key?: string } = {}): Promise<OwnedRunner> {
+    const agent = await this.claude(session.cwd);
+    const current = this.runners.get(session.id);
+    if (current) return current;
+    const runner = startClaude(agent, session.cwd, {
+      sessionId: session.id,
+      env: () => this.environment(key, session.cwd),
+      resume: {},
+      models: this.models(agent),
+      elsewhere: (id) => this.runsElsewhere(id),
+    });
+    this.track(runner, {
+      preset: agent.id,
+      kind: "claude",
+      name: agent.name,
+      cwd: session.cwd,
+      ...(key ? { key } : {}),
+      choices: {},
+      updatedAt: Date.now(),
+    });
+    return runner;
+  }
+  /**
+   * Continue in Med: a new Claude Code session that starts from `session`'s
+   * history (`--resume <id> --fork-session --session-id <new ID>`), while
+   * another process keeps the original. The fork is a session of the thread,
+   * not a question's fork.
+   */
+  async fork(session: AgentSession, { key }: { key?: string } = {}): Promise<OwnedRunner> {
+    const agent = await this.claude(session.cwd);
+    const runner = startClaude(agent, session.cwd, {
+      fork: session.id,
+      env: () => this.environment(key, session.cwd),
+      models: await this.models(agent),
+      elsewhere: (id) => this.runsElsewhere(id),
+    });
+    this.track(runner, {
+      preset: agent.id,
+      kind: "claude",
+      name: agent.name,
+      cwd: session.cwd,
+      ...(key ? { key } : {}),
+      choices: {},
+      forkOf: session.id,
       updatedAt: Date.now(),
     });
     return runner;
@@ -1372,7 +1466,9 @@ export class OwnedSessions {
               sessionId: id,
               env: () => this.environment(record.key, record.cwd),
               resume: record.choices,
+              ...(record.forkOf ? { fork: record.forkOf } : {}),
               models: this.models(agent),
+              elsewhere: (session) => this.runsElsewhere(session),
             })
           : stoppedRunner(session, record.preset, record.name);
       this.track(runner, record, false);
@@ -1390,8 +1486,11 @@ export class OwnedSessions {
       const current = this.records[id];
       if (!current) return;
       const choices = { ...current.choices, ...chosenSettings(runner.state()) };
-      if (JSON.stringify(choices) === JSON.stringify(current.choices)) return;
-      this.records[id] = { ...current, choices, updatedAt: Date.now() };
+      // A fork's first prompt makes its transcript: it resumes as itself.
+      const forked = !!current.forkOf && runner.state().turns > 0;
+      if (!forked && JSON.stringify(choices) === JSON.stringify(current.choices)) return;
+      const { forkOf: _forkOf, ...rest } = current;
+      this.records[id] = { ...(forked ? rest : current), choices, updatedAt: Date.now() };
       this.save();
     });
     runner.log?.subscribe(() => this.updated.set(id, Date.now()));

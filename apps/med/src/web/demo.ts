@@ -231,7 +231,13 @@ function inbox(id: string): AgentInboxState {
   if (kept.has(key("GET", path))) return read<AgentInboxState>(path)!;
   return (
     streamed<AgentInboxState>(`${path}/events`) ??
-    read<AgentInboxState>(path) ?? { messages: [], waiting: [], drafts: [] }
+    read<AgentInboxState>(path) ?? {
+      messages: [],
+      waiting: [],
+      elsewhere: [],
+      resumable: [],
+      drafts: [],
+    }
   );
 }
 

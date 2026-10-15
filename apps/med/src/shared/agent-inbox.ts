@@ -2,8 +2,10 @@ import { z } from "zod";
 
 /**
  * Messages from the review to an agent session: the user's text and the
- * comments they chose. A Claude session takes them through `med review wait`;
- * Med queues them for a Codex session with `codex queue`.
+ * comments they chose. A Claude session that Med runs, or resumes because no
+ * process runs it, gets them as its next prompt; one that another process
+ * runs takes them through `med review wait`, or gets them when that process
+ * ends. Med queues them for a Codex session with `codex queue`.
  */
 export const MAX_AGENT_MESSAGE_TEXT = 100_000;
 /** An image's size, as the Claude API takes it: 5 MB. */
@@ -89,6 +91,16 @@ export const agentInboxStateSchema = z.object({
   messages: z.array(agentMessageSchema),
   /** Sessions whose agent waits in `med review wait` now. */
   waiting: z.array(z.string()),
+  /**
+   * Claude sessions that another process runs, such as Claude Code in a
+   * terminal, and that do not take messages with `med review wait`. Med
+   * cannot type there: a message waits until that process ends, and
+   * Continue in Med forks the session.
+   */
+  elsewhere: z.array(z.string()).default([]),
+  /** Claude sessions that no process runs: a message resumes the session,
+   * which Med then runs. */
+  resumable: z.array(z.string()).default([]),
   drafts: z.array(draftCommentSchema),
 });
 export type AgentInboxState = z.infer<typeof agentInboxStateSchema>;

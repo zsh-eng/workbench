@@ -83,7 +83,13 @@ test("a page reads all its event streams over one connection", async () => {
     "state",
     "state",
   ]);
-  expect(JSON.parse(opened[5]!.events[0]!.data)).toEqual({ messages: [], waiting: [], drafts: [] });
+  expect(JSON.parse(opened[5]!.events[0]!.data)).toEqual({
+    messages: [],
+    waiting: [],
+    drafts: [],
+    elsewhere: [],
+    resumable: [],
+  });
   // The thread list names the saved review and the repository.
   expect(JSON.parse(opened[7]!.events[0]!.data)).toMatchObject({
     threads: [{ id: review.id, title: "Live", checkout: directory }],

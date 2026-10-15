@@ -156,8 +156,10 @@ async function mountApp(
     session?: string;
     /** The recorded session's agent; Claude Code by default. */
     sessionAgent?: "claude" | "codex";
-    /** The saved review's messages to its agent: drafts and who waits. */
-    inbox?: AgentInboxState;
+    /** The saved review's messages to its agent: drafts, who waits, and
+     * which sessions another process runs. */
+    inbox?: Omit<AgentInboxState, "elsewhere" | "resumable"> &
+      Partial<Pick<AgentInboxState, "elsewhere" | "resumable">>;
     /** Each message waits for its own call; a call with an error fails the send. */
     answerAgentMessages?: boolean;
     /** Agents that Med can start; a started one runs as session o1. */
@@ -263,6 +265,7 @@ async function mountApp(
   // The session that Med runs: its state streams to the page until the test changes it.
   let owned: OwnedState | undefined;
   const ownedActions: OwnedAction[] = [];
+  const ownedStarts: { preset: string; fork?: string }[] = [];
   const pageReads: string[] = [];
   const ownedListeners = new Set<() => void>();
   const setOwned = (change: Partial<OwnedState>) => {
@@ -289,6 +292,8 @@ async function mountApp(
   const sentNotes = new Set<string>();
   const inboxState = (): AgentInboxState => ({
     ...inbox!,
+    elsewhere: inbox!.elsewhere ?? [],
+    resumable: inbox!.resumable ?? [],
     drafts: [
       ...inbox!.drafts,
       ...savedNotes
@@ -385,8 +390,22 @@ async function mountApp(
       if (url.pathname === "/api/reviews/saved") return Response.json(savedBundle());
       if (url.pathname === "/api/agents") return Response.json({ agents: options.agents ?? [] });
       if (url.pathname === "/api/reviews/saved/owned" && init?.method === "POST") {
-        const { preset } = JSON.parse(String(init.body)) as { preset: string };
+        const { preset, fork } = JSON.parse(String(init.body)) as {
+          preset: string;
+          fork?: string;
+        };
+        ownedStarts.push({ preset, ...(fork ? { fork } : {}) });
         sessions = [...sessions, { agent: "claude", id: "o1", cwd: "/test/repo" }];
+        // Continue in Med: the messages that waited for the terminal go to the fork.
+        if (fork && inbox)
+          inbox = {
+            ...inbox,
+            messages: inbox.messages.map((message) =>
+              message.sessionId === fork && message.delivery === "pending"
+                ? { ...message, sessionId: "o1", delivery: "delivered" }
+                : message,
+            ),
+          };
         owned = {
           sessionId: "o1",
           preset,
@@ -468,9 +487,11 @@ async function mountApp(
           comments,
           attachmentCount: 0,
           createdAt: new Date().toISOString(),
-          delivery: "delivered",
+          // A session that a terminal runs takes the message later.
+          delivery: inbox.elsewhere?.includes("s1") ? "pending" : "delivered",
         };
         inbox = {
+          ...inbox,
           messages: [...inbox.messages, message],
           waiting: [],
           drafts: inbox.drafts.filter((draft) => !input.noteIds.includes(draft.id)),
@@ -817,6 +838,7 @@ async function mountApp(
     agentAnswers,
     setOwned,
     ownedActions,
+    ownedStarts,
     pageReads,
     questions,
     savedNotes,
@@ -3471,6 +3493,55 @@ describe("agent session", () => {
     await expect.element(panel.getByText("Sending…")).not.toBeInTheDocument();
     await expect.element(panel.getByText("Not sent", { exact: false })).not.toBeInTheDocument();
     expect(panel.getByText("Use minutes.").elements()).toHaveLength(1);
+  });
+
+  test("a session open in a terminal says so; a message waits for it, and Continue in Med forks it", async () => {
+    await page.viewport(1280, 800);
+    const reply = (at: number, sessionUpdate: string, text: string) => ({
+      at,
+      update: { sessionUpdate, content: { type: "text", text } },
+    });
+    const { agentMessages, ownedStarts } = await mountApp({
+      savedReview: true,
+      session: `event: reset\ndata: ${JSON.stringify({ events: [reply(1000, "user_message_chunk", "Check the durations."), reply(5000, "agent_message_chunk", "They read in seconds.")], idle: true, modifiedAt: 0, truncated: false })}\n\n`,
+      inbox: { messages: [], waiting: [], elsewhere: ["s1"], drafts: [] },
+      agents: [{ id: "claude", name: "Claude Code", kind: "claude", available: true }],
+    });
+    await userEvent.click(page.getByRole("button", { name: "Toggle agent session" }));
+    const composer = page.getByRole("form", { name: "Message Claude" });
+    // Before a send, one quiet line says where the session runs.
+    await expect
+      .element(
+        composer.getByText("Claude has this session open in a terminal. Med can't type there."),
+      )
+      .toBeVisible();
+    await expect.element(composer.getByText(/med review wait/)).not.toBeInTheDocument();
+
+    // A message waits for the terminal session to close.
+    await userEvent.click(composer.getByRole("combobox", { name: "Message Claude" }));
+    await userEvent.keyboard("Round to minutes.{Meta>}{Enter}{/Meta}");
+    await expect.poll(() => agentMessages).toMatchObject([{ text: "Round to minutes." }]);
+    const panel = page.getByRole("region", { name: "Agent session" });
+    await expect
+      .element(panel.getByText("Waiting for the terminal session to close"))
+      .toBeVisible();
+
+    // ⌘K offers Continue in Med for the thread.
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
+    await page.getByRole("combobox", { name: "Search commands" }).fill("Continue in Med");
+    await expect.element(page.getByRole("option", { name: /^Continue in Med/ })).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+
+    // Continue in Med forks the session; the thread follows the fork.
+    await userEvent.click(composer.getByRole("button", { name: "Continue in Med" }));
+    await expect.poll(() => ownedStarts).toEqual([{ preset: "claude", fork: "s1" }]);
+    await expect.element(composer.getByText("Starting Claude…")).toBeVisible();
+    await expect
+      .element(page.getByText("Claude has this session open in a terminal. Med can't type there."))
+      .not.toBeInTheDocument();
+    await expect
+      .element(page.getByText("Waiting for the terminal session to close"))
+      .not.toBeInTheDocument();
   });
 
   test("a saved review starts an agent in the Session pane, and the composer drives it", async () => {

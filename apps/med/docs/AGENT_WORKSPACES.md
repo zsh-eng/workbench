@@ -78,10 +78,16 @@ stdio --session-id <id>`, with `--model`, `--effort`, and `--permission-mode`
   model, effort, and mode that each one has now. When it starts again, a Claude
   Code session comes back idle without a process, and its next prompt starts
   `claude` with `--resume` and those choices. Med does not resume a session
-  that another Claude Code process names, such as one that the user resumed in
-  a terminal; the message fails with that reason. A session that the user
-  stopped stays stopped, and an ACP session shows as stopped, with its log, so
-  the prompt box offers a new session.
+  that another Claude Code process runs, such as one that the user resumed in
+  a terminal; the message waits until that process ends
+  ([messages to adopted sessions](SESSIONS.md#messages-to-adopted-sessions)).
+  A session that the user stopped stays stopped, and an ACP session shows as
+  stopped, with its log, so the prompt box offers a new session.
+- **Adopted sessions**: a Claude Code session that Med did not start, such
+  as one that Keep in Med or `med thread adopt` saved, becomes an owned
+  session when a message comes and no process runs it (`resume`), with a
+  record as above. **Continue in Med** starts an owned fork of one that a
+  terminal runs (`--resume <id> --fork-session --session-id <new ID>`).
 
 ### What a thread's agent knows
 
@@ -138,9 +144,12 @@ does not record it.
 
 ## Replies
 
-Med cannot write to an attached session: `claude --resume` starts a second
-process and splits the history, channels and Remote Control need the owner's
-setup, and Claude Desktop's messaging socket is not documented.
+Med cannot write to an attached session while another process runs it:
+`claude --resume` would start a second process and split the history,
+channels and Remote Control need the owner's setup, and Claude Desktop's
+messaging socket is not documented. When no process runs a Claude session,
+Med resumes it and owns it from then on
+([messages to adopted sessions](SESSIONS.md#messages-to-adopted-sessions)).
 
 - **Claude:** after `med review create`, the skill runs `med review wait
 <review>` in the background. **Send to agent** makes the command print your

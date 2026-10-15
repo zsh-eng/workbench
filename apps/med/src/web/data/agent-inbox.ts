@@ -110,6 +110,9 @@ const textOf = (item: SessionItem) =>
  */
 export type SentMessage = Omit<AgentMessage, "delivery"> & {
   delivery: AgentMessage["delivery"] | "sending";
+  /** A pending message waits for the terminal session that runs its agent
+   * to end, because Med cannot type there. */
+  waitsFor?: "terminal";
   retry?(): void;
   discard?(): void;
 };

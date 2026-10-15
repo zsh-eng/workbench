@@ -501,6 +501,18 @@ session's Claude Code transcript or Codex rollout to Agent Client Protocol
 [agent sessions](docs/SESSIONS.md). The CLI contract and data limits are in
 [agent integration](docs/AGENT_INTEGRATION.md).
 
+**Messages.** `src/host/agent-inbox.ts` keeps each thread's messages to its
+agents, in `agent-messages/<review>.json` in the state directory. A session
+that Med runs gets a message as its next prompt, with the messages that
+waited before it. A Claude session that Med did not start, such as an adopted
+one, resumes in Med when no process runs it (`OwnedSessions.resume`). When
+another process runs it, which `src/host/session-processes.ts` reads from
+Claude Code's process records, the message waits until that process takes it
+with `med review wait` or ends; `src/host/held-messages.ts` checks the
+process only while a message waits. Continue in Med forks such a session into
+one that Med runs. See [messages to adopted
+sessions](docs/SESSIONS.md#messages-to-adopted-sessions).
+
 **Questions.** `src/host/questions.ts` answers a question about lines in a
 fork of the thread's lead agent, so the thread gets nothing.
 `POST /api/questions` takes the thread, the question, and the excerpt

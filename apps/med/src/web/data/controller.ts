@@ -147,8 +147,10 @@ export interface ReviewController {
   deleteNotes(notes: { iteration?: number; briefFrom?: number }): Promise<void>;
   /** Comment on a passage of the Notes, or edit or remove such a comment. */
   commentBrief(mutation: BriefCommentMutation): Promise<void>;
-  /** Starts an installed agent in the review's repository and returns its session ID. */
-  startSession(preset: string): Promise<string>;
+  /** Starts an installed agent in the review's repository and returns its
+   * session ID. With `fork`, the new Claude session starts from that one's
+   * history (Continue in Med). */
+  startSession(preset: string, options?: { fork?: string }): Promise<string>;
   /** Save the current Git comparison as a review and return its ID. */
   saveReview(input: { title: string; brief?: string }): Promise<string>;
   /** `inReview`: a commit of the Review's range, not a live comparison. */
@@ -2015,7 +2017,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
               },
       });
     },
-    async startSession(preset) {
+    async startSession(preset, options = {}) {
       const saved = snapshot.savedReview;
       if (!saved) throw new Error("Open a saved review to start a session.");
       const result = await api.json(
@@ -2024,7 +2026,11 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ preset, targetId: snapshot.savedTargetId ?? undefined }),
+          body: JSON.stringify({
+            preset,
+            targetId: snapshot.savedTargetId ?? undefined,
+            ...(options.fork ? { fork: options.fork } : {}),
+          }),
         },
       );
       if (!disposed && snapshot.savedReview?.id === saved.id)

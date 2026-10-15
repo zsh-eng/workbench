@@ -3,11 +3,13 @@ import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { SavedReview } from "../../src/shared/saved-review";
 import type { Thread, ThreadList } from "../../src/shared/threads";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { claudeProjectFolder } from "../../src/host/found-sessions";
 import { readServerEvents } from "../../src/web/data/sse";
+import { openInTerminal } from "../fixtures/terminal-claude";
 
 // The thread list reads each thread's last turn from its transcript's tail: what
 // the agent does now, what it said last, and whether it asked the user; and
@@ -16,8 +18,10 @@ import { readServerEvents } from "../../src/web/data/sse";
 const directories: string[] = [];
 const hosts: RunningHost[] = [];
 const streams: AbortController[] = [];
+const ends: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const stream of streams.splice(0)) stream.abort();
+  await Promise.all(ends.splice(0).map((end) => end()));
   await Promise.all(hosts.splice(0).map((host) => host.close()));
   await Promise.all(
     directories.splice(0).map((path) => rm(path, { recursive: true, force: true })),
@@ -173,6 +177,16 @@ async function fixture() {
     repos: [repo],
     stateDir: join(directory, "state"),
     port: 0,
+    agents: async () => [
+      {
+        id: "claude",
+        name: "Claude Code",
+        kind: "claude",
+        available: true,
+        command: process.execPath,
+        args: [fileURLToPath(new URL("../fixtures/agents/fake-claude.mjs", import.meta.url))],
+      },
+    ],
   });
   hosts.push(host);
   const api = async <T>(path: string, body?: unknown) => {
@@ -355,7 +369,9 @@ test("each thread tells what its agent does now, what it said, and whether it as
   });
   expect(thread("Add feet")?.turn).toMatchObject({ asks: true });
 
-  // A reply from Med waits in the thread's agent inbox, and the list says so.
+  // A reply from Med waits in the thread's agent inbox while the session runs
+  // in a terminal, and the list says so.
+  ends.push((await openInTerminal(home, ids.ask)).end);
   const sent = await api(`/api/reviews/${asked.data.id}/agent/messages`, {
     sessionId: ids.ask,
     text: "Keep the station's own time.",

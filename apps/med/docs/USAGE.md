@@ -317,6 +317,20 @@ gets your messages from Med as new turns. The message box has model, effort,
 and mode pickers, a context meter, `/` commands, and **Stop** (or `Esc`). A
 tool call that needs an answer shows **Allow** and **Deny**.
 
+A Claude Code session that you kept in Med or adopted gets your messages too:
+
+- When no process runs it, Med resumes it with your message, and any
+  messages that waited, as its next prompt. Med then runs the session, with
+  the pickers and **Stop**, also after a restart.
+- When Claude Code has it open in a terminal, the message box says "Claude
+  has this session open in a terminal. Med can't type there." A message then
+  shows "Waiting for the terminal session to close". When the terminal
+  session ends, Med resumes it and sends the waiting messages. If that session
+  runs `med review wait`, it gets them there instead.
+- **Continue in Med**, on that line or in `⌘K`, forks the session into one
+  that Med runs and sends it the waiting messages. The thread follows the
+  fork; the terminal keeps its own session.
+
 Type `@` in the message box, or in a new thread's task, to name a file in the
 checkout, a note in a registered vault, or another thread. A query can have
 spaces, as note names do. The best match comes first; `↵` or `Tab` adds it, and
