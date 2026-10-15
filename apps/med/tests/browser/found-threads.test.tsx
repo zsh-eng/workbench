@@ -412,6 +412,15 @@ test("a kept thread on a shared checkout shows its Changes, keeps its session's 
   render(host);
   await page.getByRole("button", { name: /^README glossary/ }).click();
   await expect.poll(() => location.pathname).toBe("/review/r_kept");
+  // The main checkout's workspace shows the same working changes, and stays
+  // on screen until the thread is ready to take its place.
+  await expect
+    .element(
+      page
+        .getByRole("region", { name: "Claude session" })
+        .getByText("Add a short glossary to the README."),
+    )
+    .toBeVisible();
   // No hand-off yet: the thread opens on the live Changes, which on the base
   // branch are the working changes.
   await expect.poll(() => shown()?.dataset.reviewId).toBe("review-/test/repo");
