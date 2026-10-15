@@ -189,6 +189,34 @@ export async function transcriptTurn(session: Pick<AgentSession, "agent" | "id">
   return { idle, turn: summarizeTurn(events, idle) };
 }
 
+/** The head of a transcript that holds its first prompt. */
+const HEAD_BYTES = 64 * 1024;
+
+/** The first prompt of a session, from its transcript's head: the first line
+ * of the first message that the user typed. History searches it. */
+export async function transcriptPrompt(session: Pick<AgentSession, "agent" | "id">, path: string) {
+  const handle = await open(path, "r");
+  let text: string;
+  try {
+    const buffer = Buffer.alloc(HEAD_BYTES);
+    const { bytesRead } = await handle.read(buffer, 0, HEAD_BYTES, 0);
+    const end = buffer.subarray(0, bytesRead).lastIndexOf(10);
+    text = buffer.toString("utf8", 0, end < 0 ? 0 : end);
+  } finally {
+    await handle.close();
+  }
+  const reader =
+    session.agent === "codex" ? createCodexRolloutReader() : createClaudeTranscriptReader();
+  for (const line of text.split("\n"))
+    for (const { update } of reader.line(line)) {
+      if (update.sessionUpdate !== "user_message_chunk" || update.content.type !== "text") continue;
+      const prompt = update.content.text.trim();
+      // Commands and reminders that agents write as user lines are not prompts.
+      if (prompt && !prompt.startsWith("<")) return prompt.split("\n")[0]!.slice(0, 400);
+    }
+  return undefined;
+}
+
 /** The updates in the transcript's tail, without its subagents. */
 export async function readTranscriptTail(
   session: Pick<AgentSession, "agent" | "id">,

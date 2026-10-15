@@ -71,8 +71,8 @@ async function main() {
     return;
   }
   if (process.argv[2] === "thread") {
-    const { runThreadSessionsCommand } = await import("./thread-sessions");
-    await runThreadSessionsCommand(process.argv.slice(3));
+    const { runThreadCommand } = await import("./thread");
+    await runThreadCommand(process.argv.slice(3));
     return;
   }
   const { values, positionals } = parseArgs({

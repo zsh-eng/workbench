@@ -1,10 +1,11 @@
 import { ContextMenu } from "@base-ui/react/context-menu";
 import * as stylex from "@stylexjs/stylex";
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { Thread } from "../../../shared/threads";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
+import type { Thread, ThreadSubagent } from "../../../shared/threads";
 import { useAttemptsAddress } from "../../data/attempts";
 import { foundSessionThread, threadInput } from "../../data/found-threads";
-import { groupThreads, isRecent, needsYou, shortAge } from "../../data/threads";
+import { shownSubagents, type ReadState } from "../../data/tabs";
+import { groupThreads, needsYou, shortAge } from "../../data/threads";
 import {
   lazygitCommand,
   resumeCommand,
@@ -17,8 +18,6 @@ import { Icon, type IconName } from "../Icon";
 import { ShortcutKeys } from "../ShortcutKeys";
 import { ToolButton } from "../ToolButton";
 
-const SEEN_KEY = "med:thread-seen";
-const SINCE_KEY = "med:thread-seen-since";
 const SOURCES_KEY = "med:sidebar-sources";
 
 function readJson<T>(key: string, fallback: T): T {
@@ -33,44 +32,8 @@ function writeJson(key: string, value: unknown) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
   } catch {
-    /* Unread marks last for this page. */
+    /* The choice lasts for this page. */
   }
-}
-
-/**
- * Which threads changed since the reader last looked at them. The shown
- * thread counts as seen. Threads from before the first visit start as seen,
- * so old work does not show as new.
- */
-function useUnread(threads: readonly Thread[], current: string | null) {
-  const [since] = useState(() => {
-    const value = readJson<number>(SINCE_KEY, 0);
-    if (value) return value;
-    const now = Date.now();
-    writeJson(SINCE_KEY, now);
-    return now;
-  });
-  const [seen, setSeen] = useState<Record<string, number>>(() => readJson(SEEN_KEY, {}));
-  // The shown thread is seen as it changes.
-  const shown = threads.find((thread) => thread.id === current);
-  if (shown && (seen[shown.id] ?? 0) < shown.updatedAt) {
-    const next = { ...seen, [shown.id]: shown.updatedAt };
-    // Forget threads the host no longer keeps.
-    for (const id of Object.keys(next))
-      if (!threads.some((thread) => thread.id === id)) delete next[id];
-    setSeen(next);
-  }
-  useEffect(() => writeJson(SEEN_KEY, seen), [seen]);
-  const isUnread = (thread: Thread) =>
-    thread.id !== current &&
-    thread.state !== "working" &&
-    thread.updatedAt > (seen[thread.id] ?? since);
-  const setUnread = (thread: Thread, unread: boolean) =>
-    setSeen((value) => ({
-      ...value,
-      [thread.id]: unread ? thread.updatedAt - 1 : thread.updatedAt,
-    }));
-  return { isUnread, setUnread };
 }
 
 function agentIcon(agent: Thread["agent"]): IconName {
@@ -84,37 +47,119 @@ export interface SidebarSource {
   path?: string;
 }
 
+/** A short message about the tabs, such as a closed tab with Undo. */
+export interface TabNotice {
+  text: string;
+  actions?: { label: string; run(): void }[];
+  /** Something failed; it shows longer, as an alert. */
+  problem?: boolean;
+  /** A question: it stays until the reader answers. */
+  stays?: boolean;
+}
+
+/** The notice in the sidebar, or over the workspace while the sidebar hides. */
+export function NoticeBar({
+  notice,
+  onDismiss,
+  floating = false,
+}: {
+  notice: TabNotice;
+  onDismiss(): void;
+  floating?: boolean;
+}) {
+  return (
+    <div
+      role={notice.problem ? "alert" : "status"}
+      {...stylex.props(
+        styles.notice,
+        notice.problem && styles.problem,
+        floating && styles.floating,
+      )}
+    >
+      <span {...stylex.props(styles.noticeText)}>{notice.text}</span>
+      {notice.actions?.map((action) => (
+        <button
+          key={action.label}
+          type="button"
+          onClick={action.run}
+          {...stylex.props(styles.undo)}
+        >
+          {action.label}
+        </button>
+      ))}
+      {!notice.actions?.length && floating && (
+        <button type="button" onClick={onDismiss} {...stylex.props(styles.undo)}>
+          OK
+        </button>
+      )}
+    </div>
+  );
+}
+
+const noRead: ReadState = {
+  isUnread: () => false,
+  setUnread: () => {},
+  isSubagentUnread: () => false,
+  seeSubagent: () => {},
+};
+
 /**
- * The window's sidebar: the threads in view, grouped by repository, and the
- * repositories and vaults to browse without a thread. A thread stays in view
- * while its agent works or waits, while it is open, and for three days after
- * it changed; each repository folds its older threads into one row.
+ * The window's sidebar: the tabs, grouped by repository in the reader's
+ * order, and the repositories and vaults to browse without a thread. A tab
+ * keeps its place when its agent's state changes; the reader moves it by
+ * drag or ⌥↑ and ⌥↓. Closed threads are history: ⌃Tab and the palette find
+ * them. Above the tabs, a line counts those that need the reader and those
+ * that work; under a tab, its subagents that work or have news.
  */
 export function ThreadSidebar({
   threads,
   sources,
   snapshot,
   loaded,
+  current: shownThread,
+  read = noRead,
+  notice,
   onOpen,
+  onOpenThread,
+  onOpenSubagent,
   onNewThread,
   newThread = false,
   onHide,
   onSources,
-  onArchive,
+  onClose,
+  onDelete,
+  onReorder,
+  onMove,
+  onNext,
   onPrefetch,
 }: {
-  /** The New thread view shows. */
-  newThread?: boolean;
+  /** The tabs, in the reader's order. */
   threads: readonly Thread[];
   sources: readonly SidebarSource[];
   snapshot: WorkspaceSnapshot;
   loaded: boolean;
+  /** The thread on screen; without it, the active workspace's. */
+  current?: string | null;
+  read?: ReadState;
+  /** The tabs' notice, such as a closed tab with Undo. */
+  notice?: ReactNode;
+  /** The New thread view shows. */
+  newThread?: boolean;
   onOpen(input: WorkspaceInput): void;
+  onOpenThread?(thread: Thread): void;
+  onOpenSubagent?(thread: Thread, subagent: ThreadSubagent): void;
   onNewThread?(): void;
   onHide(): void;
   onSources(): void;
-  /** Archives the thread or brings it back; it can remove the thread's worktree. */
-  onArchive?(thread: Thread, archived: boolean, removeWorktree: boolean): Promise<void>;
+  /** Sends the tab to history; it can remove the thread's worktree. */
+  onClose?(thread: Thread, removeWorktree: boolean): void;
+  /** Asks to delete the thread for good. */
+  onDelete?(thread: Thread): void;
+  /** Puts one repository's tabs in this order. */
+  onReorder?(ids: readonly string[]): void;
+  onMove?(thread: Thread, by: -1 | 1): void;
+  /** Shows the next tab that needs the reader, or the next that works. */
+  onNext?(kind: "needs" | "working"): void;
   /** Reads a thread ahead of a click, such as while the pointer rests on it. */
   onPrefetch?(thread: Thread): void;
 }) {
@@ -124,39 +169,22 @@ export function ThreadSidebar({
   // The Attempts page covers the workspace, so no thread row is current.
   const attemptsPage = useAttemptsAddress();
   const currentThread =
-    newThread || attemptsPage
-      ? null
-      : active?.kind === "review"
-        ? active.reviewId
-        : active?.kind === "repository" && active.found
-          ? foundSessionThread(active.found)
-          : null;
-  const { isUnread, setUnread } = useUnread(threads, currentThread);
-  // An archived thread leaves at once; Undo brings it back.
-  const [archiving, setArchiving] = useState<ReadonlySet<string>>(new Set());
-  const [notice, setNotice] = useState<{
-    thread: Thread;
-    text: string;
-    undo?: boolean;
-  } | null>(null);
-  useEffect(() => {
-    if (!notice) return;
-    const timer = setTimeout(() => setNotice(null), notice.undo ? 6000 : 8000);
-    return () => clearTimeout(timer);
-  }, [notice]);
-  const listed = useMemo(
-    () => (archiving.size ? threads.filter((thread) => !archiving.has(thread.id)) : threads),
-    [threads, archiving],
-  );
-  const groups = useMemo(() => groupThreads(listed), [listed]);
-  // Repositories whose older threads show.
-  const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set());
-  const toggleOlder = (key: string) =>
-    setUnfolded((value) => {
-      const next = new Set(value);
-      if (!next.delete(key)) next.add(key);
-      return next;
-    });
+    shownThread !== undefined
+      ? shownThread
+      : newThread || attemptsPage
+        ? null
+        : active?.kind === "review"
+          ? active.reviewId
+          : active?.kind === "repository" && active.found
+            ? foundSessionThread(active.found)
+            : null;
+  const groups = useMemo(() => groupThreads(threads), [threads]);
+  const needs = threads.filter(needsYou).length;
+  const working = threads.filter(
+    (thread) => thread.state === "working" && !needsYou(thread),
+  ).length;
+  const openThread = (thread: Thread) =>
+    onOpenThread ? onOpenThread(thread) : onOpen(threadInput(thread));
   const [copied, setCopied] = useState<string | null>(null);
   useEffect(() => {
     if (!copied) return;
@@ -166,55 +194,36 @@ export function ThreadSidebar({
   const copy = (thread: Thread, text: string) => {
     void navigator.clipboard.writeText(text).then(() => setCopied(thread.id));
   };
-  const archive = (thread: Thread, removeWorktree: boolean) => {
-    if (!onArchive) return;
-    setArchiving((value) => new Set(value).add(thread.id));
-    setNotice(null);
-    onArchive(thread, true, removeWorktree).then(
-      () =>
-        setNotice({
-          thread,
-          text: thread.found
-            ? "Hidden"
-            : removeWorktree
-              ? "Archived; removed its worktree"
-              : "Archived",
-          undo: true,
-        }),
-      (error: unknown) => {
-        setArchiving((value) => {
-          const next = new Set(value);
-          next.delete(thread.id);
-          return next;
-        });
-        setNotice({
-          thread,
-          text: `Kept "${thread.title}". ${error instanceof Error ? error.message : ""}`.trim(),
-        });
-      },
-    );
-  };
-  const restore = (thread: Thread) => {
-    setNotice(null);
-    void onArchive?.(thread, false, false).then(() =>
-      setArchiving((value) => {
-        const next = new Set(value);
-        next.delete(thread.id);
-        return next;
-      }),
-    );
-  };
-  // Forget threads once the host no longer lists them.
-  if (archiving.size && [...archiving].some((id) => !threads.some((thread) => thread.id === id)))
-    setArchiving(
-      new Set([...archiving].filter((id) => threads.some((thread) => thread.id === id))),
-    );
   // Ages move while the list shows.
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(timer);
   }, []);
+
+  // A drag moves a tab within its repository; a line shows where it lands.
+  const [drag, setDrag] = useState<{ id: string; group: string } | null>(null);
+  const [drop, setDrop] = useState<{ id: string; after: boolean } | null>(null);
+  const endDrag = () => {
+    setDrag(null);
+    setDrop(null);
+  };
+  const dropOn = (group: { key: string; threads: Thread[] }, target: string, after: boolean) => {
+    if (!drag || drag.group !== group.key || drag.id === target) return endDrag();
+    const ids = group.threads.map((thread) => thread.id).filter((id) => id !== drag.id);
+    ids.splice(ids.indexOf(target) + (after ? 1 : 0), 0, drag.id);
+    onReorder?.(ids);
+    endDrag();
+  };
+  // ⌥↑ and ⌥↓ move the focused tab; it keeps the focus at its new place.
+  const move = (thread: Thread, by: -1 | 1) => {
+    onMove?.(thread, by);
+    requestAnimationFrame(() =>
+      list.current
+        ?.querySelector<HTMLElement>(`[data-thread="${CSS.escape(thread.id)}"]`)
+        ?.focus({ preventScroll: false }),
+    );
+  };
 
   const [sourcesOpen, setSourcesOpen] = useState(() => readJson(SOURCES_KEY, false));
   const toggleSources = () =>
@@ -227,7 +236,7 @@ export function ThreadSidebar({
   useEffect(() => {
     const nav = list.current;
     if (!nav) return;
-    const move = (event: KeyboardEvent) => {
+    const step = (event: KeyboardEvent) => {
       const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
       if (!keys.includes(event.key) || event.altKey || event.metaKey || event.ctrlKey) return;
       const rows = [...nav.querySelectorAll<HTMLElement>("[data-sidebar-row]")];
@@ -242,8 +251,8 @@ export function ThreadSidebar({
       rows[next]?.focus();
       event.preventDefault();
     };
-    nav.addEventListener("keydown", move);
-    return () => nav.removeEventListener("keydown", move);
+    nav.addEventListener("keydown", step);
+    return () => nav.removeEventListener("keydown", step);
   }, []);
 
   const sourceActive = (source: SidebarSource) =>
@@ -278,82 +287,86 @@ export function ThreadSidebar({
             <ShortcutKeys value="Alt+N" />
           </button>
         )}
+        {(needs > 0 || working > 0) && (
+          <div role="group" aria-label="Tabs at work" {...stylex.props(styles.counts)}>
+            {needs > 0 && (
+              <button
+                type="button"
+                title="Show the next tab that needs you (⌘0)"
+                onClick={() => onNext?.("needs")}
+                {...stylex.props(styles.count, styles.countNeeds)}
+              >
+                {needs} needs you
+              </button>
+            )}
+            {needs > 0 && working > 0 && <span aria-hidden="true">·</span>}
+            {working > 0 && (
+              <button
+                type="button"
+                title="Show the next tab that works"
+                onClick={() => onNext?.("working")}
+                {...stylex.props(styles.count)}
+              >
+                {working} working
+              </button>
+            )}
+          </div>
+        )}
         {loaded && !threads.length && (
           <p {...stylex.props(styles.empty)}>
-            Threads show here: each agent task, with its changes. Start one, or ask an agent to hand
-            off its work with <code {...stylex.props(styles.code)}>med review</code>.
+            Tabs show here: each agent task that you have open, with its changes. Start one, or ask
+            an agent to hand off its work with{" "}
+            <code {...stylex.props(styles.code)}>med review</code>. ⌃Tab finds closed ones.
           </p>
         )}
         {groups.map((group) => {
-          const open = unfolded.has(group.key);
-          // The open thread stays in view; in an unfolded list it keeps its place.
-          const recent = group.threads.filter(
-            (thread) => isRecent(thread, now) || (!open && thread.id === currentThread),
-          );
-          const older = group.threads.filter((thread) => !recent.includes(thread));
           const row = (thread: Thread, name?: string) => (
             <ThreadRow
               key={thread.id}
               thread={thread}
               name={name}
               current={thread.id === currentThread}
-              unread={isUnread(thread)}
+              unread={read.isUnread(thread)}
               copied={copied === thread.id}
               now={now}
-              onOpen={() => onOpen(threadInput(thread))}
+              subagents={shownSubagents(thread, read)}
+              isSubagentUnread={read.isSubagentUnread}
+              drop={drop?.id === thread.id ? (drop.after ? "after" : "before") : undefined}
+              onOpen={() => openThread(thread)}
+              onOpenSubagent={onOpenSubagent && ((subagent) => onOpenSubagent(thread, subagent))}
               onCopy={(text) => copy(thread, text)}
-              onUnread={(unread) => setUnread(thread, unread)}
-              onArchive={onArchive && ((removeWorktree) => archive(thread, removeWorktree))}
+              onUnread={(unread) => read.setUnread(thread, unread)}
+              onClose={onClose && ((removeWorktree) => onClose(thread, removeWorktree))}
+              onDelete={onDelete && (() => onDelete(thread))}
+              onMove={onMove && ((by) => move(thread, by))}
               // A found session has no saved review to read ahead.
               onPrefetch={onPrefetch && !thread.found ? () => onPrefetch(thread) : undefined}
+              drag={
+                onReorder && {
+                  start: () => setDrag({ id: thread.id, group: group.key }),
+                  over: (after) => {
+                    if (!drag || drag.group !== group.key || drag.id === thread.id) return false;
+                    if (drop?.id !== thread.id || drop.after !== after)
+                      setDrop({ id: thread.id, after });
+                    return true;
+                  },
+                  drop: (after) => dropOn(group, thread.id, after),
+                  end: endDrag,
+                }
+              }
             />
           );
           return (
             <section key={group.key} aria-label={group.name} {...stylex.props(styles.group)}>
               <h2 {...stylex.props(ui.label, styles.groupName)}>{group.name}</h2>
               <ul {...stylex.props(styles.list)}>
-                {withAttempts(recent, row, { current: currentThread, now })}
-                {older.length > 0 && (
-                  <li>
-                    <button
-                      type="button"
-                      data-sidebar-row=""
-                      aria-expanded={open}
-                      onClick={() => toggleOlder(group.key)}
-                      {...stylex.props(styles.row, styles.older)}
-                    >
-                      <span {...stylex.props(styles.mark)} aria-hidden="true">
-                        <span {...stylex.props(styles.chevron, open && styles.chevronOpen)}>
-                          <Icon name="chevron" size={12} />
-                        </span>
-                      </span>
-                      <span {...stylex.props(styles.title)}>{older.length} older</span>
-                    </button>
-                  </li>
-                )}
-                {open && withAttempts(older, row, { current: currentThread, now })}
+                {withAttempts(group.threads, row, { current: currentThread, now })}
               </ul>
             </section>
           );
         })}
       </div>
-      {notice && (
-        <div
-          role={notice.undo ? "status" : "alert"}
-          {...stylex.props(styles.notice, !notice.undo && styles.problem)}
-        >
-          <span {...stylex.props(styles.noticeText)}>{notice.text}</span>
-          {notice.undo && (
-            <button
-              type="button"
-              onClick={() => restore(notice.thread)}
-              {...stylex.props(styles.undo)}
-            >
-              Undo
-            </button>
-          )}
-        </div>
-      )}
+      {notice}
       <section aria-label="Repositories" {...stylex.props(styles.sources)}>
         <div {...stylex.props(styles.sourcesHeader)}>
           <button
@@ -366,7 +379,7 @@ export function ThreadSidebar({
               <Icon name="chevron" size={12} />
             </span>
             <span {...stylex.props(ui.label)}>Repositories</span>
-            <span {...stylex.props(styles.count)}>{sources.length}</span>
+            <span {...stylex.props(styles.sourceCount)}>{sources.length}</span>
           </button>
           <ToolButton label="Add or remove repositories" icon="plus" onClick={onSources} />
         </div>
@@ -409,8 +422,9 @@ export function ThreadSidebar({
 
 const agentNames = { claude: "Claude Code", codex: "Codex" } as const;
 
-/** A thread's row, with its right-click menu: resume its agent in a terminal,
- * mark it read or unread, or archive it, with the worktree Med made for it. */
+/** A tab's row, with its subagents under it and its right-click menu: resume
+ * its agent in a terminal, mark it read or unread, close it, with the
+ * worktree Med made for it, or delete it. */
 function ThreadRow({
   thread,
   name,
@@ -418,10 +432,17 @@ function ThreadRow({
   unread,
   copied,
   now,
+  subagents,
+  isSubagentUnread,
+  drop,
+  drag,
   onOpen,
+  onOpenSubagent,
   onCopy,
   onUnread,
-  onArchive,
+  onClose,
+  onDelete,
+  onMove,
   onPrefetch,
 }: {
   thread: Thread;
@@ -431,10 +452,24 @@ function ThreadRow({
   unread: boolean;
   copied: boolean;
   now: number;
+  subagents: readonly ThreadSubagent[];
+  isSubagentUnread(subagent: ThreadSubagent): boolean;
+  /** A dragged tab lands before or after this one. */
+  drop?: "before" | "after";
+  drag?: {
+    start(): void;
+    /** Whether the dragged tab can land here. */
+    over(after: boolean): boolean;
+    drop(after: boolean): void;
+    end(): void;
+  };
   onOpen(): void;
+  onOpenSubagent?(subagent: ThreadSubagent): void;
   onCopy(text: string): void;
   onUnread(unread: boolean): void;
-  onArchive?(removeWorktree: boolean): void;
+  onClose?(removeWorktree: boolean): void;
+  onDelete?(): void;
+  onMove?(by: -1 | 1): void;
   onPrefetch?(): void;
 }) {
   // A pointer that rests on the row, or a press, reads the thread ahead.
@@ -448,18 +483,58 @@ function ThreadRow({
     stylex.props(ui.menuItem, state.highlighted && [ui.menuHighlighted, picked]).className;
   const busy = thread.state === "working";
   const asking = needsYou(thread);
-  // A turn that runs shows what it does now in place of its branch.
-  const activity = busy && !asking ? thread.turn?.activity : undefined;
+  // A turn that runs shows what it does now in place of its branch, unless
+  // that is a subagent's task, which its own row shows.
+  const doing = busy && !asking ? thread.turn?.activity : undefined;
+  const activity =
+    doing && !subagents.some((subagent) => doing.includes(subagent.description))
+      ? doing
+      : undefined;
+  const after = (event: DragEvent) => {
+    const box = event.currentTarget.getBoundingClientRect();
+    return event.clientY > box.top + box.height / 2;
+  };
   return (
     <ContextMenu.Root>
-      <ContextMenu.Trigger render={<li />}>
+      <ContextMenu.Trigger
+        render={<li />}
+        {...stylex.props(
+          styles.item,
+          drop === "before" && styles.dropBefore,
+          drop === "after" && styles.dropAfter,
+          stylex.defaultMarker(),
+        )}
+      >
         <button
           type="button"
           data-sidebar-row=""
           data-thread={thread.id}
           data-found={thread.found || undefined}
           aria-current={current ? "page" : undefined}
+          aria-keyshortcuts={onMove ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
+          draggable={!!drag}
+          onDragStart={(event) => {
+            if (!drag) return;
+            event.dataTransfer.effectAllowed = "move";
+            event.dataTransfer.setData("text/plain", thread.title);
+            drag.start();
+          }}
+          onDragOver={(event) => {
+            if (drag?.over(after(event))) event.preventDefault();
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            drag?.drop(after(event));
+          }}
+          onDragEnd={() => drag?.end()}
           onClick={onOpen}
+          onKeyDown={(event) => {
+            if (!onMove || !event.altKey || event.metaKey || event.ctrlKey || event.shiftKey)
+              return;
+            if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+            event.preventDefault();
+            onMove(event.key === "ArrowUp" ? -1 : 1);
+          }}
           onPointerEnter={() => {
             if (current || !onPrefetch) return;
             clearTimeout(rest.current);
@@ -468,39 +543,43 @@ function ThreadRow({
           onPointerLeave={() => clearTimeout(rest.current)}
           onPointerDown={() => !current && onPrefetch?.()}
           onFocus={() => !current && onPrefetch?.()}
-          {...stylex.props(
-            styles.row,
-            styles.thread,
-            current && styles.current,
-            unread && styles.unread,
-          )}
+          {...stylex.props(styles.row, styles.thread, current && styles.current)}
         >
           <span {...stylex.props(styles.mark)} aria-hidden="true">
             {asking ? (
               <span {...stylex.props(styles.dot, thread.state === "waiting" && styles.waiting)} />
-            ) : thread.state === "working" ? (
-              <span {...stylex.props(styles.working)} />
-            ) : unread ? (
-              <span {...stylex.props(styles.dot)} />
-            ) : thread.agent ? (
+            ) : (
               <Icon name={agentIcon(thread.agent)} size={13} />
-            ) : null}
+            )}
           </span>
           <span {...stylex.props(styles.lines)}>
             <span {...stylex.props(styles.titleLine)}>
-              <span {...stylex.props(styles.title)}>{name ?? thread.title}</span>
+              <span
+                {...stylex.props(
+                  styles.title,
+                  busy && !asking && styles.busy,
+                  unread && styles.unread,
+                  asking && styles.asking,
+                )}
+              >
+                {name ?? thread.title}
+              </span>
               {copied ? (
                 <span role="status" {...stylex.props(styles.age)}>
                   Copied
                 </span>
               ) : (
-                <span {...stylex.props(styles.age, asking && styles.needsYou)}>
-                  {asking
-                    ? "Needs you"
-                    : thread.state === "working"
-                      ? "Working"
-                      : shortAge(thread.updatedAt, now)}
-                </span>
+                (asking || !busy) && (
+                  <span
+                    {...stylex.props(
+                      styles.age,
+                      asking && styles.needsYou,
+                      onClose && styles.ageHides,
+                    )}
+                  >
+                    {asking ? "Needs you" : shortAge(thread.updatedAt, now)}
+                  </span>
+                )
               )}
             </span>
             <span {...stylex.props(styles.detailLine)}>
@@ -520,15 +599,66 @@ function ThreadRow({
             </span>
           </span>
           <span {...stylex.props(styles.hidden)}>
-            {asking
-              ? ", needs you"
-              : thread.state === "working"
-                ? ", working"
-                : unread
-                  ? ", new"
-                  : ""}
+            {asking ? ", needs you" : busy ? ", working" : unread ? ", new" : ""}
           </span>
         </button>
+        {onClose && (
+          <button
+            type="button"
+            aria-label={`Close ${thread.title}`}
+            title="Close tab (⌘⌥W)"
+            onClick={() => onClose(false)}
+            {...stylex.props(styles.close)}
+          >
+            <Icon name="close" size={12} />
+          </button>
+        )}
+        {subagents.length > 0 && (
+          <ul aria-label={`${thread.title} subagents`} {...stylex.props(styles.subagents)}>
+            {subagents.map((subagent) => {
+              const working = subagent.state === "working";
+              const fresh = !working && isSubagentUnread(subagent);
+              return (
+                <li key={subagent.id}>
+                  <button
+                    type="button"
+                    data-sidebar-row=""
+                    data-subagent={subagent.id}
+                    onClick={() => onOpenSubagent?.(subagent)}
+                    {...stylex.props(styles.row, styles.subagent)}
+                  >
+                    <span {...stylex.props(styles.lines, styles.subagentLines)}>
+                      <span
+                        {...stylex.props(
+                          styles.subagentName,
+                          working && styles.busy,
+                          fresh && styles.unread,
+                        )}
+                      >
+                        {subagent.description}
+                      </span>
+                      {working ? (
+                        <span
+                          title={subagent.activity}
+                          {...stylex.props(styles.subagentActivity, styles.activity)}
+                        >
+                          {subagent.activity ?? "Working"}
+                        </span>
+                      ) : (
+                        <span aria-hidden="true" {...stylex.props(styles.subagentActivity)}>
+                          Done · {shortAge(subagent.updatedAt, now)}
+                        </span>
+                      )}
+                    </span>
+                    <span {...stylex.props(styles.hidden)}>
+                      {working ? ", working" : fresh ? ", done" : ""}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
         <ContextMenu.Positioner {...stylex.props(styles.menuPositioner)}>
@@ -570,15 +700,21 @@ function ThreadRow({
             <ContextMenu.Item onClick={() => onUnread(!unread)} className={item}>
               {unread ? "Mark as read" : "Mark as unread"}
             </ContextMenu.Item>
-            {onArchive && (
-              <ContextMenu.Item onClick={() => onArchive(false)} className={item}>
-                {thread.found ? "Hide" : "Archive"}
+            {onClose && (
+              <ContextMenu.Item onClick={() => onClose(false)} className={item}>
+                Close tab
+                <span {...stylex.props(styles.menuHint)}>⌘⌥W</span>
               </ContextMenu.Item>
             )}
-            {onArchive && thread.linked && !thread.found && (
-              <ContextMenu.Item disabled={busy} onClick={() => onArchive(true)} className={item}>
-                Archive and remove worktree
+            {onClose && thread.linked && !thread.found && (
+              <ContextMenu.Item disabled={busy} onClick={() => onClose(true)} className={item}>
+                Close and remove worktree
                 <span {...stylex.props(styles.menuHint)}>{thread.checkout?.split("/").at(-1)}</span>
+              </ContextMenu.Item>
+            )}
+            {onDelete && (
+              <ContextMenu.Item onClick={onDelete} className={item}>
+                Delete…
               </ContextMenu.Item>
             )}
           </ContextMenu.Popup>
@@ -588,7 +724,6 @@ function ThreadRow({
   );
 }
 
-const turn = stylex.keyframes({ to: { transform: "rotate(360deg)" } });
 const pulse = stylex.keyframes({
   "0%": { boxShadow: `0 0 0 0 color-mix(in srgb, ${tokens.accent} 45%, transparent)` },
   "70%": { boxShadow: `0 0 0 5px color-mix(in srgb, ${tokens.accent} 0%, transparent)` },
@@ -634,7 +769,6 @@ const styles = stylex.create({
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
   },
-  flush: { paddingBottom: 0 },
   list: {
     listStyle: "none",
     margin: 0,
@@ -667,12 +801,19 @@ const styles = stylex.create({
   newRow: { height: 32, color: { default: tokens.text, ":hover": tokens.text }, marginTop: 2 },
   thread: { alignItems: "flex-start", paddingBlock: 7 },
   source: { height: 30 },
-  older: { height: 28, color: { default: tokens.faint, ":hover": tokens.text } },
+  // A tab's row holds its close control and its subagents.
+  item: { position: "relative" },
+  // Where a dragged tab lands: a line above or below the row.
+  dropBefore: { boxShadow: `inset 0 2px 0 ${tokens.accent}` },
+  dropAfter: { boxShadow: `inset 0 -2px 0 ${tokens.accent}` },
   current: {
     color: { default: tokens.text, ":hover": tokens.text },
     backgroundColor: { default: tokens.pick, ":hover": tokens.pick },
   },
-  unread: { color: { default: tokens.text, ":hover": tokens.text } },
+  // While its agent works, a tab's title is dim; a result not seen yet is bold.
+  busy: { color: { default: tokens.faint, ":hover": tokens.muted } },
+  unread: { color: { default: tokens.text, ":hover": tokens.text }, fontWeight: 600 },
+  asking: { color: tokens.text },
   mark: {
     display: "flex",
     alignItems: "center",
@@ -699,6 +840,95 @@ const styles = stylex.create({
     fontVariantNumeric: "tabular-nums",
   },
   needsYou: { color: tokens.accent, fontWeight: 500 },
+  // The close control takes the age's place while the row is hovered.
+  ageHides: {
+    opacity: {
+      default: 1,
+      [stylex.when.ancestor(":hover")]: 0,
+      [stylex.when.ancestor(":focus-within")]: 0,
+    },
+  },
+  close: {
+    position: "absolute",
+    insetInlineEnd: 6,
+    top: 7,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 18,
+    height: 18,
+    padding: 0,
+    borderWidth: 0,
+    borderRadius: `calc(5px * ${tokens.round})`,
+    backgroundColor: { default: "transparent", ":hover": tokens.fillStrong },
+    color: { default: tokens.faint, ":hover": tokens.text },
+    cursor: "pointer",
+    opacity: {
+      default: 0,
+      ":focus-visible": 1,
+      [stylex.when.ancestor(":hover")]: 1,
+      [stylex.when.ancestor(":focus-within")]: 1,
+    },
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+  },
+  subagents: {
+    listStyle: "none",
+    margin: 0,
+    padding: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: 1,
+    paddingBottom: 2,
+  },
+  // Under the tab's title, two lines each, as a tab has: the task, then what
+  // it does now, or when it finished. A finished subagent keeps its height.
+  subagent: {
+    paddingBlock: 4,
+    paddingInlineStart: 31,
+    fontSize: 12,
+  },
+  subagentLines: { gap: 1 },
+  subagentName: {
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    lineHeight: "16px",
+  },
+  subagentActivity: {
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    color: tokens.faint,
+    fontSize: 11,
+    fontWeight: 450,
+    lineHeight: "14px",
+  },
+  // Above the tabs: how many need the reader, and how many work.
+  counts: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 10,
+    paddingInline: 8,
+    color: tokens.faint,
+    fontSize: 11.5,
+  },
+  count: {
+    padding: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    color: { default: tokens.muted, ":hover": tokens.text },
+    fontFamily: tokens.ui,
+    fontSize: 11.5,
+    cursor: "pointer",
+    textDecorationLine: { default: "none", ":hover": "underline" },
+    textUnderlineOffset: 3,
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+    borderRadius: 3,
+  },
+  countNeeds: { color: { default: tokens.accent, ":hover": tokens.accent }, fontWeight: 500 },
   detailLine: {
     display: "flex",
     alignItems: "center",
@@ -742,20 +972,6 @@ const styles = stylex.create({
     backgroundColor: tokens.accent,
     animationName: { default: pulse, [reduced]: "none" },
     animationDuration: "2s",
-    animationIterationCount: "infinite",
-  },
-  working: {
-    boxSizing: "border-box",
-    width: 11,
-    height: 11,
-    borderRadius: "50%",
-    borderWidth: 1.5,
-    borderStyle: "solid",
-    borderColor: tokens.lineStrong,
-    borderTopColor: tokens.text,
-    animationName: { default: turn, [reduced]: "none" },
-    animationDuration: "900ms",
-    animationTimingFunction: "linear",
     animationIterationCount: "infinite",
   },
   hidden: {
@@ -802,6 +1018,17 @@ const styles = stylex.create({
     lineHeight: 1.45,
   },
   problem: { color: tokens.text },
+  // While the sidebar hides, the notice shows over the workspace.
+  floating: {
+    position: "absolute",
+    zIndex: 30,
+    left: 12,
+    bottom: 12,
+    maxWidth: "min(380px, calc(100% - 24px))",
+    marginInline: 0,
+    marginBottom: 0,
+    boxShadow: `0 0 0 1px ${tokens.line}, ${tokens.shadow}`,
+  },
   noticeText: { flex: "1", minWidth: 0 },
   undo: {
     flexShrink: 0,
@@ -854,5 +1081,5 @@ const styles = stylex.create({
     transitionDuration: "150ms",
   },
   chevronOpen: { transform: "rotate(0deg)" },
-  count: { color: tokens.faint, fontSize: 11, fontVariantNumeric: "tabular-nums" },
+  sourceCount: { color: tokens.faint, fontSize: 11, fontVariantNumeric: "tabular-nums" },
 });

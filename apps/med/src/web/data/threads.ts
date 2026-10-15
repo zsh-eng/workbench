@@ -12,10 +12,13 @@ const pause = (ms: number, signal: AbortSignal) =>
     signal.addEventListener("abort", () => (clearTimeout(timer), resolve()), { once: true });
   });
 
+/** The list of a host without threads, such as `med review` alone. */
+export const NO_THREADS: ThreadList = { threads: [], repositories: [] };
+
 /**
- * Every thread the host keeps, newest first, and the registered repositories.
- * The host sends the list again when a thread or its agent changes; the
- * stream reconnects with a backoff. `null` until the host answers.
+ * The tabs, in the user's order, and the registered repositories. The host
+ * sends the list again when a tab or its agent changes; the stream reconnects
+ * with a backoff. `null` until the host answers. History is not in it.
  */
 export function useThreads(fetcher: typeof fetch): ThreadList | null {
   const [list, setList] = useState<ThreadList | null>(null);
@@ -29,7 +32,7 @@ export function useThreads(fetcher: typeof fetch): ThreadList | null {
         try {
           const response = await api.stream("/api/threads/events", signal);
           // A host without threads lists none.
-          if (response.status === 404) return setList({ threads: [], repositories: [] });
+          if (response.status === 404) return setList(NO_THREADS);
           if (!response.ok || !response.body) throw new Error("The thread stream closed.");
           delay = 1000;
           await readServerEvents(
@@ -63,8 +66,11 @@ export interface ThreadGroup {
   threads: Thread[];
 }
 
-/** Threads by repository: the group with the newest thread first, and each
- * group newest first. */
+/**
+ * Tabs by repository, in the user's order: a group shows where its first tab
+ * is, and keeps its tabs' order. The attempts of one task stay together
+ * (data/attempts.ts). A tab never moves when its agent's state changes.
+ */
 export function groupThreads(threads: readonly Thread[]): ThreadGroup[] {
   const groups = new Map<string, ThreadGroup>();
   for (const thread of threads) {
@@ -75,24 +81,13 @@ export function groupThreads(threads: readonly Thread[]): ThreadGroup[] {
     if (!group) groups.set(key, (group = { key, name, threads: [] }));
     group.threads.push(thread);
   }
-  // The attempts of one task stay together, by letter (data/attempts.ts).
-  for (const group of groups.values())
-    group.threads = orderAttempts(group.threads.sort((a, b) => b.updatedAt - a.updatedAt));
-  return [...groups.values()].sort(
-    (a, b) => (b.threads[0]?.updatedAt ?? 0) - (a.threads[0]?.updatedAt ?? 0),
-  );
+  for (const group of groups.values()) group.threads = orderAttempts(group.threads);
+  return [...groups.values()];
 }
 
-/** Threads that changed within this time stay in view; older ones fold. */
-export const RECENT_MS = 3 * 24 * 60 * 60 * 1000;
-
-/** Whether a thread stays in view: its agent works or waits for the reader,
- * or it changed in the last three days. */
-export function isRecent(thread: Thread, now: number) {
-  return (
-    thread.state === "working" || thread.state === "waiting" || now - thread.updatedAt < RECENT_MS
-  );
-}
+/** The tabs in the sidebar's order, which ⌘1–⌘9 follow. */
+export const tabOrder = (threads: readonly Thread[]) =>
+  groupThreads(threads).flatMap((group) => group.threads);
 
 /** The user sent a message from Med after the turn ended. */
 const answered = (thread: Thread) =>

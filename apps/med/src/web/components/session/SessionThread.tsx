@@ -902,11 +902,14 @@ export function SessionThread({
   before,
   earlier,
   reveal,
+  openAgent,
   loading = false,
   showWork = false,
   onOpenLink,
 }: {
   snapshot: SessionSnapshot;
+  /** Opens this subagent's tab once for each nonce, once the session has it. */
+  openAgent?: { id: string; nonce: number };
   /** The first view has not come yet. */
   loading?: boolean;
   /** Shown above the first item, such as a note that earlier work is left out. */
@@ -934,6 +937,16 @@ export function SessionThread({
   const [agentId, setAgentId] = useState<string | null>(null);
   const agents = useMemo(() => subagentsOf(snapshot.items), [snapshot.items]);
   const agent = agentId === null ? undefined : agents.find((item) => item.id === agentId);
+  // A subagent that the sidebar opens shows once its call is in the thread.
+  const [openedAgent, setOpenedAgent] = useState<number>();
+  if (
+    openAgent &&
+    openAgent.nonce !== openedAgent &&
+    agents.some((item) => item.id === openAgent.id)
+  ) {
+    setOpenedAgent(openAgent.nonce);
+    setAgentId(openAgent.id);
+  }
   const closeAgent = useCallback(() => {
     // The thread takes focus once it is no longer inert.
     flushSync(() => setAgentId(null));

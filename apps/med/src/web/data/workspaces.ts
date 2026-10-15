@@ -279,14 +279,17 @@ export function createWorkspaceStore(pathname: string, state?: unknown) {
         if (activate) store.activate(existing.id);
         return existing.id;
       }
-      // A review or vault has one id in every window, so windows that add it
-      // at the same time agree.
+      // A review, a found session, or a vault has one id in every window, so
+      // windows that add it at the same time agree, and a tab loaded ahead
+      // shows in the same slot.
       const id =
         input.kind === "review"
           ? reviewWorkspaceId(input.reviewId)
           : input.kind === "vault"
             ? `vault-${input.sourceId}`
-            : newId();
+            : input.kind === "repository" && input.found
+              ? `found-${input.found.agent}-${input.found.id}`
+              : newId();
       const workspace = { ...input, id } as Workspace;
       let workspaces = [...snapshot.workspaces, workspace];
       let recent = activate

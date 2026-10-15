@@ -28,6 +28,7 @@ export const serviceHelp = `Usage: med web                         Start the bac
        med index [source] [--wait]
        med serve                       Run the server in the foreground
        med pr checkout <number|url|branch>  Check out a pull request with gh and review it
+       med thread list | open | close | reopen | delete   Manage the tabs and history
        med thread find [<words>]       List Claude Code and Codex sessions of any age
        med thread adopt <session>      Make a session a Med thread
        med docs [agents|vaults|usage]

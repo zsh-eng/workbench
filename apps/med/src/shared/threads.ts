@@ -4,9 +4,35 @@ import { attemptRefSchema } from "./attempts";
 import { agentChoicesSchema } from "./owned-session";
 import { agentSessionSchema } from "./saved-review";
 
+/** The thread ID of a saved review, or of a session that Med found by itself. */
+export const threadIdSchema = z
+  .string()
+  .regex(
+    /^(?:r_[a-f0-9]{24}|found-(?:claude|codex)-[A-Za-z0-9_-]{1,128})$/,
+    "Choose a thread by its ID.",
+  );
+
+/**
+ * A subagent that a thread's session started (Claude Code's
+ * `subagents/agent-*.jsonl`), as the thread list shows it under its tab.
+ */
+export const threadSubagentSchema = z.object({
+  /** The tool call that started it; the Session pane has a tab for each. */
+  id: z.string().max(200),
+  description: z.string().max(200),
+  state: z.enum(["working", "idle"]),
+  /** What it does now, while it works. */
+  activity: z.string().max(200).optional(),
+  /** The last change to its transcript, in milliseconds. */
+  updatedAt: z.number(),
+});
+export type ThreadSubagent = z.infer<typeof threadSubagentSchema>;
+
 /**
  * A thread: one task with its agent sessions and its changes. Each saved
- * review is a thread; the window's thread list shows every one the host keeps.
+ * review is a thread, and so is a session that Med found by itself. A thread
+ * is a tab (open) or in history (closed); the host keeps which, and the
+ * order of the tabs (src/host/thread-tabs.ts).
  */
 export const threadSchema = z.object({
   /** The saved review's ID. */
@@ -60,16 +86,51 @@ export const threadSchema = z.object({
     .optional(),
   /** One attempt at a task that several agents do; the sidebar shows a group together. */
   group: attemptRefSchema.optional(),
+  /** A tab: the thread stays warm and shows in the sidebar. False in history. */
+  open: z.boolean().optional(),
+  /** When the thread went to history, in milliseconds. */
+  closedAt: z.number().optional(),
+  /** The first prompt of its lead session, which history searches. */
+  prompt: z.string().max(400).optional(),
+  /** History keeps only what lists and resumes the thread: its captures are gone. */
+  stub: z.boolean().optional(),
+  /** The subagents that its lead session runs, or ran lately, newest first. */
+  subagents: z.array(threadSubagentSchema).max(8).optional(),
 });
 export type Thread = z.infer<typeof threadSchema>;
 
 export const threadListSchema = z.object({
+  /** The tabs, in the user's order. History is `GET /api/threads/history`. */
   threads: z.array(threadSchema),
   repositories: z.array(z.object({ id: z.string(), name: z.string(), path: z.string() })),
   /** Whether the list shows the sessions that Med finds by itself. */
   found: z.object({ shown: z.boolean() }).optional(),
 });
 export type ThreadList = z.infer<typeof threadListSchema>;
+
+/** `GET /api/threads/history`: closed threads and found sessions that are
+ * not tabs, newest first. */
+export const threadHistorySchema = z.object({ threads: z.array(threadSchema) });
+
+/** `POST /api/threads/:id/open`: `restore` puts a closed tab back at its
+ * place, as Undo and Reopen closed tab do; otherwise it goes to the top of its
+ * repository's tabs. */
+export const threadOpenSchema = z.object({ restore: z.boolean().default(false) });
+/** The tab that opened. A thread whose captures are gone opens as its
+ * session, so the ID can change. */
+export const threadOpenedSchema = z.object({ thread: threadSchema });
+
+/** `POST /api/threads/:id/close`. `auto`: the work landed (the auto-close rule). */
+export const threadCloseSchema = z.object({
+  auto: z.boolean().default(false),
+  /** Also removes the linked worktree that Med made; Git keeps one with changes. */
+  removeWorktree: z.boolean().default(false),
+});
+/** Whether this request closed the tab; false when it was closed already. */
+export const threadClosedSchema = z.object({ closed: z.boolean() });
+
+/** `POST /api/threads/order`: the tabs in their new order. */
+export const threadOrderSchema = z.object({ order: z.array(threadIdSchema).max(1000) });
 
 /** A new thread: the task, where the agent works, and which agent. */
 export const threadStartSchema = z.object({

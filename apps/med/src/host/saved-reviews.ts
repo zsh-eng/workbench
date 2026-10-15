@@ -11,7 +11,6 @@ import {
   rmdir,
   stat,
   unlink,
-  utimes,
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
@@ -66,8 +65,9 @@ import {
 const REVIEW_ID = /^r_[a-f0-9]{24}$/;
 const TARGET_ID = /^t_[a-f0-9]{24}$/;
 const MAX_RECORD_BYTES = 64 * 1024 * 1024;
+/** The byte budget of all records. Past it, the oldest closed threads give
+ * up their captures (`evictable`); open threads never do. */
 const MAX_TOTAL_BYTES = 512 * 1024 * 1024;
-const MAX_REVIEWS = 128;
 const MAX_NOTES = 500;
 const MAX_FEEDBACK_BYTES = 8 * 1024 * 1024;
 // Parsed records stay in memory up to this many file bytes, four at most.
@@ -343,7 +343,18 @@ export class SavedReviewStore {
   // status streams read every review often; a description is small, and a
   // record can take megabytes to parse.
   private described = new Map<string, { identity: string; review: SavedReview }>();
-  constructor(private readonly directory: string) {}
+  /** Counts the writes and deletes of this store, so a reader can tell when
+   * its list of reviews is old. */
+  changes = 0;
+  constructor(
+    private readonly directory: string,
+    private readonly budget: {
+      /** Reviews that may give up their captures, the first to go first. */
+      evictable(): readonly string[];
+      /** Keeps what history needs of a review before its file goes. */
+      evicted(review: SavedReview): void;
+    } = { evictable: () => [], evicted: () => {} },
+  ) {}
 
   private serial<T>(work: () => Promise<T>): Promise<T> {
     const next = this.pending.then(work);
@@ -525,19 +536,30 @@ export class SavedReviewStore {
     const files = (await readdir(this.directory)).filter((name) =>
       /^r_[a-f0-9]{24}\.json$/.test(name),
     );
-    if (!files.includes(filename) && files.length >= MAX_REVIEWS)
-      throw new HostError(
-        "saved-review-limit",
-        "Saved reviews reached the limit of 128 reviews.",
-        413,
-      );
+    const sizes = new Map<string, number>();
     let total = size;
     for (const name of files)
-      if (name !== filename) total += (await stat(join(this.directory, name))).size;
+      if (name !== filename) {
+        const bytes = (await stat(join(this.directory, name)).catch(() => undefined))?.size ?? 0;
+        sizes.set(name.slice(0, -5), bytes);
+        total += bytes;
+      }
+    // Over the budget, the oldest closed threads give up their captures.
+    for (const id of total > MAX_TOTAL_BYTES ? this.budget.evictable() : []) {
+      if (total <= MAX_TOTAL_BYTES) break;
+      if (id === record.saved.id || !sizes.has(id)) continue;
+      const review = await this.read(id).then(
+        (found) => this.describe(found),
+        () => undefined,
+      );
+      if (review) this.budget.evicted(review);
+      await this.remove(id);
+      total -= sizes.get(id)!;
+    }
     if (total > MAX_TOTAL_BYTES)
       throw new HostError(
         "saved-review-limit",
-        "Saved reviews exceed the 512 MiB storage limit.",
+        "Saved reviews exceed the 512 MiB storage limit. Close or delete threads you no longer need.",
         413,
       );
     const temporary = join(this.directory, `.${record.saved.id}-${randomUUID()}.tmp`);
@@ -552,6 +574,7 @@ export class SavedReviewStore {
       beforeCommit?.();
       await rename(temporary, this.file(record.saved.id));
       this.cache.delete(record.saved.id);
+      this.changes++;
     } finally {
       await unlink(temporary).catch(() => undefined);
     }
@@ -824,6 +847,9 @@ export class SavedReviewStore {
   private async setKey(key: string, id: string) {
     const keys = await this.readKeys();
     keys[key] = id;
+    await this.writeKeys(keys);
+  }
+  private async writeKeys(keys: Record<string, string>) {
     const temporary = join(this.directory, `.keys-${randomUUID()}.tmp`);
     try {
       await writeFile(temporary, JSON.stringify(keys), { mode: 0o600, flag: "wx" });
@@ -1055,17 +1081,24 @@ export class SavedReviewStore {
     }, beforeCommit);
   }
 
-  /** Archive the review, which leaves the thread list, or bring it back. */
-  archive(id: string, archived: boolean, beforeCommit?: () => void): Promise<SavedReview> {
+  /** Removes a record file and what remembers it. The caller holds the lock. */
+  private async remove(id: string) {
+    await unlink(this.file(id)).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error;
+    });
+    this.cache.delete(id);
+    this.described.delete(id);
+    this.changes++;
+    const keys = await this.readKeys();
+    const left = Object.entries(keys).filter(([, value]) => value !== id);
+    if (left.length !== Object.keys(keys).length) await this.writeKeys(Object.fromEntries(left));
+  }
+
+  /** Deletes a review with its captures, comments, and key. */
+  delete(id: string, beforeCommit?: () => void): Promise<void> {
     return this.writing(async () => {
-      const record = await this.read(id, true);
-      const before = await stat(this.file(id)).catch(() => undefined);
-      if (archived) record.saved.archivedAt = new Date().toISOString();
-      else delete record.saved.archivedAt;
-      await this.write(record, beforeCommit);
-      // Archiving is not work on the thread: it keeps its place in the list.
-      if (before) await utimes(this.file(id), before.atime, before.mtime).catch(() => {});
-      return this.describe(record);
+      this.file(id);
+      await this.remove(id);
     }, beforeCommit);
   }
 
