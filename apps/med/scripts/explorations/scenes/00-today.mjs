@@ -6,7 +6,7 @@ export default async function scene(stage) {
   await stage.card(
     "Med · design explorations",
     "Med, reconsidered",
-    "One night of experiments on the branch med-explorations. Each is a few commits that you can keep or drop.",
+    "One night of experiments on the branch med-explorations. These are the ones that Med keeps.",
     4200,
   );
   await stage.card(
@@ -15,10 +15,10 @@ export default async function scene(stage) {
     "Agents now work in parallel, in worktrees, in Claude Code and Codex. Reading one diff is no longer the hard part.",
     7000,
     [
+      "Where do my agents work?",
       "What needs me now?",
-      "Why does this line exist?",
-      "What changed, and where do I start?",
-      "How do I ship it?",
+      "Can the code have more of the window?",
+      "Which of two tries is better?",
     ],
   );
   const sidebar = page.locator("aside").first();

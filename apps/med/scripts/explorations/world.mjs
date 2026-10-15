@@ -1374,7 +1374,7 @@ export async function buildWorld(root, now = Date.now()) {
     "# 0.3\n\n- Heights with one decimal.\n- The prediction model in the README.\n",
   );
 
-  // A larger change with no session, for the change map (experiment 4).
+  // A larger change with no session (week-view.mjs).
   const weekTree = await buildWeekView({ repo, trees, now, helpers: { git, put, dated } });
 
   // Experiment 7: one task that Claude and Codex both did (see weekAttempts).

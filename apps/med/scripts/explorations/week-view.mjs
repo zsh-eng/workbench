@@ -1,5 +1,5 @@
-// A larger change for the change map (experiment 4): an agent's "week view"
-// for tide, on its own branch and worktree. It has 30 files across the CLI, a
+// A larger change, for a review without a session (measure-chrome.mjs): an
+// agent's "week view" for tide, on its own branch and worktree. It has 30 files across the CLI, a
 // small web page, tests, docs, CI, and a lock file, with one file deleted,
 // one renamed, one image, and one generated file. No session records it.
 import { createHash } from "node:crypto";

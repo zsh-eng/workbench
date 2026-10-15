@@ -28,7 +28,7 @@ export default async function scene(stage) {
       "A window store with selectors. One agent step rendered 10,176 components; now 390.",
       "A thread index apart from review captures, with Delete.",
       "A command registry, which also writes the shortcut guide.",
-      "Feature controllers that empty App.tsx, after you choose the experiments.",
+      "Feature controllers that empty App.tsx.",
       "A route table with shared contracts. The Commit tab uses it now.",
     ],
   );
