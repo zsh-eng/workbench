@@ -25,7 +25,6 @@ import {
   overlayAddress,
   pinned,
   REVIEW_UPDATED,
-  reviewWorkspaceId,
   workspaceUrl,
   type PullWorkspace,
   type RepositoryWorkspace,
@@ -36,7 +35,7 @@ import {
   type WorkspaceSnapshot,
 } from "../data/workspaces";
 import { z } from "zod";
-import { tokens } from "../theme.stylex";
+import { tokens, ui } from "../theme.stylex";
 import { Icon, type IconName } from "./Icon";
 import { visibleElement } from "../data/palette-focus";
 import { createApi } from "../data/api";
@@ -49,24 +48,57 @@ import { themeController } from "../themes";
 import { parsePullUrl } from "../../shared/pull-workspace";
 import { startPull, usePullJob } from "../data/pull-jobs";
 import { PullWorkspaceView, pullTitle, type PullState } from "./PullWorkspace";
-import { groupThreads, isRecent, useThreads } from "../data/threads";
-import { isFoundThread, threadInput, updateFound } from "../data/found-threads";
+import {
+  groupThreads,
+  needsYou,
+  NO_THREADS,
+  shortAge,
+  tabOrder,
+  useThreads,
+} from "../data/threads";
+import {
+  isFoundThread,
+  threadInput,
+  threadWorkspaceId,
+  workspaceThread,
+} from "../data/found-threads";
+import { foundThreadId } from "../../shared/found-sessions";
+import {
+  closeThread,
+  deleteThread,
+  landed,
+  openThread,
+  orderThreads,
+  readHistory,
+  reopenThread,
+  requestSubagentOpen,
+  useReadState,
+} from "../data/tabs";
+import type { ReviewCommand } from "./Controls";
 import { barContext, WorkspaceBar } from "./shell/WorkspaceBar";
-import { ThreadSidebar, type SidebarSource } from "./shell/ThreadSidebar";
+import {
+  NoticeBar,
+  ThreadSidebar,
+  type SidebarSource,
+  type TabNotice,
+} from "./shell/ThreadSidebar";
 import { NewThread } from "./shell/NewThread";
 import { SEARCH_PATH, SearchPage, readSearchAddress, type SearchOpen } from "./SearchPage";
 import { requestFileOpen } from "../data/file-opens";
 import { prefetchSavedReview } from "../data/controller";
 import { whenIdle } from "../data/idle";
 import { AttemptsHost } from "./attempts/AttemptsHost";
-import { attemptsGroupOf } from "../data/attempts";
+import { attemptsGroupOf, useAttemptsAddress } from "../data/attempts";
 
-/** Workspaces kept mounted besides the threads in view, most recently shown
- * first. Older ones reload. */
+/** Workspaces kept mounted besides the tabs, such as branches, most recently
+ * shown first. Older ones reload. */
 const MOUNTED = 6;
-/** Threads out of view that load out of sight, such as one under the pointer
- * in the older threads. The threads in view always do. */
-const WARM = 3;
+/** Tabs stay mounted, as a terminal keeps its open tabs; beyond this many,
+ * the least recently shown drop their DOM and stay in the sidebar. */
+const TABS_MOUNTED = 16;
+/** How long a thread on screen waits for the host's list before it asks to
+ * be a tab: the host sends its list every 1.5 s. */
+const LIST_WAIT_MS = 2500;
 /** The longest that a new workspace prepares out of sight before it shows. */
 const PREPARE_MS = 600;
 /** The longest that a thread loaded ahead renders out of sight to settle. */
@@ -153,16 +185,74 @@ const LOST = "Med restarted before it opened this pull request.";
 const removedSchema = z.object({ removed: z.literal(true) });
 /** Disposers that run when a workspace closes or leaves memory. */
 const Lifetime = createContext<Set<() => void> | null>(null);
-/** Threads to load before their first visit: the one under the pointer
- * (`next`), then the threads in view, in the sidebar's order. The threads in
- * view (`active`, open or not) stay loaded, as open terminal tabs do, until
- * they are archived or fold into the older threads. */
+/** Tabs to load before their first visit: the one under the pointer
+ * (`next`), then the others, in the sidebar's order. The tabs (`active`, by
+ * workspace ID) stay loaded, as open terminal tabs do, up to TABS_MOUNTED,
+ * until they close. History is never loaded ahead. */
 interface WarmThreads {
-  threads: { workspace: ReviewWorkspace; session?: string }[];
+  threads: { workspace: ReviewWorkspace | RepositoryWorkspace; session?: string }[];
   next: string | null;
   active: ReadonlySet<string>;
 }
 const Warm = createContext<WarmThreads>({ threads: [], next: null, active: new Set() });
+
+/** What the tabs can do, for the palette (useTabCommands). It does not
+ * change; `subscribe` tells when the tabs change. */
+interface TabActions {
+  isTab(threadId: string | undefined): boolean;
+  close(threadId: string): void;
+  reopen(): void;
+  openHistory(): void;
+  /** Shows the next tab that needs the reader, else the next that works. */
+  next(): void;
+  move(threadId: string, by: -1 | 1): void;
+  subscribe(listener: () => void): () => void;
+}
+const Tabs = createContext<TabActions | null>(null);
+
+/** The palette's commands for tabs: close this workspace's tab, reopen a
+ * closed one, open one from history, go to the next that needs you, and
+ * move this tab. Outside a window with tabs, none. */
+export function useTabCommands(): ReviewCommand[] {
+  const tabs = use(Tabs);
+  const thread = workspaceThread(use(Entry) ?? undefined);
+  const isTab = useSyncExternalStore(tabs?.subscribe ?? noSubscription, () =>
+    tabs ? tabs.isTab(thread) : false,
+  );
+  return useMemo(() => {
+    if (!tabs) return [];
+    const run = (action: (id: string) => void) => () => thread && action(thread);
+    return [
+      {
+        id: "close-tab",
+        label: "Close tab",
+        shortcut: "⌘ ⌥ W",
+        disabled: !isTab,
+        run: run(tabs.close),
+      },
+      { id: "reopen-tab", label: "Reopen closed tab", shortcut: "⌘ ⌥ T", run: tabs.reopen },
+      {
+        id: "open-history",
+        managesFocus: true,
+        label: "Open from history…",
+        run: tabs.openHistory,
+      },
+      { id: "next-needs-you", label: "Next tab that needs you", shortcut: "⌘ 0", run: tabs.next },
+      {
+        id: "tab-up",
+        label: "Move tab up",
+        disabled: !isTab,
+        run: run((id) => tabs.move(id, -1)),
+      },
+      {
+        id: "tab-down",
+        label: "Move tab down",
+        disabled: !isTab,
+        run: run((id) => tabs.move(id, 1)),
+      },
+    ];
+  }, [isTab, tabs, thread]);
+}
 /** Whether this workspace is the one on screen. One that renders out of
  * sight runs its effects but takes no keys. */
 const ShownCheck = createContext<() => boolean>(() => true);
@@ -386,6 +476,39 @@ async function readVaults(fetcher: typeof fetch) {
   }
 }
 
+/** An agent that works and does not wait for the reader. */
+const isWorking = (thread: Thread) => thread.state === "working" && !needsYou(thread);
+
+const errorText = (error: unknown, fallback: string) =>
+  error instanceof Error && error.message ? error.message : fallback;
+const reason = (result: PromiseSettledResult<unknown>) =>
+  result.status === "rejected" ? errorText(result.reason, "") : "";
+
+/** The workspace that a tab mounts with before it opens. It keeps one object
+ * while the tab's title and checkout stay. A found session without a
+ * checkout has nothing to load. */
+function warmWorkspace(
+  thread: Thread,
+  cache: Map<string, ReviewWorkspace | RepositoryWorkspace>,
+): ReviewWorkspace | RepositoryWorkspace | undefined {
+  const input = threadInput(thread);
+  if (input.kind === "review" ? thread.found : input.kind !== "repository") return undefined;
+  const id = threadWorkspaceId(thread);
+  const cached = cache.get(id);
+  if (
+    cached &&
+    cached.title === input.title &&
+    (input.kind !== "repository" ||
+      (cached.kind === "repository" &&
+        cached.path === input.path &&
+        cached.branch === input.branch))
+  )
+    return cached;
+  const workspace = { ...input, id } as ReviewWorkspace | RepositoryWorkspace;
+  cache.set(id, workspace);
+  return workspace;
+}
+
 /**
  * Owns the workspaces of this window: the persisted list, the address, the
  * shortcuts, and the switcher. Place it above the vault and file surfaces so
@@ -401,7 +524,12 @@ export function WorkspaceHost({
   const [fetcher] = useState(() => providedFetch ?? browserFetch);
   const [store] = useState(() => createWorkspaceStore(location.pathname, history.state));
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const [switcher, setSwitcher] = useState<{ held: boolean; reverse: boolean } | null>(null);
+  const [switcher, setSwitcher] = useState<{
+    held: boolean;
+    reverse: boolean;
+    /** From "Open from history…": the switcher lists history. */
+    history?: boolean;
+  } | null>(null);
   // A vault keeps its own address, such as the open file, between visits.
   const vaultAddresses = useRef(new Map<string, string>());
   // Each workspace gets back the focus it had, as a window does.
@@ -535,6 +663,9 @@ export function WorkspaceHost({
     window.dispatchEvent(new PopStateEvent("popstate", { state: history.state }));
   }, [snapshot]);
 
+  // Threads that the host opens as tabs, or that this window asked it to
+  // open, until its list has them.
+  const opening = useRef(new Set<string>());
   // Reviews that agents create arrive on the window channel. Each window lists
   // them unread; with `open`, the window used last shows the review.
   const [windowId] = useState(() => `window-${Math.random().toString(36).slice(2, 10)}`);
@@ -564,17 +695,19 @@ export function WorkspaceHost({
       window.removeEventListener("pagehide", leave);
     };
   }, [windowId]);
+  const usedLast = useCallback(() => {
+    try {
+      const last = localStorage.getItem(WINDOW_KEY);
+      return last ? last === windowId : document.visibilityState === "visible";
+    } catch {
+      return document.visibilityState === "visible";
+    }
+  }, [windowId]);
   useEffect(() => {
     const stop = new AbortController();
-    const usedLast = () => {
-      try {
-        const last = localStorage.getItem(WINDOW_KEY);
-        return last ? last === windowId : document.visibilityState === "visible";
-      } catch {
-        return document.visibilityState === "visible";
-      }
-    };
     const receive = ({ id, title, open, updated, sessions }: ReviewEvent) => {
+      // The host opened the review as a tab.
+      opening.current.add(id);
       const here = open && usedLast();
       const known = store.match({ kind: "review", reviewId: id });
       const workspace = store.open(
@@ -613,7 +746,7 @@ export function WorkspaceHost({
       stop.abort();
       others.close();
     };
-  }, [fetcher, show, store, windowId]);
+  }, [fetcher, show, store, usedLast]);
 
   // The address names the workspace: links, reloads, Back, and Forward.
   useEffect(() => {
@@ -755,12 +888,15 @@ export function WorkspaceHost({
     };
   }, []);
 
-  // ⌃Tab opens the switcher of recent workspaces.
+  // ⌃Tab opens the switcher: the tabs and the other workspaces, the most
+  // recently shown first. Typing in it searches history too.
+  const hostHasTabs = useRef(false);
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || event.altKey) return;
       if (overlayAddress(location.pathname) || visibleElement('[role="dialog"]')) return;
-      if (orderedWorkspaces(store.getSnapshot()).length < 2) return;
+      // Without tabs and history, the switcher needs two workspaces.
+      if (!hostHasTabs.current && orderedWorkspaces(store.getSnapshot()).length < 2) return;
       if (event.key === "Tab" && event.ctrlKey && !event.metaKey) {
         event.preventDefault();
         event.stopPropagation();
@@ -772,11 +908,45 @@ export function WorkspaceHost({
     return () => window.removeEventListener("keydown", keydown, true);
   }, [rememberFocus, store]);
 
-  // The sidebar lists every thread the host keeps and the repositories.
+  // The sidebar lists the tabs, in the reader's order, and the repositories.
   const threadList = useThreads(fetcher);
-  // The switcher shows each thread's agent state from the same list.
+  const hasTabs = !!threadList && threadList !== NO_THREADS;
+  useLayoutEffect(() => {
+    hostHasTabs.current = hasTabs;
+  });
+  // Tabs that close here leave at once; the host's next list confirms it.
+  const [closing, setClosing] = useState<ReadonlySet<string>>(() => new Set());
+  if (closing.size && threadList) {
+    const still = [...closing].filter((id) => threadList.threads.some((entry) => entry.id === id));
+    if (still.length !== closing.size) setClosing(new Set(still));
+  }
+  // An order that the reader chose, until the host's list has it.
+  const [ordered, setOrdered] = useState<readonly string[] | null>(null);
+  if (ordered && threadList) {
+    const listed = threadList.threads.flatMap((entry) =>
+      ordered.includes(entry.id) ? [entry.id] : [],
+    );
+    const mine = ordered.filter((id) => listed.includes(id));
+    if (listed.every((id, index) => id === mine[index])) setOrdered(null);
+  }
+  const tabs = useMemo(() => {
+    let list = threadList?.threads ?? [];
+    if (closing.size) list = list.filter((entry) => !closing.has(entry.id));
+    if (ordered) {
+      const place = new Map(ordered.map((id, index) => [id, index]));
+      list = list.toSorted((a, b) => (place.get(a.id) ?? -1) - (place.get(b.id) ?? -1));
+    }
+    return list;
+  }, [threadList, closing, ordered]);
+  const tabsRef = useRef(tabs);
+  useLayoutEffect(() => {
+    tabsRef.current = tabs;
+  });
+  // ⌘1–⌘9 follow this order.
+  const order = useMemo(() => tabOrder(tabs), [tabs]);
+  // Each workspace and the switcher read the tabs' agent states from one store.
   const statuses = useMemo(
-    () => new Map((threadList?.threads ?? []).map((thread) => [thread.id, thread])),
+    () => new Map((threadList?.threads ?? []).map((entry) => [entry.id, entry])),
     [threadList],
   );
   const [threads] = useState(createThreadStore);
@@ -832,32 +1002,35 @@ export function WorkspaceHost({
     () => ({ sidebarVisible: showsSidebar, toggleSidebar }),
     [showsSidebar, toggleSidebar],
   );
-  // An archived thread's workspace closes; its worktree can go with it.
-  const archiveThread = useCallback(
-    async (thread: Thread, archived: boolean, removeWorktree: boolean) => {
-      // A found session hides; Keep in Med is the way to save it.
-      if (isFoundThread(thread)) {
-        await updateFound({ hide: { id: thread.id, hidden: archived } }, fetcher);
-        const workspace = archived && store.match(threadInput(thread));
-        if (workspace) actions.close(workspace);
-        return;
-      }
-      await createApi(fetcher, readBrowserToken()).json(
-        `/api/threads/${thread.id}/archive`,
-        z.object({}).passthrough(),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ archived, removeWorktree }),
-        },
-      );
-      const workspace = archived && store.match({ kind: "review", reviewId: thread.id });
-      if (workspace) actions.close(workspace);
-    },
-    [actions, fetcher, store],
-  );
+
   // A new thread covers the workspaces until it starts or the reader leaves.
   const [newThread, setNewThread] = useState(false);
+  const attemptsPage = useAttemptsAddress();
+  const activeEntry = snapshot.workspaces.find((entry) => entry.id === snapshot.active);
+  const activeThread = workspaceThread(activeEntry);
+  // The thread on screen; none while a page covers the workspaces.
+  const currentThread =
+    newThread || attemptsPage || search || overlayAddress(pathname) ? null : (activeThread ?? null);
+  const read = useReadState(tabs, currentThread);
+  const currentRef = useRef(currentThread);
+  // When each tab was last on screen, or first listed in this window.
+  const lastShown = useRef(new Map<string, number>());
+  useEffect(() => {
+    const now = Date.now();
+    if (currentRef.current) lastShown.current.set(currentRef.current, now);
+    currentRef.current = currentThread;
+    if (currentThread) lastShown.current.set(currentThread, now);
+  }, [currentThread]);
+  // Tabs that closed on their own and that the reader brought back: they stay.
+  const kept = useRef(new Set<string>());
+
+  const [notice, setNotice] = useState<TabNotice | null>(null);
+  useEffect(() => {
+    if (!notice || notice.stays) return;
+    const timer = setTimeout(() => setNotice(null), notice.problem ? 8000 : 6000);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
   // A thread's saved review and its session start to load before its
   // workspace mounts: under the pointer, or at the key that opens it.
   const readThread = useCallback(
@@ -869,79 +1042,400 @@ export function WorkspaceHost({
     },
     [fetcher],
   );
-  // ⌘1–⌘9 open the thread at that place among the threads in view; older
-  // threads fold in the sidebar.
-  const threadOrder = useMemo(
-    () => groupThreads(threadList?.threads ?? []).flatMap((group) => group.threads),
-    [threadList],
-  );
-  useEffect(() => {
-    const keydown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing || event.altKey || event.shiftKey) return;
-      const digit = /^Digit([1-9])$/.exec(event.code)?.[1];
-      if (!digit || !(event.metaKey || event.ctrlKey)) return;
-      if (overlayAddress(location.pathname) || visibleElement('[role="dialog"]')) return;
-      const now = Date.now();
-      const thread = threadOrder.filter((entry) => isRecent(entry, now))[Number(digit) - 1];
-      if (!thread) return;
-      event.preventDefault();
-      event.stopPropagation();
+  /** Shows a tab, or a thread from history once the host opens it. */
+  const openTab = useCallback(
+    (thread: Thread) => {
       setNewThread(false);
+      setOverlay(false);
       readThread(thread);
       actions.open(threadInput(thread));
+    },
+    [actions, readThread, setNewThread],
+  );
+  // A tab's workspace closes with it, so its streams and Git polling stop.
+  const closeView = useCallback(
+    (thread: Thread) => {
+      const id = store.match(threadInput(thread));
+      if (id) actions.close(id);
+    },
+    [actions, store],
+  );
+  const forget = useCallback(
+    (list: readonly Thread[]) =>
+      setClosing((value) => new Set([...value].filter((id) => !list.some((t) => t.id === id)))),
+    [],
+  );
+  /** Opens tabs again at their places, and shows the one that was on screen. */
+  const reopenTabs = useCallback(
+    async (list: readonly Thread[], shown?: Thread) => {
+      setNotice(null);
+      const now = Date.now();
+      for (const thread of list) {
+        kept.current.add(thread.id);
+        lastShown.current.set(thread.id, now);
+        opening.current.add(thread.id);
+      }
+      forget(list);
+      if (shown) openTab(shown);
+      const results = await Promise.allSettled(
+        list.map((thread) => openThread(thread.id, true, fetcher)),
+      );
+      const failed = results.findIndex((result) => result.status === "rejected");
+      if (failed < 0) return;
+      for (const thread of list) opening.current.delete(thread.id);
+      setNotice({
+        problem: true,
+        text: `Could not open “${list[failed]!.title}”. ${reason(results[failed]!)}`.trim(),
+      });
+    },
+    [fetcher, forget, openTab],
+  );
+  /** Sends tabs to history. Their agents keep working. */
+  const closeTabs = useCallback(
+    async (list: readonly Thread[], details: { auto?: boolean; removeWorktree?: boolean } = {}) => {
+      if (!list.length) return;
+      const shown = list.find((thread) => thread.id === currentRef.current);
+      setClosing((value) => new Set([...value, ...list.map((thread) => thread.id)]));
+      setNotice(null);
+      for (const thread of list) closeView(thread);
+      const results = await Promise.allSettled(
+        list.map((thread) => closeThread(thread.id, details, fetcher)),
+      );
+      const failed = list.filter((_, index) => results[index]!.status === "rejected");
+      if (failed.length) {
+        forget(failed);
+        if (shown && failed.includes(shown)) openTab(shown);
+        const problem = results.find((result) => result.status === "rejected")!;
+        setNotice({
+          problem: true,
+          text: `Kept “${failed[0]!.title}” open. ${reason(problem)}`.trim(),
+        });
+        return;
+      }
+      const title = list[0]!.title;
+      setNotice({
+        text: details.auto
+          ? list.length === 1
+            ? `Closed “${title}”: its work has landed.`
+            : `Closed ${list.length} tabs whose work has landed.`
+          : details.removeWorktree
+            ? `Closed “${title}” and removed its worktree.`
+            : `Closed “${title}”.`,
+        actions: [{ label: "Undo", run: () => void reopenTabs(list, shown) }],
+      });
+    },
+    [closeView, fetcher, forget, openTab, reopenTabs],
+  );
+  /** ⌘⌥T: the tab that closed last opens at its place. */
+  const reopenLast = useCallback(async () => {
+    try {
+      const thread = await reopenThread(fetcher);
+      kept.current.add(thread.id);
+      opening.current.add(thread.id);
+      forget([thread]);
+      openTab(thread);
+    } catch (error) {
+      setNotice({ problem: true, text: errorText(error, "No closed tab to reopen.") });
+    }
+  }, [fetcher, forget, openTab]);
+  /** Opens a thread from history as a tab, at the top of its repository. */
+  const openFromHistory = useCallback(
+    async (thread: Thread) => {
+      opening.current.add(thread.id);
+      forget([thread]);
+      // A thread whose review Med pruned opens as its session's found thread,
+      // which the host names.
+      if (!thread.stub) openTab(thread);
+      try {
+        const opened = await openThread(thread.id, false, fetcher);
+        if (opened.id !== thread.id) opening.current.add(opened.id);
+        if (thread.stub || opened.id !== thread.id) openTab(opened);
+      } catch (error) {
+        opening.current.delete(thread.id);
+        setNotice({
+          problem: true,
+          text: `Could not open “${thread.title}”. ${errorText(error, "")}`.trim(),
+        });
+      }
+    },
+    [fetcher, forget, openTab],
+  );
+  /** Deletes a thread for good: its saved review, comments, and history entry. */
+  const deleteNow = useCallback(
+    async (thread: Thread) => {
+      setClosing((value) => new Set(value).add(thread.id));
+      closeView(thread);
+      try {
+        await deleteThread(thread.id, fetcher);
+        setNotice({ text: `Deleted “${thread.title}”.` });
+      } catch (error) {
+        forget([thread]);
+        setNotice({
+          problem: true,
+          text: `Kept “${thread.title}”. ${errorText(error, "")}`.trim(),
+        });
+        throw error;
+      }
+    },
+    [closeView, fetcher, forget],
+  );
+  const confirmDelete = useCallback(
+    (thread: Thread) =>
+      setNotice({
+        stays: true,
+        text: `Delete “${thread.title}”? Med removes its captures and comments; its agent sessions stay.`,
+        actions: [
+          { label: "Delete", run: () => void deleteNow(thread).catch(() => {}) },
+          { label: "Cancel", run: () => setNotice(null) },
+        ],
+      }),
+    [deleteNow],
+  );
+  /** Puts one repository's tabs in this order; the other tabs keep their places. */
+  const reorderGroup = useCallback(
+    (group: readonly string[]) => {
+      const all = tabsRef.current.map((thread) => thread.id);
+      const slots = all.flatMap((id, index) => (group.includes(id) ? [index] : []));
+      const next = [...all];
+      slots.forEach((slot, index) => (next[slot] = group[index]!));
+      if (next.every((id, index) => id === all[index])) return;
+      setOrdered(next);
+      void orderThreads(next, fetcher).catch(() => setOrdered(null));
+    },
+    [fetcher],
+  );
+  const moveTab = useCallback(
+    (thread: Thread, by: -1 | 1) => {
+      const group = groupThreads(tabsRef.current).find((entry) =>
+        entry.threads.some((member) => member.id === thread.id),
+      );
+      if (!group) return;
+      const ids = group.threads.map((member) => member.id);
+      const from = ids.indexOf(thread.id);
+      const to = from + by;
+      if (to < 0 || to >= ids.length) return;
+      [ids[from], ids[to]] = [ids[to]!, ids[from]!];
+      reorderGroup(ids);
+    },
+    [reorderGroup],
+  );
+  /** Shows the next tab after the one on screen, in the sidebar's order, that
+   * this test chooses. False when there is none. */
+  const nextTab = useCallback(
+    (wanted: (thread: Thread) => boolean) => {
+      const list = tabOrder(tabsRef.current);
+      const start = list.findIndex((thread) => thread.id === currentRef.current);
+      for (let step = 1; step <= list.length; step++) {
+        const thread = list[(start + step) % list.length]!;
+        if (thread.id !== currentRef.current && wanted(thread)) {
+          openTab(thread);
+          return true;
+        }
+      }
+      return false;
+    },
+    [openTab],
+  );
+  // ⌘0: the next tab that needs the reader, else the next one that works.
+  const nextAttention = useCallback(() => nextTab(needsYou) || nextTab(isWorking), [nextTab]);
+
+  // ⌘1–⌘9 show the tab at that place in the sidebar; ⌘0 the next that needs
+  // the reader; ⌘⌥W closes the tab on screen and ⌘⌥T opens it again.
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || event.shiftKey) return;
+      if (!(event.metaKey || event.ctrlKey)) return;
+      if (overlayAddress(location.pathname) || visibleElement('[role="dialog"]')) return;
+      const take = () => {
+        event.preventDefault();
+        event.stopPropagation();
+      };
+      if (event.altKey) {
+        if (event.code === "KeyW") {
+          const thread = tabsRef.current.find((entry) => entry.id === currentRef.current);
+          if (!thread) return;
+          take();
+          void closeTabs([thread]);
+        } else if (event.code === "KeyT" && hostHasTabs.current) {
+          take();
+          void reopenLast();
+        }
+        return;
+      }
+      if (event.code === "Digit0") {
+        if (nextAttention()) take();
+        return;
+      }
+      const digit = /^Digit([1-9])$/.exec(event.code)?.[1];
+      const thread = digit && tabOrder(tabsRef.current)[Number(digit) - 1];
+      if (!thread) return;
+      take();
+      openTab(thread);
     };
     window.addEventListener("keydown", keydown, true);
     return () => window.removeEventListener("keydown", keydown, true);
-  }, [actions, threadOrder, readThread]);
-  // The thread under the pointer, and the threads in view, load ahead.
-  const [pointed, setPointed] = useState<string | null>(null);
-  const [now] = useState(Date.now);
-  // A thread loaded ahead keeps one workspace object while its title stays,
-  // so a list update or a switch does not render its view again.
-  const [warmWorkspaces] = useState(() => new Map<string, ReviewWorkspace>());
-  const warm = useMemo<WarmThreads>(() => {
-    const open = new Set(
-      snapshot.workspaces.flatMap((entry) => (entry.kind === "review" ? [entry.reviewId] : [])),
-    );
-    const workspaceFor = (thread: Thread) => {
-      const id = reviewWorkspaceId(thread.id);
-      let workspace = warmWorkspaces.get(id);
-      if (workspace?.title !== thread.title) {
-        workspace = { id, kind: "review", reviewId: thread.id, title: thread.title };
-        warmWorkspaces.set(id, workspace);
+  }, [closeTabs, nextAttention, openTab, reopenLast]);
+
+  // The host's tabs and this window's workspaces agree. A tab that closes
+  // elsewhere, as with `med thread close`, closes here too.
+  const listed = useRef<ReadonlyMap<string, Thread> | null>(null);
+  useEffect(() => {
+    if (!threadList || threadList === NO_THREADS) return;
+    const next = new Map(threadList.threads.map((entry) => [entry.id, entry]));
+    for (const id of opening.current) if (next.has(id)) opening.current.delete(id);
+    const before = listed.current;
+    listed.current = next;
+    if (!before) {
+      // A window from before tabs can keep workspaces of threads that are
+      // history now; they close, except the one on screen.
+      const { active, workspaces } = store.getSnapshot();
+      for (const workspace of workspaces) {
+        const id = workspaceThread(workspace);
+        if (id && workspace.id !== active && !next.has(id)) actions.close(workspace.id);
       }
-      return workspace;
-    };
+      return;
+    }
+    for (const [id, thread] of before) {
+      if (next.has(id) || opening.current.has(id)) continue;
+      const workspace = store.match(threadInput(thread));
+      if (!workspace) continue;
+      // A saved thread that took a found session's place takes its workspace.
+      const heir = thread.found
+        ? threadList.threads.find(
+            (entry) =>
+              !entry.found &&
+              entry.sessions?.some(
+                (session) =>
+                  session.agent !== "acp" && foundThreadId(session.agent, session.id) === id,
+              ),
+          )
+        : undefined;
+      if (heir && store.getSnapshot().active === workspace) actions.open(threadInput(heir));
+      actions.close(workspace);
+    }
+  }, [actions, store, threadList]);
+  // A thread that shows here without a tab, as from a link, opens as one.
+  // A thread that the host just made, as with Keep in Med, is in its next list.
+  useEffect(() => {
+    if (!hasTabs || !activeThread) return;
+    const known = () => listed.current?.has(activeThread) || opening.current.has(activeThread);
+    if (known()) return;
+    const timer = setTimeout(() => {
+      if (known()) return;
+      opening.current.add(activeThread);
+      void openThread(activeThread, true, fetcher).catch(() =>
+        opening.current.delete(activeThread),
+      );
+    }, LIST_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, [activeThread, fetcher, hasTabs]);
+
+  // A tab whose work has landed goes to history on its own, from the window
+  // used last, once it has been off screen for a while (data/tabs.ts).
+  const [clock, setClock] = useState(Date.now);
+  useEffect(() => {
+    const timer = setInterval(() => setClock(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    if (!hasTabs || !usedLast()) return;
+    const now = Math.max(clock, Date.now());
+    const done = tabs.filter((thread) => {
+      if (!lastShown.current.has(thread.id)) lastShown.current.set(thread.id, now);
+      return (
+        !kept.current.has(thread.id) &&
+        landed(thread, {
+          unread: read.isUnread(thread),
+          onScreen: thread.id === currentThread,
+          quietFor: now - lastShown.current.get(thread.id)!,
+        })
+      );
+    });
+    if (done.length) void closeTabs(done, { auto: true });
+  }, [clock, closeTabs, currentThread, hasTabs, read, tabs, usedLast]);
+
+  // The palette reaches the tabs through one object that does not change, so
+  // a change to the tabs does not render every mounted workspace again.
+  const [tabListeners] = useState(() => new Set<() => void>());
+  useLayoutEffect(() => {
+    for (const listener of tabListeners) listener();
+  }, [tabListeners, tabs]);
+  const latest = useRef({ closeTabs, reopenLast, nextAttention, moveTab });
+  useLayoutEffect(() => {
+    latest.current = { closeTabs, reopenLast, nextAttention, moveTab };
+  });
+  const tabActions = useMemo<TabActions>(() => {
+    const find = (id: string | undefined) =>
+      id ? tabsRef.current.find((thread) => thread.id === id) : undefined;
     return {
-      threads: threadOrder
-        .filter(
-          (thread) =>
-            !isFoundThread(thread) &&
-            !open.has(thread.id) &&
-            (thread.id === pointed || isRecent(thread, now)),
-        )
-        .map((thread) => ({
-          workspace: workspaceFor(thread),
-          ...(thread.sessions?.length ? { session: thread.sessions.at(-1)!.id } : {}),
-        })),
-      next: pointed && !open.has(pointed) ? reviewWorkspaceId(pointed) : null,
-      active: new Set(
-        threadOrder
-          .filter((thread) => isRecent(thread, now))
-          .map((thread) => reviewWorkspaceId(thread.id)),
-      ),
+      isTab: (id) => !!find(id),
+      close(id) {
+        const thread = find(id);
+        if (thread) void latest.current.closeTabs([thread]);
+      },
+      reopen: () => void latest.current.reopenLast(),
+      openHistory() {
+        rememberFocus();
+        setSwitcher({ held: false, reverse: false, history: true });
+      },
+      next: () => void latest.current.nextAttention(),
+      move(id, by) {
+        const thread = find(id);
+        if (thread) latest.current.moveTab(thread, by);
+      },
+      subscribe(listener) {
+        tabListeners.add(listener);
+        return () => void tabListeners.delete(listener);
+      },
     };
-  }, [threadOrder, snapshot.workspaces, pointed, now, warmWorkspaces]);
-  const activeEntry = snapshot.workspaces.find((entry) => entry.id === snapshot.active);
+  }, [rememberFocus, tabListeners]);
+
+  // The tabs load ahead, as open terminal tabs stay loaded; the one under the
+  // pointer first. History never loads ahead.
+  const [pointed, setPointed] = useState<string | null>(null);
+  // A tab loaded ahead keeps one workspace object while it stays the same, so
+  // a list update or a switch does not render its view again.
+  const [warmWorkspaces] = useState(() => new Map<string, ReviewWorkspace | RepositoryWorkspace>());
+  const warm = useMemo<WarmThreads>(() => {
+    const open = new Map(
+      snapshot.workspaces.flatMap((entry) => {
+        const id = workspaceThread(entry);
+        return id ? [[id, entry.id] as const] : [];
+      }),
+    );
+    const active = new Set<string>();
+    const ahead: WarmThreads["threads"] = [];
+    for (const thread of order) {
+      const known = open.get(thread.id);
+      if (known) {
+        active.add(known);
+        continue;
+      }
+      const workspace = warmWorkspace(thread, warmWorkspaces);
+      if (!workspace) continue;
+      active.add(workspace.id);
+      ahead.push({
+        workspace,
+        ...(!thread.found && thread.sessions?.length
+          ? { session: thread.sessions.at(-1)!.id }
+          : {}),
+      });
+    }
+    return {
+      threads: ahead,
+      next: ahead.some((entry) => entry.workspace.id === pointed) ? pointed : null,
+      active,
+    };
+  }, [order, snapshot.workspaces, pointed, warmWorkspaces]);
   const activeRepositoryId =
     activeEntry?.kind === "repository"
       ? activeEntry.repositoryId
       : activeEntry?.kind === "review"
-        ? threadList?.threads.find((thread) => thread.id === activeEntry.reviewId)?.repository?.id
+        ? statuses.get(activeEntry.reviewId)?.repository?.id
         : undefined;
   // A press on a thread reads its session before the click renders the
   // workspace, so the session's code loads while the window is idle.
-  const hasSessions = !!threadList?.threads.some((thread) => thread.sessions?.length);
+  const hasSessions = tabs.some((thread) => thread.sessions?.length);
   useEffect(() => {
     if (!hasSessions || sessionStream) return;
     return whenIdle(() => {
@@ -970,163 +1464,201 @@ export function WorkspaceHost({
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
   }, [toggleSidebar]);
+  const noticeBar = notice && (
+    <NoticeBar notice={notice} onDismiss={() => setNotice(null)} floating={!showsSidebar} />
+  );
   return (
     <Actions value={actions}>
       <Snapshot value={snapshot}>
         <Threads value={threads}>
-          <HostFetch value={fetcher}>
-            <PullErrors value={pullErrors}>
-              {pulls.map((workspace) => (
-                <PullWatcher
-                  key={workspace.id}
-                  workspace={workspace}
-                  onTitle={(title) => store.update(workspace.id, { title })}
-                  onSaved={(reviewId) => settlePull(workspace.id, reviewId)}
-                />
-              ))}
-              <ShellContext value={shell}>
-                <div {...stylex.props(styles.shell)}>
-                  {showsSidebar && narrow && (
-                    <div
-                      aria-hidden="true"
-                      onPointerDown={() => setOverlay(false)}
-                      {...stylex.props(styles.shellScrim)}
-                    />
-                  )}
-                  {showsSidebar && (
-                    <>
-                      <aside
-                        aria-label="Sidebar"
-                        {...stylex.props(
-                          styles.shellSidebar,
-                          narrow ? styles.shellOverlay : styles.width(sidebarWidth),
-                        )}
-                      >
-                        <ThreadSidebar
-                          threads={threadList?.threads ?? []}
-                          sources={sources}
-                          snapshot={snapshot}
-                          loaded={!!threadList}
-                          onOpen={(input) => {
-                            setNewThread(false);
-                            setOverlay(false);
-                            actions.open(input);
-                          }}
-                          onNewThread={() => {
-                            setOverlay(false);
-                            setNewThread(true);
-                          }}
-                          newThread={newThread}
-                          onHide={toggleSidebar}
-                          onSources={() => {
-                            history.pushState(null, "", "/sources");
-                            window.dispatchEvent(new PopStateEvent("popstate"));
-                          }}
-                          onArchive={archiveThread}
-                          onPrefetch={(thread) => {
-                            readThread(thread);
-                            setPointed(thread.id);
-                          }}
-                        />
-                      </aside>
-                      {!narrow && (
-                        <div
-                          role="separator"
-                          aria-label="Resize sidebar"
-                          aria-orientation="vertical"
-                          aria-valuenow={sidebarWidth}
-                          aria-valuemin={SIDEBAR_MIN}
-                          aria-valuemax={SIDEBAR_MAX}
-                          tabIndex={0}
-                          {...stylex.props(styles.shellGutter, stylex.defaultMarker())}
-                          onKeyDown={(event) => {
-                            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-                            event.preventDefault();
-                            resizeSidebar(sidebarWidth + (event.key === "ArrowLeft" ? -16 : 16));
-                          }}
-                          onPointerDown={(event) =>
-                            event.currentTarget.setPointerCapture(event.pointerId)
-                          }
-                          onPointerMove={(event) => {
-                            if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
-                            resizeSidebar(event.clientX);
-                          }}
-                          onDoubleClick={() => resizeSidebar(SIDEBAR_WIDTH)}
-                        >
-                          <span {...stylex.props(styles.shellGutterLine)} />
-                        </div>
-                      )}
-                    </>
-                  )}
-                  <div {...stylex.props(styles.shellMain)}>
-                    <WorkspaceBar
-                      context={
-                        newThread || overlayAddress(pathname)
-                          ? undefined
-                          : barContext(activeEntry, threadList ?? null)
-                      }
-                      showSidebar={!showsSidebar || narrow ? toggleSidebar : undefined}
-                    />
-                    <div {...stylex.props(styles.shellViews)}>
+          <Tabs value={tabActions}>
+            <HostFetch value={fetcher}>
+              <PullErrors value={pullErrors}>
+                {pulls.map((workspace) => (
+                  <PullWatcher
+                    key={workspace.id}
+                    workspace={workspace}
+                    onTitle={(title) => store.update(workspace.id, { title })}
+                    onSaved={(reviewId) => settlePull(workspace.id, reviewId)}
+                  />
+                ))}
+                <ShellContext value={shell}>
+                  <div {...stylex.props(styles.shell)}>
+                    {showsSidebar && narrow && (
                       <div
-                        inert={newThread || !!search || !!attemptsGroupOf(pathname) || undefined}
-                        {...stylex.props(styles.shellLayer)}
-                      >
-                        <Warm value={warm}>{children}</Warm>
-                      </div>
-                      {search && (
-                        <SearchPage
-                          key={search.key}
-                          repositories={threadList?.repositories ?? []}
-                          loaded={!!threadList}
-                          origin={search.origin}
-                          initialQuery={search.query}
-                          fetcher={fetcher}
-                          onBack={leaveSearch}
-                          onOpen={openMatch}
-                        />
-                      )}
-                      <AttemptsHost
-                        threads={threadList?.threads ?? []}
-                        fetcher={fetcher}
-                        actions={actions}
-                        onLeave={() => show(store.getSnapshot().active, true)}
+                        aria-hidden="true"
+                        onPointerDown={() => setOverlay(false)}
+                        {...stylex.props(styles.shellScrim)}
                       />
-                      {newThread && (
-                        <NewThread
-                          list={threadList}
+                    )}
+                    {showsSidebar && (
+                      <>
+                        <aside
+                          aria-label="Sidebar"
+                          {...stylex.props(
+                            styles.shellSidebar,
+                            narrow ? styles.shellOverlay : styles.width(sidebarWidth),
+                          )}
+                        >
+                          <ThreadSidebar
+                            threads={tabs}
+                            sources={sources}
+                            snapshot={snapshot}
+                            loaded={!!threadList}
+                            current={currentThread}
+                            read={read}
+                            notice={noticeBar}
+                            onOpen={(input) => {
+                              setNewThread(false);
+                              setOverlay(false);
+                              actions.open(input);
+                            }}
+                            onOpenThread={openTab}
+                            onOpenSubagent={(thread, subagent) => {
+                              read.seeSubagent(subagent);
+                              openTab(thread);
+                              requestSubagentOpen(
+                                store.match(threadInput(thread)) ?? threadWorkspaceId(thread),
+                                subagent.id,
+                              );
+                            }}
+                            onNewThread={() => {
+                              setOverlay(false);
+                              setNewThread(true);
+                            }}
+                            newThread={newThread}
+                            onHide={toggleSidebar}
+                            onSources={() => {
+                              history.pushState(null, "", "/sources");
+                              window.dispatchEvent(new PopStateEvent("popstate"));
+                            }}
+                            onClose={(thread, removeWorktree) =>
+                              void closeTabs([thread], { removeWorktree })
+                            }
+                            onDelete={confirmDelete}
+                            onReorder={reorderGroup}
+                            onMove={moveTab}
+                            onNext={(kind) => nextTab(kind === "needs" ? needsYou : isWorking)}
+                            onPrefetch={(thread) => {
+                              readThread(thread);
+                              setPointed(threadWorkspaceId(thread));
+                            }}
+                          />
+                        </aside>
+                        {!narrow && (
+                          <div
+                            role="separator"
+                            aria-label="Resize sidebar"
+                            aria-orientation="vertical"
+                            aria-valuenow={sidebarWidth}
+                            aria-valuemin={SIDEBAR_MIN}
+                            aria-valuemax={SIDEBAR_MAX}
+                            tabIndex={0}
+                            {...stylex.props(styles.shellGutter, stylex.defaultMarker())}
+                            onKeyDown={(event) => {
+                              if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                              event.preventDefault();
+                              resizeSidebar(sidebarWidth + (event.key === "ArrowLeft" ? -16 : 16));
+                            }}
+                            onPointerDown={(event) =>
+                              event.currentTarget.setPointerCapture(event.pointerId)
+                            }
+                            onPointerMove={(event) => {
+                              if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+                              resizeSidebar(event.clientX);
+                            }}
+                            onDoubleClick={() => resizeSidebar(SIDEBAR_WIDTH)}
+                          >
+                            <span {...stylex.props(styles.shellGutterLine)} />
+                          </div>
+                        )}
+                      </>
+                    )}
+                    <div {...stylex.props(styles.shellMain)}>
+                      <WorkspaceBar
+                        context={
+                          newThread || overlayAddress(pathname)
+                            ? undefined
+                            : barContext(activeEntry, threadList ?? null)
+                        }
+                        showSidebar={!showsSidebar || narrow ? toggleSidebar : undefined}
+                      />
+                      <div {...stylex.props(styles.shellViews)}>
+                        <div
+                          inert={newThread || !!search || !!attemptsGroupOf(pathname) || undefined}
+                          {...stylex.props(styles.shellLayer)}
+                        >
+                          <Warm value={warm}>{children}</Warm>
+                        </div>
+                        {search && (
+                          <SearchPage
+                            key={search.key}
+                            repositories={threadList?.repositories ?? []}
+                            loaded={!!threadList}
+                            origin={search.origin}
+                            initialQuery={search.query}
+                            fetcher={fetcher}
+                            onBack={leaveSearch}
+                            onOpen={openMatch}
+                          />
+                        )}
+                        {!showsSidebar && noticeBar}
+                        <AttemptsHost
+                          threads={tabs}
                           fetcher={fetcher}
-                          repositoryId={activeRepositoryId}
-                          onCancel={() => setNewThread(false)}
-                          onStarted={(review) => {
-                            setNewThread(false);
-                            actions.open({
-                              kind: "review",
-                              reviewId: review.id,
-                              title: review.title,
-                            });
-                          }}
+                          actions={actions}
+                          onLeave={() => show(store.getSnapshot().active, true)}
                         />
-                      )}
+                        {newThread && (
+                          <NewThread
+                            list={threadList}
+                            fetcher={fetcher}
+                            repositoryId={activeRepositoryId}
+                            onCancel={() => setNewThread(false)}
+                            onStarted={(review) => {
+                              opening.current.add(review.id);
+                              setNewThread(false);
+                              actions.open({
+                                kind: "review",
+                                reviewId: review.id,
+                                title: review.title,
+                              });
+                            }}
+                          />
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </ShellContext>
-            </PullErrors>
-          </HostFetch>
-          {switcher && (
-            <WorkspaceSwitcher
-              snapshot={snapshot}
-              held={switcher.held}
-              controlHeld={controlHeld}
-              reverse={switcher.reverse}
-              onChoose={(id) => {
-                setSwitcher(null);
-                show(id);
-              }}
-              onCancel={() => setSwitcher(null)}
-            />
-          )}
+                </ShellContext>
+              </PullErrors>
+            </HostFetch>
+            {switcher && (
+              <WorkspaceSwitcher
+                snapshot={snapshot}
+                tabs={order}
+                hasHistory={hasTabs}
+                history={!!switcher.history}
+                held={switcher.held}
+                controlHeld={controlHeld}
+                reverse={switcher.reverse}
+                fetcher={fetcher}
+                onChoose={(id) => {
+                  setSwitcher(null);
+                  show(id);
+                }}
+                onOpenTab={(thread) => {
+                  setSwitcher(null);
+                  openTab(thread);
+                }}
+                onOpenHistory={(thread) => {
+                  setSwitcher(null);
+                  void openFromHistory(thread);
+                }}
+                onDelete={deleteNow}
+                onCancel={() => setSwitcher(null)}
+              />
+            )}
+          </Tabs>
         </Threads>
       </Snapshot>
     </Actions>
@@ -1217,12 +1749,12 @@ export function WorkspaceViews({
   let next = mounted.filter((id) => workspaceOf(id));
   if (warm.next && !next.includes(warm.next)) next = [warm.next, ...next];
   if (onScreen && next[0] !== onScreen) next = [onScreen, ...next.filter((id) => id !== onScreen)];
-  // The threads in view, and the most recent of the others: open
-  // workspaces, and threads loading ahead.
+  // The tabs, up to TABS_MOUNTED of the most recently shown, and the most
+  // recent of the other open workspaces.
+  let tabs = 0;
   let opened = 0;
-  let ahead = 0;
-  next = next.filter(
-    (id) => warm.active.has(id) || (isOpen(id) ? ++opened <= MOUNTED : ++ahead <= WARM),
+  next = next.filter((id) =>
+    warm.active.has(id) ? ++tabs <= TABS_MOUNTED : isOpen(id) && ++opened <= MOUNTED,
   );
   if (next.length !== mounted.length || next.some((id, index) => id !== mounted[index]))
     setMounted(next);
@@ -1346,23 +1878,21 @@ export function WorkspaceViews({
   }, [visible]);
 
   // When every mounted workspace has loaded, the next one loads hidden
-  // while the browser is idle: open workspaces, then the threads in view in
-  // the sidebar's order, as a terminal keeps its open tabs. A first visit
-  // then shows a rendered thread instead of loading in front of the reader.
-  const others = mounted.filter((id) => !warm.active.has(id));
-  const openCount = others.filter(isOpen).length;
+  // while the browser is idle: open workspaces, then the tabs in the
+  // sidebar's order, as a terminal keeps its open tabs. A first visit then
+  // shows a rendered thread instead of loading in front of the reader.
+  const tabsMounted = mounted.filter((id) => warm.active.has(id)).length;
+  const openCount = mounted.filter((id) => !warm.active.has(id) && isOpen(id)).length;
   const cold =
     orderedWorkspaces(snapshot).find(
       (entry) =>
         entry.kind !== "vault" &&
         entry.kind !== "pull" &&
         !mounted.includes(entry.id) &&
-        (warm.active.has(entry.id) || openCount < MOUNTED),
+        (warm.active.has(entry.id) ? tabsMounted < TABS_MOUNTED : openCount < MOUNTED),
     )?.id ??
     warm.threads.find(
-      ({ workspace }) =>
-        !mounted.includes(workspace.id) &&
-        (warm.active.has(workspace.id) || others.length - openCount < WARM),
+      ({ workspace }) => !mounted.includes(workspace.id) && tabsMounted < TABS_MOUNTED,
     )?.workspace.id;
   useEffect(() => {
     if (!cold) return;
@@ -1716,56 +2246,214 @@ function WorkingMark({ label, hides }: { label: string; hides: boolean }) {
     />
   );
 }
+type SwitchRow =
+  | { kind: "workspace"; key: string; workspace: Workspace; thread?: Thread }
+  | { kind: "tab"; key: string; thread: Thread }
+  | { kind: "history"; key: string; thread: Thread };
+
+/** Whether each word of the query is in one of the fields. */
+function matches(words: readonly string[], fields: (string | undefined)[]) {
+  if (!words.length) return true;
+  const text = fields.filter(Boolean).join("\n").toLowerCase();
+  return words.every((word) => text.includes(word));
+}
+const threadFields = (thread: Thread) => [
+  thread.title,
+  thread.branch,
+  thread.repository?.name,
+  thread.checkout?.split("/").at(-1),
+  thread.prompt,
+];
+/** The most history rows that the switcher shows at once. */
+const HISTORY_ROWS = 60;
+const optionId = (key: string) => `workspace-switch-${key.replace(/[^\w-]/g, "-")}`;
+
+/** A thread's state in the switcher: one mark at most. */
+function ThreadState({ thread, unread }: { thread: Thread | undefined; unread?: boolean }) {
+  if (thread && needsYou(thread))
+    return <span {...stylex.props(styles.detail, styles.needsYou)}>Needs you</span>;
+  if (thread?.state === "working")
+    return <WorkingMark label={`${agentLabel(thread)} is working`} hides={false} />;
+  return unread ? (
+    <span aria-hidden="true" {...stylex.props(styles.dot, styles.dotArrives)} />
+  ) : null;
+}
+
 /**
- * Recent workspaces, most recent first. Held ⌃Tab steps through them and
- * releasing Control shows the selection, as an app switcher does. From the
- * palette it stays open until Return, a click, or Escape.
+ * The switcher: the tabs and the other workspaces, most recently shown first,
+ * then the tabs not shown in this window yet. Held ⌃Tab steps through them
+ * and releasing Control shows the selection, as an app switcher does. A typed
+ * word searches them and history: closed threads and found sessions that are
+ * not tabs, by title, branch, repository, and first prompt, newest first.
+ * From the palette it stays open until Return, a click, or Escape.
  */
 function WorkspaceSwitcher({
   snapshot,
-  held,
+  tabs,
+  hasHistory,
+  history: historyMode,
+  held: heldAtStart,
   controlHeld,
   reverse,
+  fetcher,
   onChoose,
+  onOpenTab,
+  onOpenHistory,
+  onDelete,
   onCancel,
 }: {
   snapshot: WorkspaceSnapshot;
+  /** The tabs in the sidebar's order. */
+  tabs: readonly Thread[];
+  /** The host keeps history, so typing searches it. */
+  hasHistory: boolean;
+  /** Opened to choose a thread from history. */
+  history: boolean;
   held: boolean;
   controlHeld(): boolean;
   reverse: boolean;
+  fetcher: typeof fetch;
   onChoose(id: string): void;
+  onOpenTab(thread: Thread): void;
+  onOpenHistory(thread: Thread): void;
+  onDelete(thread: Thread): Promise<void>;
   onCancel(): void;
 }) {
   const threads = use(Threads);
   const statuses = useSyncExternalStore(threads.subscribe, threads.get);
+  // A typed letter ends the held mode: the switcher stays open to search.
+  const [held, setHeld] = useState(heldAtStart && !historyMode);
+  const [query, setQuery] = useState("");
+  const [past, setPast] = useState<readonly Thread[] | null>(null);
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [now] = useState(Date.now);
+  useEffect(() => {
+    if (!hasHistory) return;
+    let current = true;
+    readHistory(fetcher).then(
+      (list) => current && setPast(list),
+      () => current && setPast([]),
+    );
+    return () => {
+      current = false;
+    };
+  }, [fetcher, hasHistory]);
+
   const ordered = orderedWorkspaces(snapshot);
-  const rows = snapshot.recent.flatMap((id) => ordered.find((entry) => entry.id === id) ?? []);
+  const qualifier = qualifiers(ordered);
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const rows = useMemo<SwitchRow[]>(() => {
+    const ordered = orderedWorkspaces(snapshot);
+    const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+    const list: SwitchRow[] = [];
+    const shown = new Set<string>();
+    if (!historyMode) {
+      for (const id of snapshot.recent) {
+        const workspace = ordered.find((entry) => entry.id === id);
+        if (!workspace) continue;
+        const threadId = workspaceThread(workspace);
+        if (threadId) shown.add(threadId);
+        const thread = threadId ? statuses.get(threadId) : undefined;
+        const fields = [labelFor(workspace), workspace.repository, thread && threadFields(thread)]
+          .flat()
+          .concat(workspace.kind === "repository" ? [workspace.branch] : []);
+        if (matches(words, fields))
+          list.push({ kind: "workspace", key: workspace.id, workspace, thread });
+      }
+      for (const thread of tabs)
+        if (!shown.has(thread.id) && matches(words, threadFields(thread)))
+          list.push({ kind: "tab", key: `tab:${thread.id}`, thread });
+    }
+    if (past && (historyMode || words.length)) {
+      let count = 0;
+      for (const thread of past) {
+        if (count >= HISTORY_ROWS) break;
+        if (tabs.some((tab) => tab.id === thread.id)) continue;
+        if (!matches(words, threadFields(thread))) continue;
+        list.push({ kind: "history", key: `history:${thread.id}`, thread });
+        count++;
+      }
+    }
+    return list;
+  }, [historyMode, past, query, snapshot, statuses, tabs]);
   const [index, setIndex] = useState(() =>
     // The current workspace is first; start on the one before it.
-    rows.length < 2 ? 0 : reverse ? rows.length - 1 : 1,
+    historyMode || rows.length < 2 ? 0 : reverse ? rows.length - 1 : 1,
   );
-  const list = useRef<HTMLDivElement>(null);
-  const qualifier = qualifiers(ordered);
+  const [searched, setSearched] = useState(query);
+  if (searched !== query) {
+    setSearched(query);
+    setIndex(0);
+    setConfirming(null);
+  }
   const selected = rows[Math.min(index, rows.length - 1)];
+  const list = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const choose = useCallback(
+    (row: SwitchRow | undefined) => {
+      if (!row) return;
+      if (row.kind === "workspace") onChoose(row.workspace.id);
+      else if (row.kind === "tab") onOpenTab(row.thread);
+      else onOpenHistory(row.thread);
+    },
+    [onChoose, onOpenHistory, onOpenTab],
+  );
+  const remove = useCallback(
+    (thread: Thread) => {
+      setConfirming(null);
+      onDelete(thread).then(
+        () => setPast((value) => value?.filter((entry) => entry.id !== thread.id) ?? null),
+        (error: unknown) => setProblem(errorText(error, "Med could not delete this thread.")),
+      );
+    },
+    [onDelete],
+  );
 
+  // The focus comes back to where it was when the switcher closes.
   useEffect(() => {
     const previous = document.activeElement;
-    list.current?.focus({ preventScroll: true });
     return () => {
       if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
     };
   }, []);
+  // The list takes the keys while ⌃Tab is held; then the field does.
+  useEffect(() => {
+    if (held) list.current?.focus({ preventScroll: true });
+    else input.current?.focus({ preventScroll: true });
+  }, [held]);
   useLayoutEffect(() => {
     // Control was released before this listened: a quick tap toggles back.
-    if (held && !controlHeld() && selected) return onChoose(selected.id);
-    const step = (by: number) => setIndex((value) => (value + by + rows.length) % rows.length);
+    if (held && !controlHeld() && selected) return choose(selected);
+    const step = (by: number) =>
+      rows.length && setIndex((value) => (value + by + rows.length) % rows.length);
     const keydown = (event: KeyboardEvent) => {
+      // A letter while ⌃Tab is held starts a search.
+      if (
+        held &&
+        hasHistory &&
+        event.key.length === 1 &&
+        event.key !== " " &&
+        !event.metaKey &&
+        !event.altKey
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        setHeld(false);
+        setQuery((value) => value + event.key);
+        return;
+      }
+      const deleting = selected?.kind === "history" && confirming === selected.thread.id;
       const keys: Record<string, () => void> = {
         Tab: () => step(event.shiftKey ? -1 : 1),
         ArrowDown: () => step(1),
         ArrowUp: () => step(-1),
-        Enter: () => selected && onChoose(selected.id),
-        Escape: onCancel,
+        Enter: () => (deleting ? remove(selected.thread) : choose(selected)),
+        Escape: () => (confirming ? setConfirming(null) : onCancel()),
+        // ⌘⌫ deletes a thread in history, after a second Return.
+        ...(selected?.kind === "history" && (event.metaKey || event.ctrlKey)
+          ? { Backspace: () => setConfirming(selected.thread.id) }
+          : {}),
       };
       const action = keys[event.key];
       if (!action) return;
@@ -1774,7 +2462,7 @@ function WorkspaceSwitcher({
       action();
     };
     const keyup = (event: KeyboardEvent) => {
-      if (held && event.key === "Control" && selected) onChoose(selected.id);
+      if (held && event.key === "Control" && selected) choose(selected);
     };
     window.addEventListener("keydown", keydown, true);
     window.addEventListener("keyup", keyup, true);
@@ -1784,67 +2472,199 @@ function WorkspaceSwitcher({
       window.removeEventListener("keyup", keyup, true);
       window.removeEventListener("blur", onCancel);
     };
-  }, [controlHeld, held, onCancel, onChoose, rows.length, selected]);
+  }, [choose, confirming, controlHeld, hasHistory, held, onCancel, remove, rows.length, selected]);
+  useLayoutEffect(() => {
+    if (!selected) return;
+    document.getElementById(optionId(selected.key))?.scrollIntoView({ block: "nearest" });
+  }, [selected]);
 
-  if (!rows.length) return null;
+  // A held ⌃Tab with nothing to switch to closes at once.
+  if (!rows.length && held) return null;
+  const firstHistory = rows.findIndex((row) => row.kind === "history");
+  const searching = !held || historyMode;
   return (
     <div {...stylex.props(styles.scrim)} onPointerDown={onCancel}>
       <div
         role="dialog"
-        aria-label="Switch workspace"
+        aria-label={historyMode ? "Open from history" : "Switch workspace"}
         data-workspace-switcher
         onPointerDown={(event) => event.stopPropagation()}
         {...stylex.props(styles.switcher)}
       >
+        {searching && (
+          <input
+            ref={input}
+            role="combobox"
+            aria-expanded="true"
+            aria-controls="workspace-switch-list"
+            aria-activedescendant={selected ? optionId(selected.key) : undefined}
+            aria-label={hasHistory ? "Search tabs and history" : "Search workspaces"}
+            placeholder={
+              historyMode
+                ? "Search history"
+                : hasHistory
+                  ? "Search tabs and history"
+                  : "Search workspaces"
+            }
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            {...stylex.props(styles.search)}
+          />
+        )}
         <div
           ref={list}
+          id="workspace-switch-list"
           role="listbox"
           tabIndex={-1}
-          aria-label="Recent workspaces"
-          aria-activedescendant={selected ? `workspace-switch-${selected.id}` : undefined}
+          aria-label={historyMode ? "History" : "Recent workspaces"}
+          aria-activedescendant={selected ? optionId(selected.key) : undefined}
           {...stylex.props(styles.switchList)}
         >
-          {rows.map((workspace, position) => {
-            const repository = qualifier(workspace);
-            return (
+          {rows.map((row, position) => {
+            const isSelected = row === selected;
+            const option = (content: ReactNode, extra?: ReactNode) => (
               <div
-                key={workspace.id}
-                id={`workspace-switch-${workspace.id}`}
+                key={row.key}
+                id={optionId(row.key)}
                 role="option"
                 tabIndex={-1}
-                aria-selected={workspace === selected}
+                aria-selected={isSelected}
+                data-history={row.kind === "history" || undefined}
+                aria-label={row.kind === "history" ? `${row.thread.title}, in history` : undefined}
                 onPointerMove={() => setIndex(position)}
-                onClick={() => onChoose(workspace.id)}
+                onClick={() => choose(row)}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter") onChoose(workspace.id);
+                  if (event.key === "Enter") choose(row);
                 }}
-                {...stylex.props(styles.option, workspace === selected && styles.optionSelected)}
-              >
-                <Icon name={iconFor(workspace)} size={14} />
-                <span {...stylex.props(styles.name)}>
-                  {repository && <span {...stylex.props(styles.repository)}>{repository} / </span>}
-                  {labelFor(workspace)}
-                </span>
-                {(() => {
-                  const status =
-                    workspace.kind === "review" ? statuses.get(workspace.reviewId) : undefined;
-                  if (status?.state === "waiting")
-                    return <span {...stylex.props(styles.detail, styles.needsYou)}>Needs you</span>;
-                  if (status?.state === "working")
-                    return <WorkingMark label={`${agentLabel(status)} is working`} hides={false} />;
-                  return (
-                    workspace.unread && (
-                      <span aria-hidden="true" {...stylex.props(styles.dot, styles.dotArrives)} />
-                    )
-                  );
-                })()}
-                {workspace.id === snapshot.active && (
-                  <span {...stylex.props(styles.here)}>Current</span>
+                {...stylex.props(
+                  styles.option,
+                  isSelected && styles.optionSelected,
+                  stylex.defaultMarker(),
                 )}
+              >
+                {content}
+                {extra}
               </div>
             );
+            const heading = position === firstHistory && !historyMode && (
+              <div
+                key="history-heading"
+                role="presentation"
+                {...stylex.props(ui.label, styles.groupLabel)}
+              >
+                History
+              </div>
+            );
+            if (row.kind === "workspace") {
+              const { workspace, thread } = row;
+              const repository = qualifier(workspace);
+              return option(
+                <>
+                  <Icon name={iconFor(workspace)} size={14} />
+                  <span {...stylex.props(styles.name)}>
+                    {repository && (
+                      <span {...stylex.props(styles.repository)}>{repository} / </span>
+                    )}
+                    {labelFor(workspace)}
+                  </span>
+                  <ThreadState thread={thread} unread={workspace.unread} />
+                  {workspace.id === snapshot.active && (
+                    <span {...stylex.props(styles.here)}>Current</span>
+                  )}
+                </>,
+              );
+            }
+            const { thread } = row;
+            const place = thread.repository?.name ?? thread.checkout?.split("/").at(-1);
+            if (row.kind === "tab")
+              return option(
+                <>
+                  <Icon
+                    name={
+                      thread.agent === "claude" || thread.agent === "codex" ? thread.agent : "agent"
+                    }
+                    size={14}
+                  />
+                  <span {...stylex.props(styles.name)}>{thread.title}</span>
+                  <ThreadState thread={thread} />
+                  {place && <span {...stylex.props(styles.detail)}>{place}</span>}
+                </>,
+              );
+            const asking = confirming === thread.id;
+            return [
+              heading,
+              option(
+                <>
+                  <span aria-hidden="true" {...stylex.props(styles.hollow)} />
+                  <span {...stylex.props(styles.name)}>
+                    {asking ? `Delete “${thread.title}” for good?` : thread.title}
+                  </span>
+                  {!asking && (
+                    <span {...stylex.props(styles.detail)}>
+                      {[place, shortAge(thread.closedAt ?? thread.updatedAt, now)]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  )}
+                </>,
+                asking ? (
+                  <span {...stylex.props(styles.confirm)}>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        remove(thread);
+                      }}
+                      {...stylex.props(styles.textButton, styles.danger)}
+                    >
+                      Delete
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setConfirming(null);
+                      }}
+                      {...stylex.props(styles.textButton)}
+                    >
+                      Keep
+                    </button>
+                  </span>
+                ) : (
+                  // Stubs of deleted reviews and found sessions delete too.
+                  <button
+                    type="button"
+                    aria-label={`Delete ${thread.title}`}
+                    title="Delete (⌘⌫)"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setConfirming(thread.id);
+                    }}
+                    {...stylex.props(styles.rowDelete, isSelected && styles.rowDeleteShown)}
+                  >
+                    <Icon name="trash" size={13} />
+                  </button>
+                ),
+              ),
+            ];
           })}
+          {!rows.length && (
+            <p {...stylex.props(styles.switchEmpty)}>
+              {past === null && (historyMode || words.length)
+                ? "Reading history…"
+                : words.length
+                  ? `Nothing matches “${query}”.`
+                  : historyMode
+                    ? "History is empty. Closed tabs show here."
+                    : "No other workspaces."}
+            </p>
+          )}
         </div>
+        {problem && (
+          <p role="alert" {...stylex.props(styles.switchEmpty, styles.failed)}>
+            {problem}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -2160,6 +2980,74 @@ const styles = stylex.create({
   },
   optionSelected: { backgroundColor: tokens.fillStrong, color: tokens.text },
   here: { color: tokens.faint, fontSize: 11 },
+  // The search field of the switcher, above its list.
+  search: {
+    width: "100%",
+    boxSizing: "border-box",
+    height: 34,
+    marginBottom: 4,
+    paddingInline: 10,
+    borderWidth: 0,
+    borderBottomWidth: 1,
+    borderBottomStyle: "solid",
+    borderBottomColor: tokens.line,
+    backgroundColor: "transparent",
+    color: tokens.text,
+    fontFamily: tokens.ui,
+    fontSize: 13,
+    outline: "none",
+    "::placeholder": { color: tokens.faint },
+  },
+  groupLabel: { paddingInline: 10, paddingTop: 8, paddingBottom: 4 },
+  // A thread in history: a hollow mark, as it is not loaded.
+  hollow: {
+    flexShrink: 0,
+    boxSizing: "border-box",
+    width: 8,
+    height: 8,
+    marginInline: 3,
+    borderRadius: "50%",
+    borderWidth: 1.25,
+    borderStyle: "solid",
+    borderColor: tokens.lineStrong,
+  },
+  rowDelete: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    width: 22,
+    height: 22,
+    padding: 0,
+    borderWidth: 0,
+    borderRadius: `calc(5px * ${tokens.round})`,
+    backgroundColor: { default: "transparent", ":hover": tokens.fill },
+    color: { default: tokens.faint, ":hover": tokens.text },
+    cursor: "pointer",
+    opacity: { default: 0, ":focus-visible": 1, [stylex.when.ancestor(":hover")]: 1 },
+  },
+  rowDeleteShown: { opacity: 1 },
+  confirm: { display: "inline-flex", gap: 2, flexShrink: 0 },
+  textButton: {
+    height: 22,
+    paddingInline: 7,
+    borderWidth: 0,
+    borderRadius: tokens.buttonRound,
+    backgroundColor: { default: "transparent", ":hover": tokens.fill },
+    color: tokens.muted,
+    fontFamily: tokens.ui,
+    fontSize: 12,
+    fontWeight: 500,
+    cursor: "pointer",
+  },
+  danger: { color: tokens.red },
+  switchEmpty: {
+    margin: 0,
+    paddingBlock: 10,
+    paddingInline: 10,
+    color: tokens.faint,
+    fontSize: 12.5,
+  },
   hidden: {
     position: "absolute",
     width: 1,

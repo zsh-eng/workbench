@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { OwnedState } from "../../src/shared/owned-session";
 import type { SavedReview } from "../../src/shared/saved-review";
-import type { ThreadList } from "../../src/shared/threads";
+import type { Thread, ThreadList } from "../../src/shared/threads";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { runReviewCommand } from "../../src/cli/review";
 import { readServerEvents } from "../../src/web/data/sse";
@@ -153,22 +153,19 @@ test("a thread starts its agent on a new branch in a worktree, and archiving can
     name: "trail-notes",
   });
 
-  // Git keeps a worktree with changes, and the thread stays.
+  // Git keeps a worktree with changes, and the tab stays.
   await writeFile(join(second.checkout!.repo, "summary.ts"), "export const best = 2;\n");
-  const kept = await api<{ error: { code: string } }>(`/api/threads/${second.id}/archive`, {
-    archived: true,
+  const kept = await api<{ error: { code: string } }>(`/api/threads/${second.id}/close`, {
     removeWorktree: true,
   });
   expect(kept.status).toBe(409);
   expect(threads.value!.threads).toHaveLength(2);
 
-  // Archiving leaves the list and removes the worktree; the branch stays.
-  const archived = await api<{ review: SavedReview }>(`/api/threads/${review.id}/archive`, {
-    archived: true,
+  // Close sends the tab to history and removes the worktree; the branch stays.
+  const closed = await api<{ closed: boolean }>(`/api/threads/${review.id}/close`, {
     removeWorktree: true,
   });
-  expect(archived.status).toBe(200);
-  expect(archived.data.review.archivedAt).toBeTruthy();
+  expect(closed).toEqual({ status: 200, data: { closed: true } });
   expect(existsSync(worktree)).toBe(false);
   expect(git(repo, ["branch", "--list", "show-each-results-age-list"])).toContain(
     "show-each-results-age-list",
@@ -177,17 +174,32 @@ test("a thread starts its agent on a new branch in a worktree, and archiving can
     () => expect(threads.value!.threads.map((thread) => thread.id)).toEqual([second.id]),
     { timeout: 5000 },
   );
+  const history = await api<{ threads: Thread[] }>("/api/threads/history");
+  expect(history.data.threads.map((thread) => [thread.id, thread.open])).toEqual([
+    [review.id, false],
+  ]);
+  expect(history.data.threads[0]!.closedAt).toEqual(expect.any(Number));
 
-  // Undo brings the thread back.
-  await api(`/api/threads/${review.id}/archive`, { archived: false });
+  // Undo opens it again at its place.
+  await api(`/api/threads/${review.id}/open`, { restore: true });
   await vi.waitFor(
-    () => expect(threads.value!.threads.map((thread) => thread.id)).toContain(review.id),
+    () => expect(threads.value!.threads.map((thread) => thread.id)).toEqual([second.id, review.id]),
     { timeout: 5000 },
   );
 
-  // Archiving is not work on a thread: after Undo, it keeps its time and place.
+  // Closing is not work on a thread: it keeps its time, and ⌘⌥T its place.
   const time = () => threads.value!.threads.find((thread) => thread.id === second.id)?.updatedAt;
   const before = time();
+  await api(`/api/threads/${second.id}/close`, {});
+  await vi.waitFor(() => expect(time()).toBeUndefined(), { timeout: 5000 });
+  const reopened = await api<{ thread: Thread }>("/api/threads/reopen", {});
+  expect(reopened.data.thread).toMatchObject({ id: second.id, open: true });
+  await vi.waitFor(() => expect(time()).toBe(before), { timeout: 5000 });
+  expect(threads.value!.threads.map((thread) => thread.id)).toEqual([second.id, review.id]);
+  // Nothing left to reopen.
+  expect((await api("/api/threads/reopen", {})).status).toBe(404);
+
+  // The archive route of older windows closes and opens a tab.
   await api(`/api/threads/${second.id}/archive`, { archived: true });
   await vi.waitFor(() => expect(time()).toBeUndefined(), { timeout: 5000 });
   await api(`/api/threads/${second.id}/archive`, { archived: false });

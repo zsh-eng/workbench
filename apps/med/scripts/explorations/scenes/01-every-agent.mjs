@@ -1,5 +1,6 @@
 // Experiment 1: Med finds the Claude Code and Codex sessions in the registered
-// repositories by itself, and lists them with the threads that agents handed off.
+// repositories by itself. One that works opens as a tab; the others wait in
+// history, which ⌃Tab searches.
 export const meta = {
   title: "Every agent, wherever it runs",
   summary: "Sessions from Claude Code and Codex show in the thread list without a handoff.",
@@ -22,19 +23,13 @@ export default async function scene(stage) {
   });
   const sidebar = page.locator("aside").first();
   const glossary = sidebar.locator('[data-found] >> text="README glossary"').first();
-  const feet = sidebar
-    .locator('[data-found] >> text="Readers in the US want heights in feet"')
-    .first();
   await glossary.waitFor({ timeout: 20_000 });
-  await feet.waitFor({ timeout: 20_000 });
 
   await stage.say(
-    "Nobody ran <b>med review</b> for these two. Med found them in the transcripts of <b>Claude Code</b> and <b>Codex</b>.",
+    "Nobody ran <b>med review</b> for this one. Med found it at work in <b>Claude Code</b>'s transcripts and opened it as a tab.",
   );
   await stage.point(glossary, { dx: 0.4 });
-  await stage.wait(1400);
-  await stage.point(feet, { dx: 0.4 });
-  await stage.wait(1400);
+  await stage.wait(1800);
   await stage.shot("01-sidebar");
 
   await stage.say("Open one: its session on the left, its live changes on the right.");
@@ -92,19 +87,19 @@ export default async function scene(stage) {
   await stage.shot("01-kept");
   await right.evaluate((node) => node.remove());
 
-  // Quiet controls: Hide on a row, and Undo. The palette hides them all.
-  await stage.say("A session you do not need goes with <b>Hide</b>.");
-  await stage.point(feet, { dx: 0.4 });
-  await page.waitForTimeout(300);
-  await feet.click({ button: "right" });
-  const hide = page.getByRole("menuitem", { name: "Hide", exact: true });
-  await stage.click(hide);
-  const undo = sidebar.getByRole("button", { name: "Undo" });
-  await undo.waitFor({ timeout: 5000 });
-  await stage.wait(1400);
-  await stage.shot("01-hidden");
-  await stage.click(undo);
+  // A Codex session that does not work waits in history; ⌃Tab finds it.
+  await stage.say("Sessions that do not work wait in history. <b>⌃Tab</b> and a word find them.");
+  await page.keyboard.down("Control");
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("f");
+  await page.keyboard.up("Control");
+  await stage.type("eet", 90);
+  const feet = page.getByRole("option", {
+    name: "Readers in the US want heights in feet, in history",
+  });
   await feet.waitFor({ timeout: 10_000 });
-  await stage.wait(800);
+  await stage.wait(1600);
+  await stage.shot("01-history");
+  await stage.key("Escape", 600);
   await stage.clear();
 }

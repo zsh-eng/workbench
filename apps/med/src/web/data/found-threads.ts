@@ -10,7 +10,12 @@ import type { Thread, ThreadList } from "../../shared/threads";
 import { createApi } from "./api";
 import { readBrowserToken } from "./auth";
 import { browserFetch } from "./live";
-import type { WorkspaceInput, WorkspaceSession } from "./workspaces";
+import {
+  reviewWorkspaceId,
+  type Workspace,
+  type WorkspaceInput,
+  type WorkspaceSession,
+} from "./workspaces";
 
 // Found threads: Claude Code and Codex sessions in the registered
 // repositories that Med found by itself (src/host/found-sessions.ts). One
@@ -41,6 +46,19 @@ export function threadInput(thread: Thread): WorkspaceInput {
 /** The thread ID of a found workspace's session. */
 export const foundSessionThread = (session: WorkspaceSession) =>
   foundThreadId(session.agent, session.id);
+
+/** The workspace ID of a thread in every window: its review's, or for a
+ * found session, the thread's own (data/workspaces.ts). */
+export const threadWorkspaceId = (thread: Pick<Thread, "id" | "found">) =>
+  thread.found ? thread.id : reviewWorkspaceId(thread.id);
+
+/** The thread that a workspace shows, if it shows one. */
+export function workspaceThread(workspace: Workspace | undefined) {
+  if (workspace?.kind === "review") return workspace.reviewId;
+  if (workspace?.kind === "repository" && workspace.found)
+    return foundSessionThread(workspace.found);
+  return undefined;
+}
 
 // Whether the host lists found sessions, as its last thread list said. One
 // list per window feeds it (`useThreads`); the palette reads it.

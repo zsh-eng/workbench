@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SessionEvent } from "../../src/shared/agent-session";
 import type { SavedReview } from "../../src/shared/saved-review";
-import type { ThreadList } from "../../src/shared/threads";
+import type { Thread, ThreadList } from "../../src/shared/threads";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { claudeProjectFolder } from "../../src/host/found-sessions";
 import { readServerEvents } from "../../src/web/data/sse";
@@ -176,23 +176,60 @@ async function fixture(agents?: Parameters<typeof startHost>[0]["agents"]) {
     });
     return { status: response.status, data: (await response.json()) as T };
   };
-  /** The thread list as a window's stream sends it, latest first. */
   const list = async () => {
-    const response = await fetch(`http://127.0.0.1:${host.port}/api/threads/events`, {
-      headers: { authorization: `Bearer ${host.token}` },
-    });
-    const latest: { value: ThreadList | null } = { value: null };
-    const controller = new AbortController();
-    streams.push(controller);
-    void readServerEvents(
-      response.body!,
-      (event) => (latest.value = JSON.parse(event.data) as ThreadList),
-      controller.signal,
-    ).catch(() => {});
+    const latest = follow(host);
     await vi.waitFor(() => expect(latest.value).not.toBeNull());
     return latest;
   };
   return { api, list, host, repo, glossary, home, directory };
+}
+
+/**
+ * Every thread that Med finds: the tabs as a window's stream sends them, and
+ * history, which a window reads when it searches. A found session that does
+ * not work is history until the reader opens it.
+ */
+function follow(host: RunningHost) {
+  const headers = { authorization: `Bearer ${host.token}` };
+  const controller = new AbortController();
+  streams.push(controller);
+  let tabs: ThreadList | null = null;
+  let history: Thread[] = [];
+  void (async () => {
+    const response = await fetch(`http://127.0.0.1:${host.port}/api/threads/events`, {
+      headers,
+      signal: controller.signal,
+    });
+    await readServerEvents(
+      response.body!,
+      (event) => (tabs = JSON.parse(event.data) as ThreadList),
+      controller.signal,
+    );
+  })().catch(() => {});
+  void (async () => {
+    while (!controller.signal.aborted) {
+      const response = await fetch(`http://127.0.0.1:${host.port}/api/threads/history`, {
+        headers,
+        signal: controller.signal,
+      });
+      if (response.ok) history = ((await response.json()) as { threads: Thread[] }).threads;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  })().catch(() => {});
+  return {
+    get value(): ThreadList | null {
+      if (!tabs) return null;
+      const open = new Set(tabs.threads.map((thread) => thread.id));
+      return {
+        ...tabs,
+        threads: [...tabs.threads, ...history.filter((thread) => !open.has(thread.id))],
+      };
+    },
+    /** The tabs alone. */
+    get tabs() {
+      return tabs;
+    },
+  };
 }
 
 const foundIn = (list: ThreadList | null) =>
@@ -292,6 +329,15 @@ test("the thread list finds Claude Code and Codex sessions in the registered che
   // The saved review keeps its session; it is not listed twice.
   expect(threads.filter((thread) => thread.title === "Handed off")).toHaveLength(1);
   expect(latest.value!.found).toEqual({ shown: true });
+  // A session that works opens as a tab, once; the others are history.
+  await vi.waitFor(
+    () =>
+      expect(
+        latest.tabs!.threads.filter((thread) => thread.found).map((thread) => thread.title),
+      ).toEqual(["README glossary"]),
+    { timeout: 5000 },
+  );
+  expect(byTitle("Explain the prediction model in the README")?.open).toBe(false);
 
   // The checkout's working changes count, and follow the agent's edits,
   // which change its transcript too.
@@ -340,6 +386,21 @@ test("the thread list finds Claude Code and Codex sessions in the registered che
       )
     ).status,
   ).toBe(404);
+
+  // A found tab that the reader closes stays in history while its agent works.
+  const id = `found-claude-${glossaryId}`;
+  expect(await api(`/api/threads/${id}/close`, {})).toEqual({
+    status: 200,
+    data: { closed: true },
+  });
+  await utimes(transcript, new Date(), new Date());
+  await new Promise((resolve) => setTimeout(resolve, 3500));
+  expect(latest.tabs!.threads.some((thread) => thread.id === id)).toBe(false);
+  expect(latest.value!.threads.find((thread) => thread.id === id)).toMatchObject({
+    state: "working",
+    open: false,
+    closedAt: expect.any(Number),
+  });
 });
 
 test("found sessions hide one by one or all at once, and Keep in Med saves one as a thread", async () => {
@@ -381,17 +442,7 @@ test("found sessions hide one by one or all at once, and Keep in Med saves one a
     });
     return { status: response.status, data: (await response.json()) as T };
   };
-  const events = await fetch(`http://127.0.0.1:${again.port}/api/threads/events`, {
-    headers: { authorization: `Bearer ${again.token}` },
-  });
-  const restarted: { value: ThreadList | null } = { value: null };
-  const controller = new AbortController();
-  streams.push(controller);
-  void readServerEvents(
-    events.body!,
-    (event) => (restarted.value = JSON.parse(event.data) as ThreadList),
-    controller.signal,
-  ).catch(() => {});
+  const restarted = follow(again);
   await vi.waitFor(() => expect(restarted.value?.found).toEqual({ shown: false }));
   await call("/api/found", { shown: true });
   await vi.waitFor(() => expect(foundIn(restarted.value)).toHaveLength(2), { timeout: 10_000 });
@@ -541,16 +592,6 @@ test("a Codex session that Med runs through ACP shows once, as its thread, also 
     agents,
   });
   hosts.push(again);
-  const events = await fetch(`http://127.0.0.1:${again.port}/api/threads/events`, {
-    headers: { authorization: `Bearer ${again.token}` },
-  });
-  const restarted: { value: ThreadList | null } = { value: null };
-  const controller = new AbortController();
-  streams.push(controller);
-  void readServerEvents(
-    events.body!,
-    (event) => (restarted.value = JSON.parse(event.data) as ThreadList),
-    controller.signal,
-  ).catch(() => {});
+  const restarted = follow(again);
   await once(restarted);
 });

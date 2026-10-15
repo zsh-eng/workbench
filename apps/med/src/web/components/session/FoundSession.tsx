@@ -23,8 +23,11 @@ export function FoundSessionPane({
   controls,
   onOpenPath,
   onClose,
+  openAgent,
 }: {
   session: WorkspaceSession;
+  /** Shows this subagent's tab once for each nonce (SessionPanel). */
+  openAgent?: { id: string; nonce: number };
   /** The checkout's path, to open absolute links to its files. */
   root?: string;
   fetcher?: typeof fetch;
@@ -59,6 +62,7 @@ export function FoundSessionPane({
       controls={controls}
       onOpenPath={onOpenPath}
       onClose={onClose}
+      {...(openAgent && { openAgent })}
       footer={
         <FoundSessionBar
           session={session}

@@ -146,9 +146,18 @@ waiting when the user says that the task is done.
 Codex gets the user's messages as normal turns (Med uses `codex queue`), so a
 Codex session does not run `med review wait`.
 
-## Bring an earlier session into Med
+## Tabs, history, and earlier sessions
 
-Med lists the Claude Code and Codex sessions of the last 7 days by itself.
+The threads that the user has open are tabs in Med's sidebar; the others are
+history. When the user asks, list, open, or close them:
+
+```sh
+med thread list [--history]              # ID, state, repository/branch, title
+med thread open <id>                     # from history, as a tab
+med thread close <id> | --key <key>      # to history; the agent keeps working
+```
+
+Med finds the Claude Code and Codex sessions of the last 7 days by itself.
 For an older one, or one that the user cannot find, search for it, then make
 it a thread:
 

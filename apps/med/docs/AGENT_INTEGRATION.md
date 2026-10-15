@@ -369,12 +369,38 @@ patches and file pairs cannot be saved. Keep a generated manifest out of the
 reviewed changes unless it belongs to the project. `med review create --help`
 lists every option.
 
+## Tabs and history
+
+The threads that the user has open are tabs, in Med's sidebar. The others are
+history: Med does not watch them. A thread that you hand off with
+`med review create` opens as a tab. When the user asks you to open, close, or
+list threads, use `med thread`:
+
+```sh
+med thread list                          # the tabs: ID, state, repository/branch, title
+med thread list --history                # closed threads and found sessions, newest first
+med thread open r_6d1f…                  # opens a thread from history as a tab
+med thread close r_6d1f…                 # sends a tab to history; its agent keeps working
+med thread close --key "$MED_THREAD_KEY" --remove-worktree
+med thread reopen                        # opens the tab that closed last, at its place
+med thread delete r_6d1f…                # deletes the thread with its Review versions and comments
+```
+
+The lines have tabs between the fields. The state is `working`, `needs-you`,
+`idle`, or, in history, `closed`. `--json` prints the threads with all their
+details. `--key` names a thread by its review's key. `--remove-worktree` also
+removes the linked worktree that Med made for the thread, when Git can do that
+without force; the branch stays. Close or delete only the threads that the
+user names.
+
 ## Find and adopt sessions
 
-The thread list shows the Claude Code and Codex sessions of the last 7 days in
-the registered repositories by itself, also when no agent hands them off
-([found sessions](SESSIONS.md#found-sessions)). When the user asks for an older
-session, or one that is not in the list, find it and make it a Med thread.
+Med finds the Claude Code and Codex sessions of the last 7 days in the
+registered repositories by itself, also when no agent hands them off
+([found sessions](SESSIONS.md#found-sessions)). One whose agent works opens as
+a tab; the others are in history (`med thread list --history`). When the user
+asks for an older session, or one that Med did not find, find it and make it
+a Med thread.
 
 `med thread find <words>` lists the sessions on this computer of any age,
 newest first: those whose title, first prompt, folder, or ID has each word.
@@ -401,7 +427,8 @@ med thread adopt claude:2f0c4a91-6b0e-4d55-9a57-1f3e8c2d7b10
 # Thread r_6d1f…: [Explain the tide prediction model](http://127.0.0.1:6330/review/r_6d1f…)
 ```
 
-- A session that a thread holds gives that thread, also from the archive.
+- A new thread opens as a tab. A session that a thread holds gives that
+  thread, and opens it as a tab when it is in history.
 - When no session matches, or more than one does, the command fails and says
   so; for more than one, it lists them.
 - When the session's folder is not in a registered repository, or no longer
@@ -564,15 +591,18 @@ When you hand off code changes, give a Med review link if Med is running.
 ## Limits
 
 Reviews are local to the computer that runs Med; a localhost link does not
-open the review on another computer. Med does not delete old reviews, so clear
-comments that you no longer need.
+open the review on another computer. Med keeps a closed thread's Review
+versions and comments for 30 days, then a short record of it (title,
+repository, branch, sessions) for 180 days after the close.
 
 - A review starts with up to 16 targets and keeps up to 128 captures, including
   comparisons that got comments later.
 - Each target captures up to 500 changed files and 24 MiB of patch and source.
   A larger comparison is an error; narrow it.
-- Med stores up to 64 MiB for each review, 128 reviews, 512 MiB in total, and
-  500 comments for each review.
+- Med stores up to 64 MiB for each review and 500 comments for each review.
+  Over 512 MiB in total, Med first removes the captures of the threads that
+  closed first, and keeps their short records; it refuses a new capture only
+  when the tabs alone use more.
 - Copied comments are limited to 8 MiB. Med reports an error instead of cutting
   comments; narrow line ranges or remove comments first.
 - Binary and very large files keep their diff metadata but give no text

@@ -265,8 +265,14 @@ test("Changes show a branch's changes, and in a shared checkout only one session
     ).status,
   ).toBe(400);
 
-  // The thread list: sessions in the main checkout share it; the branch's
-  // session counts its branch's changes.
+  // The tabs: sessions in the main checkout share it; the branch's session
+  // counts its branch's changes. An idle found session is a tab once opened.
+  for (const id of [
+    `found-claude-${ids.mainClaude}`,
+    `found-codex-${ids.mainCodex}`,
+    `found-claude-${ids.branch}`,
+  ])
+    expect((await api(`/api/threads/${id}/open`, {})).status).toBe(200);
   const latest = await list();
   await vi.waitFor(
     () => {

@@ -156,11 +156,17 @@ nothing.
 
 ## Found sessions
 
-Med also shows the Claude Code and Codex sessions that no agent handed off
-(`src/host/found-sessions.ts`). The thread list shows a session when its
-transcript changed in the last 7 days (`FOUND_DAYS`, one window for both
-agents) and its folder is in a registered repository or one of its worktrees.
-Its thread ID is `found-<agent>-<session>`, and the session routes accept it.
+Med also finds the Claude Code and Codex sessions that no agent handed off
+(`src/host/found-sessions.ts`). Med finds a session when its transcript
+changed in the last 7 days (`FOUND_DAYS`, one window for both agents) and its
+folder is in a registered repository or one of its worktrees. Its thread ID is
+`found-<agent>-<session>`, and the session routes accept it.
+
+A found session opens as a tab once, when Med first sees its agent work
+(`src/host/thread-service.ts`). The others, and the ones that the user
+closed, are in history, where `⌃Tab` and `med thread list --history` find
+them. A found tab keeps a short record (title, checkout, branch, sessions), so
+it stays a tab after its session leaves the 7-day window.
 
 - Claude Code: the project folders of the registered checkouts.
 - Codex files a rollout under the day that its session started. Each scan
@@ -177,8 +183,9 @@ Its thread ID is `found-<agent>-<session>`, and the session routes accept it.
 checkout's live Changes, and a Review once the agent shows one with `med
 thread show`. A row counts the Changes (the branch's changes since the base,
 or the working changes on the base) until the first hand-off
-(`src/host/checkout-changes.ts`), and marks a checkout that other threads'
-sessions share. For older sessions, an agent runs `med thread find` and
+(`src/host/checkout-changes.ts`), and marks a checkout that is shared: the
+main checkout, or one where another tab's session works too. Keep in Med
+opens the thread as a tab. For older sessions, an agent runs `med thread find` and
 `med thread adopt`
 ([agent integration](AGENT_INTEGRATION.md#find-and-adopt-sessions)). These
 reach every session on the computer, of any age, also Codex's archived ones
@@ -349,9 +356,9 @@ the replay do not change.
 [Agent workspaces](AGENT_WORKSPACES.md) records the design and the remaining
 work.
 
-- The sidebar shows sessions recorded with saved reviews, and the
-  [found sessions](#found-sessions) of the last 7 days. Branch workspaces have
-  no session.
+- The sidebar shows the tabs: sessions recorded with saved reviews, and the
+  [found sessions](#found-sessions) that are open. Branch workspaces have no
+  session.
 - Subagent threads render whole, inside their call and in the subagent view;
   they are not virtual lists.
 - Estimates of open edits miss Pierre's hunk separators. A wrong estimate

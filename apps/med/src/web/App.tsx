@@ -54,6 +54,7 @@ import { BranchStrip, BranchSwitch, useBranchTabs } from "./components/BranchTab
 import {
   useDisposeOnClose,
   useShell,
+  useTabCommands,
   useThread,
   useThreadReader,
   useThreadState,
@@ -85,6 +86,7 @@ import { FilePicker } from "./components/FilePicker";
 import { openSearchPage } from "./components/SearchPage";
 import { repoFilter } from "./data/search-query";
 import { subscribeFileOpens, takeFileOpen } from "./data/file-opens";
+import { subscribeSubagentOpens, takeSubagentOpen } from "./data/tabs";
 import { SymbolPicker } from "./components/SymbolPicker";
 import { FullFileView, type BeginFileSymbolPreview } from "./components/FullFileView";
 import { FileViewTabs } from "./components/FileViewTabs";
@@ -343,6 +345,9 @@ export function App({
           : undefined;
   const threadLayout = entry?.kind === "review" || entry?.kind === "pull" || !!found;
   const foundCommands = useFoundCommands(sessionFetch);
+  const tabCommands = useTabCommands();
+  // A tab closes with "Close tab"; "Close workspace" is for the others.
+  const isTab = tabCommands.some((command) => command.id === "close-tab" && !command.disabled);
   const initialPanes = useCallback(
     (): PaneNode =>
       threadLayout
@@ -583,6 +588,8 @@ export function App({
     take();
     return subscribeFileOpens(take);
   }, [workspaceId, filesReady, fileWorkspace]);
+  // A subagent that the sidebar opens shows in the Session pane.
+  const [openAgent, setOpenAgent] = useState<{ id: string; nonce: number }>();
   useDisposeOnClose(fileWorkspace.dispose);
   const repositoryFiles = useBrowseFiles(
     browseSource,
@@ -780,6 +787,17 @@ export function App({
     else showFiles();
   }, [rightVisible, showFiles, closePane]);
   const toggleSession = useCallback(() => togglePane("session"), [togglePane]);
+  useEffect(() => {
+    if (!workspaceId) return;
+    const take = () => {
+      const id = takeSubagentOpen(workspaceId);
+      if (!id) return;
+      showPane("session");
+      setOpenAgent({ id, nonce: Date.now() });
+    };
+    take();
+    return subscribeSubagentOpens(take);
+  }, [workspaceId, showPane]);
   // ⌘B shows or hides the window's thread list; alone, the changed files.
   const toggleChanged = useCallback(() => togglePane("changed"), [togglePane]);
   const toggleReviewSidebar = shell?.toggleSidebar ?? toggleChanged;
@@ -1971,19 +1989,23 @@ export function App({
                   note.resolution !== "orphaned" &&
                   note.resolution !== "stale",
               )
-              .map((note): DiffLineAnnotation<Annotation> => ({
-                side: note.side === "old" ? "deletions" : "additions",
-                lineNumber: noteLine(file.metadata, note),
-                metadata: { note },
-              })),
+              .map(
+                (note): DiffLineAnnotation<Annotation> => ({
+                  side: note.side === "old" ? "deletions" : "additions",
+                  lineNumber: noteLine(file.metadata, note),
+                  metadata: { note },
+                }),
+              ),
             ...(guideNotesByFile?.get(file.id) ?? [])
               .filter(onLines)
               .filter((note) => shownLine(file.metadata, note))
-              .map((note): DiffLineAnnotation<Annotation> => ({
-                side: note.side === "old" ? "deletions" : "additions",
-                lineNumber: noteLine(file.metadata, note),
-                metadata: { guide: note },
-              })),
+              .map(
+                (note): DiffLineAnnotation<Annotation> => ({
+                  side: note.side === "old" ? "deletions" : "additions",
+                  lineNumber: noteLine(file.metadata, note),
+                  metadata: { guide: note },
+                }),
+              ),
           ]
         : [];
       if (visibleDraft?.path === file.path)
@@ -2289,7 +2311,9 @@ export function App({
   }, []);
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
-      if (document.querySelector("[data-standalone-files]") || !shown()) return;
+      // The ⌃Tab switcher takes the keys: a letter with Control held searches.
+      if (document.querySelector("[data-standalone-files], [data-workspace-switcher]") || !shown())
+        return;
       const editing = event
         .composedPath()
         .some(
@@ -3255,13 +3279,17 @@ export function App({
             shortcut: "⌃ ⇥",
             run: workspace.openSwitcher,
           },
-          {
-            id: "close-workspace",
-            label: "Close workspace",
-            // The home workspace and vaults stay.
-            disabled: workspace.pinned,
-            run: () => workspace.close(workspace.id),
-          },
+          ...(isTab
+            ? []
+            : [
+                {
+                  id: "close-workspace",
+                  label: "Close workspace",
+                  // The home workspace and vaults stay.
+                  disabled: workspace.pinned,
+                  run: () => workspace.close(workspace.id),
+                },
+              ]),
         ]
       : []),
     {
@@ -3459,6 +3487,7 @@ export function App({
       run: resumeFilePicker,
     },
     ...(shell ? foundCommands : []),
+    ...(shell ? tabCommands : []),
     ...(browseSource
       ? [
           {
@@ -4653,6 +4682,7 @@ export function App({
                     lead={sessionVisible}
                     mentions={mentionSources}
                     onMentionsWanted={wantMentions}
+                    openAgent={openAgent}
                   />
                 )}
               </Suspense>
@@ -4678,6 +4708,7 @@ export function App({
                   controls={controls}
                   onOpenPath={(path, line) => fileWorkspace.open(path, true, line)}
                   onClose={() => closePane("session")}
+                  openAgent={openAgent}
                 />
               </Suspense>
             ),

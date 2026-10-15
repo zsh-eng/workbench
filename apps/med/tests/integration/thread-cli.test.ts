@@ -3,16 +3,17 @@ import { mkdir, mkdtemp, realpath, rm, utimes, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { runThreadSessionsCommand } from "../../src/cli/thread-sessions";
+import { runThreadCommand } from "../../src/cli/thread";
 import { claudeProjectFolder } from "../../src/host/found-sessions";
 import { startHost, type RunningHost } from "../../src/host/server";
 import type { SessionEntry } from "../../src/shared/found-sessions";
 import type { SavedReview } from "../../src/shared/saved-review";
-import type { ThreadList } from "../../src/shared/threads";
+import type { Thread, ThreadList } from "../../src/shared/threads";
 import { readServerEvents } from "../../src/web/data/sse";
 
-// `med thread find` and `med thread adopt` through the production host, on a
-// scratch home with Claude Code and Codex transcripts of several ages.
+// `med thread` through the production host, on a scratch home with Claude
+// Code and Codex transcripts of several ages: find and adopt sessions, and
+// list, open, close, reopen, and delete the tabs.
 
 beforeEach(() => {
   for (const name of ["MED_PORT", "MED_STATE_DIR", "CLAUDE_CODE_SESSION_ID"]) vi.stubEnv(name, "");
@@ -182,10 +183,10 @@ async function fixture() {
   hosts.push(host);
   const run = async (...args: string[]) => {
     const output: string[] = [];
-    await runThreadSessionsCommand(
-      [...args, "--state-dir", stateDir, "--port", String(host.port)],
-      { print: (text) => output.push(text), openUrl: () => {} },
-    );
+    await runThreadCommand([...args, "--state-dir", stateDir, "--port", String(host.port)], {
+      print: (text) => output.push(text),
+      openUrl: () => {},
+    });
     return output.join("\n");
   };
   const api = async <T>(path: string, body?: unknown) => {
@@ -224,7 +225,7 @@ async function fixture() {
   /** `med thread show` from a directory, with the session's environment. */
   const show = async (args: string[], environment: NodeJS.ProcessEnv = {}, cwd = glossary) => {
     const output: string[] = [];
-    await runThreadSessionsCommand(
+    await runThreadCommand(
       ["show", ...args, "--state-dir", stateDir, "--port", String(host.port)],
       { print: (text) => output.push(text), openUrl: () => {}, environment, cwd },
     );
@@ -301,20 +302,26 @@ test("adopt makes a Claude Code or Codex session a thread by ID or by path, and 
   expect(saved.checkout).toEqual({ repositoryId: expect.any(String), repo, branch: "main" });
   // Its session pane reads the transcript.
   expect((await api(`/api/reviews/${tides.id}/sessions/${ids.tides}/turns`)).status).toBe(200);
-  // Again: the same thread, also back from the archive.
-  expect((await api(`/api/threads/${tides.id}/archive`, { archived: true })).status).toBe(200);
+  // A new thread opens as a tab.
+  const tabIds = async () =>
+    (await api<ThreadList>("/api/threads")).data.threads.map((thread) => thread.id);
+  expect(await tabIds()).toContain(tides.id);
+  // Again: the same thread, also back from history as a tab.
+  expect((await api(`/api/threads/${tides.id}/close`, {})).status).toBe(200);
+  expect(await tabIds()).not.toContain(tides.id);
   expect(adopted(await run("adopt", `claude:${ids.tides}`))).toEqual({ ...tides, again: true });
-  expect((await api<SavedReview>(`/api/reviews/${tides.id}`)).data.archivedAt).toBeUndefined();
+  expect(await tabIds()).toContain(tides.id);
 
-  // Claude Code by path: the found thread gives way to the saved one.
+  // Claude Code by path: the found thread, in history as its agent does not
+  // work, gives way to the saved one.
   const latest = await threads();
   await vi.waitFor(
-    () =>
+    async () =>
       expect(
-        latest.value?.threads.find((thread) => thread.title === "README glossary"),
-      ).toMatchObject({
-        id: `found-claude-${ids.glossary}`,
-      }),
+        (await api<{ threads: Thread[] }>("/api/threads/history")).data.threads.find(
+          (thread) => thread.title === "README glossary",
+        ),
+      ).toMatchObject({ id: `found-claude-${ids.glossary}`, open: false }),
     { timeout: 10_000 },
   );
   const glossaryThread = adopted(await run("adopt", glossaryPath));
@@ -441,4 +448,59 @@ test("show adds a Review version to the session's thread: files, the branch, a c
     /^Use one of --paths/,
   );
   await expect(show(["--paths", "README.md"])).rejects.toThrow(/^Med does not know this session/);
+});
+
+test("list, close, reopen, open, and delete tabs from the command line", async () => {
+  const { run, api, adopted } = await fixture();
+  const tides = adopted(await run("adopt", ids.tides));
+  const feet = adopted(await run("adopt", ids.feet, "--title", "Heights in feet"));
+  const ids_ = (output: string) => output.split("\n").map((line) => line.split("\t")[0]);
+
+  // The tabs in the sidebar's order: a new one at the top of its repository.
+  const listed = await run("list");
+  expect(listed.split("\n")).toEqual([
+    `${feet.id}\tidle\ttide/main\tHeights in feet`,
+    `${tides.id}\tidle\ttide/main\tExplain the tide prediction model in the README`,
+  ]);
+  const json = JSON.parse(await run("list", "--json")) as Thread[];
+  expect(json.map((thread) => [thread.id, thread.open])).toEqual([
+    [feet.id, true],
+    [tides.id, true],
+  ]);
+
+  // close sends a tab to history; its agent's session stays.
+  expect(await run("close", feet.id)).toBe(`Closed ${feet.id}; it is in history.`);
+  expect(await run("close", feet.id)).toBe(`${feet.id} was not open.`);
+  expect(ids_(await run("list"))).toEqual([tides.id]);
+  const history = (await run("list", "--history")).split("\n");
+  expect(history[0]).toBe(`${feet.id}\tclosed\ttide/main\tHeights in feet`);
+  expect(ids_(await run("list", "--history"))).not.toContain(tides.id);
+
+  // reopen brings back the tab that closed last, at its place.
+  expect(await run("reopen")).toBe(`Opened "Heights in feet" (${feet.id}).`);
+  expect(ids_(await run("list"))).toEqual([feet.id, tides.id]);
+  await expect(run("reopen")).rejects.toThrow("History has no thread to reopen.");
+
+  // A key names a thread too; open puts a thread from history at the top.
+  const key = (await api<SavedReview>(`/api/reviews/${tides.id}`)).data.key!;
+  expect(await run("close", "--key", key)).toBe(`Closed ${tides.id}; it is in history.`);
+  expect(await run("open", tides.id)).toBe(
+    `Opened "Explain the tide prediction model in the README" as a tab (${tides.id}).`,
+  );
+  expect(ids_(await run("list"))).toEqual([tides.id, feet.id]);
+
+  // delete removes the thread with its captures; the session stays a transcript.
+  expect(await run("delete", feet.id)).toBe(`Deleted ${feet.id}.`);
+  expect((await api(`/api/reviews/${feet.id}`)).status).toBe(404);
+  expect(ids_(await run("list"))).toEqual([tides.id]);
+  expect(await run("list", "--history")).not.toContain(feet.id);
+  expect(await run("find", "feet")).toContain(`codex:${ids.feet}`);
+
+  // Mistakes say what to do.
+  await expect(run("open", "nope")).rejects.toThrow('"nope" is not a thread ID');
+  await expect(run("close")).rejects.toThrow("Name the thread by its ID or by --key.");
+  await expect(run("open", tides.id, "--remove-worktree")).rejects.toThrow(
+    "Use --remove-worktree with close.",
+  );
+  expect(await run()).toContain("med thread adopt <session>");
 });

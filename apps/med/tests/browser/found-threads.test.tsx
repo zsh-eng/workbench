@@ -168,6 +168,17 @@ function createHost(threads: Thread[]) {
         },
       });
     }
+    const tab = /^\/api\/threads\/([\w-]+)\/(open|close|delete)$/.exec(url.pathname);
+    if (tab && init?.method === "POST") {
+      posts.push({ path: url.pathname, body });
+      return Response.json(
+        tab[2] === "close"
+          ? { closed: true }
+          : tab[2] === "delete"
+            ? { deleted: true }
+            : { thread: threads.find((thread) => thread.id === tab[1]) },
+      );
+    }
     const session = /^\/api\/reviews\/([\w-]+)\/sessions\/([\w-]+)\/events$/.exec(url.pathname);
     if (session) {
       sessionStreams.push(session[1]!);
@@ -336,7 +347,7 @@ test("a found session lists as a thread, opens on its checkout with its session,
   expect(document.body.textContent).not.toContain("Return to review");
 });
 
-test("Hide on a found thread and the palette's command hide found sessions", async () => {
+test("Close on a found tab sends it to history, Delete hides its session, and the palette hides all", async () => {
   const codex = found({
     id: "found-codex-c1",
     title: "Readers in the US want heights in feet",
@@ -349,14 +360,28 @@ test("Hide on a found thread and the palette's command hide found sessions", asy
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
   const row = page.getByRole("button", { name: /^Readers in the US/ });
   await row.click({ button: "right" });
-  // A found thread hides; it has no worktree of Med's to remove.
-  expect(document.body.textContent).not.toContain("Archive");
-  await page.getByRole("menuitem", { name: "Hide", exact: true }).click();
+  // A found thread has no worktree of Med's to remove.
+  expect(document.body.textContent).not.toContain("Close and remove worktree");
+  await page.getByRole("menuitem", { name: /^Close tab/ }).click();
   await expect.element(row).not.toBeInTheDocument();
-  await expect.element(page.getByText("Hidden", { exact: true })).toBeVisible();
+  await expect
+    .element(page.getByText("Closed “Readers in the US want heights in feet”."))
+    .toBeVisible();
   expect(host.posts).toEqual([
-    { path: "/api/found", body: { hide: { id: "found-codex-c1", hidden: true } } },
+    { path: "/api/threads/found-codex-c1/close", body: { removeWorktree: false } },
   ]);
+
+  // Delete asks first; the host hides the session, so it does not come back.
+  const glossary = page.getByRole("button", { name: /^README glossary/ });
+  await glossary.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Delete…" }).click();
+  await page
+    .getByRole("status")
+    .filter({ hasText: "Delete “README glossary”?" })
+    .getByRole("button", { name: "Delete" })
+    .click();
+  await expect.element(glossary).not.toBeInTheDocument();
+  expect(host.posts.at(-1)?.path).toMatch(/^\/api\/threads\/found-claude-[\w-]+\/delete$/);
 
   await userEvent.keyboard("{Control>}k{/Control}");
   await page.getByRole("combobox", { name: "Search commands" }).fill("not kept in Med");

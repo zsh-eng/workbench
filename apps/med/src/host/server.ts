@@ -76,6 +76,9 @@ import { runProcess } from "./runtime/process";
 import { acceptWebSocket } from "./runtime/websocket";
 import { CodexReviews } from "./codex-reviews";
 import { SavedReviewStore } from "./saved-reviews";
+import { createThreadTabs } from "./thread-tabs";
+import { createThreadService } from "./thread-service";
+import { createThreadSubagents } from "./thread-subagents";
 import {
   createTranscriptFeeds,
   findTranscript,
@@ -87,7 +90,7 @@ import { findAgents, OwnedSessions, type RunnableAgent } from "./owned-sessions"
 import { createAgentStatus } from "./agent-status";
 import { createFoundSessions } from "./found-sessions";
 import { createSessionSearch, sessionEntry, type SessionInfo } from "./session-search";
-import { changesBase, createCheckoutWork } from "./checkout-work";
+import { createCheckoutWork } from "./checkout-work";
 import { createCheckoutChanges } from "./checkout-changes";
 import { createSessionEdits } from "./session-edits";
 import {
@@ -99,11 +102,13 @@ import {
 import { ownedActionSchema, ownedStartSchema } from "../shared/owned-session";
 import { attemptLetter } from "../shared/attempts";
 import {
+  threadCloseSchema,
+  threadIdSchema,
+  threadOpenSchema,
+  threadOrderSchema,
   threadSlug,
   threadStartSchema,
   threadTitle,
-  type Thread,
-  type ThreadList,
 } from "../shared/threads";
 import {
   agentMessageInputSchema,
@@ -116,7 +121,6 @@ import {
   briefCommentMutationSchema,
   reviewKeySchema,
   savedReviewCreateSchema,
-  handoffTargets,
   threadCheckout,
   type CapturedReviewTarget,
   type SavedCheckout,
@@ -272,7 +276,28 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   const temporaryState = options.stateDir
     ? undefined
     : await mkdtemp(join(tmpdir(), "med-reviews-"));
-  const savedReviews = new SavedReviewStore(join(options.stateDir ?? temporaryState!, "reviews"));
+  // Open tabs and cold history (thread-tabs.ts). Past the byte budget, the
+  // threads that closed first give up their captures, as pruning does.
+  const tabs = createThreadTabs({ file: join(options.stateDir ?? temporaryState!, "tabs.json") });
+  const savedReviews = new SavedReviewStore(join(options.stateDir ?? temporaryState!, "reviews"), {
+    evictable: () =>
+      tabs
+        .closed()
+        .map((entry) => entry.id)
+        .reverse(),
+    evicted: (review) => {
+      // A thread without a Review names its checkout; the stub keeps it.
+      const checkout = threadCheckout(review);
+      tabs.setStub(review.id, {
+        title: review.pullRequestTitle ?? review.title,
+        createdAt: review.createdAt,
+        sessions: review.sessions ?? [],
+        ...(checkout && { checkout: checkout.repo }),
+        ...(checkout?.branch && { branch: checkout.branch }),
+        ...(review.pullRequestUrl && { pullRequestUrl: review.pullRequestUrl }),
+      });
+    },
+  });
   const inbox = new AgentInbox(join(options.stateDir ?? temporaryState!, "agent-messages"), {
     ...(options.queueCodex ? { queueCodex: options.queueCodex } : {}),
     ...(options.agentAckMs ? { ackMs: options.agentAckMs } : {}),
@@ -336,7 +361,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     const threads = new Map<string, { id: string; archived?: boolean }>();
     for (const review of reviews)
       for (const session of review.sessions ?? [])
-        threads.set(session.id, { id: review.id, ...(review.archivedAt && { archived: true }) });
+        // `archived`: the thread is in history, not a tab.
+        threads.set(session.id, {
+          id: review.id,
+          ...(!tabs.isOpen(review.id) && { archived: true }),
+        });
     for (const [own, id] of ownedSessions.agentSessions()) {
       const thread = threads.get(id);
       if (thread && !threads.has(own)) threads.set(own, thread);
@@ -360,106 +389,19 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   };
   // Each thread's work that its base branch does not have yet.
   const checkoutWork = createCheckoutWork();
-  /**
-   * Marks the threads whose checkout is shared: a repository's main
-   * checkout, or a worktree where more than one thread works. Their Changes
-   * offer "Only this session's files".
-   */
-  const markShared = (threads: Thread[]) => {
-    const transcript = (thread: Thread) =>
-      !!thread.checkout && !!thread.sessions?.some((session) => session.agent !== "acp");
-    const counts = new Map<string, number>();
-    for (const thread of threads)
-      if (transcript(thread)) counts.set(thread.checkout!, (counts.get(thread.checkout!) ?? 0) + 1);
-    for (const thread of threads)
-      if (transcript(thread) && (!thread.linked || counts.get(thread.checkout!)! > 1))
-        thread.shared = true;
-  };
-  /** Every thread, newest first, with the repositories that threads start in. */
-  const listThreads = async (): Promise<ThreadList> => {
-    const repositories = registry.snapshot();
-    const saved = await savedReviews.list();
-    const reviews = saved.filter((review) => !review.archivedAt);
-    const threads = await Promise.all(
-      reviews.map(async (review): Promise<Thread> => {
-        const target = threadCheckout(review);
-        const family = repositories.find((entry) => entry.id === target?.repositoryId);
-        const status = review.sessions?.length
-          ? await reviewStatus(review.id, review.sessions).catch(() => undefined)
-          : undefined;
-        const reply = review.sessions?.length
-          ? await inbox.last(review.id).catch(() => undefined)
-          : undefined;
-        const tree = family?.worktrees.find((entry) => entry.path === target?.repo);
-        // Before the agent hands off a Review, the row counts the live Changes.
-        const live =
-          target && !handoffTargets(review).length
-            ? checkoutChanges.get(
-                target.repo,
-                changesBase(family, tree ? tree.branch : target.branch),
-                status?.updatedAt,
-              )
-            : undefined;
-        return {
-          id: review.id,
-          title: review.pullRequestTitle ?? review.title,
-          createdAt: review.createdAt,
-          updatedAt: Math.max(review.modifiedAt, status?.updatedAt ?? 0),
-          ...(family && {
-            repository: { id: family.id, name: family.name, path: family.path },
-          }),
-          ...(target && { checkout: target.repo }),
-          ...(tree?.linked && { linked: true }),
-          ...(target?.branch && { branch: target.branch }),
-          ...(status && { agent: status.agent, state: status.state }),
-          ...(status?.turn && { turn: status.turn }),
-          ...(reply && {
-            replied: {
-              at: Date.parse(reply.createdAt),
-              text: (reply.text || `${reply.noteIds.length} comments`).slice(0, 200),
-              delivery: reply.delivery,
-            },
-          }),
-          ...(review.sessions?.length && { sessions: review.sessions }),
-          ...(live
-            ? { changes: live }
-            : review.totals &&
-              handoffTargets(review).length && {
-                changes: {
-                  files: review.totals.files,
-                  additions: review.totals.additions,
-                  deletions: review.totals.deletions,
-                },
-              }),
-          ...(review.pullRequestUrl && { pullRequestUrl: review.pullRequestUrl }),
-          ...(review.group && { group: review.group }),
-        };
-      }),
-    );
-    threads.push(...found.threads(saved));
-    threads.sort((a, b) => b.updatedAt - a.updatedAt);
-    markShared(threads);
-    // A thread's work counts the uncommitted changes when its Changes or its
-    // Review shows them.
-    const onWorking = new Set(
-      reviews
-        .filter(
-          (review) =>
-            !handoffTargets(review).length ||
-            review.targets.some((entry) => entry.comparison.kind === "working"),
-        )
-        .map((review) => review.id),
-    );
-    return {
-      threads: checkoutWork.annotate(
-        threads,
-        repositories,
-        (thread) => !!thread.found || onWorking.has(thread.id),
-      ),
-      repositories: repositories.map(({ id, name, path }) => ({ id, name, path })),
-      found: found.settings(),
-    };
-  };
+  // The tabs and history; the thread list polls only the tabs.
+  const threads = createThreadService({
+    savedReviews,
+    tabs,
+    repositories: () => registry.snapshot(),
+    status: reviewStatus,
+    lastMessage: (reviewId) => inbox.last(reviewId),
+    found,
+    checkoutWork,
+    checkoutChanges,
+    subagents: createThreadSubagents(),
+    removeWorktree: (path, signal) => removeLinkedWorktree(path, signal),
+  });
 
   const watchers = new Map<string, Promise<() => Promise<void>>>();
   const watcherModes = new Map<string, boolean>();
@@ -581,7 +523,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   const pullStreams = new Set<ServerResponse>();
   // Attempts: the threads of one task, compared, and one of them kept.
   const attempts = new AttemptGroups({
-    reviews: () => savedReviews.list(),
+    reviews: () => threads.attemptReviews(),
     status: (review) =>
       review.sessions?.length
         ? reviewStatus(review.id, review.sessions)
@@ -592,7 +534,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         .get(id)
         ?.state()
         .settings.find((entry) => entry.category === "model")?.value,
-    archive: (id, archived) => savedReviews.archive(id, archived),
+    // Keep closes the other attempts; Undo opens them at their places.
+    archive: (id, archived) => (archived ? threads.close(id) : threads.open(id, { restore: true })),
     rename: (id, title) => savedReviews.details(id, { title }),
     repository: (path) => registry.owner(path),
     stopAgents(path) {
@@ -610,6 +553,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     for (const path of options.repos ?? []) await registry.register(path);
   }
   await options.service?.attach(registry);
+  // Tabs come from the saved reviews on the first start; history prunes now and daily.
+  await threads.start();
   const publish = (event: ChangeEvent) => {
     const frame = `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
     for (const [stream, path] of streams) {
@@ -1097,8 +1042,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           push();
           return;
         }
-        // Every thread the host keeps, with its lead session's state, sent
-        // again when one changes; and the registered repositories.
+        // The tabs, with their agents' states, sent again when one changes;
+        // and the registered repositories. A change to the tabs, such as a
+        // close in another window, sends the list at once.
         if (url.pathname === "/api/threads/events" && request.method === "GET") {
           if (threadStreams.size >= 8)
             throw new HostError("too-many-streams", "Too many thread streams are open.", 503);
@@ -1109,16 +1055,29 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             "x-accel-buffering": "no",
           });
           threadStreams.add(response);
-          response.once("close", () => threadStreams.delete(response));
+          let wake: (() => void) | undefined;
+          const unsubscribe = tabs.subscribe(() => wake?.());
+          response.once("close", () => {
+            threadStreams.delete(response);
+            unsubscribe();
+            wake?.();
+          });
           void (async () => {
             let last = "";
             while (!abort.signal.aborted && !closing) {
-              const text = JSON.stringify(await listThreads());
+              const text = JSON.stringify(await threads.list());
               if (text !== last && !abort.signal.aborted) {
                 last = text;
                 response.write(`event: state\ndata: ${text}\n\n`);
               }
-              await new Promise((done) => setTimeout(done, STATUS_MS));
+              await new Promise<void>((done) => {
+                const timer = setTimeout(done, STATUS_MS);
+                wake = () => {
+                  clearTimeout(timer);
+                  done();
+                };
+              });
+              wake = undefined;
             }
           })();
           return;
@@ -1587,7 +1546,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             const input = savedReviewCreateSchema.parse(
               await readBody(request, MAX_BRIEF_BODY + MAX_GUIDE_BODY),
             );
-            send(await savedReviews.create(input, captureTarget, assertRequestAccess));
+            const review = await savedReviews.create(input, captureTarget, assertRequestAccess);
+            // A hand-off opens its thread as a tab, also a new iteration of a closed one.
+            await threads.opened(review);
+            send(review);
             return;
           }
           // A new Review version of a thread: what its agent shows now
@@ -1597,14 +1559,20 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             const body = savedReviewCreateSchema
               .omit({ title: true })
               .parse(await readBody(request, MAX_BRIEF_BODY + MAX_GUIDE_BODY));
-            send(
-              await savedReviews.addVersion(version[1]!, body, captureTarget, assertRequestAccess),
+            const review = await savedReviews.addVersion(
+              version[1]!,
+              body,
+              captureTarget,
+              assertRequestAccess,
             );
+            // As a hand-off does, a new version opens a closed thread as a tab.
+            await threads.opened(review);
+            send(review);
             return;
           }
           // `med thread adopt`: a Claude Code or Codex session of any age
           // becomes a saved thread, as Keep in Med makes one. A session that
-          // a thread names already gives that thread, back from the archive.
+          // a thread names already gives that thread, back from history as a tab.
           if (url.pathname === "/api/sessions/adopt" && request.method === "POST") {
             const input = sessionAdoptSchema.parse(await readBody(request));
             const matches = await sessionSearch.lookup(input.session);
@@ -1620,9 +1588,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             const [entry] = await sessionEntries([info]);
             const named = (await sessionThreads()).get(info.id);
             if (named) {
-              const review = named.archived
-                ? await savedReviews.archive(named.id, false, assertRequestAccess)
-                : await savedReviews.get(named.id);
+              if (named.archived) await threads.open(named.id, { restore: true });
+              const review = await savedReviews.get(named.id);
               send({
                 id: review.id,
                 title: review.title,
@@ -1660,6 +1627,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               assertRequestAccess,
               await placeCheckout(repo),
             );
+            // An adopted session is a new thread: it opens as a tab.
+            await threads.opened(review);
             send({
               id: review.id,
               title: review.title,
@@ -1724,6 +1693,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               assertRequestAccess,
               await placeCheckout(cwd),
             );
+            await threads.opened(review, input.prompt);
             await runner.prompt(input.prompt);
             send({ review });
             return;
@@ -2350,38 +2320,52 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             send({ removed: true });
             return;
           }
-          // Archiving a thread can remove the worktree that Med made for it.
-          const archive = /^\/api\/threads\/(r_[a-f0-9]{24})\/archive$/.exec(url.pathname);
-          if (archive && request.method === "POST") {
-            const input = z
-              .object({ archived: z.boolean(), removeWorktree: z.boolean().default(false) })
-              .parse(await readBody(request));
-            const id = archive[1]!;
-            if (input.archived && input.removeWorktree) {
-              const review = await savedReviews.get(id);
-              const path = threadCheckout(review)?.repo;
-              const linked =
-                !!path &&
-                registry.owner(path)?.worktrees.some((tree) => tree.path === path && tree.linked);
-              if (linked) {
-                // Another thread that works there keeps the worktree.
-                const others = (await savedReviews.list()).filter(
-                  (entry) =>
-                    entry.id !== id &&
-                    !entry.archivedAt &&
-                    (threadCheckout(entry)?.repo === path ||
-                      entry.targets.some((target) => target.repo === path)),
-                );
-                if (others.length)
-                  throw new HostError(
-                    "worktree-shared",
-                    `"${others[0]!.title}" works in this worktree too.`,
-                    409,
-                  );
-                await removeLinkedWorktree(path, abort.signal);
-              }
+          // Threads: open as a tab, close to history, reorder, and delete.
+          if (url.pathname === "/api/threads" && request.method === "GET") {
+            send(await threads.list());
+            return;
+          }
+          if (url.pathname === "/api/threads/history" && request.method === "GET") {
+            send({ threads: await threads.history() });
+            return;
+          }
+          if (url.pathname === "/api/threads/order" && request.method === "POST") {
+            await threads.order(threadOrderSchema.parse(await readBody(request)).order);
+            send({ ok: true });
+            return;
+          }
+          if (url.pathname === "/api/threads/reopen" && request.method === "POST") {
+            const thread = await threads.reopen();
+            if (!thread)
+              throw new HostError("thread-not-found", "History has no thread to reopen.", 404);
+            send({ thread });
+            return;
+          }
+          const threadAction = /^\/api\/threads\/([\w-]+)\/(open|close|delete|archive)$/.exec(
+            url.pathname,
+          );
+          if (threadAction && request.method === "POST") {
+            const id = threadIdSchema.parse(threadAction[1]);
+            const action = threadAction[2];
+            const body = await readBody(request).catch(() => ({}));
+            if (action === "open") {
+              send({ thread: await threads.open(id, threadOpenSchema.parse(body ?? {})) });
+            } else if (action === "close") {
+              const input = threadCloseSchema.parse(body ?? {});
+              send({ closed: await threads.close(id, input, abort.signal) });
+            } else if (action === "delete") {
+              await threads.delete(id);
+              send({ deleted: true });
+            } else {
+              // Archive, from before tabs: it closes the thread, or opens it again.
+              const input = z
+                .object({ archived: z.boolean(), removeWorktree: z.boolean().default(false) })
+                .parse(body);
+              if (input.archived)
+                await threads.close(id, { removeWorktree: input.removeWorktree }, abort.signal);
+              else await threads.open(id, { restore: true });
+              send({ ok: true });
             }
-            send({ review: await savedReviews.archive(id, input.archived, assertRequestAccess) });
             return;
           }
           if (url.pathname === "/api/reveal" && request.method === "POST") {
@@ -2673,6 +2657,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       found.close();
       checkoutWork.close();
       checkoutChanges.close();
+      threads.stop();
       for (const abort of activeRequests.keys()) abort.abort();
       for (const stream of [...streams.keys(), ...windows]) stream.end();
       // A channel's handler stops when its response closes. Bun does not emit

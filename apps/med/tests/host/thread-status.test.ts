@@ -271,6 +271,13 @@ test("each thread tells what its agent does now, what it said, and whether it as
     head: head(repo),
   });
 
+  // A found session that does not work is history, which Med does not
+  // read; opened as a tab, it tells its turn too.
+  for (const id of [`found-claude-${ids.pick}`, `found-codex-${ids.feet}`])
+    await vi.waitFor(
+      async () => expect((await api(`/api/threads/${id}/open`, {})).status).toBe(200),
+      { timeout: 15_000 },
+    );
   const latest = await list();
   const thread = (title: string) =>
     latest.value?.threads.find((entry) => entry.title === title) as Thread | undefined;

@@ -242,7 +242,8 @@ export const savedReviewSchema = z.object({
   /** The thread's checkout, when the review has no target there. */
   checkout: savedCheckoutSchema.optional(),
   sessions: z.array(agentSessionSchema).optional(),
-  /** Set when the thread is archived: the thread list leaves it out. */
+  /** Set by Med before 0.5, when archive took a thread out of the list. The
+   * first start with tabs closes such a thread (src/host/thread-service.ts). */
   archivedAt: z.string().optional(),
   /** One attempt at a task that several agents do; see attempts.ts. */
   group: attemptRefSchema.optional(),

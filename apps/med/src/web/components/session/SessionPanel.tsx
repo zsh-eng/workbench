@@ -365,10 +365,14 @@ export function SessionPanel({
   mentions,
   onMentionsWanted,
   footer,
+  openAgent,
 }: {
   /** In place of the message box of a session that the panel only reads,
    * such as one that Med found (FoundSession.tsx). */
   footer?: ReactNode;
+  /** Shows this subagent's tab, by the tool call that started it, once for
+   * each nonce, as when the sidebar opens it. */
+  openAgent?: { id: string; nonce: number };
   reviewId: string;
   /** What @ can name in a message. */
   mentions?: MentionSources;
@@ -714,6 +718,7 @@ export function SessionPanel({
               loading={loading}
               earlier={earlier}
               reveal={reveal}
+              openAgent={openAgent}
               showWork={showWork}
               now={running ? now : undefined}
               before={
