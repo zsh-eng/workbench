@@ -64,7 +64,8 @@ export const threadSchema = z.object({
   /** A session that Med found by itself (src/host/found-sessions.ts): no
    * saved review names it, and its ID is not a review's. */
   found: z.boolean().optional(),
-  /** The lead session's last turn, from its transcript's tail. */
+  /** The lead session's last turn, from its transcript's tail: what it does
+   * or said, and its checks. With `changes`, the facts of the turn recap. */
   turn: threadTurnSchema.optional(),
   /** The newest message that the user sent from Med to the thread's agents. */
   replied: z

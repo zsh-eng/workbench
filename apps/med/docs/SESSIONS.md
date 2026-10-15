@@ -252,6 +252,17 @@ later ones 15 ms.
   skill's `med review wait` is not a task: its row reads "Waiting for your
   message in Med" and does not spin. The dock stays closed as the reader left
   it; **Hide** keeps it hidden until a new task starts.
+- The turn recap (`TurnRecap.tsx`, `data/turn-recap.ts`) ends the thread of
+  the latest session when its turn ended unseen. A turn is seen when it ends
+  while the reader watches the session (the pane on screen, the workspace
+  shown, the window visible), or when the reader presses **Review**, ×, or
+  `Esc`. The browser keeps the end of the last seen turn by thread; turns from
+  before its first visit count as seen. The facts come from the thread list:
+  `changes`, and `turn.checks`, which `src/host/session-checks.ts` reads from
+  the turn's tool calls (the last run of each check). A seen recap keeps its
+  height out of sight until the next turn, so the thread does not move, and
+  the Tasks dock stays hidden for that turn. Seen does not change the tab's
+  unread mark or **Needs you**; a reply does.
 - A subagent is part of its parent's session, not a session of its own: the
   host reads its transcript into the call that started it. When a session has
   subagents, a row of tabs above the thread holds **Main** and one tab per

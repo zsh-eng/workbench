@@ -44,7 +44,7 @@ const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
 
 type Step =
   | { text: string; end?: boolean }
-  | { tool: string; input: Record<string, unknown>; result?: string };
+  | { tool: string; input: Record<string, unknown>; result?: string; error?: boolean };
 
 /** A Claude Code transcript: a prompt 4 minutes ago, then the agent's steps,
  * one a minute apart. A tool without a result still runs. */
@@ -90,7 +90,14 @@ async function claude(home: string, cwd: string, id: string, prompt: string, ste
         timestamp,
         message: {
           role: "user",
-          content: [{ type: "tool_result", tool_use_id: callId, content: step.result }],
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: callId,
+              content: step.result,
+              ...(step.error && { is_error: true }),
+            },
+          ],
         },
       });
   });
@@ -206,7 +213,20 @@ test("each thread tells what its agent does now, what it said, and whether it as
   // A turn that ended on a question, on working changes.
   await writeFile(join(trees.ask, "format.ts"), "export const time = 1;\n");
   await claude(home, trees.ask, ids.ask, "Times in Tromsø are an hour off. Fix formatTime.", [
-    { tool: "Read", input: { file_path: join(trees.ask, "README.md") }, result: "# tide" },
+    // Checks: a test run that fails, then passes; a type check that fails.
+    {
+      tool: "Bash",
+      input: { command: `cd "${trees.ask}" && bun test` },
+      result: "Exit code 1\n 4 pass\n 1 fail\n",
+      error: true,
+    },
+    { tool: "Bash", input: { command: "TZ=UTC bun test" }, result: " 5 pass\n 0 fail\n" },
+    {
+      tool: "Bash",
+      input: { command: "bunx tsc --noEmit" },
+      result: "Exit code 2\nformat.ts(1,1): error TS2304",
+      error: true,
+    },
     {
       text: "Fixed: `formatTime` asks `Intl` for the hour.\n\nOne choice for you: should the table show **each station's own time**, or the reader's? I kept the station's own time. Should I switch it?",
       end: true,
@@ -301,6 +321,11 @@ test("each thread tells what its agent does now, what it said, and whether it as
       said: "One choice for you: should the table show each station's own time, or the reader's? I kept the station's own time. Should I switch it?",
       startedAt: expect.any(Number),
       endedAt: expect.any(Number),
+      // The last run of each check, by its short name, with its test counts.
+      checks: [
+        { name: "bun test", status: "passed", pass: 5, fail: 0 },
+        { name: "tsc", status: "failed" },
+      ],
     },
     unlanded: { base: "main", ahead: 0, uncommitted: true },
   });

@@ -37,6 +37,7 @@ import { paneHandle } from "../PaneTree";
 import { ZenContext } from "../ZenExit";
 import { SessionComposer, type ComposerAttachment } from "./SessionComposer";
 import { ReplyActionsContext, SessionThread, type ReplyActions } from "./SessionThread";
+import type { TurnRecapProps } from "./TurnRecap";
 
 type PinSource = NonNullable<Extract<PinMutation, { add: unknown }>["add"]["source"]>;
 /** The review's pins, for Pin to review on the agent's replies. */
@@ -366,7 +367,11 @@ export function SessionPanel({
   onMentionsWanted,
   footer,
   openAgent,
+  recap,
 }: {
+  /** The recap of the thread's last turn, which ended unseen. It shows at
+   * the end of the latest session; Reply goes to its message box. */
+  recap?: Omit<TurnRecapProps, "onReply">;
   /** In place of the message box of a session that the panel only reads,
    * such as one that Med found (FoundSession.tsx). */
   footer?: ReactNode;
@@ -623,6 +628,18 @@ export function SessionPanel({
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot, messages, outgoing, session.id, session.agent, streaming, running]);
   const needsYou = !!ownedState?.permission;
+  const panel = useRef<HTMLElement>(null);
+  const turnRecap = useMemo(
+    () =>
+      recap && session.id === latest
+        ? {
+            ...recap,
+            onReply: () =>
+              panel.current?.querySelector<HTMLTextAreaElement>("form textarea")?.focus(),
+          }
+        : undefined,
+    [recap, session.id, latest],
+  );
   const zen = useContext(ZenContext);
   const quiet = useQuietChrome();
   // The first view has not come, and no earlier thread stays meanwhile.
@@ -666,6 +683,8 @@ export function SessionPanel({
 
   return (
     <section
+      ref={panel}
+      data-session-panel=""
       aria-label={`${agent} session`}
       // A workspace shows once this has its thread (see WorkspaceViews).
       data-pending={loading || undefined}
@@ -720,6 +739,7 @@ export function SessionPanel({
               reveal={reveal}
               openAgent={openAgent}
               showWork={showWork}
+              recap={turnRecap}
               now={running ? now : undefined}
               before={
                 state.truncated && !pageable ? (
