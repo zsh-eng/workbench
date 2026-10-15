@@ -52,6 +52,13 @@ Their code, write-ups, screenshots, and scenes stay on branch
 `med-explorations`. A separate design, open tabs and cold history, is to take
 the place of the Inbox.
 
+## Research
+
+- [claude-desktop.md](claude-desktop.md): the Claude desktop update of
+  2026-10-14, and what Med can adopt from it. Next from it: state by type in
+  the tabs, subagents under their thread, a turn recap that opens the review,
+  questions about selected lines, and quiet signals.
+
 ## Watch and try
 
 The video plays the kept experiments on one demo world: a small repository,
