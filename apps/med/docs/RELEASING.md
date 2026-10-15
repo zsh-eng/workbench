@@ -16,6 +16,8 @@ MED_EXECUTABLE=/tmp/med-release/med-v0.4.2-macos-arm64/med node scripts/validate
 MED_EXECUTABLE=/tmp/med-release/med-v0.4.2-macos-arm64/med node scripts/validate-service.mjs
 MED_EXECUTABLE=/tmp/med-release/med-v0.4.2-macos-arm64/med node scripts/validate-markdown-links.mjs
 MED_EXECUTABLE=/tmp/med-release/med-v0.4.2-macos-arm64/med node scripts/validate-review-links.mjs
+MED_EXECUTABLE=/tmp/med-release/med-v0.4.2-macos-arm64/med node scripts/validate-multi-repo.mjs
+MED_EXECUTABLE=/tmp/med-release/med-v0.4.2-macos-arm64/med node scripts/validate-navigation-workflows.mjs
 ```
 
 The script checks types, builds the UI, compiles the executable, checks its
