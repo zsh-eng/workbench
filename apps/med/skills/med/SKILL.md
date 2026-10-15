@@ -46,7 +46,6 @@ and any changes that were already there (`git status --short`).
    If your repository is not in the list, ask before you run `med add <path>`.
 2. Write a guide in JSON. It splits your change into segments that the user
    reads one at a time:
-
    - Group by intent, not by folder. One feature that touches several modules
      is one segment.
    - Use the fewest segments that still separate independent intents, usually
