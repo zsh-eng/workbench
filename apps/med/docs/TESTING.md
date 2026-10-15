@@ -36,6 +36,15 @@ must not replace the selection, tooltip, copy, or other mechanism they test.
 Host tests must assert the response, saved data, or remote ref instead of an
 internal method call.
 
+Tests and validations never reach GitHub. Host tests pass a fake gh
+(`tests/fixtures/gh/fake-gh.mjs`). Each `scripts/validate-*.mjs` calls
+`useFakeGh` from `scripts/fake-gh.mjs` before it starts Med: a stand-in `gh`
+comes first on PATH, with a scratch `GH_CONFIG_DIR` and no GitHub token, for
+`dist/cli.js` and `MED_EXECUTABLE` alike. The stand-in answers only the fixed
+answers that a script sets, such as the pull request and its comments in
+`validate-review-links.mjs`. At the end, `fakeGh.check()` fails the run when a
+call had no fixed answer.
+
 ## Focused exceptions
 
 Keep lower-level regressions only when they cover an important gap that the

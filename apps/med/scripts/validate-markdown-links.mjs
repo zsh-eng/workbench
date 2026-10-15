@@ -6,8 +6,11 @@ import { join, resolve } from "node:path";
 import { once } from "node:events";
 import { chromium } from "playwright";
 import { removeGitEnvironment } from "./git-environment.mjs";
+import { useFakeGh } from "./fake-gh.mjs";
 
 removeGitEnvironment();
+// Med must never reach GitHub here: gh is a stand-in (scripts/fake-gh.mjs).
+const fakeGh = useFakeGh();
 const directory = await realpath(await mkdtemp(join(tmpdir(), "med-markdown-links-")));
 const repo = join(directory, "repo");
 const app = resolve(import.meta.dirname, "..");
@@ -192,6 +195,8 @@ try {
   await page.getByRole("tab", { name: "root.txt", exact: true }).waitFor();
   assert.match(await page.locator(".cm-content").innerText(), /parent content/);
   assert.deepEqual(errors, []);
+  // No gh call went past the stand-in.
+  fakeGh.check();
   console.log(
     JSON.stringify({
       passed: true,
