@@ -103,6 +103,22 @@ export interface RegisteredRepository {
   worktrees: Worktree[];
   error?: string;
 }
+
+/** The branch of the repository's main checkout, which threads land on. */
+export function baseOf(repository: Pick<RegisteredRepository, "path" | "worktrees"> | undefined) {
+  return repository?.worktrees.find((tree) => tree.path === repository.path && !tree.linked)
+    ?.branch;
+}
+
+/** Where a checkout's Changes start: the base branch, when the checkout is on
+ * another branch or none (Branch); otherwise HEAD (Working, undefined). */
+export function changesBase(
+  repository: Pick<RegisteredRepository, "path" | "worktrees"> | undefined,
+  branch: string | null | undefined,
+) {
+  const base = baseOf(repository);
+  return base && base !== "Detached HEAD" && branch !== base ? base : undefined;
+}
 export interface Commit {
   id: string;
   parents: string[];

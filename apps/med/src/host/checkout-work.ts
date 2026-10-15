@@ -1,4 +1,4 @@
-import type { RegisteredRepository } from "../shared/protocol";
+import { baseOf, changesBase, type RegisteredRepository } from "../shared/protocol";
 import type { Thread } from "../shared/threads";
 import { git } from "./runtime/process";
 
@@ -22,21 +22,7 @@ const RECENT_MS = 3 * 24 * 60 * 60 * 1000;
 
 type Unlanded = NonNullable<Thread["unlanded"]>;
 
-/** The branch of the repository's main checkout, which threads land on. */
-export function baseOf(repository: RegisteredRepository | undefined) {
-  return repository?.worktrees.find((tree) => tree.path === repository.path && !tree.linked)
-    ?.branch;
-}
-
-/** Where a checkout's Changes start: the base branch, when the checkout is on
- * another branch or none; otherwise HEAD (undefined). */
-export function changesBase(
-  repository: RegisteredRepository | undefined,
-  branch: string | null | undefined,
-) {
-  const base = baseOf(repository);
-  return base && branch !== base ? base : undefined;
-}
+export { baseOf, changesBase };
 
 export function createCheckoutWork(options: { now?: () => number } = {}) {
   const now = options.now ?? Date.now;

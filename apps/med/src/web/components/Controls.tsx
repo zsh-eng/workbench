@@ -65,8 +65,9 @@ export function ChoiceSelect({
   /** The trigger's look, in place of a toolbar button. */
   trigger?: stylex.StyleXStyles;
   disabled?: boolean;
-  /** Items after the choices, below a rule, that act and keep the value. */
-  actions?: { label: string; onSelect(): void }[];
+  /** Items after the choices, below a rule, that act and keep the value. A
+   * `checked` item is a toggle and shows its state. */
+  actions?: { label: string; checked?: boolean; onSelect(): void }[];
   triggerRef?: Ref<HTMLButtonElement>;
 }) {
   return (
@@ -133,6 +134,9 @@ export function ChoiceSelect({
                 <Select.Item
                   key={action.label}
                   value={`${ACTION}${index}`}
+                  {...(action.checked !== undefined && {
+                    "aria-label": `${action.label}, ${action.checked ? "on" : "off"}`,
+                  })}
                   className={(state) =>
                     stylex.props(
                       ui.menuItem,
@@ -141,7 +145,9 @@ export function ChoiceSelect({
                     ).className
                   }
                 >
-                  <span {...stylex.props(styles.check)} />
+                  <span {...stylex.props(styles.check)}>
+                    {action.checked && <Icon name="check" size={14} />}
+                  </span>
                   <Select.ItemText {...stylex.props(styles.choiceLabel)}>
                     {action.label}
                   </Select.ItemText>

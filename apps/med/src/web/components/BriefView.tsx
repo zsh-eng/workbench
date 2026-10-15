@@ -1225,7 +1225,7 @@ function NoteHead({
       ? `Reply from ${agentName(source)}`
       : "Pinned reply"
     : briefFrom !== undefined
-      ? `Brief from iteration ${briefFrom}`
+      ? `Brief from version ${briefFrom}`
       : "Brief";
   return (
     <div {...stylex.props(styles.noteHead, number === 1 && styles.noteHeadFirst)}>
@@ -1422,19 +1422,17 @@ function IterationKeys({
       timeStyle: "short",
     });
   return (
-    <span ref={group} role="group" aria-label="Iterations" {...stylex.props(styles.iterations)}>
+    <span ref={group} role="group" aria-label="Versions" {...stylex.props(styles.iterations)}>
       {earlier.length > 0 && (
         <ActionMenu
           label={
-            shownEarlier
-              ? `Iteration ${shownEarlier.number}, earlier iterations`
-              : "Earlier iterations"
+            shownEarlier ? `Version ${shownEarlier.number}, earlier versions` : "Earlier versions"
           }
           align="start"
           trigger={[styles.iteration, styles.earlier, shownEarlier && styles.iterationOn]}
           sections={[
             earlier.toReversed().map((entry) => ({
-              label: `Iteration ${entry.number} · ${when(entry)}`,
+              label: `Version ${entry.number} · ${when(entry)}`,
               checked: entry.number === iteration,
               choice: true,
               onClick: () => onIteration?.(entry.number),
@@ -1450,8 +1448,8 @@ function IterationKeys({
           key={entry.number}
           type="button"
           aria-pressed={entry.number === iteration}
-          aria-label={`Iteration ${entry.number}`}
-          title={`Iteration ${entry.number} · ${when(entry)}`}
+          aria-label={`Version ${entry.number}`}
+          title={`Version ${entry.number} · ${when(entry)}`}
           onClick={() => onIteration?.(entry.number)}
           {...stylex.props(styles.iteration, entry.number === iteration && styles.iterationOn)}
         >

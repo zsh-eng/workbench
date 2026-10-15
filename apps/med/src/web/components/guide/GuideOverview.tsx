@@ -27,6 +27,7 @@ export function GuideOverview({
   total,
   done,
   onScope,
+  onWhole,
   onOpenLink,
 }: {
   title: string;
@@ -43,6 +44,8 @@ export function GuideOverview({
   total: number;
   done: number;
   onScope(scope: GuideScope): void;
+  /** Shows the whole diff of the Review's version. */
+  onWhole(): void;
   onOpenLink(href: string): void;
 }) {
   const [now] = useState(Date.now);
@@ -60,7 +63,7 @@ export function GuideOverview({
             </span>
           )}
           {!agent && sections.length > 0 && <span>Guide</span>}
-          {from !== undefined && <span>· from iteration {from}</span>}
+          {from !== undefined && <span>· from version {from}</span>}
         </p>
         <h1 {...stylex.props(styles.title)}>{title}</h1>
         <p {...stylex.props(styles.meta)}>{meta}</p>
@@ -71,7 +74,7 @@ export function GuideOverview({
         ) : (
           !sections.length && (
             <p {...stylex.props(styles.quiet)}>
-              This review has no guide. Read it one commit at a time, or all at once in Changes.
+              This review has no guide. Read it one commit at a time, or all at once.
             </p>
           )
         )}
@@ -90,6 +93,13 @@ export function GuideOverview({
             >
               {done > 0 && done < total ? "Continue" : "Start reviewing"}
               <Icon name="arrowLeft" size={13} style={{ transform: "rotate(180deg)" }} />
+            </button>
+            <button
+              type="button"
+              onClick={onWhole}
+              {...stylex.props(ui.button, ui.pressable, styles.startButton)}
+            >
+              All files
             </button>
             <span {...stylex.props(styles.startMeta)}>
               {sections.length > 0 &&

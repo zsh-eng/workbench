@@ -5,6 +5,7 @@ import { REVIEW_UPDATED } from "./workspaces";
 import {
   savedReviewSchema,
   savedFeedbackSchema,
+  threadCheckout,
   type BriefCommentMutation,
   type PinMutation,
   type SavedIteration,
@@ -12,7 +13,7 @@ import {
   type SavedFeedback,
   type SavedReviewTarget,
 } from "../../shared/saved-review";
-import { comparisonKey } from "../../shared/protocol";
+import { changesBase, comparisonKey } from "../../shared/protocol";
 import {
   validateReviewNoteRemoval,
   validateReviewNoteText,
@@ -67,6 +68,9 @@ export interface ReviewControllerSnapshot {
   savedReview: SavedReview | null;
   savedTargetId: string | null;
   savedView: boolean;
+  /** The diff belongs to the thread's Review: a saved version, or a commit
+   * of a version's range. Otherwise it is the checkout's live Changes. */
+  inReview: boolean;
   /**
    * The captured target of the saved review's latest iteration whose checkout
    * has changed since the capture, such as by an agent that did not hand off.
@@ -116,6 +120,12 @@ export interface ReviewController {
   initialize(): Promise<void>;
   selectSavedTarget(id: string): Promise<void>;
   returnToSavedReview(): Promise<void>;
+  /** The Review tab: the version shown last, or the current one. */
+  showReview(): Promise<void>;
+  /** The Changes tab: the checkout's live comparison that the reader chose
+   * last, or by default the branch's changes on a branch other than its
+   * base, and the working changes on the base. */
+  showChanges(): Promise<void>;
   copyFeedback(): Promise<SavedFeedback>;
   /** The saved review's GitHub pull request comments, read-only. `refresh`
    * skips the host's 30-second cache. */
@@ -141,7 +151,8 @@ export interface ReviewController {
   startSession(preset: string): Promise<string>;
   /** Save the current Git comparison as a review and return its ID. */
   saveReview(input: { title: string; brief?: string }): Promise<string>;
-  selectComparison(comparison: Comparison): Promise<void>;
+  /** `inReview`: a commit of the Review's range, not a live comparison. */
+  selectComparison(comparison: Comparison, inReview?: boolean): Promise<void>;
   refresh(): Promise<void>;
   /** Stop live updates while the workspace is hidden. */
   suspend(): void;
@@ -171,6 +182,8 @@ const savedKey = (reviewId: string, targetId: string) =>
   JSON.stringify(["saved", reviewId, targetId]);
 function immutableComparison(comparison: Comparison): boolean {
   const objectId = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/i;
+  // A session's edited files grow while it works.
+  if ("session" in comparison && comparison.session) return false;
   return comparison.kind === "commit"
     ? objectId.test(comparison.commit)
     : comparison.kind === "range" &&
@@ -194,6 +207,26 @@ export function currentTargets(saved: SavedReview) {
   const ids = saved.iterations?.at(-1)?.targetIds;
   const own = saved.targets.filter((target) => !target.commentReviewId);
   return ids ? own.filter((target) => ids.includes(target.id)) : own;
+}
+
+/**
+ * Whether the thread has a Review: something that its agent handed off. A
+ * thread made before Changes became live captured its checkout when it
+ * started; that capture is version 1, unless it is empty and alone.
+ */
+export function hasReview(saved: SavedReview) {
+  const own = saved.targets.filter((target) => !target.commentReviewId);
+  if (!own.length) return false;
+  const versions = saved.iterations?.length ?? 1;
+  const brief =
+    saved.brief || saved.guide || saved.iterations?.some((entry) => entry.brief || entry.guide);
+  return !(
+    versions === 1 &&
+    own.length === 1 &&
+    own[0]!.comparison.kind === "working" &&
+    saved.totals?.files === 0 &&
+    !brief
+  );
 }
 
 /** The repository list that a window reads now; windows that open with it share it. */
@@ -305,6 +338,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     savedReview: null,
     savedTargetId: null,
     savedView: false,
+    inReview: false,
     savedDrift: null,
     session: null,
     repositories: [],
@@ -567,7 +601,8 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       snapshot.status === "ready" &&
       !!snapshot.review &&
       comparisonKey(snapshot.comparison) === comparisonKey(comparison);
-    if (snapshot.savedView) update({ savedView: false });
+    if (snapshot.savedView || snapshot.inReview !== reviewSide)
+      update({ savedView: false, inReview: reviewSide });
     const generation = ++reviewGeneration;
     reviewAbort?.abort();
     reviewAbort = new AbortController();
@@ -822,10 +857,20 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
   }
 
   let driftAbort: AbortController | undefined;
-  // The review shows the live changes in place of an empty capture, until the
-  // next capture or until the reader returns to the review.
-  let followingLive = false;
-  let declinedLive: string | null = null;
+  // The diff that loads next is the Review's (a version, or a commit of its
+  // range), not the checkout's live Changes.
+  let reviewSide = false;
+  // The live comparison that the reader chose last, which Changes shows again.
+  let liveChoice: Comparison | null = null;
+  /** Changes by default: the branch's changes on a branch other than its
+   * base, and the working changes on the base. */
+  const defaultChanges = (): Comparison => {
+    const repository = snapshot.repositories.find(
+      (entry) => entry.id === snapshot.activeRepositoryId,
+    );
+    const base = changesBase(repository, snapshot.session?.repository.branch);
+    return base ? { kind: "working", base } : { kind: "working" };
+  };
   /** Whether the checkout of the latest captured target changed after its
    * capture. The answer shows as `savedDrift`; a failed check shows nothing. */
   async function checkDrift() {
@@ -852,21 +897,6 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         { signal: abort.signal },
       );
       if (abort.signal.aborted || disposed || snapshot.savedReview?.id !== saved.id) return;
-      // An empty capture, such as a new thread's before its agent hands off,
-      // has nothing to read: the review follows the live changes instead.
-      if (
-        changed &&
-        snapshot.savedView &&
-        snapshot.savedTargetId === target.id &&
-        target.comparison.kind === "working" &&
-        snapshot.review?.files.length === 0 &&
-        declinedLive !== target.id
-      ) {
-        followingLive = true;
-        if (snapshot.savedDrift) update({ savedDrift: null });
-        await selectComparison({ kind: "working" });
-        return;
-      }
       const next = changed ? target.id : null;
       if (snapshot.savedDrift !== next) update({ savedDrift: next });
     } catch {
@@ -999,10 +1029,13 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     sourceCache.clear();
     // A kept diff's workspace is new and shows its diff; the session sets the
     // rest in one update, so the diff renders once more, not twice.
+    reviewSide = Boolean(savedTarget);
+    if (!savedTarget && path !== snapshot.session?.repository.path) liveChoice = null;
     if (!kept)
       update({
         session: null,
         savedView: Boolean(savedTarget),
+        inReview: Boolean(savedTarget),
         ...(savedTarget ? { savedTargetId: savedTarget.id } : {}),
         activeRepositoryId: repositoryId ?? snapshot.activeRepositoryId,
         branches: repositoryId
@@ -1059,10 +1092,16 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       restoreFilePath = kept ? null : (saved?.selectedFilePath ?? null);
       const branchSnapshot =
         branch && (!branch.worktreePath || session.repository.branch !== branch.name);
-      const initialComparison = branchSnapshot
+      // Changes start at the base on another branch: the branch's changes.
+      const base = changesBase(
+        repositories.find((entry) => entry.id === id),
+        session.repository.branch,
+      );
+      const initialComparison: Comparison = branchSnapshot
         ? { kind: "commit" as const, commit: branch.head }
         : ((!path && !branch ? session.initialComparison : undefined) ?? {
             kind: "working" as const,
+            ...(base ? { base } : {}),
           });
       const comparison =
         savedTarget?.comparison ??
@@ -1252,8 +1291,10 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     reviewAbort = new AbortController();
     cancelSources();
     iterationAbort?.abort();
+    reviewSide = true;
     update({
       savedView: true,
+      inReview: true,
       savedTargetId: target.id,
       comparison: target.comparison,
       status: "loading",
@@ -1287,7 +1328,6 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
   async function selectSavedTarget(id: string): Promise<void> {
     const target = snapshot.savedReview?.targets.find((entry) => entry.id === id);
     if (!target || disposed) return;
-    followingLive = false;
     // A thread's new worktree can be newer than the repository list that the
     // page read; read it again before the review falls back to the main checkout.
     const knows = (list: RegisteredRepository[]) =>
@@ -1666,13 +1706,9 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       .catch(() => null);
     if (!savedReview || disposed || snapshot.savedReview?.id !== before.id) return;
     update({ savedReview });
+    // A Review that shows the current version moves to the new one; Changes stay.
     const next = currentTargets(savedReview)[0];
-    if (
-      wasCurrent &&
-      (snapshot.savedView || followingLive) &&
-      next &&
-      next.id !== snapshot.savedTargetId
-    )
+    if (wasCurrent && snapshot.savedView && next && next.id !== snapshot.savedTargetId)
       await selectSavedTarget(next.id);
   };
   if (savedReviewId && typeof window !== "undefined") {
@@ -1723,7 +1759,14 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         if (disposed) return;
         update({ savedReview });
         const first = currentTargets(savedReview)[0] ?? savedReview.targets[0];
-        if (!first) throw new Error("This review has no targets.");
+        // Before the agent hands off a Review, the thread shows its checkout's Changes.
+        const checkout = threadCheckout(savedReview);
+        if (!first || !hasReview(savedReview)) {
+          if (!checkout) throw new Error("This thread names no checkout.");
+          await options.lead?.();
+          if (disposed) return;
+          return await openWorkspace(checkout.repo, undefined, checkout.repositoryId);
+        }
         // The checkout's session reads its repository again from Git and lists
         // the others as the host knows them, so the review opens without the
         // read of every repository's branches and worktrees.
@@ -1757,10 +1800,34 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       }
     },
     selectSavedTarget,
-    returnToSavedReview: () => {
-      // The reader chose the capture, so it stays, with the drift bar.
-      declinedLive = snapshot.savedTargetId;
-      return snapshot.savedTargetId ? selectSavedTarget(snapshot.savedTargetId) : Promise.resolve();
+    returnToSavedReview: () =>
+      snapshot.savedTargetId ? selectSavedTarget(snapshot.savedTargetId) : Promise.resolve(),
+    showReview() {
+      const saved = snapshot.savedReview;
+      const id =
+        (saved?.targets.some((target) => target.id === snapshot.savedTargetId)
+          ? snapshot.savedTargetId
+          : undefined) ?? (saved ? currentTargets(saved)[0]?.id : undefined);
+      if (!id || (snapshot.savedView && snapshot.savedTargetId === id)) return Promise.resolve();
+      return selectSavedTarget(id);
+    },
+    async showChanges() {
+      const saved = snapshot.savedReview;
+      const checkout = saved ? threadCheckout(saved) : undefined;
+      reviewSide = false;
+      // A Review of another checkout: Changes are the thread's own checkout's.
+      if (checkout && snapshot.session && snapshot.session.repository.path !== checkout.repo) {
+        liveChoice = null;
+        return openWorkspace(checkout.repo, undefined, checkout.repositoryId);
+      }
+      const live = liveChoice ?? defaultChanges();
+      if (
+        !snapshot.savedView &&
+        !snapshot.inReview &&
+        comparisonKey(snapshot.comparison) === comparisonKey(live)
+      )
+        return;
+      return selectComparison(live);
     },
     async copyFeedback() {
       await waitForNoteWrites();
@@ -2009,8 +2076,9 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     refreshRepositories,
     addRepository,
     removeRepository,
-    selectComparison: (comparison) => {
-      followingLive = false;
+    selectComparison: (comparison, inReview = false) => {
+      reviewSide = inReview;
+      if (!inReview) liveChoice = comparison;
       return selectComparison(comparison);
     },
     refresh,

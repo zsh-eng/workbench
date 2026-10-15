@@ -657,12 +657,13 @@ test("quiet chrome says each thing once, keeps rare actions in ⋯, and full chr
   };
 
   // Quiet by default: the sidebar names the thread, the band its branch, and
-  // the review's one row what it compares. No toolbar or status bar.
+  // the review's one row what it shows: the Review's version, as the thread
+  // opens on its Review. No toolbar or status bar.
   await expect
     .element(band.getByRole("button", { name: "fixture, main. Copy path" }))
     .toBeVisible();
   await expect.element(session.getByText("Talk review")).not.toBeInTheDocument();
-  await expect.element(page.getByRole("combobox", { name: "Comparison" })).toBeVisible();
+  await expect.element(page.getByRole("combobox", { name: "Review version" })).toBeVisible();
   await expect.element(viewOptions).not.toBeInTheDocument();
   expect(statusBar()).toBe(false);
   // The ⋯ menu has the header's and the toolbar's actions; View has the diff's.

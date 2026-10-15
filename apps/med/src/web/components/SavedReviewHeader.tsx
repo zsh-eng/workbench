@@ -25,14 +25,11 @@ export interface SavedReviewActions {
 export function SavedReviewHeader({
   controller,
   state,
-  browsing,
-  browsingSourceLabel,
   pullRequest,
   threadPlacement,
   codexReviews,
   findingPlacement,
-  onReturn,
-  onLive,
+  pickVersion = false,
   onTarget,
   sendTo,
   notesPickIteration,
@@ -58,11 +55,9 @@ export function SavedReviewHeader({
   /** Codex reviews of the review's checkouts. */
   codexReviews?: CodexReviewState;
   findingPlacement?: FindingPlacement;
-  browsing?: boolean;
-  browsingSourceLabel?: string;
-  onReturn(): void;
-  /** Shows the checkout's working changes in place of the capture. */
-  onLive?(): void;
+  /** The Review shows without its diff, such as on the Guide's overview, so
+   * the header chooses the version. With the diff, its toolbar does. */
+  pickVersion?: boolean;
   onTarget(id: string): void;
   /** The Notes tab shows, and its iteration keys show each iteration's comparison. */
   notesPickIteration?: boolean;
@@ -85,13 +80,13 @@ export function SavedReviewHeader({
     [busy, saved.commentCount, saved.revision],
   );
   const target = saved.targets.find((entry) => entry.id === state.savedTargetId);
-  const outside = !state.savedView || browsing;
   const iterations = saved.iterations ?? [];
   const iterationOf = (id: string) =>
     iterations.find((iteration) => iteration.targetIds.includes(id))?.number;
   // With one comparison in each iteration, the Notes' iteration keys choose it,
   // and the header has no second picker.
   const pickTarget =
+    pickVersion &&
     saved.targets.length > 1 &&
     !(
       notesPickIteration &&
@@ -105,7 +100,11 @@ export function SavedReviewHeader({
       {entry.repo.split(/[\\/]/).at(-1)} · {entry.branch ?? "detached"} · {entry.label}
     </option>
   );
-  const saving = target?.captured ? "Captured working changes" : "Saved commit comparison";
+  const saving = target
+    ? iterationOf(target.id)
+      ? `Version ${iterationOf(target.id)} · ${target.label}`
+      : target.label
+    : "No Review yet";
   // The workspace list keeps the short title; a PR's own title names it here.
   const heading = (saved.pullRequestUrl && saved.pullRequestTitle) || saved.title;
   const details = [
@@ -197,7 +196,7 @@ export function SavedReviewHeader({
       )}
       {pickTarget && (
         <select
-          aria-label="Review target"
+          aria-label="Review version"
           {...stylex.props(styles.select)}
           value={state.savedTargetId ?? ""}
           onChange={(event) => {
@@ -211,7 +210,7 @@ export function SavedReviewHeader({
               {[...iterations].reverse().map((iteration) => (
                 <optgroup
                   key={iteration.number}
-                  label={`Iteration ${iteration.number}${iteration === iterations.at(-1) ? " · current" : ""}`}
+                  label={`Version ${iteration.number}${iteration === iterations.at(-1) ? " · latest" : ""}`}
                 >
                   {saved.targets
                     .filter((entry) => iteration.targetIds.includes(entry.id))
@@ -230,36 +229,6 @@ export function SavedReviewHeader({
         </select>
       )}
       <span {...stylex.props(styles.grow)} />
-      {!outside && onLive && (
-        <button
-          {...stylex.props(ui.button, ui.pressable, styles.fixed)}
-          aria-label="Show live changes"
-          title="Show the working changes as they are now. Return to review comes back to the capture."
-          onClick={onLive}
-        >
-          <span>
-            Live
-            <span {...stylex.props(styles.desktop, compact && styles.short)}> changes</span>
-          </span>
-        </button>
-      )}
-      {outside && (
-        <button
-          {...stylex.props(ui.button, ui.active, styles.fixed)}
-          aria-label="Return to review"
-          title={
-            browsing
-              ? `Browsing ${browsingSourceLabel ?? "current files"}. Return to the saved comparison.`
-              : "Return to the saved comparison."
-          }
-          onClick={onReturn}
-        >
-          <span>
-            Return
-            <span {...stylex.props(styles.desktop, compact && styles.short)}> to review</span>
-          </span>
-        </button>
-      )}
       {/* Beside the thread, Send shows when there are comments to send. */}
       {sendTo && (!compact || sendTo.drafts > 0) && (
         <button
@@ -504,7 +473,6 @@ const styles = stylex.create({
   desktop: {
     display: { default: "inline", "@container (max-width: 640px)": "none" },
   },
-  short: { display: "none" },
   count: { color: tokens.muted, fontVariantNumeric: "tabular-nums" },
   reviewTitle: {
     display: "inline-flex",
