@@ -1,9 +1,24 @@
 import { z } from "zod";
 
 /**
+ * A check that finished in a turn (src/host/session-checks.ts): the last run
+ * of a test, type check, linter, or build, such as `bun test`.
+ */
+export const turnCheckSchema = z.object({
+  /** The program and its check, without a runner: "bun test", "tsc". */
+  name: z.string().max(80),
+  status: z.enum(["passed", "failed"]),
+  /** Test counts, when the check's output tells them. */
+  pass: z.number().int().nonnegative().optional(),
+  fail: z.number().int().nonnegative().optional(),
+});
+export type TurnCheck = z.infer<typeof turnCheckSchema>;
+
+/**
  * What the tail of a session's transcript says about its last turn
  * (src/host/thread-turns.ts): when it started and ended, what the agent does
- * now, and what it said last. The thread list shows it.
+ * now, what it said last, and the checks that it ran. The thread list shows
+ * it, and the turn recap at the end of the session thread.
  */
 export const threadTurnSchema = z.object({
   /** When the turn's prompt came, if the transcript's tail has it. */
@@ -16,6 +31,8 @@ export const threadTurnSchema = z.object({
   said: z.string().max(400).optional(),
   /** The turn ended on a question to the user, or waits on one. */
   asks: z.boolean().optional(),
+  /** The checks that finished in the turn, the last run of each. */
+  checks: z.array(turnCheckSchema).max(6).optional(),
 });
 export type ThreadTurn = z.infer<typeof threadTurnSchema>;
 

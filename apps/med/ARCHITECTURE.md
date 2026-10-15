@@ -334,8 +334,10 @@ and the thread list carries it, so the sidebar shows the group as one row.
 `src/host/attempts.ts` serves `/api/attempts`: the compare reads each open
 attempt's diff against the attempts' common ancestor (`git merge-base
 --octopus`), with untracked files, and each lead session's agent, model, time,
-checks (test, lint, type-check, and build commands in its tool calls), and
-last message, cached by transcript size and time. Keep stops the other
+checks (test, lint, type-check, and build commands in its tool calls,
+`src/host/session-checks.ts`), and last message, cached by transcript size and
+time. The thread list reads the same checks for each lead's last turn
+(`turn.checks`), which the turn recap shows. Keep stops the other
 attempts' agents, saves their changes as a commit on their branches (no hooks,
 no signing), removes their worktrees without force, and closes them. Undo,
 kept in host memory, adds each worktree back from its branch and resets the
