@@ -70,6 +70,11 @@ async function main() {
     await runReviewCommand(process.argv.slice(3));
     return;
   }
+  if (process.argv[2] === "thread") {
+    const { runThreadSessionsCommand } = await import("./thread-sessions");
+    await runThreadSessionsCommand(process.argv.slice(3));
+    return;
+  }
   const { values, positionals } = parseArgs({
     allowPositionals: true,
     allowNegative: true,

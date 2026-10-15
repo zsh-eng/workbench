@@ -765,6 +765,7 @@ export function startAcp(
     env,
     choices = {},
     onOffer,
+    onAgentSession,
   }: {
     logDirectory?: string;
     env?: Record<string, string>;
@@ -772,6 +773,9 @@ export function startAcp(
     choices?: AgentChoices;
     /** The settings of the new session, before Med sets its choices. */
     onOffer?(settings: OwnedSetting[]): void;
+    /** The agent's own ID for the session. codex-acp gives Codex's thread
+     * ID, which also names the session's rollout in ~/.codex/sessions. */
+    onAgentSession?(id: string): void;
   } = {},
 ): OwnedRunner {
   const sessionId = randomUUID();
@@ -922,6 +926,7 @@ export function startAcp(
       store.set({ images: true });
     const created = await rpc.request<Record<string, any>>("session/new", { cwd, mcpServers: [] });
     acpSession = String(created.sessionId);
+    onAgentSession?.(acpSession);
     const settings = configSettings(created.configOptions);
     const has = (category: string) => settings.some((setting) => setting.category === category);
     if (!has("model") && Array.isArray(created.models?.availableModels)) {
@@ -1162,6 +1167,8 @@ const recordSchema = z.object({
   choices: z.object({ model: z.string(), effort: z.string(), mode: z.string() }).partial(),
   /** The user stopped it. */
   stopped: z.boolean().optional(),
+  /** An ACP agent's own ID for the session, such as Codex's thread ID. */
+  agentSessionId: z.string().max(200).optional(),
   updatedAt: z.number(),
 });
 type SessionRecord = z.infer<typeof recordSchema>;
@@ -1314,6 +1321,7 @@ export class OwnedSessions {
             env: this.environment(key, cwd),
             choices: wanted,
             onOffer: (settings) => void this.remember(presetId, settings),
+            onAgentSession: (id) => this.noteAgentSession(runner.session.id, id),
           });
     this.track(runner, {
       preset: presetId,
@@ -1390,6 +1398,22 @@ export class OwnedSessions {
     this.records = Object.fromEntries(kept);
     const text = JSON.stringify(this.records);
     this.writing = this.writing.then(() => writeFile(file, text)).catch(() => {});
+  }
+  private noteAgentSession(sessionId: string, agentSessionId: string) {
+    const record = this.records[sessionId];
+    if (!record || record.agentSessionId === agentSessionId) return;
+    this.records[sessionId] = { ...record, agentSessionId };
+    this.save();
+  }
+  /**
+   * The ACP sessions that Med started, as the agent's own session ID and
+   * Med's ID. A Codex session through codex-acp also writes a rollout with
+   * the agent's ID, which the found sessions must not list again.
+   */
+  agentSessions(): [string, string][] {
+    return Object.entries(this.records).flatMap(([id, record]) =>
+      record.agentSessionId ? [[record.agentSessionId, id] as [string, string]] : [],
+    );
   }
   /** Stops a session for the user: it stays stopped after a restart. */
   end(runner: OwnedRunner) {

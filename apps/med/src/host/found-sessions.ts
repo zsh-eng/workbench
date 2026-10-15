@@ -13,6 +13,7 @@ import { basename, dirname, join } from "node:path";
 import { createClaudeTranscriptReader } from "../shared/agent-session-claude";
 import { createCodexRolloutReader } from "../shared/agent-session-codex";
 import {
+  FOUND_DAYS,
   foundSettingsSchema,
   foundThreadId,
   parseFoundThreadId,
@@ -41,10 +42,16 @@ import { userHome } from "./service/discover";
 // A scan reads directory listings and file sizes, and reads a transcript's
 // head and tail only when the file changed. The thread list never waits for a
 // scan: it takes the last one and starts the next when that one is old.
+// Sessions of any age are for `med thread find` and `adopt` (session-search.ts).
 
 const DAY = 24 * 60 * 60 * 1000;
-/** Sessions whose transcript changed within this time are listed. */
-const RECENT_MS = 7 * DAY;
+/** Sessions whose transcript changed within this time are listed: the one
+ * discovery window, for Claude Code and Codex. */
+const WINDOW_MS = FOUND_DAYS * DAY;
+/** Codex files a rollout under the day its session started. A scan lists the
+ * day folders of the window, and the older folders that held a rollout in the
+ * window at the last full listing; a full listing runs this often. */
+const CODEX_ALL_MS = 60_000;
 /** At most this many found threads show; the newest stay. */
 const MAX_FOUND = 40;
 /** At most this many transcripts are read in one scan, newest first. */
@@ -61,7 +68,7 @@ const WORKTREES_SOON_MS = 10_000;
 const CHANGES_MS = 30_000;
 const RECOUNT_MS = 4000;
 /** The head of a transcript gives its directory, start, and first prompt. */
-const HEAD_BYTES = 64 * 1024;
+export const HEAD_BYTES = 64 * 1024;
 /** Codex's first line holds its instructions and can be long. */
 const META_BYTES = 1024 * 1024;
 /** The tail gives the turn's state, the latest title, and the directory. */
@@ -84,8 +91,12 @@ const parse = (line: string) => {
 /** Claude Code names a project folder after its working directory. */
 export const claudeProjectFolder = (cwd: string) => cwd.replace(/[^A-Za-z0-9-]/g, "-");
 
+/** The session ID in a Codex rollout's file name. */
+export const rolloutId = (name: string) =>
+  /([0-9a-f]{8}-[0-9a-f-]{27})$/i.exec(basename(name, ".jsonl"))?.[1];
+
 /** The complete lines of a file's first `bytes`, or of its last `bytes`. */
-async function readEdge(path: string, edge: "head" | "tail", bytes: number) {
+export async function readEdge(path: string, edge: "head" | "tail", bytes: number) {
   const handle = await open(path, "r");
   try {
     const { size } = await handle.stat();
@@ -122,20 +133,37 @@ interface SessionFile {
   turn?: ThreadTurn;
 }
 
+/** A transcript's head: its first 64 KB, or for a Codex rollout whose first
+ * line is longer, its first 1 MB. */
+export const readHead = (agent: FoundAgent, path: string) =>
+  readEdge(path, "head", HEAD_BYTES).then(async (read) =>
+    agent === "codex" && read.lines.length === 0 && read.size > HEAD_BYTES
+      ? readEdge(path, "head", META_BYTES)
+      : read,
+  );
+
 /** Each title the lines give, the last one first, and the directory; with
- * `turn`, also what the last turn does or said. */
-function scanLines(agent: FoundAgent, lines: readonly string[], turn = false) {
+ * `turn`, also what the last turn does or said. With `early`, it stops at the
+ * first prompt once it has the directory (and a Codex session's ID). `text`
+ * is the first prompt, cut to 2000 characters. */
+export function scanLines(
+  agent: FoundAgent,
+  lines: readonly string[],
+  { turn = false, early = false }: { turn?: boolean; early?: boolean } = {},
+) {
   const reader = agent === "codex" ? createCodexRolloutReader() : createClaudeTranscriptReader();
   const found: {
     cwd?: string;
     createdAt?: number;
     prompt?: string;
+    text?: string;
     name?: string;
     summary?: string;
     id?: string;
   } = {};
   const updates: SessionEvent[] = [];
   for (const line of lines) {
+    if (early && found.prompt && found.cwd && (agent === "claude" || found.id)) break;
     const entry = parse(line);
     if (!entry) continue;
     const payload = record(entry.payload);
@@ -162,8 +190,10 @@ function scanLines(agent: FoundAgent, lines: readonly string[], turn = false) {
       const prompt = update.content.text.trim();
       // Commands and reminders that agents write as user lines are not
       // prompts. A prompt's first sentence names its task best.
-      if (prompt && !prompt.startsWith("<"))
+      if (prompt && !prompt.startsWith("<")) {
         found.prompt = threadTitle(/^(.{16,}?)[.!?](?:\s|$)/.exec(prompt)?.[1] ?? prompt);
+        found.text = prompt.slice(0, 2000);
+      }
       break;
     }
   }
@@ -180,20 +210,11 @@ async function readSession(
   // The head does not change once it has its prompt, or once the file is
   // longer than the head; a new session reads it again until then.
   const headDone = known && (known.prompt || known.size > HEAD_BYTES);
-  const head = headDone
-    ? undefined
-    : await readEdge(path, "head", HEAD_BYTES).then(async (read) =>
-        agent === "codex" && read.lines.length === 0 && read.size > HEAD_BYTES
-          ? readEdge(path, "head", META_BYTES)
-          : read,
-      );
+  const head = headDone ? undefined : await readHead(agent, path);
   const first = head ? scanLines(agent, head.lines) : undefined;
-  const tail = scanLines(agent, (await readEdge(path, "tail", TAIL_BYTES)).lines, true);
-  const name = basename(path, ".jsonl");
+  const tail = scanLines(agent, (await readEdge(path, "tail", TAIL_BYTES)).lines, { turn: true });
   const id =
-    agent === "claude"
-      ? name
-      : (first?.id ?? known?.id ?? /([0-9a-f]{8}-[0-9a-f-]{27})$/i.exec(name)?.[1]);
+    agent === "claude" ? basename(path, ".jsonl") : (first?.id ?? known?.id ?? rolloutId(path));
   if (!id || !/^[A-Za-z0-9_-]{1,128}$/.test(id)) return undefined;
   const cwd = tail.cwd ?? first?.cwd ?? known?.cwd;
   return {
@@ -274,30 +295,50 @@ async function claudeFiles(home: string, checkouts: readonly Checkout[], since: 
   return files;
 }
 
-/** Codex rollouts in the day folders of the last week, by local date. */
-async function codexFiles(home: string, now: number, since: number) {
-  const root = join(home, ".codex", "sessions");
-  const files: Listed[] = [];
-  for (let day = 0; day <= Math.ceil(RECENT_MS / DAY); day++) {
+/** The names in a folder; none when it is missing. */
+export const folderNames = (folder: string) => readdir(folder).catch(() => [] as string[]);
+export const isRollout = (name: string) => name.startsWith("rollout-") && name.endsWith(".jsonl");
+
+/** Every Codex day folder (`sessions/YYYY/MM/DD`), the newest first. */
+export async function codexDayFolders(root: string) {
+  const folders: string[] = [];
+  const sorted = async (folder: string) => (await folderNames(folder)).sort().reverse();
+  for (const year of await sorted(root))
+    for (const month of await sorted(join(root, year)))
+      for (const day of await sorted(join(root, year, month)))
+        folders.push(join(root, year, month, day));
+  return folders;
+}
+
+/** The day folders, by local date, of sessions that started in the window. */
+function windowFolders(root: string, now: number) {
+  const folders: string[] = [];
+  for (let day = 0; day <= Math.ceil(WINDOW_MS / DAY); day++) {
     const date = new Date(now - day * DAY);
-    const folder = join(
-      root,
-      String(date.getFullYear()),
-      String(date.getMonth() + 1).padStart(2, "0"),
-      String(date.getDate()).padStart(2, "0"),
-    );
-    const names = await readdir(folder).catch(() => [] as string[]);
-    await Promise.all(
-      names
-        .filter((name) => name.startsWith("rollout-") && name.endsWith(".jsonl"))
-        .map(async (name) => {
-          const path = join(folder, name);
-          const info = await stat(path).catch(() => undefined);
-          if (info && info.mtimeMs >= since)
-            files.push({ agent: "codex", path, mtimeMs: info.mtimeMs, size: info.size });
-        }),
+    folders.push(
+      join(
+        root,
+        String(date.getFullYear()),
+        String(date.getMonth() + 1).padStart(2, "0"),
+        String(date.getDate()).padStart(2, "0"),
+      ),
     );
   }
+  return folders;
+}
+
+/** Codex rollouts in these day folders that changed since `since`. */
+async function codexFiles(folders: Iterable<string>, since: number) {
+  const files: Listed[] = [];
+  for (const folder of folders)
+    await Promise.all(
+      (await folderNames(folder)).filter(isRollout).map(async (name) => {
+        const path = join(folder, name);
+        const info = await stat(path).catch(() => undefined);
+        if (info && info.mtimeMs >= since)
+          files.push({ agent: "codex", path, mtimeMs: info.mtimeMs, size: info.size });
+      }),
+    );
   return files;
 }
 
@@ -353,6 +394,9 @@ export function createFoundSessions(options: {
   repositories(): RegisteredRepository[];
   /** Reads the repositories' worktrees again from Git. */
   refreshRepositories?(): Promise<unknown>;
+  /** The sessions that Med runs through ACP: the agent's own session ID,
+   * such as a Codex rollout's, and Med's ID for the session. */
+  owned?(): Iterable<readonly [string, string]>;
   settingsFile: string;
   home?: () => string;
   now?: () => number;
@@ -370,6 +414,9 @@ export function createFoundSessions(options: {
   let worktreesRead = now();
   let worktreesWanted = false;
   let codexNames = { mtimeMs: -1, names: new Map<string, string>() };
+  /** Codex day folders before the window that held a rollout in it, at the
+   * last full listing. */
+  let codexOlder = { at: -Infinity, folders: new Set<string>() };
   const changes = new Map<string, { at: number; value?: Changes }>();
   let counting: Promise<void> | undefined;
 
@@ -408,7 +455,8 @@ export function createFoundSessions(options: {
     return known;
   };
 
-  const place = async (cwd: string, checkouts: readonly Checkout[]) => {
+  /** The registered checkout of a session's directory, or why there is none. */
+  const where = async (cwd: string, checkouts: readonly Checkout[]) => {
     let path = cwd;
     let checkout = checkouts.find((entry) => within(cwd, entry.path));
     if (!checkout) {
@@ -422,12 +470,35 @@ export function createFoundSessions(options: {
       path = real;
       checkout = real ? checkouts.find((entry) => within(real, entry.path)) : undefined;
     }
-    if (!checkout || path === checkout.path) return checkout;
-    const state = await belongs(path, checkout.path);
-    if (state === "own") return checkout;
+    if (!checkout) return { state: "outside" as const };
+    const state = path === checkout.path ? "own" : await belongs(path, checkout.path);
+    return state === "own" ? { state, checkout } : { state };
+  };
+
+  const place = async (cwd: string, checkouts: readonly Checkout[]) => {
+    const { state, checkout } = await where(cwd, checkouts);
     // Read the worktrees again soon; the session waits for its own checkout.
     if (state === "nested") worktreesWanted = true;
-    return undefined;
+    return checkout;
+  };
+
+  /** Codex rollouts that changed in the window. A session that started before
+   * the window and runs again is in an older day folder: the full listing
+   * finds it, and later scans read its folder too. */
+  const recentCodex = async (since: number) => {
+    const root = join(home(), ".codex", "sessions");
+    const recent = windowFolders(root, now());
+    if (now() - codexOlder.at < CODEX_ALL_MS)
+      return codexFiles(new Set([...recent, ...codexOlder.folders]), since);
+    const listed = await codexFiles(await codexDayFolders(root), since);
+    const inWindow = new Set(recent);
+    codexOlder = {
+      at: now(),
+      folders: new Set(
+        listed.map((file) => dirname(file.path)).filter((folder) => !inWindow.has(folder)),
+      ),
+    };
+    return listed;
   };
 
   const scan = async () => {
@@ -443,11 +514,8 @@ export function createFoundSessions(options: {
       found = [];
       return;
     }
-    const since = now() - RECENT_MS;
-    const listed = [
-      ...(await claudeFiles(home(), checkouts, since)),
-      ...(await codexFiles(home(), now(), since)),
-    ]
+    const since = now() - WINDOW_MS;
+    const listed = [...(await claudeFiles(home(), checkouts, since)), ...(await recentCodex(since))]
       .sort((a, b) => b.mtimeMs - a.mtimeMs)
       .slice(0, MAX_READS);
     const names = listed.some((file) => file.agent === "codex")
@@ -564,6 +632,8 @@ export function createFoundSessions(options: {
       const claimed = new Set(
         reviews.flatMap((review) => (review.sessions ?? []).map((session) => session.id)),
       );
+      // A Codex session that Med runs through ACP has a rollout with Codex's ID.
+      for (const [own, id] of options.owned?.() ?? []) if (claimed.has(id)) claimed.add(own);
       const hidden = new Set(settings.hidden);
       const listed = found
         .filter((session) => !claimed.has(session.id) && !hidden.has(session.threadId))
@@ -611,6 +681,24 @@ export function createFoundSessions(options: {
         return [];
       return [{ agent: parsed.agent, id: parsed.id, cwd: session.cwd }];
     },
+    /**
+     * The registered checkout of a session's directory, for adopt. A folder
+     * inside a checkout that has its own `.git` is a worktree that the
+     * registry does not know yet: with `refresh`, the worktrees are read
+     * again once.
+     */
+    async locate(cwd: string, refresh = true) {
+      let place = await where(cwd, checkoutsOf(options.repositories()));
+      if (refresh && place.state === "nested" && options.refreshRepositories) {
+        await options.refreshRepositories().catch(() => {});
+        worktreesRead = now();
+        inside.clear();
+        place = await where(cwd, checkoutsOf(options.repositories()));
+      }
+      return place;
+    },
+    /** Codex Desktop's thread names, by session ID. */
+    codexNames: readCodexNames,
     close() {
       abort.abort();
     },

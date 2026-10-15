@@ -46,8 +46,10 @@ async function claudeTranscript(id: string, home: string) {
   return undefined;
 }
 
-/** Codex keeps sessions in ~/.codex/sessions/YYYY/MM/DD/rollout-…-<id>.jsonl.
- * Newer days are searched first, and only a bounded number of them. */
+/** Codex keeps sessions in ~/.codex/sessions/YYYY/MM/DD/rollout-…-<id>.jsonl,
+ * newer days first, and the sessions that it archived in
+ * ~/.codex/archived_sessions. A thread can adopt a session of any age, so
+ * every day is searched; a search reads directory names only. */
 async function codexTranscript(id: string, home: string) {
   const root = join(home, ".codex", "sessions");
   const sorted = async (path: string) => {
@@ -57,16 +59,17 @@ async function codexTranscript(id: string, home: string) {
       return [];
     }
   };
-  let days = 0;
+  const named = (name: string) => name.startsWith("rollout-") && name.endsWith(`-${id}.jsonl`);
   for (const year of await sorted(root))
     for (const month of await sorted(join(root, year)))
       for (const day of await sorted(join(root, year, month))) {
-        if (++days > 400) return undefined;
         const folder = join(root, year, month, day);
-        const file = (await sorted(folder)).find((name) => name.endsWith(`${id}.jsonl`));
+        const file = (await sorted(folder)).find(named);
         if (file) return join(folder, file);
       }
-  return undefined;
+  const archived = join(home, ".codex", "archived_sessions");
+  const file = (await sorted(archived)).find(named);
+  return file ? join(archived, file) : undefined;
 }
 
 /** The transcript file of an agent session, if it is on this computer. */

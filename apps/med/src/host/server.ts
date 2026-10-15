@@ -84,8 +84,14 @@ import { AgentInbox } from "./agent-inbox";
 import { findAgents, OwnedSessions, type RunnableAgent } from "./owned-sessions";
 import { createAgentStatus } from "./agent-status";
 import { createFoundSessions } from "./found-sessions";
+import { createSessionSearch, sessionEntry, type SessionInfo } from "./session-search";
 import { createCheckoutWork } from "./checkout-work";
-import { foundUpdateSchema } from "../shared/found-sessions";
+import {
+  foundUpdateSchema,
+  sessionAdoptSchema,
+  sessionFindSchema,
+  type SessionAdopted,
+} from "../shared/found-sessions";
 import { ownedActionSchema, ownedStartSchema } from "../shared/owned-session";
 import { attemptLetter } from "../shared/attempts";
 import {
@@ -305,9 +311,41 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   const found = createFoundSessions({
     repositories: () => registry.snapshot(),
     refreshRepositories: () => registry.list(),
+    owned: () => ownedSessions.agentSessions(),
     settingsFile: join(options.stateDir ?? temporaryState!, "found-sessions.json"),
   });
   await found.restore();
+  // Sessions of any age, for `med thread find` and `med thread adopt`.
+  const sessionSearch = createSessionSearch({ codexNames: () => found.codexNames() });
+  /** The saved thread that names a session: by its ID, or for a session
+   * that Med runs through ACP, by the agent's own ID. */
+  const sessionThreads = async () => {
+    const reviews = await savedReviews.list();
+    const threads = new Map<string, { id: string; archived?: boolean }>();
+    for (const review of reviews)
+      for (const session of review.sessions ?? [])
+        threads.set(session.id, { id: review.id, ...(review.archivedAt && { archived: true }) });
+    for (const [own, id] of ownedSessions.agentSessions()) {
+      const thread = threads.get(id);
+      if (thread && !threads.has(own)) threads.set(own, thread);
+    }
+    return threads;
+  };
+  /** Sessions for the API, with their threads and registered repositories. */
+  const sessionEntries = async (sessions: readonly SessionInfo[]) => {
+    const threads = await sessionThreads();
+    return Promise.all(
+      sessions.map(async (session) => {
+        const place = session.cwd ? await found.locate(session.cwd, false) : undefined;
+        const thread = threads.get(session.id);
+        const repository = place?.checkout?.repository.name;
+        return sessionEntry(session, {
+          ...(thread && { thread }),
+          ...(repository && { repository }),
+        });
+      }),
+    );
+  };
   // Each thread's work that its base branch does not have yet.
   const checkoutWork = createCheckoutWork();
   /** Every thread, newest first, with the repositories that threads start in. */
@@ -1045,6 +1083,17 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           send(await found.update(foundUpdateSchema.parse(await readBody(request))));
           return;
         }
+        // Claude Code and Codex sessions of any age: by words, or the ones
+        // that an ID or a transcript path names (`med thread find`).
+        if (url.pathname === "/api/sessions/find" && request.method === "POST") {
+          const input = sessionFindSchema.parse(await readBody(request));
+          const sessions =
+            input.session === undefined
+              ? await sessionSearch.find(input.text ?? "", input.limit ?? 20)
+              : (await sessionSearch.lookup(input.session)).slice(0, input.limit ?? 20);
+          send({ sessions: await sessionEntries(sessions) });
+          return;
+        }
         if (url.pathname === "/api/agents" && request.method === "GET") {
           send({ agents: await ownedSessions.agents() });
           return;
@@ -1477,6 +1526,69 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               await readBody(request, MAX_BRIEF_BODY + MAX_GUIDE_BODY),
             );
             send(await savedReviews.create(input, captureTarget, assertRequestAccess));
+            return;
+          }
+          // `med thread adopt`: a Claude Code or Codex session of any age
+          // becomes a saved thread, as Keep in Med makes one. A session that
+          // a thread names already gives that thread, back from the archive.
+          if (url.pathname === "/api/sessions/adopt" && request.method === "POST") {
+            const input = sessionAdoptSchema.parse(await readBody(request));
+            const matches = await sessionSearch.lookup(input.session);
+            if (matches.length !== 1)
+              throw new HostError(
+                matches.length ? "session-ambiguous" : "session-not-found",
+                matches.length
+                  ? `${JSON.stringify(input.session)} names ${matches.length} sessions. Give a full session ID or a transcript path.`
+                  : `No Claude Code or Codex session matches ${JSON.stringify(input.session)}.`,
+                matches.length ? 409 : 404,
+              );
+            const info = matches[0]!;
+            const [entry] = await sessionEntries([info]);
+            const named = (await sessionThreads()).get(info.id);
+            if (named) {
+              const review = named.archived
+                ? await savedReviews.archive(named.id, false, assertRequestAccess)
+                : await savedReviews.get(named.id);
+              send({
+                id: review.id,
+                title: review.title,
+                created: false,
+                session: entry!,
+              } satisfies SessionAdopted);
+              return;
+            }
+            let repo = input.repo;
+            if (!repo) {
+              const place = info.cwd ? await found.locate(info.cwd) : undefined;
+              if (!place?.checkout)
+                throw new HostError(
+                  "session-checkout",
+                  !info.cwd
+                    ? "The transcript does not name the session's folder. Choose a checkout with --repo <path>."
+                    : place?.state === "gone" || !existsSync(info.cwd)
+                      ? `The session's folder ${info.cwd} no longer exists. Choose a checkout with --repo <path>.`
+                      : `The session's folder ${info.cwd} is not in a registered repository. Run med add <repository>, or choose a checkout with --repo <path>.`,
+                  409,
+                );
+              repo = place.checkout.path;
+            }
+            const title = input.title ?? info.title.slice(0, 200);
+            const review = await savedReviews.create(
+              {
+                title,
+                key: `${threadSlug(title)}-${info.id.slice(0, 8)}`,
+                sessions: [{ agent: info.agent, id: info.id, cwd: info.cwd ?? repo }],
+                targets: [{ repo, comparison: { kind: "working" } }],
+              },
+              captureTarget,
+              assertRequestAccess,
+            );
+            send({
+              id: review.id,
+              title: review.title,
+              created: true,
+              session: entry!,
+            } satisfies SessionAdopted);
             return;
           }
           // A new thread: a branch in a new worktree (or the checkout itself),

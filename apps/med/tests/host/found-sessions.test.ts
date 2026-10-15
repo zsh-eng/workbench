@@ -1,8 +1,18 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, realpath, rm, utimes, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { SessionEvent } from "../../src/shared/agent-session";
 import type { SavedReview } from "../../src/shared/saved-review";
 import type { ThreadList } from "../../src/shared/threads";
@@ -90,9 +100,9 @@ async function claude(
   return path;
 }
 
-/** A Codex rollout in today's day folder, with its turn complete. */
-async function codex(home: string, cwd: string, id: string, prompt: string) {
-  const day = new Date();
+/** A Codex rollout in the day folder of `day` (today by default), with its
+ * turn complete. */
+async function codex(home: string, cwd: string, id: string, prompt: string, day = new Date()) {
   const folder = join(
     home,
     ".codex",
@@ -102,8 +112,9 @@ async function codex(home: string, cwd: string, id: string, prompt: string) {
     String(day.getDate()).padStart(2, "0"),
   );
   await mkdir(folder, { recursive: true });
+  const path = join(folder, `rollout-2026-10-15T09-00-00-${id}.jsonl`);
   await writeFile(
-    join(folder, `rollout-2026-10-15T09-00-00-${id}.jsonl`),
+    path,
     lines([
       {
         timestamp: time(120_000),
@@ -127,9 +138,15 @@ async function codex(home: string, cwd: string, id: string, prompt: string) {
       { timestamp: time(100_000), type: "event_msg", payload: { type: "task_complete" } },
     ]),
   );
+  return path;
 }
 
-async function fixture() {
+/** Sets a file's modification time to `ago` milliseconds before now. */
+const age = (path: string, ago: number) =>
+  utimes(path, new Date(Date.now() - ago), new Date(Date.now() - ago));
+const DAY = 24 * 60 * 60 * 1000;
+
+async function fixture(agents?: Parameters<typeof startHost>[0]["agents"]) {
   const directory = await realpath(await mkdtemp(join(tmpdir(), "med found ")));
   directories.push(directory);
   const repo = join(directory, "tide");
@@ -148,6 +165,7 @@ async function fixture() {
     repos: [repo],
     stateDir: join(directory, "state"),
     port: 0,
+    ...(agents && { agents }),
   });
   hosts.push(host);
   const api = async <T>(path: string, body?: unknown) => {
@@ -391,4 +409,148 @@ test("found sessions hide one by one or all at once, and Keep in Med saves one a
     title: "README glossary",
     sessions: [{ agent: "claude", id }],
   });
+});
+
+test("one window of 7 days lists Claude Code and Codex sessions by the time their transcripts changed", async () => {
+  const { list, repo, home } = await fixture();
+  const claudeIn = (id: string, prompt: string) => claude(home, repo, id, { prompt });
+  const codexIn = (id: string, prompt: string, started: number) =>
+    codex(home, repo, id, prompt, new Date(Date.now() - started));
+  await age(
+    await claudeIn("a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1", "A Claude task of six days ago."),
+    6 * DAY,
+  );
+  await age(
+    await claudeIn("a2a2a2a2-a2a2-4a2a-8a2a-a2a2a2a2a2a2", "A Claude task of eight days ago."),
+    8 * DAY,
+  );
+  // Codex files a rollout under the day that its session started. A session
+  // that started 20 days ago and runs again shows; one that stopped does not.
+  await codexIn(
+    "b1b1b1b1-b1b1-4b1b-8b1b-b1b1b1b1b1b1",
+    "An old Codex task that runs again.",
+    20 * DAY,
+  );
+  await age(
+    await codexIn(
+      "b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b2b2b2",
+      "An old Codex task that stopped.",
+      20 * DAY,
+    ),
+    8 * DAY,
+  );
+  await age(
+    await codexIn("b3b3b3b3-b3b3-4b3b-8b3b-b3b3b3b3b3b3", "A Codex task of six days ago.", 6 * DAY),
+    6 * DAY,
+  );
+  await age(
+    await codexIn(
+      "b4b4b4b4-b4b4-4b4b-8b4b-b4b4b4b4b4b4",
+      "A Codex task of eight days ago.",
+      8 * DAY,
+    ),
+    8 * DAY,
+  );
+
+  const latest = await list();
+  await vi.waitFor(
+    () =>
+      expect(foundIn(latest.value).sort()).toEqual([
+        "A Claude task of six days ago",
+        "A Codex task of six days ago",
+        "An old Codex task that runs again",
+      ]),
+    { timeout: 10_000 },
+  );
+  // Later scans read the old day folder too, between full listings.
+  await claudeIn("a3a3a3a3-a3a3-4a3a-8a3a-a3a3a3a3a3a3", "A new Claude task in the checkout.");
+  await vi.waitFor(
+    () => expect(foundIn(latest.value)).toContain("A new Claude task in the checkout"),
+    { timeout: 10_000 },
+  );
+  expect(foundIn(latest.value)).toContain("An old Codex task that runs again");
+});
+
+test("a Codex session that Med runs through ACP shows once, as its thread, also after a restart", async () => {
+  const agents = async () => [
+    {
+      id: "codex",
+      name: "Codex",
+      kind: "acp" as const,
+      available: true,
+      command: process.execPath,
+      args: [fileURLToPath(new URL("../fixtures/agents/fake-codex-acp.mjs", import.meta.url))],
+    },
+  ];
+  const { api, list, repo, home, directory } = await fixture(agents);
+  const repositories = await api<{ repositories: { id: string; path: string }[] }>(
+    "/api/repositories",
+  );
+  const started = await api<{ review: SavedReview }>("/api/threads", {
+    repositoryId: repositories.data.repositories.find((entry) => entry.path === repo)!.id,
+    prompt: "Add a unit option to formatHeight.",
+    preset: "codex",
+    worktree: false,
+  });
+  expect(started.status).toBe(200);
+  const review = started.data.review;
+  const owned = review.sessions![0]!;
+  expect(owned.agent).toBe("acp");
+  await vi.waitFor(
+    async () =>
+      expect(
+        (await api<{ status: string }>(`/api/reviews/${review.id}/owned/${owned.id}`)).data.status,
+      ).toBe("idle"),
+    { timeout: 10_000 },
+  );
+  // Codex wrote the session's rollout with its own ID, and the prompt.
+  const day = new Date();
+  const folder = join(
+    home,
+    ".codex",
+    "sessions",
+    String(day.getFullYear()),
+    String(day.getMonth() + 1).padStart(2, "0"),
+    String(day.getDate()).padStart(2, "0"),
+  );
+  const [rollout] = await readdir(folder);
+  const codexId = /([0-9a-f-]{36})\.jsonl$/.exec(rollout!)![1]!;
+  expect(codexId).not.toBe(owned.id);
+  expect(await readFile(join(folder, rollout!), "utf8")).toContain("Add a unit option");
+
+  // A terminal session in the same checkout, written after it, shows: the
+  // scan has read the rollout too.
+  await codex(home, repo, "c1c1c1c1-c1c1-4c1c-8c1c-c1c1c1c1c1c1", "A terminal task in Codex.");
+  const once = async (latest: { value: ThreadList | null }) => {
+    await vi.waitFor(() => expect(foundIn(latest.value)).toEqual(["A terminal task in Codex"]), {
+      timeout: 10_000,
+    });
+    const threads = latest.value!.threads;
+    expect(threads.some((thread) => thread.id === `found-codex-${codexId}`)).toBe(false);
+    expect(threads.filter((thread) => thread.id === review.id)).toHaveLength(1);
+  };
+  await once(await list());
+
+  // Med keeps the agent's ID with the session, so a restart keeps it apart.
+  await hosts.splice(0)[0]!.close();
+  const again = await startHost({
+    repo,
+    repos: [repo],
+    stateDir: join(directory, "state"),
+    port: 0,
+    agents,
+  });
+  hosts.push(again);
+  const events = await fetch(`http://127.0.0.1:${again.port}/api/threads/events`, {
+    headers: { authorization: `Bearer ${again.token}` },
+  });
+  const restarted: { value: ThreadList | null } = { value: null };
+  const controller = new AbortController();
+  streams.push(controller);
+  void readServerEvents(
+    events.body!,
+    (event) => (restarted.value = JSON.parse(event.data) as ThreadList),
+    controller.signal,
+  ).catch(() => {});
+  await once(restarted);
 });
