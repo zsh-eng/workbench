@@ -106,15 +106,25 @@ only the threads in view. Nothing is archived on its own.
   it. **Archive and remove worktree** also removes the worktree that Med made;
   the branch stays, and Git keeps a worktree with changes. **Undo** brings the
   thread back.
-- A thread's review is a capture. The agent's handoff
-  (`med review create --key …`) captures its work again as a new iteration.
-  Until the first handoff, the capture is empty, so the review shows the live
-  changes as the agent makes them. When the worktree changes after a capture,
-  such as by an agent that does not hand off, a bar in the review lets you
-  choose once the agent stops: **Refresh review** captures it again, and
-  **Show live changes** shows the working changes as they are now, until
-  **Return to review**. **Live changes** in the review's header, or **Show
-  live changes** in `⌘K`, does the same at any time.
+- A thread's pane has the tabs **Review**, **Changes**, and **Commit**.
+  **Changes** are the checkout's Git changes as they are now; Med saves
+  nothing for them. On a branch other than the base, they start at the base:
+  the branch's commits and its uncommitted changes (**Branch changes**). On
+  the base branch, they are the working changes. The comparison menu also has
+  working, staged, and unstaged changes, and a commit that you open. In a
+  checkout that other sessions share, such as the main checkout, **Only this
+  session's files** keeps the files that the thread's Claude Code or Codex
+  session edited.
+- **Review** is what the agent hands off (`med thread show`, or
+  `med review create --key …`): its Guide, its brief in **Notes**, or its diff.
+  Each hand-off is a new version, and the menu above the diff chooses a
+  version. A thread opens on **Review** after a hand-off and on **Changes**
+  before one. A hand-off that arrives while you read adds **Review** and does
+  not move you. When the checkout changes after a version, a bar offers
+  **Refresh review**, which saves the checkout again as a new version, and
+  **Show Changes**. An older thread, which saved its checkout when it
+  started, keeps that capture as version 1; an empty capture alone is not a
+  Review.
 - **Repositories**, at the foot of the sidebar, lists the registered
   repositories and vaults by name. Click one to browse it without a thread;
   **+** opens the Sources page.
@@ -138,8 +148,10 @@ between workspaces. In a browser tab, which keeps `⌘1`–`⌘9`, use
 
 ## Review changes
 
-1. Choose working, staged, or unstaged changes in the comparison menu above
-   the diff. **Compare against** compares with the base branch, and **Compare
+1. Choose branch, working, staged, or unstaged changes in the comparison menu
+   above the diff. Branch changes are the commits since the base branch and
+   the uncommitted changes; a branch other than the base opens on them.
+   **Compare against** compares with the base branch, and **Compare
    revisions…** in the review's menu chooses a range. A range compares
    snapshots; it does not add patches across merged branches.
 2. Select a changed path to go to it in the diff. Double-click it to open the
@@ -165,13 +177,13 @@ saved links then work in new tabs of that browser. See
 [agent reviews](AGENT_INTEGRATION.md#create-a-review).
 
 A saved review keeps its diff when the agent makes more changes. An agent that
-names its task with a key adds an iteration for each round of work. The review
-opens on the latest one and is marked new again; comments on earlier
-iterations stay. The iteration keys at the top of **Notes** (`1`, `2`, …) show
-each iteration's comparison, and older iterations move to a menu when the keys
-do not fit. Only a review with more than one comparison in an iteration, such
-as several repositories or a commit that you commented on while browsing, has
-a **Review target** picker in its bar.
+names its task with a key adds a version for each round of work. The Review
+opens on the latest one and is marked new again; comments on earlier versions
+stay. The version menu above the diff, and the version keys at the top of
+**Notes** (`1`, `2`, …), show each version's comparison; older versions move to
+a menu when the keys do not fit. A version with more than one comparison, such
+as one for each repository, lists each one in the menu, and so does a commit
+that you commented on while browsing.
 
 **Copy comments** copies the comments of all targets, with paths, revisions,
 line numbers, and nearby source, for any agent. **Send to Claude** or **Send to
@@ -242,14 +254,14 @@ server stops.
 
 ## The Guide
 
-When an agent attaches a guide, the review opens on the **Guide** tab. A guide
+When an agent attaches a guide, the **Review** tab opens on the Guide. A guide
 splits the change into segments that you check one at a time, like a pull
 request split into small ones.
 
 - **Overview.** The agent's summary, the segments with their area, size, and
   comment count, and the range's commits. **Needs care** marks a segment that
   the agent flagged as risky. **Start reviewing** opens the first segment that
-  you have not finished.
+  you have not finished, and **All files** shows the version's whole diff.
 - **A segment.** Its title, summary, and only its files, with the agent's
   comments on their lines. Comments on whole files, and on lines the diff does
   not show, follow the summary. Reply to a comment on lines with your own note
@@ -259,33 +271,33 @@ request split into small ones.
   the segment viewed and opens the next one. The rail at the left shows your
   progress; it hides in a narrow window.
 - **Commits.** With two or more commits in the range, each one opens on its own,
-  with its message. **Return to review** goes back to the whole range.
+  with its message. **Whole range** in the rail goes back to the whole range.
 - **Move.** `j` and `k` step through the segments, or through the commits once
   one is open.
 
 A range with several commits and no guide shows its commits in the Guide too.
 Agents pass a guide with [`--guide`](AGENT_INTEGRATION.md#attach-a-guide).
 
-In a saved review, **Changes** shows the same diff with a rail of its changed
-files as a tree and, with two or more commits, the range's commits. A commit
-shows on its own in Changes; **Whole range** goes back. The rail shows by
-itself when the review pane has room; the toolbar's first button, or **Show
-files and commits** in `⌘K`, shows or hides it in any width, and Med keeps
-that choice. With the **Changed files** pane open, the pane lists the files
-instead.
+A thread's diff has a rail of its changed files as a tree. In **Review**, the
+rail also lists the range's commits when it has two or more. A commit shows on
+its own; **Whole range** goes back. The rail shows by itself when the review
+pane has room; the toolbar's first button, or **Show files and commits** in
+`⌘K`, shows or hides it in any width, and Med keeps that choice. With the
+**Changed files** pane open, the pane lists the files instead.
 
 ## Notes and briefs
 
 A review's **Notes** hold the agent's brief and the replies that you pin from
 its session. A brief explains the change in Markdown, and its links open the
-lines that it cites. The **Notes** tab comes before **Changes**.
+lines that it cites. The **Notes** tab comes after **Review** and before
+**Changes**; a Review with a brief and no Guide opens on it.
 
 - **Attach a brief.** Copy the agent's last message and press `⌘V` outside a
   text field. On live changes, Med first asks for a title and saves the review,
   so the links keep pointing at the code that they describe. Agents can pass
   [`--brief`](AGENT_INTEGRATION.md#attach-a-brief) instead.
 - **Pin a reply.** In the Session pane, the reply that ends each turn has **Pin
-  to review**. Med copies it into the latest iteration's notes, because a
+  to review**. Med copies it into the latest version's notes, because a
   transcript can lose old replies.
 - **Read.** With more than one note, each has a head such as `02 / 03`, and a
   rail at the right marks notes, headings, and excerpts. Below each paragraph
@@ -293,15 +305,15 @@ lines that it cites. The **Notes** tab comes before **Changes**.
   the excerpts. **Not in the notes** lists the changed files that the notes do
   not cite; read those yourself.
 - **Comment.** Click a link or an excerpt's heading to open its lines in
-  **Changes**. On an excerpt line, click **+**, or select line numbers and
+  **Review**. On an excerpt line, click **+**, or select line numbers and
   press `c`. To comment on the prose, select words and click **Comment** or
   press `c`; the comment keeps the quote, and a comment whose passage is gone
   shows at the end of its note.
 - **Manage.** Paste again to replace the brief; **Undo** restores it. A note's
   **⋯** menu copies all notes, removes the brief or a pin, and has **Start new
-  notes**, which captures the current comparisons as a new, empty iteration.
+  notes**, which captures the current comparisons as a new, empty version.
   **Delete these notes…** deletes the shown brief, its pins, and their
-  comments, after it asks. Notes that you started also take their iteration,
+  comments, after it asks. Notes that you started also take their version,
   unless its comparisons have comments. In an open menu, a letter chooses the
   item that it underlines: in the **⋯** menu, `n` starts new notes and `d`
   deletes them.
@@ -326,8 +338,8 @@ with** an installed agent. The workspace shows each step:
 5. Fetch the base branch if it is not local, and save the review.
 6. Start the agent in the worktree with a review prompt, if you chose one.
 
-The same link opens the same worktree and review; a new head adds an
-iteration. A failed step says why and offers **Retry**. When you are done,
+The same link opens the same worktree and review; a new head adds a
+version. A failed step says why and offers **Retry**. When you are done,
 right-click the workspace and choose **Close and remove worktree**. Med runs
 `git worktree remove` without `--force`, so it keeps a worktree with changes,
 a working agent, or a commit on no branch. The branch stays.
@@ -665,7 +677,7 @@ The panes stay, and the session keeps its thread and message box; a folded
 turn still opens.
 
 In zen mode, the command palette has the review's actions: **Send comments
-to** the agent, **Copy comments**, and **Return to review**. `⌘B` and `⌘⇧B`
+to** the agent, **Copy comments**, **Show Review**, and **Show Changes**. `⌘B` and `⌘⇧B`
 still show or hide the sidebar and the session. Press `⌥Z` again or click
 **Leave zen** to leave. Escape does not leave zen mode, so it stays free for
 search, Vim, and dialogs.
@@ -677,9 +689,10 @@ once: the sidebar names the thread (the title band does while the sidebar is
 hidden), the title band names its branch, the review's row names what the diff
 compares, and the session's row names the agent and its state.
 
-- The review's row has its tabs, the comparison, **Live** or **Return to
-  review**, and **⋯**. The comparison menu also has **Compare against a
-  branch…** and **Compare two revisions…**.
+- The review's row has its tabs (**Review**, **Changes**, **Commit**), the
+  comparison or, in Review, the version, and **⋯**. In Changes, the
+  comparison menu also has **Compare against a branch…** and **Compare two
+  revisions…**, and in a shared checkout **Only this session's files**.
 - **⋯** has the comments, **Find in diffs**, the panes, **Zen mode**, **Push…**,
   and **Refresh review**. Its **View** menu has the diff's layout, comments,
   wrapping, the files and commits rail, and **Collapse all files**.

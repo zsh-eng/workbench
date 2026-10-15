@@ -93,7 +93,7 @@ export const guideContexts: GuideContext[] = [
           {
             label: "Next / previous segment",
             keys: ["j", "k"],
-            note: "In the Guide tab; commits step the same way",
+            note: "In the Review tab's Guide; commits step the same way",
           },
           {
             label: "Mark the top file viewed",
@@ -183,7 +183,7 @@ export const guideContexts: GuideContext[] = [
           {
             label: "Show a tab by its place in the row",
             keys: ["Alt+{1–9}"],
-            note: "9 shows the last",
+            note: "Review, Notes, Changes, Commit, then files; 9 shows the last",
           },
           {
             label: "Previous / next tab",

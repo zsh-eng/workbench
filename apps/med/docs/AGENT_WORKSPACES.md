@@ -89,8 +89,8 @@ Med adds nothing to an agent's prompt. The user keeps short instructions in
 their own CLAUDE.md or AGENTS.md (`med skills instructions` prints them, from
 `skills/thread-instructions.md`), so they can edit them. The instructions say
 how to hand off work with `med review create --working --title "<2-4 words>"
---guide -` and not to run `med review wait`; the med skill gives the guide's
-format.
+--guide -`, with `--paths` in a shared checkout, and not to run `med review
+wait`; the med skill gives the guide's format.
 
 Every agent that Med starts also gets these variables:
 
@@ -163,7 +163,7 @@ draft. Med never posts to GitHub.
 Replies scroll away, and compaction can remove them, so the reply that ends
 each turn has **Pin to review**. Med copies the text into the review (`POST
 /api/reviews/:id/pins`). The brief and the pins are the review's **Notes**; each
-iteration has its own pins. With two or more notes, each has a head
+version has its own pins. With two or more notes, each has a head
 (`02 / 03`) and a minimap rail marks notes, headings, and excerpts. Excerpts
 sit under the sentence that cites them, not in a side list.
 
@@ -202,24 +202,34 @@ provider still writes Claude Code's or Codex's format. ACP covers OpenCode,
 Codex (`codex-acp`), and other ACP agents; Claude Code uses `stream-json`.
 Attaching to another agent needs a reader for its transcript format.
 
-### Captures and live changes
+### Review and Changes
 
-A thread's review holds captures: the agent's handoff (`med review create --key
-<key> --repo <checkout> --working`) adds one as a new iteration. An agent that
-does not hand off, such as Codex, changes the worktree and not the review. The
-review asks the host `GET /api/reviews/:id/targets/:target/drift` when it
-opens, and after each change event: the host compares the checkout's working
-changes with the capture (HEAD, patch, and changed files) and watches the
-checkout's files from then on. When they differ, the review shows **Refresh
-review**, which captures the current comparisons as a new iteration (`POST
-/api/reviews/:id/iterations`), and **Show live changes**, which shows the
-working changes until **Return to review**.
+A thread has two views of its work, in the tabs **Review** and **Changes**.
 
-Two rules keep the bar quiet. The bar waits while the thread's lead session
-works, because the agent may still hand off. An empty capture, such as a new
-thread's before its first handoff, has nothing to read: the review shows the
-live working changes instead, and the next capture replaces them. After the
-reader chooses **Return to review**, the empty capture stays, with the bar.
+- **Changes** are the checkout's Git changes now, read with each change
+  event and never saved. On a branch other than the base, they are the
+  branch's commits since its merge base with the base branch, and its
+  uncommitted changes (`{ kind: "working", base }`); on the base branch, the
+  working changes. In a shared checkout (the main checkout, or a checkout
+  with two or more threads' sessions), **Only this session's files** adds
+  `session` to the comparison, and the host keeps the files that the session's
+  transcript edited (`src/host/session-edits.ts`).
+- **Review** holds what the agent hands off. `med thread show` adds a version
+  (`POST /api/reviews/:id/versions`), and so does `med review create` with the
+  thread's key. New thread, **Keep in Med**, and `med thread adopt`
+  save only the thread's checkout, so a thread has no Review until its agent
+  shows one. An older thread's first capture is version 1; an empty capture
+  alone is not a Review.
+
+An agent that does not hand off, such as Codex, changes the checkout and not
+the Review. The Review asks the host `GET
+/api/reviews/:id/targets/:target/drift` when it opens, and after each change
+event: the host compares the checkout's working changes with the latest
+version (HEAD, patch, and changed files) and watches the checkout's files from
+then on. When they differ, the Review shows **Refresh review**, which saves
+the current comparisons as a new version (`POST /api/reviews/:id/iterations`),
+and **Show Changes**. The bar waits while the thread's lead session works,
+because the agent may still hand off.
 
 ## Remaining work
 
