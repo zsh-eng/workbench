@@ -25,6 +25,7 @@ import type {
 } from "../../src/shared/saved-review";
 import type { AgentPreset, OwnedAction, OwnedState } from "../../src/shared/owned-session";
 import type { ReviewGuide } from "../../src/shared/review-guide";
+import type { QuestionState } from "../../src/shared/questions";
 import type { BlameLoader } from "../../src/web/data/blame";
 import type { CommitApi } from "../../src/web/data/commit";
 import { createFakeRepository } from "../../src/web/components/elements/commit-fixture";
@@ -153,6 +154,8 @@ async function mountApp(
     commitApi?: CommitApi;
     /** A Claude Code session recorded with the saved review, as server events. */
     session?: string;
+    /** The recorded session's agent; Claude Code by default. */
+    sessionAgent?: "claude" | "codex";
     /** The saved review's messages to its agent: drafts and who waits. */
     inbox?: AgentInboxState;
     /** Each message waits for its own call; a call with an error fails the send. */
@@ -243,8 +246,20 @@ async function mountApp(
   let pins: SavedPin[] = [];
   let briefComments: BriefComment[] = [];
   let sessions: AgentSession[] = options.session
-    ? [{ agent: "claude", id: "s1", cwd: "/test/repo" }]
+    ? [{ agent: options.sessionAgent ?? "claude", id: "s1", cwd: "/test/repo" }]
     : [];
+  // Questions about lines: the host's state streams as the test changes it.
+  const questions = {
+    asks: [] as unknown[],
+    closed: [] as string[],
+    stopped: [] as string[],
+    state: undefined as QuestionState | undefined,
+    listeners: new Set<() => void>(),
+    set(change: Partial<QuestionState>) {
+      questions.state = { ...questions.state!, ...change };
+      for (const listener of questions.listeners) listener();
+    },
+  };
   // The session that Med runs: its state streams to the page until the test changes it.
   let owned: OwnedState | undefined;
   const ownedActions: OwnedAction[] = [];
@@ -320,6 +335,34 @@ async function mountApp(
   });
   const fetcher: typeof fetch = async (input, init) => {
     const url = new URL(String(input), "http://localhost");
+    if (url.pathname === "/api/questions" && init?.method === "POST") {
+      questions.asks.push(JSON.parse(String(init.body)));
+      questions.state = {
+        id: `q${questions.asks.length}`,
+        agent: options.sessionAgent ?? "claude",
+        context: "thread",
+        status: "starting",
+        answer: "",
+      };
+      return Response.json(questions.state);
+    }
+    if (/^\/api\/questions\/q\d+\/events$/.test(url.pathname))
+      return eventStream(
+        () => `event: state\ndata: ${JSON.stringify(questions.state)}\n\n`,
+        (push) => {
+          questions.listeners.add(push);
+          return () => questions.listeners.delete(push);
+        },
+      );
+    if (url.pathname === "/api/questions/stop" && init?.method === "POST") {
+      questions.stopped.push(JSON.parse(String(init.body)).id);
+      questions.state = { ...questions.state!, status: "stopped" };
+      return Response.json(questions.state);
+    }
+    if (url.pathname === "/api/questions/close" && init?.method === "POST") {
+      questions.closed.push(JSON.parse(String(init.body)).id);
+      return Response.json({ closed: true });
+    }
     if (options.savedReview) {
       if (url.pathname === "/api/reviews/saved") return Response.json(savedBundle());
       if (url.pathname === "/api/agents") return Response.json({ agents: options.agents ?? [] });
@@ -752,6 +795,8 @@ async function mountApp(
     setOwned,
     ownedActions,
     pageReads,
+    questions,
+    savedNotes,
   };
 }
 
@@ -3584,5 +3629,134 @@ describe("agent session", () => {
       .element(notes.getByRole("region", { name: "Note 2 of 2" }))
       .not.toBeInTheDocument();
     await expect.element(panel.getByRole("button", { name: "Pin to review" })).toBeVisible();
+  });
+});
+
+describe("ask about these lines", () => {
+  const session = `event: reset\ndata: ${JSON.stringify({ events: [], idle: true, modifiedAt: 0, truncated: false })}\n\n`;
+  /** Selects lines 1–2 of alpha.ts's new side by their numbers. */
+  async function selectLines() {
+    await page.getByRole("button", { name: "Split", exact: true }).click();
+    const number = (value: string) =>
+      page
+        .getByText(value, { exact: true })
+        .all()
+        .find((locator) => {
+          const element = locator.element();
+          return (
+            element.getRootNode() === document.querySelector("diffs-container")?.shadowRoot &&
+            element.closest("[data-column-number]")?.closest("[data-additions]")
+          );
+        })!;
+    await expect.poll(() => Boolean(number("2"))).toBe(true);
+    await number("1").click();
+    await number("2").click({ modifiers: ["Shift"] });
+    await expect
+      .element(
+        page.getByRole("toolbar", { name: "Line selection" }).getByText("L1–2", { exact: true }),
+      )
+      .toBeVisible();
+  }
+
+  test("Ask streams the agent's answer beside the review; Keep as comment adds it on the lines, and Close discards", async () => {
+    const { questions, savedNotes } = await mountApp({ savedReview: true, session });
+    await selectLines();
+    const toolbar = page.getByRole("toolbar", { name: "Line selection" });
+    // Ask sits beside the comment action, in its own place.
+    const add = toolbar.getByRole("button", { name: "Add note" }).element().getBoundingClientRect();
+    const ask = toolbar.getByRole("button", { name: "Ask", exact: true });
+    expect(ask.element().getBoundingClientRect().left).toBeGreaterThan(add.right);
+    // The Question pane takes room from the row, and gives it back when it closes.
+    const reviewWidth = () =>
+      Math.round(document.querySelector('[data-pane="review"]')!.getBoundingClientRect().width);
+    const before = reviewWidth();
+    await ask.click();
+
+    const pane = page.getByRole("region", { name: "Question" });
+    const box = pane.getByRole("textbox", { name: "Question about src/alpha.ts L1–2" });
+    await expect.element(box).toHaveFocus();
+    await box.fill("Why two?");
+    await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
+    // The question goes with the lines as the review shows them.
+    await expect
+      .poll(() => questions.asks)
+      .toEqual([
+        {
+          thread: "saved",
+          question: "Why two?",
+          excerpt: {
+            path: "src/alpha.ts",
+            side: "new",
+            start: 1,
+            end: 2,
+            lines: [
+              { number: 1, mark: "+", text: "export const after = 2;" },
+              { number: 2, mark: " ", text: "export const shared = true;" },
+            ],
+          },
+        },
+      ]);
+    // The answer streams, and Ask waits for it.
+    questions.set({ status: "answering", answer: "Two is the" });
+    await expect.element(pane.getByText("Two is the")).toBeVisible();
+    await expect.element(toolbar.getByRole("button", { name: "Ask", exact: true })).toBeDisabled();
+    await userEvent.keyboard("a");
+    expect(questions.asks).toHaveLength(1);
+    questions.set({ status: "done", answer: "Two is the **new** default." });
+    await expect.element(pane.getByText("new", { exact: true })).toBeVisible();
+
+    expect(reviewWidth()).toBeLessThan(before);
+    await pane.getByRole("button", { name: "Keep as comment" }).click();
+    await expect.element(pane).not.toBeInTheDocument();
+    await expect.poll(reviewWidth).toBe(before);
+    expect(savedNotes).toMatchObject([
+      {
+        path: "src/alpha.ts",
+        side: "new",
+        line: 1,
+        endLine: 2,
+        text: "Question: Why two?\n\nClaude: Two is the **new** default.",
+      },
+    ]);
+    expect(questions.closed).toEqual(["q1"]);
+
+    // A second question: Esc stops its answer, and Close keeps no comment.
+    await selectLines();
+    await userEvent.keyboard("a");
+    await page.getByRole("textbox", { name: "Question about src/alpha.ts L1–2" }).fill("And one?");
+    await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
+    questions.set({ status: "answering", answer: "One was" });
+    await expect.element(page.getByText("One was")).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => questions.stopped).toEqual(["q2"]);
+    // Escape stops the answer only: the lines stay selected.
+    await expect.element(page.getByRole("toolbar", { name: "Line selection" })).toBeVisible();
+    await page.getByRole("button", { name: "Close question" }).click();
+    await expect.element(page.getByRole("region", { name: "Question" })).not.toBeInTheDocument();
+    expect(questions.closed).toEqual(["q1", "q2"]);
+    expect(savedNotes).toHaveLength(1);
+  });
+
+  test("in Changes, a Codex thread without a fork says that Codex answers from the excerpt", async () => {
+    const { questions } = await mountApp({ savedReview: true, session, sessionAgent: "codex" });
+    // Ask works in the checkout's live diff as in the hand-off.
+    await page.getByRole("tab", { name: "Changes", exact: true }).click();
+    await expect
+      .element(page.getByRole("tab", { name: "Changes", exact: true }))
+      .toHaveAttribute("aria-selected", "true");
+    await selectLines();
+    await userEvent.keyboard("a");
+    await page.getByRole("textbox", { name: "Question about src/alpha.ts L1–2" }).fill("Why?");
+    await page
+      .getByRole("region", { name: "Question" })
+      .getByRole("button", { name: "Send" })
+      .click();
+    await expect.poll(() => questions.asks).toHaveLength(1);
+    questions.set({ context: "excerpt", status: "done", answer: "It reads seconds." });
+    const pane = page.getByRole("region", { name: "Question" });
+    await expect
+      .element(pane.getByText("Codex answers from the excerpt, without the thread's context"))
+      .toBeVisible();
+    await expect.element(pane.getByText("It reads seconds.")).toBeVisible();
   });
 });

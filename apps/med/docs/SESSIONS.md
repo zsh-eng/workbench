@@ -177,6 +177,9 @@ it stays a tab after its session leaves the 7-day window.
   Codex through ACP under its own session ID, and Codex writes a rollout with
   Codex's thread ID. Med keeps that ID with the session (`owned-sessions.json`),
   so the rollout does not show again as a found thread.
+- A fork that answers a question about lines (**Ask**) never shows. Med keeps
+  its ID in `question-forks.json`, and found sessions and session search leave
+  it out ([questions](../ARCHITECTURE.md#saved-reviews-and-agent-sessions)).
 
 **Keep in Med** saves a found session as a thread on its checkout
 (`POST /api/sessions/adopt`). It captures nothing: the thread shows the

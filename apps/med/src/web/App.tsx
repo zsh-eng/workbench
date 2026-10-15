@@ -140,6 +140,9 @@ import { createRenderDiagnostics } from "./data/render-diagnostics";
 import { findDefinitions } from "./data/definitions";
 import type { SymbolSearch } from "../shared/symbols";
 import { clipboardBrief, joinNotes, matchReviewFile, parseBriefHref } from "./data/brief";
+import { questionExcerpt, useQuestion } from "./data/questions";
+import { questionComment } from "../shared/questions";
+import { foundThreadId } from "../shared/found-sessions";
 import type { BriefLocation } from "./components/BriefView";
 import { SaveReviewDialog } from "./components/SaveReviewDialog";
 import { GuideRail } from "./components/guide/GuideRail";
@@ -185,6 +188,8 @@ const FoundSessionPane = lazy(() =>
     default: module.FoundSessionPane,
   })),
 );
+// The Question pane loads with the first question.
+const QuestionPane = lazy(() => import("./components/QuestionPane"));
 const NO_SESSIONS: AgentSession[] = [];
 const NO_COMMITS: SavedCommit[] = [];
 const NO_FILES: ParsedReviewFile[] = [];
@@ -270,14 +275,21 @@ function readPreference<T extends string>(key: string, fallback: T, values: read
 }
 
 /** Where each pane opens beside the review, and its share of the room. */
-const PANE_PLACES: Record<string, { near: string; side: Side; share: number }> = {
+const PANE_PLACES: Record<string, { near?: string; side: Side; share: number }> = {
   session: { near: "review", side: "left", share: 0.5 },
   changed: { near: "review", side: "left", share: 0.24 },
   files: { near: "review", side: "right", share: 0.26 },
+  // At the right of the row, with room from the thread and the review alike,
+  // so that an answer has room to read.
+  question: { side: "right", share: 0.3 },
 };
 
 /** The narrowest review pane that shows a split diff, in pixels. */
 const SPLIT_MIN_WIDTH = 760;
+/** Below this width, the line selection bar leaves out its label and keys. */
+const SELECTION_BAR_FULL_WIDTH = 420;
+/** The Question pane's width to aim for, in pixels; a narrow row gives it more. */
+const QUESTION_WIDTH = 320;
 
 export function App({
   controller,
@@ -830,12 +842,15 @@ export function App({
   // unified until it has room again.
   const [mainElement, setMainElement] = useState<HTMLElement | null>(null);
   const [roomy, setRoomy] = useState(true);
+  const [compactSelection, setCompactSelection] = useState(false);
   useLayoutEffect(() => {
     if (!mainElement) return;
     const measure = () => {
       // A hidden workspace has no width; it keeps its layout for its return.
       const width = mainElement.clientWidth;
-      if (width) setRoomy(width >= SPLIT_MIN_WIDTH);
+      if (!width) return;
+      setRoomy(width >= SPLIT_MIN_WIDTH);
+      setCompactSelection(width < SELECTION_BAR_FULL_WIDTH);
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -2264,6 +2279,105 @@ export function App({
       endLine: Math.max(selection.range.start, selection.range.end),
     });
   }, [selection, streamFiles]);
+  // Ask about these lines: the thread's lead agent answers in the Question
+  // pane, and its thread gets nothing (data/questions.ts).
+  const question = useQuestion(sessionFetch);
+  const askThread =
+    state.savedReview?.id ?? (found ? foundThreadId(found.agent, found.id) : undefined);
+  const askLead = found ?? leadSession;
+  const askAgent =
+    askLead &&
+    (askLead.agent === "claude" ||
+      askLead.agent === "codex" ||
+      (askLead.agent === "acp" && askLead.name === "Codex"))
+      ? agentName(askLead)
+      : undefined;
+  const askBlocked = !askLead
+    ? "This thread has no agent to ask"
+    : !askAgent
+      ? "Ask works in Claude Code and Codex threads"
+      : question.busy
+        ? "Wait for the answer, or stop it"
+        : undefined;
+  const canAsk = !!askThread && !askBlocked;
+  const { open: openQuestion, discard: discardQuestion, fail: failQuestion } = question;
+  // The layout before the Question pane opened; Close gives it back.
+  const questionLayout = useRef<PaneNode | null>(null);
+  const { root: paneRoot, isOpen: paneOpen, closeTo: closePaneTo } = panes;
+  const startAsk = useCallback(() => {
+    if (!selection || !askThread || !askAgent) return;
+    const file = streamFiles.find((entry) => entry.id === selection.id);
+    if (!file) return;
+    if (selection.range.endSide && selection.range.side !== selection.range.endSide) {
+      setContextError("Select lines on one side to ask about them.");
+      return;
+    }
+    const side = selection.range.side === "deletions" ? "old" : "new";
+    const line = Math.min(selection.range.start, selection.range.end);
+    const endLine = Math.max(selection.range.start, selection.range.end);
+    const opened = openQuestion({
+      thread: askThread,
+      agent: askAgent,
+      reviewId: controller.getSnapshot().review?.id,
+      note: { path: file.path, side, line, endLine },
+      excerpt: questionExcerpt(file.path, file.metadata, side, line, endLine),
+    });
+    if (!opened) return;
+    if (!paneOpen("question")) questionLayout.current = paneRoot;
+    // A narrow row gives the question a larger share, so the answer stays readable.
+    const place = PANE_PLACES.question!;
+    const row = mainElement?.closest("[data-pane-tree]")?.clientWidth ?? 0;
+    const share = row ? Math.min(0.5, Math.max(place.share, QUESTION_WIDTH / row)) : place.share;
+    showInTree("question", { ...place, share });
+  }, [
+    selection,
+    askThread,
+    askAgent,
+    streamFiles,
+    openQuestion,
+    controller,
+    showInTree,
+    paneOpen,
+    paneRoot,
+    mainElement,
+  ]);
+  const closeQuestion = useCallback(() => {
+    discardQuestion();
+    closePaneTo("question", questionLayout.current);
+    questionLayout.current = null;
+  }, [discardQuestion, closePaneTo]);
+  /** Saves the question and its answer as a comment on the lines, through
+   * the review's comments, and closes the question. */
+  const questionView = question.view;
+  const keepQuestion = useCallback(async () => {
+    const view = questionView;
+    if (!view?.asked || !view.state?.answer.trim()) return;
+    if (controller.getSnapshot().review?.id !== view.target.reviewId) {
+      failQuestion(
+        "The review shows other changes now. Show these lines again to keep the answer.",
+      );
+      return;
+    }
+    try {
+      await controller.mutateNote({
+        type: "add",
+        note: {
+          ...view.target.note,
+          text: questionComment(view.asked, view.target.agent, view.state.answer),
+        },
+      });
+    } catch (error) {
+      failQuestion(error instanceof Error ? error.message : "Could not save the comment.");
+      return;
+    }
+    setShowNotes(true);
+    closeQuestion();
+  }, [questionView, controller, failQuestion, closeQuestion]);
+  // A layout kept from before a reload names a question that is gone.
+  const questionShown = panes.isOpen("question");
+  useEffect(() => {
+    if (questionShown && !questionView) closePane("question");
+  }, [questionShown, questionView, closePane]);
   const navigateFile = useCallback(
     (delta: number) => {
       const index = streamFiles.findIndex((file) => file.id === state.selectedFileId);
@@ -2618,7 +2732,16 @@ export function App({
         event.preventDefault();
         event.stopPropagation();
         startNote();
+      } else if (event.key === "a" && selection && askThread) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (canAsk) startAsk();
       } else if (event.key === "Escape") {
+        // In the Question pane, Escape stops the answer and keeps the lines.
+        const inQuestion = event
+          .composedPath()
+          .some((node) => node instanceof HTMLElement && node.dataset.pane === "question");
+        if (inQuestion) return;
         setFindOpen(false);
         setDraft(null);
         setSelection(null);
@@ -2642,6 +2765,9 @@ export function App({
     jumpHit,
     selection,
     startNote,
+    askThread,
+    canAsk,
+    startAsk,
     toggleReviewSidebar,
     toggleSession,
     state.savedReview,
@@ -3787,6 +3913,17 @@ export function App({
       shortcut: "c",
       run: startNote,
     },
+    ...(askThread
+      ? [
+          {
+            id: "ask",
+            label: "Ask about the selection",
+            shortcut: "a",
+            disabled: !selection || !canAsk,
+            run: startAsk,
+          },
+        ]
+      : []),
   ];
   const guideContext: GuideContextId =
     activeFile && fileState.file?.kind === "text" ? (activeEditing ? "editor" : "file") : "review";
@@ -4779,6 +4916,32 @@ export function App({
           },
         ]
       : []),
+    // A question about lines, at the review's right, until Keep or Close.
+    ...(questionView
+      ? [
+          {
+            id: "question" as const,
+            label: "Question",
+            ariaLabel: "Question",
+            icon: "ask" as const,
+            onClose: closeQuestion,
+            render: (controls: ReactNode) => (
+              <Suspense fallback={null}>
+                <QuestionPane
+                  key={questionView.key}
+                  view={questionView}
+                  controls={controls}
+                  onSend={(text) => void question.send(text)}
+                  onStop={() => void question.stop()}
+                  onKeep={keepQuestion}
+                  root={state.review?.repo}
+                  onOpenPath={(path, line) => fileWorkspace.open(path, true, line)}
+                />
+              </Suspense>
+            ),
+          },
+        ]
+      : []),
   ];
   const branchPicker = gitAvailable && (
     <BranchPicker
@@ -5189,7 +5352,9 @@ export function App({
                             ? `–${selection.range.end}`
                             : ""}
                         </span>
-                        <span {...stylex.props(styles.selectionLabel)}>selected</span>
+                        {!compactSelection && (
+                          <span {...stylex.props(styles.selectionLabel)}>selected</span>
+                        )}
                         <button
                           {...stylex.props(
                             ui.button,
@@ -5202,8 +5367,32 @@ export function App({
                         >
                           <Icon name="note" size={14} />
                           Add note
-                          <kbd {...stylex.props(styles.selectionKey)}>c</kbd>
+                          {!compactSelection && <kbd {...stylex.props(styles.selectionKey)}>c</kbd>}
                         </button>
+                        {/* In a thread, Ask stays in its place; it waits while an answer comes. */}
+                        {askThread && (
+                          <button
+                            type="button"
+                            {...stylex.props(
+                              ui.button,
+                              ui.pressable,
+                              styles.selectionAction,
+                              styles.selectionAsk,
+                            )}
+                            aria-label="Ask"
+                            title={askBlocked ?? `Ask ${askAgent} about these lines`}
+                            disabled={!canAsk}
+                            onClick={startAsk}
+                          >
+                            <Icon name="ask" size={14} />
+                            Ask
+                            {!compactSelection && (
+                              <kbd {...stylex.props(styles.selectionKey, styles.selectionAskKey)}>
+                                a
+                              </kbd>
+                            )}
+                          </button>
+                        )}
                         <button
                           {...stylex.props(ui.button, ui.iconButton, styles.selectionClose)}
                           aria-label="Clear line selection"
@@ -6100,6 +6289,8 @@ const styles = stylex.create({
     fontWeight: 500,
   },
   selectionClose: { width: 30, minWidth: 30, height: 30, minHeight: 30 },
+  selectionAsk: { color: { default: tokens.text, ":hover:not(:disabled)": tokens.text } },
+  selectionAskKey: { backgroundColor: tokens.fill },
   codeView: {
     flex: "1",
     minHeight: 0,

@@ -70,7 +70,8 @@ export type IconName =
   | "stop"
   | "tasks"
   | "collapseAll"
-  | "expandAll";
+  | "expandAll"
+  | "ask";
 
 const branch = (
   <>
@@ -353,6 +354,8 @@ const icons: Record<IconName, ReactNode> = {
     <path d="M2.75 4.25h10.5M6.25 4.25V3a.75.75 0 0 1 .75-.75h2a.75.75 0 0 1 .75.75v1.25M4.25 4.25l.62 8.36A1.5 1.5 0 0 0 6.37 14h3.26a1.5 1.5 0 0 0 1.5-1.39l.62-8.36" />
   ),
   reply: <path d="M6.25 4.25 2.75 7.75l3.5 3.5M2.75 7.75h6.5a4 4 0 0 1 4 4v.5" />,
+  // A question mark: a question to the agent about the selected lines.
+  ask: <path d="M5.75 5.75a2.25 2.25 0 1 1 3.3 1.99c-.62.33-1.05.84-1.05 1.51v.5M8 12.25v.01" />,
   save: (
     <>
       <path d="M2.75 4.25a1.5 1.5 0 0 1 1.5-1.5h6.13a1.5 1.5 0 0 1 1.06.44l1.62 1.62a1.5 1.5 0 0 1 .44 1.06v6.38a1.5 1.5 0 0 1-1.5 1.5h-7.5a1.5 1.5 0 0 1-1.5-1.5z" />

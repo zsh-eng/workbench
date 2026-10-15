@@ -487,6 +487,11 @@ from the file tree, and **Changes**, are live.
   **Edit**, and **Delete**. Med shows each change at once and saves it in the
   background; if a save fails, Med restores the comment, reports the error, and
   keeps your text.
+- **Ask** (`a`) asks the thread's agent about the selected lines, in a fork of
+  its session in plan mode. The thread does not get the question or the
+  answer. **Keep as comment** saves both as a comment on the lines
+  (`Question: …`, then the agent's name and its answer); the agent gets it with
+  the other comments.
 - **Copy comments** copies, as Markdown, the comments on every comparison that
   you visited in the review, including commits from the history. It uses the
   field names of Codex diff comments: **File**, **Workspace**, **Side**,

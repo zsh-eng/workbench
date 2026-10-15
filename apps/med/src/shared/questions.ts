@@ -106,7 +106,7 @@ export function questionPrompt(question: string, excerpt: QuestionExcerpt) {
 
 /** A question and its answer as a review comment, within the comment limit. */
 export function questionComment(question: string, agent: string, answer: string, limit = 16_000) {
-  const head = `**Question:** ${question.trim()}\n\n**${agent}:** `;
+  const head = `Question: ${question.trim()}\n\n${agent}: `;
   const body = answer.trim();
   const encoder = new TextEncoder();
   if (encoder.encode(head + body).length <= limit) return head + body;
