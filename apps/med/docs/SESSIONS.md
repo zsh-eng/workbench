@@ -324,7 +324,9 @@ later ones 15 ms.
   because the first event of a long session holds megabytes.
 - `SessionMarkdown.tsx` renders replies in the brief's Markdown worker, with a
   separate cache of 200 results. A streaming reply has one render in flight;
-  partial text is not cached.
+  partial text is not cached. Replies, Question answers, guide summaries, and
+  comments use this cache, and in them a single dollar is text, as in `$HOME`
+  or `$3`; only `$$` starts math. Markdown files keep `$…$` math.
 - `SessionPanel.tsx` is the sidebar: the stream, the status, and links. A link
   such as `src/summary.ts:5` opens the file in the review.
 

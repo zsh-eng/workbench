@@ -285,6 +285,24 @@ async function mountApp(
     );
   };
   const savedNotes: Note[] = [];
+  // As the host: the saved review's comments that no message sent are drafts too.
+  const sentNotes = new Set<string>();
+  const inboxState = (): AgentInboxState => ({
+    ...inbox!,
+    drafts: [
+      ...inbox!.drafts,
+      ...savedNotes
+        .filter((note) => !note.parentId && !sentNotes.has(note.id))
+        .map(({ id, path, line, endLine, text }) => ({
+          id,
+          path,
+          line,
+          ...(endLine ? { endLine } : {}),
+          text,
+          replies: 0,
+        })),
+    ],
+  });
   // Notes that the reader started: each a new iteration of the latest comparison.
   const startedNotes: {
     number: number;
@@ -420,7 +438,7 @@ async function mountApp(
       if (url.pathname === "/api/reviews/saved/sessions/s1/turns" && options.sessionPages)
         return Response.json({ turns: options.sessionPages.turns });
       if (url.pathname === "/api/reviews/saved/agent/events" && inbox)
-        return new Response(`event: state\ndata: ${JSON.stringify(inbox)}\n\n`, {
+        return new Response(`event: state\ndata: ${JSON.stringify(inboxState())}\n\n`, {
           headers: { "content-type": "text/event-stream" },
         });
       if (url.pathname === "/api/reviews/saved/agent/messages" && inbox) {
@@ -437,12 +455,17 @@ async function mountApp(
             return Response.json({ error: { code: "busy", message: error } }, { status: 503 });
         }
         agentMessages.push(input);
+        const comments = inboxState()
+          .drafts.filter((draft) => input.noteIds.includes(draft.id))
+          .map(({ id: _id, replies: _replies, ...comment }) => comment);
+        for (const id of input.noteIds) sentNotes.add(id);
         const message: AgentInboxState["messages"][number] = {
           id: input.id ?? `m${agentMessages.length}`,
           sessionId: "s1",
           agent: "claude",
           text: input.text,
           noteIds: input.noteIds,
+          comments,
           attachmentCount: 0,
           createdAt: new Date().toISOString(),
           delivery: "delivered",
@@ -452,7 +475,7 @@ async function mountApp(
           waiting: [],
           drafts: inbox.drafts.filter((draft) => !input.noteIds.includes(draft.id)),
         };
-        return Response.json({ message, state: inbox });
+        return Response.json({ message, state: inboxState() });
       }
       if (url.pathname === "/api/reviews/saved/codex-reviews")
         return Response.json({ runs: options.codexReviews ?? [] });
@@ -3758,5 +3781,64 @@ describe("ask about these lines", () => {
       .element(pane.getByText("Codex answers from the excerpt, without the thread's context"))
       .toBeVisible();
     await expect.element(pane.getByText("It reads seconds.")).toBeVisible();
+  });
+
+  test("a kept answer reads as Markdown in its comment card, and Send to Claude sends the text as written", async () => {
+    const { questions, savedNotes, agentMessages } = await mountApp({
+      savedReview: true,
+      session,
+      inbox: { messages: [], waiting: ["s1"], drafts: [] },
+    });
+    await selectLines();
+    await userEvent.keyboard("a");
+    await page
+      .getByRole("textbox", { name: "Question about src/alpha.ts L1–2" })
+      .fill("Which name?");
+    await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
+    await expect.poll(() => questions.asks).toHaveLength(1);
+    const answer = "Keep `after`; it costs $3 and $4 less:\n\n```ts\nexport const after = 2;\n```";
+    questions.set({ status: "done", answer });
+    // The pane reads dollars as text, not as math. The first render can start
+    // the Markdown worker.
+    const pane = page.getByRole("region", { name: "Question" });
+    await expect
+      .poll(() => pane.element().querySelector(".med-md-block p code")?.textContent, {
+        timeout: 10_000,
+      })
+      .toBe("after");
+    expect(pane.element().querySelector(".med-md-block p")?.textContent).toBe(
+      "Keep after; it costs $3 and $4 less:",
+    );
+    await pane.getByRole("button", { name: "Keep as comment" }).click();
+    const text = `Question: Which name?\n\nClaude: ${answer}`;
+    expect(savedNotes).toMatchObject([{ text }]);
+
+    // The card shows inline code and a code block, not the Markdown that makes them.
+    const card = page.getByRole("article", { name: "Comment thread at lines R1 to R2" });
+    await expect
+      .poll(() => card.element().querySelector("pre code")?.textContent)
+      .toContain("export const after = 2;");
+    const inline = [...card.element().querySelectorAll("code")].filter(
+      (code) => !code.closest("pre"),
+    );
+    expect(inline.map((code) => code.textContent)).toEqual(["after"]);
+    expect(card.element().textContent).not.toContain("`");
+    // Edit shows the text as written.
+    await card.getByRole("button", { name: "Edit", exact: true }).click();
+    await expect.element(card.getByRole("textbox", { name: "Edit note text" })).toHaveValue(text);
+    await userEvent.keyboard("{Escape}");
+
+    // Send to Claude takes the comment as written.
+    await page.getByRole("button", { name: "Send comments to Claude" }).click();
+    const panel = page.getByRole("region", { name: "Agent session" });
+    await expect
+      .element(panel.getByRole("button", { name: "1 comment" }), { timeout: 5000 })
+      .toBeVisible();
+    await panel.getByRole("combobox", { name: "Message Claude" }).fill("See the comment.");
+    await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
+    await expect
+      .poll(() => agentMessages)
+      .toMatchObject([{ text: "See the comment.", noteIds: ["saved-note-0"] }]);
+    await expect.poll(() => panel.element().textContent).toContain(`Claude: ${answer}`);
   });
 });

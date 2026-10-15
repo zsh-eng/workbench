@@ -267,10 +267,15 @@ function render(host: ReturnType<typeof createHost>) {
   document.body.append(mount);
   root = createRoot(mount);
   const browse = createBrowseApi(host.fetcher, "fixture");
+  // The Session pane's streams read the fake host too. Without it they go to
+  // the test server: its live stream fails after 3 s, the session events
+  // answer 404, and the pane shows the session as missing.
   root.render(
     <WorkspaceHost fetch={host.fetcher}>
       <WorkspaceViews options={{ fetch: host.fetcher }}>
-        {(controller) => <App controller={controller} browseApi={browse} />}
+        {(controller) => (
+          <App controller={controller} browseApi={browse} sessionFetch={host.fetcher} />
+        )}
       </WorkspaceViews>
     </WorkspaceHost>,
   );

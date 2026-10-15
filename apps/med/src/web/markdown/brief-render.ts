@@ -160,7 +160,8 @@ async function send(tasks: Task[]) {
         }),
       ),
   );
-  // Replies show web links as pills with their site's icon.
+  // Replies show web links as pills with their site's icon. In replies,
+  // comments, and answers, $HOME and $3 are text: only $$ starts math.
   worker.postMessage({
     batch: sent.map(({ task, id, theme }) => {
       const known = workerThemes.has(task.theme);
@@ -171,6 +172,7 @@ async function send(tasks: Task[]) {
         ...(known ? { themeName: theme.name } : { theme }),
         briefLinks: true,
         webLinks: task.cache === "session",
+        plainDollars: task.cache === "session",
       };
     }),
   });
