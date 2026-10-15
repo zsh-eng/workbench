@@ -5673,17 +5673,19 @@ export function App({
                     : vimEnabled
                       ? "Read-only file · Vim"
                       : "Read-only file"
-              : state.comparison.kind === "patch"
-                ? "Patch review"
-                : state.comparison.kind === "files"
-                  ? "File comparison"
-                  : state.comparison.kind === "commit" || state.comparison.kind === "range"
-                    ? "Commit review"
-                    : state.connection === "connected"
-                      ? "Live review"
-                      : state.connection === "reconnecting"
-                        ? "Reconnecting…"
-                        : "Connecting…"}
+              : state.savedView
+                ? "Saved review"
+                : state.comparison.kind === "patch"
+                  ? "Patch review"
+                  : state.comparison.kind === "files"
+                    ? "File comparison"
+                    : state.comparison.kind === "commit" || state.comparison.kind === "range"
+                      ? "Commit review"
+                      : state.connection === "connected"
+                        ? "Live changes"
+                        : state.connection === "reconnecting"
+                          ? "Reconnecting…"
+                          : "Connecting…"}
           </span>
           {activeFile && (
             <span>
