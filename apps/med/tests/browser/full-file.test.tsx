@@ -1056,7 +1056,8 @@ test("a pending file keeps its requested name and footer position", async () => 
     ),
   );
   await expect.poll(() => lines()?.length ?? 0).toBeGreaterThan(0);
-  await expect.element(header).toBeVisible();
+  // Quiet chrome has no status bar; the path's tooltip gives the file's size.
+  await expect.element(page.getByTitle(/^src\/parser\.rs · [\d,]+ bytes$/)).toBeVisible();
   expect(Math.abs(footer.getBoundingClientRect().top - top)).toBeLessThan(1);
   flushSync(() =>
     root!.render(<FullFileView {...props} file={null} path="src/next.rs" loading vimEnabled />),

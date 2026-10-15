@@ -46,6 +46,8 @@ import { createChangeGutter } from "../data/change-gutter";
 import { createBlameGutter } from "../data/blame-gutter";
 import { createLineBlame } from "../data/line-blame";
 import { LineBlame, lineBlameCSS } from "./LineBlame";
+import { useQuietChrome } from "../data/chrome";
+import { fileTitle } from "./QuietChrome";
 
 export interface FileSymbolPreview {
   readonly origin?: { line: number; column: number };
@@ -145,6 +147,7 @@ function ReadOnlyFileView({
 }: FullFileViewProps) {
   const displayPath = path ?? file?.path;
   const { active } = useTheme();
+  const quiet = useQuietChrome();
   const sourceCursorAt = useRef(0);
   const cursorLine = useRef((_line: number) => {});
   const followCursor = useCallback(
@@ -466,7 +469,10 @@ function ReadOnlyFileView({
       {!compact && (
         <header data-lift-row="" {...stylex.props(styles.header)}>
           <Icon name="file" size={15} />
-          <span {...stylex.props(styles.path)} title={displayPath}>
+          <span
+            {...stylex.props(styles.path)}
+            title={displayPath && fileTitle(displayPath, file?.size, quiet)}
+          >
             {displayPath}
           </span>
           <span {...stylex.props(styles.badge)} title={sourceLabel}>
@@ -854,6 +860,7 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
   useSyncExternalStore(store.subscribe, store.getSnapshot);
   const draft = props.editor ? store.get(props.editor.key) : undefined;
   const [editError, setEditError] = useState("");
+  const quiet = useQuietChrome();
   const markdown =
     !props.compact &&
     props.file?.kind === "text" &&
@@ -997,7 +1004,10 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
           ) : (
             <Icon name="file" size={15} />
           )}
-          <span {...stylex.props(styles.path)} title={props.file.path}>
+          <span
+            {...stylex.props(styles.path)}
+            title={fileTitle(props.file.path, props.file.size, quiet)}
+          >
             {props.path ?? props.file.path}
           </span>
           {!draft?.editing && (

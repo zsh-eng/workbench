@@ -92,13 +92,22 @@ import {
 } from "./components/PullRequestComments";
 import type { CodexFinding, CodexReviewRun } from "../shared/codex-review";
 import { SavedReviewHeader, type SavedReviewActions } from "./components/SavedReviewHeader";
-import { ConnectionNotice, useQuietMenu } from "./components/QuietChrome";
+import {
+  comparisonLabel,
+  ConnectionNotice,
+  useQuietMenu,
+  useRowFit,
+} from "./components/QuietChrome";
 import { setChromeMode, useQuietChrome } from "./data/chrome";
 import { ShortcutGuide } from "./components/ShortcutGuide";
 import { ZenContext, ZenExit, ZenHint } from "./components/ZenExit";
 import { platform } from "./data/keys";
 import type { GuideContextId } from "./data/shortcut-guide";
-import { ComparisonActions, type ComparisonActionsHandle } from "./components/ComparisonActions";
+import {
+  ComparisonActions,
+  useGitTargets,
+  type ComparisonActionsHandle,
+} from "./components/ComparisonActions";
 import {
   createBlameLoader,
   createCommitLoader,
@@ -232,13 +241,6 @@ function shortRevision(revision: string) {
   return /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(revision) ? revision.slice(0, 7) : revision;
 }
 
-/** A range by its endpoints: branch names whole, object IDs short. */
-function rangeLabel(base: string, head: string) {
-  return [base, head]
-    .map((ref) => shortRevision(ref.replace(/^refs\/(heads|remotes)\//, "")))
-    .join(" → ");
-}
-
 function readPreference<T extends string>(key: string, fallback: T, values: readonly T[]): T {
   try {
     const value = localStorage.getItem(`med:${key}`);
@@ -359,6 +361,21 @@ export function App({
   const quiet = useQuietChrome();
   const comparisonActions = useRef<ComparisonActionsHandle>(null);
   const comparisonTrigger = useRef<HTMLButtonElement>(null);
+  // The comparison's place in the review's row; empty while it is in ⋯.
+  const comparisonSlot = useRef<HTMLSpanElement>(null);
+  // The base branch menu opens below the comparison, or below ⋯ while the
+  // comparison is in ⋯.
+  const compareAnchor = useCallback(
+    () =>
+      comparisonTrigger.current ??
+      comparisonSlot.current?.parentElement?.querySelector<HTMLElement>(
+        '[aria-label="More actions"]',
+      ) ??
+      null,
+    [],
+  );
+  // With quiet chrome, the Commit tab's Stage all goes in the review's row.
+  const [stageSlot, setStageSlot] = useState<HTMLElement | null>(null);
   const savedActions = useRef<SavedReviewActions>(null);
   // The base branch menu opens below the comparison once the select closes.
   const openCompare = useCallback(
@@ -2890,16 +2907,25 @@ export function App({
   const actionBranch = state.savedView
     ? (state.savedReview?.targets.find((target) => target.id === state.savedTargetId)?.branch ?? "")
     : (state.activeBranch ?? "");
+  // The checkout's branch head, as Med last read it.
+  const liveHead = branchHead ?? state.session?.repository.head ?? "";
   const actionHead =
     state.savedView || state.comparison.kind === "commit" || state.comparison.kind === "range"
       ? (state.review?.head ?? "")
-      : (state.branches.find((branch) => branch.name === state.activeBranch)?.head ??
-        state.session?.repository.head ??
-        "");
+      : liveHead;
   // The base branch menu and Push (ComparisonActions), with or without their buttons.
   const comparisonActionsShown =
     !!actionRepo && state.status === "ready" && state.session?.repository.git !== false;
   const pushable = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(actionHead);
+  const gitTargets = useGitTargets(comparisonActionsShown ? actionRepo : undefined, actionHead);
+  // Why Push… cannot open yet: its dialog needs a commit and the remotes.
+  const pushBlocked = !pushable
+    ? "No commit to push"
+    : gitTargets.error
+      ? `Cannot read the remotes. ${gitTargets.error}`
+      : !gitTargets.targets
+        ? "Reading the remotes…"
+        : undefined;
   const compareAgainst = () => {
     fileWorkspace.select("changes");
     // The menu opens below the comparison, once the Changes tab shows it.
@@ -3374,7 +3400,7 @@ export function App({
             id: "push",
             managesFocus: true,
             label: "Push to remote…",
-            disabled: !pushable,
+            disabled: !!pushBlocked,
             run: openPush,
           },
         ]
@@ -3462,6 +3488,17 @@ export function App({
   const guideContext: GuideContextId =
     activeFile && fileState.file?.kind === "text" ? (activeEditing ? "editor" : "file") : "review";
   const comparisonValue = state.comparison.kind;
+  // Quiet chrome names the range by the names that Med saved with it, or,
+  // live, by the branch at its head.
+  const comparisonText = comparisonLabel(
+    state.comparison,
+    state.savedView
+      ? state.savedReview?.targets.find((target) => target.id === state.savedTargetId)?.names
+      : undefined,
+    !state.savedView && state.activeBranch
+      ? { name: state.activeBranch, head: liveHead }
+      : undefined,
+  );
   const comparisonChoices = [
     ...(workingAvailable
       ? [
@@ -3495,7 +3532,7 @@ export function App({
                     ? "File comparison"
                     : // Quiet chrome names the range here, and only here.
                       quiet && state.comparison.kind === "range"
-                      ? rangeLabel(state.comparison.base, state.comparison.head)
+                      ? comparisonText.long
                       : "Revision range",
             description:
               state.comparison.kind === "commit"
@@ -4059,34 +4096,40 @@ export function App({
   // The diff's controls: in the toolbar above it, or in the review's one row
   // with quiet chrome, while the diff shows.
   const streamChrome = streamShown && !zen;
+  const selectComparison = (value: string) => {
+    if (["working", "staged", "unstaged"].includes(value))
+      void controller.selectComparison({
+        kind: value,
+      } as Comparison);
+  };
+  // After the choices: other ways to choose what the diff compares.
+  const compareActions = [
+    ...(comparisonActionsShown
+      ? [
+          {
+            label: "Compare against a branch…",
+            onSelect: openCompare,
+          },
+        ]
+      : []),
+    ...(gitAvailable
+      ? [{ label: "Compare two revisions…", onSelect: () => setRangeOpen(true) }]
+      : []),
+  ];
+  // In a narrow row the comparison takes its short label, then goes into ⋯.
+  const comparisonFit = useRowFit(comparisonSlot, quiet && streamChrome ? comparisonText : null);
   const comparisonSelect = (
     <ChoiceSelect
       label="Comparison"
       value={comparisonValue}
       choices={comparisonChoices}
-      onChange={(value) => {
-        if (["working", "staged", "unstaged"].includes(value))
-          void controller.selectComparison({
-            kind: value,
-          } as Comparison);
-      }}
+      onChange={selectComparison}
       {...(quiet && {
         // One control says what the diff compares, and changes it.
         triggerRef: comparisonTrigger,
         trigger: styles.rowComparisonTrigger,
-        actions: [
-          ...(comparisonActionsShown
-            ? [
-                {
-                  label: "Compare against a branch…",
-                  onSelect: openCompare,
-                },
-              ]
-            : []),
-          ...(gitAvailable
-            ? [{ label: "Compare two revisions…", onSelect: () => setRangeOpen(true) }]
-            : []),
-        ],
+        actions: compareActions,
+        display: comparisonFit === "short" ? comparisonText.short : undefined,
       })}
     />
   );
@@ -4095,7 +4138,9 @@ export function App({
       key={`${actionRepo}:${actionHead}:${actionBranch}`}
       ref={comparisonActions}
       triggers={!quiet}
-      anchor={comparisonTrigger}
+      anchor={compareAnchor}
+      targets={gitTargets.targets}
+      targetsError={gitTargets.error}
       repo={actionRepo}
       head={actionHead}
       sourceBranch={actionBranch}
@@ -4201,8 +4246,18 @@ export function App({
           rail: changesRail ? { on: railShown, toggle: toggleRail } : undefined,
           collapse:
             files.length > 1 ? { collapsed: allCollapsed, toggle: toggleAllFiles } : undefined,
-          push: comparisonActionsShown ? { disabled: !pushable, open: openPush } : undefined,
+          push: comparisonActionsShown ? { blocked: pushBlocked, open: openPush } : undefined,
           refresh: { disabled: state.status === "loading", run: () => void controller.refresh() },
+          comparison:
+            quiet && comparisonFit === "menu"
+              ? {
+                  label: comparisonText.long,
+                  value: comparisonValue,
+                  choices: comparisonChoices,
+                  select: selectComparison,
+                  actions: compareActions,
+                }
+              : undefined,
         }
       : undefined,
     workingFile:
@@ -4262,7 +4317,18 @@ export function App({
   // controls that stay in view, then the ⋯ menu (in a saved review's header).
   const quietTrailing = quiet && (
     <>
-      {streamChrome && <span {...stylex.props(styles.rowComparison)}>{comparisonSelect}</span>}
+      {streamChrome && (
+        <span
+          ref={comparisonSlot}
+          {...stylex.props(styles.rowComparison, comparisonFit === "menu" && styles.hiddenSurface)}
+        >
+          {comparisonFit !== "menu" && comparisonSelect}
+        </span>
+      )}
+      {/* The Commit tab's Stage all; its header would repeat the band's branch. */}
+      {fileState.active === "commit" && commitApi && (
+        <span ref={setStageSlot} {...stylex.props(styles.rowStage)} />
+      )}
       {streamChrome && roomy && totals}
       {comparisonActionsElement}
       {streamChrome && notes.length > 0 && notesToggle}
@@ -5007,6 +5073,7 @@ export function App({
                     active={fileState.active === "commit"}
                     draftKey={`med:commit-message:${commitRepo}`}
                     onOpenFile={openCommitFile}
+                    stageIn={quiet && !zen ? stageSlot : undefined}
                   />
                 </Suspense>
               </div>
@@ -5592,8 +5659,10 @@ const styles = stylex.create({
   },
   // Quiet chrome has no toolbar: the bar runs on the rule below the review's row.
   rowLoading: { top: 36, bottom: "auto", zIndex: 2 },
-  // The comparison gives way first in a narrow row, and keeps a few letters.
-  rowComparison: { display: "flex", flexGrow: 0, flexShrink: 1000, minWidth: 64 },
+  // The comparison gives way first in a narrow row: useRowFit chooses a label
+  // that fits, or ⋯.
+  rowComparison: { display: "flex", flexGrow: 0, flexShrink: 1000, minWidth: 0 },
+  rowStage: { display: "flex", flexShrink: 0 },
   // Quiet as a tab is: the row's text, not the toolbar's strong label.
   rowComparisonTrigger: {
     width: "100%",
