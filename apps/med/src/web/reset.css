@@ -65,3 +65,10 @@ html[data-pane-moving],
 html[data-pane-moving] * {
   cursor: grabbing !important;
 }
+/* A column's handle moves its edge (ColumnResize.tsx). */
+html[data-column-resizing],
+html[data-column-resizing] * {
+  cursor: col-resize !important;
+  user-select: none;
+  -webkit-user-select: none;
+}

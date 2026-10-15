@@ -96,6 +96,7 @@ import { createFoundSessions } from "./found-sessions";
 import { Questions } from "./questions";
 import { createSessionSearch, sessionEntry, type SessionInfo } from "./session-search";
 import { createCheckoutWork } from "./checkout-work";
+import { createPullRequestLinks } from "./pull-request-links";
 import { createThreadFeed } from "./thread-feed";
 import { createCheckoutChanges } from "./checkout-changes";
 import { createSessionEdits } from "./session-edits";
@@ -120,6 +121,7 @@ import {
   agentMessageInputSchema,
   deliveredText,
   type AgentInboxState,
+  type SessionPlace,
 } from "../shared/agent-inbox";
 import type { SessionEvent } from "../shared/agent-session";
 import {
@@ -340,8 +342,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   /**
    * The review's Claude sessions that Med does not run now, or restored
    * without a process: those that another process runs, such as Claude Code
-   * in a terminal, and those that a message resumes in Med. A session that
-   * takes messages with `med review wait` is in neither.
+   * in a terminal, with where each is open, and those that a message resumes
+   * in Med. A session that takes messages with `med review wait` is in
+   * neither.
    */
   const claudeSessions = async (
     reviewId: string,
@@ -355,9 +358,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ? [session.id]
         : [];
     });
-    const running = ids.length ? await ownedSessions.elsewhere(ids, maxAgeMs) : new Set<string>();
+    const running = ids.length
+      ? await ownedSessions.elsewhere(ids, maxAgeMs)
+      : new Map<string, SessionPlace>();
     return {
-      elsewhere: ids.filter((id) => running.has(id) && !inbox.usesWait(reviewId, id)),
+      elsewhere: Object.fromEntries([...running].filter(([id]) => !inbox.usesWait(reviewId, id))),
       resumable: ids.filter((id) => !running.has(id)),
     };
   };
@@ -499,6 +504,20 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     state: checkoutState,
     onChange: () => listChanged(),
   });
+  // The open pull request of a tab's branch, for a thread that has none yet.
+  const pullRequestLinks = createPullRequestLinks({
+    gh: options.gh ?? { command: "gh", args: [] },
+    refs: (checkout) => checkoutState(checkout, false),
+    async link(reviewId, pull) {
+      // The agent or the reader can link one first.
+      if ((await savedReviews.get(reviewId)).pullRequestUrl) return;
+      await savedReviews.details(reviewId, {
+        pullRequestUrl: pull.url,
+        pullRequestTitle: pull.title,
+      });
+      listChanged();
+    },
+  });
   // The tabs and history; the thread list polls only the tabs.
   const threads = createThreadService({
     savedReviews,
@@ -508,6 +527,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     lastMessage: (reviewId) => inbox.last(reviewId),
     found,
     checkoutWork,
+    pullRequestLinks,
     checkoutChanges,
     subagents: createThreadSubagents(),
     removeWorktree: (path, signal) => removeLinkedWorktree(path, signal),
@@ -2953,6 +2973,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       closeTranscripts();
       found.close();
       checkoutWork.close();
+      pullRequestLinks.close();
       threadFeed.close();
       checkoutChanges.close();
       threads.stop();

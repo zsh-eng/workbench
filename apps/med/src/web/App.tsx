@@ -106,8 +106,10 @@ import {
   type FindingPlacement,
   useCodexReviews,
   usePullRequestComments,
-  type ThreadPlacement,
 } from "./components/PullRequestComments";
+import { placeThreads } from "./data/pull-request";
+import { createPathValue, hoveredPath, usePathValue, type PathValue } from "./data/hovered-path";
+import { PathLabel } from "./components/PathLabel";
 import type { CodexFinding, CodexReviewRun } from "../shared/codex-review";
 import { SavedReviewHeader, type SavedReviewActions } from "./components/SavedReviewHeader";
 import {
@@ -159,7 +161,7 @@ import type { PathActions } from "./components/PathMenu";
 import { diffSurfaceStyle, EXPANSION_LINES } from "./components/diff-surface";
 import { highlightRules } from "./code-colors";
 import { createDiffFindHighlights } from "./data/diff-find-highlights";
-import { useAgentInbox } from "./data/agent-inbox";
+import { openIn, useAgentInbox } from "./data/agent-inbox";
 import type { ComposerAttachment } from "./components/session/SessionComposer";
 import type { SessionPins, SessionStarter } from "./components/session/SessionPanel";
 import { useAgentPresets } from "./data/owned-session";
@@ -264,6 +266,22 @@ const commandRank = (id: string) => {
 /** Abbreviate object IDs; keep symbolic endpoints such as "worktree" whole. */
 function shortRevision(revision: string) {
   return /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(revision) ? revision.slice(0, 7) : revision;
+}
+
+/**
+ * The status bar's path: the file row under the pointer, else the file that
+ * shows, or on the Commit tab the file that its list is on. It renders alone,
+ * so a pointer over the lists does not render the review again.
+ */
+function StatusPath({ shown, commit }: { shown: string | undefined; commit: PathValue | null }) {
+  const hovered = usePathValue(hoveredPath);
+  const focused = usePathValue(commit ?? hoveredPath);
+  const path = hovered ?? (commit ? focused : shown);
+  return (
+    <span {...stylex.props(styles.selectedPath)}>
+      {path && <PathLabel path={path} quiet={false} />}
+    </span>
+  );
 }
 
 function readPreference<T extends string>(key: string, fallback: T, values: readonly T[]): T {
@@ -843,6 +861,8 @@ export function App({
   // unified until it has room again.
   const [mainElement, setMainElement] = useState<HTMLElement | null>(null);
   const [roomy, setRoomy] = useState(true);
+  // The Commit tab's file, for the status bar.
+  const [commitPath] = useState(createPathValue);
   const [compactSelection, setCompactSelection] = useState(false);
   useLayoutEffect(() => {
     if (!mainElement) return;
@@ -1091,45 +1111,18 @@ export function App({
       : null,
   );
   // GitHub thread lines refer to the pull request's head commit. Threads show
-  // in the diff only when it compares that commit and shows the line.
-  const pullRequestThreads = useMemo(() => {
-    const byPath = new Map<string, PullRequestThread[]>();
-    const data = pullRequest.data;
-    const ids = new Set<number>();
-    const inline: ThreadPlacement = { kind: "inline", ids };
-    if (!data) return { byPath, placement: inline };
-    const head = `Lines refer to the pull request head, ${data.head.slice(0, 7)}.`;
-    if (!state.savedView || !savedTarget)
-      return {
-        byPath,
-        placement: {
-          kind: "elsewhere",
-          reason: `${head} Return to the saved review to see them in the diff.`,
-        } as ThreadPlacement,
-      };
-    if (savedTarget.captured || savedTarget.head !== data.head)
-      return {
-        byPath,
-        placement: {
-          kind: "elsewhere",
-          reason: `${head} This comparison shows ${savedTarget.captured ? "captured working changes" : savedTarget.head.slice(0, 7)}, so they are listed here.`,
-        } as ThreadPlacement,
-      };
-    for (const thread of data.threads) {
-      const line = thread.line;
-      const metadata = files.find((file) => file.path === thread.path)?.metadata;
-      if (line === null || !metadata) continue;
-      const shown = metadata.hunks.some((hunk) => {
-        const start = thread.side === "old" ? hunk.deletionStart : hunk.additionStart;
-        const count = thread.side === "old" ? hunk.deletionCount : hunk.additionCount;
-        return line >= start && line < start + count;
-      });
-      if (!shown) continue;
-      ids.add(thread.id);
-      byPath.set(thread.path, [...(byPath.get(thread.path) ?? []), thread]);
-    }
-    return { byPath, placement: inline };
-  }, [pullRequest.data, state.savedView, savedTarget, files]);
+  // in the diff only when it shows that commit and the line (data/pull-request.ts).
+  const pullRequestThreads = useMemo(
+    () =>
+      placeThreads(
+        pullRequest.data,
+        files,
+        state.savedView
+          ? { kind: "review", target: savedTarget }
+          : { kind: "changes", review: state.review },
+      ),
+    [pullRequest.data, state.savedView, savedTarget, state.review, files],
+  );
   const codexReviews = useCodexReviews(
     useCallback(() => controller.loadCodexReviews(), [controller]),
     state.savedReview?.id ?? null,
@@ -1963,7 +1956,7 @@ export function App({
     pendingDraft?.error,
     [...collapsed],
     pullRequest.threadsRevision,
-    pullRequestThreads.placement.kind === "inline" ? [...pullRequestThreads.placement.ids] : [],
+    [...pullRequestThreads.placement.inline],
     codexReviews.revision,
     [...codexFindings.placement.inline],
     savedGuide?.updatedAt ?? null,
@@ -3329,6 +3322,13 @@ export function App({
   // A shared checkout holds other sessions' work too. Its Changes can keep
   // only the files that the thread's lead session edited.
   const thread = useThread(state.savedReview?.id);
+  // The host links a pull request that the thread's branch opened later
+  // (src/host/pull-request-links.ts); the thread list names it first.
+  const linkedPullRequest = thread?.pullRequestUrl;
+  useEffect(() => {
+    if (linkedPullRequest && linkedPullRequest !== state.savedReview?.pullRequestUrl)
+      void controller.refreshSavedReview().catch(() => {});
+  }, [linkedPullRequest, state.savedReview?.pullRequestUrl, controller]);
 
   // The turn recap (data/turn-recap.ts): a turn that ended while the reader
   // did not see its session ends the session thread with its facts, Review,
@@ -3773,8 +3773,9 @@ export function App({
                     label: `New ${agent.name} session`,
                     run: () => void sessionStarter.start(agent.id).catch(() => {}),
                   })),
-                // The lead session is open in a terminal, where Med cannot type.
-                ...(leadSession && agentInbox.state?.elsewhere.includes(leadSession.id)
+                // The lead session is open in a terminal or another app, where
+                // Med cannot type.
+                ...(leadSession && openIn(agentInbox.state, leadSession.id)
                   ? [
                       {
                         id: "continue-in-med",
@@ -4794,6 +4795,7 @@ export function App({
         controller={controller}
         state={state}
         compact={compact}
+        quiet={quiet}
         more={compact ? (quiet ? quietSections : [moreActions]) : undefined}
         notesPickIteration={hasNotes}
         pullRequest={pullRequest}
@@ -5208,7 +5210,6 @@ export function App({
                 )}
                 {railShown && (
                   <ChangesRail
-                    narrow={!roomy}
                     repo={state.session?.repository.path ?? null}
                     pathActions={pathActions}
                     files={files}
@@ -5643,6 +5644,7 @@ export function App({
                     draftKey={`med:commit-message:${commitRepo}`}
                     onOpenFile={openCommitFile}
                     stageIn={quiet && !zen && (!stageSlot || stageFits) ? stageSlot : undefined}
+                    focusPath={commitPath}
                   />
                 </Suspense>
               </div>
@@ -5928,9 +5930,10 @@ export function App({
             </span>
           )}
           <span {...stylex.props(ui.grow)} />
-          <span {...stylex.props(styles.selectedPath)}>
-            {activeFile?.path ?? selectedFile?.path}
-          </span>
+          <StatusPath
+            shown={activeFile?.path ?? selectedFile?.path}
+            commit={fileState.active === "commit" && !activeFile ? commitPath : null}
+          />
           {!activeFile && state.metrics && (
             <span
               title="Request includes transfer; parse runs in a worker; frame measures React update to a frame after Pierre rendered."
@@ -6630,13 +6633,13 @@ const styles = stylex.create({
   },
   statusWaiting: { backgroundColor: tokens.warning, animationName: "none" },
   statusIdle: { backgroundColor: tokens.faint, animationName: "none" },
+  // The whole path while it fits; its folders give way first.
   selectedPath: {
-    maxWidth: 280,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
+    display: "flex",
+    flexShrink: 1,
+    minWidth: 0,
+    maxWidth: "60%",
     color: tokens.faint,
-    display: { default: "inline", "@media (max-width: 1000px)": "none" },
   },
   performance: {
     color: tokens.faint,

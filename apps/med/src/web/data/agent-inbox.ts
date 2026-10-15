@@ -6,6 +6,7 @@ import {
   type AgentInboxState,
   type AgentMessage,
   type AgentMessageInput,
+  type SessionPlace,
 } from "../../shared/agent-inbox";
 import type { ContentBlock } from "../../shared/agent-session";
 import type { SessionItem } from "./session-store";
@@ -110,11 +111,31 @@ const textOf = (item: SessionItem) =>
  */
 export type SentMessage = Omit<AgentMessage, "delivery"> & {
   delivery: AgentMessage["delivery"] | "sending";
-  /** A pending message waits for the terminal session that runs its agent
-   * to end, because Med cannot type there. */
-  waitsFor?: "terminal";
+  /** A pending message waits for the session that another app has open,
+   * such as a terminal, to end, because Med cannot type there. */
+  waitsFor?: SessionPlace;
   retry?(): void;
   discard?(): void;
+};
+
+/** Where another process has this session open, if one does. */
+export const openIn = (state: AgentInboxState | null | undefined, sessionId: string) =>
+  state && Object.hasOwn(state.elsewhere, sessionId) ? state.elsewhere[sessionId] : undefined;
+
+/** How Med names where another process has a session open. */
+export const SESSION_PLACES: Record<SessionPlace, { open: string; waiting: string }> = {
+  terminal: {
+    open: "in a terminal",
+    waiting: "Waiting for the terminal session to close",
+  },
+  "claude-app": {
+    open: "in the Claude app",
+    waiting: "Waiting for the session in the Claude app to close",
+  },
+  "other-app": {
+    open: "in another app",
+    waiting: "Waiting for the session to close there",
+  },
 };
 
 /** What the agent reads of a message: its text, or else its first comment. */

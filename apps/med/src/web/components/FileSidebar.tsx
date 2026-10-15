@@ -3,6 +3,7 @@ import { StableFileTree, useStableFileTree } from "./StableFileTree";
 import type { GitStatusEntry } from "@pierre/trees";
 import { memo, useEffect, useLayoutEffect, useRef, type CSSProperties } from "react";
 import type { ParsedReviewFile } from "../data/controller";
+import { hoveredPath } from "../data/hovered-path";
 import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
 import { paneHandle } from "./PaneTree";
@@ -17,6 +18,18 @@ const selectedGitColors = ["added", "deleted", "modified", "renamed", "untracked
       `[data-item-selected="true"][data-item-git-status="${status}"] { --trees-item-git-status-color: var(--med-selected-git, var(--trees-git-${status}-color)); }`,
   )
   .join("\n");
+
+// A row of folders, as "src / components / forms", gives way from its first
+// folder, one folder at a time, so the folder nearest its files stays whole.
+// Each folder keeps a letter and its "…"; 2ch leaves no gap after "src".
+const folderRows = `
+[data-item-flattened-subitems] { display: flex; min-width: 0; white-space: pre; }
+[data-item-flattened-subitem] { flex: 0 1 auto; min-width: 2ch; white-space: normal; }
+[data-item-flattened-subitem]:nth-child(1) { flex-shrink: 1e10; }
+[data-item-flattened-subitem]:nth-child(2) { flex-shrink: 1e8; }
+[data-item-flattened-subitem]:nth-child(3) { flex-shrink: 1e6; }
+[data-item-flattened-subitem]:nth-child(n + 4) { flex-shrink: 1e4; }
+[data-item-flattened-subitem]:last-child { flex-shrink: 1; }`;
 
 /** Memoized: the review renders again for unrelated state, such as a palette. */
 export const FileSidebar = memo(function FileSidebar({
@@ -62,7 +75,7 @@ export const FileSidebar = memo(function FileSidebar({
     flattenEmptyDirectories: true,
     density: "compact",
     icons: treeIcons,
-    unsafeCSS: selectedGitColors,
+    unsafeCSS: `${selectedGitColors}\n${folderRows}`,
     onSelectionChange: (paths) => {
       if (syncing.current || pointer.current) return;
       const file = latest.current.files.find((entry) => entry.path === paths.at(-1));
@@ -169,6 +182,8 @@ export const FileSidebar = memo(function FileSidebar({
           onKeyDownCapture={() => {
             pointer.current = false;
           }}
+          // A cut name shows its path in the app's tooltip (AppTooltip).
+          data-tooltip-tree=""
           onPointerOver={(event) => {
             const row = event.nativeEvent
               .composedPath()
@@ -176,7 +191,9 @@ export const FileSidebar = memo(function FileSidebar({
               | HTMLElement
               | undefined;
             if (row?.dataset.itemPath) onPrefetch?.(row.dataset.itemPath);
+            hoveredPath.set(row?.dataset.itemPath ?? null);
           }}
+          onPointerLeave={() => hoveredPath.set(null)}
           onDoubleClick={(event) => {
             const row = event.nativeEvent
               .composedPath()

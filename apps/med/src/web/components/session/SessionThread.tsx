@@ -15,7 +15,7 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import type { SentComment } from "../../../shared/agent-inbox";
-import type { SentMessage } from "../../data/agent-inbox";
+import { SESSION_PLACES, type SentMessage } from "../../data/agent-inbox";
 import type { PlanEntry } from "../../../shared/agent-session";
 import type { SessionItem, SessionSnapshot } from "../../data/session-store";
 import { renderBrief } from "../../markdown/brief-render";
@@ -387,9 +387,9 @@ const AGENT_NAMES = { claude: "Claude", codex: "Codex", acp: "the agent" } as co
 
 /**
  * Where a message sent from Med is, while that matters: on its way, waiting
- * for the agent or for the terminal session that runs it to close, queued, or
- * not sent. A message that the agent took says nothing more; the thread goes
- * on below it.
+ * for the agent, or for the session that a terminal or another app has open
+ * to close, queued, or not sent. A message that the agent took says nothing
+ * more; the thread goes on below it.
  */
 function Delivery({ message }: { message: SentMessage }) {
   const agent = AGENT_NAMES[message.agent];
@@ -400,8 +400,8 @@ function Delivery({ message }: { message: SentMessage }) {
       ? ["Sending…"]
       : message.delivery === "pending"
         ? [
-            message.waitsFor === "terminal"
-              ? "Waiting for the terminal session to close"
+            message.waitsFor
+              ? SESSION_PLACES[message.waitsFor].waiting
               : `Waiting for ${agent} to take it`,
           ]
         : message.delivery === "queued"
@@ -2070,13 +2070,17 @@ const styles = stylex.create({
     whiteSpace: "nowrap",
   },
   queued: { color: tokens.faint, fontSize: 11 },
+  // The dot sits on the label's first line, also when the label wraps: a
+  // fixed line height (the 14 px of `normal` at 11 px), and a top margin of
+  // (14 − 6) / 2 on the 6 px dot.
   delivery: {
     display: "flex",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 6,
     maxWidth: "86%",
     color: tokens.faint,
     fontSize: 11,
+    lineHeight: "14px",
     textAlign: "right",
   },
   deliveryFailed: { color: tokens.red },
@@ -2084,6 +2088,7 @@ const styles = stylex.create({
     width: 6,
     height: 6,
     flexShrink: 0,
+    marginTop: 4,
     borderRadius: "50%",
     backgroundColor: tokens.accent,
   },

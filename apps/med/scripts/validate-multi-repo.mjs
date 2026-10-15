@@ -7,8 +7,11 @@ import { setTimeout as delay } from "node:timers/promises";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright";
 import { removeGitEnvironment } from "./git-environment.mjs";
+import { useFakeGh } from "./fake-gh.mjs";
 
 removeGitEnvironment();
+// Med must never reach GitHub here: gh is a stand-in (scripts/fake-gh.mjs).
+const fakeGh = useFakeGh();
 
 // Exercise the built CLI, host and browser together against isolated Git repositories.
 // MED_EXECUTABLE runs a standalone executable instead of dist/cli.js.
@@ -252,6 +255,8 @@ try {
   await review("frontend").waitFor();
   assert.ok(!other.url().includes("/review/"));
   await other.close();
+  // No gh call went past the stand-in.
+  fakeGh.check();
   console.log(
     JSON.stringify({
       checks:

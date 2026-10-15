@@ -20,6 +20,7 @@ import type { SavedReviewStore } from "./saved-reviews";
 import { CAPTURES_KEPT_MS, STUBS_KEPT_MS, type TabStub, type ThreadTabs } from "./thread-tabs";
 import type { createThreadSubagents } from "./thread-subagents";
 import type { createCheckoutWork } from "./checkout-work";
+import type { createPullRequestLinks } from "./pull-request-links";
 import type { createCheckoutChanges } from "./checkout-changes";
 
 // The threads of the host: the tabs, which the thread list polls, and history,
@@ -52,6 +53,8 @@ export interface ThreadServiceOptions {
     settings(): { shown: boolean };
   };
   checkoutWork: ReturnType<typeof createCheckoutWork>;
+  /** Finds the pull request that a tab's branch opened later. */
+  pullRequestLinks?: Pick<ReturnType<typeof createPullRequestLinks>, "check">;
   /** The counts of a checkout's live Changes, for a tab without a Review. */
   checkoutChanges?: Pick<ReturnType<typeof createCheckoutChanges>, "get">;
   subagents: ReturnType<typeof createThreadSubagents>;
@@ -210,14 +213,21 @@ export function createThreadService(options: ThreadServiceOptions) {
     const target = primary(review);
     const family = familyOf(repositories, target?.repo, target?.repositoryId);
     const tree = family?.worktrees.find((entry) => entry.path === target?.repo);
+    const branch = tree ? tree.branch : target?.branch;
     const live =
       target && !handoffTargets(review).length
-        ? options.checkoutChanges?.get(
-            target.repo,
-            changesBase(family, tree ? tree.branch : target.branch),
-            status?.updatedAt,
-          )
+        ? options.checkoutChanges?.get(target.repo, changesBase(family, branch), status?.updatedAt)
         : undefined;
+    // A branch other than the base can have a pull request that opened after
+    // the thread did.
+    if (
+      target &&
+      branch &&
+      branch !== "Detached HEAD" &&
+      !review.pullRequestUrl &&
+      changesBase(family, branch)
+    )
+      options.pullRequestLinks?.check(review.id, target.repo, branch);
     return {
       ...base,
       updatedAt: Math.max(review.modifiedAt, status?.updatedAt ?? 0),

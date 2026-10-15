@@ -628,10 +628,13 @@ test("a thread in view loads out of sight, and its first visit shows that slot",
   render(host);
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
   host.setThreads([thread("agent", { agent: "claude", state: "idle", updatedAt: Date.now() })]);
-  // Before any click, the thread loads in a slot of its own, out of sight.
+  // Before any click, the thread loads in a slot of its own, out of sight,
+  // once the reader has not acted for a second.
   const slot = () => document.querySelector<HTMLElement>('[data-workspace-slot="review-agent"]');
   await expect
-    .poll(() => slot()?.querySelector<HTMLElement>("[data-review-status]")?.dataset.reviewStatus)
+    .poll(() => slot()?.querySelector<HTMLElement>("[data-review-status]")?.dataset.reviewStatus, {
+      timeout: 5000,
+    })
     .toBe("ready");
   const ahead = slot()!;
   expect(
@@ -663,6 +666,7 @@ test("every tab loads out of sight and stays, as open terminal tabs do; history 
     await expect
       .poll(
         () => slot(id)?.querySelector<HTMLElement>("[data-review-status]")?.dataset.reviewStatus,
+        { timeout: 5000 },
       )
       .toBe("ready");
   expect(slot("older")).toBeNull();
@@ -686,7 +690,9 @@ test("a thread with its session on screen shows its session first, and its diff 
   const status = () =>
     slot()?.querySelector<HTMLElement>("[data-review-status]")?.dataset.reviewStatus;
   await expect
-    .poll(() => host.requested.includes("/api/reviews/talk/targets/talk-target/review"))
+    .poll(() => host.requested.includes("/api/reviews/talk/targets/talk-target/review"), {
+      timeout: 5000,
+    })
     .toBe(true);
   await new Promise((resolve) => setTimeout(resolve, 150));
   expect(status()).toBe("loading");

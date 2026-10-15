@@ -1235,7 +1235,8 @@ export class OwnedSessions {
   }
   /**
    * The Claude Code sessions of `ids` that another process runs, such as
-   * `claude` in a terminal. `maxAgeMs` accepts an answer of that age.
+   * `claude` in a terminal, with where each is open. `maxAgeMs` accepts an
+   * answer of that age.
    */
   elsewhere(ids: readonly string[], maxAgeMs = 0) {
     return this.processes.elsewhere(ids, maxAgeMs);

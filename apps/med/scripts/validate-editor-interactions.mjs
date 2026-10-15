@@ -6,8 +6,11 @@ import { tmpdir } from "node:os";
 import { once } from "node:events";
 import { chromium } from "playwright";
 import { removeGitEnvironment } from "./git-environment.mjs";
+import { useFakeGh } from "./fake-gh.mjs";
 
 removeGitEnvironment();
+// Med must never reach GitHub here: gh is a stand-in (scripts/fake-gh.mjs).
+const fakeGh = useFakeGh();
 const root = await realpath(await mkdtemp(join(tmpdir(), "med-editor-interactions-")));
 const repo = join(root, "repo");
 let host, browser;
@@ -297,6 +300,8 @@ try {
   }
   await page.keyboard.press("Escape");
   assert.deepEqual(errors, []);
+  // No gh call went past the stand-in.
+  fakeGh.check();
   console.log(
     JSON.stringify({
       passed: true,

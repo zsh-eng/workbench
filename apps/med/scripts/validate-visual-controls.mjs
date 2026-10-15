@@ -4,8 +4,11 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { execFileSync, spawn } from "node:child_process";
 import { chromium } from "playwright";
 import { removeGitEnvironment } from "./git-environment.mjs";
+import { useFakeGh } from "./fake-gh.mjs";
 
 removeGitEnvironment();
+// Med must never reach GitHub here: gh is a stand-in (scripts/fake-gh.mjs).
+const fakeGh = useFakeGh();
 const phase = process.env.MED_VISUAL_BASELINE ? "before" : "after";
 const out = process.env.MED_VISUAL_OUTPUT || "/private/tmp/med-visual-refresh";
 await mkdir(out, { recursive: true });
@@ -219,6 +222,8 @@ try {
     );
     assert.deepEqual(errors, []);
   }
+  // No gh call went past the stand-in.
+  fakeGh.check();
   console.log(out + " " + phase + " screenshots captured");
 } finally {
   await browser?.close();

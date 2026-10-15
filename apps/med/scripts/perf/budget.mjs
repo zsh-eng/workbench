@@ -727,15 +727,83 @@ async function memory(session, slots) {
   await session.rec.cdp.send("HeapProfiler.collectGarbage");
   const metrics = await session.rec.metrics();
   const workers = await session.page.evaluate(() => window.__perf.workers);
+  const workerHeaps = await workerHeapsMB(session.rec.cdp);
   return {
     heapMB: round(metrics.JSHeapUsedSize / 2 ** 20),
     nodes: metrics.Nodes,
     listeners: metrics.JSEventListeners,
     workers: workers.made - workers.ended,
     workersMade: workers.made,
+    workerHeapMB: round(workerHeaps.reduce((sum, heap) => sum + heap, 0)),
+    rendererMB: await rendererMB(),
     slots: slots.slots,
     heapPerSlotMB: round(metrics.JSHeapUsedSize / 2 ** 20 / Math.max(1, slots.slots)),
   };
+}
+
+/** The used JS heap of each worker of the page, after a GC in it, in MB. */
+async function workerHeapsMB(cdp) {
+  const sessions = [];
+  const attached = (event) => {
+    if (event.targetInfo.type === "worker") sessions.push(event.sessionId);
+  };
+  cdp.on("Target.attachedToTarget", attached);
+  // Not flat: this CDP session talks to each worker through its page.
+  await cdp.send("Target.setAutoAttach", {
+    autoAttach: true,
+    waitForDebuggerOnStart: false,
+    flatten: false,
+  });
+  await wait(300);
+  cdp.off("Target.attachedToTarget", attached);
+  let next = 0;
+  const answers = new Map();
+  const received = (event) => {
+    const message = JSON.parse(event.message);
+    answers.get(message.id)?.(message.result);
+  };
+  cdp.on("Target.receivedMessageFromTarget", received);
+  const ask = (sessionId, method) =>
+    new Promise((resolve) => {
+      const id = ++next;
+      answers.set(id, resolve);
+      setTimeout(() => resolve(undefined), 2000);
+      cdp
+        .send("Target.sendMessageToTarget", { sessionId, message: JSON.stringify({ id, method }) })
+        .catch(() => resolve(undefined));
+    });
+  const heaps = [];
+  for (const sessionId of sessions) {
+    await ask(sessionId, "HeapProfiler.collectGarbage");
+    const usage = await ask(sessionId, "Runtime.getHeapUsage");
+    if (usage) heaps.push(usage.usedSize / 2 ** 20);
+  }
+  cdp.off("Target.receivedMessageFromTarget", received);
+  for (const sessionId of sessions)
+    await cdp.send("Target.detachFromTarget", { sessionId }).catch(() => {});
+  await cdp.send("Target.setAutoAttach", { autoAttach: false, waitForDebuggerOnStart: false });
+  return heaps;
+}
+
+/** The resident memory of the browser's renderer processes, in MB: the page
+ * with its workers, which run as threads in it. */
+async function rendererMB() {
+  const cdp = await browser.newBrowserCDPSession();
+  try {
+    const { processInfo } = await cdp.send("SystemInfo.getProcessInfo");
+    let kb = 0;
+    for (const { type, id } of processInfo) {
+      if (type !== "renderer") continue;
+      try {
+        kb += Number(execFileSync("ps", ["-o", "rss=", "-p", String(id)], { encoding: "utf8" }));
+      } catch {
+        // The process ended.
+      }
+    }
+    return Math.round(kb / 1024);
+  } finally {
+    await cdp.detach().catch(() => {});
+  }
 }
 
 /** One full set of actions; the React pass runs fewer. */
@@ -779,11 +847,16 @@ async function pass({ react }) {
     log(`[${tag}] cold ⌘ after idle ×${runs} (the warm pool held at its first thread)`);
     for (let i = 0; i < runs; i++) {
       const session = await newPage({ react });
-      // The warm pool loads the threads in the list's order; hold the first.
+      // The warm pool loads the threads nearest in the list to the one on
+      // screen first, the one below before the one above; hold the first.
       const order = (await host.threads()).threads
         .filter((thread) => !thread.found)
         .map((thread) => thread.id);
-      const first = order.find((id) => id !== ids.open && id !== ids.cold && id !== ids.atlas);
+      const at = order.indexOf(ids.open);
+      const far = (id) => Math.abs(order.indexOf(id) - at) * 2 + (order.indexOf(id) < at ? 1 : 0);
+      const first = order
+        .filter((id) => id !== ids.open && id !== ids.cold && id !== ids.atlas)
+        .toSorted((a, b) => far(a) - far(b))[0];
       const held = await hold(session.context, first);
       await session.page.goto(`${host.origin}/review/${ids.open}`);
       await session.page.waitForFunction(() => window.__perf.marks.SHOWN !== undefined, null, {

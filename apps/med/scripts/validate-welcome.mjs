@@ -21,8 +21,11 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright";
 import { removeGitEnvironment } from "./git-environment.mjs";
+import { useFakeGh } from "./fake-gh.mjs";
 
 removeGitEnvironment();
+// Med must never reach GitHub here: gh is a stand-in (scripts/fake-gh.mjs).
+const fakeGh = useFakeGh();
 
 const exec = promisify(execFile);
 const dir = await realpath(await mkdtemp(join(tmpdir(), "med-welcome-check-")));
@@ -254,6 +257,8 @@ try {
   await narrow.waitForTimeout(800);
   await shoot(narrow, "3-narrow");
 
+  // No gh call went past the stand-in.
+  fakeGh.check();
   console.log(
     JSON.stringify({
       passed: true,

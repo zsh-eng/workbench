@@ -86,7 +86,7 @@ import { NewThread } from "./shell/NewThread";
 import { SEARCH_PATH, SearchPage, readSearchAddress, type SearchOpen } from "./SearchPage";
 import { requestFileOpen } from "../data/file-opens";
 import { prefetchSavedReview } from "../data/controller";
-import { whenIdle } from "../data/idle";
+import { onInput, QUIET_MS, whenFree, whenIdle } from "../data/idle";
 import { AttemptsHost } from "./attempts/AttemptsHost";
 import { attemptsGroupOf, useAttemptsAddress } from "../data/attempts";
 import {
@@ -110,12 +110,16 @@ const LIST_WAIT_MS = 2500;
 const PREPARE_MS = 600;
 /** The longest that a thread loaded ahead renders out of sight to settle. */
 const SETTLE_MS = 1500;
+/** The longest that the warm pool waits for the workspace on screen to load. */
+const SHOW_WAIT_MS = 5000;
 
 type ControllerOptions = Omit<ReviewControllerOptions, "savedReviewId" | "start">;
 /** A patch parser keeps only its latest request, so each workspace has its own:
- * one workspace's load never cancels another's. */
+ * one workspace's load never cancels another's. The parsers can share
+ * workers: the one of the workspace on screen (`show`) goes first. */
 type ParserFactory = () => {
   parse: NonNullable<ReviewControllerOptions["parsePatch"]>;
+  show?(shown: boolean): void;
   dispose(): void;
 };
 
@@ -193,9 +197,10 @@ const removedSchema = z.object({ removed: z.literal(true) });
 /** Disposers that run when a workspace closes or leaves memory. */
 const Lifetime = createContext<Set<() => void> | null>(null);
 /** Tabs to load before their first visit: the one under the pointer
- * (`next`), then the others, in the sidebar's order. The tabs (`active`, by
- * workspace ID) stay loaded, as open terminal tabs do, up to TABS_MOUNTED,
- * until they close. History is never loaded ahead. */
+ * (`next`), then the others, nearest in the sidebar to the tab on screen
+ * first. The tabs (`active`, by workspace ID) stay loaded, as open terminal
+ * tabs do, up to TABS_MOUNTED, until they close. History is never loaded
+ * ahead. */
 interface WarmThreads {
   threads: { workspace: ReviewWorkspace | RepositoryWorkspace; session?: string }[];
   next: string | null;
@@ -1443,8 +1448,8 @@ export function WorkspaceHost({
       }),
     );
     const active = new Set<string>();
-    const ahead: WarmThreads["threads"] = [];
-    for (const thread of order) {
+    const ahead: (WarmThreads["threads"][number] & { place: number })[] = [];
+    for (const [place, thread] of order.entries()) {
       const known = open.get(thread.id);
       if (known) {
         active.add(known);
@@ -1458,14 +1463,23 @@ export function WorkspaceHost({
         ...(!thread.found && thread.sessions?.length
           ? { session: thread.sessions.at(-1)!.id }
           : {}),
+        place,
       });
     }
+    // The tabs next to the one on screen are the likeliest visits: nearest
+    // first, the one below before the one above.
+    const shown = workspaceThread(
+      snapshot.workspaces.find((entry) => entry.id === snapshot.active),
+    );
+    const at = order.findIndex((thread) => thread.id === shown);
+    const far = (place: number) => Math.abs(place - at) * 2 + (place < at ? 1 : 0);
+    if (at >= 0) ahead.sort((a, b) => far(a.place) - far(b.place));
     return {
-      threads: ahead,
+      threads: ahead.map(({ place: _place, ...entry }) => entry),
       next: ahead.some((entry) => entry.workspace.id === pointed) ? pointed : null,
       active,
     };
-  }, [order, snapshot.workspaces, pointed, warmWorkspaces]);
+  }, [order, snapshot.workspaces, snapshot.active, pointed, warmWorkspaces]);
   const activeRepositoryId =
     activeEntry?.kind === "repository"
       ? activeEntry.repositoryId
@@ -1709,7 +1723,14 @@ export function WorkspaceHost({
  * its review owns. Only the one on screen listens for changes; the rest catch
  * up when they are shown again. */
 function createControllerPool(options: ControllerOptions, createParser?: ParserFactory) {
-  const live = new Map<string, { controller: ReviewController; disposers: Set<() => void> }>();
+  const live = new Map<
+    string,
+    {
+      controller: ReviewController;
+      parser?: ReturnType<ParserFactory>;
+      disposers: Set<() => void>;
+    }
+  >();
   const end = (id: string) => {
     const entry = live.get(id);
     if (!entry) return;
@@ -1735,7 +1756,7 @@ function createControllerPool(options: ControllerOptions, createParser?: ParserF
                 },
               },
         );
-        entry = { controller, disposers: new Set(parser ? [parser.dispose] : []) };
+        entry = { controller, parser, disposers: new Set(parser ? [parser.dispose] : []) };
         live.set(workspace.id, entry);
         void controller.initialize();
       }
@@ -1745,7 +1766,8 @@ function createControllerPool(options: ControllerOptions, createParser?: ParserF
       for (const id of [...live.keys()]) if (!ids.includes(id)) end(id);
     },
     focus(id: string | null) {
-      for (const [key, { controller }] of live) {
+      for (const [key, { controller, parser }] of live) {
+        parser?.show?.(key === id);
         if (key === id) controller.resume();
         else controller.suspend();
       }
@@ -1833,6 +1855,45 @@ export function WorkspaceViews({
     });
     return () => cancelAnimationFrame(frame);
   }, [preparing]);
+
+  // The warm pool loads tabs ahead and settles them, one step at a time, and
+  // only while the reader does not act: each step waits until no key or press
+  // came for QUIET_MS, no workspace prepares, and the one on screen has
+  // loaded (or tried for SHOW_WAIT_MS), and then for an idle callback.
+  const screenRef = useRef<{ visible?: string | null; preparing: string | null; since: number }>({
+    preparing: null,
+    since: 0,
+  });
+  useLayoutEffect(() => {
+    if (screenRef.current.visible !== visible) screenRef.current.since = performance.now();
+    screenRef.current.visible = visible;
+    screenRef.current.preparing = preparing;
+  });
+  const [busy] = useState(() => () => {
+    const { visible, preparing, since } = screenRef.current;
+    if (preparing) return true;
+    if (!visible || performance.now() - since > SHOW_WAIT_MS) return false;
+    const slot = document.querySelector(`[data-workspace-slot="${CSS.escape(visible)}"]`);
+    return !slot?.firstElementChild || pending(slot);
+  });
+  // It starts QUIET_MS after the first workspace shows, so a key soon after
+  // the page loads does not wait for it.
+  const [started, setStarted] = useState(false);
+  useEffect(() => {
+    if (started) return;
+    let ready = 0;
+    return whenFree(
+      () => setStarted(true),
+      () => {
+        if (busy()) ready = 0;
+        else ready ||= performance.now();
+        return !ready || performance.now() - ready < QUIET_MS;
+      },
+    );
+  }, [started, busy]);
+  // One session reads ahead at a time; the pool's next step waits for it.
+  const [reading, setReading] = useState<string | null>(null);
+  const [read] = useState(() => new Set<string>());
   // A thread loaded ahead shows out of sight once while the browser is idle,
   // so its effects measure it and render its Markdown, as a visit would.
   // Its state stays when it hides again, and its first visit then shows it
@@ -1849,10 +1910,11 @@ export function WorkspaceViews({
       );
   const unsettledKey = unsettled.join(" ");
   useEffect(() => {
-    if (settling || !unsettledKey) return;
-    const controllers = unsettledKey.split(" ").map((id) => {
+    if (!started || settling || !unsettledKey) return;
+    const controllers = unsettledKey.split(" ").flatMap((id) => {
       const workspace = workspaceOf(id) as ReviewWorkspace;
-      return { id, controller: pool.get(workspace).controller };
+      // A thread settles after its session has read ahead.
+      return id === reading ? [] : [{ id, controller: pool.get(workspace).controller }];
     });
     let cancel: (() => void) | undefined;
     const check = () => {
@@ -1865,7 +1927,7 @@ export function WorkspaceViews({
         },
       );
       if (!loaded || cancel) return;
-      cancel = whenIdle(() => setSettling(loaded.id));
+      cancel = whenFree(() => setSettling(loaded.id), busy);
     };
     const stops = controllers.map(({ controller }) => controller.subscribe(check));
     check();
@@ -1873,7 +1935,7 @@ export function WorkspaceViews({
       for (const stop of stops) stop();
       cancel?.();
     };
-  }, [settling, unsettledKey, workspaceOf, pool]);
+  }, [started, settling, unsettledKey, reading, workspaceOf, pool, busy]);
   useEffect(() => {
     if (!settling) return;
     tried.add(settling);
@@ -1882,6 +1944,11 @@ export function WorkspaceViews({
       const frame = requestAnimationFrame(() => setSettling(null));
       return () => cancelAnimationFrame(frame);
     }
+    // A key or a press stops it, to try again when the reader stops.
+    const stop = onInput(() => {
+      tried.delete(settling);
+      setSettling(null);
+    });
     // Panes size themselves after the first frame, so a slot is ready when
     // nothing in it is pending and nothing changed for two frames.
     let quiet = 0;
@@ -1895,6 +1962,7 @@ export function WorkspaceViews({
       else frame = requestAnimationFrame(check);
     });
     return () => {
+      stop();
       cancelAnimationFrame(frame);
       changes.disconnect();
     };
@@ -1917,10 +1985,11 @@ export function WorkspaceViews({
     };
   }, [visible]);
 
-  // When every mounted workspace has loaded, the next one loads hidden
-  // while the browser is idle: open workspaces, then the tabs in the
-  // sidebar's order, as a terminal keeps its open tabs. A first visit then
-  // shows a rendered thread instead of loading in front of the reader.
+  // When every mounted workspace has loaded, read its session, and settled,
+  // the next one loads hidden while the reader does not act: open
+  // workspaces, then the tabs nearest to the one on screen, as a terminal
+  // keeps its open tabs. A first visit then shows a rendered thread instead
+  // of loading in front of the reader.
   const tabsMounted = mounted.filter((id) => warm.active.has(id)).length;
   const openCount = mounted.filter((id) => !warm.active.has(id) && isOpen(id)).length;
   const cold =
@@ -1935,7 +2004,7 @@ export function WorkspaceViews({
       ({ workspace }) => !mounted.includes(workspace.id) && tabsMounted < TABS_MOUNTED,
     )?.workspace.id;
   useEffect(() => {
-    if (!cold) return;
+    if (!started || !cold || settling || reading || unsettledKey) return;
     const controllers = mounted.flatMap((id) => {
       const workspace = workspaceOf(id);
       return workspace && workspace.kind !== "vault" && workspace.kind !== "pull"
@@ -1946,8 +2015,9 @@ export function WorkspaceViews({
     const check = () => {
       if (cancel) return;
       if (controllers.some((controller) => controller.getSnapshot().status === "loading")) return;
-      cancel = whenIdle(() =>
-        setMounted((current) => (current.includes(cold) ? current : [...current, cold])),
+      cancel = whenFree(
+        () => setMounted((current) => (current.includes(cold) ? current : [...current, cold])),
+        busy,
       );
     };
     const stops = controllers.map((controller) => controller.subscribe(check));
@@ -1956,7 +2026,7 @@ export function WorkspaceViews({
       for (const stop of stops) stop();
       cancel?.();
     };
-  }, [cold, mounted, pool, workspaceOf]);
+  }, [started, cold, settling, reading, unsettledKey, mounted, pool, workspaceOf, busy]);
 
   // A hidden workspace runs no effects, so its brief renders here, ahead of
   // its first visit, with the briefs of its other iterations.
@@ -1984,32 +2054,28 @@ export function WorkspaceViews({
       for (const stop of stops) stop();
     };
   }, [mounted, onScreen, pool, workspaceOf]);
-  // Its newest session reads ahead too, one at a time while the browser is
-  // idle, so a first visit shows the thread with the review.
+  // Its newest session reads ahead too, one at a time while the reader does
+  // not act, so a first visit shows the thread with the review.
   useEffect(() => {
-    const queue = mounted.flatMap((id) => {
-      const workspace = workspaceOf(id);
-      const session =
-        workspace?.sessions?.at(-1)?.id ??
-        warm.threads.find((entry) => entry.workspace.id === id)?.session;
-      return id !== onScreen && workspace?.kind === "review" && session
-        ? [{ reviewId: workspace.reviewId, session }]
-        : [];
-    });
-    let cancel: (() => void) | undefined;
-    const next = () => {
-      const entry = queue.shift();
-      if (entry)
-        cancel = whenIdle(() =>
-          prefetchThreadSession(entry.reviewId, entry.session, fetcher, next),
-        );
-    };
-    next();
-    return () => {
-      queue.length = 0;
-      cancel?.();
-    };
-  }, [mounted, onScreen, workspaceOf, warm.threads, fetcher]);
+    if (!started || reading) return;
+    const entry = mounted
+      .map((id) => {
+        const workspace = workspaceOf(id);
+        const session =
+          workspace?.sessions?.at(-1)?.id ??
+          warm.threads.find((entry) => entry.workspace.id === id)?.session;
+        return id !== onScreen && workspace?.kind === "review" && session
+          ? { id, reviewId: workspace.reviewId, session, key: `${workspace.reviewId}\0${session}` }
+          : undefined;
+      })
+      .find((entry) => entry && !read.has(entry.key));
+    if (!entry) return;
+    return whenFree(() => {
+      read.add(entry.key);
+      setReading(entry.id);
+      prefetchThreadSession(entry.reviewId, entry.session, fetcher, () => setReading(null));
+    }, busy);
+  }, [started, reading, read, mounted, onScreen, workspaceOf, warm.threads, fetcher, busy]);
   useEffect(() => {
     const leave = () => pool.dispose();
     window.addEventListener("pagehide", leave, { once: true });

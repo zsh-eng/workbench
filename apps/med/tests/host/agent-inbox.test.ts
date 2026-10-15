@@ -8,7 +8,7 @@ import type { AgentInboxState } from "../../src/shared/agent-inbox";
 import type { SavedReview } from "../../src/shared/saved-review";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { runReviewCommand } from "../../src/cli/review";
-import { openInTerminal } from "../fixtures/terminal-claude";
+import { openSession } from "../fixtures/terminal-claude";
 
 const directories: string[] = [];
 const hosts: RunningHost[] = [];
@@ -43,7 +43,7 @@ async function fixture() {
   await mkdir(home);
   vi.stubEnv("MED_HOME_DIR", home);
   // The Claude session runs in a terminal and takes messages with `med review wait`.
-  ends.push((await openInTerminal(home, claude)).end);
+  ends.push((await openSession(home, claude)).end);
   const stateDir = join(directory, "state");
   const queued: [string, string][] = [];
   const host = await startHost({

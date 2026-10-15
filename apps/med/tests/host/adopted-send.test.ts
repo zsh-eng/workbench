@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AgentInboxState, AgentMessage } from "../../src/shared/agent-inbox";
+import type { AgentInboxState, AgentMessage, SessionPlace } from "../../src/shared/agent-inbox";
 import type { OwnedState } from "../../src/shared/owned-session";
 import type { SavedReview } from "../../src/shared/saved-review";
 import { claudeProjectFolder } from "../../src/host/found-sessions";
@@ -13,7 +13,7 @@ import { startHost, type RunningHost } from "../../src/host/server";
 import { runReviewCommand } from "../../src/cli/review";
 import {
   longProcess,
-  openInTerminal,
+  openSession,
   processStart,
   writeProcessRecord,
 } from "../fixtures/terminal-claude";
@@ -180,10 +180,19 @@ async function fixture({ heldCheckMs }: { heldCheckMs: number }) {
     );
     return printed.join("\n");
   };
-  const terminal = async () => {
-    const opened = await openInTerminal(home, session);
+  /** Claude Code with the session open, in a terminal by default. */
+  const terminal = async (entrypoint?: string | null) => {
+    const opened = await openSession(home, session, entrypoint);
     ends.push(opened.end);
     return opened;
+  };
+  /** What the inbox says of the session: where it is open, or resumable. */
+  const where = async (): Promise<SessionPlace | "resumable" | object> => {
+    const { elsewhere, resumable } = await inbox();
+    const places = Object.keys(elsewhere);
+    if (!places.length && resumable.length === 1 && resumable[0] === session) return "resumable";
+    if (!resumable.length && places.length === 1 && elsewhere[session]) return elsewhere[session];
+    return { elsewhere, resumable };
   };
   return {
     api,
@@ -198,29 +207,22 @@ async function fixture({ heldCheckMs }: { heldCheckMs: number }) {
     prompts,
     wait,
     terminal,
+    where,
     restart,
   };
 }
 
 test("Med reads Claude Code's process records: a live process that started then runs the session; a dead or reused pid does not; a record that Med cannot read counts", async () => {
-  const { home, inbox, terminal } = await fixture({ heldCheckMs: 60_000 });
+  const { home, terminal, where } = await fixture({ heldCheckMs: 60_000 });
   const records = join(home, ".claude", "sessions");
-  const where = async (expected: "elsewhere" | "resumable") =>
-    vi.waitFor(
-      async () => {
-        const state = await inbox();
-        expect(state[expected]).toEqual([session]);
-      },
-      { timeout: 5000 },
-    );
-  await where("resumable");
+  await expect.poll(where, { timeout: 5000 }).toBe("resumable");
 
   // Claude Code in a terminal: the process lives and started when its record says.
   const open = await terminal();
-  await where("elsewhere");
+  await expect.poll(where, { timeout: 5000 }).toBe("terminal");
   await open.end();
   await rm(records, { recursive: true });
-  await where("resumable");
+  await expect.poll(where, { timeout: 5000 }).toBe("resumable");
 
   // A record whose process ended.
   const ended = await longProcess();
@@ -232,7 +234,7 @@ test("Med reads Claude Code's process records: a live process that started then 
     procStart: startedAt,
   });
   await pause(1200);
-  await where("resumable");
+  await expect.poll(where, { timeout: 5000 }).toBe("resumable");
   await rm(records, { recursive: true });
 
   // The system gave the record's pid to a newer process.
@@ -244,11 +246,36 @@ test("Med reads Claude Code's process records: a live process that started then 
     procStart: "Thu Jan  1 00:00:00 1970",
   });
   await pause(1200);
-  await where("resumable");
+  await expect.poll(where, { timeout: 5000 }).toBe("resumable");
 
   // Med cannot read a live process's record: the session may run there.
   await writeProcessRecord(home, reused.pid, "{");
-  await where("elsewhere");
+  await expect.poll(where, { timeout: 5000 }).toBe("other-app");
+});
+
+test("the record's entrypoint says where the session is open: a terminal, the Claude app, or another app", async () => {
+  const { home, terminal, where } = await fixture({ heldCheckMs: 60_000 });
+  const records = join(home, ".claude", "sessions");
+  const kinds: [entrypoint: string | null, place: SessionPlace][] = [
+    ["cli", "terminal"],
+    ["claude-desktop", "claude-app"],
+    ["claude-desktop-3p", "claude-app"],
+    ["claude-vscode", "other-app"],
+    ["sdk-ts", "other-app"],
+    [null, "other-app"],
+  ];
+  for (const [entrypoint, place] of kinds) {
+    const open = await terminal(entrypoint);
+    await expect.poll(where, { timeout: 5000 }).toBe(place);
+    await open.end();
+    await rm(records, { recursive: true });
+    await expect.poll(where, { timeout: 5000 }).toBe("resumable");
+  }
+
+  // A process found only by the session ID in its arguments, without a record.
+  const named = await longProcess(["claude", "--resume", session]);
+  ends.push(named.end);
+  await expect.poll(where, { timeout: 5000 }).toBe("other-app");
 });
 
 test("a message to an adopted session that no process runs resumes it in Med, with the messages that waited before it, in order", async () => {
@@ -260,7 +287,7 @@ test("a message to an adopted session that no process runs resumes it in Med, wi
   expect((await send("First, keep the export.")).message.delivery).toBe("pending");
   const second = await send("Second, round to minutes.");
   expect(second.message.delivery).toBe("pending");
-  expect(second.state.elsewhere).toEqual([session]);
+  expect(second.state.elsewhere).toEqual({ [session]: "terminal" });
   expect(started(session)).toBe(false);
 
   // The terminal closed; the next message resumes the session with all three.
@@ -294,7 +321,7 @@ test("a message waits while a terminal runs the session, and Med sends it once w
   const open = await terminal();
   const sent = await send("Use minutes.");
   expect(sent.message.delivery).toBe("pending");
-  expect(sent.state.elsewhere).toEqual([session]);
+  expect(sent.state.elsewhere).toEqual({ [session]: "terminal" });
   // Med checks the process while the message waits; it does not start a second one.
   await pause(500);
   expect(started(session)).toBe(false);
@@ -321,7 +348,7 @@ test("med review wait in the terminal takes a waiting message first, and Med doe
   expect((await inbox()).messages.map((message) => message.delivery)).toEqual(["delivered"]);
   // This session takes messages with med review wait: the composer does not
   // say that Med cannot type there.
-  expect((await inbox()).elsewhere).toEqual([]);
+  expect((await inbox()).elsewhere).toEqual({});
 
   await open.end();
   await pause(600);
@@ -361,6 +388,6 @@ test("Continue in Med forks the session; the thread follows the fork, and the wa
   // The terminal keeps its session as it was.
   expect(await readFile(original, "utf8")).toBe(before);
   expect(started(session)).toBe(false);
-  expect((await inbox()).elsewhere).toEqual([session]);
+  expect((await inbox()).elsewhere).toEqual({ [session]: "terminal" });
   await open.end();
 });

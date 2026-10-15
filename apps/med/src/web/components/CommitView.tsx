@@ -22,13 +22,17 @@ import {
   type WorkingFile,
   type WorkingStatus,
 } from "../data/commit";
+import { hoveredPath, type PathValue } from "../data/hovered-path";
 import { visibleElement } from "../data/palette-focus";
 import { useTheme } from "../themes";
 import { picked, tokens, ui } from "../theme.stylex";
 import { createPatchParser } from "../workers/client";
+import { ColumnHandle, useColumnWidth } from "./ColumnResize";
 import { diffSurfaceStyle } from "./diff-surface";
 import { Icon } from "./Icon";
+import { PathLabel } from "./PathLabel";
 import { ShortcutKeys } from "./ShortcutKeys";
+import { clippedTooltip } from "./ToolButton";
 import { useWorkspaceShown } from "./Workspaces";
 
 type Change = NonNullable<WorkingFile["staged"]>;
@@ -190,7 +194,10 @@ export default function CommitView({
   keys = "window",
   onOpenFile,
   stageIn,
+  focusPath,
 }: {
+  /** Gets the path of the file that the list's focus is on, for the status bar. */
+  focusPath?: PathValue;
   /** With quiet chrome, a place in the review's row: Stage all goes there,
    * and the view has no header, as the title band names the branch. Null
    * while the row does not show. */
@@ -254,6 +261,13 @@ export default function CommitView({
     [files, filter],
   );
   const focusedFile = shown.find((file) => file.path === focused) ?? shown[0] ?? null;
+  const focusedPath = focusedFile?.path ?? null;
+  useEffect(() => {
+    if (active) focusPath?.set(focusedPath);
+  }, [active, focusPath, focusedPath]);
+  // The file list's width, as the reader set it with its edge.
+  const { measure, width, pane } = useColumnWidth("commit", (pane) => Math.max(240, pane * 0.28));
+  const stacked = !!pane && pane <= 720;
   const stagedCount = files.filter((file) => file.staged && file.staged !== "conflicted").length;
   // With nothing staged, a commit takes every change, as `git commit -a`
   // would, unless a conflict needs a choice first.
@@ -281,7 +295,7 @@ export default function CommitView({
   const parse = useCallback(
     (patch: string) =>
       patch.length > 256 * 1024
-        ? (parser.current ??= createPatchParser()).parse(patch)
+        ? (parser.current ??= createPatchParser({ shown: true })).parse(patch)
         : Promise.resolve(parseReviewPatch(patch)),
     [],
   );
@@ -654,8 +668,8 @@ export default function CommitView({
   return (
     <div ref={root} {...stylex.props(styles.root)}>
       {stageIn && createPortal(stageButton, stageIn)}
-      <div {...stylex.props(styles.layout)}>
-        <div {...stylex.props(styles.side)}>
+      <div {...stylex.props(styles.layout, styles.listWidth(width))}>
+        <div ref={measure} {...stylex.props(styles.side)}>
           {!inRow && (
             <header data-lift-row="" {...stylex.props(styles.header)}>
               <Icon name="gitBranch" size={14} />
@@ -703,6 +717,7 @@ export default function CommitView({
             tabIndex={0}
             aria-label="Changed files"
             aria-activedescendant={focusedFile ? rowId(focusedFile.path) : undefined}
+            onPointerLeave={() => hoveredPath.set(null)}
             {...stylex.props(styles.list)}
           >
             {loadError && !status && (
@@ -718,7 +733,6 @@ export default function CommitView({
             )}
             {shown.map((file) => {
               const state = stageState(file);
-              const slash = file.path.lastIndexOf("/") + 1;
               const kind = change(file);
               return (
                 // The listbox takes the keys and names the focused row.
@@ -730,7 +744,10 @@ export default function CommitView({
                   tabIndex={-1}
                   aria-selected={file === focusedFile}
                   aria-label={`${file.path}, ${marks[state].label}${kind ? `, ${kind}` : ""}`}
-                  title={file.previousPath ? `${file.previousPath} → ${file.path}` : file.path}
+                  {...clippedTooltip(
+                    file.previousPath ? `${file.previousPath} → ${file.path}` : file.path,
+                  )}
+                  onPointerEnter={() => hoveredPath.set(file.path)}
                   onClick={() => {
                     select(file.path, true);
                     list.current?.focus({ preventScroll: true });
@@ -751,8 +768,7 @@ export default function CommitView({
                     {marks[state].glyph}
                   </span>
                   <span {...stylex.props(styles.path)}>
-                    <span {...stylex.props(ui.faint)}>{file.path.slice(0, slash)}</span>
-                    {file.path.slice(slash)}
+                    <PathLabel path={file.path} />
                   </span>
                   {kind && <ChangeLetter kind={kind} />}
                 </div>
@@ -841,6 +857,10 @@ export default function CommitView({
               </div>
             )}
           </footer>
+          {/* A narrow view stacks the list above the diff. */}
+          {!stacked && (
+            <ColumnHandle kind="commit" width={width} pane={pane} label="the file list" />
+          )}
         </div>
         <div {...stylex.props(styles.main)}>
           <section
@@ -1106,14 +1126,16 @@ const styles = stylex.create({
   layout: {
     display: "grid",
     gridTemplateColumns: {
-      default: "minmax(240px, 28%) minmax(0, 1fr)",
+      default: "var(--med-commit-list) minmax(0, 1fr)",
       [narrow]: "minmax(0, 1fr)",
     },
     gridTemplateRows: { default: "minmax(0, 1fr)", [narrow]: "minmax(0, 34%) minmax(0, 1fr)" },
     height: "100%",
     minHeight: 0,
   },
+  listWidth: (width: number) => ({ "--med-commit-list": `${width}px` }),
   side: {
+    position: "relative",
     display: "flex",
     flexDirection: "column",
     minHeight: 0,
@@ -1202,13 +1224,7 @@ const styles = stylex.create({
     cursor: "pointer",
   },
   markOn: { color: tokens.accent },
-  path: {
-    flex: "1",
-    minWidth: 0,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  },
+  path: { display: "flex", flex: "1", minWidth: 0 },
   letter: {
     width: 14,
     flexShrink: 0,

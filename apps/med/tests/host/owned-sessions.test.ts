@@ -308,7 +308,8 @@ test("the sessions that Med started come back after the host restarts: Claude Co
 
   // While another Claude Code process runs the session, as in a terminal,
   // Med does not start a second one: the message waits for that process to
-  // end. A process that names the session in its arguments counts.
+  // end. A process that names the session in its arguments counts; without
+  // its record, Med does not know where it is open.
   const send = (text: string) =>
     api<{ message: { delivery: string; error?: string }; state: AgentInboxState }>(
       `/api/reviews/${review.id}/agent/messages`,
@@ -319,7 +320,7 @@ test("the sessions that Med started come back after the host restarts: Claude Co
   await once(other, "spawn");
   const busy = await send("Are you there?");
   expect(busy.data.message).toMatchObject({ delivery: "pending" });
-  expect(busy.data.state.elsewhere).toEqual([kept.id]);
+  expect(busy.data.state.elsewhere).toEqual({ [kept.id]: "other-app" });
 
   // When it ends, Med resumes the session in a new process, on the new port.
   const again = await thread(kept.id);

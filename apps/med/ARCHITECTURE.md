@@ -382,6 +382,16 @@ pane under the pointer: a side places the pane there, and the middle swaps the
 two. Each workspace saves its tree and zoom in `localStorage`
 (`med:panes:v1:<key>`).
 
+A list beside the diff in one pane (the Changes rail, the Guide's rail, and
+the Commit tab's files) is a column, not a pane. `components/ColumnResize.tsx`
+gives it a handle that acts as a pane's gutter: drag, ← and →, and a
+double-click or Enter for the first width. A column has at least 180 pixels and
+at most 60% of its pane, and it gets less in a narrow pane, so the diff keeps
+480 pixels. Med keeps one width for each kind of list
+(`med:column:v1:<kind>`). A cut name shows whole in the app's one tooltip:
+`clippedTooltip` in `components/ToolButton.tsx` marks a row, and the tooltip
+opens only when a `[data-clip]` part, or a file tree's truncated text, is cut.
+
 A theme is a whole look (`Aesthetic` in `themes.ts`): fonts, corners,
 hairlines, selection, buttons, label case, and shadows, as `--med-*` variables.
 Code stays in Paper Mono. Fonts and icons ship with Med. See
@@ -478,7 +488,17 @@ resolves each link to a changed file and line range (exact path, then a unique
 path suffix) and shows the cited range as an excerpt. A bundle with a pull
 request URL can show GitHub comments: `GET /api/reviews/:id/pull-request` runs
 `gh api` with GET requests only and keeps the result for 30 seconds. Med never
-writes to GitHub.
+writes to GitHub. Thread lines refer to the pull request's head commit, so
+`src/web/data/pull-request.ts` shows a thread at its line only when the diff's
+head is that commit: a Review version, or Changes. For working changes,
+`/api/review` gives `headCommit` (HEAD) and `uncommitted` (the files that differ
+from HEAD: staged, unstaged, or untracked); a thread in such a file stays in
+the panel with its reason. A thread that New thread or adopt made has no pull
+request link at first. While its tab is open, `src/host/pull-request-links.ts`
+asks `gh pr list --head <branch> --state open` for its branch: at once, after
+its refs change, and at most every 5 minutes. It links the first open pull
+request that it finds, and then stops. It does not ask for threads in history,
+for the base branch, or when `gh` is missing or not signed in.
 
 A bundle and each version can hold a guide (`src/shared/review-guide.ts`): a
 summary and segments, each with file patterns and the agent's comments on

@@ -111,7 +111,7 @@ export function createDemoAgent(
   let inbox: AgentInboxState = {
     messages: [],
     waiting: [],
-    elsewhere: [],
+    elsewhere: {},
     resumable: [],
     drafts: options.drafts ?? [],
   };

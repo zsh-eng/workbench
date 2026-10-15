@@ -256,18 +256,27 @@ function rowRoom(row: HTMLElement, slot: HTMLElement) {
   const gap = parseFloat(style.columnGap) || 0;
   let used = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
   let items = 1;
-  for (const child of row.children) {
-    if (child === slot) continue;
-    const { display, position } = getComputedStyle(child);
-    if (display === "none" || position === "absolute" || position === "fixed") continue;
-    items++;
-    if (child.getAttribute("role") === "tablist") {
-      // The tabs' own width, not the room that the list takes.
-      const first = child.firstElementChild?.getBoundingClientRect();
-      const last = child.lastElementChild?.getBoundingClientRect();
-      used += first && last ? last.right - first.left : 0;
-    } else used += child.getBoundingClientRect().width;
-  }
+  const count = (children: HTMLCollection) => {
+    for (const child of children) {
+      if (child === slot) continue;
+      const { display, position, marginLeft, marginRight } = getComputedStyle(child);
+      // A wrapper with `display: contents`, as the totals, puts its children in the row.
+      if (display === "contents") {
+        count(child.children);
+        continue;
+      }
+      if (display === "none" || position === "absolute" || position === "fixed") continue;
+      items++;
+      used += (parseFloat(marginLeft) || 0) + (parseFloat(marginRight) || 0);
+      if (child.getAttribute("role") === "tablist") {
+        // The tabs' own width, not the room that the list takes.
+        const first = child.firstElementChild?.getBoundingClientRect();
+        const last = child.lastElementChild?.getBoundingClientRect();
+        used += first && last ? last.right - first.left : 0;
+      } else used += child.getBoundingClientRect().width;
+    }
+  };
+  count(row.children);
   return row.clientWidth - used - gap * (items - 1) - 2;
 }
 
@@ -301,6 +310,53 @@ export function useSlotFits(slot: HTMLElement | null, fallbackWidth: number) {
     };
   }, [slot]);
   return fits;
+}
+
+/**
+ * Whether an optional part of a control in the review's row, such as the
+ * word "comments" after a count, may show: it shows while the row's tabs
+ * keep their full width. `part` is the part's element, also while it is
+ * hidden; its width is the one that it had when it showed. A new `text`
+ * shows first, to measure it.
+ */
+export function useRowPart(part: HTMLElement | null, text: string) {
+  const [state, setState] = useState({ text, fits: true });
+  const width = useRef(0);
+  useLayoutEffect(() => {
+    width.current = 0;
+    // The row is the element whose child is the tab list (FileViewTabs).
+    let row = part?.parentElement ?? null;
+    const tabsOf = (element: Element) =>
+      [...element.children].find((child) => child.getAttribute("role") === "tablist");
+    while (row && !tabsOf(row)) row = row.parentElement;
+    const list = row && tabsOf(row);
+    if (!part || !row || !list) return;
+    const measure = () => {
+      // A hidden workspace has no width; it keeps its fit for its return.
+      if (!row.clientWidth) return;
+      const first = list.firstElementChild?.getBoundingClientRect();
+      const last = list.lastElementChild?.getBoundingClientRect();
+      // The room that the tab list has beyond its tabs; below zero, they scroll.
+      const free = list.clientWidth - (first && last ? last.right - first.left : 0);
+      const shown = part.getBoundingClientRect().width;
+      if (shown) width.current = shown;
+      const fits = shown ? free > -1 : free >= width.current;
+      setState((current) =>
+        current.text === text && current.fits === fits ? current : { text, fits },
+      );
+    };
+    measure();
+    const resize = new ResizeObserver(measure);
+    resize.observe(row);
+    for (const child of row.children) resize.observe(child);
+    const mutation = new MutationObserver(measure);
+    mutation.observe(row, { childList: true, subtree: true, characterData: true });
+    return () => {
+      resize.disconnect();
+      mutation.disconnect();
+    };
+  }, [part, text]);
+  return state.text === text ? state.fits : true;
 }
 
 /**

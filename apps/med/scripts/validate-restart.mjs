@@ -9,7 +9,10 @@ import { appendFile, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright";
+import { useFakeGh } from "./fake-gh.mjs";
 
+// Med must never reach GitHub here: gh is a stand-in (scripts/fake-gh.mjs).
+const fakeGh = useFakeGh();
 const exec = promisify(execFile);
 const app = resolve(import.meta.dirname, "..");
 const output = join(app, ".benchmarks/restart");
@@ -117,6 +120,8 @@ try {
   assert.notEqual(third, second);
   await until(() => exited(second), "second server exits");
   assert.deepEqual(errors, []);
+  // No gh call went past the stand-in.
+  fakeGh.check();
   console.log(
     JSON.stringify({
       passed: true,

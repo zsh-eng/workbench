@@ -7,8 +7,11 @@ import { createHash } from "node:crypto";
 import { chromium } from "playwright";
 import assert from "node:assert/strict";
 import { removeGitEnvironment } from "./git-environment.mjs";
+import { useFakeGh } from "./fake-gh.mjs";
 
 removeGitEnvironment();
+// Med must never reach GitHub here: gh is a stand-in (scripts/fake-gh.mjs).
+const fakeGh = useFakeGh();
 const corpus = resolve(".benchmarks/bun-large-ui/corpus/http2.ts");
 let source;
 try {
@@ -259,6 +262,8 @@ try {
     },
     errors,
   };
+  // No gh call went past the stand-in.
+  fakeGh.check();
   await writeFile(join(output, "results.json"), JSON.stringify(report, null, 2) + "\n");
   console.log(JSON.stringify(report));
 } catch (error) {

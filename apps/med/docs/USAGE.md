@@ -327,12 +327,15 @@ A Claude Code session that you kept in Med or adopted gets your messages too:
   the pickers and **Stop**, also after a restart.
 - When Claude Code has it open in a terminal, the message box says "Claude
   has this session open in a terminal. Med can't type there." A message then
-  shows "Waiting for the terminal session to close". When the terminal
-  session ends, Med resumes it and sends the waiting messages. If that session
-  runs `med review wait`, it gets them there instead.
+  shows "Waiting for the terminal session to close". In the Claude app, they
+  say "open in the Claude app" and "Waiting for the session in the Claude app
+  to close"; in any other app, "open in another app" and "Waiting for the
+  session to close there". When that session ends, Med resumes it and sends
+  the waiting messages. If that session runs `med review wait`, it gets them
+  there instead.
 - **Continue in Med**, on that line or in `⌘K`, forks the session into one
   that Med runs and sends it the waiting messages. The thread follows the
-  fork; the terminal keeps its own session.
+  fork; the terminal or app keeps its own session.
 
 Type `@` in the message box, or in a new thread's task, to name a file in the
 checkout, a note in a registered vault, or another thread. A query can have
@@ -383,6 +386,12 @@ its own; **Whole range** goes back. The rail shows by itself when the review
 pane has room; the toolbar's first button, or **Show files and commits** in
 `⌘K`, shows or hides it in any width, and Med keeps that choice. With the
 **Changed files** pane open, the pane lists the files instead.
+
+Drag the right edge of the rail, the Guide's list, or the Commit tab's list to
+make it wider, or focus the edge and press `←` or `→`. Double-click the edge
+for the first width. Med keeps the width of each kind of list. Hover a cut file
+name or title to see all of it; full chrome's status bar also shows the path of
+the file under the pointer.
 
 ## Notes and briefs
 
@@ -452,9 +461,15 @@ A saved review with a pull request shows its GitHub comments. Med reads them
 with `gh`; it never posts, replies, or resolves.
 
 - When the diff shows the pull request's head commit, each code thread shows on
-  its line with the GitHub mark.
-- The comment count beside the title opens the reviews, the general comments,
-  and the threads that the diff cannot show.
+  its line with the GitHub mark. This includes Changes when the branch tip is
+  the pull request's head. A file with changes after that commit lists its
+  threads instead.
+- The comment count beside the title, such as "3 comments", opens the reviews,
+  the general comments, and the threads that the diff cannot show, each with
+  the reason.
+- A thread whose agent opens a pull request later gets the link by itself: while
+  the thread's tab is open, Med asks `gh` for an open pull request from its
+  branch.
 - Hover a comment for **Copy** and **Open on GitHub**. **Copy comments** copies
   only Med's comments.
 - Med reads again when the window gets focus, at most every 30 seconds, or when
