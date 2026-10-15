@@ -129,9 +129,12 @@ linked session that is still working is the lead.
 The thread list shows each lead's state from `GET /api/threads/events`
 (`src/host/agent-status.ts` reads it): a turning mark for **Working**,
 **Needs you** when the session waits in `med review wait` or on a permission,
-and an unread dot for **Done**. The browser keeps the last update that you saw
-(`med:thread-seen`). An attached Claude session cannot show a waiting
-permission prompt, because the transcript does not record it.
+or when its last turn ended on a question that no message from Med answers,
+and an unread dot for **Done**. A working row shows the running tool in place
+of its branch (`src/host/thread-turns.ts` reads the transcript's tail). The
+browser keeps the last update that you saw (`med:thread-seen`). An attached
+Claude session cannot show a waiting permission prompt, because the transcript
+does not record it.
 
 ## Replies
 

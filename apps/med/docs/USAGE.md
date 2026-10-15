@@ -93,9 +93,11 @@ only the threads in view. Nothing is archived on its own.
   `gpt-6-astra`; Med keeps your last choice for each agent. `⌘↵` starts the
   agent on the task at once. **2 attempts** or **3 attempts** gives the same
   task to several agents ([Attempts](#attempts)).
-- A turning mark shows while the agent works, **Needs you** while it waits for
-  a permission answer or for your review, and a dot when a turn ended while
-  you were elsewhere.
+- A turning mark shows while the agent works, and the row shows what the agent
+  does now, such as "Running bun test", in place of its branch. **Needs you**
+  shows while the agent waits for a permission answer or for your review, and
+  after a turn that ended on a question, until you send a message from Med. A
+  dot shows when a turn ended while you were elsewhere.
 - `⌘1`–`⌘9` open the thread at that place in the list. `⌃Tab` shows recent
   workspaces: hold Control, press Tab to step, and release to go.
 - Rest the pointer on a row, and Med reads the thread before you click.

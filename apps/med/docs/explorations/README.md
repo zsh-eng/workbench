@@ -1,6 +1,7 @@
 # Med design explorations
 
-Branch `med-explorations`, started 2026-10-15 from Med v0.4.2 (c79ef915).
+The experiments started on branch `med-explorations` on 2026-10-15, from Med
+v0.4.2 (c79ef915). This folder keeps the experiments that Med kept.
 
 ## The question
 
@@ -20,25 +21,40 @@ diff. They are:
    of an alphabetical list.
 4. **Shipping it.** Landing a thread takes many steps outside Med.
 
-Each experiment answers one of these. Each is a few commits on this branch,
-with its own write-up, so you can keep it, change it, or drop it alone.
+Each experiment answered one of these with a few commits and its own write-up,
+so that each one could be kept, changed, or dropped alone.
 
-## The experiments
+## Decisions (2026-10-15)
 
-| #   | Experiment | Write-up | Status |
-| --- | ---------- | -------- | ------ |
-| 1   | Every agent, wherever it runs | [every-agent.md](every-agent.md) | Built |
-| 2   | Inbox | [inbox.md](inbox.md) | In progress |
-| 3   | Turn blame | [turn-blame.md](turn-blame.md) | In progress |
-| 4   | Change map | [change-map.md](change-map.md) | In progress |
-| 5   | Land | [land.md](land.md) | Built |
-| 6   | Quieter chrome | [quiet.md](quiet.md) | Built |
-| 7   | Attempts | [attempts.md](attempts.md) | Built |
-| —   | Architecture review | [architecture.md](architecture.md) | Written, with two proofs of concept |
+Kept:
+
+| #   | Experiment                    | Write-up                           |
+| --- | ----------------------------- | ---------------------------------- |
+| 1   | Every agent, wherever it runs | [every-agent.md](every-agent.md)   |
+| 6   | Quieter chrome                | [quiet.md](quiet.md)               |
+| 7   | Attempts                      | [attempts.md](attempts.md)         |
+| —   | Architecture review           | [architecture.md](architecture.md) |
+
+Also kept:
+
+- **Thread status.** Each thread tells what its agent does now, what it said
+  last, whether it asks you, and the work that its base branch does not have.
+  The sidebar shows a working agent's activity in place of its branch, and
+  **Needs you** for a turn that ended on a question.
+- **The architecture review's two proofs of concept:** the thread store, and
+  one route table for the Commit tab's routes.
+- **The fix for Viewed** in a file header: a click marks the file viewed.
+- **The exploration harness:** the demo world (`world.mjs`, `week-view.mjs`)
+  and the recorded stage (`stage.mjs`, `run.mjs`, the scenes).
+
+Dropped: experiment 2 (Inbox), 3 (Turn blame), 4 (Change map), and 5 (Land).
+Their code, write-ups, screenshots, and scenes stay on branch
+`med-explorations`. A separate design, open tabs and cold history, is to take
+the place of the Inbox.
 
 ## Watch and try
 
-The video plays every experiment on one demo world: a small repository,
+The video plays the kept experiments on one demo world: a small repository,
 `tide`, with four agents' worktrees and the Claude Code and Codex transcripts
 that made their changes.
 
