@@ -8,7 +8,7 @@ import { createApi } from "../data/api";
 import { readBrowserToken } from "../data/auth";
 import { ChoiceSelect } from "./Controls";
 import { Icon } from "./Icon";
-import { ActionTooltip } from "./ToolButton";
+import { tooltip } from "./ToolButton";
 import { picked, tokens, ui } from "../theme.stylex";
 
 /** Opens the actions from elsewhere, such as a menu or ⌘K. */
@@ -252,15 +252,14 @@ export function ComparisonActions({
       </Menu.Root>
       <Dialog.Root open={pushOpen} onOpenChange={changePush}>
         {triggers && (
-          <ActionTooltip label="Push to remote">
-            <Dialog.Trigger
-              {...stylex.props(ui.button, ui.iconButton, ui.pressable)}
-              aria-label="Push"
-              disabled={!commitHead || !targets}
-            >
-              <Icon name="push" size={15} />
-            </Dialog.Trigger>
-          </ActionTooltip>
+          <Dialog.Trigger
+            {...stylex.props(ui.button, ui.iconButton, ui.pressable)}
+            {...tooltip("Push to remote")}
+            aria-label="Push"
+            disabled={!commitHead || !targets}
+          >
+            <Icon name="push" size={15} />
+          </Dialog.Trigger>
         )}
         <Dialog.Portal>
           <Dialog.Backdrop {...stylex.props(ui.scrim, styles.backdrop)} />

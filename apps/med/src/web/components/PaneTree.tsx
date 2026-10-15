@@ -35,7 +35,7 @@ import {
 } from "../data/pane-tree";
 import { tokens, ui } from "../theme.stylex";
 import { Icon, type IconName } from "./Icon";
-import { ActionTooltip, ToolButton } from "./ToolButton";
+import { ToolButton, tooltip } from "./ToolButton";
 
 /** The room between panes and around them, in pixels. */
 export const PANE_GAP = 6;
@@ -472,16 +472,15 @@ export function PaneControls({
   return (
     <>
       {zoomed && (
-        <ActionTooltip label="Restore the other panes" shortcut="Mod+E">
-          <button
-            type="button"
-            aria-label={`Restore ${name}`}
-            onClick={onZoom}
-            {...stylex.props(ui.button, ui.pressable, styles.restore)}
-          >
-            Restore
-          </button>
-        </ActionTooltip>
+        <button
+          type="button"
+          aria-label={`Restore ${name}`}
+          {...tooltip("Restore the other panes", "Mod+E")}
+          onClick={onZoom}
+          {...stylex.props(ui.button, ui.pressable, styles.restore)}
+        >
+          Restore
+        </button>
       )}
       {onClose && <ToolButton label={`Close ${name}`} icon="close" onClick={onClose} />}
     </>

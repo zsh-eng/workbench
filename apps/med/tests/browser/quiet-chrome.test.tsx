@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { createRoot, type Root } from "react-dom/client";
 import { App } from "../../src/web/App";
+import { AppTooltip } from "../../src/web/components/ToolButton";
 import { WorkspaceHost, WorkspaceViews } from "../../src/web/components/Workspaces";
 import { createFakeRepository } from "../../src/web/components/elements/commit-fixture";
 import { createBrowseApi } from "../../src/web/data/browse";
@@ -238,17 +239,20 @@ function render(commit?: CommitApi) {
   root = createRoot(mount);
   const browse = createBrowseApi(fetcher, "fixture");
   root.render(
-    <WorkspaceHost fetch={fetcher}>
-      <WorkspaceViews options={{ fetch: fetcher }}>
-        {(controller) => (
-          <App
-            controller={controller}
-            browseApi={browse}
-            {...(commit ? { commitApi: () => commit } : {})}
-          />
-        )}
-      </WorkspaceViews>
-    </WorkspaceHost>,
+    <>
+      <AppTooltip />
+      <WorkspaceHost fetch={fetcher}>
+        <WorkspaceViews options={{ fetch: fetcher }}>
+          {(controller) => (
+            <App
+              controller={controller}
+              browseApi={browse}
+              {...(commit ? { commitApi: () => commit } : {})}
+            />
+          )}
+        </WorkspaceViews>
+      </WorkspaceHost>
+    </>,
   );
 }
 

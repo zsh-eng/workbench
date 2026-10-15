@@ -1,7 +1,7 @@
 import { useDocumentTitle } from "./data/document-title";
 import { DiffImages } from "./components/MediaView";
 import { mediaType } from "../shared/media";
-import { ActionTooltip, ToolButton } from "./components/ToolButton";
+import { ToolButton, tooltip } from "./components/ToolButton";
 import * as stylex from "@stylexjs/stylex";
 import {
   CodeView,
@@ -4645,17 +4645,16 @@ export function App({
     </span>
   );
   const notesToggle = (
-    <ActionTooltip label={showNotes ? "Hide comments" : "Show comments"}>
-      <button
-        {...stylex.props(ui.button, ui.pressable, styles.notesButton, showNotes && ui.active)}
-        aria-label="Toggle notes"
-        aria-pressed={showNotes}
-        onClick={() => setShowNotes(!showNotes)}
-      >
-        <Icon name="note" size={15} />
-        {notes.length > 0 && <span {...stylex.props(styles.notesCount)}>{notes.length}</span>}
-      </button>
-    </ActionTooltip>
+    <button
+      {...stylex.props(ui.button, ui.pressable, styles.notesButton, showNotes && ui.active)}
+      {...tooltip(showNotes ? "Hide comments" : "Show comments")}
+      aria-label="Toggle notes"
+      aria-pressed={showNotes}
+      onClick={() => setShowNotes(!showNotes)}
+    >
+      <Icon name="note" size={15} />
+      {notes.length > 0 && <span {...stylex.props(styles.notesCount)}>{notes.length}</span>}
+    </button>
   );
   const viewSections: MenuAction[][] = [
     selectedFile && browseSource
@@ -5912,15 +5911,14 @@ export function App({
                   : "fresh"}
             </span>
           )}
-          <ActionTooltip label="Shortcuts and commands" shortcut="?">
-            <button
-              {...stylex.props(ui.button, styles.helpButton)}
-              onClick={() => setHelpOpen(true)}
-              aria-label="Shortcuts and commands"
-            >
-              <kbd>?</kbd>
-            </button>
-          </ActionTooltip>
+          <button
+            {...stylex.props(ui.button, styles.helpButton)}
+            {...tooltip("Shortcuts and commands", "?")}
+            onClick={() => setHelpOpen(true)}
+            aria-label="Shortcuts and commands"
+          >
+            <kbd>?</kbd>
+          </button>
         </footer>
         <CommandDialog
           open={commandsOpen}

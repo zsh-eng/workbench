@@ -1,4 +1,4 @@
-import { ActionTooltip } from "./ToolButton";
+import { tooltip } from "./ToolButton";
 import { focusPaletteInput } from "../data/palette-focus";
 import * as stylex from "@stylexjs/stylex";
 import { Menu } from "@base-ui/react/menu";
@@ -221,14 +221,13 @@ export function ActionMenu({
   }, [open, sections]);
   return (
     <Menu.Root open={open} onOpenChange={setOpen}>
-      <ActionTooltip label={label}>
-        <Menu.Trigger
-          {...stylex.props(trigger ?? [ui.button, children ? null : ui.iconButton])}
-          aria-label={label}
-        >
-          {children ?? <Icon name="settings" size={15} />}
-        </Menu.Trigger>
-      </ActionTooltip>
+      <Menu.Trigger
+        {...stylex.props(trigger ?? [ui.button, children ? null : ui.iconButton])}
+        {...tooltip(label)}
+        aria-label={label}
+      >
+        {children ?? <Icon name="settings" size={15} />}
+      </Menu.Trigger>
       <Menu.Portal>
         <Menu.Positioner align={align} sideOffset={6} {...stylex.props(styles.positioner)}>
           <Menu.Popup {...stylex.props(ui.popup, ui.pop, styles.menu)}>
@@ -292,12 +291,13 @@ function MenuSections({ sections }: { sections: MenuEntry[][] }) {
                 <ShortcutKeys value={action.shortcut} />
               </>
             );
-            if (action.checked === undefined) {
-              const item = (
+            if (action.checked === undefined)
+              return (
                 <Menu.Item
                   key={action.label}
                   aria-keyshortcuts={action.letter}
                   aria-description={action.hint}
+                  {...tooltip(action.hint, undefined, "inline-start")}
                   onClick={action.onClick}
                   disabled={action.disabled}
                   className={className}
@@ -305,14 +305,6 @@ function MenuSections({ sections }: { sections: MenuEntry[][] }) {
                   {content}
                 </Menu.Item>
               );
-              return action.hint ? (
-                <ActionTooltip key={action.label} label={action.hint} side="inline-start">
-                  {item}
-                </ActionTooltip>
-              ) : (
-                item
-              );
-            }
             return (
               <Menu.CheckboxItem
                 key={action.label}
@@ -517,24 +509,24 @@ export function SegmentedControl<T extends string>({
         {...stylex.props(styles.segmentPill, styles.segmentPosition(options.length, index))}
       />
       {options.map((option) => (
-        <ActionTooltip key={option.value} label={option.label} shortcut={option.shortcut}>
-          <button
-            type="button"
-            aria-label={option.label}
-            aria-pressed={option.value === value}
-            aria-disabled={option.disabled || undefined}
-            onClick={() => !option.disabled && onChange(option.value)}
-            {...stylex.props(
-              ui.button,
-              ui.iconButton,
-              styles.segment,
-              option.value === value && styles.segmentActive,
-              option.disabled && styles.disabled,
-            )}
-          >
-            <Icon name={option.icon} size={15} />
-          </button>
-        </ActionTooltip>
+        <button
+          key={option.value}
+          type="button"
+          aria-label={option.label}
+          aria-pressed={option.value === value}
+          aria-disabled={option.disabled || undefined}
+          {...tooltip(option.label, option.shortcut)}
+          onClick={() => !option.disabled && onChange(option.value)}
+          {...stylex.props(
+            ui.button,
+            ui.iconButton,
+            styles.segment,
+            option.value === value && styles.segmentActive,
+            option.disabled && styles.disabled,
+          )}
+        >
+          <Icon name={option.icon} size={15} />
+        </button>
       ))}
     </div>
   );

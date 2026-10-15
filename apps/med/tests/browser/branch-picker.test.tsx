@@ -4,6 +4,7 @@ import { useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { BranchStrip, BranchSwitch, useBranchTabs } from "../../src/web/components/BranchTabs";
 import { BranchPicker } from "../../src/web/components/BranchPicker";
+import { AppTooltip } from "../../src/web/components/ToolButton";
 import type { RegisteredRepository } from "../../src/shared/protocol";
 import { initializeTheme } from "../../src/web/themes";
 
@@ -62,6 +63,7 @@ async function setup(
     });
     return (
       <>
+        <AppTooltip />
         <BranchStrip model={model} />
         <BranchSwitch model={model} onOpen={() => setPickerOpen(true)} />
         <BranchPicker

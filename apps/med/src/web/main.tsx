@@ -8,6 +8,7 @@ import { VaultWorkspace } from "./components/VaultWorkspace";
 import { LocalFiles } from "./components/LocalFiles";
 import { App } from "./App";
 import { PierreThemeSync } from "./pierre-theme";
+import { AppTooltip } from "./components/ToolButton";
 import { UpdateNotice } from "./components/UpdateNotice";
 import { WorkspaceHost, WorkspaceViews } from "./components/Workspaces";
 import { authorizeBrowser } from "./data/auth";
@@ -89,6 +90,7 @@ createRoot(root).render(
       <div className="med-titlebar-band" aria-hidden="true" />
       <PierreThemeSync />
       <UpdateNotice />
+      <AppTooltip />
       <Root />
     </Tooltip.Provider>
   </WorkerPoolContextProvider>,

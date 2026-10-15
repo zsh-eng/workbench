@@ -30,7 +30,7 @@ import {
   type SessionTurn,
 } from "../../data/session-stream";
 import { picked, tokens, ui } from "../../theme.stylex";
-import { ActionTooltip } from "../ToolButton";
+import { tooltip } from "../ToolButton";
 import { Icon } from "../Icon";
 import { ToolButton } from "../ToolButton";
 import { paneHandle } from "../PaneTree";
@@ -119,20 +119,14 @@ function SessionMenu({
   const check = (indicator: ReactNode) => <span {...stylex.props(styles.check)}>{indicator}</span>;
   return (
     <Menu.Root>
-      <ActionTooltip label="Sessions, work, and turns">
-        <Menu.Trigger
-          aria-label={`${agent} session menu`}
-          {...stylex.props(
-            ui.button,
-            ui.pressable,
-            styles.menuTrigger,
-            leads && styles.leadTrigger,
-          )}
-        >
-          {agent}
-          <Icon name="chevron" size={12} />
-        </Menu.Trigger>
-      </ActionTooltip>
+      <Menu.Trigger
+        aria-label={`${agent} session menu`}
+        {...tooltip("Sessions, work, and turns")}
+        {...stylex.props(ui.button, ui.pressable, styles.menuTrigger, leads && styles.leadTrigger)}
+      >
+        {agent}
+        <Icon name="chevron" size={12} />
+      </Menu.Trigger>
       <Menu.Portal>
         <Menu.Positioner
           align={leads ? "start" : "end"}

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { FileRead } from "../../shared/local-file";
 import { tokens } from "../theme.stylex";
-import { ActionTooltip, ToolButton } from "./ToolButton";
+import { ToolButton, tooltip } from "./ToolButton";
 import "./MediaView.css";
 import { Icon } from "./Icon";
 
@@ -100,15 +100,14 @@ export function MediaFileView({
           </span>
           {stale && <span className="med-media-detail">Changed on disk</span>}
           {file.kind === "image" && (
-            <ActionTooltip label={actual ? "Fit image to pane" : "View image at actual size"}>
-              <button
-                className="med-media-fit"
-                onClick={() => setActual((v) => !v)}
-                aria-pressed={actual}
-              >
-                {actual ? "Fit" : "1:1"}
-              </button>
-            </ActionTooltip>
+            <button
+              className="med-media-fit"
+              {...tooltip(actual ? "Fit image to pane" : "View image at actual size")}
+              onClick={() => setActual((v) => !v)}
+              aria-pressed={actual}
+            >
+              {actual ? "Fit" : "1:1"}
+            </button>
           )}
           {refreshAvailable && (
             <ToolButton label="Refresh file" icon="refresh" onClick={onRefresh} />

@@ -10,7 +10,7 @@ import {
 } from "../Controls";
 import { Icon, type IconName } from "../Icon";
 import { KeySequence, ShortcutKeys } from "../ShortcutKeys";
-import { ActionTooltip, ToolButton } from "../ToolButton";
+import { ToolButton, tooltip } from "../ToolButton";
 import { Section, Specimen } from "./Specimen";
 
 const noop = () => {};
@@ -260,23 +260,24 @@ export function ControlsSection() {
       <Specimen title="Tooltips" note="Hover or focus a button to open its tooltip." span="half">
         <div {...stylex.props(styles.row)}>
           <Cell label="Label">
-            <ActionTooltip label="Show comments">
-              <button
-                type="button"
-                aria-label="Show comments"
-                {...stylex.props(ui.button, ui.iconButton, ui.pressable)}
-              >
-                <Icon name="note" size={15} />
-              </button>
-            </ActionTooltip>
+            <button
+              type="button"
+              aria-label="Show comments"
+              {...tooltip("Show comments")}
+              {...stylex.props(ui.button, ui.iconButton, ui.pressable)}
+            >
+              <Icon name="note" size={15} />
+            </button>
           </Cell>
           <Cell label="Label and shortcut">
-            <ActionTooltip label="Find in diffs" shortcut="Mod+F">
-              <button type="button" {...stylex.props(ui.button, ui.pressable)}>
-                <Icon name="search" size={14} />
-                Find
-              </button>
-            </ActionTooltip>
+            <button
+              type="button"
+              {...tooltip("Find in diffs", "Mod+F")}
+              {...stylex.props(ui.button, ui.pressable)}
+            >
+              <Icon name="search" size={14} />
+              Find
+            </button>
           </Cell>
         </div>
       </Specimen>

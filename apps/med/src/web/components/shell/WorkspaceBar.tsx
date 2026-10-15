@@ -5,7 +5,7 @@ import type { Workspace } from "../../data/workspaces";
 import { useQuietChrome } from "../../data/chrome";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon, type IconName } from "../Icon";
-import { ActionTooltip, ToolButton } from "../ToolButton";
+import { ToolButton, tooltip } from "../ToolButton";
 
 const basename = (path: string) =>
   path
@@ -131,32 +131,31 @@ function Checkout({
     return () => clearTimeout(timer);
   }, [copied]);
   return (
-    <ActionTooltip label={copied ? "Copied" : `Copy path · ${path}`}>
-      <button
-        type="button"
-        aria-label={`${repository}, ${branch ?? "detached HEAD"}${linked ? `, worktree ${basename(path)}` : ""}. Copy path`}
-        onClick={() =>
-          void navigator.clipboard.writeText(path).then(
-            () => setCopied(true),
-            () => {},
-          )
-        }
-        {...stylex.props(ui.button, ui.pressable, styles.checkout, styles.copy)}
-      >
-        <span {...stylex.props(styles.name, after && styles.nameAfter)}>{repository}</span>
-        <span {...stylex.props(styles.part)}>
-          <Icon name="branch" size={13} />
-          <span {...stylex.props(styles.ellipsis)}>{branch ?? "Detached HEAD"}</span>
+    <button
+      type="button"
+      aria-label={`${repository}, ${branch ?? "detached HEAD"}${linked ? `, worktree ${basename(path)}` : ""}. Copy path`}
+      {...tooltip(copied ? "Copied" : `Copy path · ${path}`)}
+      onClick={() =>
+        void navigator.clipboard.writeText(path).then(
+          () => setCopied(true),
+          () => {},
+        )
+      }
+      {...stylex.props(ui.button, ui.pressable, styles.checkout, styles.copy)}
+    >
+      <span {...stylex.props(styles.name, after && styles.nameAfter)}>{repository}</span>
+      <span {...stylex.props(styles.part)}>
+        <Icon name="branch" size={13} />
+        <span {...stylex.props(styles.ellipsis)}>{branch ?? "Detached HEAD"}</span>
+      </span>
+      {/* Quiet chrome leaves out a worktree folder that has the branch's name. */}
+      {linked && !(quiet && basename(path) === branch) && (
+        <span {...stylex.props(styles.part, styles.worktree)}>
+          <Icon name="folder" size={13} />
+          <span {...stylex.props(styles.ellipsis)}>{basename(path)}</span>
         </span>
-        {/* Quiet chrome leaves out a worktree folder that has the branch's name. */}
-        {linked && !(quiet && basename(path) === branch) && (
-          <span {...stylex.props(styles.part, styles.worktree)}>
-            <Icon name="folder" size={13} />
-            <span {...stylex.props(styles.ellipsis)}>{basename(path)}</span>
-          </span>
-        )}
-      </button>
-    </ActionTooltip>
+      )}
+    </button>
   );
 }
 

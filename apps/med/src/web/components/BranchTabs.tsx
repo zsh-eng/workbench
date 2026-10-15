@@ -1,4 +1,4 @@
-import { ActionTooltip } from "./ToolButton";
+import { tooltip } from "./ToolButton";
 import * as stylex from "@stylexjs/stylex";
 import { Tabs } from "@base-ui/react/tabs";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -170,48 +170,44 @@ export function BranchStrip({
           const label = model.labelFor(entry);
           return (
             <div key={entry.key} {...stylex.props(styles.tabGroup, stylex.defaultMarker())}>
-              <ActionTooltip
-                label={
+              <Tabs.Tab
+                value={entry.key}
+                aria-label={label}
+                aria-controls="review-workspace"
+                {...tooltip(
                   entry.path
                     ? `${entry.label}\nWorktree: ${entry.checkout}`
-                    : `${entry.label}\nCommit ${entry.head.slice(0, 7)} · no worktree`
-                }
+                    : `${entry.label}\nCommit ${entry.head.slice(0, 7)} · no worktree`,
+                )}
+                onKeyDown={(event) => {
+                  if (event.key === "Delete" || event.key === "Backspace") {
+                    event.preventDefault();
+                    model.close(entry);
+                  }
+                }}
+                {...stylex.props(styles.tab, selected && styles.active)}
               >
-                <Tabs.Tab
-                  value={entry.key}
-                  aria-label={label}
-                  aria-controls="review-workspace"
-                  onKeyDown={(event) => {
-                    if (event.key === "Delete" || event.key === "Backspace") {
-                      event.preventDefault();
-                      model.close(entry);
-                    }
-                  }}
-                  {...stylex.props(styles.tab, selected && styles.active)}
-                >
-                  <Icon name={entry.path ? "branch" : "commit"} size={14} />
-                  <span {...stylex.props(styles.name)}>
-                    {repository && (
-                      <>
-                        <span {...stylex.props(styles.repository)}>{repository}</span>
-                        <span {...stylex.props(styles.slash)}>/</span>
-                      </>
-                    )}
-                    {entry.label}
-                  </span>
-                </Tabs.Tab>
-              </ActionTooltip>
-              <ActionTooltip label={`Close ${label}`}>
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  aria-label={`Close ${label}`}
-                  onClick={() => model.close(entry)}
-                  {...stylex.props(styles.close, selected && styles.closeVisible)}
-                >
-                  <Icon name="close" size={12} />
-                </button>
-              </ActionTooltip>
+                <Icon name={entry.path ? "branch" : "commit"} size={14} />
+                <span {...stylex.props(styles.name)}>
+                  {repository && (
+                    <>
+                      <span {...stylex.props(styles.repository)}>{repository}</span>
+                      <span {...stylex.props(styles.slash)}>/</span>
+                    </>
+                  )}
+                  {entry.label}
+                </span>
+              </Tabs.Tab>
+              <button
+                type="button"
+                tabIndex={-1}
+                aria-label={`Close ${label}`}
+                {...tooltip(`Close ${label}`)}
+                onClick={() => model.close(entry)}
+                {...stylex.props(styles.close, selected && styles.closeVisible)}
+              >
+                <Icon name="close" size={12} />
+              </button>
             </div>
           );
         })}
@@ -228,36 +224,35 @@ export function BranchSwitch({ model, onOpen }: { model: BranchTabsModel; onOpen
   const branch = model.current?.label ?? model.branchName ?? "Choose a branch";
   return (
     <span {...stylex.props(styles.switchRow)}>
-      <ActionTooltip label="Open branch" shortcut="⌘ ⇧ G">
-        <button
-          type="button"
-          aria-label="Open branch"
-          aria-haspopup="dialog"
-          aria-keyshortcuts="Meta+Shift+G Control+Shift+G"
-          onClick={onOpen}
-          {...stylex.props(styles.switch, stylex.defaultMarker())}
-        >
-          <Icon name={model.current && !model.current.path ? "commit" : "branch"} size={14} />
-          <span {...stylex.props(styles.switchText)}>
-            {model.repositoryName && (
-              <>
-                <span {...stylex.props(styles.switchRepository)}>{model.repositoryName}</span>
-                <span {...stylex.props(styles.slash)}>/</span>
-              </>
-            )}
-            {/* Keyed so a branch change rolls the new name in. */}
-            <BranchName
-              key={branch}
-              name={branch}
-              isNew={model.isNewBranch}
-              onShown={model.showedBranch}
-            />
-          </span>
-          <span {...stylex.props(styles.switchChevron)}>
-            <Icon name="selector" size={14} />
-          </span>
-        </button>
-      </ActionTooltip>
+      <button
+        type="button"
+        aria-label="Open branch"
+        aria-haspopup="dialog"
+        aria-keyshortcuts="Meta+Shift+G Control+Shift+G"
+        {...tooltip("Open branch", "⌘ ⇧ G")}
+        onClick={onOpen}
+        {...stylex.props(styles.switch, stylex.defaultMarker())}
+      >
+        <Icon name={model.current && !model.current.path ? "commit" : "branch"} size={14} />
+        <span {...stylex.props(styles.switchText)}>
+          {model.repositoryName && (
+            <>
+              <span {...stylex.props(styles.switchRepository)}>{model.repositoryName}</span>
+              <span {...stylex.props(styles.slash)}>/</span>
+            </>
+          )}
+          {/* Keyed so a branch change rolls the new name in. */}
+          <BranchName
+            key={branch}
+            name={branch}
+            isNew={model.isNewBranch}
+            onShown={model.showedBranch}
+          />
+        </span>
+        <span {...stylex.props(styles.switchChevron)}>
+          <Icon name="selector" size={14} />
+        </span>
+      </button>
       {model.error && (
         <span role="status" title={model.error} {...stylex.props(styles.error)}>
           Branches unavailable

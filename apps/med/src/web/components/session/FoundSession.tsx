@@ -4,7 +4,7 @@ import { foundSessionThread, keepFoundThread } from "../../data/found-threads";
 import { resumeCommand, type WorkspaceSession } from "../../data/workspaces";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon } from "../Icon";
-import { ActionTooltip } from "../ToolButton";
+import { tooltip } from "../ToolButton";
 import { useShell, useThread, useWorkspace, useWorkspaceEntry } from "../Workspaces";
 import { SessionPanel } from "./SessionPanel";
 
@@ -112,45 +112,43 @@ function FoundSessionBar({
           Runs in {name}
         </span>
         {keep && (
-          <ActionTooltip label="Save it as a thread, so you can comment and reply">
-            <button
-              type="button"
-              disabled={keeping}
-              onClick={() => {
-                setKeeping(true);
-                setError(null);
-                keep()
-                  .catch((reason: unknown) =>
-                    setError(reason instanceof Error ? reason.message : "Med did not keep it."),
-                  )
-                  .finally(() => setKeeping(false));
-              }}
-              {...stylex.props(ui.button, ui.pressable, ui.primary, styles.keep)}
-            >
-              {keeping ? "Keeping…" : "Keep in Med"}
-            </button>
-          </ActionTooltip>
+          <button
+            type="button"
+            disabled={keeping}
+            {...tooltip("Save it as a thread, so you can comment and reply")}
+            onClick={() => {
+              setKeeping(true);
+              setError(null);
+              keep()
+                .catch((reason: unknown) =>
+                  setError(reason instanceof Error ? reason.message : "Med did not keep it."),
+                )
+                .finally(() => setKeeping(false));
+            }}
+            {...stylex.props(ui.button, ui.pressable, ui.primary, styles.keep)}
+          >
+            {keeping ? "Keeping…" : "Keep in Med"}
+          </button>
         )}
       </div>
       <div {...stylex.props(styles.row)}>
         <code {...stylex.props(styles.command)} title={resumeCommand(session)}>
           {command}
         </code>
-        <ActionTooltip label="Copy the command, with cd to its folder">
-          <button
-            type="button"
-            aria-label={`Copy ${name} resume command`}
-            onClick={() =>
-              void navigator.clipboard.writeText(resumeCommand(session)).then(
-                () => setCopied(true),
-                () => setError("The browser did not allow a copy. Select the command instead."),
-              )
-            }
-            {...stylex.props(ui.button, ui.pressable, styles.copy)}
-          >
-            <span role={copied ? "status" : undefined}>{copied ? "Copied" : "Copy"}</span>
-          </button>
-        </ActionTooltip>
+        <button
+          type="button"
+          aria-label={`Copy ${name} resume command`}
+          {...tooltip("Copy the command, with cd to its folder")}
+          onClick={() =>
+            void navigator.clipboard.writeText(resumeCommand(session)).then(
+              () => setCopied(true),
+              () => setError("The browser did not allow a copy. Select the command instead."),
+            )
+          }
+          {...stylex.props(ui.button, ui.pressable, styles.copy)}
+        >
+          <span role={copied ? "status" : undefined}>{copied ? "Copied" : "Copy"}</span>
+        </button>
       </div>
       {error && (
         <p role="alert" {...stylex.props(styles.error)}>
