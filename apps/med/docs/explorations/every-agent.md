@@ -136,7 +136,7 @@ the last 7 days show in the sidebar.
   the titles, the states, the change counts, the session route, Hide, Show,
   the choices after a restart, and Keep in Med.
 - `bunx vitest run --project browser tests/browser/found-threads.test.tsx
-  tests/browser/workspaces.test.tsx`: 13 tests pass. The found-threads test
+tests/browser/workspaces.test.tsx`: 13 tests pass. The found-threads test
   checks the row, open on the checkout with the session pane, Copy, Keep in
   Med, Hide, and the palette command.
 - `tests/host/threads.test.ts`, `live-streams.test.ts`,
