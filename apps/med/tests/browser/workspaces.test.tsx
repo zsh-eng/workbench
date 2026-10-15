@@ -517,10 +517,13 @@ function render(host: ReturnType<typeof createHost>) {
   document.body.append(mount);
   root = createRoot(mount);
   const browse = createBrowseApi(host.fetcher, "fixture");
+  // The Session pane's streams read the fake host too, not the test server.
   root.render(
     <WorkspaceHost fetch={host.fetcher}>
       <WorkspaceViews options={{ fetch: host.fetcher }}>
-        {(controller) => <App controller={controller} browseApi={browse} />}
+        {(controller) => (
+          <App controller={controller} browseApi={browse} sessionFetch={host.fetcher} />
+        )}
       </WorkspaceViews>
     </WorkspaceHost>,
   );
