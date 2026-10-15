@@ -165,7 +165,9 @@ const styles = stylex.create({
     flexShrink: 0,
     minWidth: 0,
     height: "max(var(--med-titlebar-height), 40px)",
-    paddingInline: 8,
+    paddingInlineStart: 8,
+    // Clear of the window controls at the right, as on Windows and Linux.
+    paddingInlineEnd: "max(calc(var(--med-titlebar-right) + 4px), 8px)",
     color: tokens.muted,
     fontFamily: tokens.ui,
     fontSize: 12.5,

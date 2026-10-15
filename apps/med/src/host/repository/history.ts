@@ -4,10 +4,12 @@ import type {
   Branch,
   Commit,
   CommitDetails,
+  Comparison,
   HistoryPage,
   Repository,
   Worktree,
 } from "../../shared/protocol";
+import type { EndpointNames } from "../../shared/saved-review";
 import { git } from "../runtime/process";
 import { HostError } from "../runtime/errors";
 
@@ -332,4 +334,58 @@ export async function loadRangeCommits(
   }
   const more = list.length > limit;
   return { list: list.slice(0, limit).reverse(), more };
+}
+
+/** A ref name such as main, origin/main, or refs/heads/week-view: no revision
+ * operators, and not an object ID. */
+const REF_NAME = /^(?!-)[\w./+-]+$/;
+const OBJECT_ID = /^[0-9a-f]{7,64}$/i;
+
+/**
+ * The names of a range's endpoints at capture, so that a label can say
+ * "main → week-view" in place of object IDs. A requested ref name is its
+ * name. HEAD, and an object ID at the tip of the checkout's branch, take the
+ * branch's name. A range of object IDs whose commits the branch has, such as
+ * an agent's commits on main, is that branch's newest commits. A failed read
+ * gives fewer names; the review still saves.
+ */
+export async function endpointNames(
+  repo: string,
+  comparison: Comparison,
+  resolved: { base: string; head: string },
+  branch: string | null,
+  signal?: AbortSignal,
+): Promise<EndpointNames | undefined> {
+  if (comparison.kind !== "range") return undefined;
+  const name = (ref: string) =>
+    ref === "HEAD" || ref === "@"
+      ? (branch ?? undefined)
+      : REF_NAME.test(ref) && !OBJECT_ID.test(ref)
+        ? ref.replace(/^refs\/(?:heads|remotes|tags)\//, "")
+        : undefined;
+  const base = name(comparison.base);
+  let head = name(comparison.head);
+  let on: EndpointNames["on"];
+  if (branch && (!base || !head) && OID.test(resolved.base) && OID.test(resolved.head)) {
+    const tip = `refs/heads/${branch}`;
+    const read = async (args: string[]) =>
+      (await git(repo, args, { signal, maxBytes: 1024 })).toString("utf8").trim();
+    try {
+      // The commits only in the base and only in the head; the head's commits
+      // that the branch does not have; and the branch's tip.
+      const [sides, outside, tipId] = await Promise.all([
+        read(["rev-list", "--count", "--left-right", `${resolved.base}...${resolved.head}`, "--"]),
+        read(["rev-list", "--count", `${tip}..${resolved.head}`, "--"]),
+        read(["rev-parse", "--verify", "--end-of-options", tip]),
+      ]);
+      const [behind, ahead] = sides.split(/\s+/).map(Number);
+      if (!head && tipId === resolved.head) head = branch;
+      if (!base && behind === 0 && ahead && outside === "0") on = { branch, commits: ahead };
+    } catch (error) {
+      if (signal?.aborted) throw error;
+    }
+  }
+  return base || head || on
+    ? { ...(base && { base }), ...(head && { head }), ...(on && { on }) }
+    : undefined;
 }
