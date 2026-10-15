@@ -51,9 +51,7 @@ export default defineConfig({
         ws: true,
         configure(proxy) {
           proxy.on("proxyReq", (request) => request.setHeader("origin", "http://127.0.0.1:4174"));
-          proxy.on("proxyReqWs", (request) =>
-            request.setHeader("origin", "http://127.0.0.1:4174"),
-          );
+          proxy.on("proxyReqWs", (request) => request.setHeader("origin", "http://127.0.0.1:4174"));
         },
       },
     },

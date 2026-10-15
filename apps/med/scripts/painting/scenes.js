@@ -3,10 +3,8 @@
 // Reflection mark. The website's paintings of the same sea are watercolours
 // (watercolor-scenes.js). A scene gives the colour at (u, v), both 0 to 1
 // with v down, and how strokes lie there.
-const mix = (a, b, t) =>
-  a.map((x, i) => x + (b[i] - x) * Math.max(0, Math.min(1, t)));
-const rgb = (hex) =>
-  [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+const mix = (a, b, t) => a.map((x, i) => x + (b[i] - x) * Math.max(0, Math.min(1, t)));
+const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
 const smooth = (a, b, x) => {
   const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);

@@ -10,8 +10,7 @@ window.paint = function paint({ width, height, seed = 7, scene }) {
   canvas.height = height;
   const g = canvas.getContext("2d");
   let state = seed >>> 0;
-  const rand = () =>
-    (state = (state * 1664525 + 1013904223) >>> 0) / 4294967296;
+  const rand = () => (state = (state * 1664525 + 1013904223) >>> 0) / 4294967296;
   const css = (color, alpha) =>
     `rgba(${color.map((v) => Math.round(Math.max(0, Math.min(1, v)) * 255)).join(",")},${alpha})`;
 
@@ -39,10 +38,8 @@ window.paint = function paint({ width, height, seed = 7, scene }) {
       // Detail is low near edges in the scene, where strokes must be small.
       const detail = scene.detail(u, v);
       if (detail < pass.min) continue;
-      const radius =
-        pass.size * unit * (0.6 + rand() * 0.8) * Math.min(detail, 1.4);
-      const length =
-        radius * pass.stretch * scene.stretch(u, v) * (0.6 + rand() * 0.8);
+      const radius = pass.size * unit * (0.6 + rand() * 0.8) * Math.min(detail, 1.4);
+      const length = radius * pass.stretch * scene.stretch(u, v) * (0.6 + rand() * 0.8);
       // Each stroke is a little warmer or cooler, lighter or darker.
       const warm = (rand() - 0.5) * pass.jitter;
       const light = (rand() - 0.5) * pass.jitter;
@@ -63,8 +60,7 @@ window.paint = function paint({ width, height, seed = 7, scene }) {
         const across = (b + 0.5) / bristles - 0.5;
         const offset = across * radius * 2;
         // Outer bristles are shorter, so the stroke tapers.
-        const reach =
-          length * (1 - Math.abs(across) * 0.9) * (0.75 + rand() * 0.25);
+        const reach = length * (1 - Math.abs(across) * 0.9) * (0.75 + rand() * 0.25);
         const shade = (rand() - 0.5) * 0.04;
         g.strokeStyle = css(
           color.map((c) => c + shade),

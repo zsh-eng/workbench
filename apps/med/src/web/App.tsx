@@ -1996,23 +1996,19 @@ export function App({
                   note.resolution !== "orphaned" &&
                   note.resolution !== "stale",
               )
-              .map(
-                (note): DiffLineAnnotation<Annotation> => ({
-                  side: note.side === "old" ? "deletions" : "additions",
-                  lineNumber: noteLine(file.metadata, note),
-                  metadata: { note },
-                }),
-              ),
+              .map((note): DiffLineAnnotation<Annotation> => ({
+                side: note.side === "old" ? "deletions" : "additions",
+                lineNumber: noteLine(file.metadata, note),
+                metadata: { note },
+              })),
             ...(guideNotesByFile?.get(file.id) ?? [])
               .filter(onLines)
               .filter((note) => shownLine(file.metadata, note))
-              .map(
-                (note): DiffLineAnnotation<Annotation> => ({
-                  side: note.side === "old" ? "deletions" : "additions",
-                  lineNumber: noteLine(file.metadata, note),
-                  metadata: { guide: note },
-                }),
-              ),
+              .map((note): DiffLineAnnotation<Annotation> => ({
+                side: note.side === "old" ? "deletions" : "additions",
+                lineNumber: noteLine(file.metadata, note),
+                metadata: { guide: note },
+              })),
           ]
         : [];
       if (visibleDraft?.path === file.path)

@@ -104,12 +104,12 @@ $$
 \bar{t} = \frac{1}{n}\sum_{i=1}^{n} t_i
 $$
 
-| Boundary | Start | Observable result |
-| :--- | :--- | :--- |
-| Opening | Select an article | First readable paragraph |
-| Restoring | Mount the reader | Previous position is visible |
-| Saving | Change the queue | State survives restart |
-| Syncing | Send a pending operation | Other device sees the change |
+| Boundary  | Start                    | Observable result            |
+| :-------- | :----------------------- | :--------------------------- |
+| Opening   | Select an article        | First readable paragraph     |
+| Restoring | Mount the reader         | Previous position is visible |
+| Saving    | Change the queue         | State survives restart       |
+| Syncing   | Send a pending operation | Other device sees the change |
 
 These are measurement boundaries, **not benchmark results**. A fast parser does
 not prove that an entire interaction feels fast.
@@ -161,5 +161,6 @@ To explore this document in Med, turn on **Preview**, enter Vim Insert mode with
 Normal mode, and `G` to test how the preview follows the cursor. The table of
 contents appears when the preview pane has enough width.
 
-[^retry]: An operation can arrive more than once even when the sender issued it
+[^retry]:
+    An operation can arrive more than once even when the sender issued it
     only once. Treat retries as part of the normal delivery path.
