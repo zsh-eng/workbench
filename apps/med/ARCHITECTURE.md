@@ -382,6 +382,16 @@ pane under the pointer: a side places the pane there, and the middle swaps the
 two. Each workspace saves its tree and zoom in `localStorage`
 (`med:panes:v1:<key>`).
 
+A list beside the diff in one pane (the Changes rail, the Guide's rail, and
+the Commit tab's files) is a column, not a pane. `components/ColumnResize.tsx`
+gives it a handle that acts as a pane's gutter: drag, ← and →, and a
+double-click or Enter for the first width. A column has at least 180 pixels and
+at most 60% of its pane, and it gets less in a narrow pane, so the diff keeps
+480 pixels. Med keeps one width for each kind of list
+(`med:column:v1:<kind>`). A cut name shows whole in the app's one tooltip:
+`clippedTooltip` in `components/ToolButton.tsx` marks a row, and the tooltip
+opens only when a `[data-clip]` part, or a file tree's truncated text, is cut.
+
 A theme is a whole look (`Aesthetic` in `themes.ts`): fonts, corners,
 hairlines, selection, buttons, label case, and shadows, as `--med-*` variables.
 Code stays in Paper Mono. Fonts and icons ship with Med. See

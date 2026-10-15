@@ -384,6 +384,12 @@ pane has room; the toolbar's first button, or **Show files and commits** in
 `⌘K`, shows or hides it in any width, and Med keeps that choice. With the
 **Changed files** pane open, the pane lists the files instead.
 
+Drag the right edge of the rail, the Guide's list, or the Commit tab's list to
+make it wider, or focus the edge and press `←` or `→`. Double-click the edge
+for the first width. Med keeps the width of each kind of list. Hover a cut file
+name or title to see all of it; full chrome's status bar also shows the path of
+the file under the pointer.
+
 ## Notes and briefs
 
 A review's **Notes** hold the agent's brief and the replies that you pin from

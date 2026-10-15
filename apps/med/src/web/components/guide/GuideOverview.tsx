@@ -5,6 +5,7 @@ import { AREA_LABELS, firstSentence, type GuideScope, type GuideSection } from "
 import { relativeTime } from "../../data/relative-time";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon, type IconName } from "../Icon";
+import { clippedTooltip } from "../ToolButton";
 import { GuideMarkdown } from "./GuideMarkdown";
 import { Progress } from "./Progress";
 
@@ -125,13 +126,16 @@ export function GuideOverview({
                     <button
                       type="button"
                       onClick={() => onScope({ kind: "segment", key: section.key })}
+                      {...clippedTooltip(section.title)}
                       {...stylex.props(styles.card)}
                     >
                       <span {...stylex.props(styles.number, section.automatic && styles.auto)}>
                         {section.automatic ? "··" : pad(section.number)}
                       </span>
                       <span {...stylex.props(styles.cardBody)}>
-                        <span {...stylex.props(styles.cardTitle)}>{section.title}</span>
+                        <span data-clip="lines" {...stylex.props(styles.cardTitle)}>
+                          {section.title}
+                        </span>
                         <span {...stylex.props(styles.cardMeta)}>
                           {section.critical && (
                             <span {...stylex.props(styles.critical)}>
@@ -186,10 +190,13 @@ export function GuideOverview({
                   <button
                     type="button"
                     onClick={() => onScope({ kind: "commit", id: commit.id })}
+                    {...clippedTooltip(commit.subject)}
                     {...stylex.props(styles.commit)}
                   >
                     <span {...stylex.props(styles.sha)}>{commit.id.slice(0, 7)}</span>
-                    <span {...stylex.props(styles.subject)}>{commit.subject}</span>
+                    <span data-clip="" {...stylex.props(styles.subject)}>
+                      {commit.subject}
+                    </span>
                     <span {...stylex.props(styles.when)}>
                       {commit.author} · {relativeTime(commit.timestamp, now)}
                     </span>
@@ -313,7 +320,18 @@ const styles = stylex.create({
   },
   auto: { letterSpacing: "0.1em" },
   cardBody: { display: "flex", flexDirection: "column", gap: 5, flex: "1", minWidth: 0 },
-  cardTitle: { fontSize: 14, fontWeight: 550, lineHeight: 1.35, letterSpacing: "-0.005em" },
+  // Two lines at most; a longer title shows whole in the tooltip.
+  cardTitle: {
+    display: "-webkit-box",
+    WebkitBoxOrient: "vertical",
+    WebkitLineClamp: 2,
+    overflow: "hidden",
+    overflowWrap: "anywhere",
+    fontSize: 14,
+    fontWeight: 550,
+    lineHeight: 1.35,
+    letterSpacing: "-0.005em",
+  },
   cardMeta: {
     display: "flex",
     flexWrap: "wrap",

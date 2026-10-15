@@ -3,8 +3,12 @@ import { memo } from "react";
 import type { ParsedReviewFile } from "../../../shared/review";
 import type { SavedCommit } from "../../../shared/review-guide";
 import type { GuideScope, GuideSection } from "../../data/guide";
+import { hoveredPath } from "../../data/hovered-path";
 import { picked, tokens, ui } from "../../theme.stylex";
+import { ColumnHandle, useColumnWidth } from "../ColumnResize";
 import { Icon } from "../Icon";
+import { PathLabel } from "../PathLabel";
+import { clippedTooltip } from "../ToolButton";
 import { Progress } from "./Progress";
 
 export interface GuideRailProps {
@@ -42,8 +46,9 @@ export const GuideRail = memo(function GuideRail({
   onFile,
   onToggleViewed,
 }: GuideRailProps) {
+  const { measure, width, pane } = useColumnWidth("guide", () => 268);
   return (
-    <nav aria-label="Guide" {...stylex.props(styles.rail)}>
+    <nav ref={measure} aria-label="Guide" {...stylex.props(styles.rail, styles.width(width))}>
       <div {...stylex.props(styles.head)}>
         <span {...stylex.props(ui.label)}>Guide</span>
         <span {...stylex.props(ui.grow)} />
@@ -84,13 +89,22 @@ export const GuideRail = memo(function GuideRail({
                     aria-current={open ? "page" : undefined}
                     aria-label={`${section.number}. ${section.title}${section.critical ? ", needs care" : ""}, ${seen} of ${section.fileIds.length} files viewed`}
                     onClick={() => onScope({ kind: "segment", key: section.key })}
+                    {...clippedTooltip(section.title)}
                     {...stylex.props(styles.row, styles.segment, open && [styles.on, picked])}
                   >
                     <span {...stylex.props(styles.number, section.automatic && styles.auto)}>
                       {section.automatic ? "··" : pad(section.number)}
                     </span>
                     <span {...stylex.props(styles.body)}>
-                      <span {...stylex.props(styles.title, section.automatic && styles.autoTitle)}>
+                      {/* Two lines at most; a longer title shows whole in the tooltip. */}
+                      <span
+                        data-clip="lines"
+                        {...stylex.props(
+                          styles.title,
+                          styles.lines,
+                          section.automatic && styles.autoTitle,
+                        )}
+                      >
                         {section.title}
                       </span>
                       <span {...stylex.props(styles.meta)}>
@@ -123,7 +137,6 @@ export const GuideRail = memo(function GuideRail({
                       {section.fileIds.map((id) => {
                         const file = filesById.get(id);
                         if (!file) return null;
-                        const slash = file.path.lastIndexOf("/") + 1;
                         const isViewed = viewed.has(id);
                         return (
                           <li key={id} {...stylex.props(styles.fileRow)}>
@@ -140,11 +153,13 @@ export const GuideRail = memo(function GuideRail({
                             </button>
                             <button
                               type="button"
-                              title={file.path}
                               onClick={() => onFile(section.key, id)}
+                              onPointerEnter={() => hoveredPath.set(file.path)}
+                              onPointerLeave={() => hoveredPath.set(null)}
+                              {...clippedTooltip(file.path)}
                               {...stylex.props(styles.file, isViewed && styles.fileViewed)}
                             >
-                              <span {...stylex.props(ui.truncate)}>{file.path.slice(slash)}</span>
+                              <PathLabel path={file.path} folder={false} />
                               <span {...stylex.props(ui.grow)} />
                               <span {...stylex.props(styles.fileStat)}>
                                 {file.info.additions > 0 && (
@@ -181,6 +196,7 @@ export const GuideRail = memo(function GuideRail({
         <kbd {...stylex.props(styles.kbd)}>v</kbd>
         <span>viewed</span>
       </div>
+      <ColumnHandle kind="guide" width={width} pane={pane} label="the Guide" />
     </nav>
   );
 });
@@ -235,12 +251,14 @@ export function RailCommits({
               <button
                 type="button"
                 aria-current={open ? "page" : undefined}
-                title={commit.subject}
+                {...clippedTooltip(commit.subject)}
                 onClick={() => onCommit(commit.id)}
                 {...stylex.props(styles.row, styles.commit, open && [styles.on, picked])}
               >
                 <span {...stylex.props(styles.sha)}>{commit.id.slice(0, 7)}</span>
-                <span {...stylex.props(styles.commitSubject)}>{commit.subject}</span>
+                <span data-clip="" {...stylex.props(styles.commitSubject)}>
+                  {commit.subject}
+                </span>
               </button>
             </li>
           );
@@ -253,10 +271,10 @@ export function RailCommits({
 const styles = stylex.create({
   // A narrow pane gives the diff the room; the Overview lists the segments.
   rail: {
+    position: "relative",
     display: { default: "flex", "@container (max-width: 720px)": "none" },
     flexDirection: "column",
     flexShrink: 0,
-    width: 268,
     minHeight: 0,
     borderRightWidth: 1,
     borderRightStyle: "solid",
@@ -264,6 +282,7 @@ const styles = stylex.create({
     backgroundColor: tokens.canvas,
     fontFamily: tokens.ui,
   },
+  width: (width: number) => ({ width }),
   head: {
     display: "flex",
     alignItems: "center",
@@ -364,6 +383,14 @@ const styles = stylex.create({
     fontSize: 12.5,
     fontWeight: 500,
     lineHeight: 1.35,
+  },
+  // A title wraps to two lines, then ends with an ellipsis.
+  lines: {
+    display: "-webkit-box",
+    WebkitBoxOrient: "vertical",
+    WebkitLineClamp: 2,
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
   },
   autoTitle: { color: tokens.muted, fontWeight: 450 },
   critical: { display: "inline-flex", color: tokens.warning },

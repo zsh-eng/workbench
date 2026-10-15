@@ -22,6 +22,37 @@ export function tooltip(label: string | undefined, shortcut?: string, side?: Too
   };
 }
 
+/**
+ * The attributes that give a name that a column can cut the app's tooltip,
+ * with its whole text. The tooltip shows only while the name is cut: while
+ * the element, or each of its parts marked `data-clip`, is narrower than its
+ * text, or with `data-clip="lines"`, shorter. A name that fits has none.
+ */
+export function clippedTooltip(label: string) {
+  return { "data-tooltip-clipped": label };
+}
+
+/** Whether a name is cut. Pierre's tree rows mark their text's parts. */
+function isClipped(element: Element) {
+  const marked = element.querySelectorAll("[data-clip], [data-truncate-content='visible']");
+  return [...(marked.length ? marked : [element])].some(
+    (part) =>
+      part.scrollWidth > part.clientWidth + 1 ||
+      (part.getAttribute("data-clip") === "lines" && part.scrollHeight > part.clientHeight + 1),
+  );
+}
+
+/** A tooltip's text; empty when the control has none now. */
+const labelOf = (element: Element) => {
+  const label = element.getAttribute("data-tooltip");
+  if (label !== null) return label;
+  // A file tree's row (FileSidebar) names its path.
+  const clipped =
+    element.getAttribute("data-tooltip-clipped") ??
+    element.getAttribute("data-item-path")?.replace(/\/$/, "");
+  return clipped && isClipped(element) ? clipped : "";
+};
+
 /** The delays of Base UI's tooltip provider: the pointer rests, the tooltip
  * closes, and after it closes, the next one opens at once for a time. */
 const REST_MS = 400;
@@ -39,7 +70,7 @@ interface Tip {
 
 const readTip = (element: Element, instant?: Tip["instant"]): Tip => ({
   anchor: element,
-  label: element.getAttribute("data-tooltip") ?? "",
+  label: labelOf(element),
   shortcut: element.getAttribute("data-tooltip-keys") ?? undefined,
   side: element.getAttribute("data-tooltip-side") === "inline-start" ? "inline-start" : "bottom",
   instant,
@@ -47,9 +78,23 @@ const readTip = (element: Element, instant?: Tip["instant"]): Tip => ({
 
 /** The control with a tooltip that an event is on. */
 const triggerOf = (event: Event) => {
-  const target = event.composedPath().find((node) => node instanceof Element);
-  const trigger = target instanceof Element ? target.closest("[data-tooltip]") : null;
-  return trigger?.getAttribute("data-tooltip") ? trigger : null;
+  const path = event.composedPath();
+  const target = path.find((node) => node instanceof Element);
+  let trigger =
+    target instanceof Element ? target.closest("[data-tooltip], [data-tooltip-clipped]") : null;
+  // A row in the shadow tree of a file tree that asks for its cut names.
+  if (
+    !trigger &&
+    path.some((node) => node instanceof Element && node.hasAttribute("data-tooltip-tree"))
+  )
+    trigger =
+      (path.find(
+        (node) =>
+          node instanceof Element &&
+          node.getAttribute("data-type") === "item" &&
+          node.hasAttribute("data-item-path"),
+      ) as Element | undefined) ?? null;
+  return trigger && labelOf(trigger) ? trigger : null;
 };
 
 /**
@@ -92,7 +137,7 @@ export function AppTooltip() {
       watch?.disconnect();
       watch = new MutationObserver(() => {
         if (!shown) return;
-        if (!shown.isConnected || !shown.getAttribute("data-tooltip")) hide("dismiss");
+        if (!shown.isConnected || !labelOf(shown)) hide("dismiss");
         else
           setTip((current) =>
             current && shown && current.anchor === shown
@@ -103,7 +148,7 @@ export function AppTooltip() {
       watch.observe(document.body, { childList: true, subtree: true });
       watch.observe(trigger, {
         attributes: true,
-        attributeFilter: ["data-tooltip", "data-tooltip-keys"],
+        attributeFilter: ["data-tooltip", "data-tooltip-keys", "data-tooltip-clipped"],
       });
     };
     const hide = (instant?: Tip["instant"]) => {

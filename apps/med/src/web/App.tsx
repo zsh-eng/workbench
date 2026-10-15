@@ -108,6 +108,8 @@ import {
   usePullRequestComments,
   type ThreadPlacement,
 } from "./components/PullRequestComments";
+import { createPathValue, hoveredPath, usePathValue, type PathValue } from "./data/hovered-path";
+import { PathLabel } from "./components/PathLabel";
 import type { CodexFinding, CodexReviewRun } from "../shared/codex-review";
 import { SavedReviewHeader, type SavedReviewActions } from "./components/SavedReviewHeader";
 import {
@@ -264,6 +266,22 @@ const commandRank = (id: string) => {
 /** Abbreviate object IDs; keep symbolic endpoints such as "worktree" whole. */
 function shortRevision(revision: string) {
   return /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(revision) ? revision.slice(0, 7) : revision;
+}
+
+/**
+ * The status bar's path: the file row under the pointer, else the file that
+ * shows, or on the Commit tab the file that its list is on. It renders alone,
+ * so a pointer over the lists does not render the review again.
+ */
+function StatusPath({ shown, commit }: { shown: string | undefined; commit: PathValue | null }) {
+  const hovered = usePathValue(hoveredPath);
+  const focused = usePathValue(commit ?? hoveredPath);
+  const path = hovered ?? (commit ? focused : shown);
+  return (
+    <span {...stylex.props(styles.selectedPath)}>
+      {path && <PathLabel path={path} quiet={false} />}
+    </span>
+  );
 }
 
 function readPreference<T extends string>(key: string, fallback: T, values: readonly T[]): T {
@@ -843,6 +861,8 @@ export function App({
   // unified until it has room again.
   const [mainElement, setMainElement] = useState<HTMLElement | null>(null);
   const [roomy, setRoomy] = useState(true);
+  // The Commit tab's file, for the status bar.
+  const [commitPath] = useState(createPathValue);
   const [compactSelection, setCompactSelection] = useState(false);
   useLayoutEffect(() => {
     if (!mainElement) return;
@@ -5209,7 +5229,6 @@ export function App({
                 )}
                 {railShown && (
                   <ChangesRail
-                    narrow={!roomy}
                     repo={state.session?.repository.path ?? null}
                     pathActions={pathActions}
                     files={files}
@@ -5644,6 +5663,7 @@ export function App({
                     draftKey={`med:commit-message:${commitRepo}`}
                     onOpenFile={openCommitFile}
                     stageIn={quiet && !zen && (!stageSlot || stageFits) ? stageSlot : undefined}
+                    focusPath={commitPath}
                   />
                 </Suspense>
               </div>
@@ -5929,9 +5949,10 @@ export function App({
             </span>
           )}
           <span {...stylex.props(ui.grow)} />
-          <span {...stylex.props(styles.selectedPath)}>
-            {activeFile?.path ?? selectedFile?.path}
-          </span>
+          <StatusPath
+            shown={activeFile?.path ?? selectedFile?.path}
+            commit={fileState.active === "commit" && !activeFile ? commitPath : null}
+          />
           {!activeFile && state.metrics && (
             <span
               title="Request includes transfer; parse runs in a worker; frame measures React update to a frame after Pierre rendered."
@@ -6631,13 +6652,13 @@ const styles = stylex.create({
   },
   statusWaiting: { backgroundColor: tokens.warning, animationName: "none" },
   statusIdle: { backgroundColor: tokens.faint, animationName: "none" },
+  // The whole path while it fits; its folders give way first.
   selectedPath: {
-    maxWidth: 280,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
+    display: "flex",
+    flexShrink: 1,
+    minWidth: 0,
+    maxWidth: "60%",
     color: tokens.faint,
-    display: { default: "inline", "@media (max-width: 1000px)": "none" },
   },
   performance: {
     color: tokens.faint,
