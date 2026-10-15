@@ -1,17 +1,24 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { z } from "zod";
 import { agentMessageSchema, type AgentMessage, type SentComment } from "../shared/agent-inbox";
 import type { AgentSession } from "../shared/saved-review";
 import { HostError } from "./runtime/errors";
 
-/** A message as Med keeps it: what the user sees, and the text the agent gets. */
-const storedMessageSchema = agentMessageSchema.extend({ body: z.string() });
+/** A message as Med keeps it: what the user sees, the text the agent gets,
+ * and whether it waits for another process to end (`held`). */
+const storedMessageSchema = agentMessageSchema.extend({
+  body: z.string(),
+  held: z.boolean().optional(),
+});
 type StoredMessage = z.infer<typeof storedMessageSchema>;
 const MAX_MESSAGES = 100;
+/** Between the messages that one prompt or one wait gives the agent. */
+const BETWEEN_MESSAGES = "\n\n---\n\n";
+const REVIEW_FILE = /^([A-Za-z0-9_-]+)\.json$/;
 /** A `med review wait` that ends its poll still counts as waiting while it polls again. */
 const WAIT_GRACE_MS = 5_000;
 /** A wait that confirms its messages has this long to do so; then they go to
@@ -30,16 +37,21 @@ interface Waiter {
 }
 
 /**
- * Messages that the review sends to its agent sessions. A Claude session
- * takes them with `med review wait`, a long poll that ends when a message
- * arrives. A Codex session gets them from its own queue (`codex queue`), which
- * the next Codex process for the thread reads first.
+ * Messages that the review sends to its agent sessions. A session that Med
+ * runs gets them as its next prompt (`deliver`), with the messages that
+ * waited before them. A Claude session that another process runs takes them
+ * with `med review wait`, a long poll that ends when a message arrives, or
+ * gets them when that process ends (`held`, held-messages.ts). A Codex
+ * session gets them from its own queue (`codex queue`), which the next Codex
+ * process for the thread reads first.
  */
 export class AgentInbox {
   private waiters = new Map<string, Waiter>();
   /** Messages given to a wait that has not confirmed them, by message ID. */
   private unconfirmed = new Map<string, ReturnType<typeof setTimeout>>();
   private polled = new Map<string, number>();
+  /** Sessions that ran `med review wait` in this host's life, as `review:session`. */
+  private waited = new Set<string>();
   private listeners = new Map<string, Set<() => void>>();
   private writes = new Map<string, Promise<unknown>>();
   /** Each review's newest message, read once after each change. */
@@ -118,7 +130,7 @@ export class AgentInbox {
 
   async messages(reviewId: string): Promise<AgentMessage[]> {
     await this.writes.get(reviewId)?.catch(() => {});
-    return (await this.read(reviewId)).map(({ body: _body, ...message }) => message);
+    return (await this.read(reviewId)).map(({ body: _body, held: _held, ...message }) => message);
   }
 
   /** The review's newest message, for the thread list; it reads the file
@@ -142,6 +154,86 @@ export class AgentInbox {
     return [...sessions].map((key) => key.slice(prefix.length));
   }
 
+  /** Whether the session takes messages with `med review wait`: it, or a
+   * wait for any session of the review, waited in this host's life. */
+  usesWait(reviewId: string, sessionId: string) {
+    return this.waited.has(`${reviewId}:${sessionId}`) || this.waited.has(`${reviewId}:*`);
+  }
+
+  /** Whether a message to the session waits for delivery. */
+  async pending(reviewId: string, sessionId: string) {
+    return (await this.messages(reviewId)).some(
+      (message) => message.sessionId === sessionId && message.delivery === "pending",
+    );
+  }
+
+  /** The sessions whose messages wait for another process to end, in every
+   * review, as Med kept them before it restarted. */
+  async held(): Promise<{ reviewId: string; sessionId: string }[]> {
+    let names: string[];
+    try {
+      names = await readdir(this.directory);
+    } catch {
+      return [];
+    }
+    const held: { reviewId: string; sessionId: string }[] = [];
+    for (const name of names) {
+      const reviewId = REVIEW_FILE.exec(name)?.[1];
+      if (!reviewId) continue;
+      const sessions = new Set(
+        (await this.read(reviewId))
+          .filter((message) => message.held && message.delivery === "pending")
+          .map((message) => message.sessionId),
+      );
+      for (const sessionId of sessions) held.push({ reviewId, sessionId });
+    }
+    return held;
+  }
+
+  /**
+   * Gives the session's pending messages, in order, to `deliver` as one
+   * prompt, such as to a Claude session that Med resumes. With `to`, they go
+   * to that session instead, such as a fork that continues the work. Messages
+   * that a wait took and has not confirmed stay with that wait. Returns how
+   * many it gave, and how many still wait.
+   */
+  deliverPending(
+    reviewId: string,
+    sessionId: string,
+    deliver: (body: string) => Promise<void>,
+    to?: AgentSession,
+  ) {
+    return this.change(reviewId, async (messages) => {
+      const waiting = messages.filter(
+        (message) => message.sessionId === sessionId && message.delivery === "pending",
+      );
+      const due = waiting.filter((message) => !this.unconfirmed.has(message.id));
+      if (!due.length) return { delivered: 0, left: waiting.length };
+      let error: string | undefined;
+      try {
+        await deliver(due.map((message) => message.body).join(BETWEEN_MESSAGES));
+      } catch (reason) {
+        error = reason instanceof Error ? reason.message : String(reason);
+      }
+      const at = new Date(this.now()).toISOString();
+      for (const message of due) {
+        delete message.held;
+        if (to) {
+          message.sessionId = to.id;
+          message.agent = to.agent;
+        }
+        if (error) {
+          message.delivery = "failed";
+          message.error = error;
+        } else {
+          message.delivery = "delivered";
+          message.deliveredAt = at;
+        }
+      }
+      return { delivered: error ? 0 : due.length, left: waiting.length - due.length };
+    });
+  }
+
   async send(
     reviewId: string,
     session: AgentSession,
@@ -154,8 +246,14 @@ export class AgentInbox {
       attachmentCount: number;
     },
     body: string,
-    /** Sends to a session that Med owns, as its next prompt. */
-    deliver?: (body: string) => Promise<void>,
+    route: {
+      /** Sends to a session that Med runs, as its next prompt, with the
+       * session's messages that wait before it. */
+      deliver?: (body: string) => Promise<void>;
+      /** Another process runs the session: the message waits until that
+       * process takes it with `med review wait`, or ends. */
+      held?: boolean;
+    } = {},
   ): Promise<AgentMessage> {
     if (message.id) {
       const sent = (await this.messages(reviewId)).find((entry) => entry.id === message.id);
@@ -172,16 +270,33 @@ export class AgentInbox {
       createdAt: new Date(this.now()).toISOString(),
       delivery: "pending",
       body,
+      ...(route.held ? { held: true } : {}),
     };
+    const { deliver } = route;
     if (deliver) {
-      try {
-        await deliver(body);
-        stored.delivery = "delivered";
-        stored.deliveredAt = new Date(this.now()).toISOString();
-      } catch (error) {
-        stored.delivery = "failed";
-        stored.error = error instanceof Error ? error.message : String(error);
-      }
+      // The messages that waited go first, in the same prompt, and only once:
+      // the change holds the review's messages while the agent takes them.
+      await this.change(reviewId, async (messages) => {
+        const earlier = messages.filter(
+          (entry) =>
+            entry.sessionId === session.id &&
+            entry.delivery === "pending" &&
+            !this.unconfirmed.has(entry.id),
+        );
+        try {
+          await deliver([...earlier.map((entry) => entry.body), body].join(BETWEEN_MESSAGES));
+          const at = new Date(this.now()).toISOString();
+          for (const entry of [...earlier, stored]) {
+            delete entry.held;
+            entry.delivery = "delivered";
+            entry.deliveredAt = at;
+          }
+        } catch (error) {
+          stored.delivery = "failed";
+          stored.error = error instanceof Error ? error.message : String(error);
+        }
+        messages.push(stored);
+      });
     } else if (session.agent === "codex") {
       try {
         if (Buffer.byteLength(body) > MAX_CODEX_MESSAGE_BYTES)
@@ -194,12 +309,16 @@ export class AgentInbox {
         stored.error = error instanceof Error ? error.message : String(error);
       }
     }
-    await this.change(reviewId, (messages) => {
-      messages.push(stored);
-    });
+    if (!deliver)
+      await this.change(reviewId, (messages) => {
+        messages.push(stored);
+      });
     if (!deliver && session.agent === "claude") await this.offer(reviewId, session.id);
-    const { body: _body, ...result } =
-      (await this.read(reviewId)).find((entry) => entry.id === stored.id) ?? stored;
+    const {
+      body: _body,
+      held: _held,
+      ...result
+    } = (await this.read(reviewId)).find((entry) => entry.id === stored.id) ?? stored;
     return result;
   }
 
@@ -262,7 +381,7 @@ export class AgentInbox {
         }
       return {
         ids: pending.map((message) => message.id),
-        body: pending.map((message) => message.body).join("\n\n---\n\n"),
+        body: pending.map((message) => message.body).join(BETWEEN_MESSAGES),
       };
     });
   }
@@ -301,6 +420,7 @@ export class AgentInbox {
     confirm = false,
   ): Promise<WaitResult> {
     const key = `${reviewId}:${sessionId ?? "*"}`;
+    this.waited.add(key);
     const pending = await this.take(reviewId, sessionId, confirm);
     if (pending) return pending;
     this.waiters.get(key)?.resolve({ superseded: true });

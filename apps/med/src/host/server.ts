@@ -89,6 +89,7 @@ import {
   transcriptTurns,
 } from "./agent-transcripts";
 import { AgentInbox, findCodex } from "./agent-inbox";
+import { createHeldMessages } from "./held-messages";
 import { findAgents, OwnedSessions, type RunnableAgent } from "./owned-sessions";
 import { createAgentStatus } from "./agent-status";
 import { createFoundSessions } from "./found-sessions";
@@ -127,6 +128,7 @@ import {
   reviewKeySchema,
   savedReviewCreateSchema,
   threadCheckout,
+  type AgentSession,
   type CapturedReviewTarget,
   type SavedCheckout,
   type SavedReviewCreate,
@@ -156,6 +158,8 @@ export interface StartHostOptions {
   queueCodex?: (threadId: string, text: string) => Promise<void>;
   /** How long a `med review wait` has to confirm a message (tests shorten it). */
   agentAckMs?: number;
+  /** How often Med checks the process that holds a message (held-messages.ts). */
+  heldCheckMs?: number;
   /** The agents Med can start; tests replace the installed ones. */
   agents?: () => Promise<RunnableAgent[]>;
   /** The GitHub CLI that opens pull requests; tests give a fake one. */
@@ -333,6 +337,61 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     environment: agentEnvironment,
   });
   await ownedSessions.restore();
+  /**
+   * The review's Claude sessions that Med does not run now, or restored
+   * without a process: those that another process runs, such as Claude Code
+   * in a terminal, and those that a message resumes in Med. A session that
+   * takes messages with `med review wait` is in neither.
+   */
+  const claudeSessions = async (
+    reviewId: string,
+    sessions: readonly AgentSession[] = [],
+    maxAgeMs = 1000,
+  ) => {
+    const ids = sessions.flatMap((session) => {
+      const runner = ownedSessions.get(session.id);
+      return session.agent === "claude" &&
+        (!runner || (runner.dormant() && runner.state().status !== "exited"))
+        ? [session.id]
+        : [];
+    });
+    const running = ids.length ? await ownedSessions.elsewhere(ids, maxAgeMs) : new Set<string>();
+    return {
+      elsewhere: ids.filter((id) => running.has(id) && !inbox.usesWait(reviewId, id)),
+      resumable: ids.filter((id) => !running.has(id)),
+    };
+  };
+  // Messages that wait for another process to end. When it ends, Med resumes
+  // the session, or wakes the one that it restored, and gives it the
+  // messages in one prompt. A `med review wait` of that process takes them
+  // first if it runs.
+  const heldMessages = createHeldMessages({
+    ...(options.heldCheckMs ? { intervalMs: options.heldCheckMs } : {}),
+    check: async (reviewId, sessionId) => {
+      if (!(await inbox.pending(reviewId, sessionId))) return "done";
+      const waits = inbox.waiting(reviewId);
+      if (waits.includes(sessionId) || waits.includes("*")) return "held";
+      if (await ownedSessions.runsElsewhere(sessionId)) return "held";
+      const bundle = await savedReviews.get(reviewId).catch(() => undefined);
+      const session = bundle?.sessions?.find((entry) => entry.id === sessionId);
+      if (!bundle || session?.agent !== "claude") return "done";
+      const current = ownedSessions.get(sessionId);
+      // The user stopped the session in Med; the messages stay for a wait.
+      if (current?.state().status === "exited") return "done";
+      let runner = current;
+      try {
+        runner ??= await ownedSessions.resume(session, bundle.key ? { key: bundle.key } : {});
+      } catch (error) {
+        await inbox.deliverPending(reviewId, sessionId, () => Promise.reject(error));
+        return "done";
+      }
+      const { left } = await inbox.deliverPending(reviewId, sessionId, (body) =>
+        runner.prompt(body),
+      );
+      return left ? "held" : "done";
+    },
+  });
+  for (const { reviewId, sessionId } of await inbox.held()) heldMessages.watch(reviewId, sessionId);
   const ownedStreams = new Set<ServerResponse>();
   const codexReviews = new CodexReviews();
   const reviewStatus = createAgentStatus({
@@ -1249,6 +1308,40 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           const bundle = await savedReviews.get(reviewId!);
           if (!sessionId && request.method === "POST") {
             const input = ownedStartSchema.parse(await readBody(request));
+            if (input.fork) {
+              // Continue in Med: the terminal keeps its session, and the
+              // thread follows a fork that Med runs.
+              const from = bundle.sessions?.find((entry) => entry.id === input.fork);
+              if (!from || from.agent !== "claude")
+                throw new HostError(
+                  "session-not-found",
+                  "This thread has no such Claude session.",
+                  404,
+                );
+              const current = ownedSessions.get(from.id);
+              if (current && !current.dormant() && current.state().status !== "exited")
+                throw new HostError(
+                  "session-owned",
+                  "Med runs this session already. Send your message here.",
+                  409,
+                );
+              assertRequestAccess();
+              const runner = await ownedSessions.fork(from, bundle.key ? { key: bundle.key } : {});
+              const review = await savedReviews.details(
+                reviewId!,
+                { sessions: [runner.session] },
+                assertRequestAccess,
+              );
+              // The messages that waited for the other process start the fork.
+              await inbox.deliverPending(
+                reviewId!,
+                from.id,
+                (body) => runner.prompt(body),
+                runner.session,
+              );
+              send({ review, state: runner.state() });
+              return;
+            }
             const target =
               bundle.targets.find((entry) => entry.id === input.targetId) ??
               threadCheckout(bundle)!;
@@ -1333,12 +1426,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 if ((sent.get(id) ?? "") < message.createdAt) sent.set(id, message.createdAt);
             const comments = await savedReviews.comments(reviewId);
             // The events stream asks again on each change; read the review again.
-            const { briefComments } = await savedReviews.get(reviewId);
+            const { briefComments, sessions } = await savedReviews.get(reviewId);
             const unsent = (comment: { id: string; updatedAt: string }) =>
               (sent.get(comment.id) ?? "") < comment.updatedAt;
             return {
               messages,
               waiting: inbox.waiting(reviewId),
+              ...(await claudeSessions(reviewId, sessions)),
               drafts: [
                 ...comments.filter(unsent).map((comment) => ({
                   id: comment.id,
@@ -1423,11 +1517,27 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             }
             for (const attachment of input.attachments)
               parts.push(`## ${attachment.label}\n\n${attachment.text}`);
-            // An agent that Med runs and that takes images gets them in the
-            // prompt. Any other agent gets the paths of saved copies.
             const runner = ownedSessions.get(session.id);
-            const running = runner && runner.state().status !== "exited" ? runner : undefined;
-            const native = running?.state().images ? input.images : [];
+            const live = runner && runner.state().status !== "exited" ? runner : undefined;
+            // A Claude session that Med does not run, or restored without its
+            // process, can run in another process, such as Claude Code in a
+            // terminal. Then the message waits until that process takes it
+            // with `med review wait`, or ends. Otherwise Med resumes the
+            // session and sends the message as its next prompt.
+            let held = false;
+            let resume = false;
+            if ((!live || live.dormant()) && session.agent === "claude" && (!runner || live)) {
+              const waits = inbox.waiting(reviewId);
+              held =
+                waits.includes(session.id) ||
+                waits.includes("*") ||
+                (await ownedSessions.runsElsewhere(session.id));
+              resume = !held && !live;
+            }
+            // An agent that Med runs and that takes images gets them in the
+            // prompt, as Claude Code does. Any other agent gets the paths of
+            // saved copies.
+            const native = resume || (live && !held && live.state().images) ? input.images : [];
             if (input.images.length && !native.length)
               parts.push(imagesText(await saveImages(imageDirectory, input.images)));
             if (!parts.length && !native.length)
@@ -1437,6 +1547,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 400,
               );
             // A session that Med runs takes the message as its next prompt.
+            const target = held
+              ? undefined
+              : resume
+                ? await ownedSessions.resume(session, bundle.key ? { key: bundle.key } : {})
+                : live;
             const message = await inbox.send(
               reviewId,
               session,
@@ -1448,8 +1563,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 attachmentCount: input.attachments.length,
               },
               parts.join("\n\n"),
-              running ? (body) => running.prompt(body, native) : undefined,
+              target ? { deliver: (body) => target.prompt(body, native) } : { held },
             );
+            if (held && message.delivery === "pending") heldMessages.watch(reviewId, session.id);
             send({ message, state: await inboxState() });
             return;
           }
@@ -2830,6 +2946,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       if (closing) return;
       closing = true;
       clearInterval(heartbeat);
+      heldMessages.stop();
       await ownedSessions.stopAll();
       await questions.stopAll();
       for (const stream of questionStreams) stream.end();

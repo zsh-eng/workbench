@@ -108,7 +108,13 @@ export function createDemoAgent(
   const events: SessionEvent[] = [];
   const stateListeners = new Set<() => void>();
   const eventListeners = new Set<(events: SessionEvent[]) => void>();
-  let inbox: AgentInboxState = { messages: [], waiting: [], drafts: options.drafts ?? [] };
+  let inbox: AgentInboxState = {
+    messages: [],
+    waiting: [],
+    elsewhere: [],
+    resumable: [],
+    drafts: options.drafts ?? [],
+  };
   const inboxListeners = new Set<() => void>();
   let timers: ReturnType<typeof setTimeout>[] = [];
   let answer: ((option: string) => void) | undefined;

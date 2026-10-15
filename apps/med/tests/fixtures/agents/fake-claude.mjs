@@ -1,8 +1,16 @@
 // A stand-in for `claude -p --input-format stream-json`. It answers Med's
 // control requests, asks to edit a file, and writes a transcript under
-// MED_HOME_DIR as Claude Code does.
+// MED_HOME_DIR as Claude Code does. With `--fork-session`, its first prompt
+// starts a new transcript with the resumed session's history.
 import { randomUUID } from "node:crypto";
-import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
@@ -14,9 +22,22 @@ const flag = (name) => {
   return index < 0 ? undefined : args[index + 1];
 };
 const sessionId = flag("--session-id") ?? flag("--resume");
-const project = join(process.env.MED_HOME_DIR, ".claude", "projects", "-fake-repo");
+const projects = join(process.env.MED_HOME_DIR, ".claude", "projects");
+const project = join(projects, "-fake-repo");
 mkdirSync(project, { recursive: true });
 const transcript = join(project, `${sessionId}.jsonl`);
+/** The resumed session's history, which a fork copies with its own ID. */
+let forkOf = args.includes("--fork-session") ? flag("--resume") : undefined;
+function copyHistory() {
+  const folder = readdirSync(projects).find((name) =>
+    existsSync(join(projects, name, `${forkOf}.jsonl`)),
+  );
+  if (folder)
+    for (const line of readFileSync(join(projects, folder, `${forkOf}.jsonl`), "utf8").split("\n"))
+      if (line.trim())
+        appendFileSync(transcript, `${JSON.stringify({ ...JSON.parse(line), sessionId })}\n`);
+  forkOf = undefined;
+}
 // A test reads the arguments and the variables that Med sets.
 writeFileSync(join(project, `${sessionId}.args.json`), JSON.stringify(args));
 writeFileSync(
@@ -135,6 +156,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     .map((block) => block.text)
     .join("");
   const images = blocks.filter((block) => block.type === "image");
+  if (forkOf) copyHistory();
   record({ type: "user", uuid: randomUUID(), message: { role: "user", content } });
   send({ type: "system", subtype: "status", status: "requesting" });
   if (text.includes("Edit")) {

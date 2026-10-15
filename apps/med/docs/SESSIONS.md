@@ -201,6 +201,56 @@ title that the user sets later goes. On a scratch home with 1,770 synthetic
 transcripts (the size of a real history), the first search took 86 ms and
 later ones 15 ms.
 
+## Messages to adopted sessions
+
+A thread that Keep in Med, `med thread adopt`, or a hand-off made names a
+Claude Code session that Med did not start. A message to it
+(`POST /api/reviews/:id/agent/messages`) goes one of three ways:
+
+- **No process runs the session.** Med resumes it as a session that Med runs
+  (`OwnedSessions.resume`: `claude -p --resume <id>` with `stream-json`) and
+  sends the message as its next prompt, after the messages that waited for
+  the session, in order, in one prompt. Med keeps its record in
+  `owned-sessions.json`, so it resumes after a restart too, and the thread
+  shows the turn live. Before the send, the message box says "Med resumes
+  Claude with this message".
+- **Another process runs it**, such as Claude Code in a terminal or in Claude
+  Desktop. Med cannot type there, and two writers would mix one transcript.
+  The message box says so in one line: "Claude has this session open in a
+  terminal. Med can't type there." A message then waits, with "Waiting for the
+  terminal session to close". While a message waits, the host checks the
+  process every 3 seconds (`src/host/held-messages.ts`); nothing polls
+  otherwise. When the process ends, Med resumes the session as above and
+  sends the waiting messages once. Med keeps a held message's mark in its
+  inbox file, so a restart checks it again.
+- **The session takes messages with `med review wait`**, as after a hand-off.
+  A wait that waits gets the message at once; a later wait takes the messages
+  that waited, and Med does not send them again. If the process ends first,
+  Med resumes the session and sends them.
+
+**Continue in Med** (on that line, and in `⌘K`) forks the session:
+`claude -p --resume <id> --fork-session --session-id <new ID>`, with an ID
+that Med chooses (`POST /api/reviews/:id/owned` with `fork`). The fork is a
+session of the thread that Med runs, after the original in the thread's
+sessions, so the thread follows it. The waiting messages go to the fork as its
+first prompt. The terminal keeps its session as it is. Unlike a question's
+fork, this fork is not left out of the found sessions or session search.
+
+**Detection** (`src/host/session-processes.ts`). Claude Code keeps a record
+for each running process in `~/.claude/sessions/<pid>.json`. Med reads only
+two fields: `sessionId`, and `procStart`, which is the output of
+`ps -o lstart= -p <pid>` with `LC_ALL=C` and `TZ=UTC` when the process
+started, such as `Thu Oct 15 09:12:03 2026`. A record counts when its
+`sessionId` matches, its process is alive (`kill(pid, 0)`), and `ps` gives
+the same start time now, so a pid that the system gave to a newer process
+does not count. Med's own agents and `--fork-session` processes (questions)
+do not count. A process that names the session in its arguments, such as
+`claude --resume <id>`, also counts. When Med cannot tell, as for a record
+that it cannot read, the session counts as running elsewhere: a held message
+is safe, and Continue in Med is still there; two writers on one transcript
+are not safe. Med does not use Claude Code's messaging socket: Claude treats
+those messages as another session's, not as the user's.
+
 ## Browser
 
 - `data/session-store.ts` turns updates into thread items. An update replaces
@@ -275,8 +325,11 @@ later ones 15 ms.
   it; the arrow keys, Home, and End move between the tabs.
 - A message from the composer shows in the thread at once, with "Sending…".
   The host keeps the browser's ID for it, so a retry after a lost answer does
-  not send it twice. A failed send keeps the text with Retry and Discard. When
-  the agent takes the message, it replaces the agent's own copy in the
+  not send it twice. A failed send keeps the text with Retry and Discard. A
+  message that waits says for what: "Waiting for Claude to take it", or
+  "Waiting for the terminal session to close" while a terminal runs the
+  session ([messages to adopted sessions](#messages-to-adopted-sessions)).
+  When the agent takes the message, it replaces the agent's own copy in the
   transcript, so the turn before keeps its reply and its "Worked for" row.
 - The thread is a virtual list. Only the units within 1,200 px of the view
   render; spacers hold the height of the others. When less than 800 px stays
@@ -360,7 +413,8 @@ runs. For those, two things differ from a real ACP connection:
   replies as whole blocks; only the process that owns the agent sees token
   deltas (Claude Desktop runs Claude Code with `--include-partial-messages`).
 - **Control.** A reader cannot prompt the agent, answer a permission request,
-  or stop it.
+  or stop it. Med can resume a Claude session that no process runs, and then
+  owns it ([messages to adopted sessions](#messages-to-adopted-sessions)).
 
 To get both, Med can start the agent itself: Claude Code with
 `stream-json`, or an ACP agent such as `opencode acp`

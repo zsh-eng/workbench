@@ -364,10 +364,14 @@ export function SessionPanel({
   footer,
   openAgent,
   recap,
+  onContinue,
 }: {
   /** The recap of the thread's last turn, which ended unseen. It shows at
    * the end of the latest session; Reply goes to its message box. */
   recap?: Omit<TurnRecapProps, "onReply">;
+  /** Continue in Med: forks a Claude session that a terminal runs into one
+   * that Med runs, which the thread then follows. */
+  onContinue?(sessionId: string): Promise<void>;
   /** In place of the message box of a session that the panel only reads,
    * such as one that Med found (FoundSession.tsx). */
   footer?: ReactNode;
@@ -409,7 +413,14 @@ export function SessionPanel({
   const chosen = pick.latest === latest ? pick.id : latest;
   const setChosen = (id: string) => setPick({ latest, id });
   const session = sessions.find((entry) => entry.id === chosen) ?? sessions.at(-1)!;
-  const owned = useOwnedSession(reviewId, session.id, fetcher);
+  // A Claude session that Med does not run: open in a terminal, or nowhere.
+  // When Med resumes it, the session's controls come.
+  const presence = inbox?.state?.elsewhere.includes(session.id)
+    ? ("elsewhere" as const)
+    : inbox?.state?.resumable.includes(session.id)
+      ? ("resumable" as const)
+      : undefined;
+  const owned = useOwnedSession(reviewId, session.id, fetcher, presence);
   const store = useMemo(() => keptSessionStore(reviewId, session.id), [reviewId, session.id]);
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [state, setState] = useState<SessionStreamState>({
@@ -584,10 +595,16 @@ export function SessionPanel({
   const sending = new Set(outgoing.flatMap((message) => message.input.noteIds));
   const shown = useMemo(() => {
     const sent: SentMessage[] = [
-      ...(messages?.filter(
-        (message) =>
-          message.sessionId === session.id && !outgoing.some((entry) => entry.id === message.id),
-      ) ?? []),
+      ...(messages
+        ?.filter(
+          (message) =>
+            message.sessionId === session.id && !outgoing.some((entry) => entry.id === message.id),
+        )
+        .map((message) =>
+          presence === "elsewhere" && message.delivery === "pending"
+            ? { ...message, waitsFor: "terminal" as const }
+            : message,
+        ) ?? []),
       ...outgoing
         .filter((message) => message.input.sessionId === session.id)
         .map((message): SentMessage => {
@@ -622,7 +639,7 @@ export function SessionPanel({
       : { ...snapshot, items, running };
     // post changes each render; the rows take it when the list changes.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [snapshot, messages, outgoing, session.id, session.agent, streaming, running]);
+  }, [snapshot, messages, outgoing, session.id, session.agent, streaming, running, presence]);
   const needsYou = !!ownedState?.permission;
   const panel = useRef<HTMLElement>(null);
   const turnRecap = useMemo(
@@ -764,6 +781,8 @@ export function SessionPanel({
             agent={session.agent}
             name={agent}
             waiting={waiting}
+            presence={presence}
+            onContinue={onContinue && (() => onContinue(session.id))}
             drafts={(inbox.state?.drafts ?? []).filter((draft) => !sending.has(draft.id))}
             attachments={attachments}
             onRemoveAttachment={(id) => onRemoveAttachment?.(id)}

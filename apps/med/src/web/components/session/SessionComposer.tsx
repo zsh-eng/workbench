@@ -17,6 +17,7 @@ import type {
 import { tokens, ui } from "../../theme.stylex";
 import { ChoiceSelect } from "../Controls";
 import { Icon } from "../Icon";
+import { tooltip } from "../ToolButton";
 import { ImageViewer, imageSource } from "./ImageThumbs";
 import { useMentions } from "../Mentions";
 import type { MentionSources } from "../../data/mentions";
@@ -138,13 +139,17 @@ export function PermissionCard({
 
 /**
  * Writes to the agent from the review: the user's text, the comments not yet
- * sent, and other text such as GitHub comments. A Claude session takes the
- * message when it runs `med review wait`; a Codex session reads its queue.
+ * sent, and other text such as GitHub comments. A Claude session that no
+ * process runs resumes in Med with the message; one that a terminal runs
+ * takes it when it runs `med review wait`, or gets it when the terminal
+ * closes. A Codex session reads its queue.
  */
 export function SessionComposer({
   agent,
   name,
   waiting,
+  presence,
+  onContinue,
   drafts,
   attachments,
   onRemoveAttachment,
@@ -153,6 +158,11 @@ export function SessionComposer({
   mentions: mentionSources,
   onMentionsWanted,
 }: {
+  /** Where a Claude session runs, when Med does not run it: in another
+   * process, such as a terminal, or nowhere, so a message resumes it. */
+  presence?: "elsewhere" | "resumable";
+  /** Continue in Med: a fork of a session that a terminal runs. */
+  onContinue?(): Promise<void>;
   /** What @ can name: files, vault notes, and threads. Without it, @ is text. */
   mentions?: MentionSources;
   /** @ opened: the workspace reads again what it can name. */
@@ -183,6 +193,7 @@ export function SessionComposer({
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [menuClosed, setMenuClosed] = useState(false);
+  const [continuing, setContinuing] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const menuId = useId();
   const chosen = drafts.filter((draft) => !left.has(draft.id));
@@ -287,13 +298,19 @@ export function SessionComposer({
       void act({ action: "interrupt" });
     }
   };
+  const terminal =
+    presence === "elsewhere"
+      ? `${name} has this session open in a terminal. Med can't type there.`
+      : undefined;
+  // Without a Med runner, the line takes the footer's status place.
+  const elsewhere = !!terminal && !owned && !error;
   const ownedStatus = error
     ? error
     : status === "starting"
       ? `Starting ${name}…`
       : stopped
         ? `${name} stopped. Start a new session to continue.`
-        : owned?.state.error;
+        : (owned?.state.error ?? terminal);
 
   return (
     <>
@@ -493,8 +510,14 @@ export function SessionComposer({
             {ownedStatus}
           </span>
         )}
-        <div {...stylex.props(styles.footer)}>
-          {owned ? (
+        <div {...stylex.props(styles.footer, elsewhere && styles.footerWraps)}>
+          {elsewhere ? (
+            // A session that a terminal runs: one quiet line, and Continue in Med.
+            // In a narrow pane the line takes its own row above the buttons.
+            <span role="status" {...stylex.props(styles.elsewhere)}>
+              {terminal}
+            </span>
+          ) : owned ? (
             <div {...stylex.props(styles.pickers)}>
               {settings.map((setting) => (
                 <ChoiceSelect
@@ -523,6 +546,8 @@ export function SessionComposer({
                   <span {...stylex.props(styles.live)} />
                   {name} is waiting for your review
                 </>
+              ) : presence === "resumable" ? (
+                `Med resumes ${name} with this message`
               ) : (
                 <>
                   {name} gets this when it runs{" "}
@@ -530,6 +555,25 @@ export function SessionComposer({
                 </>
               )}
             </span>
+          )}
+          {terminal && onContinue && (
+            <button
+              type="button"
+              disabled={continuing}
+              {...tooltip("Fork the session into one that Med runs; the terminal keeps its own")}
+              onClick={() => {
+                setContinuing(true);
+                setError(null);
+                onContinue()
+                  .catch((reason: unknown) =>
+                    setError(reason instanceof Error ? reason.message : "Med did not continue it."),
+                  )
+                  .finally(() => setContinuing(false));
+              }}
+              {...stylex.props(ui.button, ui.pressable, ui.outlined, styles.continue)}
+            >
+              {continuing ? "Continuing…" : "Continue in Med"}
+            </button>
           )}
           {owned?.state.context && (
             <ContextMeter used={owned.state.context.used} total={owned.state.context.total} />
@@ -727,6 +771,27 @@ const styles = stylex.create({
     fontWeight: 400,
   },
   ownedStatus: { flex: "none", whiteSpace: "normal" },
+  // A session that a terminal runs: one quiet line, and Continue in Med. The
+  // line keeps its natural width as its basis, so in a narrow pane it wraps to
+  // a row of its own and the buttons go below it.
+  footerWraps: { flexWrap: "wrap", rowGap: 6 },
+  elsewhere: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: "auto",
+    minWidth: 0,
+    color: tokens.muted,
+    fontSize: 11.5,
+    lineHeight: 1.45,
+  },
+  continue: {
+    flexShrink: 0,
+    minHeight: 24,
+    marginInlineEnd: "auto",
+    paddingInline: 8,
+    color: { default: tokens.text, ":hover:not(:disabled)": tokens.text },
+    fontSize: 11.5,
+  },
   meter: {
     display: "inline-flex",
     alignItems: "center",

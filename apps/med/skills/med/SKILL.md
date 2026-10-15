@@ -173,6 +173,11 @@ folder is not in a registered repository. Put the printed link in your reply.
 The thread captures nothing: it shows the checkout's live Changes, and a
 Review once you run `med thread show`.
 
+The user can message an adopted Claude Code session from Med. When no process
+runs the session, Med resumes it with the message as a new turn. While a
+terminal runs it, the message waits until that session runs `med review wait`
+or ends, or until the user forks it with Continue in Med.
+
 ## Rules
 
 - Include only the repositories your task changed. Use `--manifest` for more

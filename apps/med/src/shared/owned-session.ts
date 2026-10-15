@@ -104,6 +104,15 @@ export const ownedStartSchema = z.object({
   /** The review target whose repository the agent works in. */
   targetId: z.string().max(80).optional(),
   choices: agentChoicesSchema.optional(),
+  /**
+   * Continue in Med: a Claude session of the review that another process
+   * runs. The new session starts from its history (`--fork-session`), and
+   * the messages that wait for that process go to the new one.
+   */
+  fork: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{1,128}$/)
+    .optional(),
 });
 
 export const ownedActionSchema = z.discriminatedUnion("action", [

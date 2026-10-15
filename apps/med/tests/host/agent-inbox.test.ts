@@ -3,14 +3,18 @@ import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { AgentInboxState } from "../../src/shared/agent-inbox";
 import type { SavedReview } from "../../src/shared/saved-review";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { runReviewCommand } from "../../src/cli/review";
+import { openInTerminal } from "../fixtures/terminal-claude";
 
 const directories: string[] = [];
 const hosts: RunningHost[] = [];
+const ends: (() => Promise<void>)[] = [];
 afterEach(async () => {
+  await Promise.all(ends.splice(0).map((end) => end()));
   await Promise.all(hosts.splice(0).map((host) => host.close()));
   await Promise.all(
     directories.splice(0).map((path) => rm(path, { recursive: true, force: true })),
@@ -38,6 +42,8 @@ async function fixture() {
   const home = join(directory, "home");
   await mkdir(home);
   vi.stubEnv("MED_HOME_DIR", home);
+  // The Claude session runs in a terminal and takes messages with `med review wait`.
+  ends.push((await openInTerminal(home, claude)).end);
   const stateDir = join(directory, "state");
   const queued: [string, string][] = [];
   const host = await startHost({
@@ -49,6 +55,16 @@ async function fixture() {
       queued.push([thread, text]);
     },
     agentAckMs: 300,
+    agents: async () => [
+      {
+        id: "claude",
+        name: "Claude Code",
+        kind: "claude",
+        available: true,
+        command: process.execPath,
+        args: [fileURLToPath(new URL("../fixtures/agents/fake-claude.mjs", import.meta.url))],
+      },
+    ],
   });
   hosts.push(host);
   const api = async (path: string, body?: unknown) => {

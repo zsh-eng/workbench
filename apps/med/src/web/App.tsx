@@ -1046,6 +1046,15 @@ export function App({
     }),
     [agentPresets, controller, showPane],
   );
+  // Continue in Med: a fork of a Claude session that a terminal runs. The
+  // thread follows the fork; the terminal keeps its session.
+  const continueInMed = useCallback(
+    async (sessionId: string) => {
+      await controller.startSession("claude", { fork: sessionId });
+      showPane("session");
+    },
+    [controller, showPane],
+  );
   // The lead session: the latest one. Its agent names the reply controls.
   const leadSession = agentSessions.at(-1);
   const replyAgent = leadSession && agentName(leadSession);
@@ -3764,6 +3773,21 @@ export function App({
                     label: `New ${agent.name} session`,
                     run: () => void sessionStarter.start(agent.id).catch(() => {}),
                   })),
+                // The lead session is open in a terminal, where Med cannot type.
+                ...(leadSession && agentInbox.state?.elsewhere.includes(leadSession.id)
+                  ? [
+                      {
+                        id: "continue-in-med",
+                        label: "Continue in Med",
+                        run: () =>
+                          void continueInMed(leadSession.id).catch((error: unknown) =>
+                            showToast(
+                              error instanceof Error ? error.message : "Med did not continue it.",
+                            ),
+                          ),
+                      },
+                    ]
+                  : []),
               ]
             : []),
           ...(panes.open.length > 1
@@ -4951,6 +4975,7 @@ export function App({
                     onMentionsWanted={wantMentions}
                     openAgent={openAgent}
                     recap={recapProps}
+                    onContinue={continueInMed}
                   />
                 )}
               </Suspense>

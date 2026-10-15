@@ -5,6 +5,7 @@ import { appendFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { AgentInboxState } from "../../src/shared/agent-inbox";
 import type { SessionEvent } from "../../src/shared/agent-session";
 import type { Thread, ThreadList } from "../../src/shared/threads";
 import type { AgentOptions, OwnedState } from "../../src/shared/owned-session";
@@ -46,6 +47,7 @@ async function fixture() {
     repos: [repo],
     stateDir,
     port: 0,
+    heldCheckMs: 100,
     agents: async () => [
       {
         id: "claude",
@@ -305,22 +307,29 @@ test("the sessions that Med started come back after the host restarts: Claude Co
   expect((await acp.state()).status).toBe("exited");
 
   // While another Claude Code process runs the session, as in a terminal,
-  // Med does not start a second one.
+  // Med does not start a second one: the message waits for that process to
+  // end. A process that names the session in its arguments counts.
   const send = (text: string) =>
-    api<{ message: { delivery: string; error?: string } }>(
+    api<{ message: { delivery: string; error?: string }; state: AgentInboxState }>(
       `/api/reviews/${review.id}/agent/messages`,
       { sessionId: kept.id, text, noteIds: [] },
     );
   const other = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)", "claude", kept.id]);
+  const exited = once(other, "exit");
   await once(other, "spawn");
   const busy = await send("Are you there?");
-  other.kill();
-  expect(busy.data.message).toMatchObject({ delivery: "failed" });
-  expect(busy.data.message.error).toContain("Another Claude Code process runs this session");
-  await once(other, "exit");
+  expect(busy.data.message).toMatchObject({ delivery: "pending" });
+  expect(busy.data.state.elsewhere).toEqual([kept.id]);
 
-  // The next message resumes the session in a new process, on the new port.
+  // When it ends, Med resumes the session in a new process, on the new port.
   const again = await thread(kept.id);
+  other.kill();
+  await exited;
+  await vi.waitFor(
+    () => expect(again().at(-1)).toBe("Model opus, effort high, mode plan: Are you there?"),
+    { timeout: 5000 },
+  );
+  await kept.until((state) => state.status === "idle");
   expect((await send("Check the summary.")).data.message.delivery).toBe("delivered");
   await vi.waitFor(() =>
     expect(again().at(-1)).toBe("Model opus, effort high, mode plan: Check the summary."),

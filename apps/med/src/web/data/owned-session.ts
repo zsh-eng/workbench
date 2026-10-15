@@ -94,12 +94,14 @@ export function sendOwnedAction(
 
 /**
  * A session that Med runs: its status, settings, commands, and the question
- * that waits for the user. A session that Med only reads has no state.
+ * that waits for the user. A session that Med only reads has no state. A new
+ * `generation` asks again, as when Med resumes a session that it only read.
  */
 export function useOwnedSession(
   reviewId: string,
   sessionId: string,
   fetcher: typeof fetch = browserFetch,
+  generation = "",
 ): OwnedSession {
   const [state, setState] = useState<{ id: string; value: OwnedState } | null>(null);
   const path = ownedPath(reviewId, sessionId);
@@ -134,7 +136,8 @@ export function useOwnedSession(
       }
     })();
     return () => controller.abort();
-  }, [path, sessionId, fetcher]);
+    // A new generation follows the session again.
+  }, [path, sessionId, fetcher, generation]);
   const act = useCallback(
     async (action: OwnedAction) => {
       setState({
