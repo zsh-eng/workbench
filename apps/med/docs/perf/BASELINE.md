@@ -1,19 +1,20 @@
 # Med performance baseline
 
 This document records where Med spends time on 2026-10-15, at commit
-`3a118b9e` (`main`, with tabs). It gives a breakdown of each action and a ranked list of
-fixes. The goal: only React rendering limits Med, and that rendering is well
-optimized. Git, polling, parsing, and start-up must not be on the critical
-path.
+`840f9562` (`main`, with tabs, signals, and live Changes). It gives a
+breakdown of each action, a ranked list of fixes, and the results of the host
+fixes (`med-perf-host`). The goal: only React rendering limits Med, and that
+rendering is well optimized. Git, polling, parsing, and start-up must not be
+on the critical path.
 
 The numbers come from `scripts/perf/baseline.json`. All times are medians, in
 milliseconds. Git, HTTP, and WebSocket counts are the fewest over the runs;
 React counts are medians.
 
-The first baseline was on the `med-explorations` branch (`e2e6db35`). Main does
-not have that branch's Inbox page, Change map, Land, and Turn blame. The
-findings are the same on both; main's numbers are below. On main, the 14 test
-threads are tabs at the first start, so all 14 stay loaded.
+The first baseline was on the `med-explorations` branch (`e2e6db35`), the
+second on `main` at `3a118b9e`. The findings are the same on all three; the
+numbers below are from `840f9562`. On main, the 14 test threads are tabs at
+the first start, so all 14 stay loaded.
 
 ## Commands
 
@@ -88,19 +89,19 @@ To make a new baseline, run the budget with
 
 Machine: Apple M1 Pro, 8 cores, 16 GB, macOS 27, Node 25.3, Git 2.52. Other
 agents ran browser tests on the same machine. The 1-minute load average was
-2.2–3.3 during the main pass of the baseline run and up to 9 during its
-React pass (each action records its own).
+3.3–4.2 during the main pass of the baseline run (each action records its
+own).
 
 ## Results by action
 
 | Action                        | Load | COMMIT        | PAINTED | SHOWN | SETTLED |  Git (time) | HTTP (API) | WS msgs, kB | Host CPU |
 | ----------------------------- | ---: | ------------- | ------: | ----: | ------: | ----------: | ---------: | ----------: | -------: |
-| Page load, to the thread      | 2.97 | LIST 171, 109 |       – |   301 |       – | 13 (144 ms) |    60 (17) |      5, 195 |       80 |
-| First ⌘ after the load (cold) | 2.97 | 77            |      98 |   102 |     610 | 83 (758 ms) |    69 (63) |    19, 1087 |      260 |
-| Cold ⌘ after idle             | 3.21 | 86            |     108 |   105 |     169 | 19 (168 ms) |    19 (18) |      7, 162 |       40 |
-| Cold ⌘, large diff            | 3.11 | 76            |     124 |   120 |     173 | 14 (176 ms) |    18 (17) |       7, 65 |       40 |
-| Warm ⌘ switch                 | 2.46 | 26            |      45 |    28 |     129 | 19 (235 ms) |    15 (15) |      7, 192 |       60 |
-| Warm ⌘, large diff            | 2.46 | 30            |      47 |    31 |     101 | 14 (200 ms) |    15 (15) |       8, 90 |       50 |
+| Page load, to the thread      | 3.56 | LIST 173, 111 |       – |   300 |       – | 13 (158 ms) |    60 (17) |      5, 196 |       70 |
+| First ⌘ after the load (cold) | 3.56 | 84            |     106 |   103 |     603 | 76 (739 ms) |    70 (64) |    19, 1087 |      220 |
+| Cold ⌘ after idle             | 3.71 | 81            |     103 |   101 |     161 | 19 (166 ms) |    19 (18) |      7, 162 |       40 |
+| Cold ⌘, large diff            | 3.50 | 84            |     130 |   128 |     181 | 14 (153 ms) |    18 (17) |       7, 65 |       40 |
+| Warm ⌘ switch                 | 4.18 | 26            |      44 |    28 |     130 | 19 (239 ms) |    15 (15) |      7, 192 |       60 |
+| Warm ⌘, large diff            | 4.15 | 28            |      51 |    29 |      97 | 14 (211 ms) |    15 (15) |       8, 90 |       50 |
 
 ### Time to COMMIT
 
@@ -109,16 +110,16 @@ is React's time in the profiling build, of that build's total time to COMMIT.
 
 | Action                 | Script | Style | Layout | Paint |  GC | Other | Worker | Git | Host | Idle | React (profiling) |
 | ---------------------- | -----: | ----: | -----: | ----: | --: | ----: | -----: | --: | ---: | ---: | ----------------: |
-| Page load, to LIST     |    118 |    12 |     11 |     3 |   4 |    18 |      0 |   0 |    3 |  0.2 |         76 of 230 |
-| First ⌘ after the load |     35 |     6 |      3 |     2 |   2 |    12 |      0 |   9 |    4 |    0 |         40 of 123 |
-| Cold ⌘ after idle      |     39 |     5 |      3 |     4 |   9 |    13 |    0.9 | 0.4 |   10 |  0.2 |          31 of 86 |
-| Cold ⌘, large diff     |     36 |     6 |      3 |     4 |   0 |    11 |     11 |   1 |    3 |  0.2 |         31 of 110 |
-| Warm ⌘ switch          |     14 |   6.6 |    5.3 |   0.1 |   0 |   0.2 |      0 |   0 |    0 |  0.2 |          16 of 31 |
-| Warm ⌘, large diff     |     14 |   7.2 |    6.5 |   0.2 |   0 |   0.2 |      0 |   0 |    0 |  0.3 |          17 of 32 |
+| Page load, to LIST     |    119 |    12 |     11 |     4 |   4 |    19 |      0 |   0 |    4 |  0.3 |         72 of 203 |
+| First ⌘ after the load |     36 |     6 |      3 |     3 |   8 |    14 |      0 |  15 |  1.5 |    0 |          32 of 85 |
+| Cold ⌘ after idle      |     38 |     5 |      3 |     4 |   9 |    14 |    0.3 | 0.4 |    9 |  0.1 |          32 of 83 |
+| Cold ⌘, large diff     |     35 |     6 |      3 |     4 |   0 |    11 |     11 | 1.7 |   11 |  0.2 |         33 of 103 |
+| Warm ⌘ switch          |     13 |   6.5 |    5.4 |   0.1 |   0 |   0.1 |      0 |   0 |    0 |  0.1 |          16 of 32 |
+| Warm ⌘, large diff     |     14 |   7.3 |    6.5 |   0.1 |   0 |   0.2 |      0 |   0 |    0 |  0.1 |          16 of 34 |
 
 Idle waits are below 0.5 ms in each action. Git and host waits are on the
-critical path only for cold opens (5–6 ms), the first key after a load
-(12 ms), and the page load (11 ms).
+critical path only for cold opens (9–13 ms), the first key after a load
+(16 ms), and the page load (4 ms).
 
 ### Whole action
 
@@ -126,13 +127,13 @@ Main thread from the key to SETTLED, in ms; React from the profiling pass.
 
 | Action                        | Script | Style | Layout | Paint | Forced layout, style | Longest task | Workers (ms) | React ms, commits, renders |
 | ----------------------------- | -----: | ----: | -----: | ----: | -------------------: | -----------: | -----------: | -------------------------: |
-| Page load, to the thread      |    173 |    16 |     27 |     9 |               22, 15 |           44 |       5 (74) |               167, 44, 895 |
-| First ⌘ after the load        |    280 |    42 |     31 |    25 |               21, 21 |           22 |       8 (65) |            255, 151, 2,428 |
-| Cold ⌘ after idle             |     91 |    24 |      8 |    13 |                 5, 7 |           14 |       4 (17) |                97, 48, 966 |
-| Cold ⌘, large diff            |    108 |    25 |      7 |    10 |                 5, 8 |           37 |       3 (45) |                96, 43, 880 |
-| Warm ⌘ switch                 |     37 |    17 |      6 |    11 |                 5, 7 |           26 |        0 (0) |                45, 15, 336 |
-| Warm ⌘, large diff            |     32 |    21 |      7 |    11 |                 6, 7 |           27 |        0 (0) |                45, 15, 360 |
-| Three agent steps, off screen |     60 |     0 |      0 |     0 |                 0, 0 |           20 |       18 (2) |                 32, 7, 230 |
+| Page load, to the thread      |    172 |    16 |     26 |     9 |               22, 15 |           45 |       5 (75) |               159, 36, 860 |
+| First ⌘ after the load        |    283 |    42 |     30 |    25 |               21, 23 |           23 |       8 (64) |            241, 124, 2,430 |
+| Cold ⌘ after idle             |     90 |    26 |      7 |    11 |                 5, 7 |           16 |       4 (18) |                88, 42, 906 |
+| Cold ⌘, large diff            |    104 |    26 |      7 |    11 |                 5, 8 |           34 |       3 (44) |                92, 38, 896 |
+| Warm ⌘ switch                 |     36 |    17 |      6 |    10 |                 5, 7 |           25 |        0 (0) |                43, 11, 326 |
+| Warm ⌘, large diff            |     32 |    20 |      7 |    11 |                 6, 7 |           28 |        0 (0) |                49, 14, 389 |
+| Three agent steps, off screen |     47 |     0 |      1 |     1 |                 0, 0 |           24 |       18 (1) |                51, 10, 417 |
 
 In a warm switch, the `<Activity>` reveal re-runs layout effects
 ("Reconnect"). Most renders are Base UI roots that show nothing: per warm
@@ -141,14 +142,16 @@ TooltipTrigger 13, ContextMenuRoot 12.
 
 ### Idle and background work
 
-| Window                 |     Git, per minute | Git CPU | Host CPU | Browser main thread | Style recalculations | WS messages |
-| ---------------------- | ------------------: | ------: | -------: | ------------------: | -------------------: | ----------: |
-| 60 s idle, one window  |                  98 |  1.10 s |   890 ms |              120 ms |                    0 |   4 (pings) |
-| 60 s idle, two windows | 98 (shared by both) |  1.06 s | 1,060 ms |              148 ms |                    0 |   8 (pings) |
+| Window                 |      Git, per minute | Git CPU | Host CPU | Browser main thread | Style recalculations | WS messages |
+| ---------------------- | -------------------: | ------: | -------: | ------------------: | -------------------: | ----------: |
+| 60 s idle, one window  |                  100 |  1.08 s |   780 ms |               45 ms |                    0 |   4 (pings) |
+| 60 s idle, two windows | 100 (shared by both) |  0.95 s |   950 ms |              142 ms |                    0 |   8 (pings) |
 
 Idle Git: 66 `git status` (`runtime/watch.ts:114`, every 10 s for each watched
 repository), 26 `git rev-list --count` (`checkout-work.ts:18`, every 30 s for
-each tab), and 6 others. Each Git process takes 10–12 ms (8–10 ms CPU).
+each tab), 6 for the Changes counts of one checkout (`checkout-changes.ts`,
+`merge-base`, `diff --numstat`, and `ls-files` every 30 s), and 2 others. Each
+Git process takes 10–12 ms (8–10 ms CPU).
 
 A host CPU profile (on `med-explorations`, 120 idle seconds, two windows)
 shows: Git processes 20% (the watcher's status check is 9% of this), the
@@ -163,12 +166,12 @@ compositor cannot run; before tabs, this was about 320 recalculations a minute
 for each window.
 
 Three agent steps in a thread that is not on screen: the host sends the full
-thread list (14 kB) for each step. React makes 7 commits and 230 renders.
+thread list (14 kB) for each step. React makes 10 commits and 417 renders.
 
 ### Memory
 
-With 14 threads loaded: JS heap 47 MB (3.3 MB for each thread), 43,200 DOM
-nodes, 10,260 event listeners, and 18 workers (14 patch parsers, one for each
+With 14 threads loaded: JS heap 46 MB (3.3 MB for each thread), 43,000 DOM
+nodes, 10,230 event listeners, and 18 workers (14 patch parsers, one for each
 workspace; 3 diff workers; 1 Markdown worker).
 
 ### Painted frames
@@ -188,11 +191,11 @@ at 120 Hz; the screencast can also drop frames, so this is an upper limit.
 
 | Fact                                        | Measured on main                                                           | Result                               |
 | ------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------ |
-| Warm switch 35–60 ms                        | COMMIT 26, PAINTED 45                                                      | Faster                               |
-| Cold open 53–78 ms                          | COMMIT 86, SHOWN 105                                                       | Same; Git is off the commit path     |
-| Large diff 270–360 ms                       | Cold SHOWN 120; warm 31                                                    | Much faster                          |
-| First ⌘ after load about 250 ms             | COMMIT 77 (63–93)                                                          | Faster                               |
-| Page load to the list about 170 ms          | LIST 171                                                                   | Same                                 |
+| Warm switch 35–60 ms                        | COMMIT 26, PAINTED 44                                                      | Faster                               |
+| Cold open 53–78 ms                          | COMMIT 81, SHOWN 101                                                       | Same; Git is off the commit path     |
+| Large diff 270–360 ms                       | Cold SHOWN 128; warm 29                                                    | Much faster                          |
+| First ⌘ after load about 250 ms             | COMMIT 84 (63–84)                                                          | Faster                               |
+| Page load to the list about 170 ms          | LIST 173                                                                   | Same                                 |
 | Idle host 190–310 ms per 30 s               | Host 445 ms per 30 s, and Git children 550 ms CPU per 30 s                 | Higher; Git was not counted before   |
 | Each Git process 10–13 ms                   | 10–12 ms                                                                   | Correct                              |
 | Thread list polls every 1.5 s               | Correct (`server.ts:1034–1066`); one loop for each window; sends on change | Correct                              |
@@ -207,7 +210,7 @@ at 120 Hz; the screencast can also drop frames, so this is an upper limit.
    host CPU. The host sends the session's first view again: 29–593 kB for each
    thread, 192 kB median. Revisits get as many bytes as first visits, so the
    resume path (`?feed&count`) did not skip the first view. The main thread
-   works until SETTLED at 129 ms.
+   works until SETTLED at 130 ms.
 2. **Forced layout is about half of a warm switch.** Of 26 ms to COMMIT, 12 ms
    is forced style and layout. Traces with JS stacks give the sources:
    `SessionThread.tsx:1144–1175` (`readProbe` reads the probe on each reveal,
@@ -215,11 +218,11 @@ at 120 Hz; the screencast can also drop frames, so this is an upper limit.
    after the commit, about 20%), `SessionThread.tsx:1460`
    (`getBoundingClientRect` for each unit), `Workspaces.tsx:1624`
    (`KeepScroll`), and `PaneTree.tsx:472` (`useBox`).
-3. **Idle is not idle.** With no change on disk, the host starts 98 Git
-   processes a minute (1.1 s Git CPU) and uses 0.9–1.1 s of its own CPU. A
+3. **Idle is not idle.** With no change on disk, the host starts 100 Git
+   processes a minute (1.0 s Git CPU) and uses 0.8–1.0 s of its own CPU. A
    waiting thread's dot recalculates style about 320 times a minute.
 4. **The first key after a load is 3 times a warm switch.** The warm pool
-   loads 13 threads at the same time: 83–101 Git processes, 69 requests, and
+   loads 13 threads at the same time: 76–102 Git processes, 70 requests, and
    1,087 kB of session data in the window. Main-thread "other" (IPC) is 12 ms
    before the commit.
 5. **React renders things that do not show.** Menu and tooltip roots are about
@@ -242,6 +245,45 @@ the web app.
 |   6 | **Worker pools and a smaller entry bundle.** Share 2 patch-parser workers between workspaces; move code that the first screen does not use out of the entry.                                                                                                                                             | Page load: 40 files, 2.2 MB, 130 ms script before LIST. 18 workers for 14 threads; heap 3.3 MB for each thread.                                                                                                                             | LIST 202 → about 150 ms; workers 18 → 6; less memory.                                                                     | `web/workers/client.ts`; `web/main.tsx`; `web/components/Workspaces.tsx` (`createParser`); `vite.config.ts`                                                                         |
 |   7 | **First-paint rules for diff and transcript.** Virtualization works: keep it above about two screens; render in full below that; never measure on reveal (fix 4).                                                                                                                                        | Large diff: 49 of 10,056 lines in the DOM; cold COMMIT 70 vs 68 for a small diff; warm 21 vs 20. The cost of virtualization is the measurement on reveal.                                                                                   | Small (below 5 ms) after fix 4. Measure a full-render switch before a change.                                             | `web/components/session/SessionThread.tsx`; `web/components/session/thread-heights.ts`; diff options in `web/App.tsx`                                                               |
 
+## Host fixes: before and after
+
+Fixes 1–3 on `med-perf-host`, with live Changes from the cache, against the
+baseline above: `budget.mjs --check` holds. Same machine; the load was
+3.7–4.1 (baseline 3.3–4.2). Counts are the fewest over the runs; times are
+medians and move with the load.
+
+| Action                        |     Git | HTTP (API) |        WS msgs, kB |  Host CPU |         COMMIT |   PAINTED |   SETTLED |
+| ----------------------------- | ------: | ---------: | -----------------: | --------: | -------------: | --------: | --------: |
+| Page load, to the thread      |  13 → 0 |    60 → 60 |    5, 196 → 6, 196 |   70 → 60 | LIST 173 → 181 |         – |         – |
+| First ⌘ after the load (cold) |  76 → 0 |    70 → 70 | 19, 1087 → 19, 676 | 220 → 110 |        84 → 81 | 106 → 114 | 603 → 609 |
+| Cold ⌘ after idle             |  19 → 0 |    19 → 19 |    7, 162 → 7, 162 |   40 → 30 |        81 → 80 | 103 → 110 | 161 → 163 |
+| Cold ⌘, large diff            |  14 → 0 |    18 → 18 |      7, 65 → 7, 65 |   40 → 30 |        84 → 69 | 130 → 131 | 181 → 174 |
+| Warm ⌘ switch                 |  19 → 0 |    15 → 10 |      7, 192 → 6, 1 |   60 → 10 |        26 → 20 |   44 → 42 |  130 → 79 |
+| Warm ⌘, large diff            |  14 → 0 |    15 → 10 |       8, 90 → 6, 1 |   50 → 20 |        28 → 19 |   51 → 42 |   97 → 78 |
+| Three agent steps, off screen |   7 → 0 |      7 → 0 |             10 → 4 |  150 → 60 |              – |         – |         – |
+| 60 s idle, one window         | 100 → 7 |          – |                  – | 780 → 590 |              – |         – |         – |
+| 60 s idle, two windows        | 100 → 8 |          – |                  – | 950 → 670 |              – |         – |         – |
+
+The 7–8 idle Git processes are one `git status` safety check a minute for the
+checkout on screen, and the Changes counts of one checkout that has no
+watcher (every 30 s, as before). A warm switch makes 8 React commits and 262
+renders, from 11 and 326.
+
+Fix 4 (layout reads once per theme and width) was measured and not kept. A
+warm switch has one forced layout, and the first read in the commit pays for
+it. Without the reads in `readProbe`, the measure effect, App's scroll
+restore, `useBox`, and the review row's fit, `KeepScroll`'s scroll restore
+(`Workspaces.tsx`) paid for it: COMMIT stayed at 20 ms. That restore needs
+layout to set its offsets; without it before the paint, COMMIT was 16 ms, but
+a thread that grew while hidden can jump. The larger cost is the style
+recalculation of the revealed workspace (5–6 ms before COMMIT, 15 ms in all);
+fixes 5 and 7 are for that.
+
+Two values race in this test bed. The first ⌘ after a load races the warm
+pool: in 1 of 14 runs, the pool loaded the large diff's review (596 kB) in the
+window, and the mean bytes of five runs doubled. Warm-switch style varies
+10–21 ms between runs of the same build.
+
 ## Limits
 
 - The profiling build is not minified, so its times are longer. Use it for
@@ -255,7 +297,7 @@ the web app.
   three, because the demo agent has nine steps.
 - Warm switches visit threads that the sidebar shows in its first nine places;
   the order can change between rounds as threads update.
-- The machine was shared: the load was 2.2–9.0 during the main baseline, and
+- The machine was shared: the load was 3.3–4.2 during the main baseline, and
   other agents ran browser tests.
 - Not measured: GPU and raster time, the installed app window, memory over
   hours, switch time with two windows open, and the file tree alone.
