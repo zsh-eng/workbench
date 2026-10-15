@@ -155,7 +155,10 @@ no connection for its requests.
 
 The browser shows **Working** until the agent ends its turn, or until the
 transcript has not changed for 5 minutes, because a stopped process writes
-nothing.
+nothing. For a session that Med runs, Med's runner tells instead. While the
+runner waits, a transcript that changed after the runner's last state change
+holds another process's turn, such as Claude Code's in a terminal on an
+adopted session, and the transcript tells, in the thread and in the thread list.
 
 ## Found sessions
 
@@ -425,9 +428,12 @@ tool runs. Claude Code and Codex speak ACP through adapters
 Med reads the transcripts of agents that Claude Desktop, a terminal, or Codex
 runs. For those, two things differ from a real ACP connection:
 
-- **Streaming.** A transcript gets a line when a block is complete. Med shows
-  replies as whole blocks; only the process that owns the agent sees token
-  deltas (Claude Desktop runs Claude Code with `--include-partial-messages`).
+- **Streaming.** A transcript gets a line for each complete block. Claude
+  Code 2.1 writes the lines of a response together, when the response ends:
+  while a response streams, its thinking included, the thread shows
+  **Working** and no new text. Med shows replies as whole blocks; only the
+  process that owns the agent sees token deltas (Claude Desktop runs Claude
+  Code with `--include-partial-messages`).
 - **Control.** A reader cannot prompt the agent, answer a permission request,
   or stop it. Med can resume a Claude session that no process runs, and then
   owns it ([messages to adopted sessions](#messages-to-adopted-sessions)).

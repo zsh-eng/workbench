@@ -128,14 +128,14 @@ export function agentEnvironment(extra: Record<string, string> = {}) {
   return { ...env, ...extra };
 }
 
-/** Listeners and a state that changes in place. */
+/** Listeners and a state that changes in place, with the time of its last change. */
 function createState(initial: OwnedState) {
-  let state = initial;
+  let state = { ...initial, updatedAt: Date.now() };
   const listeners = new Set<() => void>();
   return {
     get: () => state,
     set(change: Partial<OwnedState>) {
-      state = { ...state, ...change };
+      state = { ...state, ...change, updatedAt: Date.now() };
       for (const listener of listeners) listener();
     },
     subscribe(listener: () => void) {

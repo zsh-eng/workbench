@@ -79,6 +79,56 @@ function reply(text) {
   send({ type: "result", subtype: "success", is_error: false, result: text });
 }
 
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+/** A reply that thinks first, as Claude Code 2.1 with thinking does: one API
+ * message with a thinking block, then a text block that streams word by
+ * word, `MED_FAKE_WORD_MS` apart. Claude Code keeps the message's blocks
+ * from the transcript until the message's stop reason comes, then writes
+ * each block as its own line, all with that stop reason. */
+async function thinkAndReply(text) {
+  const id = `msg_${randomUUID().slice(0, 8)}`;
+  const message = { id, type: "message", role: "assistant", model: "claude-opus-5-5" };
+  const stream = (event) => send({ type: "stream_event", event, parent_tool_use_id: null });
+  const words = Number(process.env.MED_FAKE_WORD_MS ?? 150);
+  stream({ type: "message_start", message: { ...message, content: [], stop_reason: null } });
+  stream({ type: "content_block_start", index: 0, content_block: { type: "thinking" } });
+  const started = Date.now();
+  for (const part of ["Weighing ", "the options."]) {
+    await pause(words);
+    stream({
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "thinking_delta", thinking: part },
+    });
+  }
+  stream({ type: "content_block_stop", index: 0 });
+  const thought = { type: "thinking", thinking: "", signature: "fake" };
+  const thinkingDurationMs = Date.now() - started;
+  send({ type: "assistant", message: { ...message, stop_reason: null, content: [thought] } });
+  stream({ type: "content_block_start", index: 1, content_block: { type: "text", text: "" } });
+  for (const part of text.split(/(?<= )/)) {
+    await pause(words);
+    stream({ type: "content_block_delta", index: 1, delta: { type: "text_delta", text: part } });
+  }
+  stream({ type: "content_block_stop", index: 1 });
+  const block = { type: "text", text };
+  send({ type: "assistant", message: { ...message, stop_reason: null, content: [block] } });
+  stream({ type: "message_delta", delta: { stop_reason: "end_turn" } });
+  record({
+    type: "assistant",
+    uuid: randomUUID(),
+    thinkingDurationMs,
+    message: { ...message, stop_reason: "end_turn", content: [thought] },
+  });
+  record({
+    type: "assistant",
+    uuid: randomUUID(),
+    message: { ...message, stop_reason: "end_turn", content: [block] },
+  });
+  stream({ type: "message_stop" });
+  send({ type: "result", subtype: "success", is_error: false, result: text });
+}
+
 createInterface({ input: process.stdin }).on("line", (line) => {
   const message = JSON.parse(line);
   if (message.type === "control_response") {
@@ -180,6 +230,10 @@ createInterface({ input: process.stdin }).on("line", (line) => {
         tool_use_id: "toolu_1",
       },
     });
+    return;
+  }
+  if (text.includes("Think")) {
+    void thinkAndReply("Kept the station's own time and wrote a test for the hour.");
     return;
   }
   if (text.includes("Wait")) {

@@ -272,6 +272,13 @@ async function mountApp(
     owned = { ...owned!, ...change };
     for (const listener of ownedListeners) listener();
   };
+  // Session o1's transcript: each change sends the host's first view again.
+  let ownedTranscript = { events: [] as unknown[], idle: true, modifiedAt: 0 };
+  const transcriptListeners = new Set<() => void>();
+  const setOwnedTranscript = (change: Partial<typeof ownedTranscript>) => {
+    ownedTranscript = { ...ownedTranscript, ...change };
+    for (const listener of transcriptListeners) listener();
+  };
   const encoder = new TextEncoder();
   const eventStream = (first: () => string, subscribe?: (push: () => void) => () => void) => {
     let stop = () => {};
@@ -441,8 +448,11 @@ async function mountApp(
       }
       if (url.pathname === "/api/reviews/saved/sessions/o1/events")
         return eventStream(
-          () =>
-            `event: reset\ndata: ${JSON.stringify({ events: [], idle: true, modifiedAt: 0 })}\n\n`,
+          () => `event: reset\ndata: ${JSON.stringify(ownedTranscript)}\n\n`,
+          (push) => {
+            transcriptListeners.add(push);
+            return () => transcriptListeners.delete(push);
+          },
         );
       if (url.pathname === "/api/reviews/saved/sessions/s1/events" && options.session)
         return options.sessionPages
@@ -837,6 +847,7 @@ async function mountApp(
     agentMessages,
     agentAnswers,
     setOwned,
+    setOwnedTranscript,
     ownedActions,
     ownedStarts,
     pageReads,
@@ -3706,6 +3717,71 @@ describe("agent session", () => {
     await userEvent.click(composer.getByRole("button", { name: "Stop" }));
     await expect.element(composer.getByRole("button", { name: "Send" })).toBeVisible();
     expect(ownedActions.at(-1)).toEqual({ action: "interrupt" });
+  });
+
+  test("a turn that another process runs on a session that Med runs works until it ends, then shows its time", async () => {
+    await page.viewport(1280, 800);
+    const { setOwned, setOwnedTranscript } = await mountApp({
+      savedReview: true,
+      inbox: { messages: [], waiting: [], drafts: [] },
+      agents: [{ id: "claude", name: "Claude Code", kind: "claude", available: true }],
+    });
+    await userEvent.click(page.getByRole("button", { name: "Toggle agent session" }));
+    const start = page.getByRole("region", { name: "Start a session" });
+    await userEvent.click(start.getByRole("button", { name: /Claude Code/ }));
+    const now = Date.now();
+    // Med's runner waits after its last turn.
+    setOwned({ status: "idle", updatedAt: now - 60_000 });
+    const prompt = (at: number, text: string) => ({
+      at,
+      update: { sessionUpdate: "user_message_chunk", content: { type: "text", text } },
+    });
+    // Claude Code in a terminal takes the session and thinks: the transcript
+    // has only its prompt, newer than the runner's state.
+    setOwnedTranscript({
+      events: [prompt(now - 2000, "Run the tests.")],
+      idle: false,
+      modifiedAt: now - 2000,
+    });
+    const panel = page.getByRole("region", { name: "Agent session" });
+    const thread = panel.getByRole("log", { name: "Session" });
+    await expect.element(thread.getByText("Run the tests.")).toBeVisible();
+    await expect.element(thread.getByText("Working")).toBeVisible();
+    expect(thread.element().textContent).not.toContain("Worked for");
+    // The header says so too.
+    await expect.element(panel.getByText("Working", { exact: true }).first()).toBeVisible();
+    expect(panel.getByText("Idle", { exact: true }).query()).toBeNull();
+
+    // Its reply ends the turn, three seconds after the prompt.
+    const reply = {
+      at: now + 1000,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "m1",
+        content: { type: "text", text: "The tests pass." },
+        _meta: { med: { endsTurn: true } },
+      },
+    };
+    setOwnedTranscript({
+      events: [prompt(now - 2000, "Run the tests."), reply],
+      idle: true,
+      modifiedAt: now + 1000,
+    });
+    await expect.element(thread.getByText("Worked for 3.0s")).toBeVisible();
+    expect(thread.element().textContent).not.toContain("Working");
+
+    // A turn that Med runs ends when its runner says so, though the transcript
+    // that it left behind does not say, as after an API error.
+    setOwned({ status: "working", updatedAt: now + 2000 });
+    setOwnedTranscript({
+      events: [prompt(now - 2000, "Run the tests."), reply, prompt(now + 2000, "Check the hour.")],
+      idle: false,
+      modifiedAt: now + 2000,
+    });
+    await expect.element(thread.getByText("Working")).toBeVisible();
+    setOwned({ status: "idle", updatedAt: now + 4000 });
+    await expect.element(thread.getByText(/^Worked for/)).toBeVisible();
+    expect(thread.element().textContent).not.toContain("Working");
   });
 
   test("a reply pinned from the session becomes a note after the brief", async () => {

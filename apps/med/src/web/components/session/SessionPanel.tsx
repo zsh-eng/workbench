@@ -537,7 +537,17 @@ export function SessionPanel({
     if (prompt) setReveal({ id: prompt.id, nonce: Date.now() });
   };
   const ownedState = owned.state;
-  const running = ownedState ? ownedState.status === "working" : sessionRunning(state, now);
+  // Med's runner tells what its session does. While it waits, a transcript
+  // that changed after it holds another process's turn, such as Claude Code's
+  // in a terminal or the Claude app: the transcript tells, as for a session
+  // that Med does not run.
+  const othersTurn =
+    ownedState?.status !== "working" &&
+    ownedState?.status !== "starting" &&
+    (state.modifiedAt ?? 0) > (ownedState?.updatedAt ?? 0) &&
+    sessionRunning(state, now);
+  const runner = othersTurn ? undefined : ownedState;
+  const running = runner ? runner.status === "working" : sessionRunning(state, now);
   useEffect(() => {
     store.setRunning(running);
     if (!running) return;
@@ -660,14 +670,14 @@ export function SessionPanel({
   const quiet = useQuietChrome();
   // The first view has not come, and no earlier thread stays meanwhile.
   const loading = state.status === "connecting" && !snapshot.items.length;
-  const status = ownedState
+  const status = runner
     ? needsYou
       ? "Needs you"
-      : ownedState.status === "starting"
+      : runner.status === "starting"
         ? "Starting"
-        : ownedState.status === "working"
+        : runner.status === "working"
           ? "Working"
-          : ownedState.status === "exited"
+          : runner.status === "exited"
             ? "Stopped"
             : "Idle"
     : state.status === "connecting"

@@ -64,7 +64,16 @@ export function createAgentStatus(sources: {
       session.agent === "acp" ? await modifiedAt(sources.logPath?.(session.id)) : 0,
     );
     const turn = read?.turn;
-    if (owned) {
+    const working = read && !read.idle && Date.now() - read.modifiedAt < STALE_MS;
+    // Med's runner tells what its session does. While it waits, a transcript
+    // that changed after it holds another process's turn, such as Claude
+    // Code's in a terminal or the Claude app: the transcript tells.
+    const othersTurn =
+      working &&
+      owned?.state.status !== "working" &&
+      owned?.state.status !== "starting" &&
+      read.modifiedAt > (owned?.updatedAt ?? 0);
+    if (owned && !othersTurn) {
       const { status, permission } = owned.state;
       // A permission request is what the turn waits on now.
       const asked = permission && {
@@ -87,7 +96,6 @@ export function createAgentStatus(sources: {
     // agent said before it.
     if (waiting.has(session.id))
       return { ...base, state: "waiting", updatedAt, turn: { ...turn, activity: undefined } };
-    const working = read && !read.idle && Date.now() - read.modifiedAt < STALE_MS;
     return { ...base, state: working ? "working" : "idle", updatedAt, ...(turn && { turn }) };
   };
 

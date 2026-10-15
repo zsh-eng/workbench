@@ -138,7 +138,22 @@ async function fixture() {
         { timeout: 5000 },
       );
     const act = (action: unknown) => api<OwnedState>(path, action);
-    return { id, review: started.data.review, state, until, act };
+    /** The states that the host streams to the page, from now on. */
+    const follow = async () => {
+      const seen: OwnedState[] = [];
+      const response = await fetch(`http://127.0.0.1:${host.port}${path}/events`, {
+        headers: { authorization: `Bearer ${host.token}` },
+      });
+      const controller = new AbortController();
+      streams.push(controller);
+      void readServerEvents(
+        response.body!,
+        (event) => seen.push(JSON.parse(event.data) as OwnedState),
+        controller.signal,
+      ).catch(() => {});
+      return seen;
+    };
+    return { id, review: started.data.review, state, until, act, follow };
   };
   /** The thread list's stream, with each thread's lead session state. */
   const threads = async () => {
@@ -513,4 +528,58 @@ test("the thread list follows each thread's lead session: working, needs you, an
     },
     { timeout: 5000 },
   );
+});
+
+test("Claude Code that Med runs streams its reply after it thinks; a turn that another process runs on the session works until it ends", async () => {
+  vi.stubEnv("MED_FAKE_WORD_MS", "60");
+  const { api, home, review, thread, start, threads } = await fixture();
+  const session = await start("claude");
+  await session.until((state) => state.status === "idle");
+  const states = await session.follow();
+  const replies = await thread(session.id);
+  await api(`/api/reviews/${review.id}/agent/messages`, {
+    sessionId: session.id,
+    text: "Think it over: should the station keep its own time?",
+    noteIds: [],
+  });
+  // The thought does not end the turn: the reply streams word by word after
+  // it, and the transcript gets both when the reply is complete.
+  const reply = "Kept the station's own time and wrote a test for the hour.";
+  await vi.waitFor(() => expect(replies()).toEqual([reply]), { timeout: 5000 });
+  await vi.waitFor(() => expect(states.at(-1)?.status).toBe("idle"));
+  const streamed = states.filter((state) => state.streaming?.text);
+  const lengths = streamed.map((state) => state.streaming!.text.length);
+  expect(lengths.length).toBeGreaterThan(3);
+  expect(lengths).toEqual([...lengths].sort((a, b) => a - b));
+  for (const state of streamed) {
+    expect(state.status).toBe("working");
+    expect(reply.startsWith(state.streaming!.text)).toBe(true);
+  }
+
+  // Another process, such as Claude Code in a terminal, runs a turn on the
+  // session while Med's runner waits. The transcript tells the turn's state.
+  const latest = await threads();
+  const lead = () => latest.value.find((entry) => entry.id === review.id);
+  await vi.waitFor(() => expect(lead()?.state).toBe("idle"));
+  const transcript = join(home, ".claude", "projects", "-fake-repo", `${session.id}.jsonl`);
+  const line = (entry: object) =>
+    appendFile(
+      transcript,
+      `${JSON.stringify({ ...entry, sessionId: session.id, timestamp: new Date().toISOString() })}\n`,
+    );
+  await line({ type: "user", uuid: "u1", message: { role: "user", content: "Run the tests." } });
+  await vi.waitFor(
+    () => expect(lead()).toMatchObject({ state: "working", turn: { activity: "Thinking" } }),
+    { timeout: 5000 },
+  );
+  const message = { id: "msg_1", role: "assistant", stop_reason: "end_turn" };
+  const thought = { type: "thinking", thinking: "", signature: "x" };
+  await line({ type: "assistant", uuid: "a1", message: { ...message, content: [thought] } });
+  const text = { type: "text", text: "The tests pass." };
+  await line({ type: "assistant", uuid: "a2", message: { ...message, content: [text] } });
+  await vi.waitFor(
+    () => expect(lead()).toMatchObject({ state: "idle", turn: { said: "The tests pass." } }),
+    { timeout: 5000 },
+  );
+  expect(lead()!.turn!.endedAt).toBeGreaterThan(lead()!.turn!.startedAt!);
 });

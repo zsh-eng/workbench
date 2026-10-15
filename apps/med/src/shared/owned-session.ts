@@ -71,6 +71,9 @@ export const ownedStateSchema = z.object({
   /** The agent takes images in a prompt. */
   images: z.boolean().optional(),
   error: z.string().optional(),
+  /** When the state last changed, in milliseconds since the epoch. While the
+   * session waits, a transcript that changed later is another process's turn. */
+  updatedAt: z.number().optional(),
 });
 export type OwnedState = z.infer<typeof ownedStateSchema>;
 
