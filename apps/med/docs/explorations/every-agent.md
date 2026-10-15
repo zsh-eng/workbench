@@ -151,12 +151,13 @@ tests/browser/workspaces.test.tsx`: 13 tests pass. The found-threads test
 
 ## Open questions
 
-- **Codex day folders.** Med reads the Codex day folders of the last 8 days.
-  A Codex session that started earlier and still runs does not show. Reading
-  `session_index.jsonl` for its path can fix this.
-- **Codex through ACP.** A Codex session that Med owns through ACP can also
-  have a rollout file. If its saved review names another ID, it can show
-  twice. Not seen in the tests.
+- **Codex day folders.** Done: one 7-day window by transcript time for both
+  agents. Med lists all Codex day folders every 60 s, so an older session that
+  runs again shows. Older sessions come in with `med thread find` and
+  `med thread adopt` ([found sessions](../SESSIONS.md#found-sessions)).
+- **Codex through ACP.** Done: a test reproduced it with a stand-in for
+  codex-acp. Med now keeps the agent's own session ID with the session, and the
+  rollout with that ID does not show again.
 - **Resume splits history.** `claude --resume` on a session that still runs
   in another terminal makes two writers. The bar does not warn about this.
 - **Keep in Med takes the whole checkout.** In a shared checkout (two
@@ -174,6 +175,6 @@ tests/browser/workspaces.test.tsx`: 13 tests pass. The found-threads test
 ## Recommendation
 
 Keep. It makes Med show all agent work on a repository with no setup, and
-the code stays in four new modules with small hook-ins. Before release: read
-Codex paths from its index, decide the unread rule for found threads, and add
-a short note to `docs/SESSIONS.md`.
+the code stays in four new modules with small hook-ins. Before release: decide
+the unread rule for found threads. (The Codex window and the note in
+`docs/SESSIONS.md` are done.)

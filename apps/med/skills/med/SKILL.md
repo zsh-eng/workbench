@@ -1,6 +1,6 @@
 ---
 name: med
-description: Hand off code changes for review in Med, the user's local review app. Use when you finish a coding task, or a round of one, in a Git repository and the `med` command exists. Creates a review link with a guide that splits the change into segments with comments on lines, keeps one review per task, and links the pull request once it exists.
+description: Hand off code changes for review in Med, the user's local review app. Use when you finish a coding task, or a round of one, in a Git repository and the `med` command exists. Creates a review link with a guide that splits the change into segments with comments on lines, keeps one review per task, and links the pull request once it exists. Also use when the user asks to bring an earlier Claude Code or Codex session into Med: it finds sessions of any age and makes one a Med thread.
 ---
 
 # Hand off changes in Med
@@ -128,6 +128,23 @@ waiting when the user says that the task is done.
 
 Codex gets the user's messages as normal turns (Med uses `codex queue`), so a
 Codex session does not run `med review wait`.
+
+## Bring an earlier session into Med
+
+Med lists the Claude Code and Codex sessions of the last 7 days by itself.
+For an older one, or one that the user cannot find, search for it, then make
+it a thread:
+
+```sh
+med thread find tide prediction          # newest first: session, time, folder, title
+med thread adopt claude:<session-id>     # prints the thread's ID and link
+```
+
+`find` matches each word in the title, the first prompt, the folder, or the ID;
+add `--json` for details. `adopt` also takes the first 6 or more characters of
+an ID, or a transcript's path. It fails when no session or more than one
+matches; then choose one from `find`. Use `--repo <checkout>` when the session's
+folder is not in a registered repository. Put the printed link in your reply.
 
 ## Rules
 

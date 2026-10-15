@@ -357,6 +357,43 @@ patches and file pairs cannot be saved. Keep a generated manifest out of the
 reviewed changes unless it belongs to the project. `med review create --help`
 lists every option.
 
+## Find and adopt sessions
+
+The thread list shows the Claude Code and Codex sessions of the last 7 days in
+the registered repositories by itself, also when no agent hands them off
+([found sessions](SESSIONS.md#found-sessions)). When the user asks for an older
+session, or one that is not in the list, find it and make it a Med thread.
+
+`med thread find <words>` lists the sessions on this computer of any age,
+newest first: those whose title, first prompt, folder, or ID has each word.
+Each line has the session, the time of its last change, its folder, and its
+title, with tabs between them. A session that a thread holds ends with the
+thread's ID. `--json` gives all the details, and `--limit` the number of lines
+(default 20).
+
+```sh
+med thread find tide prediction
+# claude:2f0c…	2026-09-12 16:40	~/code/tide	Explain the tide prediction model
+```
+
+`med thread adopt <session>` makes the session a Med thread, as **Keep in Med**
+does: the thread captures the working changes of the session's checkout and
+shows the session. Give the session as `find` prints it, as an ID or its first
+6 or more characters, or as the path of its transcript. The command prints the
+thread's ID and a Markdown link; put the link in your reply.
+
+```sh
+med thread adopt claude:2f0c4a91-6b0e-4d55-9a57-1f3e8c2d7b10
+# Thread r_6d1f…: [Explain the tide prediction model](http://127.0.0.1:6330/review/r_6d1f…)
+```
+
+- A session that a thread holds gives that thread, also from the archive.
+- When no session matches, or more than one does, the command fails and says
+  so; for more than one, it lists them.
+- When the session's folder is not in a registered repository, or no longer
+  exists, choose the checkout with `--repo <path>`. `--title` names the thread,
+  and `--open` shows it.
+
 ## Review in Med
 
 A review opens on its latest iteration; the keys at the top of **Notes** show

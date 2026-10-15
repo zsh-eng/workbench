@@ -145,6 +145,34 @@ The browser shows **Working** until the agent ends its turn, or until the
 transcript has not changed for 5 minutes, because a stopped process writes
 nothing.
 
+## Found sessions
+
+Med also shows the Claude Code and Codex sessions that no agent handed off
+(`src/host/found-sessions.ts`). The thread list shows a session when its
+transcript changed in the last 7 days (`FOUND_DAYS`, one window for both
+agents) and its folder is in a registered repository or one of its worktrees.
+Its thread ID is `found-<agent>-<session>`, and the session routes accept it.
+
+- Claude Code: the project folders of the registered checkouts.
+- Codex files a rollout under the day that its session started. Each scan
+  reads the day folders of the window. Every 60 seconds, Med lists all day
+  folders, so a session that started earlier and runs again shows within a
+  minute. Codex's archived sessions do not show.
+- A session that a saved review names shows only as that thread. Med runs
+  Codex through ACP under its own session ID, and Codex writes a rollout with
+  Codex's thread ID. Med keeps that ID with the session (`owned-sessions.json`),
+  so the rollout does not show again as a found thread.
+
+**Keep in Med** saves a found session as a thread. For older sessions, an
+agent runs `med thread find` and `med thread adopt`
+([agent integration](AGENT_INTEGRATION.md#find-and-adopt-sessions)). These
+reach every session on the computer, of any age, also Codex's archived ones
+(`src/host/session-search.ts`). A search reads the first 64 KB of each
+transcript once per change, and for Claude Code also the last 64 KB, where a
+title that the user sets later goes. On a scratch home with 1,770 synthetic
+transcripts (the size of a real history), the first search took 86 ms and
+later ones 15 ms.
+
 ## Browser
 
 - `data/session-store.ts` turns updates into thread items. An update replaces
@@ -306,8 +334,9 @@ the replay do not change.
 [Agent workspaces](AGENT_WORKSPACES.md) records the design and the remaining
 work.
 
-- The sidebar shows sessions recorded with saved reviews. Branch workspaces
-  have no session.
+- The sidebar shows sessions recorded with saved reviews, and the
+  [found sessions](#found-sessions) of the last 7 days. Branch workspaces have
+  no session.
 - Subagent threads render whole, inside their call and in the subagent view;
   they are not virtual lists.
 - Estimates of open edits miss Pierre's hunk separators. A wrong estimate
