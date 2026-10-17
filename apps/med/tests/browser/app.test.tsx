@@ -953,7 +953,7 @@ describe("graphical review", () => {
     expect(fileRequests).toHaveLength(1);
   });
 
-  test("Command-click opens pinned background tabs from diff filenames and the changes tree", async () => {
+  test("Command-click opens background tabs from diff filenames and the changes tree", async () => {
     const { controller } = await mountApp();
     await page
       .getByRole("link", { name: "src/alpha.ts", exact: true })
@@ -1256,14 +1256,20 @@ describe("graphical review", () => {
       .element(page.getByRole("tab", { name: "alpha.ts", exact: true }))
       .not.toBeInTheDocument();
     await expect.element(page.getByRole("tab", { name: "beta.ts", exact: true })).toBeVisible();
+    // The tab that showed before comes back, not the closed tab's neighbor:
+    // the list's first click showed alpha.ts in Changes.
+    const tab = (name: string) => page.getByRole("tab", { name, exact: true });
     await page.getByRole("treeitem", { name: /alpha.ts/ }).dblClick();
+    await expect.element(tab("alpha.ts")).toHaveAttribute("aria-selected", "true");
     altKey("KeyW");
-    await expect
-      .element(page.getByRole("tab", { name: "alpha.ts", exact: true }))
-      .not.toBeInTheDocument();
-    await expect
-      .element(page.getByRole("tab", { name: "beta.ts", exact: true }))
-      .toHaveAttribute("aria-selected", "true");
+    await expect.element(tab("alpha.ts")).not.toBeInTheDocument();
+    await expect.element(tab("Changes")).toHaveAttribute("aria-selected", "true");
+    await page.getByRole("treeitem", { name: /alpha.ts/ }).dblClick();
+    await tab("beta.ts").click();
+    await tab("alpha.ts").click();
+    altKey("KeyW");
+    await expect.element(tab("alpha.ts")).not.toBeInTheDocument();
+    await expect.element(tab("beta.ts")).toHaveAttribute("aria-selected", "true");
     const editor = page.getByRole("textbox", {
       name: "Edit src/beta.ts",
       exact: true,
@@ -1271,12 +1277,10 @@ describe("graphical review", () => {
     await expect.element(editor).toBeVisible();
     await expect.poll(() => document.activeElement).toBe(editor.element());
     altKey("KeyW", true);
-    await expect
-      .element(page.getByRole("tab", { name: "beta.ts", exact: true }))
-      .not.toBeInTheDocument();
-    await expect.element(page.getByRole("tab", { name: "Changes", exact: true })).toBeVisible();
+    await expect.element(tab("beta.ts")).not.toBeInTheDocument();
+    await expect.element(tab("Changes")).toHaveAttribute("aria-selected", "true");
   });
-  test("Find file opens a preview tab with Enter and a kept tab with Mod+Enter; tab keys move along the row", async () => {
+  test("each file that Find file opens keeps its tab, a second open shows that tab, and tab keys move along the row", async () => {
     await mountApp();
     const find = async (name: string, keys: string) => {
       window.dispatchEvent(
@@ -1293,14 +1297,13 @@ describe("graphical review", () => {
       await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
     };
     const tab = (name: string) => page.getByRole("tab", { name, exact: true });
-    // A preview tab's tooltip says so.
-    const title = (name: string) => tab(name).query()?.getAttribute("title");
+    await find("beta.ts", "{Enter}");
     await find("alpha.ts", "{Enter}");
-    await expect.poll(() => title("alpha.ts")).toMatch(/Preview/);
-    await find("beta.ts", "{Control>}{Enter}{/Control}");
-    await expect.poll(() => title("beta.ts")).toMatch(/^src\/beta\.ts(?!.*Preview)/);
-    // The kept tab replaced the preview tab, as a double-click in Files does.
-    await expect.element(tab("alpha.ts")).not.toBeInTheDocument();
+    await expect.element(tab("beta.ts")).toBeVisible();
+    // A second open shows the file's tab; it adds none.
+    await find("beta.ts", "{Enter}");
+    await expect.element(tab("beta.ts")).toHaveAttribute("aria-selected", "true");
+    expect(page.getByRole("tab", { name: "beta.ts", exact: true }).all()).toHaveLength(1);
     await find("alpha.ts", "{Enter}");
     // The row is Changes, Commit, beta.ts, alpha.ts.
     const key = (init: KeyboardEventInit, target: EventTarget = window) =>
@@ -1320,10 +1323,6 @@ describe("graphical review", () => {
       exact: true,
     });
     await expect.element(editor).toBeVisible();
-    // Option+P keeps the preview tab, also from its editor, where it would type π.
-    key({ key: "π", code: "KeyP", altKey: true }, editor.element());
-    await expect.poll(() => title("alpha.ts")).toMatch(/^src\/alpha\.ts(?!.*Preview)/);
-    expect(editor.element().textContent).not.toContain("π");
     // / starts Vim's search in the file, also from outside it.
     (document.activeElement as HTMLElement | null)?.blur();
     key({ key: "/", code: "Slash" });
@@ -2520,6 +2519,15 @@ describe("graphical review", () => {
     await row("src/web/App.tsx").click();
     await userEvent.keyboard("{Enter}");
     await expect.element(tab("App.tsx")).toHaveAttribute("aria-selected", "true");
+    // Closing the file goes back to Commit, and q leaves Commit for the tab
+    // that showed before it, by the same rule.
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "∑", code: "KeyW", altKey: true, bubbles: true }),
+    );
+    await expect.element(tab("App.tsx")).not.toBeInTheDocument();
+    await expect.element(tab("Commit")).toHaveAttribute("aria-selected", "true");
+    await userEvent.keyboard("q");
+    await expect.element(tab("Changes")).toHaveAttribute("aria-selected", "true");
   });
 });
 
@@ -3292,6 +3300,15 @@ describe("agent session", () => {
     await alpha.click();
     await expect.element(page.getByRole("tab", { name: "alpha.ts", exact: true })).toBeVisible();
     await expect.poll(() => editor.element().querySelectorAll(".med-cited-line").length).toBe(1);
+    // A link's tab is a tab like any other: closing it shows the one before.
+    await page.getByRole("button", { name: "Close src/alpha.ts" }).click();
+    await expect
+      .element(page.getByRole("tab", { name: "beta.ts", exact: true }))
+      .toHaveAttribute("aria-selected", "true");
+    await page.getByRole("button", { name: "Close src/beta.ts" }).click();
+    await expect
+      .element(page.getByRole("tab", { name: "Review", exact: true }))
+      .toHaveAttribute("aria-selected", "true");
     await panel.getByRole("button", { name: "Close session" }).click();
     await expect.element(panel).not.toBeInTheDocument();
   });

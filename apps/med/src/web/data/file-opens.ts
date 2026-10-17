@@ -24,6 +24,20 @@ export function takeFileOpen(workspaceId: string) {
   return request;
 }
 
+/** A query that an old `/search?q=…` link asks one workspace to show in its Search tab. */
+const searches = new Map<string, string>();
+
+export function requestSearchOpen(workspaceId: string, query: string) {
+  searches.set(workspaceId, query);
+  for (const listener of listeners) listener();
+}
+
+export function takeSearchOpen(workspaceId: string) {
+  const query = searches.get(workspaceId);
+  searches.delete(workspaceId);
+  return query;
+}
+
 export function subscribeFileOpens(listener: () => void) {
   listeners.add(listener);
   return () => {

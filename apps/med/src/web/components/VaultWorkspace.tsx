@@ -38,8 +38,10 @@ const request = async (action: string, body: object = {}, signal?: AbortSignal) 
   });
 interface VaultTab {
   file: LocalRead;
-  pinned: boolean;
 }
+/** Open notes, and their bytes, that the vault's row holds. */
+const TAB_LIMIT = 24;
+const TAB_BYTES = 32 * 1024 * 1024;
 const route = () => ({
   visible: location.pathname === "/sources" || location.pathname.startsWith("/vault/"),
   id: location.pathname.startsWith("/vault/") ? decodeURIComponent(location.pathname.slice(7)) : "",
@@ -87,10 +89,9 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
   const [refresh, setRefresh] = useState(0);
   const [line, setLine] = useState<number>();
   const [drafts] = useState(createEditorDrafts);
-  const draftRevision = useSyncExternalStore(drafts.subscribe, drafts.getSnapshot);
+  useSyncExternalStore(drafts.subscribe, drafts.getSnapshot);
   const generation = useRef(0);
   const retainedTabs = useRef<VaultTab[]>([]);
-  const pinRequests = useRef(new Map<string, boolean>());
   const surface = useRef<HTMLDivElement>(null);
   const source = sources.find((s) => s.id === locationState.id);
   useDocumentTitle(
@@ -120,17 +121,7 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
     window.dispatchEvent(new Event("med:location"));
   }, []);
   const open = useCallback(
-    (path: string, at?: number, pinned = true) => {
-      const key = `${locationState.id}:${path}`;
-      pinRequests.current.set(key, pinned || pinRequests.current.get(key) === true);
-      if (pinned)
-        updateTabs(
-          retainedTabs.current.map((tab) =>
-            tab.file.vault?.id === locationState.id && tab.file.vault.path === path
-              ? { ...tab, pinned: true }
-              : tab,
-          ),
-        );
+    (path: string, at?: number) => {
       const cached = retainedTabs.current.find(
         (tab) => tab.file.vault?.id === locationState.id && tab.file.vault.path === path,
       );
@@ -138,42 +129,40 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
       setLine(at);
       navigate(`/vault/${locationState.id}?${new URLSearchParams({ file: path })}`);
     },
-    [locationState.id, navigate, updateTabs],
+    [locationState.id, navigate],
   );
+  // The vault's files, the most recently shown first: a closed tab gives the
+  // screen back to the file that showed before it.
+  const recent = useRef<string[]>([]);
+  const currentPath = currentFile?.path;
+  useEffect(() => {
+    if (currentPath)
+      recent.current = [currentPath, ...recent.current.filter((path) => path !== currentPath)];
+  }, [currentPath]);
+  /** Closes tabs by file path. When the file on screen closes, `show` shows,
+   * or else the file that showed before it. */
   const closeTabs = useCallback(
-    (paths: string[]) => {
+    (paths: string[], show?: string) => {
       if (paths.some((path) => drafts.get(path)?.dirty || drafts.get(path)?.saving)) {
         setError("Save or discard this draft before closing the file.");
         return;
       }
       const next = retainedTabs.current.filter((tab) => !paths.includes(tab.file.path));
       updateTabs(next);
+      recent.current = recent.current.filter((path) => !paths.includes(path));
       setError("");
       if (currentFile && paths.includes(currentFile.path)) {
-        const target = next.filter((tab) => tab.file.vault?.id === locationState.id).at(-1);
-        if (target) open(target.file.vault!.path, undefined, target.pinned);
+        const shown = next.filter((tab) => tab.file.vault?.id === locationState.id);
+        const target =
+          [show, ...recent.current]
+            .map((path) => shown.find((tab) => tab.file.path === path))
+            .find(Boolean) ?? shown.at(-1);
+        if (target) open(target.file.vault!.path);
         else navigate(`/vault/${locationState.id}`);
       }
     },
     [drafts, currentFile, locationState.id, navigate, open, updateTabs],
   );
-  const pin = useCallback(
-    (path: string) =>
-      updateTabs(
-        retainedTabs.current.map((tab) =>
-          tab.file.path === path ? { ...tab, pinned: true } : tab,
-        ),
-      ),
-    [updateTabs],
-  );
-  useEffect(() => {
-    const next = retainedTabs.current.map((tab) =>
-      !tab.pinned && (drafts.get(tab.file.path)?.dirty || drafts.get(tab.file.path)?.saving)
-        ? { ...tab, pinned: true }
-        : tab,
-    );
-    if (next.some((tab, index) => tab !== retainedTabs.current[index])) updateTabs(next);
-  }, [draftRevision, drafts, updateTabs]);
   useEffect(() => {
     const pop = () => {
       setLine(undefined);
@@ -259,27 +248,35 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
       .then((value) => {
         if (current !== generation.current || abort.signal.aborted) return;
         const read = localReadSchema.parse(value);
-        const key = `${locationState.id}:${locationState.file}`;
-        const pinned = pinRequests.current.get(key) ?? true;
-        pinRequests.current.delete(key);
         const prior = retainedTabs.current.find((tab) => tab.file.path === read.path);
         const next = prior
           ? retainedTabs.current.map((tab) => (tab === prior ? { ...tab, file: read } : tab))
-          : [
-              ...retainedTabs.current.filter(
-                (tab) =>
-                  tab.file.vault?.id !== locationState.id ||
-                  tab.pinned ||
-                  drafts.get(tab.file.path)?.dirty ||
-                  drafts.get(tab.file.path)?.saving,
-              ),
-              { file: read, pinned },
-            ];
-        if (
-          next.length > 24 ||
-          next.reduce((sum, tab) => sum + tab.file.size, 0) > 32 * 1024 * 1024
-        )
-          throw new Error("Close a note before opening more (24 files / 32 MiB limit).");
+          : [...retainedTabs.current, { file: read }];
+        // A full row gives up the notes that showed least recently and have no unsaved draft.
+        const full = () =>
+          next.length > TAB_LIMIT || next.reduce((sum, tab) => sum + tab.file.size, 0) > TAB_BYTES;
+        const age = (path: string) => {
+          const place = recent.current.indexOf(path);
+          return place < 0 ? Infinity : place;
+        };
+        const spare = (tab: VaultTab) =>
+          tab.file.path !== read.path &&
+          !drafts.get(tab.file.path)?.dirty &&
+          !drafts.get(tab.file.path)?.saving;
+        while (full()) {
+          const index = next.reduce(
+            (oldest, tab, place) =>
+              spare(tab) && (oldest < 0 || age(tab.file.path) > age(next[oldest]!.file.path))
+                ? place
+                : oldest,
+            -1,
+          );
+          if (index < 0)
+            throw new Error(
+              "Save or discard a draft before opening more (24 files / 32 MiB limit).",
+            );
+          next.splice(index, 1);
+        }
         setError("");
         setFile(read);
         updateTabs(next);
@@ -340,9 +337,6 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
                   .map((tab) => tab.file.path)
               : [currentFile.path],
           );
-        } else if (event.code === "KeyP" && currentFile) {
-          event.preventDefault();
-          pin(currentFile.path);
         }
       }
     };
@@ -379,15 +373,7 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
       window.removeEventListener("keydown", key, true);
       window.removeEventListener("med-vault-navigate", follow);
     };
-  }, [
-    locationState.visible,
-    locationState.id,
-    locationState.file,
-    currentFile,
-    open,
-    closeTabs,
-    pin,
-  ]);
+  }, [locationState.visible, locationState.id, locationState.file, currentFile, open, closeTabs]);
   const previewReader = useMemo(
     () => ({
       scope: `vault:${locationState.id}`,
@@ -456,14 +442,6 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
             .filter((tab) => tab.file.path !== currentFile?.path)
             .map((tab) => tab.file.path),
         ),
-    },
-    {
-      id: "pin-file",
-      label: "Keep current preview tab open",
-      shortcut: "⌥ P",
-      disabled:
-        !currentFile || !!currentTabs.find((tab) => tab.file.path === currentFile.path)?.pinned,
-      run: () => currentFile && pin(currentFile.path),
     },
     {
       id: "copy-link",
@@ -558,8 +536,7 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
                   error={null}
                   truncated={false}
                   selectedPath={locationState.file || null}
-                  onPreview={(path) => open(path, undefined, false)}
-                  onPin={(path) => open(path)}
+                  onOpen={(path) => open(path)}
                   onRefresh={refreshFiles}
                   onClose={() => setSidebar(false)}
                 />
@@ -623,17 +600,22 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
                   tabs={currentTabs.map((tab) => ({
                     id: tab.file.path,
                     path: tab.file.vault!.path,
-                    pinned: tab.pinned,
                     dirty: drafts.get(tab.file.path)?.dirty,
                   }))}
                   active={currentFile?.path ?? ""}
                   panelId="vault-file-panel"
                   onSelect={(id) => {
                     const tab = currentTabs.find((t) => t.file.path === id);
-                    if (tab) open(tab.file.vault!.path, undefined, tab.pinned);
+                    if (tab) open(tab.file.vault!.path);
                   }}
-                  onPin={pin}
                   onClose={(id) => closeTabs([id])}
+                  onCloseOthers={(id) =>
+                    closeTabs(
+                      currentTabs.map((tab) => tab.file.path).filter((path) => path !== id),
+                      id,
+                    )
+                  }
+                  onCloseAll={() => closeTabs(currentTabs.map((tab) => tab.file.path))}
                 />
                 <div className="med-vault-actions">
                   <ToolButton
@@ -692,9 +674,7 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
                           setFile(result);
                         updateTabs(
                           retainedTabs.current.map((tab) =>
-                            tab.file.path === result.path
-                              ? { ...tab, file: result, pinned: true }
-                              : tab,
+                            tab.file.path === result.path ? { ...tab, file: result } : tab,
                           ),
                         );
                         return result;

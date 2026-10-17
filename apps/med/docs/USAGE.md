@@ -238,9 +238,9 @@ app.
    snapshots; it does not add patches across merged branches.
 2. Select a changed path to go to it in the diff. Double-click it to open the
    whole file.
-3. Open unchanged files from the file picker or the Files pane. A preview does
-   not replace your review until you open it. A branch without a worktree opens
-   its committed content.
+3. Open unchanged files from the file picker or the Files pane. Each file opens
+   in a tab of its own, beside Changes, and stays until you close it. A branch
+   without a worktree opens its committed content.
 
 To comment, drag the gutter **+** across lines, or select line numbers and
 press `c`. A comment shows its Markdown rendered, such as code and lists, and
@@ -334,8 +334,9 @@ background shells and agents. It follows the session live.
   inline code or in a prompt: `src/a.ts:10`, `src/a.ts:10-20`, `a.ts#L12`, or an
   absolute path inside the checkout. Hover a link to see its path. Click it to
   open the file as a tab, at its first line, with its lines marked; `⌘`-click
-  opens the tab behind the current one. Text that names no file of the
-  checkout stays as it is.
+  opens the tab behind the current one. Close the tab to go back to the tab
+  that you read before it. Text that names no file of the checkout stays as
+  it is.
 - A web link shows as a pill with its
   site's icon. Med holds the icons of common developer sites, and of servers
   that a company runs itself, such as GitHub or Sourcegraph; other sites show a
@@ -526,7 +527,8 @@ after the review was saved.
 ## Commit and push
 
 Press `q` in a review of live changes, or click the **Commit** tab, to stage
-files, commit them, and push the branch. Press `q` again to go back.
+files, commit them, and push the branch. Press `q` again to go back to the tab
+that showed before.
 
 - **Files.** The list shows each changed file: ● staged, ◐ partly staged, ○ not
   staged. Their diffs follow in the same order. `j` and `k` move through the
@@ -629,8 +631,15 @@ Combine **Code**, **Tests**, and **Docs**, or type filters such as
 `type:tests ext:java,kt`. Values in one filter match any; the two filters must
 both match. Test files follow each language's conventions, such as `.test.ts`,
 `_test.go`, `test_*.py`, `*Test.java`, and `src/test/`. In Find file, `↵` opens
-a preview tab, which the next preview replaces, and `⌘↵` opens a tab that
-stays.
+the file.
+
+Every open makes a tab that stays until you close it: Find file, a click in
+the Files pane, a link, a search result, and Go to definition. A file that is
+open already shows its tab, at the line when the open names one. In the Files
+pane, the arrow keys move without opening files, and `↵` opens the selected
+one. `⌘`-click opens a file in the background. A middle click on a tab closes
+it. A workspace holds 24 file tabs; when the row is full, a new file takes the
+place of the oldest tab without an unsaved draft.
 
 Right-click a file in a tree or tab for **Reveal in Finder**, **Copy path**,
 and **Copy relative path**. The panel button beside **Esc**, or **Hide file
@@ -638,19 +647,32 @@ preview in Find file**, hides the preview in every picker and window.
 
 ### Search file contents
 
-**Search file contents** (`⌘⇧F`) opens the search page, with `repo:` set to the
-repository of the workspace. Results show as you type, by file. `repo:name`
-picks a repository; add more to search several, or remove them all to search
-every registered repository. The repository of the workspace is searched in
-its own checkout, such as a thread's worktree, and the others in their main
-checkout. `↑` and `↓` move through the matches, `↵` opens one at its line in
-that repository's workspace, and `Esc` or Back returns. The address
-(`/search?q=…`) keeps the query.
+**Search file contents** (`⌘⇧F`) opens the workspace's **Search** tab, after
+Commit in the tab row, or shows it when it is open. Selected text becomes the
+query; else the tab keeps its query and selects it. The tab's label is the
+query. Results show as you type, by file, with each file's path and line
+numbers. Each match shows two lines above and below it; matches whose lines
+meet share one excerpt. The lines have the file view's syntax colors, and the
+query is marked in them. Med reads and highlights only the files near the
+view, so a long list stays fast. **Aa** or `⌥C` matches case. The search does
+not take regular expressions. `↑` and `↓` move through the matches, and `↵` or
+a click opens one at its line in a file tab; a click on a line around a match
+opens the file at that line. The Search
+tab stays, with its query, results, and scroll. `Esc` shows the tab that
+showed before. Close the tab with its **×**, a middle click, or `⌥W`. Each
+workspace has one Search tab, as in Zed, so `⌘⇧F` always goes to the same
+place; a new query replaces the old one. A reload keeps the query.
+
+The tab searches the workspace's checkout, such as a thread's worktree.
+`repo:name` searches another registered repository, in its main checkout,
+instead; add more to search several, or type `repo:*` for every one. A match
+in another repository opens in that repository's workspace. An old search
+link (`/search?q=…`) opens the Search tab with its query.
 
 Search reads committed branch content, and opens results at the exact commit
 shown. It does not include uncommitted or untracked changes. Without Zoekt, it
 searches with Git. A review outside the workspaces, such as a patch file, uses
-the content picker instead of the page.
+the content picker instead of the tab.
 
 [Zoekt](https://github.com/sourcegraph/zoekt) makes search faster and adds
 project symbols. Setup builds pinned helpers once and needs Go
@@ -718,8 +740,11 @@ While a Vim pane has focus, `?` searches backward and `⌘K` still opens the
 command palette.
 
 Command-click a diff's filename, or a file in the Changes list, to open it in a
-background tab. Closing the active file selects the file to its right, then its
-left.
+background tab. When you close the file on screen, the tab that showed before
+it shows again: a file, Changes, Review, Notes, Commit, or Search, as in VS
+Code and Zed. **Close all files** (`⌥⇧W`) does the same and keeps Search.
+**Close other files** (`⌥⇧O`) keeps the file on screen. Right-click a file tab
+for **Close**, **Close other files**, and **Close all files**.
 
 ## Read and edit Markdown
 
@@ -893,17 +918,15 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Mark the segment viewed, go on   | `⇧V`          |
 | Next / previous excerpt or reply | `]` / `[`     |
 | Resume search                    | `⌥R`          |
-| Keep the preview tab             | `⌥P`          |
-| Open a found file and keep it    | `⌘↵`          |
 | Show tab 1–8 / the last tab      | `⌥1`–`⌥9`     |
 | Previous / next tab              | `⌘⇧[` / `⌘⇧]` |
 | Toggle gutter blame              | `⌥B`          |
-| Close the file                   | `⌥W`          |
+| Close the file or Search         | `⌥W`          |
 | Close all files in the workspace | `⌥⇧W`         |
 | Close other files                | `⌥⇧O`         |
 
 Close actions keep the Changes tab and other workspaces. Tab numbers count the
-Notes, Changes, and Commit tabs with the file tabs. A browser can take some
+Review, Notes, Changes, Commit, and Search tabs with the file tabs. A browser can take some
 shortcuts first; the command palette has the same actions.
 
 ## Limits and evidence

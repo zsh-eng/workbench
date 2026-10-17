@@ -76,7 +76,7 @@ test("picker opens only a scoped result with an optional line", async () => {
   await page.getByRole("combobox", { name: "Find file" }).fill("main.ts:42");
   await expect.element(page.getByRole("option", { name: "main.ts src" })).toBeVisible();
   await userEvent.keyboard("{Enter}");
-  await expect.poll(() => onOpen.mock.calls).toEqual([["src/main.ts", 42, undefined, false]]);
+  await expect.poll(() => onOpen.mock.calls).toEqual([["src/main.ts", 42]]);
   await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
 });
 
@@ -158,15 +158,13 @@ test("repository scopes show and match relative names but open the absolute work
         "src/keen.ts",
         undefined,
         { kind: "worktree", repo: worktree },
-        false,
         "Working files · workbench · .claude/worktrees/keen",
       ],
     ]);
 });
 
-test("tree click previews, double-click pins, and directory clicks do not open files", async () => {
-  const onPreview = vi.fn<(path: string) => void>();
-  const onPin = vi.fn<(path: string) => void>();
+test("a click or Enter opens a file, the arrow keys only move, and folders open no file", async () => {
+  const onOpen = vi.fn<(path: string, background?: boolean) => void>();
   render(
     <div style={{ width: 300, height: 450 }}>
       <RepositoryFiles
@@ -176,8 +174,7 @@ test("tree click previews, double-click pins, and directory clicks do not open f
         truncated={false}
         sourceLabel="main · Working files"
         selectedPath={null}
-        onPreview={onPreview}
-        onPin={onPin}
+        onOpen={onOpen}
         ignored={false}
         onIgnoredChange={() => {}}
         onRefresh={() => {}}
@@ -186,11 +183,22 @@ test("tree click previews, double-click pins, and directory clicks do not open f
     </div>,
   );
   await page.getByRole("treeitem", { name: "main.ts", exact: true }).click();
-  await expect.poll(() => onPreview.mock.calls).toEqual([["src/main.ts"]]);
-  await page.getByRole("treeitem", { name: "main.ts", exact: true }).dblClick();
-  await expect.poll(() => onPin.mock.calls).toEqual([["src/main.ts"]]);
-  await page.getByRole("treeitem", { name: "src", exact: true }).dblClick();
-  expect(onPin).toHaveBeenCalledTimes(1);
+  await expect.poll(() => onOpen.mock.calls).toEqual([["src/main.ts", false]]);
+  await userEvent.keyboard("{ArrowDown}");
+  await expect
+    .poll(() =>
+      (document.activeElement?.shadowRoot?.activeElement as HTMLElement | null)?.closest(
+        "[data-item-path]",
+      ),
+    )
+    .toHaveAttribute("data-item-path", "src/menu.ts");
+  expect(onOpen).toHaveBeenCalledTimes(1);
+  await userEvent.keyboard("{Enter}");
+  await expect.poll(() => onOpen.mock.calls.at(-1)).toEqual(["src/menu.ts"]);
+  await page.getByRole("treeitem", { name: "main.ts", exact: true }).click({ modifiers: ["Meta"] });
+  await expect.poll(() => onOpen.mock.calls.at(-1)).toEqual(["src/main.ts", true]);
+  await page.getByRole("treeitem", { name: "src", exact: true }).click();
+  expect(onOpen).toHaveBeenCalledTimes(3);
 });
 
 test("a hidden tree retains its scroll position when shown again", async () => {
@@ -211,8 +219,7 @@ test("a hidden tree retains its scroll position when shown again", async () => {
             truncated={false}
             sourceLabel="Test"
             selectedPath={null}
-            onPreview={() => {}}
-            onPin={() => {}}
+            onOpen={() => {}}
             ignored={false}
             onIgnoredChange={() => {}}
             onRefresh={() => {}}
@@ -257,8 +264,7 @@ test("the active source prepares its file tree before the sidebar is first opene
             {...state}
             sourceLabel={repo}
             selectedPath={null}
-            onPreview={() => {}}
-            onPin={() => {}}
+            onOpen={() => {}}
             onIgnoredChange={state.setIgnored}
             onRefresh={state.refresh}
             onClose={() => setVisible(false)}
@@ -418,7 +424,7 @@ test("Enter opens the first match after an async manifest and an empty query res
   await input.fill("src/main.ts:120");
   await expect.element(page.getByRole("option", { name: "menu.ts src" })).not.toBeInTheDocument();
   await userEvent.keyboard("{Enter}");
-  await expect.poll(() => onOpen.mock.calls).toEqual([["src/main.ts", 120, undefined, false]]);
+  await expect.poll(() => onOpen.mock.calls).toEqual([["src/main.ts", 120]]);
 });
 
 test("Enter preserves the option selected with arrow keys", async () => {
@@ -443,13 +449,11 @@ test("Enter preserves the option selected with arrow keys", async () => {
     .element(page.getByRole("option", { name: "menu.ts src" }))
     .toHaveAttribute("data-highlighted");
   await userEvent.keyboard("{Enter}");
-  await expect
-    .poll(() => onOpen.mock.calls)
-    .toEqual([["src/menu.ts", undefined, undefined, false]]);
+  await expect.poll(() => onOpen.mock.calls).toEqual([["src/menu.ts", undefined]]);
 });
 
 test("an externally opened deep file expands its parent folders and becomes visible", async () => {
-  const onPreview = vi.fn<(path: string) => void>();
+  const onOpen = vi.fn<(path: string) => void>();
   const deepEntries: BrowseEntry[] = [
     ...entries,
     { path: "src/js/node/_http_client.ts", kind: "file" },
@@ -470,8 +474,7 @@ test("an externally opened deep file expands its parent folders and becomes visi
           truncated={false}
           sourceLabel="Working files"
           selectedPath={selected}
-          onPreview={onPreview}
-          onPin={() => {}}
+          onOpen={onOpen}
           ignored={false}
           onIgnoredChange={() => {}}
           onRefresh={() => {}}
@@ -492,7 +495,7 @@ test("an externally opened deep file expands its parent folders and becomes visi
   await expect
     .element(page.getByRole("treeitem", { name: "_http_client.ts", exact: true }))
     .toHaveAttribute("aria-selected", "true");
-  expect(onPreview).not.toHaveBeenCalled();
+  expect(onOpen).not.toHaveBeenCalled();
 });
 
 test("picker ranks open and recent files without introducing another workspace's paths", () => {
@@ -573,7 +576,7 @@ test("preview follows selection, cancels stale reads, and Escape leaves the curr
   await expect.poll(() => requests.length).toBe(3);
   expect(requests[2]!.path).toBe("src/menu.ts");
   await userEvent.keyboard("{Enter}");
-  expect(onOpen).toHaveBeenCalledWith("src/menu.ts", undefined, undefined, false);
+  expect(onOpen).toHaveBeenCalledWith("src/menu.ts", undefined);
 });
 
 test("content search is scoped, previews the matching line, and resumes its last mode", async () => {
@@ -639,7 +642,7 @@ test("content search is scoped, previews the matching line, and resumes its last
     .toHaveValue("needle");
   await expect.element(page.getByRole("option", { name: "main.ts:2 src needle" })).toBeVisible();
   await userEvent.keyboard("{Enter}");
-  expect(onOpen).toHaveBeenCalledWith("src/main.ts", 2, undefined, false);
+  expect(onOpen).toHaveBeenCalledWith("src/main.ts", 2);
 });
 
 test("committed search previews and opens the exact result commit, while Files stays in the worktree", async () => {
@@ -688,14 +691,14 @@ test("committed search previews and opens the exact result commit, while Files s
     .poll(() => api.read)
     .toHaveBeenCalledWith(resultSource, "src/main.ts", expect.any(AbortSignal));
   await userEvent.keyboard("{Enter}");
-  expect(onOpen).toHaveBeenCalledWith("src/main.ts", 2, resultSource, false);
+  expect(onOpen).toHaveBeenCalledWith("src/main.ts", 2, resultSource);
   await page.getByRole("button", { name: "Files", exact: true }).click();
   await expect
     .poll(() => api.read)
     .toHaveBeenCalledWith(source, "src/main.ts", expect.any(AbortSignal));
   await page.getByRole("combobox", { name: "Find file" }).fill("main.ts");
   await userEvent.keyboard("{Enter}");
-  expect(onOpen).toHaveBeenLastCalledWith("src/main.ts", undefined, undefined, false);
+  expect(onOpen).toHaveBeenLastCalledWith("src/main.ts", undefined);
 });
 
 test("the preview toggle narrows Find file and the next picker keeps the choice", async () => {
@@ -828,7 +831,7 @@ test("content search retains previews, blocks stale opens, and ignores late resp
   resolve("second");
   await expect.element(page.getByRole("option", { name: "third.ts:1 src third" })).toBeVisible();
   await userEvent.keyboard("{Enter}");
-  expect(onOpen).toHaveBeenCalledWith("src/third.ts", 1, resultSource, false);
+  expect(onOpen).toHaveBeenCalledWith("src/third.ts", 1, resultSource);
 
   await input.fill("   ");
   await expect.element(page.getByRole("option")).not.toBeInTheDocument();
@@ -892,7 +895,7 @@ test("resume restores the content query after Enter opens an immutable result", 
     .element(page.getByRole("option", { name: "main.ts:1 src rewriteForProxiedHttp();" }))
     .toBeVisible();
   await userEvent.keyboard("{Enter}");
-  expect(onOpen).toHaveBeenCalledWith("src/main.ts", 1, resultSource, false);
+  expect(onOpen).toHaveBeenCalledWith("src/main.ts", 1, resultSource);
   await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
   reopen();
   await expect

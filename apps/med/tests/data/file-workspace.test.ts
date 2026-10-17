@@ -1,5 +1,9 @@
 import { describe, expect, test, vi } from "vitest";
-import { createFileWorkspace } from "../../src/web/data/file-workspace";
+import {
+  createFileWorkspace,
+  TAB_LIMIT,
+  type OpenFileTab,
+} from "../../src/web/data/file-workspace";
 import type { BrowseApi } from "../../src/web/data/browse";
 import type { BrowseRead, BrowseSource } from "../../src/shared/browse";
 const A: BrowseSource = { kind: "worktree", repo: "/first" };
@@ -14,7 +18,7 @@ function result(source: BrowseSource, path: string, kind: BrowseRead["kind"] = "
     ...(kind === "text" ? { text: source.repo } : {}),
   };
 }
-function fixture() {
+function fixture(options: { held?: (tab: OpenFileTab) => boolean } = {}) {
   const pending: {
     source: BrowseSource;
     path: string;
@@ -27,7 +31,7 @@ function fixture() {
     read: (source, path, signal) =>
       new Promise((resolve, reject) => pending.push({ source, path, signal, resolve, reject })),
   };
-  return { workspace: createFileWorkspace(api), pending };
+  return { workspace: createFileWorkspace(api, options), pending };
 }
 async function settle() {
   await Promise.resolve();
@@ -39,7 +43,7 @@ describe("file workspace", () => {
     const { workspace, pending } = fixture();
     const key = JSON.stringify(["first-repository", "branch", "main"]);
     workspace.configure(key, A, "First");
-    workspace.open("same.ts", true);
+    workspace.open("same.ts");
     workspace.forgetRepository("first-repository");
     expect(pending[0]!.signal?.aborted).toBe(true);
     pending[0]!.resolve(result(A, "same.ts"));
@@ -54,24 +58,24 @@ describe("file workspace", () => {
     const { workspace } = fixture();
     const commit: BrowseSource = { kind: "commit", repo: A.repo, oid: "a".repeat(40) };
     workspace.configure("first", A, "First");
-    workspace.open("same.ts", true, 12, commit, "Commit aaaaaaaa", 9);
+    workspace.open("same.ts", 12, commit, "Commit aaaaaaaa", 9);
     expect(workspace.getSnapshot().tabs[0]).toMatchObject({ source: commit, line: 12, column: 9 });
-    workspace.open("same.ts", false, 18, commit);
+    workspace.open("same.ts", 18, commit);
     expect(workspace.getSnapshot().tabs[0]).toMatchObject({ line: 18, column: undefined });
     workspace.dispose();
   });
   test("close others and close all affect only the current workspace and retain recent paths", async () => {
     const { workspace, pending } = fixture();
     workspace.configure("first", A, "First");
-    workspace.open("one.ts", true);
-    workspace.open("two.ts", true);
+    workspace.open("one.ts");
+    workspace.open("two.ts");
     const active = workspace.getSnapshot().active;
     workspace.closeOthers();
     expect(workspace.getSnapshot().tabs.map((tab) => tab.id)).toEqual([active]);
     expect(workspace.getSnapshot().recentPaths).toEqual(["two.ts", "one.ts"]);
     workspace.configure("second", B, "Second");
     expect(workspace.getSnapshot().recentPaths).toEqual([]);
-    workspace.open("other.ts", true);
+    workspace.open("other.ts");
     workspace.closeAll();
     expect(pending.at(-1)?.signal?.aborted).toBe(true);
     pending.at(-1)!.resolve(result(B, "other.ts"));
@@ -83,76 +87,137 @@ describe("file workspace", () => {
     expect(workspace.getSnapshot().recentPaths).toEqual(["two.ts", "one.ts"]);
     workspace.dispose();
   });
-  test("reuses one preview and selects the adjacent file when closing", () => {
-    const { workspace } = fixture();
+  test("each open keeps its tab, and a second open shows the file's tab without reading it again", async () => {
+    const { workspace, pending } = fixture();
     workspace.configure("first", A, "First");
     workspace.open("one.ts");
     workspace.open("two.ts");
-    expect(workspace.getSnapshot().tabs.map((tab) => tab.path)).toEqual(["two.ts"]);
-    workspace.pin(workspace.getSnapshot().active);
-    workspace.open("three.ts");
-    workspace.open("four.ts", true);
-    expect(workspace.getSnapshot().tabs.map((tab) => [tab.path, tab.pinned])).toEqual([
-      ["two.ts", true],
-      ["four.ts", true],
-    ]);
-    workspace.open("two.ts", false, 12);
-    expect(workspace.getSnapshot().tabs).toHaveLength(2);
+    expect(workspace.getSnapshot().tabs.map((tab) => tab.path)).toEqual(["one.ts", "two.ts"]);
+    pending.at(-1)!.resolve(result(A, "two.ts"));
+    await settle();
+    const reads = pending.length;
+    workspace.open("two.ts");
+    expect(pending).toHaveLength(reads);
+    workspace.open("one.ts", 12);
+    expect(workspace.getSnapshot().tabs.map((tab) => tab.path)).toEqual(["one.ts", "two.ts"]);
     expect(workspace.getSnapshot().tabs[0]!.line).toBe(12);
-    workspace.close(workspace.getSnapshot().active);
     expect(workspace.getSnapshot().active).toBe(workspace.getSnapshot().tabs[0]!.id);
-    workspace.close(workspace.getSnapshot().active);
-    expect(workspace.getSnapshot().active).toBe("changes");
-    expect(workspace.getSnapshot().file).toBeNull();
     workspace.dispose();
   });
-  test("closing selects the right neighbor, then the left, without disturbing background closes", () => {
+  test("closing gives the screen back to the tab that showed before, skipping tabs the row lost", () => {
+    let notes = true;
     const { workspace, pending } = fixture();
+    workspace.setAvailable((id) => id !== "brief" || notes);
     workspace.configure("first", A, "First");
-    for (const name of ["one.ts", "two.ts", "three.ts"]) workspace.open(name, true);
+    for (const name of ["one.ts", "two.ts", "three.ts"]) workspace.open(name);
     const [one, two, three] = workspace.getSnapshot().tabs;
-    workspace.select(two!.id);
-    workspace.close(two!.id);
-    expect(workspace.getSnapshot().active).toBe(three!.id);
-    expect(pending.at(-1)?.path).toBe("three.ts");
+    workspace.select("changes");
+    workspace.select(one!.id);
+    workspace.select(three!.id);
     workspace.close(three!.id);
     expect(workspace.getSnapshot().active).toBe(one!.id);
-    workspace.open("four.ts", true);
-    const reads = pending.length;
-    const active = workspace.getSnapshot().active;
+    expect(pending.at(-1)?.path).toBe("one.ts");
     workspace.close(one!.id);
-    expect(workspace.getSnapshot().active).toBe(active);
+    expect(workspace.getSnapshot().active).toBe("changes");
+    // A background close leaves the screen and its read alone.
+    workspace.select("brief");
+    workspace.select(two!.id);
+    const reads = pending.length;
+    workspace.open("four.ts", undefined, undefined, undefined, undefined, { background: true });
+    workspace.close(workspace.getSnapshot().tabs.at(-1)!.id);
+    expect(workspace.getSnapshot().active).toBe(two!.id);
     expect(pending).toHaveLength(reads);
+    // Notes left the row, so the file goes back to Changes.
+    notes = false;
+    workspace.close(two!.id);
+    expect(workspace.getSnapshot().active).toBe("changes");
+    // Commit goes back the same way.
+    workspace.open("five.ts");
+    workspace.select("commit");
+    expect(workspace.previous()).toBe(workspace.getSnapshot().tabs.at(-1)!.id);
     workspace.dispose();
   });
-  test("background opens pin tabs without changing selection, replacing previews, or cancelling reads", async () => {
+  test("each workspace has one Search tab, which keeps its query and closes like a file", () => {
+    const { workspace } = fixture();
+    workspace.configure("first", A, "First");
+    workspace.open("one.ts");
+    workspace.openSearch("needle");
+    expect(workspace.getSnapshot()).toMatchObject({ active: "search", search: "needle" });
+    workspace.setSearch("needles");
+    workspace.open("two.ts");
+    // A second open keeps the tab and its query; a new query replaces it.
+    workspace.openSearch();
+    expect(workspace.getSnapshot()).toMatchObject({ active: "search", search: "needles" });
+    workspace.configure("second", B, "Second");
+    expect(workspace.getSnapshot().search).toBeUndefined();
+    workspace.configure("first", A, "First");
+    expect(workspace.getSnapshot()).toMatchObject({ active: "search", search: "needles" });
+    // Close all files keeps Search; closing Search shows the tab before it.
+    workspace.closeAll();
+    expect(workspace.getSnapshot()).toMatchObject({ active: "search", tabs: [] });
+    workspace.select("commit");
+    workspace.select("search");
+    workspace.close("search");
+    expect(workspace.getSnapshot()).toMatchObject({ active: "commit", search: undefined });
+    workspace.select("search");
+    expect(workspace.getSnapshot().active).toBe("commit");
+    workspace.dispose();
+  });
+  test("close all and close others go back the same way", () => {
     const { workspace, pending } = fixture();
     workspace.configure("first", A, "First");
-    workspace.open("one.ts", { background: true });
+    workspace.select("brief");
+    for (const name of ["one.ts", "two.ts", "three.ts"]) workspace.open(name);
+    const [one, two] = workspace.getSnapshot().tabs;
+    // Close others from a tab that does not show: that tab shows.
+    workspace.closeOthers(one!.id);
+    expect(workspace.getSnapshot().tabs.map((tab) => tab.id)).toEqual([one!.id]);
+    expect(workspace.getSnapshot().active).toBe(one!.id);
+    expect(pending.at(-1)?.path).toBe("one.ts");
+    workspace.open("two.ts");
+    workspace.select("changes");
+    workspace.closeOthers(two!.id);
+    expect(workspace.getSnapshot().active).toBe("changes");
+    workspace.select(two!.id);
+    workspace.closeAll();
+    expect(workspace.getSnapshot().tabs).toEqual([]);
+    expect(workspace.getSnapshot().active).toBe("changes");
+    workspace.open("one.ts");
+    workspace.select("brief");
+    workspace.select(one!.id);
+    workspace.closeAll();
+    expect(workspace.getSnapshot().active).toBe("brief");
+    workspace.dispose();
+  });
+  test("background opens add tabs without changing selection or cancelling reads", async () => {
+    const { workspace, pending } = fixture();
+    const background = { background: true };
+    workspace.configure("first", A, "First");
+    workspace.open("one.ts", undefined, undefined, undefined, undefined, background);
     expect(workspace.getSnapshot().active).toBe("changes");
     expect(pending).toHaveLength(0);
-    workspace.open("preview.ts");
+    workspace.open("shown.ts");
     const active = workspace.getSnapshot().active;
-    workspace.open("two.ts", { background: true });
+    workspace.open("two.ts", undefined, undefined, undefined, undefined, background);
     expect(workspace.getSnapshot().active).toBe(active);
-    expect(workspace.getSnapshot().tabs.map((tab) => [tab.path, tab.pinned])).toEqual([
-      ["one.ts", true],
-      ["preview.ts", false],
-      ["two.ts", true],
+    expect(workspace.getSnapshot().tabs.map((tab) => tab.path)).toEqual([
+      "one.ts",
+      "shown.ts",
+      "two.ts",
     ]);
     expect(pending).toHaveLength(1);
     expect(pending[0]!.signal!.aborted).toBe(false);
-    pending[0]!.resolve(result(A, "preview.ts"));
+    pending[0]!.resolve(result(A, "shown.ts"));
     await settle();
-    workspace.open("one.ts", { background: true });
+    workspace.open("one.ts", undefined, undefined, undefined, undefined, background);
     expect(workspace.getSnapshot().tabs).toHaveLength(3);
-    expect(workspace.getSnapshot().file?.path).toBe("preview.ts");
+    expect(workspace.getSnapshot().file?.path).toBe("shown.ts");
     workspace.dispose();
   });
   test("restores tabs by worktree and rejects late bytes from the previous scope", async () => {
     const { workspace, pending } = fixture();
     workspace.configure("first", A, "First");
-    workspace.open("same.ts", true);
+    workspace.open("same.ts");
     workspace.configure("second", B, "Second");
     workspace.open("same.ts");
     expect(pending[0]!.signal!.aborted).toBe(true);
@@ -166,7 +231,6 @@ describe("file workspace", () => {
       "/second",
     );
     workspace.configure("first", A, "First");
-    expect(workspace.getSnapshot().tabs[0]!.pinned).toBe(true);
     expect((workspace.getSnapshot().tabs[0]!.source as BrowseSource).repo).toBe("/first");
     expect(workspace.getSnapshot().file).toBeNull();
     pending[2]!.resolve(result(A, "same.ts"));
@@ -193,12 +257,21 @@ describe("file workspace", () => {
     expect(workspace.getSnapshot().error).toContain("does not match");
     workspace.dispose();
   });
-  test("bounds retained tabs and workspace history", () => {
-    const { workspace } = fixture();
+  test("a full row gives up the tab that showed least recently and has no draft, and workspace history is bounded", () => {
+    const { workspace } = fixture({ held: (tab) => tab.path === "0.ts" });
     workspace.configure("first", A, "First");
-    for (let i = 0; i < 13; i++) workspace.open(`${i}.ts`, true);
-    expect(workspace.getSnapshot().tabs).toHaveLength(12);
-    expect(workspace.getSnapshot().error).toContain("12-tab limit");
+    for (let i = 0; i < TAB_LIMIT; i++) workspace.open(`${i}.ts`);
+    // 1.ts showed again, so 2.ts showed least recently of the tabs without a draft.
+    workspace.open("1.ts");
+    workspace.open(`${TAB_LIMIT}.ts`);
+    expect(workspace.getSnapshot().tabs).toHaveLength(TAB_LIMIT);
+    expect(
+      workspace
+        .getSnapshot()
+        .tabs.map((tab) => tab.path)
+        .slice(0, 3),
+    ).toEqual(["0.ts", "1.ts", "3.ts"]);
+    expect(workspace.getSnapshot().error).toBeNull();
     for (let i = 0; i < 32; i++)
       workspace.configure(`workspace-${i}`, { kind: "worktree", repo: `/repo-${i}` }, "Other");
     workspace.configure("first", A, "First");
@@ -211,7 +284,7 @@ describe("file workspace", () => {
     for (let i = 0; i < 10; i++) {
       const source: BrowseSource = { kind: "worktree", repo: `/repo-${i}` };
       workspace.configure(JSON.stringify([`repository-${i}`, "branch", "main"]), source, "main");
-      workspace.open("same.ts", true);
+      workspace.open("same.ts");
       pending.at(-1)!.resolve(result(source, "same.ts"));
       await settle();
     }
@@ -221,7 +294,6 @@ describe("file workspace", () => {
     expect(workspace.getSnapshot().tabs[0]).toMatchObject({
       source,
       path: "same.ts",
-      pinned: true,
     });
     expect(workspace.getSnapshot().active).toBe(workspace.getSnapshot().tabs[0]!.id);
     expect(workspace.getSnapshot().file).toBeNull();

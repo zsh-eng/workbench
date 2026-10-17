@@ -137,10 +137,10 @@ try {
   );
   await page.screenshot({ path: "/private/tmp/med-editor-selection-after.png" });
   await page.keyboard.press("Meta+Shift+f");
-  // ⌘⇧F opens the search page for this repository, seeded with the selection.
+  // ⌘⇧F opens the Search tab, seeded with the selection; Escape shows the file again.
   const search = page.getByRole("combobox", { name: "Search query", exact: true });
   await search.waitFor();
-  assert.equal(await search.inputValue(), "repo:repo selectionTarget");
+  assert.equal(await search.inputValue(), "selectionTarget");
   await page.getByRole("option").filter({ hasText: "selectionTarget" }).first().waitFor();
   await page.keyboard.press("Escape");
   await editor.focus();
@@ -184,7 +184,7 @@ try {
   await highlight.waitFor();
   await page.keyboard.press("Control+Shift+f");
   await search.waitFor();
-  assert.equal(await search.inputValue(), "repo:repo selectionTarget");
+  assert.equal(await search.inputValue(), "selectionTarget");
   await page.keyboard.press("Escape");
   await editor.focus();
   await page.keyboard.press("Escape");

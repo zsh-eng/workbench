@@ -1,4 +1,4 @@
-/** A query of the search page: `repo:` filters, and the text to find as written. */
+/** A query of the Search tab: `repo:` filters, and the text to find as written. */
 export interface SearchQuery {
   repos: string[];
   text: string;

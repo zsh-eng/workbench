@@ -209,7 +209,6 @@ try {
   await input.fill("same.ts");
   await page.keyboard.press("Enter");
   await page.getByRole("textbox", { name: "Edit same.ts", exact: true }).waitFor();
-  await page.getByRole("tab", { name: "same.ts", exact: true }).dblclick();
   await openPicker();
   await input.fill("backend service");
   await page.keyboard.press("Tab");

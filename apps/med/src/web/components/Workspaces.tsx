@@ -84,8 +84,8 @@ import {
   type TabNotice,
 } from "./shell/ThreadSidebar";
 import { NewThread } from "./shell/NewThread";
-import { SEARCH_PATH, SearchPage, readSearchAddress, type SearchOpen } from "./SearchPage";
-import { requestFileOpen } from "../data/file-opens";
+import { SEARCH_OPEN_EVENT, type SearchOpen } from "./SearchView";
+import { requestFileOpen, requestSearchOpen } from "../data/file-opens";
 import { prefetchSavedReview } from "../data/controller";
 import { onInput, QUIET_MS, whenFree, whenIdle } from "../data/idle";
 import { AttemptsHost } from "./attempts/AttemptsHost";
@@ -801,58 +801,43 @@ export function WorkspaceHost({
     };
   }, [store]);
 
-  // The search page covers the workspaces while the address names it. The
-  // page keeps its query in the address, so only a new opening remounts it.
-  const [search, setSearch] = useState(readSearchAddress);
-  // A page that covers the workspaces, such as Sources or Search, has no
-  // checkout for the title band to name.
+  // A page that covers the workspaces, such as Sources, has no checkout for
+  // the title band to name.
   const [pathname, setPathname] = useState(() => location.pathname);
   useEffect(() => {
     const follow = () => setPathname(location.pathname);
     window.addEventListener("popstate", follow);
     return () => window.removeEventListener("popstate", follow);
   }, []);
-  const searchShown = useRef(!!search);
+  // Search is a tab of each workspace. An old search link (`/search?q=…`)
+  // opens the Search tab of the workspace on screen, or of a repository's.
   useEffect(() => {
     const follow = () => {
-      const next = readSearchAddress();
-      // The workspace gets its focus back when the page closes.
-      if (next && !searchShown.current) rememberFocus();
-      searchShown.current = !!next;
-      setSearch((last) => (next && last && next.key === last.key ? last : next));
+      if (location.pathname !== "/search") return;
+      const query = new URLSearchParams(location.search).get("q") ?? "";
+      const { workspaces, active } = store.getSnapshot();
+      const target =
+        workspaces.find((entry) => entry.id === active && entry.kind !== "vault") ??
+        workspaces.find((entry) => entry.kind === "repository");
+      if (!target) return history.replaceState(history.state, "", "/");
+      requestSearchOpen(target.id, query);
+      show(target.id, true);
     };
+    follow();
     window.addEventListener("popstate", follow);
     return () => window.removeEventListener("popstate", follow);
-  }, [rememberFocus]);
-  const covered = useRef(false);
+  }, [show, store]);
+  // A Search tab's match in another repository opens in that repository's
+  // workspace, which opens if it is not open.
   useEffect(() => {
-    if (search) {
-      covered.current = true;
-      return;
-    }
-    if (!covered.current) return;
-    covered.current = false;
-    const target = focused.current.get(store.getSnapshot().active);
-    if (target?.isConnected && target.checkVisibility()) target.focus({ preventScroll: true });
-  }, [search, store]);
-  const leaveSearch = useCallback(() => {
-    if (search?.key) return history.back();
-    // A link or a reload opened the page: show the workspace in its place.
-    show(store.getSnapshot().active, true);
-  }, [search?.key, show, store]);
-  // A match opens in the workspace that searched its checkout, else in its
-  // repository's workspace, which opens if it is not open.
-  const openMatch = useCallback(
-    (match: SearchOpen) => {
-      const { workspaces } = store.getSnapshot();
-      const origin = search?.origin;
+    const open = (event: Event) => {
+      const match = (event as CustomEvent<SearchOpen>).detail;
       const id =
-        (origin?.repository.path === match.repository.path &&
-          workspaces.some((entry) => entry.id === origin.workspace) &&
-          origin.workspace) ||
-        workspaces.find(
-          (entry) => entry.kind === "repository" && entry.path === match.repository.path,
-        )?.id ||
+        store
+          .getSnapshot()
+          .workspaces.find(
+            (entry) => entry.kind === "repository" && entry.path === match.repository.path,
+          )?.id ||
         store.open(
           {
             kind: "repository",
@@ -872,9 +857,10 @@ export function WorkspaceHost({
             : "Working files",
       });
       show(id);
-    },
-    [search?.origin, show, store],
-  );
+    };
+    window.addEventListener(SEARCH_OPEN_EVENT, open);
+    return () => window.removeEventListener(SEARCH_OPEN_EVENT, open);
+  }, [show, store]);
 
   // Registered vaults are pinned first. A vault that is removed closes.
   useEffect(() => {
@@ -1067,7 +1053,7 @@ export function WorkspaceHost({
   const activeThread = workspaceThread(activeEntry);
   // The thread on screen; none while a page covers the workspaces.
   const currentThread =
-    newThread || attemptsPage || search || overlayAddress(pathname) ? null : (activeThread ?? null);
+    newThread || attemptsPage || overlayAddress(pathname) ? null : (activeThread ?? null);
   const read = useReadState(tabs, currentThread);
   const currentRef = useRef(currentThread);
   // When each tab was last on screen, or first listed in this window.
@@ -1721,23 +1707,11 @@ export function WorkspaceHost({
                       />
                       <div {...stylex.props(styles.shellViews)}>
                         <div
-                          inert={newThread || !!search || !!attemptsGroupOf(pathname) || undefined}
+                          inert={newThread || !!attemptsGroupOf(pathname) || undefined}
                           {...stylex.props(styles.shellLayer)}
                         >
                           <Warm value={warm}>{children}</Warm>
                         </div>
-                        {search && (
-                          <SearchPage
-                            key={search.key}
-                            repositories={threadList?.repositories ?? []}
-                            loaded={!!threadList}
-                            origin={search.origin}
-                            initialQuery={search.query}
-                            fetcher={fetcher}
-                            onBack={leaveSearch}
-                            onOpen={openMatch}
-                          />
-                        )}
                         {!showsSidebar && noticeBar}
                         <AttemptsHost
                           threads={tabs}
@@ -2290,8 +2264,7 @@ function createScreen() {
     },
     check(id: string) {
       let check = checks.get(id);
-      // The search page covers the workspace, so its keys are the page's.
-      if (!check) checks.set(id, (check = () => shown === id && location.pathname !== SEARCH_PATH));
+      if (!check) checks.set(id, (check = () => shown === id));
       return check;
     },
   };

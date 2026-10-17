@@ -626,23 +626,20 @@ test("a stale working file keeps its contents until explicit refresh", async () 
   expect(document.querySelector("diffs-container")?.shadowRoot?.textContent).toContain("example");
 });
 
-test("Changes stays available; preview file tabs can be pinned and closed", async () => {
+test("Changes stays available; the × or a middle click closes a file tab", async () => {
   let selected = "";
-  let closed = "";
-  let pinned = "";
+  const closed: string[] = [];
   render(
     <FileViewTabs
-      tabs={[{ id: "a", path: "src/a.ts", pinned: false }]}
+      tabs={[
+        { id: "a", path: "src/a.ts" },
+        { id: "b", path: "src/b.ts" },
+      ]}
       active="a"
       onSelect={(id) => {
         selected = id;
       }}
-      onClose={(id) => {
-        closed = id;
-      }}
-      onPin={(id) => {
-        pinned = id;
-      }}
+      onClose={(id) => closed.push(id)}
     />,
   );
   await page.getByRole("tab", { name: "Changes", exact: true }).click();
@@ -650,10 +647,12 @@ test("Changes stays available; preview file tabs can be pinned and closed", asyn
   await expect
     .element(page.getByRole("tab", { name: "Changes", exact: true }))
     .toHaveAttribute("aria-controls", "file-view-panel");
-  await page.getByRole("tab", { name: "a.ts", exact: true }).dblClick();
-  expect(pinned).toBe("a");
   await page.getByRole("button", { name: "Close src/a.ts" }).click();
-  expect(closed).toBe("a");
+  page
+    .getByRole("tab", { name: "b.ts", exact: true })
+    .element()
+    .dispatchEvent(new MouseEvent("auxclick", { button: 1, bubbles: true }));
+  expect(closed).toEqual(["a", "b"]);
   await expect.element(page.getByRole("tab", { name: "Changes", exact: true })).toBeVisible();
 });
 

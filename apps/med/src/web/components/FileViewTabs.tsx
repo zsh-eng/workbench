@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { Tabs } from "@base-ui/react/tabs";
 import { distinctLabels } from "../data/tab-labels";
 import { tokens } from "../theme.stylex";
@@ -10,7 +10,6 @@ import { PathContextMenu, type PathActions } from "./PathMenu";
 export interface FileViewTab {
   id: string;
   path: string;
-  pinned: boolean;
   dirty?: boolean;
   sourceLabel?: string;
   /** The source checkout's absolute path, to compare sources and reveal files. */
@@ -23,12 +22,14 @@ export function FileViewTabs({
   active,
   onSelect,
   onClose,
-  onPin,
+  onCloseOthers,
+  onCloseAll,
   panelId = "file-view-panel",
   showChanges = true,
   showBrief = false,
   showReview = false,
   showCommit = false,
+  search,
   changesCount,
   leading,
   trailing,
@@ -48,6 +49,8 @@ export function FileViewTabs({
   showReview?: boolean;
   /** Stage, commit, and push a live checkout. */
   showCommit?: boolean;
+  /** The Search tab's query, after Commit; without one, no Search tab. */
+  search?: string;
   /** Changed-file count shown beside the Changes tab. */
   changesCount?: number;
   /** Controls placed before the tabs and at the end of the tab row. */
@@ -55,8 +58,24 @@ export function FileViewTabs({
   trailing?: ReactNode;
   onSelect(id: string): void;
   onClose(id: string): void;
-  onPin(id: string): void;
+  /** Close every file tab but this one; in the tab's context menu. */
+  onCloseOthers?(id: string): void;
+  /** Close every file tab; in the tab's context menu. */
+  onCloseAll?(): void;
 }) {
+  // The row scrolls; the tab on screen stays in view, also when it opens.
+  const list = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const row = list.current;
+    const tab = row?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+    if (!row || !tab) return;
+    // Only the row scrolls, never the pane or the page around it.
+    const bounds = row.getBoundingClientRect();
+    // A file's tab and its close button share one item.
+    const place = (tab.parentElement === row ? tab : tab.parentElement!).getBoundingClientRect();
+    if (place.left < bounds.left) row.scrollLeft -= bounds.left - place.left;
+    else if (place.right > bounds.right) row.scrollLeft += place.right - bounds.right;
+  }, [active, tabs.length]);
   const labels = distinctLabels(
     tabs.map((tab) => ({
       label: tab.path.split("/").at(-1)!,
@@ -73,7 +92,11 @@ export function FileViewTabs({
       {...stylex.props(styles.root)}
     >
       {leading}
-      <Tabs.List aria-label="Open files" {...stylex.props(styles.list, keepTabs && styles.keep)}>
+      <Tabs.List
+        ref={list}
+        aria-label="Open files"
+        {...stylex.props(styles.list, keepTabs && styles.keep)}
+      >
         {showReview && (
           <Tabs.Tab
             value="review"
@@ -129,6 +152,36 @@ export function FileViewTabs({
             Commit
           </Tabs.Tab>
         )}
+        {search !== undefined && (
+          <div {...stylex.props(styles.item, stylex.defaultMarker())}>
+            <Tabs.Tab
+              value="search"
+              aria-controls={panelId}
+              aria-label={search.trim() ? `Search: ${search.trim()}` : "Search"}
+              title={search.trim() ? `Search: ${search.trim()} (⌘⇧F)` : "Search (⌘⇧F)"}
+              onAuxClick={(event) => {
+                if (event.button !== 1) return;
+                event.preventDefault();
+                onClose("search");
+              }}
+              onMouseDown={(event) => {
+                if (event.button === 1) event.preventDefault();
+              }}
+              {...stylex.props(styles.tab, styles.fileTab, active === "search" && styles.active)}
+            >
+              <Icon name="search" size={12} />
+              <span {...stylex.props(styles.name, styles.query)}>{search.trim() || "Search"}</span>
+            </Tabs.Tab>
+            <button
+              {...stylex.props(styles.close, active === "search" && styles.closeVisible)}
+              aria-label="Close search"
+              title="Close search"
+              onClick={() => onClose("search")}
+            >
+              <Icon name="close" size={12} />
+            </button>
+          </div>
+        )}
         {tabs.map((tab, index) => (
           <PathContextMenu
             key={tab.id}
@@ -137,21 +190,33 @@ export function FileViewTabs({
             className={stylex.props(styles.item, stylex.defaultMarker()).className}
             locate={() => ({ repo: tab.sourcePath ?? null, path: tab.path })}
             items={() => [
-              ...(tab.pinned ? [] : [{ label: "Keep open", run: () => onPin(tab.id) }]),
               { label: "Close", run: () => onClose(tab.id) },
+              ...(onCloseOthers
+                ? [
+                    {
+                      label: "Close other files",
+                      disabled: tabs.length < 2,
+                      run: () => onCloseOthers(tab.id),
+                    },
+                  ]
+                : []),
+              ...(onCloseAll ? [{ label: "Close all files", run: onCloseAll }] : []),
             ]}
           >
             <Tabs.Tab
               value={tab.id}
               aria-controls={panelId}
-              title={`${tab.path}${tab.sourceLabel ? ` · ${tab.sourceLabel}` : ""}${tab.pinned ? "" : " · Preview (double-click to keep open)"}`}
-              onDoubleClick={() => onPin(tab.id)}
-              {...stylex.props(
-                styles.tab,
-                styles.fileTab,
-                !tab.pinned && styles.preview,
-                active === tab.id && styles.active,
-              )}
+              title={`${tab.path}${tab.sourceLabel ? ` · ${tab.sourceLabel}` : ""}`}
+              // A middle click closes the tab, as in a browser.
+              onAuxClick={(event) => {
+                if (event.button !== 1) return;
+                event.preventDefault();
+                onClose(tab.id);
+              }}
+              onMouseDown={(event) => {
+                if (event.button === 1) event.preventDefault();
+              }}
+              {...stylex.props(styles.tab, styles.fileTab, active === tab.id && styles.active)}
             >
               <span {...stylex.props(styles.name)}>{labels[index]}</span>
               {tab.dirty && (
@@ -238,8 +303,8 @@ const styles = stylex.create({
     color: { default: tokens.text, ":hover": tokens.text },
     backgroundColor: { default: tokens.fillStrong, ":hover": tokens.fillStrong },
   },
-  preview: { fontStyle: "italic" },
   name: { maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis" },
+  query: { maxWidth: 180, whiteSpace: "pre" },
   count: {
     minWidth: 18,
     paddingInline: 5,

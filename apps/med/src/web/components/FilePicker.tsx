@@ -65,15 +65,8 @@ export interface FilePickerProps {
   loading: boolean;
   error: string | null;
   sourceLabel: string;
-  /** `keep` opens a tab that stays open; otherwise the file opens in the preview tab.
-   * `sourceLabel` names a file from another repository. */
-  onOpen(
-    path: string,
-    line?: number,
-    source?: TabSource,
-    keep?: boolean,
-    sourceLabel?: string,
-  ): void;
+  /** Opens the file in its tab. `sourceLabel` names a file from another repository. */
+  onOpen(path: string, line?: number, source?: TabSource, sourceLabel?: string): void;
   source?: BrowseSource | null;
   api?: BrowseApi;
   sourceRevision?: number | string;
@@ -468,7 +461,7 @@ function PickerContents({
         .join(" ")
         .trim() ?? "",
     );
-  const choose = (entry: PickerResult, keep = false) => {
+  const choose = (entry: PickerResult) => {
     if (entry.repository) {
       selectRepository(entry.repository);
       return;
@@ -476,10 +469,10 @@ function PickerContents({
     if (busy || failure) return;
     accepted.current = true;
     if (isVault(scopedRepository))
-      onOpen(entry.path, entry.line, scopedRepository.source, keep, scopedRepository.name);
-    else if (resultSource) onOpen(entry.path, entry.line, resultSource, keep);
-    else if (source && scopedRepository) onOpen(entry.path, entry.line, source, keep, sourceLabel);
-    else onOpen(entry.path, entry.line, undefined, keep);
+      onOpen(entry.path, entry.line, scopedRepository.source, scopedRepository.name);
+    else if (resultSource) onOpen(entry.path, entry.line, resultSource);
+    else if (source && scopedRepository) onOpen(entry.path, entry.line, source, sourceLabel);
+    else onOpen(entry.path, entry.line);
     onOpenChange(false);
   };
   return (
@@ -673,8 +666,7 @@ function PickerContents({
                   ) {
                     event.preventDefault();
                     event.preventBaseUIHandler();
-                    // ⌘↵ keeps the tab open; ↵ opens the file in the preview tab.
-                    choose(selectedResult, event.metaKey || event.ctrlKey);
+                    choose(selectedResult);
                   }
                 }}
                 {...stylex.props(styles.input)}
@@ -925,10 +917,7 @@ function PickerContents({
                 ) : (
                   <>
                     <span {...stylex.props(styles.hint)}>
-                      <ShortcutKeys value="↵" /> Preview
-                    </span>
-                    <span {...stylex.props(styles.hint)}>
-                      <ShortcutKeys value="Mod+Enter" /> Keep open
+                      <ShortcutKeys value="↵" /> Open
                     </span>
                     {repoMatches.length > 0 && (
                       <span {...stylex.props(styles.hint)}>

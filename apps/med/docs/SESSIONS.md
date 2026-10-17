@@ -409,7 +409,9 @@ those messages as another session's, not as the user's.
   so a long thread does no work again when it scrolls. Prompts and Question
   answers use the same index. Until the list loads, references stay as text;
   a link never waits for a request. The height estimates count a link as its
-  name and lines (`refEstimate`). A link opens the file with its range marked
+  name and lines (`refEstimate`). A link opens an ordinary file tab
+  (`fileWorkspace.open` with `endLine`), so closing it shows the tab before
+  it. The link marks its range
   (`.med-cited-line` in `FileEditor.tsx`, or the selected lines in a
   read-only view); the mark goes when you edit or leave the range.
 

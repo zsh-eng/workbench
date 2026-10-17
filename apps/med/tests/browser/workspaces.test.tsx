@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, onTestFinished, test, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { createRoot, type Root } from "react-dom/client";
 import { App } from "../../src/web/App";
@@ -1374,7 +1374,10 @@ test("a pasted pull request link opens a workspace at once, which becomes its re
   expect(location.pathname).toBe("/review/agent");
 });
 
-test("⌘⇧F opens the search page for the workspace's repository, and a match opens at its line", async () => {
+test("⌘⇧F opens the workspace's Search tab; a match opens in a file tab, and the tab keeps its results", async () => {
+  // A second registered repository, for repo: filters.
+  repositories.push({ id: "repo-1", path: "/test/other", name: "other", branches, worktrees: [] });
+  onTestFinished(() => void repositories.splice(1));
   const host = createHost();
   render(host);
   host.setThreads(
@@ -1385,44 +1388,84 @@ test("⌘⇧F opens the search page for the workspace's repository, and a match 
     ],
   );
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  const searchKey = () => userEvent.keyboard("{Control>}{Shift>}f{/Shift}{/Control}");
+  const tab = (name: string) => page.getByRole("tab", { name, exact: true });
+  const panel = page.getByRole("tabpanel", { name: "Search", exact: true });
 
-  await userEvent.keyboard("{Control>}{Shift>}f{/Shift}{/Control}");
+  await searchKey();
   const query = page.getByRole("combobox", { name: "Search query" });
-  await expect.element(query).toHaveValue("repo:fixture ");
-  expect(location.pathname).toBe("/search");
   await expect.element(query).toHaveFocus();
+  await expect.element(query).toHaveValue("");
+  await expect.element(tab("Search")).toHaveAttribute("aria-selected", "true");
+  expect(location.pathname).toBe("/");
 
-  // Results show as you type, from this checkout only.
+  // Results show as you type, from this checkout only; the tab names the query.
   await userEvent.keyboard("AFTER");
-  await expect.element(page.getByRole("status")).toHaveTextContent("1 result in 1 file in fixture");
+  await expect
+    .element(panel.getByRole("status"))
+    .toHaveTextContent("1 result in 1 file in fixture");
   expect(host.searches).toEqual(["/test/repo AFTER"]);
+  await expect.element(tab("Search: AFTER")).toHaveAttribute("aria-selected", "true");
   await expect
-    .element(page.getByRole("option", { selected: true }))
+    .element(panel.getByRole("option", { selected: true }))
     .toHaveTextContent("1export const after = 2;");
-  expect(document.querySelector("mark")?.textContent).toBe("after");
+  expect(panel.element().querySelector("mark")?.textContent).toBe("after");
 
-  // Without a filter, every repository.
-  await query.fill("after");
+  // repo:* searches every repository.
+  await query.fill("repo:* after");
   await expect
-    .element(page.getByRole("status"))
+    .element(panel.getByRole("status"))
     .toHaveTextContent("2 results in 2 files across 2 repositories");
   expect(host.searches).toContain("/test/other after");
 
-  // Enter opens the chosen match in this workspace, at the commit searched.
-  await query.fill("repo:fixture after");
-  await expect.element(page.getByRole("status")).toHaveTextContent("1 result in 1 file in fixture");
+  // Enter opens the chosen match in a file tab here, at the commit searched.
+  await query.fill("after");
+  await expect
+    .element(panel.getByRole("status"))
+    .toHaveTextContent("1 result in 1 file in fixture");
   await userEvent.keyboard("{Enter}");
   await expect.poll(() => shown()?.dataset.activeFile).toBe("src/alpha.ts");
+  await expect.element(tab("Search: after")).toHaveAttribute("aria-selected", "false");
   expect(location.pathname).toBe("/");
-  expect(document.querySelector('[aria-label="Search query"]')).toBeNull();
 
-  // Back returns to the results; Escape leaves them.
-  history.back();
+  // ⌘⇧F shows the same tab, with its query selected and its results.
+  const searches = host.searches.length;
+  await searchKey();
+  await expect.element(tab("Search: after")).toHaveAttribute("aria-selected", "true");
+  await expect.element(query).toHaveFocus();
+  const field = query.element() as HTMLInputElement;
+  expect([field.selectionStart, field.selectionEnd]).toEqual([0, "after".length]);
   await expect
-    .element(page.getByRole("combobox", { name: "Search query" }))
-    .toHaveValue("repo:fixture after");
+    .element(panel.getByRole("status"))
+    .toHaveTextContent("1 result in 1 file in fixture");
+  expect(host.searches).toHaveLength(searches);
+  expect(page.getByRole("tab", { name: /^Search/ }).elements()).toHaveLength(1);
+
+  // Escape shows the tab that showed before; ⌥W in the query closes the tab.
   await userEvent.keyboard("{Escape}");
+  await expect.poll(() => shown()?.dataset.activeFile).toBe("src/alpha.ts");
+  await tab("Search: after").click();
+  await expect.element(query).toHaveFocus();
+  query
+    .element()
+    .dispatchEvent(
+      new KeyboardEvent("keydown", { key: "∑", code: "KeyW", altKey: true, bubbles: true }),
+    );
+  await expect.element(tab("Search: after")).not.toBeInTheDocument();
+  await expect.poll(() => shown()?.dataset.activeFile).toBe("src/alpha.ts");
+
+  // An old search link opens the Search tab with its query.
+  history.pushState(null, "", "/search?q=AFTER");
+  window.dispatchEvent(new PopStateEvent("popstate"));
+  await expect.element(tab("Search: AFTER")).toHaveAttribute("aria-selected", "true");
   await expect.poll(() => location.pathname).toBe("/");
-  await expect.poll(() => document.querySelector('[aria-label="Search query"]')).toBeNull();
-  expect(shown()?.dataset.activeFile).toBe("src/alpha.ts");
+  await expect
+    .element(panel.getByRole("status"))
+    .toHaveTextContent("1 result in 1 file in fixture");
+
+  // A match in another repository opens in that repository's workspace.
+  await query.fill("repo:other after");
+  await expect.element(panel.getByRole("status")).toHaveTextContent("1 result in 1 file in other");
+  await userEvent.keyboard("{Enter}");
+  await expect.poll(() => shown()?.dataset.activeFile).toBe("lib/other.ts");
 });

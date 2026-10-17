@@ -681,7 +681,7 @@ const reduced = "@media (prefers-reduced-motion: reduce)";
 const narrow = "@container (max-width: 720px)";
 
 const styles = stylex.create({
-  // The review's frame, as the Search page: a 6px gutter and one card.
+  // The review's frame, as the Sources page: a 6px gutter and one card.
   page: {
     position: "absolute",
     inset: 0,

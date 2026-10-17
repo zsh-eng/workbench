@@ -2,15 +2,7 @@ import { ToolButton } from "./ToolButton";
 import * as stylex from "@stylexjs/stylex";
 import { prepareFileTreeInput } from "@pierre/trees";
 import { StableFileTree, useStableFileTree } from "./StableFileTree";
-import {
-  memo,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  type CSSProperties,
-  type ReactNode,
-} from "react";
+import { memo, useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import type { BrowseEntry } from "../../shared/browse";
 import { tokens, ui } from "../theme.stylex";
 import { treeIcons } from "./tree-icons";
@@ -28,8 +20,8 @@ export interface RepositoryFilesProps {
   repo?: string | null;
   pathActions?: PathActions;
   selectedPath: string | null;
-  onPreview(path: string): void;
-  onPin(path: string): void;
+  /** A click or Enter opens a file in its tab; ⌘-click opens it in the background. */
+  onOpen(path: string, background?: boolean): void;
   onPrefetch?(path: string): void;
   ignored?: boolean;
   onIgnoredChange?(value: boolean): void;
@@ -51,8 +43,7 @@ export const RepositoryFiles = memo(function RepositoryFiles(props: RepositoryFi
     repo = null,
     pathActions,
     selectedPath,
-    onPreview,
-    onPin,
+    onOpen,
     onPrefetch,
     ignored,
     onIgnoredChange,
@@ -60,11 +51,6 @@ export const RepositoryFiles = memo(function RepositoryFiles(props: RepositoryFi
     onClose,
     controls,
   } = props;
-  const latest = useRef({ entries, onPreview });
-  useLayoutEffect(() => {
-    latest.current = { entries, onPreview };
-  }, [entries, onPreview]);
-  const syncing = useRef(false);
   // Parse and sort once per manifest, not on sidebar toggles or file selection.
   const preparedInput = useMemo(
     () =>
@@ -82,26 +68,14 @@ export const RepositoryFiles = memo(function RepositoryFiles(props: RepositoryFi
     flattenEmptyDirectories: true,
     density: "compact",
     icons: treeIcons,
-    onSelectionChange(paths) {
-      if (syncing.current) return;
-      const path = paths.at(-1);
-      if (
-        path &&
-        latest.current.entries.some((entry) => entry.path === path && entry.kind !== "directory")
-      )
-        latest.current.onPreview(path);
-    },
   });
   useEffect(() => {
     if (appliedInput.current === preparedInput) return;
-    syncing.current = true;
     model.resetPaths({ preparedInput });
     appliedInput.current = preparedInput;
-    syncing.current = false;
   }, [preparedInput, model]);
   useEffect(() => {
     if (!selectedPath || model.getSelectedPaths().includes(selectedPath)) return;
-    syncing.current = true;
     for (const selected of model.getSelectedPaths()) model.getItem(selected)?.deselect();
     const parts = selectedPath.split("/");
     for (let depth = 1; depth < parts.length; depth++) {
@@ -110,13 +84,28 @@ export const RepositoryFiles = memo(function RepositoryFiles(props: RepositoryFi
     }
     model.getItem(selectedPath)?.select();
     model.scrollToPath(selectedPath, { focus: false, offset: "nearest" });
-    syncing.current = false;
   }, [selectedPath, entries, model]);
-  function pinSelected() {
-    const path = model.getSelectedPaths().at(-1);
-    if (path && entries.some((entry) => entry.path === path && entry.kind !== "directory"))
-      onPin(path);
+  const isFile = (path: string | undefined): path is string =>
+    !!path && entries.some((entry) => entry.path === path && entry.kind !== "directory");
+  // The arrow keys move the focus without opening each file they pass; Enter
+  // opens the focused file, or opens or closes the focused folder.
+  function openFocused() {
+    const item = model.getFocusedItem();
+    const path = model.getFocusedPath() ?? model.getSelectedPaths().at(-1);
+    if (isFile(path)) onOpen(path);
+    else if (item && "expand" in item) {
+      if (item.isExpanded()) item.collapse();
+      else item.expand();
+    }
   }
+  const rowPath = (event: { nativeEvent: Event }) =>
+    (
+      event.nativeEvent
+        .composedPath()
+        .find((node) => node instanceof HTMLElement && node.dataset.itemType === "file") as
+        | HTMLElement
+        | undefined
+    )?.dataset.itemPath;
   return (
     <aside
       {...stylex.props(styles.panel, controls !== undefined && styles.inColumn)}
@@ -175,20 +164,20 @@ export const RepositoryFiles = memo(function RepositoryFiles(props: RepositoryFi
           <StableFileTree
             model={model}
             onPointerOver={(event) => {
-              const row = event.nativeEvent
-                .composedPath()
-                .find((node) => node instanceof HTMLElement && node.dataset.itemType === "file") as
-                | HTMLElement
-                | undefined;
-              if (row?.dataset.itemPath) onPrefetch?.(row.dataset.itemPath);
+              const path = rowPath(event);
+              if (path) onPrefetch?.(path);
             }}
             aria-label="Files"
             className={stylex.props(styles.tree).className}
-            onDoubleClick={pinSelected}
+            onClick={(event) => {
+              const path = rowPath(event);
+              if (!isFile(path) || event.shiftKey || event.altKey) return;
+              onOpen(path, event.metaKey || event.ctrlKey);
+            }}
             onKeyDown={(event) => {
               if (event.key === "Enter") {
                 event.preventDefault();
-                pinSelected();
+                openFocused();
               }
             }}
             style={
