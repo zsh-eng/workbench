@@ -79,7 +79,12 @@ const pullRequest = (): PullRequestComments => ({
       line: 1,
       startLine: null,
       originalLine: 1,
-      comments: [comment(11, "mira", "Rename `after` to `next`."), comment(12, "sam", "Done.")],
+      // The last reply is the reader's draft, in their pending review on GitHub.
+      comments: [
+        comment(11, "mira", "Rename `after` to `next`."),
+        comment(12, "sam", "Done."),
+        { ...comment(13, "lee", "And in the docs."), draft: true },
+      ],
     },
     {
       id: 21,
@@ -273,11 +278,13 @@ test("Branch changes at the pull request head show its threads at their lines, a
   // The thread on a committed file shows on its line.
   await expect.element(thread("mira", "R1")).toBeVisible();
   expect(thread("mira", "R1").element().textContent).toMatch(/Rename after to next\..*Done\./);
+  // A draft reply shows, marked Pending as on GitHub.
+  expect(thread("mira", "R1").element().textContent).toMatch(/lee\s*Pending.*And in the docs\./);
   expect(shown()!.querySelectorAll(inDiff)).toHaveLength(1);
 
   // The row says the count in words.
-  const trigger = page.getByRole("button", { name: "4 pull request comments" });
-  await expect.element(trigger).toHaveTextContent("4 comments");
+  const trigger = page.getByRole("button", { name: "5 pull request comments" });
+  await expect.element(trigger).toHaveTextContent("5 comments");
   await trigger.click();
   const panel = page.getByRole("dialog", { name: "Pull request comments" });
   await expect.element(panel).toBeVisible();
@@ -292,8 +299,8 @@ test("Branch changes at the pull request head show its threads at their lines, a
 test("Changes whose head is not the pull request head list every thread with the reason", async () => {
   pullHead = "c".repeat(40);
   await openChanges();
-  const trigger = page.getByRole("button", { name: "4 pull request comments" });
-  await expect.element(trigger).toHaveTextContent("4 comments");
+  const trigger = page.getByRole("button", { name: "5 pull request comments" });
+  await expect.element(trigger).toHaveTextContent("5 comments");
   await trigger.click();
   const panel = page.getByRole("dialog", { name: "Pull request comments" });
   await expect.element(panel).toBeVisible();
