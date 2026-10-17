@@ -29,6 +29,7 @@ export function FileViewTabs({
   showBrief = false,
   showReview = false,
   showCommit = false,
+  search,
   changesCount,
   leading,
   trailing,
@@ -48,6 +49,8 @@ export function FileViewTabs({
   showReview?: boolean;
   /** Stage, commit, and push a live checkout. */
   showCommit?: boolean;
+  /** The Search tab's query, after Commit; without one, no Search tab. */
+  search?: string;
   /** Changed-file count shown beside the Changes tab. */
   changesCount?: number;
   /** Controls placed before the tabs and at the end of the tab row. */
@@ -149,6 +152,36 @@ export function FileViewTabs({
             Commit
           </Tabs.Tab>
         )}
+        {search !== undefined && (
+          <div {...stylex.props(styles.item, stylex.defaultMarker())}>
+            <Tabs.Tab
+              value="search"
+              aria-controls={panelId}
+              aria-label={search.trim() ? `Search: ${search.trim()}` : "Search"}
+              title={search.trim() ? `Search: ${search.trim()} (⌘⇧F)` : "Search (⌘⇧F)"}
+              onAuxClick={(event) => {
+                if (event.button !== 1) return;
+                event.preventDefault();
+                onClose("search");
+              }}
+              onMouseDown={(event) => {
+                if (event.button === 1) event.preventDefault();
+              }}
+              {...stylex.props(styles.tab, styles.fileTab, active === "search" && styles.active)}
+            >
+              <Icon name="search" size={12} />
+              <span {...stylex.props(styles.name, styles.query)}>{search.trim() || "Search"}</span>
+            </Tabs.Tab>
+            <button
+              {...stylex.props(styles.close, active === "search" && styles.closeVisible)}
+              aria-label="Close search"
+              title="Close search"
+              onClick={() => onClose("search")}
+            >
+              <Icon name="close" size={12} />
+            </button>
+          </div>
+        )}
         {tabs.map((tab, index) => (
           <PathContextMenu
             key={tab.id}
@@ -161,13 +194,13 @@ export function FileViewTabs({
               ...(onCloseOthers
                 ? [
                     {
-                      label: "Close others",
+                      label: "Close other files",
                       disabled: tabs.length < 2,
                       run: () => onCloseOthers(tab.id),
                     },
                   ]
                 : []),
-              ...(onCloseAll ? [{ label: "Close all", run: onCloseAll }] : []),
+              ...(onCloseAll ? [{ label: "Close all files", run: onCloseAll }] : []),
             ]}
           >
             <Tabs.Tab
@@ -271,6 +304,7 @@ const styles = stylex.create({
     backgroundColor: { default: tokens.fillStrong, ":hover": tokens.fillStrong },
   },
   name: { maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis" },
+  query: { maxWidth: 180, whiteSpace: "pre" },
   count: {
     minWidth: 18,
     paddingInline: 5,

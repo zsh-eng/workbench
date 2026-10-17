@@ -85,9 +85,8 @@ import { RepositoryFiles } from "./components/RepositoryFiles";
 import { PaneTree, paneHandle, usePaneTree, type PaneSpec } from "./components/PaneTree";
 import type { PaneNode, Side } from "./data/pane-tree";
 import { FilePicker } from "./components/FilePicker";
-import { openSearchPage } from "./components/SearchPage";
-import { repoFilter } from "./data/search-query";
-import { subscribeFileOpens, takeFileOpen } from "./data/file-opens";
+import { SEARCH_OPEN_EVENT, SearchView, type SearchOpen } from "./components/SearchView";
+import { subscribeFileOpens, takeFileOpen, takeSearchOpen } from "./data/file-opens";
 import { subscribeSubagentOpens, takeSubagentOpen } from "./data/tabs";
 import { useTurnRecap } from "./data/turn-recap";
 import { SymbolPicker } from "./components/SymbolPicker";
@@ -619,13 +618,21 @@ export function App({
     state.savedTargetId,
     state.status,
   ]);
-  // A file that the search page opens here, once the workspace reads its files.
+  // A file that another workspace's search opens here, or an old search
+  // link's query, once the workspace reads its files.
   const filesReady = !!fileState.source;
+  // Changes when ⌘⇧F asks for the Search tab's query field.
+  const [searchFocus, setSearchFocus] = useState(0);
   useEffect(() => {
     if (!workspaceId || !filesReady) return;
     const take = () => {
       const request = takeFileOpen(workspaceId);
       if (request) fileWorkspace.open(request.path, request.line, request.source, request.label);
+      const query = takeSearchOpen(workspaceId);
+      if (query !== undefined) {
+        fileWorkspace.openSearch(query);
+        setSearchFocus((count) => count + 1);
+      }
     };
     take();
     return subscribeFileOpens(take);
@@ -782,7 +789,7 @@ export function App({
     setPickerResume(false);
     setFilePickerOpen(true);
   }, []);
-  // In a workspace, ⌘⇧F opens the search page for this checkout's repository.
+  // ⌘⇧F opens or shows the Search tab, which searches this checkout.
   const sessionRepository = state.session?.repository;
   const searchRepository = useMemo(() => {
     if (!sessionRepository) return undefined;
@@ -798,18 +805,38 @@ export function App({
       : { id: path, name: sessionRepository.name, path };
   }, [sessionRepository, state.repositories, state.activeRepositoryId]);
   const openSearch = useCallback(() => {
-    if (!workspaceId || !browseSource || !searchRepository) return openContentSearch();
-    const selected = (fileSelection.current?.() || window.getSelection()?.toString() || "")
-      .split("\n")[0]!
-      .trim()
-      .slice(0, 200);
-    const filter = repoFilter(searchRepository.name);
-    openSearchPage(selected ? `${filter} ${selected}` : `${filter} `, {
-      workspace: workspaceId,
-      repository: searchRepository,
-      source: browseSource,
-    });
-  }, [workspaceId, browseSource, searchRepository, openContentSearch]);
+    if (!browseSource || !searchRepository) return openContentSearch();
+    // Selected text becomes the query, as in VS Code; else the tab keeps its own.
+    const selected =
+      fileWorkspace.getSnapshot().active === "search"
+        ? ""
+        : (fileSelection.current?.() || window.getSelection()?.toString() || "")
+            .split("\n")[0]!
+            .trim()
+            .slice(0, 200);
+    fileWorkspace.openSearch(selected || undefined);
+    setSearchFocus((count) => count + 1);
+  }, [browseSource, searchRepository, openContentSearch, fileWorkspace]);
+  // A match in this repository opens in a file tab here; the Search tab stays.
+  const openSearchMatch = useCallback(
+    (match: SearchOpen) => {
+      if (searchRepository && match.repository.path !== searchRepository.path) {
+        window.dispatchEvent(new CustomEvent<SearchOpen>(SEARCH_OPEN_EVENT, { detail: match }));
+        return;
+      }
+      fileWorkspace.open(
+        match.path,
+        match.line,
+        match.source,
+        match.source.kind === "commit" ? `Commit ${match.source.oid.slice(0, 8)}` : sourceLabel,
+      );
+    },
+    [searchRepository, fileWorkspace, sourceLabel],
+  );
+  const leaveSearch = useCallback(
+    () => fileWorkspace.select(fileWorkspace.previous()),
+    [fileWorkspace],
+  );
   const resumeFilePicker = useCallback(() => {
     setPickerQuery(undefined);
     setPickerResume(true);
@@ -1652,7 +1679,7 @@ export function App({
   const tabRow = useCallback(() => {
     if (!browseSource && !hasNotes && !reviewAvailable)
       return { order: [] as string[], active: "" };
-    const { tabs, active } = fileWorkspace.getSnapshot();
+    const { tabs, active, search } = fileWorkspace.getSnapshot();
     const inReview =
       reviewAvailable &&
       (active === "guide" || (active === "changes" && controller.getSnapshot().inReview));
@@ -1662,6 +1689,7 @@ export function App({
         ...(hasNotes ? ["brief"] : []),
         "changes",
         ...(commitApi ? ["commit"] : []),
+        ...(search !== undefined ? ["search"] : []),
         ...tabs.map((tab) => tab.id),
       ],
       active: inReview ? "review" : active === "guide" ? "changes" : active,
@@ -2498,12 +2526,17 @@ export function App({
         return;
       }
       const optionKey = event.code || `Key${event.key.toUpperCase()}`;
-      // These Alt keys also work from the editor, so ⌥W, ⌥Z, and ⌥1–9 do not type there.
+      // These Alt keys also work from the editor and the Search tab's query,
+      // so ⌥W, ⌥Z, and ⌥1–9 do not type there.
       const fromEditor =
         (["KeyW", "KeyZ"].includes(optionKey) || /^Digit[1-9]$/.test(optionKey)) &&
         event
           .composedPath()
-          .some((node) => node instanceof HTMLElement && node.classList.contains("cm-content"));
+          .some(
+            (node) =>
+              node instanceof HTMLElement &&
+              (node.classList.contains("cm-content") || node.hasAttribute("data-tab-keys")),
+          );
       if (
         event.altKey &&
         !event.metaKey &&
@@ -2530,6 +2563,7 @@ export function App({
           if (key === "KeyW") {
             if (event.shiftKey) fileWorkspace.closeAll();
             else if (activeFile) fileWorkspace.close(activeFile.id);
+            else if (fileState.active === "search") fileWorkspace.close("search");
           } else if (key === "KeyO" && event.shiftKey) fileWorkspace.closeOthers();
           else if (key === "KeyB" && activeFile && fileState.file?.kind === "text") toggleBlame();
           else if (key === "KeyR" && browseSource) resumeFilePicker();
@@ -2587,7 +2621,11 @@ export function App({
       ) {
         const inEditor = event
           .composedPath()
-          .some((node) => node instanceof HTMLElement && node.classList.contains("cm-content"));
+          .some(
+            (node) =>
+              node instanceof HTMLElement &&
+              (node.classList.contains("cm-content") || node.hasAttribute("data-tab-keys")),
+          );
         const { order, active } = tabRow();
         if (
           order.length < 2 ||
@@ -3605,10 +3643,10 @@ export function App({
     },
     {
       id: "close-file",
-      label: "Close current file",
+      label: fileState.active === "search" ? "Close Search" : "Close current file",
       shortcut: "⌥ W",
-      disabled: !activeFile,
-      run: () => activeFile && fileWorkspace.close(activeFile.id),
+      disabled: !activeFile && fileState.active !== "search",
+      run: () => fileWorkspace.close(activeFile?.id ?? "search"),
     },
     {
       id: "close-files",
@@ -4876,6 +4914,7 @@ export function App({
         showBrief={hasNotes}
         showReview={reviewAvailable}
         showCommit={!!commitApi}
+        search={fileState.search}
         tabs={fileState.tabs.map((tab) => ({
           ...tab,
           ...(tab.source.kind === "vault"
@@ -5168,9 +5207,11 @@ export function App({
                     ? "Guide"
                     : fileState.active === "commit"
                       ? "Commit"
-                      : reviewShown
-                        ? "Review"
-                        : "Changes"
+                      : fileState.active === "search"
+                        ? "Search"
+                        : reviewShown
+                          ? "Review"
+                          : "Changes"
             }
             {...stylex.props(styles.reviewSurface)}
           >
@@ -5643,6 +5684,28 @@ export function App({
                     focusPath={commitPath}
                   />
                 </Suspense>
+              </div>
+            )}
+            {fileState.search !== undefined && browseSource && searchRepository && (
+              <div
+                {...stylex.props(
+                  styles.reviewSurface,
+                  fileState.active !== "search" && styles.hiddenSurface,
+                )}
+                aria-hidden={fileState.active !== "search"}
+              >
+                <SearchView
+                  api={browseApi}
+                  source={browseSource}
+                  repository={searchRepository}
+                  repositories={state.repositories}
+                  query={fileState.search}
+                  active={fileState.active === "search"}
+                  focusRequest={searchFocus}
+                  onQueryChange={fileWorkspace.setSearch}
+                  onOpen={openSearchMatch}
+                  onLeave={leaveSearch}
+                />
               </div>
             )}
             {activeFile && (

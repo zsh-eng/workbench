@@ -85,7 +85,7 @@ export function createBrowseApi(fetcher: typeof fetch, token: string) {
       return result;
     },
     /** `stream` names the query that this one replaces on the host, such as
-     * one for each repository that a search page searches at once. */
+     * one for each repository that the Search tab searches at once. */
     async search(source: BrowseSource, query: string, signal?: AbortSignal, stream = "search") {
       const result = await api.json("/api/browse/search", browseSearchResponseSchema, {
         method: "POST",

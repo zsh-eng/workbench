@@ -613,19 +613,26 @@ preview in Find file**, hides the preview in every picker and window.
 
 ### Search file contents
 
-**Search file contents** (`⌘⇧F`) opens the search page, with `repo:` set to the
-repository of the workspace. Results show as you type, by file. `repo:name`
-picks a repository; add more to search several, or remove them all to search
-every registered repository. The repository of the workspace is searched in
-its own checkout, such as a thread's worktree, and the others in their main
-checkout. `↑` and `↓` move through the matches, `↵` opens one at its line in
-that repository's workspace, and `Esc` or Back returns. The address
-(`/search?q=…`) keeps the query.
+**Search file contents** (`⌘⇧F`) opens the workspace's **Search** tab, after
+Commit in the tab row, or shows it when it is open. Selected text becomes the
+query; else the tab keeps its query and selects it. The tab's label is the
+query. Results show as you type, by file. `↑` and `↓` move through the
+matches, and `↵` or a click opens one at its line in a file tab. The Search
+tab stays, with its query, results, and scroll. `Esc` shows the tab that
+showed before. Close the tab with its **×**, a middle click, or `⌥W`. Each
+workspace has one Search tab, as in Zed, so `⌘⇧F` always goes to the same
+place; a new query replaces the old one. A reload keeps the query.
+
+The tab searches the workspace's checkout, such as a thread's worktree.
+`repo:name` searches another registered repository, in its main checkout,
+instead; add more to search several, or type `repo:*` for every one. A match
+in another repository opens in that repository's workspace. An old search
+link (`/search?q=…`) opens the Search tab with its query.
 
 Search reads committed branch content, and opens results at the exact commit
 shown. It does not include uncommitted or untracked changes. Without Zoekt, it
 searches with Git. A review outside the workspaces, such as a patch file, uses
-the content picker instead of the page.
+the content picker instead of the tab.
 
 [Zoekt](https://github.com/sourcegraph/zoekt) makes search faster and adds
 project symbols. Setup builds pinned helpers once and needs Go
@@ -694,10 +701,10 @@ command palette.
 
 Command-click a diff's filename, or a file in the Changes list, to open it in a
 background tab. When you close the file on screen, the tab that showed before
-it shows again: a file, Changes, Review, Notes, or Commit, as in VS Code and
-Zed. **Close all files** (`⌥⇧W`) does the same. **Close other files** (`⌥⇧O`)
-keeps the file on screen. Right-click a file tab for **Close**, **Close
-others**, and **Close all**.
+it shows again: a file, Changes, Review, Notes, Commit, or Search, as in VS
+Code and Zed. **Close all files** (`⌥⇧W`) does the same and keeps Search.
+**Close other files** (`⌥⇧O`) keeps the file on screen. Right-click a file tab
+for **Close**, **Close other files**, and **Close all files**.
 
 ## Read and edit Markdown
 
@@ -872,12 +879,12 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Show tab 1–8 / the last tab      | `⌥1`–`⌥9`     |
 | Previous / next tab              | `⌘⇧[` / `⌘⇧]` |
 | Toggle gutter blame              | `⌥B`          |
-| Close the file                   | `⌥W`          |
+| Close the file or Search         | `⌥W`          |
 | Close all files in the workspace | `⌥⇧W`         |
 | Close other files                | `⌥⇧O`         |
 
 Close actions keep the Changes tab and other workspaces. Tab numbers count the
-Notes, Changes, and Commit tabs with the file tabs. A browser can take some
+Review, Notes, Changes, Commit, and Search tabs with the file tabs. A browser can take some
 shortcuts first; the command palette has the same actions.
 
 ## Limits and evidence

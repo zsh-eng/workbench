@@ -137,6 +137,32 @@ describe("file workspace", () => {
     expect(workspace.previous()).toBe(workspace.getSnapshot().tabs.at(-1)!.id);
     workspace.dispose();
   });
+  test("each workspace has one Search tab, which keeps its query and closes like a file", () => {
+    const { workspace } = fixture();
+    workspace.configure("first", A, "First");
+    workspace.open("one.ts");
+    workspace.openSearch("needle");
+    expect(workspace.getSnapshot()).toMatchObject({ active: "search", search: "needle" });
+    workspace.setSearch("needles");
+    workspace.open("two.ts");
+    // A second open keeps the tab and its query; a new query replaces it.
+    workspace.openSearch();
+    expect(workspace.getSnapshot()).toMatchObject({ active: "search", search: "needles" });
+    workspace.configure("second", B, "Second");
+    expect(workspace.getSnapshot().search).toBeUndefined();
+    workspace.configure("first", A, "First");
+    expect(workspace.getSnapshot()).toMatchObject({ active: "search", search: "needles" });
+    // Close all files keeps Search; closing Search shows the tab before it.
+    workspace.closeAll();
+    expect(workspace.getSnapshot()).toMatchObject({ active: "search", tabs: [] });
+    workspace.select("commit");
+    workspace.select("search");
+    workspace.close("search");
+    expect(workspace.getSnapshot()).toMatchObject({ active: "commit", search: undefined });
+    workspace.select("search");
+    expect(workspace.getSnapshot().active).toBe("commit");
+    workspace.dispose();
+  });
   test("close all and close others go back the same way", () => {
     const { workspace, pending } = fixture();
     workspace.configure("first", A, "First");

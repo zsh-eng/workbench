@@ -284,14 +284,21 @@ The address follows the active workspace: `/review/<id>`, `/vault/<id>`, or `/`
 with the workspace ID in `history.state`. Back and Forward move between
 workspaces.
 
-`/search?q=…` is the search page (`components/SearchPage.tsx`). The host draws
-it over the workspaces and keeps the active one; while it shows, the keys are
-the page's. Its `history.state` names the workspace that opened it and that
-workspace's checkout, so a match in that repository opens there, and a match in
-another repository opens in that repository's workspace. The file opens when
-the workspace reads its files (`data/file-opens.ts`), at the commit that the
-search read. Each repository's search is its own `X-Med-Latest` stream, so the
-searches of one query do not cancel each other, and four run at once.
+Search is a tab of each workspace (`components/SearchView.tsx`), after Commit
+in the row. The file workspace store keeps its query with the workspace's
+other tabs, so a reload keeps it; the view stays mounted while the tab is
+open, so its results and scroll survive a switch to another tab. A match in
+the workspace's repository opens as a file tab there, at the commit that the
+search read. A match in another repository goes to the workspaces
+(`med:search-open`), which open it in that repository's workspace when it
+reads its files (`data/file-opens.ts`). An old `/search?q=…` link opens the
+Search tab of the workspace on screen with that query. Each repository's
+search is its own `X-Med-Latest` stream, so the searches of one query do not
+cancel each other, and four run at once.
+
+The row's tabs keep the order in which they last showed (`recent` in
+`data/file-workspace.ts`). Closing the tab on screen, Close all files, the
+Commit tab's `q`, and a full row's eviction all use that order.
 
 ### Threads
 

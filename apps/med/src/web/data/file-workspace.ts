@@ -22,6 +22,8 @@ interface Workspace {
    * the screen back to the tab that showed before it. */
   recent: string[];
   recentPaths: string[];
+  /** The Search tab's query; without one, the row has no Search tab. */
+  search?: string;
 }
 interface FileWorkspaceSnapshot extends Workspace {
   key: string;
@@ -32,9 +34,10 @@ interface FileWorkspaceSnapshot extends Workspace {
   stale: boolean;
   error: string | null;
 }
-/** Tabs that are not files: the diff stream, a saved review's guide and brief, and Commit. */
+/** Tabs that are not files: the diff stream, a saved review's guide and
+ * brief, Commit, and Search. */
 export const isFileTab = (id: string) =>
-  id !== "changes" && id !== "brief" && id !== "guide" && id !== "commit";
+  id !== "changes" && id !== "brief" && id !== "guide" && id !== "commit" && id !== "search";
 
 export function sourceKey(source: TabSource) {
   return JSON.stringify(
@@ -81,11 +84,17 @@ function readStored(key: string): Workspace | undefined {
         typeof tab.sourceLabel === "string" &&
         storedSource(tab.source),
     );
+    const search = typeof value.search === "string" ? value.search.slice(0, 256) : undefined;
     const active =
-      !isFileTab(value.active) || tabs.some((tab) => tab.id === value.active)
-        ? value.active
-        : "changes";
+      value.active === "search"
+        ? search === undefined
+          ? "changes"
+          : "search"
+        : !isFileTab(value.active) || tabs.some((tab) => tab.id === value.active)
+          ? value.active
+          : "changes";
     return {
+      ...(search === undefined ? {} : { search }),
       // Tabs from before every tab stayed open carry a `pinned` flag.
       tabs: tabs.map(({ pinned: _pinned, ...tab }: OpenFileTab & { pinned?: unknown }) => tab),
       active,
@@ -182,7 +191,9 @@ export function createFileWorkspace(
         ...snapshot.recent.filter(
           (id) =>
             id !== snapshot.active &&
-            (!isFileTab(id) || snapshot.tabs.some((tab) => tab.id === id)),
+            (id === "search"
+              ? snapshot.search !== undefined
+              : !isFileTab(id) || snapshot.tabs.some((tab) => tab.id === id)),
         ),
       ].slice(0, RECENT);
     if (snapshot.key) {
@@ -192,6 +203,7 @@ export function createFileWorkspace(
         active: snapshot.active,
         recent: snapshot.recent,
         recentPaths: snapshot.recentPaths,
+        search: snapshot.search,
       });
       // Match the branch-tab limit. These entries contain navigation, never file bytes.
       while (workspaces.size > 32) workspaces.delete(workspaces.keys().next().value!);
@@ -202,6 +214,7 @@ export function createFileWorkspace(
           active: snapshot.active,
           recent: snapshot.recent,
           recentPaths: snapshot.recentPaths,
+          search: snapshot.search,
         };
         if (written.get(key) !== JSON.stringify(navigation)) {
           pending.set(key, navigation);
@@ -251,18 +264,28 @@ export function createFileWorkspace(
       snapshot.recent.find(
         (id) =>
           !leaving.has(id) &&
-          (isFileTab(id) ? snapshot.tabs.some((tab) => tab.id === id) : available(id)),
+          (id === "search"
+            ? snapshot.search !== undefined
+            : isFileTab(id)
+              ? snapshot.tabs.some((tab) => tab.id === id)
+              : available(id)),
       ) ?? "changes"
     );
   }
-  /** Closes file tabs. When the tab on screen closes, the tab that showed
-   * before it shows again, as in VS Code and Zed. */
+  /** Closes file tabs, or the Search tab by its id "search". When the tab on
+   * screen closes, the tab that showed before it shows again, as in VS Code
+   * and Zed. */
   function close(ids: string | readonly string[]) {
     const closing = new Set(typeof ids === "string" ? [ids] : ids);
     const tabs = snapshot.tabs.filter((tab) => !closing.has(tab.id));
-    if (tabs.length === snapshot.tabs.length) return;
+    const search = closing.has("search") && snapshot.search !== undefined;
+    if (tabs.length === snapshot.tabs.length && !search) return;
     const shows = closing.has(snapshot.active);
-    publish({ tabs, ...(shows ? { active: previous(closing) } : {}) });
+    publish({
+      tabs,
+      ...(search ? { search: undefined } : {}),
+      ...(shows ? { active: previous(closing) } : {}),
+    });
     if (shows) void load();
   }
   return {
@@ -301,6 +324,7 @@ export function createFileWorkspace(
         active: keep.includes(snapshot.active) ? snapshot.active : (saved?.active ?? "changes"),
         recent: saved?.recent ?? [],
         recentPaths: saved?.recentPaths ?? [],
+        search: saved?.search,
         file: null,
         loading: false,
         stale: false,
@@ -366,6 +390,7 @@ export function createFileWorkspace(
     },
     select(id: string) {
       if (isFileTab(id) && !snapshot.tabs.some((tab) => tab.id === id)) return;
+      if (id === "search" && snapshot.search === undefined) return;
       publish({ active: id });
       void load();
     },
@@ -374,7 +399,24 @@ export function createFileWorkspace(
     setAvailable(inRow: (id: string) => boolean) {
       available = inRow;
     },
-    /** Closes every file tab; the screen goes back to the tab that showed before them. */
+    /** Shows the workspace's Search tab, which opens if it is not open. A
+     * `query` replaces the tab's query; without one, the tab keeps its own. */
+    openSearch(query?: string) {
+      if (disposed) return;
+      const shows = snapshot.active !== "search";
+      publish({
+        search: (query ?? snapshot.search ?? "").slice(0, 256),
+        active: "search",
+      });
+      if (shows) void load();
+    },
+    /** The Search tab's query, as the reader types it. */
+    setSearch(query: string) {
+      if (snapshot.search !== undefined && snapshot.search !== query)
+        publish({ search: query.slice(0, 256) });
+    },
+    /** Closes every file tab, but not Search; the screen goes back to the
+     * tab that showed before them. */
     closeAll: () => close(snapshot.tabs.map((tab) => tab.id)),
     /** Closes every file tab but `keep`. When the tab on screen closes, `keep` shows. */
     closeOthers(keep: string = snapshot.active) {
@@ -405,6 +447,7 @@ export function createFileWorkspace(
           tabs: [],
           recent: [],
           recentPaths: [],
+          search: undefined,
           active: "changes",
           file: null,
           loading: false,
