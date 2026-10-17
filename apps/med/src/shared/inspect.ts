@@ -8,6 +8,8 @@ export const browseSearchRequestSchema = z.object({
     .min(1)
     .max(256)
     .refine((value) => !/[\r\n\0]/.test(value), "Use one line of text."),
+  /** Find the text only as typed; the result cap counts these matches. */
+  matchCase: z.boolean().optional(),
 });
 export const browseSearchSchema = browseSearchRequestSchema.extend({
   matches: z.array(

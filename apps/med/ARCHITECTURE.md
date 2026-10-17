@@ -310,6 +310,12 @@ index has it, as ⌘⇧O does above the same size, and says that uncommitted
 changes are left out. A commit's search uses the index, or Git on the commit's
 tree.
 
+Match case goes to the host (`matchCase`), so the 200-line cap counts only
+the lines as typed: Git drops `-i`. The index matches in any case; its answer
+is filtered by case when it is complete, and Git searches the same commit
+when the index stopped at its cap. The file workspace store keeps the option
+with the Search tab's query (`searchCase`).
+
 The host returns one line for each match. The view shows two lines around it
 (`data/search-excerpts.ts`) from the files that the search read. A working
 file is read again for each search, and a read that no longer holds the

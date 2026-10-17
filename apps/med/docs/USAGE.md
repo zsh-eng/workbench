@@ -654,8 +654,10 @@ query. Results show as you type, by file, with each file's path and line
 numbers. Each match shows two lines above and below it; matches whose lines
 meet share one excerpt. The lines have the file view's syntax colors, and the
 query is marked in them. Med reads and highlights only the files near the
-view, so a long list stays fast. **Aa** or `⌥C` matches case. The search does
-not take regular expressions. `↑` and `↓` move through the matches, and `↵` or
+view, so a long list stays fast. **Aa** or `⌥C` matches case: the search finds
+the text only as typed, so the first 200 lines are all lines that match. The
+workspace keeps the choice, also after a reload. The search does not take
+regular expressions. `↑` and `↓` move through the matches, and `↵` or
 a click opens one at its line in a file tab; a click on a line around a match
 opens the file at that line. The Search
 tab stays, with its query, results, and scroll. `Esc` shows the tab that

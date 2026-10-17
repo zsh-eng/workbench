@@ -148,10 +148,17 @@ describe("file workspace", () => {
     // A second open keeps the tab and its query; a new query replaces it.
     workspace.openSearch();
     expect(workspace.getSnapshot()).toMatchObject({ active: "search", search: "needles" });
+    // Match case belongs to the workspace, with its query.
+    workspace.setSearchCase(true);
     workspace.configure("second", B, "Second");
     expect(workspace.getSnapshot().search).toBeUndefined();
+    expect(workspace.getSnapshot().searchCase).toBeUndefined();
     workspace.configure("first", A, "First");
-    expect(workspace.getSnapshot()).toMatchObject({ active: "search", search: "needles" });
+    expect(workspace.getSnapshot()).toMatchObject({
+      active: "search",
+      search: "needles",
+      searchCase: true,
+    });
     // Close all files keeps Search; closing Search shows the tab before it.
     workspace.closeAll();
     expect(workspace.getSnapshot()).toMatchObject({ active: "search", tabs: [] });
@@ -161,6 +168,9 @@ describe("file workspace", () => {
     expect(workspace.getSnapshot()).toMatchObject({ active: "commit", search: undefined });
     workspace.select("search");
     expect(workspace.getSnapshot().active).toBe("commit");
+    // The option stays for the next Search tab, as in VS Code.
+    workspace.openSearch();
+    expect(workspace.getSnapshot()).toMatchObject({ search: "", searchCase: true });
     workspace.dispose();
   });
   test("close all and close others go back the same way", () => {

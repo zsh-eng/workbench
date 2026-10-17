@@ -5828,9 +5828,11 @@ export function App({
                   repository={searchRepository}
                   repositories={state.repositories}
                   query={fileState.search}
+                  matchCase={!!fileState.searchCase}
                   active={fileState.active === "search"}
                   focusRequest={searchFocus}
                   onQueryChange={fileWorkspace.setSearch}
+                  onMatchCaseChange={fileWorkspace.setSearchCase}
                   onOpen={openSearchMatch}
                   onLeave={leaveSearch}
                 />

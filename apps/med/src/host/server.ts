@@ -2564,7 +2564,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             input.source.repo = await requireRepo(input.source.repo);
             send(
               await registry.withSearch(input.source.repo, (search) =>
-                search.search(input.source, input.query, abort.signal),
+                search.search(input.source, input.query, abort.signal, input.matchCase),
               ),
             );
             return;

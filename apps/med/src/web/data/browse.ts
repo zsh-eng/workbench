@@ -85,15 +85,25 @@ export function createBrowseApi(fetcher: typeof fetch, token: string) {
       return result;
     },
     /** `stream` names the query that this one replaces on the host, such as
-     * one for each repository that the Search tab searches at once. */
-    async search(source: BrowseSource, query: string, signal?: AbortSignal, stream = "search") {
+     * one for each repository that the Search tab searches at once.
+     * `matchCase` finds the text only as typed. */
+    async search(
+      source: BrowseSource,
+      query: string,
+      signal?: AbortSignal,
+      { stream = "search", matchCase = false }: { stream?: string; matchCase?: boolean } = {},
+    ) {
       const result = await api.json("/api/browse/search", browseSearchResponseSchema, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...latest(stream) },
-        body: JSON.stringify({ source, query }),
+        body: JSON.stringify({ source, query, ...(matchCase ? { matchCase } : {}) }),
         signal,
       });
-      if (browseSourceKey(result.source) !== browseSourceKey(source) || result.query !== query)
+      if (
+        browseSourceKey(result.source) !== browseSourceKey(source) ||
+        result.query !== query ||
+        !!result.matchCase !== matchCase
+      )
         throw new Error("The search belongs to another workspace or query.");
       // A checkout's results come from its working files, or from its last
       // commit; a commit's from that commit.

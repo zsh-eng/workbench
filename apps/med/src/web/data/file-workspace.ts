@@ -28,6 +28,9 @@ interface Workspace {
   recentPaths: string[];
   /** The Search tab's query; without one, the row has no Search tab. */
   search?: string;
+  /** Whether the workspace's search matches case. It stays when the Search
+   * tab closes, as the option does in VS Code. */
+  searchCase?: boolean;
 }
 interface FileWorkspaceSnapshot extends Workspace {
   key: string;
@@ -101,6 +104,7 @@ function readStored(key: string): Workspace | undefined {
           : "changes";
     return {
       ...(search === undefined ? {} : { search }),
+      ...(value.searchCase === true ? { searchCase: true } : {}),
       // Tabs from before every tab stayed open carry a `pinned` flag.
       tabs: tabs.map(({ pinned: _pinned, ...tab }: OpenFileTab & { pinned?: unknown }) => tab),
       active,
@@ -210,6 +214,7 @@ export function createFileWorkspace(
         recent: snapshot.recent,
         recentPaths: snapshot.recentPaths,
         search: snapshot.search,
+        searchCase: snapshot.searchCase,
       });
       // Match the branch-tab limit. These entries contain navigation, never file bytes.
       while (workspaces.size > 32) workspaces.delete(workspaces.keys().next().value!);
@@ -223,6 +228,7 @@ export function createFileWorkspace(
           recent: snapshot.recent,
           recentPaths: snapshot.recentPaths,
           search: snapshot.search,
+          ...(snapshot.searchCase ? { searchCase: true } : {}),
         };
         if (written.get(key) !== JSON.stringify(navigation)) {
           pending.set(key, navigation);
@@ -333,6 +339,7 @@ export function createFileWorkspace(
         recent: saved?.recent ?? [],
         recentPaths: saved?.recentPaths ?? [],
         search: saved?.search,
+        searchCase: saved?.searchCase,
         file: null,
         loading: false,
         stale: false,
@@ -433,6 +440,10 @@ export function createFileWorkspace(
       if (snapshot.search !== undefined && snapshot.search !== query)
         publish({ search: query.slice(0, 256) });
     },
+    /** Whether the workspace's search matches case. */
+    setSearchCase(matchCase: boolean) {
+      if (!!snapshot.searchCase !== matchCase) publish({ searchCase: matchCase || undefined });
+    },
     /** Closes every file tab, but not Search; the screen goes back to the
      * tab that showed before them. */
     closeAll: () => close(snapshot.tabs.map((tab) => tab.id)),
@@ -466,6 +477,7 @@ export function createFileWorkspace(
           recent: [],
           recentPaths: [],
           search: undefined,
+          searchCase: undefined,
           active: "changes",
           file: null,
           loading: false,

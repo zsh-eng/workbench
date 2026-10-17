@@ -568,7 +568,12 @@ export class ZoektSearchService {
     this.counts.set(repo, { files, at: Date.now() });
     return files;
   }
-  async search(source: BrowseSource, query: string, signal?: AbortSignal): Promise<BrowseSearch> {
+  async search(
+    source: BrowseSource,
+    query: string,
+    signal?: AbortSignal,
+    matchCase = false,
+  ): Promise<BrowseSearch> {
     const bounded = signal ? AbortSignal.any([signal, this.abort.signal]) : this.abort.signal;
     bounded.throwIfAborted();
     // A checkout searches its working files, with uncommitted changes, as an
@@ -593,7 +598,7 @@ export class ZoektSearchService {
         (await this.workingFiles(source.repo, bounded)) <= limit)
     )
       return {
-        ...(await searchBrowse(source, query, bounded)),
+        ...(await searchBrowse(source, query, bounded, matchCase)),
         resultSource: source,
         engine: "git",
       };
@@ -607,6 +612,10 @@ export class ZoektSearchService {
         : {};
     const branch = this.indexed.find((entry) => entry.commit === resultSource.oid);
     const child = this.child;
+    // The index matches in any case. With match case, its answer is exact
+    // unless it stopped at its cap; then Git searches the same commit, so
+    // that the cap counts only the lines as typed.
+    let capped = false;
     if (this.current.state === "ready" && branch && this.socketPath) {
       try {
         const reply = await socketJson(
@@ -618,16 +627,23 @@ export class ZoektSearchService {
         const parsed = browseSearchSchema
           .pick({ matches: true, truncated: true, reason: true })
           .parse(reply);
-        if (this.child === child && this.current.state === "ready")
-          return {
-            ...scope,
-            ...parsed,
-            source,
-            query,
-            resultSource,
-            engine: "zoekt",
-            index: { state: "ready" },
-          };
+        if (this.child === child && this.current.state === "ready") {
+          capped = matchCase && parsed.truncated;
+          if (!capped)
+            return {
+              ...scope,
+              ...parsed,
+              matches: matchCase
+                ? parsed.matches.filter((match) => match.text.includes(query))
+                : parsed.matches,
+              source,
+              query,
+              ...(matchCase ? { matchCase } : {}),
+              resultSource,
+              engine: "zoekt",
+              index: { state: "ready" },
+            };
+        }
       } catch {
         bounded.throwIfAborted();
         if (this.child === child) {
@@ -637,24 +653,29 @@ export class ZoektSearchService {
         }
       }
     }
-    if (source.kind === "worktree")
+    if (source.kind === "worktree" && !capped)
       return {
-        ...(await searchBrowse(source, query, bounded)),
+        ...(await searchBrowse(source, query, bounded, matchCase)),
         resultSource: source,
         engine: "git",
       };
-    const fallback = await searchBrowse(resultSource, query, bounded);
+    const fallback = await searchBrowse(resultSource, query, bounded, matchCase);
     const state = this.status();
     return {
+      ...scope,
       ...fallback,
       source,
       resultSource,
       engine: "git",
-      index: {
-        state: state.state,
-        message:
-          state.state === "ready" ? "This commit is not indexed. Using Git search." : state.message,
-      },
+      index: capped
+        ? { state: "ready" }
+        : {
+            state: state.state,
+            message:
+              state.state === "ready"
+                ? "This commit is not indexed. Using Git search."
+                : state.message,
+          },
     };
   }
   async close() {

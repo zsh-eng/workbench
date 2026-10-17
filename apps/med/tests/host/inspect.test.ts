@@ -87,6 +87,31 @@ test("search does not return files through linked parents or nested repositories
   ).toEqual([{ path, line: 1, text: "allowed needle" }]);
 });
 
+test("match case finds the text as typed, and the cap counts only those lines", async () => {
+  const { repo, oid } = await fixture();
+  // More lines in another case than the cap, then one as typed.
+  await writeFile(
+    join(repo, "many.txt"),
+    `${"needle\n".repeat(MAX_SEARCH_MATCHES + 50)}const Needle = 1;\n`,
+  );
+  const source = { kind: "worktree" as const, repo };
+  const any = await searchBrowse(source, "Needle");
+  expect(any.matches).toHaveLength(MAX_SEARCH_MATCHES);
+  expect(any.truncated).toBe(true);
+  expect(await searchBrowse(source, "Needle", undefined, true)).toMatchObject({
+    matchCase: true,
+    truncated: false,
+    matches: [{ path: "many.txt", line: MAX_SEARCH_MATCHES + 51, text: "const Needle = 1;" }],
+  });
+  // At a commit too: the committed file has the text only in lower case.
+  expect(
+    (await searchBrowse({ kind: "commit", repo, oid }, "[QUERY]", undefined, true)).matches,
+  ).toEqual([]);
+  expect(
+    (await searchBrowse({ kind: "commit", repo, oid }, "[query]", undefined, true)).matches,
+  ).toEqual([{ path: "src/file.txt", line: 1, text: "First literal [query]" }]);
+});
+
 test("search bounds matches and snippets and reports truncation", async () => {
   const { repo } = await fixture();
   await writeFile(

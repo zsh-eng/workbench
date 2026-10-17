@@ -20,14 +20,23 @@ export async function searchBrowse(
   source: BrowseSource,
   query: string,
   signal?: AbortSignal,
+  matchCase = false,
 ): Promise<BrowseSearch> {
-  browseSearchRequestSchema.parse({ source, query });
+  browseSearchRequestSchema.parse({ source, query, matchCase });
   signal?.throwIfAborted();
   const timeout = AbortSignal.timeout(SEARCH_TIME_MS);
   const bounded = signal ? AbortSignal.any([signal, timeout]) : timeout;
-  const result: BrowseSearch = { source, query, matches: [], truncated: false };
+  const result: BrowseSearch = {
+    source,
+    query,
+    ...(matchCase ? { matchCase } : {}),
+    matches: [],
+    truncated: false,
+  };
   let bytes = 0;
-  const needle = query.toLowerCase();
+  // Match case finds the text only as typed, so the cap counts those lines.
+  const fold = (text: string) => (matchCase ? text : text.toLowerCase());
+  const needle = fold(query);
   const scan = async (path: string) => {
     bounded.throwIfAborted();
     let file;
@@ -60,7 +69,7 @@ export async function searchBrowse(
     const lines = file.text.split("\n");
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]!;
-      const at = line.toLowerCase().indexOf(needle);
+      const at = fold(line).indexOf(needle);
       if (at < 0) continue;
       if (result.matches.length === MAX_SEARCH_MATCHES) {
         result.truncated = true;
@@ -100,7 +109,7 @@ export async function searchBrowse(
           "-z",
           "-I",
           "-F",
-          "-i",
+          ...(matchCase ? [] : ["-i"]),
           "-e",
           query,
           ...(source.kind === "commit" ? [source.oid] : []),

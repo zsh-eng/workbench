@@ -82,6 +82,8 @@ interface Group {
   source: BrowseSource;
   path: string;
   query: string;
+  /** Whether the search that found the matches matched case. */
+  matchCase: boolean;
   stale: boolean;
   matches: Match[];
   first: number;
@@ -232,9 +234,11 @@ export function SearchView({
   repository,
   repositories,
   query,
+  matchCase,
   active,
   focusRequest,
   onQueryChange,
+  onMatchCaseChange,
   onOpen,
   onLeave,
 }: {
@@ -245,10 +249,13 @@ export function SearchView({
   /** Registered repositories, for `repo:` filters. */
   repositories: readonly SearchRepository[];
   query: string;
+  /** Whether the search finds the text only as typed. */
+  matchCase: boolean;
   active: boolean;
   /** Changes when ⌘⇧F asks for the query field: it takes the focus and selects its text. */
   focusRequest: number;
   onQueryChange(query: string): void;
+  onMatchCaseChange(matchCase: boolean): void;
   onOpen(open: SearchOpen): void;
   onLeave(): void;
 }) {
@@ -257,7 +264,6 @@ export function SearchView({
   const scroll = useRef(0);
   const id = useId();
   const parsed = useMemo(() => parseSearchQuery(query), [query]);
-  const [matchCase, setMatchCase] = useState(false);
   const targets = useMemo(() => {
     if (!parsed.repos.length) return [{ repository, source }];
     const all = repositories.some((entry) => entry.path === repository.path)
@@ -276,6 +282,7 @@ export function SearchView({
   }, [repositories, repository, source, parsed.repos]);
   const runKey = JSON.stringify([
     parsed.text,
+    matchCase,
     targets.map((target) => browseSourceKey(target.source)),
   ]);
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -314,7 +321,9 @@ export function SearchView({
             ),
           );
         try {
-          settle({ result: await search(target.source, text, abort.signal, stream) });
+          settle({
+            result: await search(target.source, text, abort.signal, { stream, matchCase }),
+          });
         } catch (error) {
           if (abort.signal.aborted) return;
           settle({ error: error instanceof Error ? error.message : "The search failed." });
@@ -345,8 +354,8 @@ export function SearchView({
     if (active && list.current) list.current.scrollTop = scroll.current;
   }, [active]);
 
-  // The results by file, each file's matches in line order. Match case keeps
-  // the lines where the text occurs as typed.
+  // The results by file, each file's matches in line order. The host matched
+  // case or not, as each search asked.
   const groups = useMemo(() => {
     const result: Group[] = [];
     let first = 0;
@@ -356,7 +365,6 @@ export function SearchView({
       const at = found.resultSource ?? found.source;
       const files = new Map<string, Match[]>();
       for (const match of found.matches) {
-        if (matchCase && !match.text.includes(found.query)) continue;
         const file = files.get(match.path);
         if (file) file.push(match);
         else files.set(match.path, [match]);
@@ -369,6 +377,7 @@ export function SearchView({
           source: at,
           path,
           query: found.query,
+          matchCase: !!found.matchCase,
           stale: !entry.result,
           matches,
           first,
@@ -378,7 +387,7 @@ export function SearchView({
       }
     }
     return result;
-  }, [entries, matchCase]);
+  }, [entries]);
   const count = groups.reduce((sum, group) => sum + group.matches.length, 0);
   const current = Math.min(selected, Math.max(0, count - 1));
   const optionId = useCallback((index: number) => `${id}-match-${index}`, [id]);
@@ -455,7 +464,7 @@ export function SearchView({
     } else if (event.altKey && event.code === "KeyC" && !event.metaKey && !event.ctrlKey) {
       // ⌥C, as in VS Code.
       event.preventDefault();
-      setMatchCase((value) => !value);
+      onMatchCaseChange(!matchCase);
     }
   };
 
@@ -525,7 +534,7 @@ export function SearchView({
           aria-pressed={matchCase}
           title="Match case (⌥C)"
           onClick={() => {
-            setMatchCase((value) => !value);
+            onMatchCaseChange(!matchCase);
             input.current?.focus({ preventScroll: true });
           }}
           {...stylex.props(styles.option, matchCase && styles.optionOn)}
@@ -580,7 +589,6 @@ export function SearchView({
                       ? current
                       : -1
                   }
-                  matchCase={matchCase}
                   showRepository={repositoriesShown > 1}
                   markColor={colors.match}
                   currentColor={colors.matchCurrent}
@@ -607,7 +615,6 @@ const ResultFile = memo(function ResultFile({
   group,
   loaded,
   current,
-  matchCase,
   showRepository,
   markColor,
   currentColor,
@@ -622,7 +629,6 @@ const ResultFile = memo(function ResultFile({
   loaded: Loaded | undefined;
   /** The chosen match, when it is in this file; else -1. */
   current: number;
-  matchCase: boolean;
   showRepository: boolean;
   markColor: string;
   currentColor: string;
@@ -684,7 +690,10 @@ const ResultFile = memo(function ResultFile({
               <code {...stylex.props(styles.text)}>
                 {runs ? (
                   <Runs
-                    parts={pieces(runs, match ? occurrences(text!, group.query, matchCase) : [])}
+                    parts={pieces(
+                      runs,
+                      match ? occurrences(text!, group.query, group.matchCase) : [],
+                    )}
                     // The file view's colors for find matches, and for the current one.
                     mark={stylex.props(
                       styles.mark,

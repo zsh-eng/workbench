@@ -46,22 +46,37 @@ const files = new Map<string, string>([
   ),
 ]);
 
-/** The Search tab over `files`; the host reads `resultSource`'s files. */
+/** The Search tab over `files`; the host reads `resultSource`'s files, and
+ * matches case when the search asks. */
 function fixture(resultSource: BrowseSource = commit, contents = files) {
   const reads: string[] = [];
   const opened: SearchOpen[] = [];
+  const searches: { query: string; matchCase: boolean }[] = [];
   const api = {
-    async search(source: BrowseSource, query: string): Promise<BrowseSearch> {
+    async search(
+      source: BrowseSource,
+      query: string,
+      _signal?: AbortSignal,
+      { matchCase = false }: { matchCase?: boolean } = {},
+    ): Promise<BrowseSearch> {
+      searches.push({ query, matchCase });
+      const fold = (text: string) => (matchCase ? text : text.toLowerCase());
       const matches = [...contents].flatMap(([path, text]) =>
         text
           .split("\n")
           .flatMap((line, index) =>
-            line.toLowerCase().includes(query.toLowerCase())
-              ? [{ path, line: index + 1, text: line }]
-              : [],
+            fold(line).includes(fold(query)) ? [{ path, line: index + 1, text: line }] : [],
           ),
       );
-      return { source, query, matches, truncated: false, resultSource, engine: "git" };
+      return {
+        source,
+        query,
+        ...(matchCase ? { matchCase } : {}),
+        matches,
+        truncated: false,
+        resultSource,
+        engine: "git",
+      };
     },
     async read(source: BrowseSource, path: string): Promise<BrowseRead> {
       reads.push(path);
@@ -75,7 +90,9 @@ function fixture(resultSource: BrowseSource = commit, contents = files) {
   document.body.append(mount);
   const view = createRoot(mount);
   root = view;
-  const show = (query: string) =>
+  let shown = { query: "needle", matchCase: false };
+  const show = (query = shown.query, matchCase = shown.matchCase) => {
+    shown = { query, matchCase };
     view.render(
       <WorkerPoolContextProvider
         highlighterOptions={{ theme: "github-dark" }}
@@ -87,16 +104,19 @@ function fixture(resultSource: BrowseSource = commit, contents = files) {
           repository={{ id: "fixture", name: "fixture", path: "/fixture" }}
           repositories={[]}
           query={query}
+          matchCase={matchCase}
           active
           focusRequest={0}
           onQueryChange={() => {}}
+          onMatchCaseChange={(value) => show(shown.query, value)}
           onOpen={(open) => opened.push(open)}
           onLeave={() => {}}
         />
       </WorkerPoolContextProvider>,
     );
-  show("needle");
-  return { reads, opened, show };
+  };
+  show();
+  return { reads, opened, searches, show };
 }
 
 const file = (path: string) =>
@@ -110,7 +130,7 @@ const color = (node: Element | null | undefined) =>
   node ? getComputedStyle(node).color : undefined;
 
 test("results show two lines around each match, merged when they meet, highlighted as the file view highlights them", async () => {
-  const { opened } = fixture();
+  const { opened, searches } = fixture();
   await expect
     .element(page.getByRole("status"))
     .toHaveTextContent("43 results in 41 files in fixture");
@@ -141,7 +161,7 @@ test("results show two lines around each match, merged when they meet, highlight
   (file("src/alpha.ts")!.querySelector(":scope > div > div") as HTMLElement).click();
   expect(opened.at(-1)).toMatchObject({ path: "src/alpha.ts", line: 18, source: commit });
 
-  // ⌥C matches case: the line with "Needle" goes.
+  // ⌥C asks the host to match case: the line with "Needle" goes.
   await page.getByRole("combobox", { name: "Search query" }).click();
   await userEvent.keyboard("{Alt>}c{/Alt}");
   await expect
@@ -150,6 +170,7 @@ test("results show two lines around each match, merged when they meet, highlight
   await expect
     .element(page.getByRole("status"))
     .toHaveTextContent("42 results in 41 files in fixture");
+  expect(searches.at(-1)).toEqual({ query: "needle", matchCase: true });
   expect(excerptLines("src/alpha.ts")).toEqual([[18, 19, 20, 21, 22, 23, 24, 25, 26, 27]]);
 });
 

@@ -319,6 +319,37 @@ test.skipIf(!binaryDirectory)(
 );
 
 test.skipIf(!binaryDirectory)(
+  "match case keeps the index's lines as typed, and Git counts the cap when the index stopped at its own",
+  async () => {
+    const { repo, cacheRoot } = await fixture();
+    // More lines in another case than the index returns, then one as typed.
+    await writeFile(join(repo, "many.txt"), `${"needle\n".repeat(250)}const NEEDLE = 1;\n`);
+    git(repo, "add", "many.txt");
+    git(repo, "commit", "-q", "-m", "Many needles");
+    const oid = git(repo, "rev-parse", "HEAD");
+    const service = await start(repo, cacheRoot);
+    await ready(service, "main", oid);
+    const source = { kind: "commit" as const, repo, oid };
+    expect(await service.search(source, "Committed", undefined, true)).toMatchObject({
+      engine: "zoekt",
+      matchCase: true,
+      matches: [],
+    });
+    expect(await service.search(source, "committed", undefined, true)).toMatchObject({
+      engine: "zoekt",
+      matches: [{ path: "file.txt", line: 1, text: "committed needle" }],
+    });
+    expect(await service.search(source, "NEEDLE", undefined, true)).toMatchObject({
+      engine: "git",
+      matchCase: true,
+      truncated: false,
+      matches: [{ path: "many.txt", line: 251, text: "const NEEDLE = 1;" }],
+    });
+  },
+  30_000,
+);
+
+test.skipIf(!binaryDirectory)(
   "indexed symbols exclude references and dirty files and keep the exact commit",
   async () => {
     const { repo, cacheRoot } = await fixture();
