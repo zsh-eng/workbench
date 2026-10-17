@@ -70,6 +70,11 @@ export function LocalFiles({ children }: { children: ReactNode }) {
     [],
   );
   const copiedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // The open files, the most recently shown first.
+  const recent = useRef<string[]>([]);
+  useEffect(() => {
+    if (selected) recent.current = [selected, ...recent.current.filter((id) => id !== selected)];
+  }, [selected]);
   const close = useCallback(
     (id: string) => {
       const draft = drafts.get(id);
@@ -84,21 +89,36 @@ export function LocalFiles({ children }: { children: ReactNode }) {
       }
       const next = currentTabs.current.filter((tab) => tab.id !== id);
       currentTabs.current = next;
+      recent.current = recent.current.filter((item) => item !== id);
       setTabs(next);
-      setSelected((selected) => (selected === id ? (next[0]?.id ?? "") : selected));
+      // The file that showed before this one shows again.
+      setSelected((selected) =>
+        selected === id
+          ? (recent.current.find((item) => next.some((tab) => tab.id === item)) ??
+            next.at(-1)?.id ??
+            "")
+          : selected,
+      );
       setError("");
     },
     [drafts],
   );
+  // A file that opens again keeps its place in the row.
   const add = (tab: Tab) => {
-    const next = [...currentTabs.current.filter((item) => item.id !== tab.id), tab];
+    const next = currentTabs.current.some((item) => item.id === tab.id)
+      ? currentTabs.current.map((item) => (item.id === tab.id ? tab : item))
+      : [...currentTabs.current, tab];
     if (
       next.length > 24 ||
       next.reduce((sum, item) => sum + (item.file.media ? 0 : item.file.size), 0) > 32 * 1024 * 1024
     )
       throw new Error("Close a file before opening more (24 files / 32 MiB limit).");
     currentTabs.current = next;
-    setTabs((items) => [...items.filter((item) => item.id !== tab.id), tab]);
+    setTabs((items) =>
+      items.some((item) => item.id === tab.id)
+        ? items.map((item) => (item.id === tab.id ? tab : item))
+        : [...items, tab],
+    );
     setSelected(tab.id);
     setVisible(true);
   };

@@ -104,23 +104,63 @@ describe("file workspace", () => {
     expect(workspace.getSnapshot().active).toBe(workspace.getSnapshot().tabs[0]!.id);
     workspace.dispose();
   });
-  test("closing selects the right neighbor, then the left, without disturbing background closes", () => {
+  test("closing gives the screen back to the tab that showed before, skipping tabs the row lost", () => {
+    let notes = true;
     const { workspace, pending } = fixture();
+    workspace.setAvailable((id) => id !== "brief" || notes);
     workspace.configure("first", A, "First");
     for (const name of ["one.ts", "two.ts", "three.ts"]) workspace.open(name);
     const [one, two, three] = workspace.getSnapshot().tabs;
-    workspace.select(two!.id);
-    workspace.close(two!.id);
-    expect(workspace.getSnapshot().active).toBe(three!.id);
-    expect(pending.at(-1)?.path).toBe("three.ts");
+    workspace.select("changes");
+    workspace.select(one!.id);
+    workspace.select(three!.id);
     workspace.close(three!.id);
     expect(workspace.getSnapshot().active).toBe(one!.id);
-    workspace.open("four.ts");
-    const reads = pending.length;
-    const active = workspace.getSnapshot().active;
+    expect(pending.at(-1)?.path).toBe("one.ts");
     workspace.close(one!.id);
-    expect(workspace.getSnapshot().active).toBe(active);
+    expect(workspace.getSnapshot().active).toBe("changes");
+    // A background close leaves the screen and its read alone.
+    workspace.select("brief");
+    workspace.select(two!.id);
+    const reads = pending.length;
+    workspace.open("four.ts", undefined, undefined, undefined, undefined, { background: true });
+    workspace.close(workspace.getSnapshot().tabs.at(-1)!.id);
+    expect(workspace.getSnapshot().active).toBe(two!.id);
     expect(pending).toHaveLength(reads);
+    // Notes left the row, so the file goes back to Changes.
+    notes = false;
+    workspace.close(two!.id);
+    expect(workspace.getSnapshot().active).toBe("changes");
+    // Commit goes back the same way.
+    workspace.open("five.ts");
+    workspace.select("commit");
+    expect(workspace.previous()).toBe(workspace.getSnapshot().tabs.at(-1)!.id);
+    workspace.dispose();
+  });
+  test("close all and close others go back the same way", () => {
+    const { workspace, pending } = fixture();
+    workspace.configure("first", A, "First");
+    workspace.select("brief");
+    for (const name of ["one.ts", "two.ts", "three.ts"]) workspace.open(name);
+    const [one, two] = workspace.getSnapshot().tabs;
+    // Close others from a tab that does not show: that tab shows.
+    workspace.closeOthers(one!.id);
+    expect(workspace.getSnapshot().tabs.map((tab) => tab.id)).toEqual([one!.id]);
+    expect(workspace.getSnapshot().active).toBe(one!.id);
+    expect(pending.at(-1)?.path).toBe("one.ts");
+    workspace.open("two.ts");
+    workspace.select("changes");
+    workspace.closeOthers(two!.id);
+    expect(workspace.getSnapshot().active).toBe("changes");
+    workspace.select(two!.id);
+    workspace.closeAll();
+    expect(workspace.getSnapshot().tabs).toEqual([]);
+    expect(workspace.getSnapshot().active).toBe("changes");
+    workspace.open("one.ts");
+    workspace.select("brief");
+    workspace.select(one!.id);
+    workspace.closeAll();
+    expect(workspace.getSnapshot().active).toBe("brief");
     workspace.dispose();
   });
   test("background opens add tabs without changing selection or cancelling reads", async () => {
@@ -191,17 +231,20 @@ describe("file workspace", () => {
     expect(workspace.getSnapshot().error).toContain("does not match");
     workspace.dispose();
   });
-  test("a full row gives up its oldest tab without a draft, and workspace history is bounded", () => {
+  test("a full row gives up the tab that showed least recently and has no draft, and workspace history is bounded", () => {
     const { workspace } = fixture({ held: (tab) => tab.path === "0.ts" });
     workspace.configure("first", A, "First");
-    for (let i = 0; i <= TAB_LIMIT; i++) workspace.open(`${i}.ts`);
+    for (let i = 0; i < TAB_LIMIT; i++) workspace.open(`${i}.ts`);
+    // 1.ts showed again, so 2.ts showed least recently of the tabs without a draft.
+    workspace.open("1.ts");
+    workspace.open(`${TAB_LIMIT}.ts`);
     expect(workspace.getSnapshot().tabs).toHaveLength(TAB_LIMIT);
     expect(
       workspace
         .getSnapshot()
         .tabs.map((tab) => tab.path)
-        .slice(0, 2),
-    ).toEqual(["0.ts", "2.ts"]);
+        .slice(0, 3),
+    ).toEqual(["0.ts", "1.ts", "3.ts"]);
     expect(workspace.getSnapshot().error).toBeNull();
     for (let i = 0; i < 32; i++)
       workspace.configure(`workspace-${i}`, { kind: "worktree", repo: `/repo-${i}` }, "Other");

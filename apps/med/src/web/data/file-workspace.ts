@@ -18,6 +18,9 @@ export interface OpenFileTab {
 interface Workspace {
   tabs: OpenFileTab[];
   active: string;
+  /** The row's tabs, the most recently shown first: a tab that closes gives
+   * the screen back to the tab that showed before it. */
+  recent: string[];
   recentPaths: string[];
 }
 interface FileWorkspaceSnapshot extends Workspace {
@@ -86,6 +89,9 @@ function readStored(key: string): Workspace | undefined {
       // Tabs from before every tab stayed open carry a `pinned` flag.
       tabs: tabs.map(({ pinned: _pinned, ...tab }: OpenFileTab & { pinned?: unknown }) => tab),
       active,
+      recent: Array.isArray(value.recent)
+        ? value.recent.filter((id) => typeof id === "string").slice(0, RECENT)
+        : [],
       recentPaths: Array.isArray(value.recentPaths)
         ? value.recentPaths.filter((path) => typeof path === "string").slice(0, 50)
         : [],
@@ -111,6 +117,8 @@ function writeStored(key: string, workspace: Workspace) {
 
 /** Open files in one workspace's row. Each open file keeps its own tab. */
 export const TAB_LIMIT = 24;
+/** Tabs in the recent order: every file tab and every other tab, with room to spare. */
+const RECENT = 40;
 
 /** Retain navigation per workspace, but retain bytes only for the active file.
  * With `persist`, each workspace's open files and tab outlast the window, so a
@@ -123,6 +131,9 @@ export function createFileWorkspace(
     held = () => false,
   }: { persist?: boolean; held?: (tab: OpenFileTab) => boolean } = {},
 ) {
+  // Whether a tab that is not a file's, such as Notes or Commit, is in the
+  // row now; a closed file gives the screen only to a tab that is.
+  let available = (_id: string) => true;
   const workspaces = new Map<string, Workspace>();
   // Each workspace's open files reach storage shortly after they change,
   // and at once when the window goes away.
@@ -145,6 +156,7 @@ export function createFileWorkspace(
     sourceLabel: "",
     tabs: [],
     active: "changes",
+    recent: ["changes"],
     recentPaths: [],
     file: null,
     loading: false,
@@ -157,12 +169,28 @@ export function createFileWorkspace(
   let disposed = false;
   const publish = (change: Partial<FileWorkspaceSnapshot>) => {
     if (disposed) return;
+    const before = snapshot;
     snapshot = { ...snapshot, ...change };
+    // The tab on screen leads the recent order, and closed files leave it.
+    if (
+      snapshot.active !== before.active ||
+      snapshot.tabs !== before.tabs ||
+      snapshot.recent !== before.recent
+    )
+      snapshot.recent = [
+        snapshot.active,
+        ...snapshot.recent.filter(
+          (id) =>
+            id !== snapshot.active &&
+            (!isFileTab(id) || snapshot.tabs.some((tab) => tab.id === id)),
+        ),
+      ].slice(0, RECENT);
     if (snapshot.key) {
       workspaces.delete(snapshot.key);
       workspaces.set(snapshot.key, {
         tabs: snapshot.tabs,
         active: snapshot.active,
+        recent: snapshot.recent,
         recentPaths: snapshot.recentPaths,
       });
       // Match the branch-tab limit. These entries contain navigation, never file bytes.
@@ -172,6 +200,7 @@ export function createFileWorkspace(
         const navigation = {
           tabs: snapshot.tabs.map(({ line: _line, column: _column, ...tab }) => tab),
           active: snapshot.active,
+          recent: snapshot.recent,
           recentPaths: snapshot.recentPaths,
         };
         if (written.get(key) !== JSON.stringify(navigation)) {
@@ -216,6 +245,26 @@ export function createFileWorkspace(
       });
     }
   }
+  /** The tab that showed most recently, of those still in the row and not in `leaving`. */
+  function previous(leaving: ReadonlySet<string> = new Set([snapshot.active])) {
+    return (
+      snapshot.recent.find(
+        (id) =>
+          !leaving.has(id) &&
+          (isFileTab(id) ? snapshot.tabs.some((tab) => tab.id === id) : available(id)),
+      ) ?? "changes"
+    );
+  }
+  /** Closes file tabs. When the tab on screen closes, the tab that showed
+   * before it shows again, as in VS Code and Zed. */
+  function close(ids: string | readonly string[]) {
+    const closing = new Set(typeof ids === "string" ? [ids] : ids);
+    const tabs = snapshot.tabs.filter((tab) => !closing.has(tab.id));
+    if (tabs.length === snapshot.tabs.length) return;
+    const shows = closing.has(snapshot.active);
+    publish({ tabs, ...(shows ? { active: previous(closing) } : {}) });
+    if (shows) void load();
+  }
   return {
     getSnapshot: () => snapshot,
     subscribe(listener: () => void) {
@@ -250,6 +299,7 @@ export function createFileWorkspace(
         sourceLabel,
         tabs: saved?.tabs ?? [],
         active: keep.includes(snapshot.active) ? snapshot.active : (saved?.active ?? "changes"),
+        recent: saved?.recent ?? [],
         recentPaths: saved?.recentPaths ?? [],
         file: null,
         loading: false,
@@ -279,9 +329,17 @@ export function createFileWorkspace(
         tabs = tabs.map((tab) => (tab.id === id ? { ...tab, line, column } : tab));
       else if (!existing) {
         tabs = [...tabs];
-        // A full row gives up its oldest tab that has no unsaved draft.
+        // A full row gives up the tab that showed least recently and has no unsaved draft.
         if (tabs.length >= TAB_LIMIT) {
-          const index = tabs.findIndex((tab) => tab.id !== snapshot.active && !held(tab));
+          const age = (id: string) => {
+            const place = snapshot.recent.indexOf(id);
+            return place < 0 ? Infinity : place;
+          };
+          let index = -1;
+          tabs.forEach((tab, place) => {
+            if (tab.id === snapshot.active || held(tab)) return;
+            if (index < 0 || age(tab.id) > age(tabs[index]!.id)) index = place;
+          });
           if (index < 0) {
             publish({
               error: `Save or discard a draft before opening another file (${TAB_LIMIT}-tab limit).`,
@@ -311,31 +369,22 @@ export function createFileWorkspace(
       publish({ active: id });
       void load();
     },
-    close(id: string) {
-      const index = snapshot.tabs.findIndex((tab) => tab.id === id);
-      if (index < 0) return;
-      const wasActive = snapshot.active === id;
-      const tabs = snapshot.tabs.filter((tab) => tab.id !== id);
-      publish({
-        tabs,
-        ...(wasActive ? { active: (tabs[index] ?? tabs[index - 1])?.id ?? "changes" } : {}),
-      });
-      if (wasActive) void load();
+    previous,
+    close,
+    setAvailable(inRow: (id: string) => boolean) {
+      available = inRow;
     },
-    closeAll() {
-      cancel();
+    /** Closes every file tab; the screen goes back to the tab that showed before them. */
+    closeAll: () => close(snapshot.tabs.map((tab) => tab.id)),
+    /** Closes every file tab but `keep`. When the tab on screen closes, `keep` shows. */
+    closeOthers(keep: string = snapshot.active) {
+      if (!snapshot.tabs.some((tab) => tab.id === keep) || snapshot.tabs.length < 2) return;
+      const shows = isFileTab(snapshot.active) && snapshot.active !== keep;
       publish({
-        tabs: [],
-        active: "changes",
-        file: null,
-        loading: false,
-        error: null,
-        stale: false,
+        tabs: snapshot.tabs.filter((tab) => tab.id === keep),
+        ...(shows ? { active: keep } : {}),
       });
-    },
-    closeOthers() {
-      if (!isFileTab(snapshot.active)) return;
-      publish({ tabs: snapshot.tabs.filter((tab) => tab.id === snapshot.active) });
+      if (shows) void load();
     },
     forgetRepository(repositoryId: string) {
       const belongsToRepository = (key: string) => {
@@ -354,6 +403,7 @@ export function createFileWorkspace(
           source: null,
           sourceLabel: "",
           tabs: [],
+          recent: [],
           recentPaths: [],
           active: "changes",
           file: null,

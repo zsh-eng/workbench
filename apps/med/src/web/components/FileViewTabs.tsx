@@ -22,6 +22,8 @@ export function FileViewTabs({
   active,
   onSelect,
   onClose,
+  onCloseOthers,
+  onCloseAll,
   panelId = "file-view-panel",
   showChanges = true,
   showBrief = false,
@@ -53,6 +55,10 @@ export function FileViewTabs({
   trailing?: ReactNode;
   onSelect(id: string): void;
   onClose(id: string): void;
+  /** Close every file tab but this one; in the tab's context menu. */
+  onCloseOthers?(id: string): void;
+  /** Close every file tab; in the tab's context menu. */
+  onCloseAll?(): void;
 }) {
   // The row scrolls; the tab on screen stays in view, also when it opens.
   const list = useRef<HTMLDivElement>(null);
@@ -150,7 +156,19 @@ export function FileViewTabs({
             render={<div />}
             className={stylex.props(styles.item, stylex.defaultMarker()).className}
             locate={() => ({ repo: tab.sourcePath ?? null, path: tab.path })}
-            items={() => [{ label: "Close", run: () => onClose(tab.id) }]}
+            items={() => [
+              { label: "Close", run: () => onClose(tab.id) },
+              ...(onCloseOthers
+                ? [
+                    {
+                      label: "Close others",
+                      disabled: tabs.length < 2,
+                      run: () => onCloseOthers(tab.id),
+                    },
+                  ]
+                : []),
+              ...(onCloseAll ? [{ label: "Close all", run: onCloseAll }] : []),
+            ]}
           >
             <Tabs.Tab
               value={tab.id}

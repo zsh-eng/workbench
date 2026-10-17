@@ -131,17 +131,32 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
     },
     [locationState.id, navigate],
   );
+  // The vault's files, the most recently shown first: a closed tab gives the
+  // screen back to the file that showed before it.
+  const recent = useRef<string[]>([]);
+  const currentPath = currentFile?.path;
+  useEffect(() => {
+    if (currentPath)
+      recent.current = [currentPath, ...recent.current.filter((path) => path !== currentPath)];
+  }, [currentPath]);
+  /** Closes tabs by file path. When the file on screen closes, `show` shows,
+   * or else the file that showed before it. */
   const closeTabs = useCallback(
-    (paths: string[]) => {
+    (paths: string[], show?: string) => {
       if (paths.some((path) => drafts.get(path)?.dirty || drafts.get(path)?.saving)) {
         setError("Save or discard this draft before closing the file.");
         return;
       }
       const next = retainedTabs.current.filter((tab) => !paths.includes(tab.file.path));
       updateTabs(next);
+      recent.current = recent.current.filter((path) => !paths.includes(path));
       setError("");
       if (currentFile && paths.includes(currentFile.path)) {
-        const target = next.filter((tab) => tab.file.vault?.id === locationState.id).at(-1);
+        const shown = next.filter((tab) => tab.file.vault?.id === locationState.id);
+        const target =
+          [show, ...recent.current]
+            .map((path) => shown.find((tab) => tab.file.path === path))
+            .find(Boolean) ?? shown.at(-1);
         if (target) open(target.file.vault!.path);
         else navigate(`/vault/${locationState.id}`);
       }
@@ -237,15 +252,24 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
         const next = prior
           ? retainedTabs.current.map((tab) => (tab === prior ? { ...tab, file: read } : tab))
           : [...retainedTabs.current, { file: read }];
-        // A full row gives up its oldest notes that have no unsaved draft.
+        // A full row gives up the notes that showed least recently and have no unsaved draft.
         const full = () =>
           next.length > TAB_LIMIT || next.reduce((sum, tab) => sum + tab.file.size, 0) > TAB_BYTES;
+        const age = (path: string) => {
+          const place = recent.current.indexOf(path);
+          return place < 0 ? Infinity : place;
+        };
+        const spare = (tab: VaultTab) =>
+          tab.file.path !== read.path &&
+          !drafts.get(tab.file.path)?.dirty &&
+          !drafts.get(tab.file.path)?.saving;
         while (full()) {
-          const index = next.findIndex(
-            (tab) =>
-              tab.file.path !== read.path &&
-              !drafts.get(tab.file.path)?.dirty &&
-              !drafts.get(tab.file.path)?.saving,
+          const index = next.reduce(
+            (oldest, tab, place) =>
+              spare(tab) && (oldest < 0 || age(tab.file.path) > age(next[oldest]!.file.path))
+                ? place
+                : oldest,
+            -1,
           );
           if (index < 0)
             throw new Error(
@@ -585,6 +609,13 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
                     if (tab) open(tab.file.vault!.path);
                   }}
                   onClose={(id) => closeTabs([id])}
+                  onCloseOthers={(id) =>
+                    closeTabs(
+                      currentTabs.map((tab) => tab.file.path).filter((path) => path !== id),
+                      id,
+                    )
+                  }
+                  onCloseAll={() => closeTabs(currentTabs.map((tab) => tab.file.path))}
                 />
                 <div className="med-vault-actions">
                   <ToolButton

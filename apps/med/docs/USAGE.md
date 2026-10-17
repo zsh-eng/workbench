@@ -493,7 +493,8 @@ after the review was saved.
 ## Commit and push
 
 Press `q` in a review of live changes, or click the **Commit** tab, to stage
-files, commit them, and push the branch. Press `q` again to go back.
+files, commit them, and push the branch. Press `q` again to go back to the tab
+that showed before.
 
 - **Files.** The list shows each changed file: ● staged, ◐ partly staged, ○ not
   staged. Their diffs follow in the same order. `j` and `k` move through the
@@ -692,8 +693,11 @@ While a Vim pane has focus, `?` searches backward and `⌘K` still opens the
 command palette.
 
 Command-click a diff's filename, or a file in the Changes list, to open it in a
-background tab. Closing the active file selects the file to its right, then its
-left.
+background tab. When you close the file on screen, the tab that showed before
+it shows again: a file, Changes, Review, Notes, or Commit, as in VS Code and
+Zed. **Close all files** (`⌥⇧W`) does the same. **Close other files** (`⌥⇧O`)
+keeps the file on screen. Right-click a file tab for **Close**, **Close
+others**, and **Close all**.
 
 ## Read and edit Markdown
 

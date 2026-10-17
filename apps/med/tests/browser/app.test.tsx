@@ -1256,14 +1256,20 @@ describe("graphical review", () => {
       .element(page.getByRole("tab", { name: "alpha.ts", exact: true }))
       .not.toBeInTheDocument();
     await expect.element(page.getByRole("tab", { name: "beta.ts", exact: true })).toBeVisible();
+    // The tab that showed before comes back, not the closed tab's neighbor:
+    // the list's first click showed alpha.ts in Changes.
+    const tab = (name: string) => page.getByRole("tab", { name, exact: true });
     await page.getByRole("treeitem", { name: /alpha.ts/ }).dblClick();
+    await expect.element(tab("alpha.ts")).toHaveAttribute("aria-selected", "true");
     altKey("KeyW");
-    await expect
-      .element(page.getByRole("tab", { name: "alpha.ts", exact: true }))
-      .not.toBeInTheDocument();
-    await expect
-      .element(page.getByRole("tab", { name: "beta.ts", exact: true }))
-      .toHaveAttribute("aria-selected", "true");
+    await expect.element(tab("alpha.ts")).not.toBeInTheDocument();
+    await expect.element(tab("Changes")).toHaveAttribute("aria-selected", "true");
+    await page.getByRole("treeitem", { name: /alpha.ts/ }).dblClick();
+    await tab("beta.ts").click();
+    await tab("alpha.ts").click();
+    altKey("KeyW");
+    await expect.element(tab("alpha.ts")).not.toBeInTheDocument();
+    await expect.element(tab("beta.ts")).toHaveAttribute("aria-selected", "true");
     const editor = page.getByRole("textbox", {
       name: "Edit src/beta.ts",
       exact: true,
@@ -1271,10 +1277,8 @@ describe("graphical review", () => {
     await expect.element(editor).toBeVisible();
     await expect.poll(() => document.activeElement).toBe(editor.element());
     altKey("KeyW", true);
-    await expect
-      .element(page.getByRole("tab", { name: "beta.ts", exact: true }))
-      .not.toBeInTheDocument();
-    await expect.element(page.getByRole("tab", { name: "Changes", exact: true })).toBeVisible();
+    await expect.element(tab("beta.ts")).not.toBeInTheDocument();
+    await expect.element(tab("Changes")).toHaveAttribute("aria-selected", "true");
   });
   test("each file that Find file opens keeps its tab, a second open shows that tab, and tab keys move along the row", async () => {
     await mountApp();
@@ -2515,6 +2519,15 @@ describe("graphical review", () => {
     await row("src/web/App.tsx").click();
     await userEvent.keyboard("{Enter}");
     await expect.element(tab("App.tsx")).toHaveAttribute("aria-selected", "true");
+    // Closing the file goes back to Commit, and q leaves Commit for the tab
+    // that showed before it, by the same rule.
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "∑", code: "KeyW", altKey: true, bubbles: true }),
+    );
+    await expect.element(tab("App.tsx")).not.toBeInTheDocument();
+    await expect.element(tab("Commit")).toHaveAttribute("aria-selected", "true");
+    await userEvent.keyboard("q");
+    await expect.element(tab("Changes")).toHaveAttribute("aria-selected", "true");
   });
 });
 

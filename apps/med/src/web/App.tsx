@@ -80,7 +80,7 @@ import {
 import { createBrowseApi, useBrowseFiles, useVaults, type BrowseApi } from "./data/browse";
 import { useMentionSources } from "./data/mentions";
 import { isBrowseFile, type FileRead } from "../shared/local-file";
-import { createFileWorkspace, isFileTab, sourceKey, useFileWorkspace } from "./data/file-workspace";
+import { createFileWorkspace, sourceKey, useFileWorkspace } from "./data/file-workspace";
 import { RepositoryFiles } from "./components/RepositoryFiles";
 import { PaneTree, paneHandle, usePaneTree, type PaneSpec } from "./components/PaneTree";
 import type { PaneNode, Side } from "./data/pane-tree";
@@ -1633,8 +1633,20 @@ export function App({
   // The Commit tab also stays mounted once shown, with its message and place.
   const [commitMounted, setCommitMounted] = useState(false);
   if (fileState.active === "commit" && commitApi && !commitMounted) setCommitMounted(true);
-  const commitReturn = useRef("changes");
-  /** q: open the Commit tab, or go back to the tab it came from. */
+  // A closed file gives the screen back only to a tab that the row still shows.
+  useLayoutEffect(
+    () =>
+      fileWorkspace.setAvailable((id) =>
+        id === "guide"
+          ? hasGuide
+          : id === "brief"
+            ? hasNotes
+            : id === "commit"
+              ? !!commitApi
+              : true,
+      ),
+    [fileWorkspace, hasGuide, hasNotes, commitApi],
+  );
   // The tab row in order, for Alt+number and ⌘⇧[ / ⌘⇧]; empty when the row is hidden.
   // Keys read the store at event time, so a quick second key sees the first one's tab.
   const tabRow = useCallback(() => {
@@ -1683,17 +1695,13 @@ export function App({
     },
     [hasGuide, openGuide, guideScope, fileWorkspace, controller],
   );
+  /** q: open the Commit tab, or go back to the tab that showed before it,
+   * by the rule that a closed tab follows. */
   const toggleCommit = useCallback(() => {
-    if (fileState.active !== "commit") {
-      commitReturn.current = fileState.active;
-      fileWorkspace.select("commit");
-      return;
-    }
-    const back = commitReturn.current;
     fileWorkspace.select(
-      !isFileTab(back) || fileState.tabs.some((tab) => tab.id === back) ? back : "changes",
+      fileWorkspace.getSnapshot().active === "commit" ? fileWorkspace.previous() : "commit",
     );
-  }, [fileState.active, fileState.tabs, fileWorkspace]);
+  }, [fileWorkspace]);
   const [pendingBrief, setPendingBrief] = useState<string | null>(null);
   // Undo puts back the brief text that a change replaced; null removes the brief.
   const [toast, setToast] = useState<{
@@ -3607,14 +3615,14 @@ export function App({
       label: "Close all files in this workspace",
       shortcut: "⌥ ⇧ W",
       disabled: !fileState.tabs.length,
-      run: fileWorkspace.closeAll,
+      run: () => fileWorkspace.closeAll(),
     },
     {
       id: "close-others",
       label: "Close other files in this workspace",
       shortcut: "⌥ ⇧ O",
       disabled: !activeFile || fileState.tabs.length < 2,
-      run: fileWorkspace.closeOthers,
+      run: () => fileWorkspace.closeOthers(),
     },
     {
       id: "changes",
@@ -4884,6 +4892,8 @@ export function App({
         changesCount={state.review && !reviewAvailable ? state.files.length : undefined}
         onSelect={selectTab}
         onClose={fileWorkspace.close}
+        onCloseOthers={fileWorkspace.closeOthers}
+        onCloseAll={fileWorkspace.closeAll}
       />
     ) : (
       <header {...paneHandle} {...stylex.props(styles.mainHeader)}>
