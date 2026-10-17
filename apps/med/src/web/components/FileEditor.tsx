@@ -89,6 +89,46 @@ const lineBlameField = StateField.define<DecorationSet>({
   },
   provide: (field) => EditorView.decorations.from(field),
 });
+/** A range that a link cited, such as src/a.ts:8-17: its lines stay marked
+ * until the cursor leaves them or the text changes. */
+const setCited = StateEffect.define<{ from: number; to: number } | null>();
+const cited = StateField.define<{ from: number; to: number; marks: DecorationSet } | null>({
+  create: () => null,
+  update(value, transaction) {
+    for (const effect of transaction.effects)
+      if (effect.is(setCited)) {
+        if (!effect.value) return null;
+        const { doc } = transaction.state;
+        const marks = [];
+        for (
+          let at = doc.lineAt(effect.value.from).number;
+          at <= doc.lineAt(effect.value.to).number;
+          at++
+        )
+          marks.push(Decoration.line({ class: "med-cited-line" }).range(doc.line(at).from));
+        return { ...effect.value, marks: Decoration.set(marks) };
+      }
+    if (!value || transaction.docChanged) return null;
+    const head = transaction.state.selection.main.head;
+    return transaction.selection && (head < value.from || head > value.to) ? null : value;
+  },
+  provide: (field) =>
+    EditorView.decorations.from(field, (value) => value?.marks ?? Decoration.none),
+});
+/** Puts the cursor at a line, in the middle of the view. A cited range, from
+ * `line` to `endLine`, stays marked. */
+function reveal(editor: EditorView, line: number, endLine?: number) {
+  const { doc } = editor.state;
+  const first = doc.line(Math.max(1, Math.min(line, doc.lines)));
+  const last = doc.line(Math.max(first.number, Math.min(endLine ?? line, doc.lines)));
+  editor.dispatch({
+    selection: { anchor: first.from },
+    effects: [
+      EditorView.scrollIntoView(first.from, { y: "center" }),
+      setCited.of(endLine ? { from: first.from, to: last.to } : null),
+    ],
+  });
+}
 const setColors = StateEffect.define<DecorationSet>();
 const colors = StateField.define<DecorationSet>({
   create: () => Decoration.none,
@@ -412,6 +452,7 @@ export default function FileEditor({
       vim(),
       history(),
       colors,
+      cited,
       lineBlameField,
       gutter({
         class: "med-editor-attribution",
@@ -482,6 +523,11 @@ export default function FileEditor({
           // The selection layer sits beneath text. An opaque active row would
           // hide it, so the theme's line color is made translucent.
           ".cm-activeLine": { backgroundColor: code.lineHighlight },
+          // The lines that a link cited, as a diff marks selected lines.
+          ".med-cited-line": {
+            backgroundColor: `color-mix(in srgb, ${active.palette.accent} 11%, transparent)`,
+            boxShadow: `inset 2px 0 ${active.palette.accent}`,
+          },
           ".cm-activeLineGutter": { backgroundColor: "transparent", color: active.palette.text },
           ".cm-cursor, .cm-dropCursor": { borderLeftColor: active.palette.text },
           // The base theme's focused rule is this specific, as in One Dark.
@@ -573,7 +619,12 @@ export default function FileEditor({
       }
       setMode(event.mode.toUpperCase());
     });
-    if (draft.line) {
+    const { line: wanted, endLine, revealed } = latest.current.context;
+    if (wanted && revealed !== undefined && revealed !== draft.revealed) {
+      // An open at a line goes there, also in a draft that was open before.
+      reveal(editor, wanted, endLine);
+      drafts.update(draft, { line: undefined, revealed });
+    } else if (draft.line) {
       const line = editor.state.doc.line(Math.max(1, Math.min(draft.line, editor.state.doc.lines)));
       const position = Math.min(line.to, line.from + Math.max(0, (draft.column ?? 1) - 1));
       editor.dispatch({
@@ -661,6 +712,15 @@ export default function FileEditor({
       editor.destroy();
     };
   }, [draft, drafts, active]);
+  // Another open at a line, such as a second link to this file, goes there.
+  const { line: revealLine, endLine: revealEnd, revealed } = context;
+  useLayoutEffect(() => {
+    const editor = view.current;
+    if (!editor || !revealLine || revealed === undefined || revealed === draft.revealed) return;
+    reveal(editor, revealLine, revealEnd);
+    drafts.update(draft, { revealed });
+    editor.focus();
+  }, [draft, drafts, revealLine, revealEnd, revealed]);
 
   return (
     <section

@@ -15,6 +15,10 @@ export interface OpenFileTab {
   sourceLabel: string;
   line?: number;
   column?: number;
+  /** The last line of a cited range that starts at `line`, such as src/a.ts:8-17. */
+  endLine?: number;
+  /** Names each open at a line, so a second open of the same line goes there again. */
+  revealed?: number;
 }
 interface Workspace {
   tabs: OpenFileTab[];
@@ -53,6 +57,8 @@ function readSourceKey(file: FileRead) {
 /** A file's path as its tab names it: in its vault, or in its repository. */
 const readPath = (file: FileRead) => ("vault" in file && file.vault ? file.vault.path : file.path);
 
+/** Each open at a line gets a new number, which an editor applies once. */
+let reveals = 0;
 const STORAGE = "med:files:v1:";
 const STORAGE_INDEX = "med:files:v1";
 /** Workspaces whose open files outlast the window, most recent last. */
@@ -160,7 +166,9 @@ export function createFileWorkspace(api: BrowseApi, { persist = false } = {}) {
       if (persist) {
         const key = snapshot.key;
         const navigation = {
-          tabs: snapshot.tabs.map(({ line: _line, column: _column, ...tab }) => tab),
+          tabs: snapshot.tabs.map(
+            ({ line: _line, column: _column, endLine: _end, revealed: _revealed, ...tab }) => tab,
+          ),
           active: snapshot.active,
           recentPaths: snapshot.recentPaths,
         };
@@ -250,7 +258,7 @@ export function createFileWorkspace(api: BrowseApi, { persist = false } = {}) {
     },
     open(
       path: string,
-      options: boolean | { pinned?: boolean; background?: boolean } = false,
+      options: boolean | { pinned?: boolean; background?: boolean; endLine?: number } = false,
       line?: number,
       source: TabSource | null = snapshot.source,
       label = snapshot.sourceLabel,
@@ -259,13 +267,18 @@ export function createFileWorkspace(api: BrowseApi, { persist = false } = {}) {
       if (!source || disposed) return;
       const background = typeof options === "object" && options.background === true;
       const pinned = background || (typeof options === "boolean" ? options : !!options.pinned);
+      const endLine = typeof options === "object" && line ? options.endLine : undefined;
       const id = `${sourceKey(source)}:${path}`;
       const existing = snapshot.tabs.find((tab) => tab.id === id);
       let tabs: OpenFileTab[];
       if (existing)
         tabs = snapshot.tabs.map((tab) =>
           tab.id === id
-            ? { ...tab, pinned: tab.pinned || pinned, ...(line ? { line, column } : {}) }
+            ? {
+                ...tab,
+                pinned: tab.pinned || pinned,
+                ...(line ? { line, column, endLine, revealed: ++reveals } : {}),
+              }
             : tab,
         );
       else {
@@ -280,7 +293,7 @@ export function createFileWorkspace(api: BrowseApi, { persist = false } = {}) {
           pinned,
           source,
           sourceLabel: label,
-          ...(line ? { line, column } : {}),
+          ...(line ? { line, column, ...(endLine ? { endLine } : {}), revealed: ++reveals } : {}),
         });
       }
       publish({

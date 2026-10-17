@@ -1,13 +1,11 @@
 import type { FileDiffMetadata } from "@pierre/diffs";
 import { parseReviewPatch, type ParsedReviewFile } from "../../shared/review";
 import type { MarkdownBlock } from "../markdown/model";
+import { lineTarget as lines, parseBriefHref, parseCodeTarget, type FileTarget } from "./file-refs";
 
+export { parseBriefHref, parseCodeTarget };
 /** A file reference in a brief: a path and an optional line range. */
-export interface BriefTarget {
-  path: string;
-  line?: number;
-  endLine?: number;
-}
+export type BriefTarget = FileTarget;
 export interface ExcerptRange {
   side: "old" | "new";
   start: number;
@@ -26,60 +24,6 @@ export interface AnnotatedBrief {
 }
 
 const MAX_EXCERPTS = 40;
-
-function lines(path: string, line?: string, end?: string): BriefTarget {
-  const start = line ? Number(line) : undefined;
-  const last = end ? Number(end) : undefined;
-  return {
-    path,
-    ...(start ? { line: start } : {}),
-    ...(start && last && last > start ? { endLine: last } : {}),
-  };
-}
-
-/** Read a path and lines from `path:12`, `path:12-20`, `path:12:4`, or `path#L12-L20`. */
-function splitLines(value: string): BriefTarget | null {
-  let path = value.split("?")[0]!;
-  const hash = path.indexOf("#");
-  if (hash >= 0) {
-    const fragment = path.slice(hash + 1);
-    path = path.slice(0, hash);
-    const github = /^L(\d+)(?:C\d+)?(?:-L?(\d+)(?:C\d+)?)?$/i.exec(fragment);
-    if (github) return path ? lines(path, github[1], github[2]) : null;
-  }
-  const suffix = /:(\d+)(?:[-–](\d+)|:\d+)?$/.exec(path);
-  if (suffix) return lines(path.slice(0, suffix.index), suffix[1], suffix[2]);
-  return path ? { path } : null;
-}
-
-/** Read a link target. Accepts relative and absolute paths, file and editor
- * URLs, and GitHub blob links. Other web links are not file references. */
-export function parseBriefHref(raw: string): BriefTarget | null {
-  let href = raw.trim();
-  if (!href || href.startsWith("#") || /^mailto:/i.test(href)) return null;
-  try {
-    href = decodeURI(href);
-  } catch {
-    return null;
-  }
-  const github = /^https?:\/\/github\.com\/[^/]+\/[^/]+\/(?:blob|tree)\/[^/]+\/(.+)$/i.exec(href);
-  if (github) return splitLines(github[1]!);
-  if (/^https?:/i.test(href)) return null;
-  // file:///path and editor links such as vscode://file/path:12.
-  href = href.replace(/^file:\/\//i, "").replace(/^[a-z][\w+.-]*:\/\/file(?=\/)/i, "");
-  if (/^[a-z][\w+.-]*:\/\//i.test(href)) return null;
-  return splitLines(href);
-}
-
-/** Inline code names a file only when it looks like a path or file name. */
-export function parseCodeTarget(text: string): BriefTarget | null {
-  const value = text.trim();
-  if (!value || value.length > 300 || /\s/.test(value)) return null;
-  const target = splitLines(value);
-  if (!target || !(target.path.includes("/") || /\.[a-z][\w]{0,9}$/i.test(target.path)))
-    return null;
-  return target;
-}
 
 function normalize(path: string) {
   return path

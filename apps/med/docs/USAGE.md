@@ -306,7 +306,15 @@ background shells and agents. It follows the session live.
   and **Show less** folds it again.
 - A prompt's images are square thumbnails. Click one to see it at full size,
   and use `←` and `→` for the others.
-- Links in a reply open files in Med. A web link shows as a pill with its
+- A reply, a prompt, or a Question answer that names a file of the thread's
+  checkout shows it as a link with the file's name and lines, such as
+  **filters.ts L8–17**. Med finds Markdown links, `file://` links, and paths in
+  inline code or in a prompt: `src/a.ts:10`, `src/a.ts:10-20`, `a.ts#L12`, or an
+  absolute path inside the checkout. Hover a link to see its path. Click it to
+  open the file as a tab, at its first line, with its lines marked; `⌘`-click
+  opens the tab behind the current one. Text that names no file of the
+  checkout stays as it is.
+- A web link shows as a pill with its
   site's icon. Med holds the icons of common developer sites, and of servers
   that a company runs itself, such as GitHub or Sourcegraph; other sites show a
   globe. Med fetches no icons.

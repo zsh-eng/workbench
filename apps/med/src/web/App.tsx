@@ -166,6 +166,8 @@ import type { ComposerAttachment } from "./components/session/SessionComposer";
 import type { SessionPins, SessionStarter } from "./components/session/SessionPanel";
 import { useAgentPresets } from "./data/owned-session";
 import { useFoundCommands } from "./data/found-threads";
+import { createFileIndex } from "./data/file-refs";
+import type { FileRefs } from "./components/FileRefs";
 
 // The brief loads its Markdown worker and excerpt renderer only when shown.
 const BriefView = lazy(() => import("./components/BriefView"));
@@ -661,6 +663,38 @@ export function App({
   const otherThreads = useCallback(
     () => readThreads().filter((thread) => thread.id !== ownThread),
     [readThreads, ownThread],
+  );
+  // File references in the session link to the checkout's files, which the
+  // workspace lists anyway; they open at their lines.
+  const fileIndex = useMemo(
+    () =>
+      browseSource && repositoryFiles.entries.length
+        ? createFileIndex(browseSource.repo, repositoryFiles.entries, !repositoryFiles.truncated)
+        : null,
+    [browseSource, repositoryFiles.entries, repositoryFiles.truncated],
+  );
+  // A file that a side pane opens shows in the review, also from a zoomed pane.
+  const { show: revealPane } = panes;
+  const fileRefs = useMemo<FileRefs>(
+    () => ({
+      index: fileIndex,
+      open: (ref, background) => {
+        fileWorkspace.open(
+          ref.path,
+          { pinned: true, background, endLine: ref.endLine ?? ref.line },
+          ref.line,
+        );
+        if (!background) revealPane("review");
+      },
+    }),
+    [fileIndex, fileWorkspace, revealPane],
+  );
+  const openFromPane = useCallback(
+    (path: string, line?: number) => {
+      fileWorkspace.open(path, true, line);
+      revealPane("review");
+    },
+    [fileWorkspace, revealPane],
   );
   const checkoutFiles = useMemo(
     () =>
@@ -4970,7 +5004,8 @@ export function App({
                     onRemoveAttachment={(id) =>
                       setAgentAttachments((list) => list.filter((entry) => entry.id !== id))
                     }
-                    onOpenPath={(path, line) => fileWorkspace.open(path, true, line)}
+                    onOpenPath={openFromPane}
+                    fileRefs={fileRefs}
                     onClose={() => closePane("session")}
                     pins={sessionPins}
                     controls={controls}
@@ -5004,7 +5039,8 @@ export function App({
                   root={state.review?.repo}
                   fetcher={sessionFetch}
                   controls={controls}
-                  onOpenPath={(path, line) => fileWorkspace.open(path, true, line)}
+                  onOpenPath={openFromPane}
+                  fileRefs={fileRefs}
                   onClose={() => closePane("session")}
                   openAgent={openAgent}
                 />
@@ -5061,7 +5097,8 @@ export function App({
                   onStop={() => void question.stop()}
                   onKeep={keepQuestion}
                   root={state.review?.repo}
-                  onOpenPath={(path, line) => fileWorkspace.open(path, true, line)}
+                  onOpenPath={openFromPane}
+                  fileRefs={fileRefs}
                 />
               </Suspense>
             ),
@@ -5674,6 +5711,8 @@ export function App({
                 sourceLabel={activeFile.sourceLabel}
                 line={activeFile.line}
                 column={activeFile.column}
+                endLine={activeFile.endLine}
+                revealed={activeFile.revealed}
                 vimEnabled={vimEnabled}
                 onNavigationReady={onNavigationReady}
                 onSelectionReaderReady={onSelectionReaderReady}

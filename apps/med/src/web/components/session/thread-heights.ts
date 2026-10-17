@@ -6,6 +6,7 @@ import {
   type PreparedRichInline,
   type RichInlineItem,
 } from "@chenglou/pretext/rich-inline";
+import { refEstimate, textEstimate } from "../../data/file-refs";
 import type { SessionItem } from "../../data/session-store";
 import { thumbsHeight } from "./ImageThumbs";
 import { promptBlocks } from "./prompt-blocks";
@@ -279,7 +280,8 @@ function runs(source: string): Run[] {
   for (const match of source.matchAll(INLINE)) {
     push(source.slice(last, match.index), "text");
     last = match.index + match[0].length;
-    if (match[1]) push(match[2]!.trim() || match[2]!, "code");
+    // A path is a link that shows the file's name (FileRefs.tsx).
+    if (match[1]) push(refEstimate(match[2]!.trim()) ?? (match[2]!.trim() || match[2]!), "code");
     else if (match[3] ?? match[4]) push((match[3] ?? match[4])!.replace(/`/g, ""), "bold");
     else if (match[5] ?? match[6]) push((match[5] ?? match[6])!.replace(/`/g, ""), "italic");
     // A web link is a pill with its site's icon; an image keeps its alt text.
@@ -714,7 +716,7 @@ function userHeight(
     const width = part.quote ? m.user.quoteWidth : m.user.width;
     text +=
       (index || images ? m.user.gap : 0) +
-      lineCount(item, part.text, m.user.text, width, true) * m.user.text.lineHeight;
+      lineCount(item, textEstimate(part.text), m.user.text, width, true) * m.user.text.lineHeight;
   });
   const height = m.user.chrome + thumbs + promptText(text, m.user.text.lineHeight, open);
   return height + (item.queued || item.sent ? 19 : 0);

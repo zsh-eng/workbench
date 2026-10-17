@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { foundSessionThread, keepFoundThread } from "../../data/found-threads";
 import { resumeCommand, type WorkspaceSession } from "../../data/workspaces";
 import { tokens, ui } from "../../theme.stylex";
+import type { FileRefs } from "../FileRefs";
 import { Icon } from "../Icon";
 import { tooltip } from "../ToolButton";
 import { useShell, useThread, useWorkspace, useWorkspaceEntry } from "../Workspaces";
@@ -22,6 +23,7 @@ export function FoundSessionPane({
   fetcher,
   controls,
   onOpenPath,
+  fileRefs,
   onClose,
   openAgent,
 }: {
@@ -33,6 +35,7 @@ export function FoundSessionPane({
   fetcher?: typeof fetch;
   controls?: ReactNode;
   onOpenPath(path: string, line?: number): void;
+  fileRefs?: FileRefs;
   onClose(): void;
 }) {
   const workspace = useWorkspace();
@@ -61,6 +64,7 @@ export function FoundSessionPane({
       fetcher={fetcher}
       controls={controls}
       onOpenPath={onOpenPath}
+      {...(fileRefs && { fileRefs })}
       onClose={onClose}
       {...(openAgent && { openAgent })}
       footer={

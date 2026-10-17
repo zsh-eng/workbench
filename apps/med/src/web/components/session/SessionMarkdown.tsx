@@ -2,7 +2,9 @@ import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { renderBrief, renderedBrief } from "../../markdown/brief-render";
 import type { MarkdownResult } from "../../markdown/model";
 import { useTheme } from "../../themes";
+import { fileRefOf } from "../../data/file-refs";
 import { DiagramBlock } from "../DiagramBlock";
+import { useFileRefBlocks, useFileRefs } from "../FileRefs";
 import "../MarkdownPreview.css";
 
 /**
@@ -30,10 +32,15 @@ export const SessionMarkdown = memo(function SessionMarkdown({
   const latest = useRef({ text, theme: theme.pierreTheme, streaming });
   const pump = useRef({ running: false, mounted: true });
   const open = useRef(onOpenLink);
+  // Paths that name a file of the thread's checkout are links to it.
+  const refs = useFileRefs();
+  const fileRefs = useRef(refs);
+  const blocks = useFileRefBlocks(result?.blocks);
 
   useLayoutEffect(() => {
     latest.current = { text, theme: theme.pierreTheme, streaming };
     open.current = onOpenLink;
+    fileRefs.current = refs;
   });
 
   useEffect(() => {
@@ -69,6 +76,12 @@ export const SessionMarkdown = memo(function SessionMarkdown({
     const node = host.current;
     if (!node) return;
     const follow = (event: MouseEvent) => {
+      const file = fileRefOf(event.target as Element);
+      if (file) {
+        event.preventDefault();
+        fileRefs.current?.open(file, event.metaKey || event.ctrlKey);
+        return;
+      }
       const link = (event.target as Element).closest<HTMLElement>("a[data-brief-href]");
       const href = link?.dataset.briefHref;
       if (!href || /^https?:/i.test(href)) return;
@@ -81,8 +94,8 @@ export const SessionMarkdown = memo(function SessionMarkdown({
 
   return (
     <div ref={host} className="med-md-prose med-session-prose">
-      {result ? (
-        result.blocks.map((block, index) =>
+      {blocks ? (
+        blocks.map((block, index) =>
           block.diagram !== undefined ? (
             <DiagramBlock key={index} block={block} dark={theme.appearance === "dark"} />
           ) : (
