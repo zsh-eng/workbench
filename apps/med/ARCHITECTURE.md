@@ -485,7 +485,10 @@ live comparison that the reader chose, so Changes come back as they were.
 
 A bundle can hold a Markdown brief and pinned notes. `src/web/data/brief.ts`
 resolves each link to a changed file and line range (exact path, then a unique
-path suffix) and shows the cited range as an excerpt. A bundle with a pull
+path suffix) and shows the cited range as an excerpt. A reference to a file that
+the change does not touch resolves against the checkout's file list
+(`data/file-refs.ts`, the index that session links use); its excerpt reads the
+file from the checkout when it scrolls near. A bundle with a pull
 request URL can show GitHub comments: `GET /api/reviews/:id/pull-request` runs
 `gh api` with GET requests only and keeps the result for 30 seconds. Med never
 writes to GitHub. Thread lines refer to the pull request's head commit, so

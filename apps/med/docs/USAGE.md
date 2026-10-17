@@ -436,7 +436,10 @@ lines that it cites. The **Notes** tab comes after **Review** and before
 
 A link can be `path`, `path:12`, `path:12-20`, `path#L12-L20`, an absolute
 path, an editor link, or a GitHub blob URL. A unique suffix such as
-`App.tsx:42` works.
+`App.tsx:42` works. A link or a path in inline code to a file that the change
+does not touch opens that file of the checkout as a tab, at its lines. Its
+excerpt shows the cited lines from the checkout, marked **Not in the change**.
+An absolute path inside the checkout shows as the path in the checkout.
 
 ## Pull requests
 

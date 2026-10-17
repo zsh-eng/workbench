@@ -689,6 +689,16 @@ export function App({
     }),
     [fileIndex, fileWorkspace, revealPane],
   );
+  // Notes show the cited lines of files that the change does not touch.
+  const readCheckoutFile = useCallback(
+    async (path: string) => {
+      if (!browseSource) throw new Error("No checkout");
+      const file = await browseApi.read(browseSource, path);
+      if (file.kind !== "text" || file.text === undefined) throw new Error(`${path} is not text`);
+      return file.text;
+    },
+    [browseApi, browseSource],
+  );
   const openFromPane = useCallback(
     (path: string, line?: number) => {
       fileWorkspace.open(path, true, line);
@@ -5653,6 +5663,8 @@ export function App({
                     loadSource={controller.loadSources}
                     onOpen={openBriefLocation}
                     onOpenPath={(path, line) => fileWorkspace.open(path, true, line)}
+                    fileRefs={fileRefs}
+                    readFile={readCheckoutFile}
                     onPaste={pasteBrief}
                     onCopy={copyNotes}
                     onRemove={removeBrief}

@@ -3827,7 +3827,7 @@ describe("agent session", () => {
           messageId: "r1",
           content: {
             type: "text",
-            text: "The old name clashed in [alpha.ts:1](src/alpha.ts:1).",
+            text: "The old name clashed in [alpha.ts:1](src/alpha.ts:1). The guide asks for it in `/test/repo/docs/GUIDE.md:3`.",
           },
         },
       },
@@ -3851,6 +3851,20 @@ describe("agent session", () => {
     await expect.element(pinned.getByText(/The old name clashed in/)).toBeVisible();
     // The pinned reply cites its own lines, as the brief does.
     await expect.element(pinned.getByRole("button", { name: /Open src\/alpha\.ts/ })).toBeVisible();
+    // A file that the change does not touch links to the checkout's copy, and its
+    // lines show from the checkout, with the path in the checkout.
+    const guide = pinned.getByRole("link", { name: "docs/GUIDE.md:3" });
+    await expect.element(guide).toHaveAttribute("title", "docs/GUIDE.md:3 · Open file");
+    const excerpt = pinned.getByRole("figure").filter({ hasText: "Not in the change" });
+    await expect
+      .element(excerpt.getByRole("button", { name: "Open docs/GUIDE.md L3" }))
+      .toBeVisible();
+    await expect
+      .poll(() => excerpt.element().querySelector("diffs-container")?.shadowRoot?.textContent ?? "")
+      .toContain("Read the review in order.");
+    await guide.click();
+    await expect.element(page.getByRole("tab", { name: "GUIDE.md", exact: true })).toBeVisible();
+    await page.getByRole("tab", { name: "Notes" }).click();
     await expect.element(panel.getByRole("button", { name: "Pinned" })).toBeVisible();
 
     await pinned.getByRole("button", { name: "Note 2 options" }).click();

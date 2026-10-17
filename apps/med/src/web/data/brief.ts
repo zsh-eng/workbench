@@ -1,7 +1,13 @@
 import type { FileDiffMetadata } from "@pierre/diffs";
 import { parseReviewPatch, type ParsedReviewFile } from "../../shared/review";
 import type { MarkdownBlock } from "../markdown/model";
-import { lineTarget as lines, parseBriefHref, parseCodeTarget, type FileTarget } from "./file-refs";
+import {
+  lineTarget as lines,
+  parseBriefHref,
+  parseCodeTarget,
+  type FileIndex,
+  type FileTarget,
+} from "./file-refs";
 
 export { parseBriefHref, parseCodeTarget };
 /** A file reference in a brief: a path and an optional line range. */
@@ -15,6 +21,8 @@ export interface BriefExcerpt {
   key: string;
   fileId: string;
   range: ExcerptRange;
+  /** A file that the change does not touch: `fileId` is its path in the checkout. */
+  checkout?: boolean;
 }
 export interface AnnotatedBrief {
   blocks: MarkdownBlock[];
@@ -101,7 +109,9 @@ export function patchRows(metadata: FileDiffMetadata): Row[] {
   return rows;
 }
 
-function toPatch(metadata: FileDiffMetadata, rows: Row[]) {
+/** What a patch needs of a file: its names and how it changed. */
+type PatchFile = Pick<FileDiffMetadata, "name" | "prevName" | "type">;
+function toPatch(metadata: PatchFile, rows: Row[]) {
   const before = metadata.prevName ?? metadata.name;
   const groups: Row[][] = [];
   for (const row of rows) {
@@ -138,7 +148,7 @@ export interface Excerpt {
   /** Line numbers shown on each side, for notes on those lines. */
   lines: { old: number[]; new: number[] };
 }
-function excerptFrom(metadata: FileDiffMetadata, rows: Row[], hidden: number): Excerpt | null {
+function excerptFrom(metadata: PatchFile, rows: Row[], hidden: number): Excerpt | null {
   const parsed = parseReviewPatch(toPatch(metadata, rows))[0];
   if (!parsed) return null;
   return {
@@ -223,6 +233,29 @@ export function sourceExcerpt(
   return excerptFrom(file.metadata, rows, Math.max(0, to - from + 1 - rows.length));
 }
 
+/** Cited lines of a file that the change does not touch, read from the
+ * checkout. Both sides have the same line numbers. */
+export function checkoutExcerpt(
+  path: string,
+  range: ExcerptRange,
+  text: string,
+  { context = 2, maxRows = 20 } = {},
+): Excerpt | null {
+  const source = text.split("\n");
+  if (source.at(-1) === "") source.pop();
+  const from = Math.max(1, range.start - context);
+  const to = Math.min(source.length, range.end + context);
+  if (from > to) return null;
+  const rows: Row[] = [];
+  for (let line = from; line <= to && rows.length < maxRows; line++)
+    rows.push({ kind: " ", text: source[line - 1] ?? "", old: line, new: line, hunk: 0 });
+  return excerptFrom(
+    { name: path, type: "change" },
+    rows,
+    Math.max(0, to - from + 1 - rows.length),
+  );
+}
+
 // `:203` or `L203` after a file reference cites more lines of that file.
 const continuation = /^(?::|L)(\d+)(?:[-–](?::|L)?(\d+))?$/;
 
@@ -251,12 +284,15 @@ export function joinNotes(texts: readonly string[]): { text: string; starts: num
 
 /** Mark resolved references in rendered Markdown and place excerpt slots after
  * the paragraph or list item that first cites each range. With `starts`, the
- * lines where later notes begin, each note shows its own excerpts. */
+ * lines where later notes begin, each note shows its own excerpts. With
+ * `index`, the checkout's files, a reference to a file that the change does
+ * not touch links to that file, and its lines show from the checkout. */
 export function annotateBrief(
   blocks: MarkdownBlock[],
   files: ParsedReviewFile[],
   root?: string,
   starts: readonly number[] = [],
+  index?: FileIndex | null,
 ): AnnotatedBrief {
   const excerpts: BriefExcerpt[] = [];
   const placed = new Set<string>();
@@ -272,61 +308,8 @@ export function annotateBrief(
     const template = document.createElement("template");
     template.innerHTML = block.html;
     const lastSlot = new Map<Element, Element>();
-    let previous: ParsedReviewFile | undefined;
-    for (const node of template.content.querySelectorAll<HTMLElement>("a[data-brief-href], code")) {
-      const isCode = node.tagName === "CODE";
-      if (isCode && node.closest("pre, a")) continue;
-      let target: BriefTarget | null;
-      const text = node.textContent ?? "";
-      const more = isCode ? continuation.exec(text.trim()) : null;
-      if (more && previous) target = lines(previous.path, more[1], more[2]);
-      else target = isCode ? parseCodeTarget(text) : parseBriefHref(node.dataset.briefHref ?? "");
-      const file = target && matchReviewFile(target, files, root);
-      if (!file || !target) {
-        if (isCode || /^https?:/i.test(node.dataset.briefHref ?? "")) continue;
-        if (target && !target.path.startsWith("/")) {
-          // A relative path outside the changed files opens the current file.
-          node.dataset.briefPath = normalize(target.path);
-          if (target.line) node.dataset.briefLine = String(target.line);
-          node.setAttribute("href", "#");
-          node.title = `${node.dataset.briefPath} · Open file`;
-        } else {
-          node.removeAttribute("href");
-          node.title = "This link is not part of the review.";
-        }
-        continue;
-      }
-      previous = file;
-      if (!cited.includes(file.id)) cited.push(file.id);
-      const range: ExcerptRange | undefined = target.line
-        ? {
-            side: file.metadata?.type === "deleted" ? "old" : "new",
-            start: target.line,
-            end: target.endLine ?? target.line,
-          }
-        : undefined;
-      const key =
-        (section ? `${section}/` : "") +
-        (range ? `${file.id}:${range.side}:${range.start}-${range.end}` : file.id);
-      let link = node;
-      if (isCode) {
-        link = document.createElement("a");
-        node.replaceWith(link);
-        link.append(node);
-      }
-      link.setAttribute("href", "#");
-      link.className = "med-brief-ref";
-      link.dataset.briefRef = key;
-      link.dataset.briefFile = file.id;
-      if (range) {
-        link.dataset.briefSide = range.side;
-        link.dataset.briefStart = String(range.start);
-        link.dataset.briefEnd = String(range.end);
-      }
-      link.title = `${file.path}${range ? `:${range.start}${range.end > range.start ? `–${range.end}` : ""}` : ""} · Open in Changes`;
-      if (!range || placed.has(key) || excerpts.length >= MAX_EXCERPTS) continue;
-      placed.add(key);
-      excerpts.push({ key, fileId: file.id, range });
+    /** Puts the excerpt's slot after the paragraph or list item of its link. */
+    const place = (link: Element, key: string) => {
       const slot = document.createElement("div");
       slot.dataset.briefSlot = key;
       const item = link.closest("li");
@@ -342,6 +325,103 @@ export function annotateBrief(
       } else if (container) container.after(slot);
       else template.content.append(slot);
       if (container) lastSlot.set(container, slot);
+    };
+    // The last file that a reference named, for `:203` after it.
+    let previous: string | undefined;
+    for (const node of template.content.querySelectorAll<HTMLElement>("a[data-brief-href], code")) {
+      const isCode = node.tagName === "CODE";
+      if (isCode && node.closest("pre, a")) continue;
+      let target: BriefTarget | null;
+      const text = node.textContent ?? "";
+      const more = isCode ? continuation.exec(text.trim()) : null;
+      if (more && previous) target = lines(previous, more[1], more[2]);
+      else target = isCode ? parseCodeTarget(text) : parseBriefHref(node.dataset.briefHref ?? "");
+      const file = target && matchReviewFile(target, files, root);
+      // A file that the change does not touch links to the checkout's copy.
+      const kept = !file && target ? index?.resolve(target) : null;
+      if (target && kept) {
+        previous = kept.path;
+        const range: ExcerptRange | undefined = target.line
+          ? { side: "new", start: target.line, end: target.endLine ?? target.line }
+          : undefined;
+        const key =
+          (section ? `${section}/` : "") +
+          `checkout:${kept.path}${range ? `:${range.start}-${range.end}` : ""}`;
+        const label = `${kept.path}${range ? `:${range.start}${range.end > range.start ? `–${range.end}` : ""}` : ""}`;
+        // An absolute path reads as the path in the checkout.
+        if (isCode && !more && /^(?:\/|file:)/i.test(text.trim()))
+          node.textContent = label.replace("–", "-");
+        const link = isCode ? document.createElement("a") : node;
+        if (isCode) {
+          node.replaceWith(link);
+          link.append(node);
+        }
+        link.setAttribute("href", "#");
+        link.className = "med-brief-ref";
+        link.dataset.briefRef = key;
+        link.dataset.filePath = kept.path;
+        if (range) {
+          link.dataset.fileLine = String(range.start);
+          link.dataset.fileEnd = String(range.end);
+        }
+        link.title = `${label} · Open file`;
+        if (range && !placed.has(key) && excerpts.length < MAX_EXCERPTS) {
+          placed.add(key);
+          excerpts.push({ key, fileId: kept.path, range, checkout: true });
+          place(link, key);
+        }
+        continue;
+      }
+      if (!file || !target) {
+        if (isCode || /^https?:/i.test(node.dataset.briefHref ?? "")) continue;
+        if (target && !target.path.startsWith("/")) {
+          // A relative path outside the changed files opens the current file.
+          node.dataset.briefPath = normalize(target.path);
+          if (target.line) node.dataset.briefLine = String(target.line);
+          node.setAttribute("href", "#");
+          node.title = `${node.dataset.briefPath} · Open file`;
+        } else {
+          node.removeAttribute("href");
+          node.title = "This link is not part of the review.";
+        }
+        continue;
+      }
+      previous = file.path;
+      if (!cited.includes(file.id)) cited.push(file.id);
+      const range: ExcerptRange | undefined = target.line
+        ? {
+            side: file.metadata?.type === "deleted" ? "old" : "new",
+            start: target.line,
+            end: target.endLine ?? target.line,
+          }
+        : undefined;
+      const key =
+        (section ? `${section}/` : "") +
+        (range ? `${file.id}:${range.side}:${range.start}-${range.end}` : file.id);
+      const label = `${file.path}${range ? `:${range.start}${range.end > range.start ? `–${range.end}` : ""}` : ""}`;
+      // An absolute path reads as the path in the review.
+      if (isCode && !more && /^(?:\/|file:)/i.test(text.trim()))
+        node.textContent = label.replace("–", "-");
+      let link = node;
+      if (isCode) {
+        link = document.createElement("a");
+        node.replaceWith(link);
+        link.append(node);
+      }
+      link.setAttribute("href", "#");
+      link.className = "med-brief-ref";
+      link.dataset.briefRef = key;
+      link.dataset.briefFile = file.id;
+      if (range) {
+        link.dataset.briefSide = range.side;
+        link.dataset.briefStart = String(range.start);
+        link.dataset.briefEnd = String(range.end);
+      }
+      link.title = `${label} · Open in Changes`;
+      if (!range || placed.has(key) || excerpts.length >= MAX_EXCERPTS) continue;
+      placed.add(key);
+      excerpts.push({ key, fileId: file.id, range });
+      place(link, key);
     }
     return { ...block, html: template.innerHTML };
   });
