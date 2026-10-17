@@ -33,6 +33,9 @@ interface Workspace {
   searchCase?: boolean;
 }
 interface FileWorkspaceSnapshot extends Workspace {
+  /** The Search tab's label: its query, which follows typing when typing
+   * pauses, so the tab row does not move with each key. */
+  searchLabel?: string;
   key: string;
   source: BrowseSource | null;
   sourceLabel: string;
@@ -138,6 +141,8 @@ function writeStored(key: string, workspace: Workspace) {
 export const TAB_LIMIT = 24;
 /** Tabs in the recent order: every file tab and every other tab, with room to spare. */
 const RECENT = 40;
+/** Typing pauses this long before the Search tab's label shows the new query. */
+export const SEARCH_LABEL_PAUSE_MS = 600;
 
 /** Retain navigation per workspace, but retain bytes only for the active file.
  * With `persist`, each workspace's open files and tab outlast the window, so a
@@ -186,10 +191,17 @@ export function createFileWorkspace(
   let generation = 0;
   let staleCheck: AbortController | undefined;
   let disposed = false;
-  const publish = (change: Partial<FileWorkspaceSnapshot>) => {
+  let labelTimer: ReturnType<typeof setTimeout> | undefined;
+  /** `typed`: the reader typed the Search tab's query, which its label
+   * follows when typing pauses; any other change of the query shows at once. */
+  const publish = (change: Partial<FileWorkspaceSnapshot>, typed = false) => {
     if (disposed) return;
     const before = snapshot;
     snapshot = { ...snapshot, ...change };
+    if (!typed && snapshot.search !== before.search) {
+      clearTimeout(labelTimer);
+      snapshot.searchLabel = snapshot.search;
+    }
     // The tab on screen leads the recent order, and closed files leave it.
     if (
       snapshot.active !== before.active ||
@@ -437,8 +449,13 @@ export function createFileWorkspace(
     },
     /** The Search tab's query, as the reader types it. */
     setSearch(query: string) {
-      if (snapshot.search !== undefined && snapshot.search !== query)
-        publish({ search: query.slice(0, 256) });
+      if (snapshot.search === undefined || snapshot.search === query) return;
+      publish({ search: query.slice(0, 256) }, true);
+      clearTimeout(labelTimer);
+      labelTimer = setTimeout(
+        () => publish({ searchLabel: snapshot.search }),
+        SEARCH_LABEL_PAUSE_MS,
+      );
     },
     /** Whether the workspace's search matches case. */
     setSearchCase(matchCase: boolean) {
@@ -521,6 +538,7 @@ export function createFileWorkspace(
     refresh: load,
     dispose() {
       flush();
+      clearTimeout(labelTimer);
       globalThis.removeEventListener?.("pagehide", flush);
       disposed = true;
       cancel();

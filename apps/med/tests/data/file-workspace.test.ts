@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import {
   createFileWorkspace,
+  SEARCH_LABEL_PAUSE_MS,
   TAB_LIMIT,
   type OpenFileTab,
 } from "../../src/web/data/file-workspace";
@@ -172,6 +173,38 @@ describe("file workspace", () => {
     workspace.openSearch();
     expect(workspace.getSnapshot()).toMatchObject({ search: "", searchCase: true });
     workspace.dispose();
+  });
+  test("the Search tab's label follows typing when typing pauses, and other changes at once", () => {
+    vi.useFakeTimers();
+    try {
+      const { workspace } = fixture();
+      workspace.configure("first", A, "First");
+      workspace.openSearch("n");
+      expect(workspace.getSnapshot().searchLabel).toBe("n");
+      // Typing: the label holds until the keys pause.
+      for (const query of ["ne", "nee", "need"]) {
+        workspace.setSearch(query);
+        vi.advanceTimersByTime(SEARCH_LABEL_PAUSE_MS - 100);
+      }
+      expect(workspace.getSnapshot()).toMatchObject({ search: "need", searchLabel: "n" });
+      vi.advanceTimersByTime(100);
+      expect(workspace.getSnapshot().searchLabel).toBe("need");
+      // ⌘⇧F with selected text, another workspace, and closing: at once.
+      workspace.setSearch("needl");
+      workspace.openSearch("other");
+      expect(workspace.getSnapshot().searchLabel).toBe("other");
+      vi.advanceTimersByTime(SEARCH_LABEL_PAUSE_MS);
+      expect(workspace.getSnapshot().searchLabel).toBe("other");
+      workspace.configure("second", B, "Second");
+      expect(workspace.getSnapshot().searchLabel).toBeUndefined();
+      workspace.configure("first", A, "First");
+      expect(workspace.getSnapshot().searchLabel).toBe("other");
+      workspace.close("search");
+      expect(workspace.getSnapshot().searchLabel).toBeUndefined();
+      workspace.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
   test("close all and close others go back the same way", () => {
     const { workspace, pending } = fixture();

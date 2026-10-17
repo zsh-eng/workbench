@@ -5024,7 +5024,7 @@ export function App({
         showBrief={hasNotes}
         showReview={reviewAvailable}
         showCommit={!!commitApi}
-        search={fileState.search}
+        search={fileState.searchLabel}
         tabs={fileState.tabs.map((tab) => ({
           ...tab,
           ...(tab.source.kind === "vault"

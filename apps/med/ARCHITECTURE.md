@@ -286,7 +286,9 @@ workspaces.
 
 Search is a tab of each workspace (`components/SearchView.tsx`), after Commit
 in the row. The file workspace store keeps its query with the workspace's
-other tabs, so a reload keeps it; the view stays mounted while the tab is
+other tabs, so a reload keeps it. The tab's label (`searchLabel`) follows
+typing 600 ms after the last key and any other change at once, so the row
+does not move with each key. The view stays mounted while the tab is
 open, so its results and scroll survive a switch to another tab. A match in
 the workspace's repository opens as a file tab there, in the files that the
 search read. A match in another repository goes to the workspaces

@@ -49,7 +49,7 @@ export function FileViewTabs({
   showReview?: boolean;
   /** Stage, commit, and push a live checkout. */
   showCommit?: boolean;
-  /** The Search tab's query, after Commit; without one, no Search tab. */
+  /** The Search tab's label, its query, after Commit; without one, no Search tab. */
   search?: string;
   /** Changed-file count shown beside the Changes tab. */
   changesCount?: number;
@@ -63,6 +63,7 @@ export function FileViewTabs({
   /** Close every file tab; in the tab's context menu. */
   onCloseAll?(): void;
 }) {
+  const searchLabel = search?.trim();
   // The row scrolls; the tab on screen stays in view, also when it opens.
   const list = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -157,8 +158,8 @@ export function FileViewTabs({
             <Tabs.Tab
               value="search"
               aria-controls={panelId}
-              aria-label={search.trim() ? `Search: ${search.trim()}` : "Search"}
-              title={search.trim() ? `Search: ${search.trim()} (⌘⇧F)` : "Search (⌘⇧F)"}
+              aria-label={searchLabel ? `Search: ${searchLabel}` : "Search"}
+              title={searchLabel ? `Search: ${searchLabel} (⌘⇧F)` : "Search (⌘⇧F)"}
               onAuxClick={(event) => {
                 if (event.button !== 1) return;
                 event.preventDefault();
@@ -170,7 +171,7 @@ export function FileViewTabs({
               {...stylex.props(styles.tab, styles.fileTab, active === "search" && styles.active)}
             >
               <Icon name="search" size={12} />
-              <span {...stylex.props(styles.name, styles.query)}>{search.trim() || "Search"}</span>
+              <span {...stylex.props(styles.name, styles.query)}>{searchLabel || "Search"}</span>
             </Tabs.Tab>
             <button
               {...stylex.props(styles.close, active === "search" && styles.closeVisible)}
