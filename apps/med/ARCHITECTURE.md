@@ -288,7 +288,7 @@ Search is a tab of each workspace (`components/SearchView.tsx`), after Commit
 in the row. The file workspace store keeps its query with the workspace's
 other tabs, so a reload keeps it; the view stays mounted while the tab is
 open, so its results and scroll survive a switch to another tab. A match in
-the workspace's repository opens as a file tab there, at the commit that the
+the workspace's repository opens as a file tab there, in the files that the
 search read. A match in another repository goes to the workspaces
 (`med:search-open`), which open it in that repository's workspace when it
 reads its files (`data/file-opens.ts`). An old `/search?q=…` link opens the
@@ -296,8 +296,24 @@ Search tab of the workspace on screen with that query. Each repository's
 search is its own `X-Med-Latest` stream, so the searches of one query do not
 cancel each other, and four run at once.
 
+A checkout's search reads its working files (`searchBrowse` in
+`host/repository/inspect.ts`): one `git grep --untracked -l` lists the files
+that hold the query, tracked with uncommitted changes or untracked and not
+ignored, and the confined file reader reads them for the matched lines. The
+reader refuses links and paths through links or into nested repositories, so
+Git's list needs no `lstat` of every file. With warm caches this takes about
+22 µs a file: 0.05 s for the Workbench checkout (2,400 files), 0.4 s for
+18,500, 0.8 s for 37,000, and 1.8 s for 74,000 (copies of Workbench).
+A checkout of more than 20,000 files (`MAX_WORKING_SEARCH_FILES` in
+`host/search/service.ts`) searches its last commit in the Zoekt index when the
+index has it, as ⌘⇧O does above the same size, and says that uncommitted
+changes are left out. A commit's search uses the index, or Git on the commit's
+tree.
+
 The host returns one line for each match. The view shows two lines around it
-(`data/search-excerpts.ts`) from the file at the commit searched. It reads a
+(`data/search-excerpts.ts`) from the files that the search read. A working
+file is read again for each search, and a read that no longer holds the
+matched lines shows plain lines until the new read arrives. It reads a
 file only when the file's results come within 600 px of the view, three at a
 time, and highlights the whole file with the Pierre worker pool that the file
 view uses, so a line in a block comment has the comment's colors. Until then

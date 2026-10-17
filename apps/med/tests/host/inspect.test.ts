@@ -49,9 +49,10 @@ test("searches literal content in selected worktrees and immutable commits, incl
   await writeFile(join(repo, "new.txt"), "new [query]\n");
   await writeFile(join(repo, "ignored.txt"), "secret [query]\n");
   await writeFile(join(repo, "binary.bin"), "[query]\0binary");
+  // Files come in path order, tracked or not.
   expect((await searchBrowse({ kind: "worktree", repo }, "[query]")).matches).toEqual([
-    { path: "src/file.txt", line: 1, text: "main [QUERY]" },
     { path: "new.txt", line: 1, text: "new [query]" },
+    { path: "src/file.txt", line: 1, text: "main [QUERY]" },
   ]);
   expect((await searchBrowse({ kind: "worktree", repo: linked }, "[query]")).matches).toEqual([
     { path: "src/file.txt", line: 1, text: "linked [Query]" },

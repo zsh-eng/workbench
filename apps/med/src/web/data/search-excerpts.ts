@@ -26,6 +26,19 @@ export function excerpts(lines: readonly number[], total?: number, context = CON
   return result;
 }
 
+/** Whether a file's lines, as read, still hold each match's line: a working
+ * file can change after the search. A long line's match text is a part of
+ * it, cut with ellipses. */
+export function agrees(
+  lines: readonly string[],
+  matches: readonly { line: number; text: string }[],
+) {
+  return matches.every(
+    ({ line, text }) =>
+      lines[line - 1]?.includes(text.replace(/^…/, "").replace(/…$/, "")) ?? false,
+  );
+}
+
 /** Where `needle` occurs in `text`, as [start, end) offsets, in any case
  * unless `matchCase`. */
 export function occurrences(text: string, needle: string, matchCase: boolean) {

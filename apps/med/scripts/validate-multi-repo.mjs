@@ -168,7 +168,8 @@ try {
   await release.click();
   await shows("shared", "release");
 
-  // Search is scoped to committed content in each repository, even with matching paths.
+  // Search reads each repository's own working files, even with matching
+  // paths, and with the index ready: these checkouts are small.
   for (const path of repositories) {
     const name = path.split("/").at(-1);
     if (process.env.MED_VALIDATION_ZOEKT_BIN) {
@@ -194,8 +195,9 @@ try {
     assert.equal(response.status, 200);
     const result = await response.json();
     assert.equal(result.source.repo, path);
+    assert.deepEqual(result.resultSource, { kind: "worktree", repo: path });
+    assert.equal(result.engine, "git");
     assert.equal(result.matches.length, 1);
-    if (process.env.MED_VALIDATION_ZOEKT_BIN) assert.equal(result.engine, "zoekt");
   }
   await openBranchPicker();
   await dialog.getByText("Manage repositories", { exact: true }).click();

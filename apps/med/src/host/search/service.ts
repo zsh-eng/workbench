@@ -20,7 +20,7 @@ import type { BrowseSource } from "../../shared/browse";
 import { browseSearchSchema, type BrowseSearch } from "../../shared/inspect";
 import { listBranches, listWorktrees, resolveCommit } from "../repository/history";
 import { searchBrowse } from "../repository/inspect";
-import { git, runProcess } from "../runtime/process";
+import { git, ProcessFailure, runProcess } from "../runtime/process";
 import { searchBinDir, searchCacheRoot, ZOEKT_VERSION, SEARCH_HELPER_VERSION } from "./install";
 
 import { discoverCtags, ctagsSetupMessage, type CtagsTool } from "./symbols";
@@ -49,7 +49,17 @@ export interface SearchOptions {
   pollMs?: number;
   debounceMs?: number;
   scheduleIndex?: (work: () => Promise<void>, signal: AbortSignal) => Promise<void>;
+  /** A checkout with more files searches its last commit in the index, when
+   * the index has it. */
+  maxWorkingFiles?: number;
 }
+/**
+ * Git searches the working files of a checkout up to this size in about half
+ * a second (`git grep` over 20,000 files; see ARCHITECTURE.md). A larger
+ * checkout searches its last commit in the index, as ⌘⇧O takes its symbols
+ * from the index above the same size.
+ */
+export const MAX_WORKING_SEARCH_FILES = 20_000;
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const alias = (name: string) => `med/${hash(name).slice(0, 24)}`;
 const same = (a: IndexedBranch[], b: IndexedBranch[]) => JSON.stringify(a) === JSON.stringify(b);
@@ -118,6 +128,7 @@ export class ZoektSearchService {
   private socketDir?: string;
   private socketPath?: string;
   private indexed: IndexedBranch[] = [];
+  private readonly counts = new Map<string, { files: number; at: number }>();
   private current: SearchIndexStatus = {
     state: "unavailable",
     message:
@@ -539,17 +550,61 @@ export class ZoektSearchService {
       };
     }
   }
+  /** The files of a checkout that Git searches, tracked or untracked but not
+   * ignored; counted again after 30 seconds. */
+  private async workingFiles(repo: string, signal: AbortSignal) {
+    const known = this.counts.get(repo);
+    if (known && Date.now() - known.at < 30_000) return known.files;
+    const output = await git(
+      repo,
+      ["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+      {
+        signal,
+        maxBytes: 64 * 1024 * 1024,
+      },
+    );
+    let files = 0;
+    for (const byte of output) if (byte === 0) files++;
+    this.counts.set(repo, { files, at: Date.now() });
+    return files;
+  }
   async search(source: BrowseSource, query: string, signal?: AbortSignal): Promise<BrowseSearch> {
     const bounded = signal ? AbortSignal.any([signal, this.abort.signal]) : this.abort.signal;
     bounded.throwIfAborted();
-    const resultSource: BrowseSource =
+    // A checkout searches its working files, with uncommitted changes, as an
+    // editor does: unless it is too large for Git to answer fast and the index
+    // has its last commit.
+    const limit = this.options.maxWorkingFiles ?? MAX_WORKING_SEARCH_FILES;
+    const head =
       source.kind === "commit"
-        ? source
-        : {
-            kind: "commit",
-            repo: source.repo,
-            oid: await resolveCommit(source.repo, "HEAD", bounded),
-          };
+        ? source.oid
+        : this.current.state === "ready"
+          ? await resolveCommit(source.repo, "HEAD", bounded).catch((error: unknown) => {
+              bounded.throwIfAborted();
+              // A checkout with no commit yet has only working files.
+              if (error instanceof ProcessFailure) return undefined;
+              throw error;
+            })
+          : undefined;
+    if (
+      source.kind === "worktree" &&
+      (!head ||
+        !this.indexed.some((entry) => entry.commit === head) ||
+        (await this.workingFiles(source.repo, bounded)) <= limit)
+    )
+      return {
+        ...(await searchBrowse(source, query, bounded)),
+        resultSource: source,
+        engine: "git",
+      };
+    const resultSource: BrowseSource = { kind: "commit", repo: source.repo, oid: head! };
+    // Results at a commit for a checkout leave out its uncommitted changes.
+    const scope =
+      source.kind === "worktree"
+        ? {
+            reason: `This checkout has more than ${limit.toLocaleString("en-US")} files, so search reads its last commit in the index, without uncommitted changes.`,
+          }
+        : {};
     const branch = this.indexed.find((entry) => entry.commit === resultSource.oid);
     const child = this.child;
     if (this.current.state === "ready" && branch && this.socketPath) {
@@ -565,6 +620,7 @@ export class ZoektSearchService {
           .parse(reply);
         if (this.child === child && this.current.state === "ready")
           return {
+            ...scope,
             ...parsed,
             source,
             query,
@@ -581,6 +637,12 @@ export class ZoektSearchService {
         }
       }
     }
+    if (source.kind === "worktree")
+      return {
+        ...(await searchBrowse(source, query, bounded)),
+        resultSource: source,
+        engine: "git",
+      };
     const fallback = await searchBrowse(resultSource, query, bounded);
     const state = this.status();
     return {

@@ -635,13 +635,18 @@ instead; add more to search several, or type `repo:*` for every one. A match
 in another repository opens in that repository's workspace. An old search
 link (`/search?q=…`) opens the Search tab with its query.
 
-Search reads committed branch content, and opens results at the exact commit
-shown. It does not include uncommitted or untracked changes. Without Zoekt, it
-searches with Git. A review outside the workspaces, such as a patch file, uses
-the content picker instead of the tab.
+Search reads the working files of the checkout, as an editor does: tracked
+files with their uncommitted changes, and untracked files that Git does not
+ignore. A match opens the working file, which you can edit, at its line. Git
+searches them; a checkout of 20,000 files takes about 0.4 s. A checkout with
+more than 20,000 files searches its last commit in the Zoekt index instead,
+when the index has that commit. Then its results leave out uncommitted
+changes, open at that commit, and the tab says so. A review outside the
+workspaces, such as a patch file, uses the content picker instead of the tab.
 
-[Zoekt](https://github.com/sourcegraph/zoekt) makes search faster and adds
-project symbols. Setup builds pinned helpers once and needs Go
+[Zoekt](https://github.com/sourcegraph/zoekt) makes search of commits and of
+very large checkouts faster, and gives project symbols in checkouts of more
+than 20,000 files. Setup builds pinned helpers once and needs Go
 (`brew install go`) and a built Workbench checkout. In its `apps/med` folder:
 
 ```sh
@@ -653,7 +658,7 @@ Git hook. The `med` executable uses a cache that is already there. The first
 content or project-symbol search starts a search service for the repository,
 which indexes in the background. Med indexes up to 64 branch tips in each
 repository, worktree branches first, and updates the index when commits change.
-Until the index is ready, search uses Git on the same commits.
+Until the index is ready, Git answers: in a checkout, from its working files.
 
 The cache is `~/.cache/med/search`, or `$XDG_CACHE_HOME/med/search`. Set
 `MED_SEARCH_CACHE` to move it, or `MED_ZOEKT_BIN` to a folder that has

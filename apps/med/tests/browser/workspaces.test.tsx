@@ -475,8 +475,9 @@ function createHost() {
               ]
             : [],
           truncated: false,
-          resultSource: { kind: "commit", repo: source.repo, oid: head },
-          engine: "zoekt",
+          // A checkout's search reads its working files.
+          resultSource: source,
+          engine: "git",
         });
       }
       case "/api/browse/read": {
@@ -1345,7 +1346,7 @@ test("⌘⇧F opens the workspace's Search tab; a match opens in a file tab, and
     .toHaveTextContent("2 results in 2 files across 2 repositories");
   expect(host.searches).toContain("/test/other after");
 
-  // Enter opens the chosen match in a file tab here, at the commit searched.
+  // Enter opens the chosen match in the working file's tab here.
   await query.fill("after");
   await expect
     .element(panel.getByRole("status"))
@@ -1353,6 +1354,9 @@ test("⌘⇧F opens the workspace's Search tab; a match opens in a file tab, and
   await userEvent.keyboard("{Enter}");
   await expect.poll(() => shown()?.dataset.activeFile).toBe("src/alpha.ts");
   await expect.element(tab("Search: after")).toHaveAttribute("aria-selected", "false");
+  expect(
+    document.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute("title"),
+  ).toMatch(/^src\/alpha\.ts · Working files/);
   expect(location.pathname).toBe("/");
 
   // ⌘⇧F shows the same tab, with its query selected and its results.

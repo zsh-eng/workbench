@@ -102,7 +102,7 @@ See [agent integration](docs/AGENT_INTEGRATION.md) for multi-repository manifest
 - **Universal Ctags** enables symbol search. Install it with `brew install universal-ctags` on macOS or `sudo pacman -S ctags` on Omarchy.
 - **Zoekt** adds indexed branch search and is required for project symbol search. With Go installed, run `node apps/med/dist/cli.js --setup-search` once.
 
-Content search reads **committed content**. It does not include uncommitted or untracked changes. Without Zoekt, content search falls back to Git. Symbol language support depends on the installed Ctags parsers.
+Content search reads a checkout's **working files**, with uncommitted changes and untracked files that Git does not ignore, and opens them for editing. A checkout of more than 20,000 files searches its last commit in the Zoekt index, when the index has it. Symbol language support depends on the installed Ctags parsers.
 
 ## Useful shortcuts
 

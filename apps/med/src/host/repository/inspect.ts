@@ -40,6 +40,8 @@ export async function searchBrowse(
           "Some files changed during search. Run the search again for current results.";
         return true;
       }
+      // A path that browsing does not list, such as one with a backslash.
+      if (error instanceof HostError && error.status === 400) return true;
       throw error;
     }
     if (file.kind !== "text" || file.text === undefined) {
@@ -76,31 +78,24 @@ export async function searchBrowse(
     return true;
   };
   try {
-    const manifest = await listBrowse(source, false, bounded);
-    result.truncated = manifest.truncated;
-    if (manifest.truncated)
-      result.reason = "The workspace file list is limited. Some files were not searched.";
-    const tracked = manifest.entries.filter(
-      (entry) => entry.kind === "file" && entry.status !== "?",
-    );
-    // Explicit literal paths keep Git out of symlink and nested-repository entries excluded by browse.
-    for (let offset = 0; offset < tracked.length;) {
-      const paths: string[] = [];
-      let argumentBytes = 0;
-      while (offset < tracked.length && paths.length < 1024 && argumentBytes < 60 * 1024) {
-        const path = tracked[offset++]!.path;
-        paths.push(path);
-        argumentBytes += Buffer.byteLength(path) + 1;
-      }
-      const output = await git(
+    // One Git process lists the files that contain the query: in a checkout,
+    // its working files, tracked or untracked but not ignored, with their
+    // uncommitted changes; else the commit's files. A file list per process
+    // would cost each process a match of every path against the whole list.
+    const [manifest, output] = await Promise.all([
+      // The reader confines each working file itself: no links, no paths
+      // through links or into nested repositories. A commit's files come from
+      // its tree, which is cheap to list.
+      source.kind === "commit" ? listBrowse(source, false, bounded) : undefined,
+      git(
         source.repo,
         [
-          "--literal-pathspecs",
           "-c",
-          "grep.threads=2",
+          "grep.threads=4",
           "grep",
           "--no-textconv",
           "--no-recurse-submodules",
+          ...(source.kind === "worktree" ? ["--untracked"] : []),
           "-l",
           "-z",
           "-I",
@@ -109,20 +104,23 @@ export async function searchBrowse(
           "-e",
           query,
           ...(source.kind === "commit" ? [source.oid] : []),
-          "--",
-          ...paths,
         ],
-        { signal: bounded, maxBytes: 1024 * 1024, acceptedExitCodes: [0, 1] },
-      );
-      for (const record of output.toString("utf8").split("\0")) {
-        if (!record) continue;
-        const path = source.kind === "commit" ? record.slice(source.oid.length + 1) : record;
-        // Do not trust a Git record or stale manifest to authorize content reads.
-        if (paths.includes(path) && !(await scan(path))) return result;
-      }
+        { signal: bounded, maxBytes: 16 * 1024 * 1024, acceptedExitCodes: [0, 1] },
+      ),
+    ]);
+    if (manifest?.truncated) {
+      result.truncated = true;
+      result.reason = "The workspace file list is limited. Some files were not searched.";
     }
-    for (const entry of manifest.entries) {
-      if (entry.kind === "file" && entry.status === "?" && !(await scan(entry.path))) return result;
+    // At a commit, only the regular files of its tree are read: Git's list
+    // does not authorize a read of a link or a submodule.
+    const files =
+      manifest &&
+      new Set(manifest.entries.flatMap((entry) => (entry.kind === "file" ? [entry.path] : [])));
+    for (const record of output.toString("utf8").split("\0")) {
+      if (!record) continue;
+      const path = source.kind === "commit" ? record.slice(source.oid.length + 1) : record;
+      if ((!files || files.has(path)) && !(await scan(path))) return result;
     }
   } catch (error) {
     signal?.throwIfAborted();

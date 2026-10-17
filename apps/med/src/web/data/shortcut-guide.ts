@@ -52,7 +52,7 @@ export const guideContexts: GuideContext[] = [
           {
             label: "Search file contents",
             keys: ["Mod+Shift+F"],
-            note: "In the Search tab; committed content",
+            note: "In the Search tab; working files",
             command: "content-search",
           },
           {

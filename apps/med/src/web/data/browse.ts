@@ -95,11 +95,14 @@ export function createBrowseApi(fetcher: typeof fetch, token: string) {
       });
       if (browseSourceKey(result.source) !== browseSourceKey(source) || result.query !== query)
         throw new Error("The search belongs to another workspace or query.");
+      // A checkout's results come from its working files, or from its last
+      // commit; a commit's from that commit.
       if (
         result.resultSource &&
-        (result.resultSource.kind !== "commit" ||
-          result.resultSource.repo !== source.repo ||
-          (source.kind === "commit" && result.resultSource.oid !== source.oid))
+        (result.resultSource.repo !== source.repo ||
+          (result.resultSource.kind === "worktree"
+            ? source.kind !== "worktree"
+            : source.kind === "commit" && result.resultSource.oid !== source.oid))
       )
         throw new Error("The search results belong to another repository or commit.");
       return result;

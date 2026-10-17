@@ -35,12 +35,20 @@ async function fixture() {
   return { root, repo, oid: git(repo, "rev-parse", "HEAD"), cacheRoot: join(root, "cache") };
 }
 
-async function start(repo: string, cacheRoot: string, binDir = binaryDirectory) {
+/** A checkout searches its working files up to `maxWorkingFiles` files; these
+ * tests use the index for any checkout unless they ask otherwise. */
+async function start(
+  repo: string,
+  cacheRoot: string,
+  binDir = binaryDirectory,
+  maxWorkingFiles = 0,
+) {
   const service = new ZoektSearchService(repo, {
     binDir,
     cacheRoot,
     pollMs: 50,
     debounceMs: 20,
+    maxWorkingFiles,
   });
   services.push(service);
   await service.start();
@@ -100,7 +108,7 @@ afterEach(async () => {
   await Promise.all(temporary.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
-test("missing binaries use committed Git search, exclude working changes, and honor cancellation", async () => {
+test("without the index, a checkout searches its working files with uncommitted and untracked changes, and a commit its own files", async () => {
   const { root, repo, oid, cacheRoot } = await fixture();
   await writeFile(join(repo, "file.txt"), "dirty needle\n");
   await writeFile(join(repo, "untracked.txt"), "untracked needle\n");
@@ -110,6 +118,14 @@ test("missing binaries use committed Git search, exclude working changes, and ho
   const before = await fingerprint(repo);
   expect(await service.search(source, "needle")).toMatchObject({
     source,
+    resultSource: source,
+    engine: "git",
+    matches: [
+      { path: "file.txt", line: 1, text: "dirty needle" },
+      { path: "untracked.txt", line: 1, text: "untracked needle" },
+    ],
+  });
+  expect(await service.search({ kind: "commit", repo, oid }, "needle")).toMatchObject({
     resultSource: { kind: "commit", repo, oid },
     engine: "git",
     matches: [
@@ -120,6 +136,37 @@ test("missing binaries use committed Git search, exclude working changes, and ho
   await expect(service.search(source, "needle", AbortSignal.abort())).rejects.toThrow(/abort/i);
   expect(await fingerprint(repo)).toEqual(before);
 });
+
+test.skipIf(!binaryDirectory)(
+  "a checkout up to the limit searches its working files though the index is ready; a larger one reads its last commit and says so",
+  async () => {
+    const { repo, oid, cacheRoot } = await fixture();
+    await writeFile(join(repo, "file.txt"), "dirty needle\n");
+    const source = { kind: "worktree" as const, repo };
+    const small = await start(repo, cacheRoot, binaryDirectory, 1);
+    await ready(small, "main", oid);
+    expect(await small.search(source, "needle")).toMatchObject({
+      resultSource: source,
+      engine: "git",
+      matches: [{ path: "file.txt", line: 1, text: "dirty needle" }],
+    });
+    expect((await small.search(source, "needle")).reason).toBeUndefined();
+    await small.close();
+    const large = await start(repo, cacheRoot, binaryDirectory, 0);
+    await ready(large, "main", oid);
+    expect(await large.search(source, "needle")).toMatchObject({
+      resultSource: { kind: "commit", repo, oid },
+      engine: "zoekt",
+      matches: [
+        { path: "file.txt", line: 1, text: "committed needle" },
+        { path: "file.txt", line: 2, text: "needle OR repo:other" },
+      ],
+      reason:
+        "This checkout has more than 0 files, so search reads its last commit in the index, without uncommitted changes.",
+    });
+  },
+  45_000,
+);
 
 test.skipIf(!binaryDirectory)(
   "Zoekt searches exact commits and linked branches without writes or query syntax injection",
@@ -169,9 +216,11 @@ test.skipIf(!binaryDirectory)(
     git(repo, "commit", "-q", "-m", "Updated content");
     const updated = git(repo, "rev-parse", "HEAD");
     const before = await fingerprint(repo);
-    // This request must never return the old index version, even before polling sees the commit.
+    // This request must never return the old index version, even before
+    // polling sees the commit: until then, Git searches the working files.
     expect(await service.search({ kind: "worktree", repo }, "needle")).toMatchObject({
-      resultSource: { kind: "commit", repo, oid: updated },
+      engine: "git",
+      resultSource: { kind: "worktree", repo },
       matches: [{ path: "file.txt", line: 1, text: "new committed needle" }],
     });
     await ready(service, "main", updated);
@@ -252,8 +301,12 @@ test.skipIf(!binaryDirectory)(
     expect(other.status().state).toBe("unavailable");
     expect(await other.search({ kind: "worktree", repo }, "committed")).toMatchObject({
       engine: "git",
-      resultSource: { kind: "commit", repo, oid },
+      resultSource: { kind: "worktree", repo },
       matches: [{ path: "file.txt", line: 1, text: "committed needle" }],
+    });
+    expect(await other.search({ kind: "commit", repo, oid }, "committed")).toMatchObject({
+      engine: "git",
+      resultSource: { kind: "commit", repo, oid },
     });
     await other.close();
     await first.close();

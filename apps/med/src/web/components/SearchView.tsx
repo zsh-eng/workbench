@@ -18,6 +18,7 @@ import { codeColors } from "../code-colors";
 import { browseSourceKey, type BrowseApi } from "../data/browse";
 import { pierreFile } from "../data/file-prefetch";
 import {
+  agrees,
   excerpts,
   occurrences,
   pieces,
@@ -36,7 +37,8 @@ export interface SearchRepository {
   path: string;
 }
 
-/** A match that the reader opens, in the commit that the search read. */
+/** A match that the reader opens, in the files that the search read: a
+ * checkout's working files, or a commit's. */
 export interface SearchOpen {
   repository: SearchRepository;
   path: string;
@@ -83,7 +85,21 @@ interface Group {
   stale: boolean;
   matches: Match[];
   first: number;
+  /** The search that found the matches: a working file is read again for a
+   * newer search, since it can change between searches. */
+  run: number;
 }
+
+/** Each search result's number, in the order the results arrived. */
+const runs = new WeakMap<BrowseSearch, number>();
+let lastRun = 0;
+const runOf = (result: BrowseSearch) => {
+  let run = runs.get(result);
+  if (run === undefined) runs.set(result, (run = ++lastRun));
+  return run;
+};
+
+type LoadFile = Pick<Group, "source" | "path" | "run">;
 
 /** A file's text, and its lines as the file view highlights them. */
 interface Loaded {
@@ -106,24 +122,34 @@ function createFileLoader(
   const abort = new AbortController();
   // Each file's state: "loading", "failed", "plain", or the theme it was highlighted for.
   const status = new Map<string, string>();
+  // The search for which each working file was last read.
+  const readFor = new Map<string, number>();
   const reads = new Map<string, Promise<BrowseRead>>();
   const near = new Set<string>();
-  let files = new Map<string, { source: BrowseSource; path: string }>();
+  let files = new Map<string, LoadFile>();
   let theme = "";
   let running = 0;
+  const working = (file: LoadFile | undefined) => file?.source.kind === "worktree";
   const due = (key: string) => {
     const state = status.get(key);
-    return state === undefined || (state.startsWith("theme:") && state !== `theme:${theme}`);
+    if (state === undefined) return true;
+    if (state === "loading") return false;
+    const file = files.get(key);
+    if (working(file) && readFor.get(key) !== file!.run) return true;
+    return state.startsWith("theme:") && state !== `theme:${theme}`;
   };
-  const load = async (key: string, file: { source: BrowseSource; path: string }) => {
-    let text = reads.get(key);
+  const load = async (key: string, file: LoadFile) => {
+    // A commit's file never changes; a working file is read for each search.
+    const readKey = working(file) ? `${key}\0${file.run}` : key;
+    let text = reads.get(readKey);
     if (!text) {
       text = read(file.source, file.path, abort.signal);
-      reads.set(key, text);
+      reads.set(readKey, text);
       while (reads.size > KEPT_READS) reads.delete(reads.keys().next().value!);
     }
+    readFor.set(key, file.run);
     const value = await text.catch((error: unknown) => {
-      reads.delete(key);
+      reads.delete(readKey);
       throw error;
     });
     if (value.kind !== "text" || value.text === undefined) return { status: "plain", loaded: {} };
@@ -166,9 +192,13 @@ function createFileLoader(
   };
   return {
     /** The files of the shown results; others are forgotten. */
-    setFiles(next: Map<string, { source: BrowseSource; path: string }>) {
+    setFiles(next: Map<string, LoadFile>) {
       files = next;
-      for (const key of status.keys()) if (!next.has(key)) status.delete(key);
+      for (const key of status.keys())
+        if (!next.has(key)) {
+          status.delete(key);
+          readFor.delete(key);
+        }
       pump();
     },
     setTheme(name: string) {
@@ -187,8 +217,9 @@ function createFileLoader(
 }
 
 /**
- * The workspace's Search tab: text search in the committed files of its
- * checkout. `repo:name` searches other registered repositories instead, and
+ * The workspace's Search tab: text search in the working files of its
+ * checkout, with uncommitted changes (in a very large checkout, its last
+ * commit). `repo:name` searches other registered repositories instead, and
  * `repo:*` every one. Results show as you type, by file, each match with two
  * lines around it, highlighted as the file view highlights them; arrows move
  * through the matches, Enter opens one at its line in a file tab, and Escape
@@ -341,6 +372,7 @@ export function SearchView({
           stale: !entry.result,
           matches,
           first,
+          run: runOf(found),
         });
         first += matches.length;
       }
@@ -608,7 +640,9 @@ const ResultFile = memo(function ResultFile({
     observer.observe(node);
     return () => observer.unobserve(node);
   }, [observer]);
-  const lines = loaded?.lines;
+  // A working file read before it changed waits for its next read.
+  const lines = loaded?.lines && agrees(loaded.lines, group.matches) ? loaded.lines : undefined;
+  const highlighted = lines && loaded?.code;
   const hits = new Map(group.matches.map((match, index) => [match.line, group.first + index]));
   const width = `${String(group.matches.at(-1)!.line + 2).length + 1}ch`;
   const slash = group.path.lastIndexOf("/") + 1;
@@ -616,7 +650,7 @@ const ResultFile = memo(function ResultFile({
     <section
       ref={section}
       data-search-file={group.key}
-      data-highlighted={loaded?.code ? "" : undefined}
+      data-highlighted={highlighted ? "" : undefined}
       role="group"
       aria-label={`${group.repository.name} ${group.path}`}
       {...stylex.props(styles.file, group.stale && styles.stale)}
@@ -644,9 +678,7 @@ const ResultFile = memo(function ResultFile({
             const runs: Token[] | undefined =
               text === undefined
                 ? undefined
-                : ((lines && loaded?.code ? tokensOf(loaded.code[line - 1], text) : undefined) ?? [
-                    { text },
-                  ]);
+                : ((highlighted ? tokensOf(highlighted[line - 1], text) : undefined) ?? [{ text }]);
             const chosen = index !== undefined && index === current;
             const code = (
               <code {...stylex.props(styles.text)}>

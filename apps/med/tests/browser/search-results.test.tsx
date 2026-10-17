@@ -46,12 +46,13 @@ const files = new Map<string, string>([
   ),
 ]);
 
-function fixture() {
+/** The Search tab over `files`; the host reads `resultSource`'s files. */
+function fixture(resultSource: BrowseSource = commit, contents = files) {
   const reads: string[] = [];
   const opened: SearchOpen[] = [];
   const api = {
     async search(source: BrowseSource, query: string): Promise<BrowseSearch> {
-      const matches = [...files].flatMap(([path, text]) =>
+      const matches = [...contents].flatMap(([path, text]) =>
         text
           .split("\n")
           .flatMap((line, index) =>
@@ -60,11 +61,11 @@ function fixture() {
               : [],
           ),
       );
-      return { source, query, matches, truncated: false, resultSource: commit, engine: "git" };
+      return { source, query, matches, truncated: false, resultSource, engine: "git" };
     },
     async read(source: BrowseSource, path: string): Promise<BrowseRead> {
       reads.push(path);
-      const text = files.get(path)!;
+      const text = contents.get(path)!;
       return { source, path, kind: "text", size: text.length, identity: `${path}:1`, text };
     },
   };
@@ -72,27 +73,30 @@ function fixture() {
   mount = document.createElement("div");
   mount.style.cssText = "height:600px;width:900px;display:flex;flex-direction:column";
   document.body.append(mount);
-  root = createRoot(mount);
-  root.render(
-    <WorkerPoolContextProvider
-      highlighterOptions={{ theme: "github-dark" }}
-      poolOptions={{ workerFactory: () => new PierreWorker(), poolSize: 1 }}
-    >
-      <SearchView
-        api={api}
-        source={checkout}
-        repository={{ id: "fixture", name: "fixture", path: "/fixture" }}
-        repositories={[]}
-        query="needle"
-        active
-        focusRequest={0}
-        onQueryChange={() => {}}
-        onOpen={(open) => opened.push(open)}
-        onLeave={() => {}}
-      />
-    </WorkerPoolContextProvider>,
-  );
-  return { reads, opened };
+  const view = createRoot(mount);
+  root = view;
+  const show = (query: string) =>
+    view.render(
+      <WorkerPoolContextProvider
+        highlighterOptions={{ theme: "github-dark" }}
+        poolOptions={{ workerFactory: () => new PierreWorker(), poolSize: 1 }}
+      >
+        <SearchView
+          api={api}
+          source={checkout}
+          repository={{ id: "fixture", name: "fixture", path: "/fixture" }}
+          repositories={[]}
+          query={query}
+          active
+          focusRequest={0}
+          onQueryChange={() => {}}
+          onOpen={(open) => opened.push(open)}
+          onLeave={() => {}}
+        />
+      </WorkerPoolContextProvider>,
+    );
+  show("needle");
+  return { reads, opened, show };
 }
 
 const file = (path: string) =>
@@ -166,4 +170,35 @@ test("only the files near the view are read and highlighted", async () => {
   await expect.poll(() => file("src/more/file39.ts")?.dataset.highlighted).toBe("");
   expect(file("src/more/file39.ts")!.getBoundingClientRect().height).toBe(before);
   expect(new Set(reads).size).toBe(reads.length);
+});
+
+test("a checkout's results show its working files: a file that changed is read again for the next search, and a match opens the working file", async () => {
+  const working = new Map([["src/alpha.ts", alpha]]);
+  const { reads, opened, show } = fixture(checkout, working);
+  await expect
+    .element(page.getByRole("status"))
+    .toHaveTextContent("3 results in 1 file in fixture");
+  await expect.poll(() => file("src/alpha.ts")?.dataset.highlighted).toBe("");
+  expect(excerptLines("src/alpha.ts")).toEqual([
+    [18, 19, 20, 21, 22, 23, 24, 25, 26, 27],
+    [38, 39, 40, 41],
+  ]);
+
+  // An edit adds a line at the top; the next search finds each match a line
+  // lower, and the excerpts show the file as it is now.
+  working.set("src/alpha.ts", `// Added\n${alpha}`);
+  show("needl");
+  await expect.poll(() => excerptLines("src/alpha.ts")[1]).toEqual([39, 40, 41, 42]);
+  await expect.poll(() => file("src/alpha.ts")?.dataset.highlighted).toBe("");
+  expect(reads.filter((path) => path === "src/alpha.ts")).toHaveLength(2);
+  const options = file("src/alpha.ts")!.querySelectorAll('[role="option"]');
+  expect([...options].map((option) => option.textContent)).toEqual([
+    "21 * needle in a comment",
+    "26export const needle = 2;",
+    "41const Needle = 3;",
+  ]);
+
+  // A match opens the working file at its line.
+  (options[1] as HTMLElement).click();
+  expect(opened.at(-1)).toMatchObject({ path: "src/alpha.ts", line: 26, source: checkout });
 });

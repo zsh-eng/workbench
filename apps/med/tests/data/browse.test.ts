@@ -7,24 +7,40 @@ const commit: BrowseSource = { kind: "commit", repo: "/fixture", oid: "a".repeat
 
 test.each([
   { kind: "commit", repo: "/other", oid: "a".repeat(40) },
-  { kind: "worktree", repo: "/fixture" },
-])(
-  "rejects search result sources outside the requested committed repository: %j",
-  async (resultSource) => {
-    const api = createBrowseApi(
+  { kind: "worktree", repo: "/other" },
+])("rejects search result sources outside the requested repository: %j", async (resultSource) => {
+  const api = createBrowseApi(
+    async () =>
+      Response.json({
+        source: worktree,
+        query: "needle",
+        resultSource,
+        matches: [],
+        truncated: false,
+      }),
+    "",
+  );
+  await expect(api.search(worktree, "needle")).rejects.toThrow("another repository or commit");
+});
+
+test("a checkout's search takes its working files; a commit's search does not", async () => {
+  const answer = (source: BrowseSource) =>
+    createBrowseApi(
       async () =>
         Response.json({
-          source: worktree,
+          source,
           query: "needle",
-          resultSource,
+          resultSource: worktree,
           matches: [],
           truncated: false,
         }),
       "",
     );
-    await expect(api.search(worktree, "needle")).rejects.toThrow("another repository or commit");
-  },
-);
+  expect((await answer(worktree).search(worktree, "needle")).resultSource).toEqual(worktree);
+  await expect(answer(commit).search(commit, "needle")).rejects.toThrow(
+    "another repository or commit",
+  );
+});
 
 test("rejects a different commit for a historical search", async () => {
   const api = createBrowseApi(
