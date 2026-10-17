@@ -924,7 +924,8 @@ export class SavedReviewStore {
     });
   }
 
-  /** Changes the title or the pull request link, such as once a PR is open. */
+  /** Changes the title or the pull request link, such as once a PR is open, or
+   * the thread's checkout and the base of its Changes. */
   details(id: string, input: unknown, beforeCommit?: () => void): Promise<SavedReview> {
     return this.writing(async () => {
       const parsed = savedReviewDetailsSchema.safeParse(input);
@@ -932,6 +933,7 @@ export class SavedReviewStore {
         throw new HostError("invalid-saved-review", parsed.error.issues[0]!.message);
       const record = await this.read(id, true);
       if (parsed.data.title) record.saved.title = parsed.data.title;
+      if (parsed.data.checkout) record.saved.checkout = parsed.data.checkout;
       if (parsed.data.pullRequestUrl === null) {
         delete record.saved.pullRequestUrl;
         delete record.saved.pullRequestTitle;

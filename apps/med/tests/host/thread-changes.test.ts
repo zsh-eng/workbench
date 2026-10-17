@@ -358,3 +358,74 @@ test("Keep in Med and adopt capture nothing, also for an inactive session; the r
   // A version needs a comparison.
   expect((await api(`/api/reviews/${adopted.data.id}/versions`, { targets: [] })).status).toBe(400);
 });
+
+test("A thread moves to another checkout of its repository and keeps the base of its Changes", async () => {
+  const { api, changes, list, repo, feature, home } = await fixture();
+  await writeFile(join(feature, "a.ts"), "feature\n");
+  git(feature, ["commit", "-q", "-am", "Feature"]);
+  await writeFile(join(feature, "b.ts"), "uncommitted\n");
+  // A second base at the same commit as main: both have one merge base.
+  git(repo, ["branch", "stable", "main"]);
+  const path = await claude(home, repo, ids.old, ["a.ts"]);
+  const old = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  await utimes(path, old, old);
+  const adopted = await api<{ id: string }>("/api/sessions/adopt", { session: ids.old });
+  const latest = await list();
+  const row = () => latest.value!.threads.find((thread) => thread.id === adopted.data.id);
+  await vi.waitFor(() => expect(row()).toMatchObject({ checkout: repo, branch: "main" }));
+  const repositoryId = row()!.repository!.id;
+
+  // The agent works in the feature worktree now: the thread follows it, with
+  // its Changes since stable.
+  const moved = await api<SavedReview>(`/api/reviews/${adopted.data.id}/details`, {
+    checkout: { repositoryId, repo: feature, branch: "feature", base: "stable" },
+  });
+  expect(moved.status).toBe(200);
+  expect((await api<SavedReview>(`/api/reviews/${adopted.data.id}`)).data.checkout).toEqual({
+    repositoryId,
+    repo: feature,
+    branch: "feature",
+    base: "stable",
+  });
+  await vi.waitFor(
+    () =>
+      expect(row()).toMatchObject({
+        checkout: feature,
+        branch: "feature",
+        linked: true,
+        changes: { files: 2, additions: 2, deletions: 2 },
+      }),
+    { timeout: 10_000 },
+  );
+  // Two bases with one merge base give one diff; each keeps its own name.
+  const label = async (base: string) => {
+    expect(await changes(feature, { kind: "working", base })).toEqual(["a.ts", "b.ts"]);
+    return (
+      await api<ReviewResponse>("/api/review", {
+        repo: feature,
+        comparison: { kind: "working", base },
+      })
+    ).data.label;
+  };
+  expect(await label("stable")).toBe("Branch changes · since stable");
+  expect(await label("main")).toBe("Branch changes · since main");
+  expect(await label("stable")).toBe("Branch changes · since stable");
+
+  // A thread works only in a registered repository's checkouts.
+  const outside = join(home, "outside");
+  await mkdir(outside, { recursive: true });
+  const refused = await api(`/api/reviews/${adopted.data.id}/details`, {
+    checkout: { repositoryId, repo: outside, branch: "main" },
+  });
+  expect(refused.status).toBe(403);
+  // A base branch that is gone says so, and names the way out.
+  git(repo, ["branch", "-D", "stable"]);
+  const gone = await api<{ error: { message: string } }>("/api/review", {
+    repo: feature,
+    comparison: { kind: "working", base: "stable" },
+  });
+  expect(gone.status).toBe(422);
+  expect(gone.data.error.message).toBe(
+    "There is no branch named stable. Choose another base branch.",
+  );
+});

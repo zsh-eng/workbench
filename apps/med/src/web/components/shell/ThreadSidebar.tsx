@@ -26,6 +26,7 @@ import { picked, tokens, ui } from "../../theme.stylex";
 import { withAttempts } from "../attempts/AttemptGroupRow";
 import { Icon, type IconName } from "../Icon";
 import { ShortcutKeys } from "../ShortcutKeys";
+import { RenameField } from "./RenameField";
 import { ToolButton } from "../ToolButton";
 
 const SOURCES_KEY = "med:sidebar-sources";
@@ -142,6 +143,9 @@ export function ThreadSidebar({
   onMove,
   onNext,
   onPrefetch,
+  renaming,
+  onRenaming,
+  onRename,
 }: {
   /** The tabs, in the reader's order. */
   threads: readonly Thread[];
@@ -172,6 +176,12 @@ export function ThreadSidebar({
   onNext?(kind: "needs" | "working"): void;
   /** Reads a thread ahead of a click, such as while the pointer rests on it. */
   onPrefetch?(thread: Thread): void;
+  /** The thread whose row shows its name field. */
+  renaming?: string | null;
+  /** Shows the name field of a thread's row, or hides it. */
+  onRenaming?(thread: Thread | null): void;
+  /** Names the thread; an empty name gives it its agent's title again. */
+  onRename?(thread: Thread, name: string): void;
 }) {
   const active = newThread
     ? undefined
@@ -241,6 +251,8 @@ export function ThreadSidebar({
     onOpenSubagent,
     onClose,
     onPrefetch,
+    onRenaming,
+    onRename,
     move,
     drag,
     drop,
@@ -271,6 +283,11 @@ export function ThreadSidebar({
       else endDrag();
     },
     dragEnd: () => endDrag(),
+    rename: (thread) => latest.current.onRenaming?.(thread),
+    renamed: (thread, name) => {
+      latest.current.onRenaming?.(null);
+      if (name !== null) latest.current.onRename?.(thread, name);
+    },
   }));
 
   // One right-click menu serves all tabs: it opens for the tab under the
@@ -398,6 +415,7 @@ export function ThreadSidebar({
                   thread={thread}
                   name={name}
                   group={group.key}
+                  editing={!!onRename && renaming === thread.id}
                   current={thread.id === currentThread}
                   unread={read.isUnread(thread)}
                   copied={copied === thread.id}
@@ -434,6 +452,7 @@ export function ThreadSidebar({
                 thread={menuThread}
                 unread={read.isUnread(menuThread)}
                 onOpen={() => openThread(menuThread)}
+                onRename={onRenaming && (() => onRenaming(menuThread))}
                 onCopy={(text) => copy(menuThread, text)}
                 onUnread={(unread) => read.setUnread(menuThread, unread)}
                 onClose={onClose && ((removeWorktree) => onClose(menuThread, removeWorktree))}
@@ -512,12 +531,18 @@ interface RowActions {
   dragOver(thread: Thread, group: string, after: boolean): boolean;
   drop(thread: Thread, group: string, after: boolean): void;
   dragEnd(): void;
+  /** Shows the row's name field. */
+  rename(thread: Thread): void;
+  /** The field closed, with a new name or null. */
+  renamed(thread: Thread, name: string | null): void;
 }
 
 interface RowProps {
   thread: Thread;
   /** In place of the title, such as an attempt's letter and agent. */
   name?: string;
+  /** The row shows its name field. */
+  editing: boolean;
   /** The repository group, in which a drag moves the tab. */
   group: string;
   current: boolean;
@@ -556,6 +581,7 @@ const sameRow = (before: RowProps, after: RowProps) => {
 const ThreadRow = memo(function ThreadRow({
   thread,
   name,
+  editing,
   group,
   current,
   unread,
@@ -587,6 +613,34 @@ const ThreadRow = memo(function ThreadRow({
     return event.clientY > box.top + box.height / 2;
   };
   const read = () => !current && prefetch && actions.prefetch(thread);
+  const mark = (
+    <span {...stylex.props(styles.mark)} aria-hidden="true">
+      {asking ? (
+        <span {...stylex.props(styles.dot, thread.state === "waiting" && styles.waiting)}>
+          {thread.state === "waiting" && <span {...stylex.props(styles.pulse)} />}
+        </span>
+      ) : (
+        <Icon name={agentIcon(thread.agent)} size={13} />
+      )}
+    </span>
+  );
+  const detail = (
+    <span {...stylex.props(styles.detailLine)}>
+      {activity ? (
+        <span title={activity} {...stylex.props(styles.activity)}>
+          {activity}
+        </span>
+      ) : (
+        branch && <span {...stylex.props(styles.branch)}>{branch}</span>
+      )}
+      {thread.changes && thread.changes.files > 0 && (
+        <span {...stylex.props(styles.changes)}>
+          <span {...stylex.props(styles.added)}>+{thread.changes.additions}</span>
+          <span {...stylex.props(styles.removed)}>−{thread.changes.deletions}</span>
+        </span>
+      )}
+    </span>
+  );
   return (
     <li
       data-thread-row={thread.id}
@@ -620,6 +674,7 @@ const ThreadRow = memo(function ThreadRow({
         }}
         onDragEnd={() => draggable && actions.dragEnd()}
         onClick={() => actions.open(thread)}
+        onDoubleClick={() => actions.rename(thread)}
         onKeyDown={(event) => {
           if (!movable || !event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
           if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
@@ -634,17 +689,14 @@ const ThreadRow = memo(function ThreadRow({
         onPointerLeave={() => clearTimeout(rest.current)}
         onPointerDown={read}
         onFocus={read}
-        {...stylex.props(styles.row, styles.thread, current && styles.current)}
+        {...stylex.props(
+          styles.row,
+          styles.thread,
+          current && styles.current,
+          editing && styles.away,
+        )}
       >
-        <span {...stylex.props(styles.mark)} aria-hidden="true">
-          {asking ? (
-            <span {...stylex.props(styles.dot, thread.state === "waiting" && styles.waiting)}>
-              {thread.state === "waiting" && <span {...stylex.props(styles.pulse)} />}
-            </span>
-          ) : (
-            <Icon name={agentIcon(thread.agent)} size={13} />
-          )}
-        </span>
+        {mark}
         <span {...stylex.props(styles.lines)}>
           <span {...stylex.props(styles.titleLine)}>
             <span
@@ -655,7 +707,8 @@ const ThreadRow = memo(function ThreadRow({
                 asking && styles.asking,
               )}
             >
-              {name ?? thread.title}
+              {/* A name that the reader gave wins over an attempt's label. */}
+              {(thread.agentTitle === undefined && name) || thread.title}
             </span>
             {copied ? (
               <span role="status" {...stylex.props(styles.age)}>
@@ -675,27 +728,24 @@ const ThreadRow = memo(function ThreadRow({
               )
             )}
           </span>
-          <span {...stylex.props(styles.detailLine)}>
-            {activity ? (
-              <span title={activity} {...stylex.props(styles.activity)}>
-                {activity}
-              </span>
-            ) : (
-              branch && <span {...stylex.props(styles.branch)}>{branch}</span>
-            )}
-            {thread.changes && thread.changes.files > 0 && (
-              <span {...stylex.props(styles.changes)}>
-                <span {...stylex.props(styles.added)}>+{thread.changes.additions}</span>
-                <span {...stylex.props(styles.removed)}>−{thread.changes.deletions}</span>
-              </span>
-            )}
-          </span>
+          {detail}
         </span>
         <span {...stylex.props(styles.hidden)}>
           {asking ? ", needs you" : busy ? ", working" : unread ? ", new" : ""}
         </span>
       </button>
-      {closable && (
+      {editing && (
+        <div {...stylex.props(styles.row, styles.thread, current && styles.current)}>
+          {mark}
+          <span {...stylex.props(styles.lines)}>
+            <span {...stylex.props(styles.titleLine)}>
+              <RenameField thread={thread} onDone={(next) => actions.renamed(thread, next)} />
+            </span>
+            {detail}
+          </span>
+        </div>
+      )}
+      {closable && !editing && (
         <button
           type="button"
           aria-label={`Close ${thread.title}`}
@@ -756,12 +806,13 @@ const ThreadRow = memo(function ThreadRow({
   );
 }, sameRow);
 
-/** A tab's right-click menu: resume its agent in a terminal, mark it read or
- * unread, close it, with the worktree Med made for it, or delete it. */
+/** A tab's right-click menu: rename it, resume its agent in a terminal, mark it
+ * read or unread, close it, with the worktree Med made for it, or delete it. */
 function ThreadMenu({
   thread,
   unread,
   onOpen,
+  onRename,
   onCopy,
   onUnread,
   onClose,
@@ -770,6 +821,7 @@ function ThreadMenu({
   thread: Thread;
   unread: boolean;
   onOpen(): void;
+  onRename?(): void;
   onCopy(text: string): void;
   onUnread(unread: boolean): void;
   onClose?(removeWorktree: boolean): void;
@@ -788,6 +840,11 @@ function ThreadMenu({
       <ContextMenu.Item onClick={onOpen} className={item}>
         Open
       </ContextMenu.Item>
+      {onRename && (
+        <ContextMenu.Item onClick={onRename} className={item}>
+          Rename…
+        </ContextMenu.Item>
+      )}
       {(sessions.length > 0 || thread.checkout) && (
         <ContextMenu.Separator {...stylex.props(styles.separator)} />
       )}
@@ -918,6 +975,8 @@ const styles = stylex.create({
   },
   newRow: { height: 32, color: { default: tokens.text, ":hover": tokens.text }, marginTop: 2 },
   thread: { alignItems: "flex-start", paddingBlock: 7 },
+  // The row while its name field shows in its place.
+  away: { display: "none" },
   source: { height: 30 },
   // A tab's row holds its close control and its subagents.
   item: { position: "relative" },

@@ -168,6 +168,9 @@ export const savedCheckoutSchema = z.object({
   repositoryId: z.string(),
   repo: z.string(),
   branch: z.string().nullable(),
+  /** The branch that the thread's Changes start from, which the reader chose;
+   * without it, the repository's base branch (changesBase). */
+  base: z.string().trim().min(1).max(256).optional(),
 });
 export type SavedCheckout = z.infer<typeof savedCheckoutSchema>;
 /** The names of a range's endpoints when Med captured it, such as main and
@@ -219,6 +222,8 @@ export const savedReviewDetailsSchema = z.object({
   pullRequestTitle: z.string().trim().min(1).max(200).optional(),
   /** Added to the review's sessions. */
   sessions: z.array(agentSessionSchema).max(MAX_SESSIONS).optional(),
+  /** Where the thread works from now on, and the base of its Changes. */
+  checkout: savedCheckoutSchema.optional(),
 });
 export const savedReviewSchema = z.object({
   id: z.string(),

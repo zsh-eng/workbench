@@ -3227,7 +3227,7 @@ describe("agent session", () => {
         at: 0,
         update: {
           sessionUpdate: "user_message_chunk",
-          content: { type: "text", text: "Rename the export." },
+          content: { type: "text", text: "Rename the export in /test/repo/src/beta.ts:2." },
         },
       },
       {
@@ -3247,7 +3247,7 @@ describe("agent session", () => {
           sessionUpdate: "agent_message_chunk",
           content: {
             type: "text",
-            text: "Renamed in [alpha.ts:1](src/alpha.ts:1).",
+            text: "Renamed in [alpha.ts:1](src/alpha.ts:1) and `/test/repo/src/beta.ts:1-2`; `src/gone.ts:3` and `bun test` are not files.",
           },
         },
       },
@@ -3258,7 +3258,7 @@ describe("agent session", () => {
     });
     await page.getByRole("button", { name: "Toggle agent session" }).click();
     const panel = page.getByRole("region", { name: "Agent session" });
-    await expect.element(panel.getByText("Rename the export.")).toBeVisible();
+    await expect.element(panel.getByText(/Rename the export in/)).toBeVisible();
     // The finished turn's work folds into one row; Show work opens it, and stays on.
     await expect
       .element(panel.getByRole("button", { name: "Worked for 2.0s · 1 tool call" }))
@@ -3272,8 +3272,43 @@ describe("agent session", () => {
     expect(localStorage.getItem("med:work")).toBe("shown");
     await expect.element(panel.getByText("Idle")).toBeVisible();
 
-    await panel.getByText("alpha.ts:1").click();
+    // Each reference to a file of the checkout is a link with the file's name
+    // and lines: a Markdown link, inline code, an absolute path, and a path in
+    // the prompt. Text that names no file stays as it is.
+    const alpha = panel.getByRole("link", { name: "Open src/alpha.ts at L1" });
+    await expect.element(alpha).toHaveTextContent("alpha.tsL1");
+    const beta = panel.getByRole("link", { name: "Open src/beta.ts at L1–2" });
+    await expect.element(beta).toHaveTextContent("beta.tsL1–2");
+    await expect.element(beta).toHaveAttribute("data-tooltip", "src/beta.ts:1–2");
+    const prompted = panel.getByRole("button", { name: "Open src/beta.ts at L2" });
+    await expect.element(prompted).toHaveTextContent("beta.tsL2");
+    await expect.element(panel.getByText("src/gone.ts:3", { exact: true })).toBeVisible();
+    expect(panel.getByRole("link", { name: /gone|bun test/ }).query()).toBeNull();
+
+    // A range opens its file at its first line with the range marked; a
+    // second link to the open file goes to its own line.
+    await beta.click();
+    await expect.element(page.getByRole("tab", { name: "beta.ts", exact: true })).toBeVisible();
+    const editor = page.getByRole("region", { name: "File editor" });
+    const cited = () =>
+      [...editor.element().querySelectorAll(".med-cited-line")].map((line) => line.textContent);
+    await expect
+      .poll(cited)
+      .toEqual(['export const workspace = "/test/repo";', "export const workingContents = true;"]);
+    await prompted.click();
+    await expect.poll(cited).toEqual(["export const workingContents = true;"]);
+    await alpha.click();
     await expect.element(page.getByRole("tab", { name: "alpha.ts", exact: true })).toBeVisible();
+    await expect.poll(() => editor.element().querySelectorAll(".med-cited-line").length).toBe(1);
+    // A link's tab is a tab like any other: closing it shows the one before.
+    await page.getByRole("button", { name: "Close src/alpha.ts" }).click();
+    await expect
+      .element(page.getByRole("tab", { name: "beta.ts", exact: true }))
+      .toHaveAttribute("aria-selected", "true");
+    await page.getByRole("button", { name: "Close src/beta.ts" }).click();
+    await expect
+      .element(page.getByRole("tab", { name: "Review", exact: true }))
+      .toHaveAttribute("aria-selected", "true");
     await panel.getByRole("button", { name: "Close session" }).click();
     await expect.element(panel).not.toBeInTheDocument();
   });
@@ -3809,7 +3844,7 @@ describe("agent session", () => {
           messageId: "r1",
           content: {
             type: "text",
-            text: "The old name clashed in [alpha.ts:1](src/alpha.ts:1).",
+            text: "The old name clashed in [alpha.ts:1](src/alpha.ts:1). The guide asks for it in `/test/repo/docs/GUIDE.md:3`.",
           },
         },
       },
@@ -3833,6 +3868,20 @@ describe("agent session", () => {
     await expect.element(pinned.getByText(/The old name clashed in/)).toBeVisible();
     // The pinned reply cites its own lines, as the brief does.
     await expect.element(pinned.getByRole("button", { name: /Open src\/alpha\.ts/ })).toBeVisible();
+    // A file that the change does not touch links to the checkout's copy, and its
+    // lines show from the checkout, with the path in the checkout.
+    const guide = pinned.getByRole("link", { name: "docs/GUIDE.md:3" });
+    await expect.element(guide).toHaveAttribute("title", "docs/GUIDE.md:3 · Open file");
+    const excerpt = pinned.getByRole("figure").filter({ hasText: "Not in the change" });
+    await expect
+      .element(excerpt.getByRole("button", { name: "Open docs/GUIDE.md L3" }))
+      .toBeVisible();
+    await expect
+      .poll(() => excerpt.element().querySelector("diffs-container")?.shadowRoot?.textContent ?? "")
+      .toContain("Read the review in order.");
+    await guide.click();
+    await expect.element(page.getByRole("tab", { name: "GUIDE.md", exact: true })).toBeVisible();
+    await page.getByRole("tab", { name: "Notes" }).click();
     await expect.element(panel.getByRole("button", { name: "Pinned" })).toBeVisible();
 
     await pinned.getByRole("button", { name: "Note 2 options" }).click();

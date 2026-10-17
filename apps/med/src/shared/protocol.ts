@@ -111,12 +111,15 @@ export function baseOf(repository: Pick<RegisteredRepository, "path" | "worktree
 }
 
 /** Where a checkout's Changes start: the base branch, when the checkout is on
- * another branch or none (Branch); otherwise HEAD (Working, undefined). */
+ * another branch or none (Branch); otherwise HEAD (Working, undefined). The
+ * base is the one that the reader chose for the thread, else the
+ * repository's. */
 export function changesBase(
   repository: Pick<RegisteredRepository, "path" | "worktrees"> | undefined,
   branch: string | null | undefined,
+  chosen?: string,
 ) {
-  const base = baseOf(repository);
+  const base = chosen ?? baseOf(repository);
   return base && base !== "Detached HEAD" && branch !== base ? base : undefined;
 }
 export interface Commit {

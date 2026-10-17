@@ -47,6 +47,8 @@ const entrySchema = z.object({
   auto: z.boolean().optional(),
   /** The first prompt of its lead session, for history's search. */
   prompt: z.string().max(400).optional(),
+  /** The name that the reader gave the thread in Med, in place of its agent's title. */
+  name: z.string().max(120).optional(),
   stub: tabStubSchema.optional(),
 });
 export type TabEntry = z.infer<typeof entrySchema>;
@@ -152,6 +154,9 @@ export function createThreadTabs(options: { file: string; now?: () => number }) 
         // The saved thread is the session now; history does not list it twice.
         at = replaced;
         state.order.splice(replaced, 1);
+        // It keeps the name that the reader gave the session.
+        const name = state.entries[place.replace!]?.name;
+        if (name && !item.name) item.name = name;
         delete state.entries[place.replace!];
       } else if (place.restore && item.place !== undefined)
         at = Math.min(item.place, state.order.length);
@@ -206,6 +211,16 @@ export function createThreadTabs(options: { file: string; now?: () => number }) 
       if (!item || item.prompt) return;
       item.prompt = prompt.slice(0, 400);
       dirty = true;
+    },
+    /** Names the thread; without a name, it shows its agent's title again.
+     * False when the name was the same. */
+    setName(id: string, name: string | undefined) {
+      const item = entry(id);
+      if (item.name === name) return false;
+      if (name) item.name = name;
+      else delete item.name;
+      changed();
+      return true;
     },
     /** Keeps what history needs of a thread whose record is gone. */
     setStub(id: string, stub: TabStub) {

@@ -329,8 +329,10 @@ Commit tab's `q`, and a full row's eviction all use that order.
 A thread is a saved review, or a session that Med found
 ([found sessions](docs/SESSIONS.md#found-sessions)). The threads that the user
 has open are tabs; the others are history. `src/host/thread-tabs.ts` keeps
-which threads are tabs, their order, and when each closed, in `tabs.json` in
-the state directory. `src/host/thread-service.ts` builds the lists:
+which threads are tabs, their order, when each closed, and the name that the
+user gave a thread (`POST /api/threads/:id/name`), in `tabs.json` in the
+state directory. A name shows as `title`, with the agent's title in
+`agentTitle`; a hand-off that changes the review's title leaves it. `src/host/thread-service.ts` builds the lists:
 
 - `GET /api/threads/events` sends the tabs, in order, with the registered
   repositories, and sends them again when they change. One read serves all
@@ -495,7 +497,14 @@ that the agent hands off with `med thread show`, `med review create --key`, or
 path, branch) and no target. Its **Changes** are a live comparison of that
 checkout, which Med never saves: a `working` comparison with `base`, from the
 merge base of the base branch and HEAD to the working files, on a branch
-other than the base, and plain working changes on the base. A Git comparison
+other than the base, and plain working changes on the base. The base is the
+repository's main checkout's branch unless the reader chose another
+(`checkout.base`). `POST /api/reviews/:id/details` with `checkout` moves the
+thread to another checkout of a registered repository or keeps a base; the
+host, the thread list, and the browser read both through `threadCheckout` and
+`changesBase`. A review's ID names its diff, so two bases with one merge base
+share a review; the live review cache in `server.ts` serves a review again
+only for the comparison that it was loaded for. A Git comparison
 can keep only `paths` (literal pathspecs; an empty list keeps no file), or the
 files that a Claude Code or Codex `session` edited: `/api/review` reads them
 from the transcript (`src/host/session-edits.ts`) and asks Git for those
@@ -516,7 +525,10 @@ live comparison that the reader chose, so Changes come back as they were.
 
 A bundle can hold a Markdown brief and pinned notes. `src/web/data/brief.ts`
 resolves each link to a changed file and line range (exact path, then a unique
-path suffix) and shows the cited range as an excerpt. A bundle with a pull
+path suffix) and shows the cited range as an excerpt. A reference to a file that
+the change does not touch resolves against the checkout's file list
+(`data/file-refs.ts`, the index that session links use); its excerpt reads the
+file from the checkout when it scrolls near. A bundle with a pull
 request URL can show GitHub comments: `GET /api/reviews/:id/pull-request` runs
 `gh api` with GET requests only and keeps the result for 30 seconds. Med never
 writes to GitHub. Thread lines refer to the pull request's head commit, so

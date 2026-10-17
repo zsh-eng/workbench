@@ -14,6 +14,10 @@ export interface OpenFileTab {
   sourceLabel: string;
   line?: number;
   column?: number;
+  /** The last line of a cited range that starts at `line`, such as src/a.ts:8-17. */
+  endLine?: number;
+  /** Names each open at a line, so a second open of the same line goes there again. */
+  revealed?: number;
 }
 interface Workspace {
   tabs: OpenFileTab[];
@@ -58,6 +62,8 @@ function readSourceKey(file: FileRead) {
 /** A file's path as its tab names it: in its vault, or in its repository. */
 const readPath = (file: FileRead) => ("vault" in file && file.vault ? file.vault.path : file.path);
 
+/** Each open at a line gets a new number, which an editor applies once. */
+let reveals = 0;
 const STORAGE = "med:files:v1:";
 const STORAGE_INDEX = "med:files:v1";
 /** Workspaces whose open files outlast the window, most recent last. */
@@ -210,7 +216,9 @@ export function createFileWorkspace(
       if (persist) {
         const key = snapshot.key;
         const navigation = {
-          tabs: snapshot.tabs.map(({ line: _line, column: _column, ...tab }) => tab),
+          tabs: snapshot.tabs.map(
+            ({ line: _line, column: _column, endLine: _end, revealed: _revealed, ...tab }) => tab,
+          ),
           active: snapshot.active,
           recent: snapshot.recent,
           recentPaths: snapshot.recentPaths,
@@ -341,16 +349,20 @@ export function createFileWorkspace(
       source: TabSource | null = snapshot.source,
       label = snapshot.sourceLabel,
       column?: number,
-      { background = false }: { background?: boolean } = {},
+      // `endLine` ends a cited range that starts at `line`, such as src/a.ts:8-17.
+      { background = false, endLine: rangeEnd }: { background?: boolean; endLine?: number } = {},
     ) {
       if (!source || disposed) return;
+      const endLine = line ? rangeEnd : undefined;
       const id = `${sourceKey(source)}:${path}`;
       const existing = snapshot.tabs.some((tab) => tab.id === id);
       // A file that shows already keeps its cursor and scroll.
       if (existing && !line && (background || (snapshot.active === id && snapshot.file))) return;
       let tabs = snapshot.tabs;
       if (existing && line)
-        tabs = tabs.map((tab) => (tab.id === id ? { ...tab, line, column } : tab));
+        tabs = tabs.map((tab) =>
+          tab.id === id ? { ...tab, line, column, endLine, revealed: ++reveals } : tab,
+        );
       else if (!existing) {
         tabs = [...tabs];
         // A full row gives up the tab that showed least recently and has no unsaved draft.
@@ -372,7 +384,13 @@ export function createFileWorkspace(
           }
           tabs.splice(index, 1);
         }
-        tabs.push({ id, path, source, sourceLabel: label, ...(line ? { line, column } : {}) });
+        tabs.push({
+          id,
+          path,
+          source,
+          sourceLabel: label,
+          ...(line ? { line, column, ...(endLine ? { endLine } : {}), revealed: ++reveals } : {}),
+        });
       }
       publish({
         tabs,

@@ -22,6 +22,7 @@ import { renderBrief } from "../../markdown/brief-render";
 import { tokens } from "../../theme.stylex";
 import { useTheme } from "../../themes";
 import { Icon } from "../Icon";
+import { LinkedText } from "../FileRefs";
 import { ZenContext } from "../ZenExit";
 import { motion, rowStyles } from "./session-styles";
 import { BackgroundDock } from "./BackgroundDock";
@@ -211,11 +212,11 @@ function PromptText({
                 (at > 0 || images) && styles.userNext,
               )}
             >
-              {part.text}
+              <LinkedText text={part.text} />
             </blockquote>
           ) : (
             <p key={at} {...stylex.props(styles.userText, (at > 0 || images) && styles.userNext)}>
-              {part.text}
+              <LinkedText text={part.text} />
             </p>
           ),
         )}

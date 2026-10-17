@@ -28,6 +28,7 @@ import {
 } from "../../shared/saved-review";
 import {
   annotateBrief,
+  checkoutExcerpt,
   diffExcerpt,
   joinNotes,
   sourceExcerpt,
@@ -42,6 +43,7 @@ import { ActionMenu } from "./Controls";
 import { DiagramBlock } from "./DiagramBlock";
 import { markdownImageUrl } from "../markdown/images";
 import { DiffStat } from "./DiffStat";
+import type { FileRefs } from "./FileRefs";
 import { Icon } from "./Icon";
 import { NoteCard, NoteComposer, type NoteTarget } from "./NoteCard";
 import { diffSurfaceStyle, EXPANSION_LINES } from "./diff-surface";
@@ -84,6 +86,11 @@ export interface BriefViewProps {
   loadSource(path: string): Promise<{ old: string; new: string }>;
   onOpen(location: BriefLocation): void;
   onOpenPath(path: string, line?: number): void;
+  /** The checkout's files: a reference to a file that the change does not
+   * touch links to it, and its cited lines show from the checkout. */
+  fileRefs?: FileRefs;
+  /** Reads a file of the checkout, for the cited lines of such a file. */
+  readFile?(path: string): Promise<string>;
   onPaste(): void;
   onCopy(text: string): void;
   onRemove(): void;
@@ -195,6 +202,8 @@ export default function BriefView({
   loadSource,
   onOpen,
   onOpenPath,
+  fileRefs,
+  readFile,
   onPaste,
   onCopy,
   onRemove,
@@ -328,9 +337,10 @@ export default function BriefView({
   }, [hasShown, prerenderKey, theme.pierreTheme]);
 
   const starts = shown?.starts;
+  const fileIndex = fileRefs?.index;
   const annotated = useMemo(
-    () => (result ? annotateBrief(result.blocks, files, root, starts) : null),
-    [result, files, root, starts],
+    () => (result ? annotateBrief(result.blocks, files, root, starts, fileIndex) : null),
+    [result, files, root, starts, fileIndex],
   );
   // The rendered blocks of each note.
   const groups = useMemo(() => {
@@ -522,9 +532,9 @@ export default function BriefView({
   };
 
   // Links resolve through delegation: the Markdown is HTML, not React elements.
-  const handlers = useRef({ onOpen, onOpenPath });
+  const handlers = useRef({ onOpen, onOpenPath, fileRefs });
   useEffect(() => {
-    handlers.current = { onOpen, onOpenPath };
+    handlers.current = { onOpen, onOpenPath, fileRefs };
   });
   useEffect(() => {
     const host = article.current;
@@ -545,6 +555,16 @@ export default function BriefView({
               }
             : {}),
         });
+      } else if (data.filePath) {
+        event.preventDefault();
+        handlers.current.fileRefs?.open(
+          {
+            path: data.filePath,
+            ...(data.fileLine ? { line: Number(data.fileLine) } : {}),
+            ...(data.fileEnd ? { endLine: Number(data.fileEnd) } : {}),
+          },
+          event.metaKey || event.ctrlKey,
+        );
       } else if (data.briefPath) {
         event.preventDefault();
         handlers.current.onOpenPath(
@@ -861,6 +881,21 @@ export default function BriefView({
       )}
       {annotated?.excerpts.map((excerpt) => {
         const slot = slots.get(excerpt.key);
+        if (excerpt.checkout)
+          return slot
+            ? createPortal(
+                <CheckoutExcerptCard
+                  excerpt={excerpt}
+                  linked={linked === excerpt.key}
+                  pierreTheme={theme.pierreTheme}
+                  themeType={theme.appearance}
+                  readFile={readFile}
+                  onOpen={(ref) => fileRefs?.open(ref, false)}
+                />,
+                slot,
+                excerpt.key,
+              )
+            : null;
         const file = fileById.get(excerpt.fileId);
         return slot && file
           ? createPortal(
@@ -923,6 +958,150 @@ export default function BriefView({
   );
 }
 
+/** Whether a card is near the viewport. Its diff mounts only then, so long
+ * notes stay cheap to open. A card already near it mounts before the first
+ * paint, so new notes never show an empty card for a frame. */
+function useNear(host: RefObject<HTMLElement | null>) {
+  const [near, setNear] = useState(false);
+  useLayoutEffect(() => {
+    const node = host.current!;
+    const { top, bottom } = node.getBoundingClientRect();
+    if (node.checkVisibility() && top < innerHeight + 900 && bottom > -900) {
+      // The position is known only after layout.
+      // oxlint-disable-next-line react/set-state-in-effect
+      setNear(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        observer.disconnect();
+        setNear(true);
+      },
+      { rootMargin: "900px 0px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [host]);
+  return near;
+}
+
+/** The cited lines of a file that the change does not touch, read from the
+ * checkout. Its head and its "more lines" open the file at those lines. */
+function CheckoutExcerptCard({
+  excerpt,
+  linked,
+  pierreTheme,
+  themeType,
+  readFile,
+  onOpen,
+}: {
+  excerpt: BriefExcerpt;
+  linked: boolean;
+  pierreTheme: FileDiffOptions<undefined, undefined>["theme"];
+  themeType: "light" | "dark";
+  readFile: BriefViewProps["readFile"];
+  onOpen(ref: { path: string; line: number; endLine: number }): void;
+}) {
+  const { range, fileId: path } = excerpt;
+  const host = useRef<HTMLElement>(null);
+  const near = useNear(host);
+  const [source, setSource] = useState<Excerpt | "missing" | null>(null);
+  useEffect(() => {
+    if (!near || source || !readFile) return;
+    let cancelled = false;
+    readFile(path)
+      .then((text) => {
+        if (cancelled) return;
+        const result = checkoutExcerpt(path, range, text);
+        if (result?.metadata.hunks[0]) result.metadata.hunks[0].collapsedBefore = 0;
+        setSource(result ?? "missing");
+      })
+      .catch(() => {
+        if (!cancelled) setSource("missing");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [near, source, readFile, path, range]);
+  const shown = source && source !== "missing" ? source : null;
+  const options = useMemo<FileDiffOptions<undefined, undefined>>(
+    () => ({
+      theme: pierreTheme,
+      themeType,
+      diffStyle: "unified",
+      overflow: "wrap",
+      diffIndicators: "bars",
+      disableFileHeader: true,
+      hunkSeparators: "line-info",
+      unsafeCSS: `[data-separator-content] { font-size: 11px; }`,
+    }),
+    [pierreTheme, themeType],
+  );
+  // The cited lines show marked among their context.
+  const cited = useMemo<SelectedLineRange>(
+    () => ({ start: range.start, end: range.end, side: "additions" }),
+    [range],
+  );
+  const open = () => onOpen({ path, line: range.start, endLine: range.end });
+  const slash = path.lastIndexOf("/") + 1;
+  const lines = `L${range.start}${range.end > range.start ? `–${range.end}` : ""}`;
+  return (
+    <figure
+      ref={host}
+      data-brief-excerpt={excerpt.key}
+      {...stylex.props(styles.card, linked && styles.cardLinked)}
+    >
+      <button
+        data-excerpt-open
+        aria-label={`Open ${path} ${lines}`}
+        onClick={open}
+        {...stylex.props(styles.cardHeader, stylex.defaultMarker())}
+      >
+        <Icon name="file" size={13} />
+        <span {...stylex.props(styles.path)}>
+          <span {...stylex.props(styles.directory)}>{path.slice(0, slash)}</span>
+          <span {...stylex.props(styles.name)}>{path.slice(slash)}</span>
+        </span>
+        <span {...stylex.props(styles.lines)}>{lines}</span>
+        <span {...stylex.props(styles.grow)} />
+        <span {...stylex.props(styles.unchanged)}>Not in the change</span>
+        <span {...stylex.props(styles.jump)}>
+          <Icon name="jump" size={13} />
+        </span>
+      </button>
+      <div
+        {...stylex.props(
+          styles.cardBody,
+          near && source
+            ? styles.cardBodyReady
+            : styles.placeholder(Math.min(14, range.end - range.start + 5) * 20),
+        )}
+      >
+        {near && shown && (
+          <FileDiff
+            fileDiff={shown.metadata}
+            options={options}
+            style={diffSurfaceStyle}
+            selectedLines={cited}
+          />
+        )}
+        {near && source === "missing" && (
+          <p {...stylex.props(styles.missing)}>
+            Med could not read these lines from the checkout. Open the file to read it.
+          </p>
+        )}
+      </div>
+      {shown && shown.hidden > 0 && (
+        <button {...stylex.props(styles.more)} onClick={open}>
+          <Icon name="jump" size={12} />
+          {shown.hidden} more {shown.hidden === 1 ? "line" : "lines"} in the file
+        </button>
+      )}
+    </figure>
+  );
+}
+
 function ExcerptCard({
   excerpt,
   file,
@@ -960,31 +1139,8 @@ function ExcerptCard({
 }) {
   const { range } = excerpt;
   const host = useRef<HTMLElement>(null);
-  const [near, setNear] = useState(false);
+  const near = useNear(host);
   const [source, setSource] = useState<Excerpt | "missing" | null>(null);
-  // Mount the diff only near the viewport; long briefs stay cheap to open. An
-  // excerpt already near it mounts before the first paint, so a new brief
-  // never shows an empty card for a frame.
-  useLayoutEffect(() => {
-    const node = host.current!;
-    const { top, bottom } = node.getBoundingClientRect();
-    if (node.checkVisibility() && top < innerHeight + 900 && bottom > -900) {
-      // The position is known only after layout.
-      // oxlint-disable-next-line react/set-state-in-effect
-      setNear(true);
-      return;
-    }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (!entries.some((entry) => entry.isIntersecting)) return;
-        observer.disconnect();
-        setNear(true);
-      },
-      { rootMargin: "900px 0px" },
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
   const diff = useMemo(() => {
     const result = diffExcerpt(file, range);
     // The excerpt starts at its first row: no "unmodified lines" bar above it.

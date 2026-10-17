@@ -401,6 +401,19 @@ those messages as another session's, not as the user's.
   or `$3`; only `$$` starts math. Markdown files keep `$…$` math.
 - `SessionPanel.tsx` is the sidebar: the stream, the status, and links. A link
   such as `src/summary.ts:5` opens the file in the review.
+- `data/file-refs.ts` turns file references into links. `App.tsx` builds one
+  index of the checkout's file list (the list that `⌘P` uses); a reference
+  resolves against it, from the session's folder, by exact path or a unique
+  suffix. Rendered replies get their links after the worker returns their
+  HTML, once for each reply and index (`useFileRefBlocks` in `FileRefs.tsx`),
+  so a long thread does no work again when it scrolls. Prompts and Question
+  answers use the same index. Until the list loads, references stay as text;
+  a link never waits for a request. The height estimates count a link as its
+  name and lines (`refEstimate`). A link opens an ordinary file tab
+  (`fileWorkspace.open` with `endLine`), so closing it shows the tab before
+  it. The link marks its range
+  (`.med-cited-line` in `FileEditor.tsx`, or the selected lines in a
+  read-only view); the mark goes when you edit or leave the range.
 
 ## Replays and fixtures
 

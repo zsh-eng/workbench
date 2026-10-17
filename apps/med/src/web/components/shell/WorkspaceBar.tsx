@@ -1,11 +1,12 @@
 import * as stylex from "@stylexjs/stylex";
 import { useEffect, useState } from "react";
-import type { ThreadList } from "../../../shared/threads";
+import type { Thread, ThreadList } from "../../../shared/threads";
 import type { Workspace } from "../../data/workspaces";
 import { useQuietChrome } from "../../data/chrome";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon, type IconName } from "../Icon";
 import { ToolButton, tooltip } from "../ToolButton";
+import { RenameField } from "./RenameField";
 
 const basename = (path: string) =>
   path
@@ -75,12 +76,16 @@ export function WorkspaceBar({
   context,
   showSidebar,
   needs = 0,
+  rename,
 }: {
   context?: BarContext;
   /** The sidebar is hidden or covers the workspace: the band starts with its toggle. */
   showSidebar?: () => void;
   /** The tabs that need the reader, while the sidebar that counts them is hidden. */
   needs?: number;
+  /** The thread on screen: a double-click on its name, or ⌘K, names it here
+   * while the sidebar hides. */
+  rename?: { thread: Thread; editing: boolean; start(): void; done(name: string | null): void };
 }) {
   const quiet = useQuietChrome();
   const title = quiet && showSidebar && context?.kind === "checkout" ? context.title : undefined;
@@ -98,12 +103,25 @@ export function WorkspaceBar({
           onClick={showSidebar}
         />
       )}
-      {title && (
-        <span data-thread-title="" {...stylex.props(styles.title)}>
-          {title}
+      {rename?.editing ? (
+        <span {...stylex.props(styles.title, styles.naming)}>
+          <RenameField thread={rename.thread} onDone={rename.done} />
         </span>
+      ) : (
+        title && (
+          <span
+            data-thread-title=""
+            title="Double-click to rename"
+            onDoubleClick={rename?.start}
+            {...stylex.props(styles.title)}
+          >
+            {title}
+          </span>
+        )
       )}
-      {context?.kind === "checkout" && <Checkout {...context} quiet={quiet} after={!!title} />}
+      {context?.kind === "checkout" && (
+        <Checkout {...context} quiet={quiet} after={!!title || !!rename?.editing} />
+      )}
       {context?.kind === "label" && (
         <span {...stylex.props(styles.checkout)}>
           <Icon name={context.icon} size={14} />
@@ -197,6 +215,8 @@ const styles = stylex.create({
   name: { color: tokens.text, fontWeight: 500 },
   // After the thread's title, the repository is secondary.
   nameAfter: { color: tokens.muted },
+  // The thread's name field: room for a name, in the title's place.
+  naming: { display: "flex", flexShrink: 0, width: "min(320px, 40vw)", overflow: "visible" },
   // The thread's name, as its sidebar row has it, while the sidebar is hidden.
   title: {
     flexShrink: 1,

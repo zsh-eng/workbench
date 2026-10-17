@@ -208,6 +208,51 @@ test("the first start with tabs opens at most the 8 newest threads of the last 7
   ]);
 });
 
+test("a thread keeps the name that the reader gives it across a restart, a hand-off, and history, and an empty name restores the agent's title", async () => {
+  const { api, save, tabs, history, restart, stateDir } = await fixture();
+  const review = await save("Forgiving station search");
+  const listed = async () =>
+    (await api<ThreadList>("/api/threads")).data.threads.map(({ title, agentTitle }) => ({
+      title,
+      agentTitle,
+    }));
+
+  expect(
+    (await api(`/api/threads/${review.id}/name`, { name: "  Station search v2  " })).status,
+  ).toBe(200);
+  expect(await listed()).toEqual([
+    { title: "Station search v2", agentTitle: "Forgiving station search" },
+  ]);
+  // Med keeps the name in its tabs file, not in the review.
+  const saved = JSON.parse(await readFile(join(stateDir, "tabs.json"), "utf8")) as {
+    entries: Record<string, { name?: string }>;
+  };
+  expect(saved.entries[review.id]?.name).toBe("Station search v2");
+  await restart();
+  expect(await tabs()).toEqual(["Station search v2"]);
+
+  // A hand-off that gives the review a new title does not change the name.
+  expect(
+    (await api(`/api/reviews/${review.id}/details`, { title: "Station search with regions" }))
+      .status,
+  ).toBe(200);
+  expect(await listed()).toEqual([
+    { title: "Station search v2", agentTitle: "Station search with regions" },
+  ]);
+
+  // History lists the name; an empty name gives the agent's title back.
+  expect((await api(`/api/threads/${review.id}/close`, {})).status).toBe(200);
+  expect((await history()).map((thread) => thread.title)).toEqual(["Station search v2"]);
+  expect((await api(`/api/threads/${review.id}/name`, { name: "" })).status).toBe(200);
+  const [closed] = await history();
+  expect([closed!.title, closed!.agentTitle]).toEqual(["Station search with regions", undefined]);
+
+  // A thread that Med does not know cannot be named.
+  expect((await api(`/api/threads/r_${"0".repeat(24)}/name`, { name: "Nothing" })).status).toBe(
+    404,
+  );
+});
+
 test("a closed thread keeps its captures for 30 days, then a stub that opens its session, and after 180 days nothing", async () => {
   const { api, save, tabs, history, restart, record, repo, home, stateDir } = await fixture();
   const session = "12121212-1212-4212-8212-121212121212";

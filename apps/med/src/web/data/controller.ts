@@ -8,6 +8,7 @@ import {
   threadCheckout,
   type BriefCommentMutation,
   type PinMutation,
+  type SavedCheckout,
   type SavedIteration,
   type SavedReview,
   type SavedFeedback,
@@ -126,6 +127,16 @@ export interface ReviewController {
    * last, or by default the branch's changes on a branch other than its
    * base, and the working changes on the base. */
   showChanges(): Promise<void>;
+  /** Moves the thread to another checkout of its repository. Its Changes
+   * show that checkout from now on, since the same base. */
+  moveThread(checkout: {
+    repositoryId: string;
+    repo: string;
+    branch: string | null;
+  }): Promise<void>;
+  /** Shows the branch's changes since `comparison.base`. On the thread's own
+   * checkout, the thread keeps that base. */
+  setChangesBase(comparison: Extract<Comparison, { kind: "working" }>): Promise<void>;
   copyFeedback(): Promise<SavedFeedback>;
   /** The saved review's GitHub pull request comments, read-only. `refresh`
    * skips the host's 30-second cache. */
@@ -878,9 +889,33 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     const repository = snapshot.repositories.find(
       (entry) => entry.id === snapshot.activeRepositoryId,
     );
-    const base = changesBase(repository, snapshot.session?.repository.branch);
+    const path = snapshot.session?.repository.path;
+    const base = changesBase(repository, snapshot.session?.repository.branch, ownBase(path));
     return base ? { kind: "working", base } : { kind: "working" };
   };
+  /** The base that the reader chose for the thread, when `path` is its checkout. */
+  const ownBase = (path: string | undefined) => {
+    const checkout = snapshot.savedReview && threadCheckout(snapshot.savedReview);
+    return checkout && checkout.repo === path ? checkout.base : undefined;
+  };
+  /** Saves where the thread works and the base of its Changes. False when
+   * another review took the window meanwhile. */
+  async function saveCheckout(checkout: SavedCheckout) {
+    const saved = snapshot.savedReview;
+    if (!saved) throw new Error("Open a thread first.");
+    const next = await api.json(
+      `/api/reviews/${encodeURIComponent(saved.id)}/details`,
+      savedReviewSchema,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ checkout }),
+      },
+    );
+    if (disposed || snapshot.savedReview?.id !== saved.id) return false;
+    update({ savedReview: next });
+    return true;
+  }
   /** Whether the checkout of the latest captured target changed after its
    * capture. The answer shows as `savedDrift`; a failed check shows nothing. */
   async function checkDrift() {
@@ -1112,6 +1147,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       const base = changesBase(
         repositories.find((entry) => entry.id === id),
         session.repository.branch,
+        ownBase(session.repository.path),
       );
       const initialComparison: Comparison = branchSnapshot
         ? { kind: "commit" as const, commit: branch.head }
@@ -1844,6 +1880,43 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       )
         return;
       return selectComparison(live);
+    },
+    async moveThread(target) {
+      const before = snapshot.savedReview && threadCheckout(snapshot.savedReview);
+      // The base goes with the thread.
+      const moved = await saveCheckout({
+        repositoryId: target.repositoryId,
+        repo: target.repo,
+        branch: target.branch,
+        ...(before?.base && { base: before.base }),
+      });
+      if (!moved) return;
+      liveChoice = null;
+      reviewSide = false;
+      await openWorkspace(target.repo, undefined, target.repositoryId);
+    },
+    async setChangesBase(comparison) {
+      const saved = snapshot.savedReview;
+      const checkout = saved && threadCheckout(saved);
+      // The repository's usual base is not saved, so the thread follows it.
+      const usual = changesBase(
+        snapshot.repositories.find((entry) => entry.id === snapshot.activeRepositoryId),
+        snapshot.session?.repository.branch,
+      );
+      let saving: Promise<unknown> | undefined;
+      if (
+        checkout &&
+        comparison.base &&
+        checkout.repo === snapshot.session?.repository.path &&
+        (checkout.base ?? usual) !== comparison.base
+      ) {
+        const { base: _, ...rest } = checkout;
+        saving = saveCheckout(
+          comparison.base === usual ? rest : { ...rest, base: comparison.base },
+        );
+      }
+      await selectComparison(comparison);
+      await saving;
     },
     async copyFeedback() {
       await waitForNoteWrites();

@@ -1,0 +1,65 @@
+/* A link to a file of the checkout, in a reply, a prompt, or the Notes: the
+   file's name in code type, with its lines after it, on a quiet pill like a
+   web link's. The classes are doubled to win over the prose's link rules. */
+.med-file-ref.med-file-ref {
+  padding: 0.12em 0.45em 0.12em 0.35em;
+  border-radius: calc(5px * var(--med-round, 1));
+  background: color-mix(in srgb, var(--med-text) 6%, transparent);
+  /* Link colour, as the prose's other links: this opens something. */
+  color: var(--med-accent);
+  font-family: "Paper Mono", monospace;
+  font-size: 0.86em;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  transition: background-color 120ms ease-out;
+}
+/* A prompt's link is a button: it keeps the line's height and baseline. */
+button.med-file-ref {
+  margin: 0;
+  border: 0;
+  font-weight: inherit;
+  line-height: inherit;
+  vertical-align: baseline;
+}
+.med-file-ref.med-file-ref:hover {
+  background: color-mix(in srgb, var(--med-text) 11%, transparent);
+  text-decoration: none;
+}
+.med-file-ref.med-file-ref:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--med-accent) 55%, transparent);
+  outline-offset: 1px;
+}
+.med-file-ref::before {
+  content: "";
+  display: inline-block;
+  width: 1.05em;
+  height: 1.05em;
+  margin-inline-end: 0.3em;
+  vertical-align: -0.17em;
+  background-color: var(--med-muted);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9.25 1.75h-4.5a1.5 1.5 0 0 0-1.5 1.5v9.5a1.5 1.5 0 0 0 1.5 1.5h6.5a1.5 1.5 0 0 0 1.5-1.5v-7.5z'/%3E%3Cpath d='M9.25 1.75v2.5a1 1 0 0 0 1 1h2.5'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9.25 1.75h-4.5a1.5 1.5 0 0 0-1.5 1.5v9.5a1.5 1.5 0 0 0 1.5 1.5h6.5a1.5 1.5 0 0 0 1.5-1.5v-7.5z'/%3E%3Cpath d='M9.25 1.75v2.5a1 1 0 0 0 1 1h2.5'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+.med-file-ref-lines {
+  margin-inline-start: 0.4em;
+  color: var(--med-muted);
+}
+/* A link with the author's own words keeps the prose's type and wraps. */
+.med-file-ref.med-file-ref-text {
+  font-family: inherit;
+  font-size: inherit;
+  white-space: normal;
+}
+.med-file-ref-text .med-file-ref-lines {
+  font-family: "Paper Mono", monospace;
+  font-size: 0.86em;
+}
+/* Inline code inside a link with words, such as [the `fold()` helper](src/a.ts). */
+.med-file-ref-text code {
+  font-size: 0.86em;
+}

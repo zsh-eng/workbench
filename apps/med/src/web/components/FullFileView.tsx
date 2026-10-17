@@ -70,6 +70,10 @@ export interface FullFileViewProps {
   sourceLabel: string;
   line?: number;
   column?: number;
+  /** The last line of a cited range from `line`, which the view marks. */
+  endLine?: number;
+  /** A new value goes to `line` again, also when the file shows already. */
+  revealed?: number;
   vimEnabled?: boolean;
   onSymbolPreviewReady?(begin: BeginFileSymbolPreview | null): void;
   onNavigationReady?(command: FileNavigationCommand | null): void;
@@ -123,6 +127,8 @@ function ReadOnlyFileView({
   sourceLabel,
   line,
   column,
+  endLine,
+  revealed,
   vimEnabled = false,
   onNavigationReady,
   onSelectionReaderReady,
@@ -167,10 +173,19 @@ function ReadOnlyFileView({
     viewer,
     line,
     column,
+    revealed,
     onNavigationReady,
     onDefinition,
     onPosition: followCursor,
   });
+  // A cited range, such as src/a.ts:8-17 from an agent's reply, shows selected.
+  const identity = file?.kind === "text" && !loading ? file.identity : undefined;
+  useLayoutEffect(() => {
+    if (compact || !identity || !line || !endLine) return;
+    const instance = viewer.current?.getInstance();
+    instance?.setSelectedLines({ id: identity, range: { start: line, end: endLine } });
+    instance?.render(true);
+  }, [compact, identity, line, endLine, revealed]);
   useLayoutEffect(() => {
     if (compact) return;
     onSelectionReaderReady?.(vim.selectedText);

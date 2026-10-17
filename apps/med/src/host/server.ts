@@ -23,6 +23,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import {
   apiErrorMessage,
+  comparisonKey,
   MAX_COMPARISON_PATHS,
   notesRequestSchema,
   noteMutationSchema,
@@ -112,6 +113,7 @@ import {
   threadCloseSchema,
   threadIdSchema,
   threadOpenSchema,
+  threadNameSchema,
   threadOrderSchema,
   threadSlug,
   threadStartSchema,
@@ -129,6 +131,7 @@ import {
   briefCommentMutationSchema,
   reviewKeySchema,
   savedReviewCreateSchema,
+  savedReviewDetailsSchema,
   threadCheckout,
   type AgentSession,
   type CapturedReviewTarget,
@@ -593,7 +596,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           return undefined;
         }
       })();
-      if (kept) {
+      // A review's ID names its diff, so two bases with the same merge base
+      // share one review, which keeps the comparison and label of the last load.
+      if (kept && comparisonKey(kept.comparison) === comparisonKey(request.comparison)) {
         liveReviews.delete(key);
         liveReviews.set(key, hit);
         return { ...kept, metrics: { ...kept.metrics, cacheHit: true, gitMs: 0 } };
@@ -2270,7 +2275,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               return;
             }
             if (request.method === "POST" && action === "details") {
-              const input = await readBody(request);
+              const input = savedReviewDetailsSchema.parse(await readBody(request));
+              // A thread works only in a checkout of a registered repository.
+              if (input.checkout) {
+                const owned = await registry.require(input.checkout.repo, abort.signal);
+                input.checkout.repo = owned.path;
+                input.checkout.repositoryId = owned.repository.id;
+              }
               assertRequestAccess();
               send(await savedReviews.details(id!, input, assertRequestAccess));
               return;
@@ -2653,7 +2664,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             send({ thread });
             return;
           }
-          const threadAction = /^\/api\/threads\/([\w-]+)\/(open|close|delete|archive)$/.exec(
+          const threadAction = /^\/api\/threads\/([\w-]+)\/(open|close|delete|archive|name)$/.exec(
             url.pathname,
           );
           if (threadAction && request.method === "POST") {
@@ -2668,6 +2679,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             } else if (action === "delete") {
               await threads.delete(id);
               send({ deleted: true });
+            } else if (action === "name") {
+              await threads.rename(id, threadNameSchema.parse(body ?? {}).name);
+              send({ ok: true });
             } else {
               // Archive, from before tabs: it closes the thread, or opens it again.
               const input = z

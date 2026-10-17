@@ -2,6 +2,7 @@ import * as stylex from "@stylexjs/stylex";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { answering, type QuestionView } from "../data/questions";
 import { tokens, ui } from "../theme.stylex";
+import { FileRefsContext, type FileRefs } from "./FileRefs";
 import { Icon } from "./Icon";
 import { PaneHeader } from "./PaneTree";
 import { ShortcutKeys } from "./ShortcutKeys";
@@ -27,6 +28,7 @@ export default function QuestionPane({
   onKeep,
   root,
   onOpenPath,
+  fileRefs,
 }: {
   view: QuestionView;
   /** The pane's own controls: Restore and Close. */
@@ -37,6 +39,8 @@ export default function QuestionPane({
   /** The checkout, for file links in the answer. */
   root?: string;
   onOpenPath(path: string, line?: number): void;
+  /** The checkout's files: paths in the answer that name one link to it. */
+  fileRefs?: FileRefs;
 }) {
   const { target, asked, state } = view;
   const [text, setText] = useState("");
@@ -136,14 +140,16 @@ export default function QuestionPane({
         )}
         {answer && (
           <div aria-live="polite" className="med-question-answer">
-            <SessionMarkdown
-              text={answer}
-              streaming={streaming}
-              onOpenLink={(href) => {
-                const link = sessionLink(href, root);
-                if (link) onOpenPath(link.path, link.line);
-              }}
-            />
+            <FileRefsContext.Provider value={fileRefs ?? null}>
+              <SessionMarkdown
+                text={answer}
+                streaming={streaming}
+                onOpenLink={(href) => {
+                  const link = sessionLink(href, root);
+                  if (link) onOpenPath(link.path, link.line);
+                }}
+              />
+            </FileRefsContext.Provider>
           </div>
         )}
       </div>

@@ -158,9 +158,17 @@ load it or read its agents until you open it again.
 - `⌃Tab` steps through recent workspaces: hold Control, press Tab to step, and
   release to go.
 - Rest the pointer on a row, and Med reads the thread before you click.
-- Right-click a row to open it, copy a command that resumes the agent's
-  session or opens lazygit in its checkout, mark it read or unread, close it,
-  or delete it.
+- Right-click a row to open it, rename it, copy a command that resumes the
+  agent's session or opens lazygit in its checkout, mark it read or unread,
+  close it, or delete it.
+- **Rename a thread** with **Rename…** in its row's menu, a double-click on
+  its row, or **Rename thread…** in the palette (`⌘K`). With the sidebar
+  hidden, the field shows in the title band, where a double-click on the
+  thread's name also renames it. `↵` keeps the new name, and `Esc` keeps the
+  old one. The name shows in the sidebar, the title band, the window's title,
+  history, and the palette. Med keeps it, not the agent: a new hand-off does
+  not change it, and it stays after a restart. An empty name gives the thread
+  its agent's title again.
 - A thread's pane has the tabs **Review**, **Changes**, and **Commit**.
   **Changes** are the checkout's Git changes as they are now; Med saves
   nothing for them. On a branch other than the base, they start at the base:
@@ -170,6 +178,19 @@ load it or read its agents until you open it again.
   checkout that other sessions share, such as the main checkout, **Only this
   session's files** keeps the files that the thread's Claude Code or Codex
   session edited.
+- **Set a thread's branch and base** from its comparison menu in **Changes**.
+  The menu's button names both, such as "station-search since main".
+  **Thread checkout…**, or `⌘⇧G` in a thread, chooses another branch or
+  worktree of the repository: `↵` moves the thread there. Use it when the
+  agent works in a checkout other than the one that the thread started in.
+  The thread's Changes, its row, and the title band then show that checkout,
+  also after a restart. A branch that has no worktree opens in a new
+  workspace, as Med never switches branches; `⌘↵` opens any choice in a new
+  workspace. **Base branch…** chooses what the branch's changes start from:
+  the commits since that branch, and the uncommitted changes. The thread
+  keeps the base, and its row counts the changes since it. Choose the
+  repository's usual base to go back to it. Moving a thread changes only
+  what Med shows; the agent's session keeps its own folder.
 - **Review** is what the agent hands off (`med thread show`, or
   `med review create --key …`): its Guide, its brief in **Notes**, or its diff.
   Each hand-off is a new version. The row above the diff names the version
@@ -196,7 +217,8 @@ load it or read its agents until you open it again.
 
 The branch switcher (`⌘⇧G`) searches the branches and worktrees of every
 registered repository. `↵` opens a branch in the current workspace; `⌘↵` opens
-it as a new workspace.
+it as a new workspace. In a thread, `↵` moves the thread to the branch's
+worktree (**Thread checkout**, above).
 
 Tabs stay loaded, so a switch is immediate; with more than 16 tabs, the ones
 shown least recently unload and stay in the sidebar. Of the other workspaces,
@@ -211,7 +233,7 @@ app.
 1. Choose branch, working, staged, or unstaged changes in the comparison menu
    above the diff. Branch changes are the commits since the base branch and
    the uncommitted changes; a branch other than the base opens on them.
-   **Compare against** compares with the base branch, and **Compare
+   **Base branch…** chooses another base for them, and **Compare
    revisions…** in the review's menu chooses a range. A range compares
    snapshots; it does not add patches across merged branches.
 2. Select a changed path to go to it in the diff. Double-click it to open the
@@ -306,7 +328,16 @@ background shells and agents. It follows the session live.
   and **Show less** folds it again.
 - A prompt's images are square thumbnails. Click one to see it at full size,
   and use `←` and `→` for the others.
-- Links in a reply open files in Med. A web link shows as a pill with its
+- A reply, a prompt, or a Question answer that names a file of the thread's
+  checkout shows it as a link with the file's name and lines, such as
+  **filters.ts L8–17**. Med finds Markdown links, `file://` links, and paths in
+  inline code or in a prompt: `src/a.ts:10`, `src/a.ts:10-20`, `a.ts#L12`, or an
+  absolute path inside the checkout. Hover a link to see its path. Click it to
+  open the file as a tab, at its first line, with its lines marked; `⌘`-click
+  opens the tab behind the current one. Close the tab to go back to the tab
+  that you read before it. Text that names no file of the checkout stays as
+  it is.
+- A web link shows as a pill with its
   site's icon. Med holds the icons of common developer sites, and of servers
   that a company runs itself, such as GitHub or Sourcegraph; other sites show a
   globe. Med fetches no icons.
@@ -428,7 +459,10 @@ lines that it cites. The **Notes** tab comes after **Review** and before
 
 A link can be `path`, `path:12`, `path:12-20`, `path#L12-L20`, an absolute
 path, an editor link, or a GitHub blob URL. A unique suffix such as
-`App.tsx:42` works.
+`App.tsx:42` works. A link or a path in inline code to a file that the change
+does not touch opens that file of the checkout as a tab, at its lines. Its
+excerpt shows the cited lines from the checkout, marked **Not in the change**.
+An absolute path inside the checkout shows as the path in the checkout.
 
 ## Pull requests
 
@@ -840,8 +874,10 @@ compares, and the session's row names the agent and its state.
 
 - The review's row has its tabs (**Review**, **Changes**, **Commit**), the
   comparison or, in Review, the version, and **⋯**. In Changes, the
-  comparison menu also has **Compare against a branch…** and **Compare two
-  revisions…**, and in a shared checkout **Only this session's files**.
+  comparison menu also has **Base branch…** (for a branch without a
+  worktree, **Compare against a branch…**) and **Compare two revisions…**, in
+  a thread **Thread checkout…**, and in a shared checkout **Only this
+  session's files**.
 - **⋯** has the comments, **Find in diffs**, the panes, **Zen mode**, **Push…**,
   and **Refresh review**. Its **View** menu has the diff's layout, comments,
   wrapping, the files and commits rail, and **Collapse all files**.

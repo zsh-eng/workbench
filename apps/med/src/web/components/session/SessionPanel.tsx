@@ -43,6 +43,7 @@ import { paneHandle } from "../PaneTree";
 import { ZenContext } from "../ZenExit";
 import { SessionComposer, type ComposerAttachment } from "./SessionComposer";
 import { ReplyActionsContext, SessionThread, type ReplyActions } from "./SessionThread";
+import { FileRefsContext, type FileRefs } from "../FileRefs";
 import type { TurnRecapProps } from "./TurnRecap";
 
 type PinSource = NonNullable<Extract<PinMutation, { add: unknown }>["add"]["source"]>;
@@ -353,6 +354,7 @@ export function SessionPanel({
   sessions,
   root,
   onOpenPath,
+  fileRefs,
   onClose,
   fetcher,
   inbox,
@@ -410,6 +412,8 @@ export function SessionPanel({
   /** The repository's path, to open absolute links to its files. */
   root?: string;
   onOpenPath(path: string, line?: number): void;
+  /** The checkout's files: paths in prompts and replies that name one link to it. */
+  fileRefs?: FileRefs;
   onClose(): void;
 }) {
   const latest = sessions.at(-1)!.id;
@@ -555,6 +559,11 @@ export function SessionPanel({
     return () => clearInterval(timer);
   }, [running, store]);
 
+  // The agent writes paths from its own folder.
+  const sessionFileRefs = useMemo(
+    () => (fileRefs ? { ...fileRefs, cwd: session.cwd || undefined } : null),
+    [fileRefs, session.cwd],
+  );
   const replyActions = useMemo<ReplyActions | null>(
     () =>
       pins
@@ -758,27 +767,29 @@ export function SessionPanel({
       ) : (
         <div {...stylex.props(styles.thread)}>
           <ReplyActionsContext.Provider value={replyActions}>
-            <SessionThread
-              snapshot={shown}
-              loading={loading}
-              earlier={earlier}
-              reveal={reveal}
-              openAgent={openAgent}
-              showWork={showWork}
-              recap={turnRecap}
-              now={running ? now : undefined}
-              before={
-                state.truncated && !pageable ? (
-                  <p {...stylex.props(styles.note)}>
-                    The session is long; the thread starts with its latest work.
-                  </p>
-                ) : undefined
-              }
-              onOpenLink={(href) => {
-                const link = sessionLink(href, root);
-                if (link) onOpenPath(link.path, link.line);
-              }}
-            />
+            <FileRefsContext.Provider value={sessionFileRefs}>
+              <SessionThread
+                snapshot={shown}
+                loading={loading}
+                earlier={earlier}
+                reveal={reveal}
+                openAgent={openAgent}
+                showWork={showWork}
+                recap={turnRecap}
+                now={running ? now : undefined}
+                before={
+                  state.truncated && !pageable ? (
+                    <p {...stylex.props(styles.note)}>
+                      The session is long; the thread starts with its latest work.
+                    </p>
+                  ) : undefined
+                }
+                onOpenLink={(href) => {
+                  const link = sessionLink(href, root);
+                  if (link) onOpenPath(link.path, link.line);
+                }}
+              />
+            </FileRefsContext.Provider>
           </ReplyActionsContext.Provider>
         </div>
       )}

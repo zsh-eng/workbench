@@ -71,6 +71,7 @@ import {
   orderThreads,
   readHistory,
   reopenThread,
+  renameThread,
   requestSubagentOpen,
   useReadState,
 } from "../data/tabs";
@@ -218,6 +219,8 @@ interface TabActions {
   /** Shows the next tab that needs the reader, else the next that works. */
   next(): void;
   move(threadId: string, by: -1 | 1): void;
+  /** Shows the name field of the thread. */
+  rename(threadId: string): void;
   /** Turns the notifications for tabs that need the reader on or off. */
   notify(on: boolean): void;
   subscribe(listener: () => void): () => void;
@@ -253,6 +256,13 @@ export function useTabCommands(): ReviewCommand[] {
         run: tabs.openHistory,
       },
       { id: "next-needs-you", label: "Next tab that needs you", shortcut: "⌘ 0", run: tabs.next },
+      {
+        id: "rename-thread",
+        label: "Rename thread…",
+        managesFocus: true,
+        disabled: !isTab,
+        run: run(tabs.rename),
+      },
       {
         id: "tab-up",
         label: "Move tab up",
@@ -917,7 +927,29 @@ export function WorkspaceHost({
   }, [rememberFocus, store]);
 
   // The sidebar lists the tabs, in the reader's order, and the repositories.
-  const threadList = useThreads(fetcher);
+  const hostList = useThreads(fetcher);
+  // A name that the reader gives a thread shows at once; the host's next list
+  // confirms it.
+  const [naming, setNaming] = useState<ReadonlyMap<string, Pick<Thread, "title" | "agentTitle">>>(
+    () => new Map(),
+  );
+  if (naming.size && hostList) {
+    const still = [...naming].filter(([id, want]) => {
+      const thread = hostList.threads.find((entry) => entry.id === id);
+      return !!thread && (thread.title !== want.title || thread.agentTitle !== want.agentTitle);
+    });
+    if (still.length !== naming.size) setNaming(new Map(still));
+  }
+  const threadList = useMemo(() => {
+    if (!naming.size || !hostList || hostList === NO_THREADS) return hostList;
+    const threads = hostList.threads.map((thread) => {
+      const want = naming.get(thread.id);
+      if (!want) return thread;
+      const { agentTitle: _agent, ...rest } = thread;
+      return { ...rest, ...want };
+    });
+    return { ...hostList, threads };
+  }, [hostList, naming]);
   const hasTabs = !!threadList && threadList !== NO_THREADS;
   useLayoutEffect(() => {
     hostHasTabs.current = hasTabs;
@@ -1015,6 +1047,9 @@ export function WorkspaceHost({
   const [newThread, setNewThread] = useState(false);
   const attemptsPage = useAttemptsAddress();
   const activeEntry = snapshot.workspaces.find((entry) => entry.id === snapshot.active);
+  // The thread on screen, which the title band names.
+  const barId = workspaceThread(activeEntry);
+  const barThread = barId ? tabs.find((thread) => thread.id === barId) : undefined;
   const activeThread = workspaceThread(activeEntry);
   // The thread on screen; none while a page covers the workspaces.
   const currentThread =
@@ -1198,6 +1233,36 @@ export function WorkspaceHost({
         ],
       }),
     [deleteNow],
+  );
+  // The thread whose name field shows: in its sidebar row, or in the title band
+  // while the sidebar hides.
+  const [renaming, setRenaming] = useState<string | null>(null);
+  if (renaming && !tabs.some((thread) => thread.id === renaming)) setRenaming(null);
+  /** Names a thread. An empty name, or its agent's own title, gives it its
+   * agent's title again. */
+  const renameTo = useCallback(
+    async (thread: Thread, value: string) => {
+      const agent = thread.agentTitle ?? thread.title;
+      const typed = value.trim();
+      const name = typed === agent ? "" : typed;
+      const want = name ? { title: name, agentTitle: agent } : { title: agent };
+      if (want.title === thread.title && want.agentTitle === thread.agentTitle) return;
+      setNaming((current) => new Map(current).set(thread.id, want));
+      try {
+        await renameThread(thread.id, name, fetcher);
+      } catch (error) {
+        setNaming((current) => {
+          const next = new Map(current);
+          next.delete(thread.id);
+          return next;
+        });
+        setNotice({
+          problem: true,
+          text: `Could not rename “${thread.title}”. ${errorText(error, "")}`.trim(),
+        });
+      }
+    },
+    [fetcher],
   );
   /** Puts one repository's tabs in this order; the other tabs keep their places. */
   const reorderGroup = useCallback(
@@ -1397,6 +1462,9 @@ export function WorkspaceHost({
         const thread = find(id);
         if (thread) latest.current.moveTab(thread, by);
       },
+      rename(id) {
+        if (find(id)) setRenaming(id);
+      },
       notify(on) {
         void chooseNotify(on).then((result) =>
           setNotice(
@@ -1418,7 +1486,7 @@ export function WorkspaceHost({
         return () => void tabListeners.delete(listener);
       },
     };
-  }, [rememberFocus, tabListeners]);
+  }, [rememberFocus, tabListeners, setRenaming]);
 
   // The tabs load ahead, as open terminal tabs stay loaded; the one under the
   // pointer first. History never loads ahead.
@@ -1582,6 +1650,9 @@ export function WorkspaceHost({
                               readThread(thread);
                               setPointed(threadWorkspaceId(thread));
                             }}
+                            renaming={renaming}
+                            onRenaming={(thread) => setRenaming(thread?.id ?? null)}
+                            onRename={(thread, name) => void renameTo(thread, name)}
                           />
                         </aside>
                         {!narrow && (
@@ -1622,6 +1693,17 @@ export function WorkspaceHost({
                         }
                         showSidebar={!showsSidebar || narrow ? toggleSidebar : undefined}
                         needs={showsSidebar ? 0 : needs}
+                        rename={
+                          barThread && {
+                            thread: barThread,
+                            editing: !showsSidebar && renaming === barThread.id,
+                            start: () => setRenaming(barThread.id),
+                            done: (name) => {
+                              setRenaming(null);
+                              if (name !== null) void renameTo(barThread, name);
+                            },
+                          }
+                        }
                       />
                       <div {...stylex.props(styles.shellViews)}>
                         <div

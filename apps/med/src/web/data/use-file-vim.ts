@@ -36,6 +36,7 @@ export function useFileVim({
   viewer,
   line,
   column,
+  revealed,
   onNavigationReady,
   onDefinition,
   onPosition,
@@ -46,6 +47,8 @@ export function useFileVim({
   viewer: RefObject<CodeViewHandle<undefined, undefined> | null>;
   line?: number;
   column?: number;
+  /** A new value jumps to `line` again. */
+  revealed?: number;
   onNavigationReady?: (command: FileNavigationCommand | null) => void;
   onDefinition?: (name: string) => void;
   onPosition?: (line: number, reason: "cursor") => void;
@@ -442,7 +445,7 @@ export function useFileVim({
     model.clearVisual();
     model.jump((line ?? 1) - 1, (column ?? 1) - 1);
     paint();
-  }, [model, line, column, paint, cancelCopies]);
+  }, [model, line, column, revealed, paint, cancelCopies]);
   useEffect(() => {
     const element = pane.current;
     if (!element) return;

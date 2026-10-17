@@ -5,6 +5,7 @@ import { App } from "../../src/web/App";
 import { WorkspaceHost, WorkspaceViews } from "../../src/web/components/Workspaces";
 import { createBrowseApi } from "../../src/web/data/browse";
 import type { Comparison } from "../../src/shared/protocol";
+import type { SavedCheckout } from "../../src/shared/saved-review";
 import type { Thread } from "../../src/shared/threads";
 import { initializeTheme, themeController } from "../../src/web/themes";
 
@@ -207,6 +208,12 @@ function createHost(threads: Thread[]) {
     if (target?.[3] === "notes")
       return Response.json({ reviewId: `${target[1]}-${target[2]}`, revision: 0, notes: [] });
     if (url.pathname === "/api/reviews/r_kept") return Response.json(keptReview);
+    if (url.pathname === "/api/reviews/r_kept/details" && init?.method === "POST") {
+      posts.push({ path: url.pathname, body });
+      const { checkout } = body as { checkout: SavedCheckout & { branch: string } };
+      keptReview = { ...keptReview, checkout };
+      return Response.json(keptReview);
+    }
     switch (url.pathname) {
       case "/api/threads/events":
         return stream(
@@ -479,4 +486,93 @@ test("a kept thread on a shared checkout shows its Changes, keeps its session's 
   await select.click();
   await expect.element(page.getByRole("option", { name: /^Working changes/ })).toBeVisible();
   await userEvent.keyboard("{Escape}");
+});
+
+test("a thread's Comparison menu keeps a base for its Changes and moves the thread to another checkout", async () => {
+  const thread: Thread = {
+    id: "r_kept",
+    title: "README glossary",
+    createdAt: "2026-10-15T00:00:00Z",
+    updatedAt: Date.now() - 20_000,
+    repository: { id: "repo-0", name: "tide", path: "/test/repo" },
+    checkout: "/test/glossary",
+    linked: true,
+    branch: "glossary",
+    agent: "claude",
+    state: "idle",
+    sessions: [glossarySession],
+  };
+  const host = createHost([thread]);
+  // The base branch menu reads the branches with the page's own fetch.
+  const pageFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) =>
+    String(input).includes("/api/git/targets")
+      ? Response.json({
+          branch: "glossary",
+          head,
+          refs: ["main", "glossary", "stable"].map((name) => ({
+            name: `refs/heads/${name}`,
+            label: name,
+          })),
+          remotes: [],
+        })
+      : pageFetch(input, init);
+  try {
+    render(host);
+    await page.getByRole("button", { name: /^README glossary/ }).click();
+    await expect
+      .poll(() => host.reviews.at(-1))
+      .toEqual({ repo: "/test/glossary", comparison: { kind: "working", base: "main" } });
+    // The control names the checkout's branch and its base.
+    const select = page.getByRole("combobox", { name: "Comparison" });
+    await expect.element(select).toHaveTextContent("glossary since main");
+    await select.click();
+    await expect
+      .element(page.getByRole("option", { name: /^Thread checkout…/ }))
+      .toHaveTextContent("Thread checkout…glossary");
+    await page.getByRole("option", { name: /^Base branch…/ }).click();
+    await page.getByRole("menuitem", { name: "stable" }).click();
+    // The thread keeps the base, and its Changes keep the uncommitted ones.
+    const checkout = { repositoryId: "repo-0", repo: "/test/glossary", branch: "glossary" };
+    await expect
+      .poll(() => host.posts.at(-1))
+      .toEqual({
+        path: "/api/reviews/r_kept/details",
+        body: { checkout: { ...checkout, base: "stable" } },
+      });
+    await expect
+      .poll(() => host.reviews.at(-1))
+      .toEqual({ repo: "/test/glossary", comparison: { kind: "working", base: "stable" } });
+    await expect.element(select).toHaveTextContent("glossary since stable");
+    // The repository's usual base is not saved.
+    await select.click();
+    await page.getByRole("option", { name: /^Base branch…/ }).click();
+    await page.getByRole("menuitem", { name: "main" }).click();
+    await expect
+      .poll(() => host.posts.at(-1))
+      .toEqual({ path: "/api/reviews/r_kept/details", body: { checkout } });
+    await expect.element(select).toHaveTextContent("glossary since main");
+
+    // Thread checkout… is ⌘⇧G in a thread: ↵ moves the thread, and its
+    // Changes show the new checkout.
+    await select.click();
+    await page.getByRole("option", { name: /^Thread checkout…/ }).click();
+    await expect.element(page.getByRole("dialog", { name: "Thread checkout" })).toBeVisible();
+    await page.getByRole("combobox", { name: "Search branches" }).fill("main");
+    await userEvent.keyboard("{Enter}");
+    await expect
+      .poll(() => host.posts.at(-1))
+      .toEqual({
+        path: "/api/reviews/r_kept/details",
+        body: { checkout: { repositoryId: "repo-0", repo: "/test/repo", branch: "main" } },
+      });
+    await expect
+      .poll(() => host.reviews.at(-1))
+      .toEqual({ repo: "/test/repo", comparison: { kind: "working" } });
+    await expect.element(page.getByText("This thread shows main now.")).toBeVisible();
+    await expect.element(select).toHaveTextContent("Working changes");
+    expect(location.pathname).toBe("/review/r_kept");
+  } finally {
+    globalThis.fetch = pageFetch;
+  }
 });

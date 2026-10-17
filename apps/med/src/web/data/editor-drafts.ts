@@ -13,6 +13,8 @@ export interface EditorDraft {
   line?: number;
   column?: number;
   insertOnOpen?: boolean;
+  /** The last open at a line that the editor went to (OpenFileTab.revealed). */
+  revealed?: number;
 }
 export function createEditorDrafts() {
   const drafts = new Map<string, EditorDraft>();
