@@ -652,10 +652,15 @@ The cache is `~/.cache/med/search`, or `$XDG_CACHE_HOME/med/search`. Set
 **Symbols in this file** (`⌘O`) starts at the symbol nearest the cursor and
 ranks ties by distance. Arrow keys jump in the file; Enter keeps the position,
 and Escape restores it. **Symbols in the project** (`⌘⇧O`) searches the
-repository's indexed commit, with its own preview. Both keep the last query.
+checkout's working files, with their uncommitted changes, and has its own
+preview. Both keep the last query, and both work in any view of a checkout.
+With no file open, `⌘O` says so and offers the project.
 
 Symbols come from Universal Ctags (`brew install universal-ctags`). Project
-symbols also need [Zoekt](#search-file-contents). Languages follow the
+symbols need no index: Med parses the files that Git tracks or does not
+ignore, up to 1 MiB each and without JSON or XML data, when the picker opens,
+and then only the files that changed. A commit, and a checkout of more than
+20,000 files, use [Zoekt](#search-file-contents). Languages follow the
 installed Ctags parsers; Ctags 6.2.1, for example, has no Zig parser, but text
 search still works for Zig.
 

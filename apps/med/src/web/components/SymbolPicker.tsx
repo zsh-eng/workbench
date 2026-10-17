@@ -8,7 +8,7 @@ import type { BrowseRead, BrowseSource } from "../../shared/browse";
 import type { SymbolMatch, SymbolSearch } from "../../shared/symbols";
 import { browseSourceKey, type BrowseApi } from "../data/browse";
 import { usePickerPreview } from "../data/picker-preview";
-import { findSymbols, symbolMatchId } from "../data/symbol-matches";
+import { findSymbols, symbolMatchId } from "../../shared/symbol-matches";
 import { picked, tokens, ui } from "../theme.stylex";
 import { FullFileView, type BeginFileSymbolPreview, type FileSymbolPreview } from "./FullFileView";
 import { Icon } from "./Icon";
@@ -94,8 +94,10 @@ function SymbolPickerContents({
     error?: string;
     origin?: FileSymbolPreview["origin"];
   }>({ key: "" });
+  // Project mode asks with an empty query too, so the host reads the
+  // checkout's symbols before the first key.
   const enabled =
-    !definitionResult && !!source && !!api.symbols && (mode === "file" ? !!path : !!query.trim());
+    !definitionResult && !!source && !!api.symbols && (mode === "file" ? !!path : true);
   useEffect(() => {
     if (!enabled || !sourceKey || !api.symbols) return;
     const [kind, repo, oid] = JSON.parse(sourceKey) as ["worktree" | "commit", string, string?];
@@ -146,13 +148,12 @@ function SymbolPickerContents({
       option.scrollIntoView({ block: "nearest" });
     } else inputRef.current?.removeAttribute("aria-activedescendant");
   }, [chosenIndex, results]);
-  // Project locations are bound to the resolved commit returned by the index.
+  // Project locations are bound to the source that answered: the working
+  // files, or the commit that the index resolved.
   const resultSource = definitionResult
     ? (definitionResult.resultSource ?? definitionResult.source)
     : mode === "project"
-      ? displayed?.resultSource?.kind === "commit"
-        ? displayed.resultSource
-        : undefined
+      ? displayed?.resultSource
       : displayed?.source;
   const exactFile =
     mode === "file" &&
@@ -305,7 +306,9 @@ function SymbolPickerContents({
                 ? `Ctags declarations · ${resultSource?.kind === "commit" ? `Commit ${resultSource.oid.slice(0, 8)}` : "Current file"}`
                 : mode === "file"
                   ? (path ?? "Open a file to search its symbols.")
-                  : `Committed files · uncommitted changes excluded${resultSource?.kind === "commit" ? ` · ${resultSource.oid.slice(0, 8)}` : ""}`}
+                  : resultSource?.kind === "commit"
+                    ? `Committed files · uncommitted changes excluded · ${resultSource.oid.slice(0, 8)}`
+                    : "Working files · with uncommitted changes"}
             </p>
             <div {...stylex.props(styles.body)}>
               <div {...stylex.props(styles.results)} aria-busy={busy}>
@@ -331,7 +334,9 @@ function SymbolPickerContents({
                                 : mode === "file" && !path
                                   ? "Open a file to search its symbols."
                                   : mode === "project" && !query.trim()
-                                    ? "Type a symbol name to search the selected commit."
+                                    ? source.kind === "commit"
+                                      ? "Type a symbol name to search the selected commit."
+                                      : "Type a symbol name to search the project."
                                     : "No matching symbols."}
                         </div>
                       </Combobox.Empty>
@@ -405,7 +410,7 @@ function SymbolPickerContents({
                 <kbd {...stylex.props(styles.kbd)}>Enter</kbd> open
               </span>
               <span>
-                {results.length} symbols
+                {results.length} {results.length === 1 ? "symbol" : "symbols"}
                 {displayed?.truncated || results.length >= 100 ? " · refine to see more" : ""}
               </span>
             </div>

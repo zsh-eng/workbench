@@ -33,6 +33,7 @@ const reviewComment = comment.extend({
 const review = comment.extend({ state: z.string() });
 
 const AUTHOR = 'author: (.user.login // "ghost")';
+const INLINE = `.[] | {id, ${AUTHOR}, body, createdAt: .created_at, url: .html_url, reply: .in_reply_to_id, path, line, startLine: .start_line, originalLine: .original_line, side}`;
 
 async function gh(host: string, args: string[]) {
   try {
@@ -82,12 +83,7 @@ async function load(url: string): Promise<PullRequestComments> {
   const base = `repos/${owner}/${repo}`;
   const [head, inline, conversation, reviews] = await Promise.all([
     gh(host!, [`${base}/pulls/${number}`, "--jq", ".head.sha"]),
-    gh(host!, [
-      "--paginate",
-      `${base}/pulls/${number}/comments?per_page=100`,
-      "--jq",
-      `.[] | {id, ${AUTHOR}, body, createdAt: .created_at, url: .html_url, reply: .in_reply_to_id, path, line, startLine: .start_line, originalLine: .original_line, side}`,
-    ]),
+    gh(host!, ["--paginate", `${base}/pulls/${number}/comments?per_page=100`, "--jq", INLINE]),
     gh(host!, [
       "--paginate",
       `${base}/issues/${number}/comments?per_page=100`,
@@ -98,16 +94,38 @@ async function load(url: string): Promise<PullRequestComments> {
       "--paginate",
       `${base}/pulls/${number}/reviews?per_page=100`,
       "--jq",
-      // Approvals and change requests count without text; empty comments do not.
-      `.[] | select(.state != "PENDING") | select((.body // "") != "" or .state != "COMMENTED") | {id, ${AUTHOR}, body, createdAt: .submitted_at, url: .html_url, state}`,
+      `.[] | {id, ${AUTHOR}, body, createdAt: .submitted_at, url: .html_url, state}`,
     ]),
   ]);
-  // GitHub points every reply at the thread's first comment.
+  const summaries = lines(reviews, review);
+  // A pending review is the reader's own draft on GitHub. GitHub shows it
+  // only to its author, and lists its comments only under the review.
+  const drafts = await Promise.all(
+    summaries
+      .filter((entry) => entry.state === "PENDING")
+      .map((entry) =>
+        gh(host!, [
+          "--paginate",
+          `${base}/pulls/${number}/reviews/${entry.id}/comments?per_page=100`,
+          "--jq",
+          INLINE,
+        ]),
+      ),
+  );
+  // GitHub points every reply at the thread's first comment, also a draft
+  // reply to a thread that others started.
   const threads = new Map<number, PullRequestThread>();
-  for (const entry of lines(inline, reviewComment)) {
+  const entries = [
+    ...lines(inline, reviewComment).map((entry) => ({ entry, draft: false })),
+    ...drafts.flatMap((text) =>
+      lines(text, reviewComment).map((entry) => ({ entry, draft: true })),
+    ),
+  ];
+  for (const { entry, draft } of entries) {
+    const added = { ...toComment(entry), ...(draft && { draft }) };
     const root = entry.reply ?? entry.id;
     const thread = threads.get(root);
-    if (thread) thread.comments.push(toComment(entry));
+    if (thread) thread.comments.push(added);
     else
       threads.set(root, {
         id: root,
@@ -116,7 +134,7 @@ async function load(url: string): Promise<PullRequestComments> {
         line: entry.line,
         startLine: entry.startLine,
         originalLine: entry.originalLine,
-        comments: [toComment(entry)],
+        comments: [added],
       });
   }
   return {
@@ -125,7 +143,18 @@ async function load(url: string): Promise<PullRequestComments> {
     fetchedAt: Date.now(),
     threads: [...threads.values()],
     conversation: lines(conversation, comment).map(toComment),
-    reviews: lines(reviews, review).map((entry) => ({ ...toComment(entry), state: entry.state })),
+    // Approvals and change requests count without text; empty comments and
+    // an empty draft do not.
+    reviews: summaries
+      .filter(
+        (entry) =>
+          (entry.body ?? "") !== "" || (entry.state !== "COMMENTED" && entry.state !== "PENDING"),
+      )
+      .map((entry) => ({
+        ...toComment(entry),
+        state: entry.state,
+        ...(entry.state === "PENDING" && { draft: true }),
+      })),
   };
 }
 

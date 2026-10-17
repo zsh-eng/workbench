@@ -135,6 +135,8 @@ export interface PullRequestComment {
   body: string;
   createdAt: string;
   url: string;
+  /** In the reader's pending review on GitHub: a draft that only they see. */
+  draft?: boolean;
 }
 /** An inline review thread. `line` is null when GitHub marks it outdated. */
 export interface PullRequestThread {

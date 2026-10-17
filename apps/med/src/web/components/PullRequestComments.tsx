@@ -294,7 +294,10 @@ const states: Record<string, Tag> = {
   CHANGES_REQUESTED: { label: "Changes requested", tone: "bad" },
   DISMISSED: { label: "Dismissed", tone: "quiet" },
   COMMENTED: { label: "Reviewed" },
+  PENDING: { label: "Pending", tone: "warn" },
 };
+/** A comment of the reader's pending review: GitHub's draft, which only they see. */
+const draftTag: Tag = { label: "Pending", tone: "warn" };
 
 /** One GitHub comment: author, age, and text. Tools show on hover or focus. */
 function Entry({
@@ -306,7 +309,7 @@ function Entry({
   heading,
   tools,
 }: {
-  comment: Pick<PullRequestComment, "author" | "body" | "createdAt">;
+  comment: Pick<PullRequestComment, "author" | "body" | "createdAt" | "draft">;
   now: number;
   mark?: IconName;
   state?: string;
@@ -317,7 +320,9 @@ function Entry({
   tools?: ReactNode;
 }) {
   const created = Date.parse(comment.createdAt);
-  const review = tag ?? (state ? (states[state] ?? { label: state.toLowerCase() }) : null);
+  const review =
+    tag ??
+    (state ? (states[state] ?? { label: state.toLowerCase() }) : comment.draft ? draftTag : null);
   return (
     <div {...stylex.props(styles.entry, stylex.defaultMarker())}>
       <div {...stylex.props(styles.byline)}>

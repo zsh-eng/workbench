@@ -73,6 +73,7 @@ const pullRequestCommentSchema = z.object({
   body: z.string(),
   createdAt: z.string(),
   url: z.string(),
+  draft: z.boolean().optional(),
 });
 export const pullRequestCommentsSchema = z.object({
   url: z.string(),

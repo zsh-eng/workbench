@@ -120,18 +120,22 @@ test("project symbols search immediately and ignore stale results and Enter", as
   const onOpen = vi.fn<SymbolPickerProps["onOpen"]>();
   render(<Harness mode="project" api={api} onOpen={onOpen} currentFile={null} />);
   const input = page.getByRole("combobox", { name: "Find symbol in project" });
+  // The picker asks with an empty query as it opens, so the host reads the
+  // project's symbols before the first key.
+  await expect.poll(() => requests.map((request) => request.query)).toEqual([""]);
   await input.fill("example");
-  await expect.poll(() => requests.length).toBe(1);
-  requests[0]!.resolve(response({ query: "example", resultSource: commit, engine: "zoekt" }));
+  await expect.poll(() => requests.length).toBe(2);
+  expect(requests[0]!.signal?.aborted).toBe(true);
+  requests[1]!.resolve(response({ query: "example", resultSource: commit, engine: "zoekt" }));
   await expect
     .element(page.getByRole("option", { name: "example10 function main.ts:10" }))
     .toBeVisible();
   await input.fill("example80");
-  await expect.poll(() => requests.length).toBe(2);
-  expect(requests[0]!.signal?.aborted).toBe(true);
+  await expect.poll(() => requests.length).toBe(3);
+  expect(requests[1]!.signal?.aborted).toBe(true);
   await userEvent.keyboard("{Enter}");
   expect(onOpen).not.toHaveBeenCalled();
-  requests[1]!.resolve(
+  requests[2]!.resolve(
     response({ query: "example80", resultSource: commit, engine: "zoekt", matches: [symbols[1]!] }),
   );
   await expect

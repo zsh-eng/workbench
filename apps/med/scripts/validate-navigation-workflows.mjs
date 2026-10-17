@@ -292,6 +292,17 @@ try {
     });
   await longLink.screenshot({ path: "/private/tmp/med-long-filename.png" });
 
+  // ⌘⇧O finds a declaration in the checkout's working files with no index
+  // (this host has no Zoekt binaries), and Enter opens it at its line.
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Meta+Shift+O");
+  const symbolPicker = page.getByRole("dialog", { name: /Find symbol/ });
+  await page.getByRole("combobox", { name: "Find symbol in project" }).fill("line42");
+  await symbolPicker.getByRole("option", { name: /^line42 \w+ long\.ts:42$/ }).waitFor();
+  assert.match(await symbolPicker.innerText(), /Working files · with uncommitted changes/);
+  await page.keyboard.press("Enter");
+  await page.getByRole("textbox", { name: "Edit long.ts", exact: true }).waitFor();
+
   assert.deepEqual(
     await Promise.all(repositories.map((repo) => readFile(join(repo, "same.ts"), "utf8"))),
     original,
@@ -307,7 +318,7 @@ try {
   console.log(
     JSON.stringify({
       checks:
-        "fuzzy repo Tab, spaces, filters, test icons, back/Escape/focus, cross-repo tabs, unchanged files, cursor scroll geometry, diff slash contexts",
+        "fuzzy repo Tab, spaces, filters, test icons, back/Escape/focus, cross-repo tabs, unchanged files, cursor scroll geometry, diff slash contexts, project symbols without an index",
       cursorOffsets: motion,
       pageErrors,
     }),
