@@ -25,7 +25,7 @@ running; `status` and `stop` do not. Keep the state folder
 
 Open a vault from the **Sources** page or the workspace list. The title band
 names the vault, and the files sidebar has the file tree and backlinks. Click a
-file to preview it, and double-click to keep its tab. Edited files stay open, and a tab
+file to open it in a tab of its own; the tab stays until you close it. A tab
 with unsaved changes does not close until you save or discard them.
 
 - `⌘K` opens the command palette, `⌘⇧K` finds a file with a preview, and the

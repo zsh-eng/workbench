@@ -220,12 +220,6 @@ export const guideContexts: GuideContext[] = [
           { label: "Close the file", keys: ["Alt+W"], command: "close-file" },
           { label: "Close all files", keys: ["Alt+Shift+W"], command: "close-files" },
           { label: "Close other files", keys: ["Alt+Shift+O"], command: "close-others" },
-          { label: "Keep a preview tab open", keys: ["Alt+P"], command: "pin-file" },
-          {
-            label: "Open a found file and keep it open",
-            keys: ["Mod+Enter"],
-            note: "In Find file; Enter opens the preview tab",
-          },
           {
             label: "Show a tab by its place in the row",
             keys: ["Alt+{1–9}"],

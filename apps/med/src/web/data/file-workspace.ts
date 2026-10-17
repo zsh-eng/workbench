@@ -10,7 +10,6 @@ export type TabSource = BrowseSource | VaultSource;
 export interface OpenFileTab {
   id: string;
   path: string;
-  pinned: boolean;
   source: TabSource;
   sourceLabel: string;
   line?: number;
@@ -84,7 +83,8 @@ function readStored(key: string): Workspace | undefined {
         ? value.active
         : "changes";
     return {
-      tabs: tabs.map((tab) => ({ ...tab, pinned: tab.pinned === true })),
+      // Tabs from before every tab stayed open carry a `pinned` flag.
+      tabs: tabs.map(({ pinned: _pinned, ...tab }: OpenFileTab & { pinned?: unknown }) => tab),
       active,
       recentPaths: Array.isArray(value.recentPaths)
         ? value.recentPaths.filter((path) => typeof path === "string").slice(0, 50)
@@ -109,10 +109,20 @@ function writeStored(key: string, workspace: Workspace) {
   }
 }
 
+/** Open files in one workspace's row. Each open file keeps its own tab. */
+export const TAB_LIMIT = 24;
+
 /** Retain navigation per workspace, but retain bytes only for the active file.
  * With `persist`, each workspace's open files and tab outlast the window, so a
- * restart opens them again. */
-export function createFileWorkspace(api: BrowseApi, { persist = false } = {}) {
+ * restart opens them again. A `held` tab, such as one with an unsaved draft,
+ * keeps its place when a full row opens another file. */
+export function createFileWorkspace(
+  api: BrowseApi,
+  {
+    persist = false,
+    held = () => false,
+  }: { persist?: boolean; held?: (tab: OpenFileTab) => boolean } = {},
+) {
   const workspaces = new Map<string, Workspace>();
   // Each workspace's open files reach storage shortly after they change,
   // and at once when the window goes away.
@@ -248,40 +258,39 @@ export function createFileWorkspace(api: BrowseApi, { persist = false } = {}) {
       });
       if (source && isFileTab(snapshot.active)) void load();
     },
+    /** Opens a file in a tab of its own, or shows its tab when it is open, at
+     * `line` when given. A `background` open adds the tab and keeps the tab
+     * on screen. */
     open(
       path: string,
-      options: boolean | { pinned?: boolean; background?: boolean } = false,
       line?: number,
       source: TabSource | null = snapshot.source,
       label = snapshot.sourceLabel,
       column?: number,
+      { background = false }: { background?: boolean } = {},
     ) {
       if (!source || disposed) return;
-      const background = typeof options === "object" && options.background === true;
-      const pinned = background || (typeof options === "boolean" ? options : !!options.pinned);
       const id = `${sourceKey(source)}:${path}`;
-      const existing = snapshot.tabs.find((tab) => tab.id === id);
-      let tabs: OpenFileTab[];
-      if (existing)
-        tabs = snapshot.tabs.map((tab) =>
-          tab.id === id
-            ? { ...tab, pinned: tab.pinned || pinned, ...(line ? { line, column } : {}) }
-            : tab,
-        );
-      else {
-        tabs = snapshot.tabs.filter((tab) => background || tab.pinned);
-        if (tabs.length >= 12) {
-          publish({ error: "Close a file tab before opening another (12-tab limit)." });
-          return;
+      const existing = snapshot.tabs.some((tab) => tab.id === id);
+      // A file that shows already keeps its cursor and scroll.
+      if (existing && !line && (background || (snapshot.active === id && snapshot.file))) return;
+      let tabs = snapshot.tabs;
+      if (existing && line)
+        tabs = tabs.map((tab) => (tab.id === id ? { ...tab, line, column } : tab));
+      else if (!existing) {
+        tabs = [...tabs];
+        // A full row gives up its oldest tab that has no unsaved draft.
+        if (tabs.length >= TAB_LIMIT) {
+          const index = tabs.findIndex((tab) => tab.id !== snapshot.active && !held(tab));
+          if (index < 0) {
+            publish({
+              error: `Save or discard a draft before opening another file (${TAB_LIMIT}-tab limit).`,
+            });
+            return;
+          }
+          tabs.splice(index, 1);
         }
-        tabs.push({
-          id,
-          path,
-          pinned,
-          source,
-          sourceLabel: label,
-          ...(line ? { line, column } : {}),
-        });
+        tabs.push({ id, path, source, sourceLabel: label, ...(line ? { line, column } : {}) });
       }
       publish({
         tabs,
@@ -301,11 +310,6 @@ export function createFileWorkspace(api: BrowseApi, { persist = false } = {}) {
       if (isFileTab(id) && !snapshot.tabs.some((tab) => tab.id === id)) return;
       publish({ active: id });
       void load();
-    },
-    pin(id: string) {
-      publish({
-        tabs: snapshot.tabs.map((tab) => (tab.id === id ? { ...tab, pinned: true } : tab)),
-      });
     },
     close(id: string) {
       const index = snapshot.tabs.findIndex((tab) => tab.id === id);

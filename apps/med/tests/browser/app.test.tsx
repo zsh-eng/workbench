@@ -953,7 +953,7 @@ describe("graphical review", () => {
     expect(fileRequests).toHaveLength(1);
   });
 
-  test("Command-click opens pinned background tabs from diff filenames and the changes tree", async () => {
+  test("Command-click opens background tabs from diff filenames and the changes tree", async () => {
     const { controller } = await mountApp();
     await page
       .getByRole("link", { name: "src/alpha.ts", exact: true })
@@ -1276,7 +1276,7 @@ describe("graphical review", () => {
       .not.toBeInTheDocument();
     await expect.element(page.getByRole("tab", { name: "Changes", exact: true })).toBeVisible();
   });
-  test("Find file opens a preview tab with Enter and a kept tab with Mod+Enter; tab keys move along the row", async () => {
+  test("each file that Find file opens keeps its tab, a second open shows that tab, and tab keys move along the row", async () => {
     await mountApp();
     const find = async (name: string, keys: string) => {
       window.dispatchEvent(
@@ -1293,14 +1293,13 @@ describe("graphical review", () => {
       await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
     };
     const tab = (name: string) => page.getByRole("tab", { name, exact: true });
-    // A preview tab's tooltip says so.
-    const title = (name: string) => tab(name).query()?.getAttribute("title");
+    await find("beta.ts", "{Enter}");
     await find("alpha.ts", "{Enter}");
-    await expect.poll(() => title("alpha.ts")).toMatch(/Preview/);
-    await find("beta.ts", "{Control>}{Enter}{/Control}");
-    await expect.poll(() => title("beta.ts")).toMatch(/^src\/beta\.ts(?!.*Preview)/);
-    // The kept tab replaced the preview tab, as a double-click in Files does.
-    await expect.element(tab("alpha.ts")).not.toBeInTheDocument();
+    await expect.element(tab("beta.ts")).toBeVisible();
+    // A second open shows the file's tab; it adds none.
+    await find("beta.ts", "{Enter}");
+    await expect.element(tab("beta.ts")).toHaveAttribute("aria-selected", "true");
+    expect(page.getByRole("tab", { name: "beta.ts", exact: true }).all()).toHaveLength(1);
     await find("alpha.ts", "{Enter}");
     // The row is Changes, Commit, beta.ts, alpha.ts.
     const key = (init: KeyboardEventInit, target: EventTarget = window) =>
@@ -1320,10 +1319,6 @@ describe("graphical review", () => {
       exact: true,
     });
     await expect.element(editor).toBeVisible();
-    // Option+P keeps the preview tab, also from its editor, where it would type π.
-    key({ key: "π", code: "KeyP", altKey: true }, editor.element());
-    await expect.poll(() => title("alpha.ts")).toMatch(/^src\/alpha\.ts(?!.*Preview)/);
-    expect(editor.element().textContent).not.toContain("π");
     // / starts Vim's search in the file, also from outside it.
     (document.activeElement as HTMLElement | null)?.blur();
     key({ key: "/", code: "Slash" });

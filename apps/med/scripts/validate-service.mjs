@@ -189,9 +189,10 @@ try {
   await page.getByRole("tab", { name: "Nested.md", exact: true }).waitFor();
   await tree.getByRole("treeitem", { name: "Other.md", exact: true }).click();
   await page.getByRole("tab", { name: "Other.md", exact: true }).waitFor();
-  assert.equal(await page.getByRole("tab", { name: "Nested.md", exact: true }).count(), 0);
-  await tree.getByRole("treeitem", { name: "Other.md", exact: true }).dblclick();
-  await tree.getByRole("treeitem", { name: "Home.md", exact: true }).dblclick();
+  // Every open keeps its tab, and a second open shows the same tab.
+  assert.equal(await page.getByRole("tab", { name: "Nested.md", exact: true }).count(), 1);
+  await tree.getByRole("treeitem", { name: "Other.md", exact: true }).click();
+  await tree.getByRole("treeitem", { name: "Home.md", exact: true }).click();
   await page.getByRole("tab", { name: "Home.md", exact: true }).waitFor();
   assert.equal(await page.getByRole("tab", { name: "Other.md", exact: true }).count(), 1);
   await page.getByRole("button", { name: "Close Notes/Other.md", exact: true }).click();
@@ -311,7 +312,7 @@ try {
         "watch-update",
         "commands",
         "file-tree",
-        "preview-and-pinned-tabs",
+        "permanent-tabs",
         "file-picker-preview",
         "sidebar-toggle",
         "dirty-tab-preservation-and-save",

@@ -17,9 +17,9 @@ File browsing is read-only and stays in the review workspace. It uses the existi
 
 - The right Files sidebar starts closed. Use Command–Shift–B or the command guide (`?`) to open it. On narrow windows, opening one sidebar closes the other.
 - The permanent Changes tab keeps the continuous diff view and its scroll position while a file is open.
-- A single click in Files opens a reusable preview tab. A double-click, or Enter on a selected file, keeps that tab open. Opening another preview replaces only the previous unpinned preview. In Find file, Enter opens the preview tab and ⌘Enter opens a tab that stays open.
+- Each file opens in a tab of its own, which stays until you close it. A click in Files, or Enter on a selected file, opens it; the arrow keys move through the tree without opening files. ⌘-click opens a file in the background. In Find file, Enter opens the file. A file that is open already shows its tab, at the line when one is given.
 - A single click in Changes reveals its diff. A double-click opens the current file from the selected workspace. The view menu also provides an explicit open-file action.
-- File tabs and the active tab are kept separately for each workspace during the session. There are at most 12 file tabs per workspace and eight retained workspaces. Only the active file's bytes are retained by the workspace controller.
+- File tabs and the active tab are kept separately for each workspace. A workspace holds 24 file tabs; when the row is full, a new file takes the place of the oldest tab without an unsaved draft. Only the active file's bytes are retained by the workspace controller.
 - The full-file header shows its source, read-only state, and a refresh action. Detected working-file changes mark a loaded file stale; refresh it to load new bytes.
 
 ## The source stays explicit
@@ -72,7 +72,7 @@ flowchart LR
   Source --> List[Bounded manifest endpoint]
   List --> Tree[Right Pierre file tree]
   List --> Picker[Workspace file picker]
-  Tree --> Tabs[Preview and pinned tabs]
+  Tree --> Tabs[File tabs]
   Picker --> Tabs
   Tabs --> Read[Bounded file endpoint]
   Read --> Check[Type, size, source and identity checks]

@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { Tabs } from "@base-ui/react/tabs";
 import { distinctLabels } from "../data/tab-labels";
 import { tokens } from "../theme.stylex";
@@ -10,7 +10,6 @@ import { PathContextMenu, type PathActions } from "./PathMenu";
 export interface FileViewTab {
   id: string;
   path: string;
-  pinned: boolean;
   dirty?: boolean;
   sourceLabel?: string;
   /** The source checkout's absolute path, to compare sources and reveal files. */
@@ -23,7 +22,6 @@ export function FileViewTabs({
   active,
   onSelect,
   onClose,
-  onPin,
   panelId = "file-view-panel",
   showChanges = true,
   showBrief = false,
@@ -55,8 +53,20 @@ export function FileViewTabs({
   trailing?: ReactNode;
   onSelect(id: string): void;
   onClose(id: string): void;
-  onPin(id: string): void;
 }) {
+  // The row scrolls; the tab on screen stays in view, also when it opens.
+  const list = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const row = list.current;
+    const tab = row?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+    if (!row || !tab) return;
+    // Only the row scrolls, never the pane or the page around it.
+    const bounds = row.getBoundingClientRect();
+    // A file's tab and its close button share one item.
+    const place = (tab.parentElement === row ? tab : tab.parentElement!).getBoundingClientRect();
+    if (place.left < bounds.left) row.scrollLeft -= bounds.left - place.left;
+    else if (place.right > bounds.right) row.scrollLeft += place.right - bounds.right;
+  }, [active, tabs.length]);
   const labels = distinctLabels(
     tabs.map((tab) => ({
       label: tab.path.split("/").at(-1)!,
@@ -73,7 +83,11 @@ export function FileViewTabs({
       {...stylex.props(styles.root)}
     >
       {leading}
-      <Tabs.List aria-label="Open files" {...stylex.props(styles.list, keepTabs && styles.keep)}>
+      <Tabs.List
+        ref={list}
+        aria-label="Open files"
+        {...stylex.props(styles.list, keepTabs && styles.keep)}
+      >
         {showReview && (
           <Tabs.Tab
             value="review"
@@ -136,22 +150,22 @@ export function FileViewTabs({
             render={<div />}
             className={stylex.props(styles.item, stylex.defaultMarker()).className}
             locate={() => ({ repo: tab.sourcePath ?? null, path: tab.path })}
-            items={() => [
-              ...(tab.pinned ? [] : [{ label: "Keep open", run: () => onPin(tab.id) }]),
-              { label: "Close", run: () => onClose(tab.id) },
-            ]}
+            items={() => [{ label: "Close", run: () => onClose(tab.id) }]}
           >
             <Tabs.Tab
               value={tab.id}
               aria-controls={panelId}
-              title={`${tab.path}${tab.sourceLabel ? ` · ${tab.sourceLabel}` : ""}${tab.pinned ? "" : " · Preview (double-click to keep open)"}`}
-              onDoubleClick={() => onPin(tab.id)}
-              {...stylex.props(
-                styles.tab,
-                styles.fileTab,
-                !tab.pinned && styles.preview,
-                active === tab.id && styles.active,
-              )}
+              title={`${tab.path}${tab.sourceLabel ? ` · ${tab.sourceLabel}` : ""}`}
+              // A middle click closes the tab, as in a browser.
+              onAuxClick={(event) => {
+                if (event.button !== 1) return;
+                event.preventDefault();
+                onClose(tab.id);
+              }}
+              onMouseDown={(event) => {
+                if (event.button === 1) event.preventDefault();
+              }}
+              {...stylex.props(styles.tab, styles.fileTab, active === tab.id && styles.active)}
             >
               <span {...stylex.props(styles.name)}>{labels[index]}</span>
               {tab.dirty && (
@@ -238,7 +252,6 @@ const styles = stylex.create({
     color: { default: tokens.text, ":hover": tokens.text },
     backgroundColor: { default: tokens.fillStrong, ":hover": tokens.fillStrong },
   },
-  preview: { fontStyle: "italic" },
   name: { maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis" },
   count: {
     minWidth: 18,

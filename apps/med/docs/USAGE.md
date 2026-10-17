@@ -216,9 +216,9 @@ app.
    snapshots; it does not add patches across merged branches.
 2. Select a changed path to go to it in the diff. Double-click it to open the
    whole file.
-3. Open unchanged files from the file picker or the Files pane. A preview does
-   not replace your review until you open it. A branch without a worktree opens
-   its committed content.
+3. Open unchanged files from the file picker or the Files pane. Each file opens
+   in a tab of its own, beside Changes, and stays until you close it. A branch
+   without a worktree opens its committed content.
 
 To comment, drag the gutter **+** across lines, or select line numbers and
 press `c`. A comment shows its Markdown rendered, such as code and lists, and
@@ -596,8 +596,15 @@ Combine **Code**, **Tests**, and **Docs**, or type filters such as
 `type:tests ext:java,kt`. Values in one filter match any; the two filters must
 both match. Test files follow each language's conventions, such as `.test.ts`,
 `_test.go`, `test_*.py`, `*Test.java`, and `src/test/`. In Find file, `↵` opens
-a preview tab, which the next preview replaces, and `⌘↵` opens a tab that
-stays.
+the file.
+
+Every open makes a tab that stays until you close it: Find file, a click in
+the Files pane, a link, a search result, and Go to definition. A file that is
+open already shows its tab, at the line when the open names one. In the Files
+pane, the arrow keys move without opening files, and `↵` opens the selected
+one. `⌘`-click opens a file in the background. A middle click on a tab closes
+it. A workspace holds 24 file tabs; when the row is full, a new file takes the
+place of the oldest tab without an unsaved draft.
 
 Right-click a file in a tree or tab for **Reveal in Finder**, **Copy path**,
 and **Copy relative path**. The panel button beside **Esc**, or **Hide file
@@ -853,8 +860,6 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Mark the segment viewed, go on   | `⇧V`          |
 | Next / previous excerpt or reply | `]` / `[`     |
 | Resume search                    | `⌥R`          |
-| Keep the preview tab             | `⌥P`          |
-| Open a found file and keep it    | `⌘↵`          |
 | Show tab 1–8 / the last tab      | `⌥1`–`⌥9`     |
 | Previous / next tab              | `⌘⇧[` / `⌘⇧]` |
 | Toggle gutter blame              | `⌥B`          |
