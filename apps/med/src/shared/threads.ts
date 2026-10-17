@@ -37,7 +37,11 @@ export type ThreadSubagent = z.infer<typeof threadSubagentSchema>;
 export const threadSchema = z.object({
   /** The saved review's ID. */
   id: z.string(),
+  /** The name that shows: the reader's name for the thread, else the agent's title. */
   title: z.string(),
+  /** The agent's title, when the reader named the thread in Med (`POST
+   * /api/threads/:id/name`): `title` is the reader's name then. */
+  agentTitle: z.string().optional(),
   createdAt: z.string(),
   /** The latest change to the review or to its lead session, in milliseconds. */
   updatedAt: z.number(),
@@ -141,6 +145,10 @@ export const threadCloseSchema = z.object({
 });
 /** Whether this request closed the tab; false when it was closed already. */
 export const threadClosedSchema = z.object({ closed: z.boolean() });
+
+/** `POST /api/threads/:id/name`: a name for the thread, which Med keeps (not
+ * the agent). An empty name gives the thread its agent's title again. */
+export const threadNameSchema = z.object({ name: z.string().max(120) });
 
 /** `POST /api/threads/order`: the tabs in their new order. */
 export const threadOrderSchema = z.object({ order: z.array(threadIdSchema).max(1000) });

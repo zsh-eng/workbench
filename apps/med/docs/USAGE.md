@@ -158,9 +158,17 @@ load it or read its agents until you open it again.
 - `⌃Tab` steps through recent workspaces: hold Control, press Tab to step, and
   release to go.
 - Rest the pointer on a row, and Med reads the thread before you click.
-- Right-click a row to open it, copy a command that resumes the agent's
-  session or opens lazygit in its checkout, mark it read or unread, close it,
-  or delete it.
+- Right-click a row to open it, rename it, copy a command that resumes the
+  agent's session or opens lazygit in its checkout, mark it read or unread,
+  close it, or delete it.
+- **Rename a thread** with **Rename…** in its row's menu, a double-click on
+  its row, or **Rename thread…** in the palette (`⌘K`). With the sidebar
+  hidden, the field shows in the title band, where a double-click on the
+  thread's name also renames it. `↵` keeps the new name, and `Esc` keeps the
+  old one. The name shows in the sidebar, the title band, the window's title,
+  history, and the palette. Med keeps it, not the agent: a new hand-off does
+  not change it, and it stays after a restart. An empty name gives the thread
+  its agent's title again.
 - A thread's pane has the tabs **Review**, **Changes**, and **Commit**.
   **Changes** are the checkout's Git changes as they are now; Med saves
   nothing for them. On a branch other than the base, they start at the base:

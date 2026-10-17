@@ -298,8 +298,10 @@ searches of one query do not cancel each other, and four run at once.
 A thread is a saved review, or a session that Med found
 ([found sessions](docs/SESSIONS.md#found-sessions)). The threads that the user
 has open are tabs; the others are history. `src/host/thread-tabs.ts` keeps
-which threads are tabs, their order, and when each closed, in `tabs.json` in
-the state directory. `src/host/thread-service.ts` builds the lists:
+which threads are tabs, their order, when each closed, and the name that the
+user gave a thread (`POST /api/threads/:id/name`), in `tabs.json` in the
+state directory. A name shows as `title`, with the agent's title in
+`agentTitle`; a hand-off that changes the review's title leaves it. `src/host/thread-service.ts` builds the lists:
 
 - `GET /api/threads/events` sends the tabs, in order, with the registered
   repositories, and sends them again when they change. One read serves all

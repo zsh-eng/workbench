@@ -112,6 +112,7 @@ import {
   threadCloseSchema,
   threadIdSchema,
   threadOpenSchema,
+  threadNameSchema,
   threadOrderSchema,
   threadSlug,
   threadStartSchema,
@@ -2653,7 +2654,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             send({ thread });
             return;
           }
-          const threadAction = /^\/api\/threads\/([\w-]+)\/(open|close|delete|archive)$/.exec(
+          const threadAction = /^\/api\/threads\/([\w-]+)\/(open|close|delete|archive|name)$/.exec(
             url.pathname,
           );
           if (threadAction && request.method === "POST") {
@@ -2668,6 +2669,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             } else if (action === "delete") {
               await threads.delete(id);
               send({ deleted: true });
+            } else if (action === "name") {
+              await threads.rename(id, threadNameSchema.parse(body ?? {}).name);
+              send({ ok: true });
             } else {
               // Archive, from before tabs: it closes the thread, or opens it again.
               const input = z

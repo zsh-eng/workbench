@@ -35,7 +35,8 @@
   -webkit-app-region: drag;
   app-region: drag;
 }
-.med-title-row :is(button, a, input, select, textarea, [role="tab"], [tabindex]) {
+.med-title-row
+  :is(button, a, input, select, textarea, [role="tab"], [tabindex], [data-thread-title]) {
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }

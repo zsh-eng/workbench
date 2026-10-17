@@ -47,6 +47,10 @@ export const reopenThread = (fetcher: typeof fetch) =>
 export const orderThreads = (order: readonly string[], fetcher: typeof fetch) =>
   api(fetcher).json("/api/threads/order", z.object({ ok: z.boolean() }), post({ order }));
 
+/** Names a thread in Med; an empty name gives it its agent's title again. */
+export const renameThread = (id: string, name: string, fetcher: typeof fetch) =>
+  api(fetcher).json(`/api/threads/${id}/name`, z.object({ ok: z.boolean() }), post({ name }));
+
 export const deleteThread = (id: string, fetcher: typeof fetch) =>
   api(fetcher).json(`/api/threads/${id}/delete`, z.object({ deleted: z.boolean() }), post());
 

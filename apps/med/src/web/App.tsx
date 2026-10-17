@@ -730,8 +730,13 @@ export function App({
     () => setBlameTab(blameEnabled || !activeFile ? null : activeFile.id),
     [blameEnabled, activeFile],
   );
+  // The thread in the window's list: its state, and the name that the reader
+  // gave it, which shows in place of the agent's title.
+  const thread = useThread(state.savedReview?.id);
+  const threadName = thread?.agentTitle !== undefined ? thread.title : undefined;
   useDocumentTitle(
-    state.savedReview?.title ??
+    threadName ??
+      state.savedReview?.title ??
       (activeFile
         ? (activeFile.path.split("/").at(-1) ?? activeFile.path)
         : state.session
@@ -2888,7 +2893,8 @@ export function App({
   };
   // The workspace list names each workspace and shows its changed-file count.
   const reportTo = workspace?.update;
-  const reportTitle = state.savedReview?.title ?? branches.current?.label ?? state.activeBranch;
+  const reportTitle =
+    threadName ?? state.savedReview?.title ?? branches.current?.label ?? state.activeBranch;
   const reportPath = state.session?.repository.path;
   // A linked worktree, so closing the workspace can remove it.
   const reportWorktree = state.session?.worktrees.find((entry) => entry.path === reportPath)?.linked
@@ -3366,9 +3372,6 @@ export function App({
         long: chosenLabel ?? liveText.long,
         short: `${liveValue === "branch" ? "Branch" : liveText.short}${sessionFilter ? " · session" : ""}`,
       };
-  // A shared checkout holds other sessions' work too. Its Changes can keep
-  // only the files that the thread's lead session edited.
-  const thread = useThread(state.savedReview?.id);
   // The host links a pull request that the thread's branch opened later
   // (src/host/pull-request-links.ts); the thread list names it first.
   const linkedPullRequest = thread?.pullRequestUrl;
@@ -3460,6 +3463,8 @@ export function App({
     leadSession && (leadSession.agent === "claude" || leadSession.agent === "codex")
       ? { agent: leadSession.agent, id: leadSession.id }
       : null;
+  // A shared checkout holds other sessions' work too. Its Changes can keep
+  // only the files that the thread's lead session edited.
   const canFilterSession =
     !reviewShown &&
     !!ownSession &&
@@ -4997,14 +5002,18 @@ export function App({
                     starter={sessionStarter}
                     controls={controls}
                     repo={state.review?.repo}
-                    title={state.savedReview!.pullRequestTitle ?? state.savedReview!.title}
+                    title={
+                      threadName ?? state.savedReview!.pullRequestTitle ?? state.savedReview!.title
+                    }
                     detail={shell ? undefined : threadPlace}
                   />
                 ) : (
                   <SessionPanel
                     key={state.savedReview!.id}
                     reviewId={state.savedReview!.id}
-                    title={state.savedReview!.pullRequestTitle ?? state.savedReview!.title}
+                    title={
+                      threadName ?? state.savedReview!.pullRequestTitle ?? state.savedReview!.title
+                    }
                     detail={shell ? undefined : threadPlace}
                     sessions={agentSessions}
                     root={state.review?.repo}
@@ -5285,7 +5294,10 @@ export function App({
                 {guideOverview && (
                   <GuideOverview
                     title={
-                      state.savedReview?.pullRequestTitle ?? state.savedReview?.title ?? "Review"
+                      threadName ??
+                      state.savedReview?.pullRequestTitle ??
+                      state.savedReview?.title ??
+                      "Review"
                     }
                     meta={guideMeta}
                     summary={resolvedGuide?.summary}

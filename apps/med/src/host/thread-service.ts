@@ -153,6 +153,13 @@ export function createThreadService(options: ThreadServiceOptions) {
     updatedAt: thread.updatedAt,
   });
 
+  /** A thread with the name that the reader gave it, if any. The agent's
+   * title stays in `agentTitle`, and stubs keep it. */
+  const named = (thread: Thread): Thread => {
+    const name = tabs.entry(thread.id)?.name;
+    return name ? { ...thread, title: name, agentTitle: thread.title } : thread;
+  };
+
   /** A thread from what history keeps of it. */
   const fromStub = (id: string, stub: TabStub): Thread => {
     const lead = stub.sessions.at(-1);
@@ -299,6 +306,9 @@ export function createThreadService(options: ThreadServiceOptions) {
         const session = parseFoundThreadId(id);
         const owner = session && owners.get(session.id);
         if (!owner) continue;
+        // The review keeps the name that the reader gave the session.
+        const name = tabs.entry(id)?.name;
+        if (name && !tabs.entry(owner)?.name) tabs.setName(owner, name);
         if (tabs.isOpen(owner)) tabs.forget(id);
         else tabs.open(owner, { replace: id });
       }
@@ -342,7 +352,7 @@ export function createThreadService(options: ThreadServiceOptions) {
       );
       return {
         threads: options.checkoutWork.annotate(
-          threads,
+          threads.map(named),
           repositories,
           (thread) => !!thread.found || onWorking.has(thread.id),
         ),
@@ -400,7 +410,7 @@ export function createThreadService(options: ThreadServiceOptions) {
       const time = (thread: Thread) => Math.max(thread.closedAt ?? 0, thread.updatedAt);
       threads.sort((a, b) => time(b) - time(a) || b.updatedAt - a.updatedAt);
       fillPrompts(threads);
-      return threads;
+      return threads.map(named);
     },
 
     /**
@@ -415,7 +425,7 @@ export function createThreadService(options: ThreadServiceOptions) {
         const thread = describe(review, repositories);
         tabs.open(id, { group: groupOf(thread), ...place });
         await tabs.save();
-        return { ...thread, open: true };
+        return named({ ...thread, open: true });
       }
       const stub = tabs.entry(id)?.stub;
       if (REVIEW_ID.test(id)) {
@@ -432,11 +442,13 @@ export function createThreadService(options: ThreadServiceOptions) {
         const thread =
           options.found.threads(reviews).find((entry) => entry.id === foundId) ??
           fromStub(foundId, stub);
+        const name = tabs.entry(id)?.name;
         tabs.forget(id);
         tabs.open(foundId, { group: groupOf(thread), ...place });
+        if (name) tabs.setName(foundId, name);
         tabs.setStub(foundId, stub);
         await tabs.save();
-        return { ...thread, open: true };
+        return named({ ...thread, open: true });
       }
       const parsed = parseFoundThreadId(id);
       if (!parsed) throw new HostError("thread-not-found", "Med has no thread with this ID.", 404);
@@ -463,7 +475,7 @@ export function createThreadService(options: ThreadServiceOptions) {
       tabs.open(id, { group: groupOf(thread), ...place });
       tabs.setStub(id, stubOf(thread));
       await tabs.save();
-      return { ...thread, open: true };
+      return named({ ...thread, open: true });
     },
 
     /** Opens the review that a hand-off or a new thread saved, in the place
@@ -537,6 +549,19 @@ export function createThreadService(options: ThreadServiceOptions) {
 
     async order(order: readonly string[]) {
       tabs.reorder(order);
+      await tabs.save();
+    },
+
+    /**
+     * Names a tab or a thread in history. Med keeps the name, not the agent:
+     * a hand-off that changes the review's title does not change it. An empty
+     * name gives the thread its agent's title again.
+     */
+    async rename(id: string, name: string) {
+      await reviewIndex();
+      if (!tabs.known(id))
+        throw new HostError("thread-not-found", "Med has no thread with this ID.", 404);
+      tabs.setName(id, name.trim() || undefined);
       await tabs.save();
     },
 

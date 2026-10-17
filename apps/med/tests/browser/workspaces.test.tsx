@@ -219,7 +219,7 @@ function createHost() {
       setThreads([last, ...threads]);
       return Response.json({ thread: { ...last, open: true } });
     }
-    const action = /^\/api\/threads\/([\w-]+)\/(open|close|delete)$/.exec(url.pathname);
+    const action = /^\/api\/threads\/([\w-]+)\/(open|close|delete|name)$/.exec(url.pathname);
     if (action && init?.method === "POST") {
       const [, id, verb] = action;
       const body = JSON.parse(String(init.body ?? "{}")) as Record<string, unknown>;
@@ -238,6 +238,19 @@ function createHost() {
         past = past.filter((entry) => entry.id !== id);
         if (tab) setThreads(threads.filter((entry) => entry !== tab));
         return Response.json({ deleted: true });
+      }
+      // As the host names a thread: an empty name gives the agent's title back.
+      if (verb === "name") {
+        const name = String(body.name).trim();
+        if (tab) {
+          const { agentTitle, ...rest } = tab;
+          const agent = agentTitle ?? tab.title;
+          const next = name
+            ? { ...rest, title: name, agentTitle: agent }
+            : { ...rest, title: agent };
+          setThreads(threads.map((entry) => (entry === tab ? next : entry)));
+        }
+        return Response.json({ ok: true });
       }
       // A thread in history opens; one that the test does not list stays out.
       if (closed) {
@@ -1053,6 +1066,66 @@ test("a tab lists its subagents; a click opens one in the Session pane, and a fi
     .element(subagents.getByRole("button", { name: /^Read the docs/ }))
     .not.toBeInTheDocument();
   await expect.element(working).toBeVisible();
+});
+
+test("a thread takes a name from its menu, a double-click, or the palette; Esc keeps the old one, and an empty name gives the agent's title back", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  host.setThreads([thread("agent", { agent: "claude", state: "idle" }), thread("second")]);
+  await expect.poll(threadRows).toEqual(["Agent review", "Second review"]);
+  const field = page.getByRole("textbox", { name: "Thread name" });
+  const named = () => host.threadRequests.filter((request) => request.path.endsWith("/name"));
+
+  // The menu's Rename… puts a field with the name in the row; Enter keeps the
+  // new name, and the focus goes back to the row.
+  await page.getByRole("button", { name: /^Agent review/ }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Rename…" }).click();
+  await expect.element(field).toHaveFocus();
+  await expect.element(field).toHaveValue("Agent review");
+  await userEvent.fill(field, "Talk prep");
+  await userEvent.keyboard("{Enter}");
+  await expect.poll(threadRows).toEqual(["Talk prep", "Second review"]);
+  expect(named()).toEqual([{ path: "/api/threads/agent/name", body: { name: "Talk prep" } }]);
+  const row = page.getByRole("button", { name: /^Talk prep/ });
+  await expect.element(row).toHaveFocus();
+
+  // A double-click on the row names it too; its first click opens the thread.
+  // Esc keeps the name it had.
+  await row.dblClick();
+  await expect.element(field).toHaveFocus();
+  await userEvent.keyboard("Something else{Escape}");
+  await expect.element(field).not.toBeInTheDocument();
+  await expect.poll(threadRows).toEqual(["Talk prep(current)", "Second review"]);
+  expect(named()).toHaveLength(1);
+
+  // The palette names the thread on screen, which the window's title shows. An
+  // empty name gives the agent's title back.
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("agent-target");
+  await expect.poll(() => document.title).toBe("Talk prep");
+  await userEvent.keyboard("{Control>}k{/Control}");
+  await page.getByRole("combobox", { name: "Search commands" }).fill("Rename thread");
+  await userEvent.keyboard("{Enter}");
+  await expect.element(field).toHaveFocus();
+  await expect.element(field).toHaveAttribute("placeholder", "Agent review");
+  await userEvent.clear(field);
+  await userEvent.keyboard("{Enter}");
+  await expect.poll(threadRows).toEqual(["Agent review(current)", "Second review"]);
+  expect(named().at(-1)).toEqual({ path: "/api/threads/agent/name", body: { name: "" } });
+
+  // With the sidebar hidden, the title band holds the field.
+  await userEvent.keyboard("{Control>}b{/Control}");
+  await expect.element(page.getByRole("navigation", { name: "Threads" })).not.toBeInTheDocument();
+  await userEvent.keyboard("{Control>}k{/Control}");
+  await page.getByRole("combobox", { name: "Search commands" }).fill("Rename thread");
+  await userEvent.keyboard("{Enter}");
+  const band = page.getByRole("banner", { name: "Workspace" });
+  await expect.element(band.getByRole("textbox", { name: "Thread name" })).toHaveFocus();
+  // The name starts selected, so typing replaces it.
+  await userEvent.keyboard("Regions{Enter}");
+  await expect.poll(() => document.title).toBe("Regions");
+  expect(named().at(-1)).toEqual({ path: "/api/threads/agent/name", body: { name: "Regions" } });
+  await userEvent.keyboard("{Control>}b{/Control}");
 });
 
 test("a tab's menu copies its resume command, marks it unread, and closes it", async () => {
