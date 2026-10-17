@@ -93,8 +93,9 @@ export function ChoiceSelect({
   trigger?: stylex.StyleXStyles;
   disabled?: boolean;
   /** Items after the choices, below a rule, that act and keep the value. A
-   * `checked` item is a toggle and shows its state. */
-  actions?: { label: string; checked?: boolean; onSelect(): void }[];
+   * `checked` item is a toggle and shows its state; a `hint` shows at the
+   * right, such as what the item changes now. */
+  actions?: { label: string; checked?: boolean; hint?: string; onSelect(): void }[];
   triggerRef?: Ref<HTMLButtonElement>;
   /** The trigger's text in place of the choice's label, such as a short one. */
   display?: string;
@@ -182,6 +183,7 @@ export function ChoiceSelect({
                   <Select.ItemText {...stylex.props(styles.choiceLabel)}>
                     {action.label}
                   </Select.ItemText>
+                  {action.hint && <span {...stylex.props(styles.actionHint)}>{action.hint}</span>}
                 </Select.Item>
               ))}
             </Select.List>
@@ -583,6 +585,18 @@ const styles = stylex.create({
   choiceText: { display: "flex", flexDirection: "column", gap: 2, minWidth: 0 },
   choiceLabel: { fontSize: 12.5 },
   choiceDescription: { color: tokens.faint, fontSize: 11, lineHeight: 1.35 },
+  // What an action changes now, such as the base branch, at the right.
+  actionHint: {
+    marginInlineStart: "auto",
+    paddingInlineStart: 16,
+    maxWidth: 180,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    color: tokens.faint,
+    fontFamily: tokens.code,
+    fontSize: 11.5,
+  },
   // In a narrow toolbar the value truncates before the trigger overflows.
   trigger: { gap: 4, minWidth: 0, paddingInlineEnd: 5 },
   // A trigger's text and padding, without its button.

@@ -656,7 +656,16 @@ export class ReviewService {
       label = comparison.kind === "staged" ? "Staged changes" : "Working changes";
       // A branch's changes: from where it left its base, with the uncommitted ones.
       if (comparison.kind === "working" && comparison.base) {
-        const from = await resolveCommit(repo, comparison.base, signal);
+        // A thread keeps its base, and the branch can go later.
+        const from = await resolveCommit(repo, comparison.base, signal).catch((error) => {
+          signal?.throwIfAborted();
+          if (!(error instanceof ProcessFailure)) throw error;
+          throw new HostError(
+            "unknown-base",
+            `There is no branch named ${comparison.base}. Choose another base branch.`,
+            422,
+          );
+        });
         base = await mergeBase(repo, from, base, signal);
         label = `Branch changes · since ${comparison.base}`;
       }

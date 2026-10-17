@@ -466,7 +466,14 @@ that the agent hands off with `med thread show`, `med review create --key`, or
 path, branch) and no target. Its **Changes** are a live comparison of that
 checkout, which Med never saves: a `working` comparison with `base`, from the
 merge base of the base branch and HEAD to the working files, on a branch
-other than the base, and plain working changes on the base. A Git comparison
+other than the base, and plain working changes on the base. The base is the
+repository's main checkout's branch unless the reader chose another
+(`checkout.base`). `POST /api/reviews/:id/details` with `checkout` moves the
+thread to another checkout of a registered repository or keeps a base; the
+host, the thread list, and the browser read both through `threadCheckout` and
+`changesBase`. A review's ID names its diff, so two bases with one merge base
+share a review; the live review cache in `server.ts` serves a review again
+only for the comparison that it was loaded for. A Git comparison
 can keep only `paths` (literal pathspecs; an empty list keeps no file), or the
 files that a Claude Code or Codex `session` edited: `/api/review` reads them
 from the transcript (`src/host/session-edits.ts`) and asks Git for those

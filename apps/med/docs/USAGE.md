@@ -178,6 +178,19 @@ load it or read its agents until you open it again.
   checkout that other sessions share, such as the main checkout, **Only this
   session's files** keeps the files that the thread's Claude Code or Codex
   session edited.
+- **Set a thread's branch and base** from its comparison menu in **Changes**.
+  The menu's button names both, such as "station-search since main".
+  **Thread checkout…**, or `⌘⇧G` in a thread, chooses another branch or
+  worktree of the repository: `↵` moves the thread there. Use it when the
+  agent works in a checkout other than the one that the thread started in.
+  The thread's Changes, its row, and the title band then show that checkout,
+  also after a restart. A branch that has no worktree opens in a new
+  workspace, as Med never switches branches; `⌘↵` opens any choice in a new
+  workspace. **Base branch…** chooses what the branch's changes start from:
+  the commits since that branch, and the uncommitted changes. The thread
+  keeps the base, and its row counts the changes since it. Choose the
+  repository's usual base to go back to it. Moving a thread changes only
+  what Med shows; the agent's session keeps its own folder.
 - **Review** is what the agent hands off (`med thread show`, or
   `med review create --key …`): its Guide, its brief in **Notes**, or its diff.
   Each hand-off is a new version. The row above the diff names the version
@@ -204,7 +217,8 @@ load it or read its agents until you open it again.
 
 The branch switcher (`⌘⇧G`) searches the branches and worktrees of every
 registered repository. `↵` opens a branch in the current workspace; `⌘↵` opens
-it as a new workspace.
+it as a new workspace. In a thread, `↵` moves the thread to the branch's
+worktree (**Thread checkout**, above).
 
 Tabs stay loaded, so a switch is immediate; with more than 16 tabs, the ones
 shown least recently unload and stay in the sidebar. Of the other workspaces,
@@ -219,7 +233,7 @@ app.
 1. Choose branch, working, staged, or unstaged changes in the comparison menu
    above the diff. Branch changes are the commits since the base branch and
    the uncommitted changes; a branch other than the base opens on them.
-   **Compare against** compares with the base branch, and **Compare
+   **Base branch…** chooses another base for them, and **Compare
    revisions…** in the review's menu chooses a range. A range compares
    snapshots; it does not add patches across merged branches.
 2. Select a changed path to go to it in the diff. Double-click it to open the
@@ -830,8 +844,10 @@ compares, and the session's row names the agent and its state.
 
 - The review's row has its tabs (**Review**, **Changes**, **Commit**), the
   comparison or, in Review, the version, and **⋯**. In Changes, the
-  comparison menu also has **Compare against a branch…** and **Compare two
-  revisions…**, and in a shared checkout **Only this session's files**.
+  comparison menu also has **Base branch…** (for a branch without a
+  worktree, **Compare against a branch…**) and **Compare two revisions…**, in
+  a thread **Thread checkout…**, and in a shared checkout **Only this
+  session's files**.
 - **⋯** has the comments, **Find in diffs**, the panes, **Zen mode**, **Push…**,
   and **Refresh review**. Its **View** menu has the diff's layout, comments,
   wrapping, the files and commits rail, and **Collapse all files**.

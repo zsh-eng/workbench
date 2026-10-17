@@ -47,8 +47,9 @@ export function BranchPicker({
   onAddRepository(path: string): Promise<unknown>;
   onRemoveRepository(id: string): Promise<unknown>;
   onRefresh(): Promise<unknown>;
-  /** With workspaces, where a plain ↵ opens the branch: here, or in a new one. */
-  workspaces?: "here" | "new";
+  /** With workspaces, where a plain ↵ opens the branch: here, in a new one, or,
+   * in a thread, as the checkout that the thread shows. */
+  workspaces?: "here" | "new" | "thread";
   /** Opens a pasted GitHub pull request link in a new workspace. */
   onPullRequest?(url: string, agent?: string): void;
   /** Installed agents that can review the pull request in its worktree. */
@@ -140,7 +141,11 @@ export function BranchPicker({
         >
           <div {...stylex.props(styles.heading)}>
             <Dialog.Title {...stylex.props(styles.title)}>
-              {workspaces === "new" ? "New workspace" : "Open branch"}
+              {workspaces === "new"
+                ? "New workspace"
+                : workspaces === "thread"
+                  ? "Thread checkout"
+                  : "Open branch"}
             </Dialog.Title>
             <span {...stylex.props(ui.grow)} />
             <ToolButton
@@ -154,7 +159,9 @@ export function BranchPicker({
             </Dialog.Close>
           </div>
           <Dialog.Description {...stylex.props(styles.hidden)}>
-            Choose a branch or worktree from your repositories.
+            {workspaces === "thread"
+              ? "Choose the checkout whose changes this thread shows. The agent keeps its own folder."
+              : "Choose a branch or worktree from your repositories."}
           </Dialog.Description>
           <div {...stylex.props(styles.search)}>
             <Icon name="search" />
@@ -306,6 +313,15 @@ export function BranchPicker({
                 <span {...stylex.props(styles.hint)}>
                   <ShortcutKeys value="Enter" /> Open in a new workspace
                 </span>
+              ) : workspaces === "thread" ? (
+                <>
+                  <span {...stylex.props(styles.hint)}>
+                    <ShortcutKeys value="Enter" /> Move this thread to the checkout
+                  </span>
+                  <span {...stylex.props(styles.hint)}>
+                    <ShortcutKeys value="Mod+Enter" /> New workspace
+                  </span>
+                </>
               ) : (
                 <>
                   <span {...stylex.props(styles.hint)}>

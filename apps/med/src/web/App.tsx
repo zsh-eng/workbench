@@ -2891,6 +2891,25 @@ export function App({
     else if (!existing && newWorkspace) workspace.open(target);
     else if (!existing) entry.run();
   };
+  // In a thread, ⌘⇧G picks the checkout that the thread shows: ↵ moves the
+  // thread there, and its Changes follow. A branch that no checkout has opens
+  // in a new workspace, as Med never switches branches.
+  const threadPicker = !!state.savedReview && !!workspace && gitAvailable;
+  const moveThreadTo = (entry: BranchEntry) => {
+    if (!entry.path) return openBranch(entry, true);
+    fileWorkspace.select("changes");
+    if (entry.path === threadCheckout(state.savedReview!)?.repo) return;
+    controller
+      .moveThread({
+        repositoryId: entry.repositoryId,
+        repo: entry.path,
+        branch: entry.branch ?? null,
+      })
+      .then(
+        () => showToast(`This thread shows ${entry.label} now.`),
+        (error: unknown) => showToast(error instanceof Error ? error.message : String(error)),
+      );
+  };
   // The workspace list names each workspace and shows its changed-file count.
   const reportTo = workspace?.update;
   const reportTitle =
@@ -3189,8 +3208,15 @@ export function App({
       ? (state.review?.head ?? "")
       : liveHead;
   // The base branch menu and Push (ComparisonActions), with or without their buttons.
+  // A base branch that is gone leaves Branch changes with an error; the base
+  // menu stays, to choose another.
   const comparisonActionsShown =
-    !!actionRepo && state.status === "ready" && state.session?.repository.git !== false;
+    !!actionRepo &&
+    (state.status === "ready" ||
+      (state.status === "error" &&
+        state.comparison.kind === "working" &&
+        !!state.comparison.base)) &&
+    state.session?.repository.git !== false;
   const pushable = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(actionHead);
   const gitTargets = useGitTargets(comparisonActionsShown ? actionRepo : undefined, actionHead);
   // Why Push… cannot open yet: its dialog needs a commit and the remotes.
@@ -3207,12 +3233,16 @@ export function App({
     openCompare();
   };
   // Changes on a branch other than the base start at the base: the branch's
-  // commits and its uncommitted changes.
+  // commits and its uncommitted changes. A thread keeps the base that the
+  // reader chose for its checkout.
+  const ownCheckout = state.savedReview ? threadCheckout(state.savedReview) : undefined;
+  const onOwnCheckout = !!ownCheckout && ownCheckout.repo === state.session?.repository.path;
   const branchBase =
     (state.comparison.kind === "working" ? state.comparison.base : undefined) ??
     changesBase(
       state.repositories.find((entry) => entry.id === state.activeRepositoryId),
       state.activeBranch,
+      onOwnCheckout ? ownCheckout.base : undefined,
     );
   const liveValue =
     state.comparison.kind === "working" && state.comparison.base ? "branch" : state.comparison.kind;
@@ -3369,7 +3399,11 @@ export function App({
             : `Version ${shownVersion ?? 1}`,
       }
     : {
-        long: chosenLabel ?? liveText.long,
+        // The branch's changes name the branch and its base.
+        long:
+          liveValue === "branch" && state.activeBranch && branchBase
+            ? `${state.activeBranch} since ${branchBase}${sessionFilter ? " · this session" : ""}`
+            : (chosenLabel ?? liveText.long),
         short: `${liveValue === "branch" ? "Branch" : liveText.short}${sessionFilter ? " · session" : ""}`,
       };
   // The host links a pull request that the thread's branch opened later
@@ -3547,7 +3581,7 @@ export function App({
     {
       id: "open-branch",
       managesFocus: true,
-      label: "Open branch or worktree",
+      label: threadPicker ? "Move thread to a branch or worktree" : "Open branch or worktree",
       shortcut: "⌘ ⇧ G",
       disabled: !gitAvailable,
       run: () => openBranchPicker(false),
@@ -4662,12 +4696,22 @@ export function App({
           },
         ]
       : []),
-    ...(quiet && !reviewShown && comparisonActionsShown
+    // The checkout that the thread shows, and the base of its changes: each
+    // shows its value and opens its picker.
+    ...(threadPicker && !reviewShown
       ? [
           {
-            label: "Compare against a branch…",
-            onSelect: openCompare,
+            label: "Thread checkout…",
+            hint: state.activeBranch ?? state.session?.repository.path.split("/").at(-1),
+            onSelect: () => openBranchPicker(false),
           },
+        ]
+      : []),
+    ...(quiet && !reviewShown && comparisonActionsShown
+      ? [
+          workingAvailable
+            ? { label: "Base branch…", hint: branchBase, onSelect: openCompare }
+            : { label: "Compare against a branch…", onSelect: openCompare },
         ]
       : []),
     ...(quiet && !reviewShown && gitAvailable
@@ -4695,7 +4739,7 @@ export function App({
           // One control says what the diff compares, and changes it.
           triggerRef: comparisonTrigger,
           trigger: styles.rowComparisonTrigger,
-          display: comparisonFit === "short" ? comparisonText.short : undefined,
+          display: comparisonFit === "short" ? comparisonText.short : comparisonText.long,
         })}
       />
     );
@@ -4711,6 +4755,23 @@ export function App({
       head={actionHead}
       sourceBranch={actionBranch}
       comparison={state.comparison}
+      {...(workingAvailable &&
+        !reviewShown && {
+          onBase: (base: string) => {
+            fileWorkspace.select("changes");
+            controller
+              .setChangesBase({
+                kind: "working",
+                base,
+                ...(sessionFilter && { session: sessionFilter }),
+              })
+              .catch((error: unknown) =>
+                showToast(
+                  `The thread did not keep the base. ${error instanceof Error ? error.message : String(error)}`,
+                ),
+              );
+          },
+        })}
       onCompare={(base, head) => {
         fileWorkspace.select("changes");
         void controller.selectComparison({
@@ -5132,9 +5193,15 @@ export function App({
       open={branchPickerOpen}
       onOpenChange={setBranchPickerOpen}
       onSelect={(entry, newWorkspace) =>
-        workspace ? openBranch(entry, newWorkspace || branchPickerNew) : branches.open(entry)
+        !workspace
+          ? branches.open(entry)
+          : threadPicker && !newWorkspace && !branchPickerNew
+            ? moveThreadTo(entry)
+            : openBranch(entry, newWorkspace || branchPickerNew)
       }
-      workspaces={workspace ? (branchPickerNew ? "new" : "here") : undefined}
+      workspaces={
+        workspace ? (branchPickerNew ? "new" : threadPicker ? "thread" : "here") : undefined
+      }
       onPullRequest={workspace?.openPull}
       agents={agentPresets?.filter((agent) => agent.available)}
       onAddRepository={controller.addRepository}

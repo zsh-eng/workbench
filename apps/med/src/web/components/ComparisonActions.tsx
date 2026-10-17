@@ -53,6 +53,7 @@ export function ComparisonActions({
   sourceBranch,
   comparison,
   onCompare,
+  onBase,
   targets,
   targetsError = "",
   triggers = true,
@@ -64,6 +65,9 @@ export function ComparisonActions({
   sourceBranch: string;
   comparison: Comparison;
   onCompare(base: string, head: string): void;
+  /** On a live checkout: a base branch shows the branch's changes since it, with
+   * the uncommitted changes, in place of a range of commits. */
+  onBase?(base: string): void;
   /** From useGitTargets. */
   targets?: GitTargets;
   targetsError?: string;
@@ -111,6 +115,14 @@ export function ComparisonActions({
       setPushing(false);
     }
   };
+  // The base that the diff starts from: of the branch's changes, or of a range.
+  const base = onBase
+    ? comparison.kind === "working"
+      ? comparison.base
+      : undefined
+    : comparison.kind === "range" && comparison.mergeBase
+      ? comparison.base
+      : undefined;
   const [compareOpen, setCompareOpen] = useState(false);
   const changeCompare = (open: boolean) => {
     if (open) setQuery("");
@@ -145,18 +157,14 @@ export function ComparisonActions({
       >
         {triggers && (
           <Menu.Trigger
-            {...stylex.props(
-              ui.button,
-              styles.trigger,
-              comparison.kind === "range" && comparison.mergeBase && ui.strong,
-            )}
+            {...stylex.props(ui.button, styles.trigger, !!base && ui.strong)}
             aria-label="Compare against base branch"
           >
-            {comparison.kind === "range" && comparison.mergeBase ? (
+            {base ? (
               <>
                 <span {...stylex.props(styles.baseLabel)}>Base</span>
                 <span {...stylex.props(styles.label)}>
-                  {comparison.base.replace(/^refs\/(heads|remotes)\//, "")}
+                  {base.replace(/^refs\/(heads|remotes)\//, "")}
                 </span>
               </>
             ) : (
@@ -201,7 +209,11 @@ export function ComparisonActions({
                   {...stylex.props(styles.filterInput)}
                 />
               </div>
-              <p {...stylex.props(styles.menuHint)}>Changes since the common ancestor</p>
+              <p {...stylex.props(styles.menuHint)}>
+                {onBase
+                  ? "Commits since the common ancestor, and uncommitted changes"
+                  : "Changes since the common ancestor"}
+              </p>
               {(
                 [
                   ["Local", refs.filter((ref) => !ref.name.startsWith("refs/remotes/"))],
@@ -214,15 +226,14 @@ export function ComparisonActions({
                       {title}
                     </Menu.GroupLabel>
                     {group.map((ref) => {
-                      const current =
-                        comparison.kind === "range" &&
-                        !!comparison.mergeBase &&
-                        (comparison.base === ref.name || comparison.base === ref.label);
+                      const current = !!base && (base === ref.name || base === ref.label);
                       return (
                         <Menu.Item
                           key={ref.name}
-                          onClick={() => onCompare(ref.name, commitHead)}
-                          disabled={!commitHead}
+                          onClick={() =>
+                            onBase ? onBase(ref.label) : onCompare(ref.name, commitHead)
+                          }
+                          disabled={!onBase && !commitHead}
                           className={(state) =>
                             stylex.props(
                               ui.menuItem,

@@ -112,6 +112,14 @@ export function createThreadService(options: ThreadServiceOptions) {
   const describe = (review: IndexedReview, repositories: readonly RegisteredRepository[]) => {
     const target = primary(review);
     const family = familyOf(repositories, target?.repo, target?.repositoryId);
+    // The checkout's branch as it is now: an agent can switch it. A detached
+    // checkout shows by its folder.
+    const tree = family?.worktrees.find((entry) => entry.path === target?.repo);
+    const branch = tree
+      ? tree.branch && tree.branch !== "Detached HEAD"
+        ? tree.branch
+        : undefined
+      : target?.branch;
     const lead = review.sessions?.at(-1);
     return {
       id: review.id,
@@ -123,7 +131,7 @@ export function createThreadService(options: ThreadServiceOptions) {
       ...(family?.worktrees.some((tree) => tree.path === target?.repo && tree.linked) && {
         linked: true,
       }),
-      ...(target?.branch && { branch: target.branch }),
+      ...(branch && { branch }),
       ...(lead && { agent: lead.agent }),
       ...(review.sessions?.length && { sessions: review.sessions }),
       // A thread's Review counts its hand-offs; before one, its tab counts
@@ -223,7 +231,11 @@ export function createThreadService(options: ThreadServiceOptions) {
     const branch = tree ? tree.branch : target?.branch;
     const live =
       target && !handoffTargets(review).length
-        ? options.checkoutChanges?.get(target.repo, changesBase(family, branch), status?.updatedAt)
+        ? options.checkoutChanges?.get(
+            target.repo,
+            changesBase(family, branch, target.base),
+            status?.updatedAt,
+          )
         : undefined;
     // A branch other than the base can have a pull request that opened after
     // the thread did.
@@ -232,7 +244,7 @@ export function createThreadService(options: ThreadServiceOptions) {
       branch &&
       branch !== "Detached HEAD" &&
       !review.pullRequestUrl &&
-      changesBase(family, branch)
+      changesBase(family, branch, target.base)
     )
       options.pullRequestLinks?.check(review.id, target.repo, branch);
     return {
