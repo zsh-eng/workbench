@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { findSymbols, symbolMatchId } from "../../src/web/data/symbol-matches";
+import { findSymbols, symbolMatchId } from "../../src/shared/symbol-matches";
 import type { SymbolMatch } from "../../src/shared/symbols";
 function symbol(name: string, scope?: string): SymbolMatch {
   return { name, scope, kind: "function", path: "file.ts", line: 1 };

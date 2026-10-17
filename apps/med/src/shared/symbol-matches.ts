@@ -1,4 +1,4 @@
-import type { SymbolMatch } from "../../shared/symbols";
+import type { SymbolMatch } from "./symbols";
 
 export function symbolMatchId(symbol: SymbolMatch): string {
   return JSON.stringify([symbol.path, symbol.line, symbol.column, symbol.name, symbol.kind]);

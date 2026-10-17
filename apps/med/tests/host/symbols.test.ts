@@ -1,9 +1,14 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, writeFile, rm, realpath } from "node:fs/promises";
+import { mkdtemp, writeFile, rm, realpath, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
-import { discoverCtags, FileSymbolService, parseSymbols } from "../../src/host/search/symbols";
+import {
+  discoverCtags,
+  FileSymbolService,
+  parseSymbols,
+  WorkingTreeSymbols,
+} from "../../src/host/search/symbols";
 import { readBrowse } from "../../src/host/repository/browse";
 const roots: string[] = [];
 afterEach(async () => {
@@ -80,5 +85,57 @@ test.skipIf(!tool)(
     );
     await writeFile(join(repo, "binary.ts"), Buffer.from([0, 1, 2]));
     expect((await service.search({ source, query: "", path: "binary.ts" })).matches).toEqual([]);
+  },
+);
+
+test.skipIf(!tool)(
+  "project symbols of a checkout come from its working files, and follow their changes",
+  async () => {
+    const repo = await realpath(await mkdtemp(join(tmpdir(), "med-project-symbols-")));
+    const outside = await realpath(await mkdtemp(join(tmpdir(), "med-project-outside-")));
+    roots.push(repo, outside);
+    const git = (...args: string[]) =>
+      execFileSync(
+        "git",
+        [
+          "-C",
+          repo,
+          "-c",
+          "commit.gpgsign=false",
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.com",
+          ...args,
+        ],
+        { encoding: "utf8" },
+      );
+    git("init", "-q");
+    await writeFile(join(repo, ".gitignore"), "ignored.ts\n");
+    await writeFile(join(repo, "a.ts"), "export function committedName() {}\n");
+    await writeFile(join(repo, "data.json"), JSON.stringify({ committedKey: 1 }));
+    git("add", ".");
+    git("commit", "-qm", "test");
+    await writeFile(join(repo, "b.ts"), "export class UntrackedCounter {}\n");
+    await writeFile(join(repo, "ignored.ts"), "export function ignoredName() {}\n");
+    await writeFile(join(outside, "secret.ts"), "export function outsideName() {}\n");
+    await symlink(join(outside, "secret.ts"), join(repo, "link.ts"));
+    const service = new WorkingTreeSymbols(tool);
+    const names = async (query: string) =>
+      (await service.search(repo, query))!.matches.map((match) => `${match.name} ${match.path}`);
+    const first = await service.search(repo, "Counter");
+    expect(first?.resultSource).toEqual({ kind: "worktree", repo });
+    expect(first?.matches.map((match) => match.name)).toEqual(["UntrackedCounter"]);
+    expect(await names("committed")).toEqual(["committedName a.ts"]);
+    // Ignored files, data files, and links are not parsed.
+    expect(await names("ignored")).toEqual([]);
+    expect(await names("committedKey")).toEqual([]);
+    expect(await names("outside")).toEqual([]);
+    // A change, a rename and a deletion show at the next search.
+    await writeFile(join(repo, "a.ts"), "export function renamedFunction() {}\n");
+    await rm(join(repo, "b.ts"));
+    expect(await names("committed")).toEqual([]);
+    expect(await names("renamed")).toEqual(["renamedFunction a.ts"]);
+    expect(await names("Counter")).toEqual([]);
   },
 );

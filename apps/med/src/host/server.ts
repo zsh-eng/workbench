@@ -68,7 +68,7 @@ import { listBrowse, readBrowse, writeBrowse } from "./repository/browse";
 import { browseBlameRequestSchema, browseSearchRequestSchema } from "../shared/inspect";
 import { blameBrowse } from "./repository/inspect";
 import { symbolSearchRequestSchema } from "../shared/symbols";
-import { FileSymbolService } from "./search/symbols";
+import { FileSymbolService, WorkingTreeSymbols } from "./search/symbols";
 import { type SearchOptions } from "./search/service";
 import { RepositoryRegistry } from "./repository/registry";
 import { Memo } from "./repository/cache";
@@ -286,6 +286,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   );
   const notes = new NoteService(reviews);
   const symbols = new FileSymbolService();
+  const workingSymbols = new WorkingTreeSymbols();
   const localFiles = new LocalFiles();
   const temporaryState = options.stateDir
     ? undefined
@@ -2533,12 +2534,17 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           if (url.pathname === "/api/browse/symbols" && request.method === "POST") {
             const input = symbolSearchRequestSchema.parse(await readBody(request));
             input.source.repo = await requireRepo(input.source.repo);
+            // Symbols in the project of a checkout come from its working
+            // files, with their uncommitted changes; a commit, or a checkout
+            // too large for Ctags, from the index.
             send(
               input.path
                 ? await symbols.search(input, abort.signal)
-                : await registry.withSearch(input.source.repo, (search) =>
-                    search.symbols(input.source, input.query, abort.signal),
-                  ),
+                : (input.source.kind === "worktree" &&
+                    (await workingSymbols.search(input.source.repo, input.query, abort.signal))) ||
+                    (await registry.withSearch(input.source.repo, (search) =>
+                      search.symbols(input.source, input.query, abort.signal),
+                    )),
             );
             return;
           }

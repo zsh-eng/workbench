@@ -2592,8 +2592,11 @@ export function App({
         selectTab(order[(index + step + order.length) % order.length]!);
         return;
       }
+      // ⌘O and ⌘⇧O open the symbol picker wherever there is a checkout, so the
+      // browser never opens its own file dialog; with no file open, ⌘O's
+      // picker says so and offers the project.
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "o") {
-        if (event.shiftKey ? !browseSource : !activeFile || fileState.file?.kind !== "text") return;
+        if (!browseSource) return;
         event.preventDefault();
         event.stopPropagation();
         if (!event.repeat) openSymbols(event.shiftKey ? "project" : "file");

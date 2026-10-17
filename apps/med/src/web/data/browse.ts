@@ -72,11 +72,14 @@ export function createBrowseApi(fetcher: typeof fetch, token: string) {
         result.path !== options?.path
       )
         throw new Error("The symbols belong to another source or query.");
+      // The answer comes from the same repository: its working files for a
+      // checkout, or the commit that the index resolved.
       if (
         result.resultSource &&
-        (result.resultSource.kind !== "commit" ||
-          result.resultSource.repo !== source.repo ||
-          (source.kind === "commit" && result.resultSource.oid !== source.oid))
+        (result.resultSource.repo !== source.repo ||
+          (result.resultSource.kind === "worktree"
+            ? source.kind !== "worktree"
+            : source.kind === "commit" && result.resultSource.oid !== source.oid))
       )
         throw new Error("The symbols belong to another commit.");
       return result;
