@@ -47,8 +47,12 @@ const files = new Map<string, string>([
 ]);
 
 /** The Search tab over `files`; the host reads `resultSource`'s files, and
- * matches case when the search asks. */
-function fixture(resultSource: BrowseSource = commit, contents = files) {
+ * matches case when the search asks. `answer` adds to each result. */
+function fixture(
+  resultSource: BrowseSource = commit,
+  contents = files,
+  answer: Partial<BrowseSearch> = {},
+) {
   const reads: string[] = [];
   const opened: SearchOpen[] = [];
   const searches: { query: string; matchCase: boolean }[] = [];
@@ -76,6 +80,7 @@ function fixture(resultSource: BrowseSource = commit, contents = files) {
         truncated: false,
         resultSource,
         engine: "git",
+        ...answer,
       };
     },
     async read(source: BrowseSource, path: string): Promise<BrowseRead> {
@@ -222,4 +227,14 @@ test("a checkout's results show its working files: a file that changed is read a
   // A match opens the working file at its line.
   (options[1] as HTMLElement).click();
   expect(opened.at(-1)).toMatchObject({ path: "src/alpha.ts", line: 26, source: checkout });
+});
+
+test("a search that answered shows no line about the index; a capped one says so once", async () => {
+  const cap = "Showing the first 200 matching lines. Narrow the query.";
+  fixture(commit, files, { truncated: true, reason: cap, index: { state: "unavailable" } });
+  await expect
+    .element(page.getByRole("status"))
+    .toHaveTextContent("43 results in 41 files in fixture");
+  const notes = [...document.querySelectorAll("[role=status] ~ p")].map((note) => note.textContent);
+  expect(notes).toEqual([cap]);
 });

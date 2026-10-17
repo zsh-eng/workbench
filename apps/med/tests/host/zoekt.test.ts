@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { afterEach, expect, test } from "vitest";
-import { ZoektSearchService } from "../../src/host/search/service";
+import { resetIndexHint, ZoektSearchService } from "../../src/host/search/service";
 
 const binaryDirectory = process.env.MED_TEST_ZOEKT_BIN;
 const temporary: string[] = [];
@@ -135,6 +135,33 @@ test("without the index, a checkout searches its working files with uncommitted 
   });
   await expect(service.search(source, "needle", AbortSignal.abort())).rejects.toThrow(/abort/i);
   expect(await fingerprint(repo)).toEqual(before);
+});
+
+test("without the index, a search that answered says nothing about it; a slow one says once where it would help", async () => {
+  const { root, repo, oid, cacheRoot } = await fixture();
+  resetIndexHint();
+  const quiet = await start(repo, cacheRoot, join(root, "missing-binaries"));
+  const source = { kind: "worktree" as const, repo };
+  for (const searched of [source, { kind: "commit" as const, repo, oid }])
+    expect((await quiet.search(searched, "needle")).index).toEqual({ state: "unavailable" });
+  // Project symbols at a commit need the index: the reader learns why, and
+  // what still works.
+  expect((await quiet.symbols({ kind: "commit", repo, oid }, "needle")).unavailable).toBe(
+    "At a commit, project symbols come from the Zoekt index, which is not set up; see Search file contents in med docs usage. Symbols in this file (⌘O) still work.",
+  );
+  await quiet.close();
+  // Every search counts as slow here.
+  const slow = new ZoektSearchService(repo, {
+    binDir: join(root, "missing-binaries"),
+    cacheRoot,
+    slowGitSearchMs: 0,
+  });
+  services.push(slow);
+  await slow.start();
+  expect((await slow.search(source, "needle")).index?.message).toMatch(
+    /^Git took \d+\.\d s for this search\. The Zoekt index makes searches of large repositories faster; see Search file contents in med docs usage\.$/,
+  );
+  expect((await slow.search(source, "needle")).index).toEqual({ state: "unavailable" });
 });
 
 test.skipIf(!binaryDirectory)(

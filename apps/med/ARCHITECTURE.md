@@ -316,6 +316,13 @@ is filtered by case when it is complete, and Git searches the same commit
 when the index stopped at its cap. The file workspace store keeps the option
 with the Search tab's query (`searchCase`).
 
+A search that answered carries no message about the index: Git's results give
+only the index state. When the helpers are not installed, the first Git search
+in a host's run that takes a second or more (`SLOW_GIT_SEARCH_MS`) carries one
+quiet line on where the index would help, which the Search tab and the content
+picker show. Project symbols that need the index say why they cannot answer
+and that file symbols still work.
+
 The host returns one line for each match. The view shows two lines around it
 (`data/search-excerpts.ts`) from the files that the search read. A working
 file is read again for each search, and a read that no longer holds the

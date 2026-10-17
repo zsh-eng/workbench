@@ -470,16 +470,20 @@ export function SearchView({
 
   const searching = entries.filter((entry) => !entry.result && !entry.error).length;
   const repositoriesShown = new Set(groups.map((group) => group.repository.path)).size;
-  const truncated = entries.filter((entry) => entry.result?.truncated);
-  // The host says why a search read less, such as Git while the index builds.
+  // One quiet line for each reason that a search read less, such as its
+  // 200-line cap, named by repository when several answer; and the host's
+  // rare line on where the index would help.
   const notes = [
     ...new Set(
-      entries.flatMap((entry) => [
-        ...(entry.result?.reason ? [entry.result.reason] : []),
-        ...(entry.result?.engine === "git" && entry.result.index?.message
-          ? [entry.result.index.message]
-          : []),
-      ]),
+      entries.flatMap((entry) => {
+        const reason =
+          entry.result?.reason ??
+          (entry.result?.truncated ? "Showing the first matches. Add text to see fewer." : "");
+        return [
+          ...(reason ? [targets.length > 1 ? `${entry.repository.name}: ${reason}` : reason] : []),
+          ...(entry.result?.index?.message ? [entry.result.index.message] : []),
+        ];
+      }),
     ),
   ];
   const unmatched = parsed.repos.length > 0 && !targets.length;
@@ -556,12 +560,6 @@ export function SearchView({
             <p role="status" {...stylex.props(styles.status)}>
               {status}
             </p>
-            {truncated.length > 0 && (
-              <p {...stylex.props(styles.note)}>
-                Showing the first matches in{" "}
-                {truncated.map((entry) => entry.repository.name).join(", ")}. Add text to see fewer.
-              </p>
-            )}
             {notes.map((note) => (
               <p key={note} {...stylex.props(styles.note)}>
                 {note}

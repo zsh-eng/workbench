@@ -696,6 +696,12 @@ which indexes in the background. Med indexes up to 64 branch tips in each
 repository, worktree branches first, and updates the index when commits change.
 Until the index is ready, Git answers: in a checkout, from its working files.
 
+Without the index, search says nothing about it while Git answers. Once in a
+run, a Git search that takes a second or more adds a quiet line that the index
+would make it faster. **Symbols in the project** (`⌘⇧O`) at a commit, or in a
+checkout of more than 20,000 files, needs the index; without it, the picker
+says so, and **Symbols in this file** (`⌘O`) still works.
+
 The cache is `~/.cache/med/search`, or `$XDG_CACHE_HOME/med/search`. Set
 `MED_SEARCH_CACHE` to move it, or `MED_ZOEKT_BIN` to a folder that has
 `zoekt-git-index` and `med-zoekt`.

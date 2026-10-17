@@ -23,7 +23,7 @@ import { searchBrowse } from "../repository/inspect";
 import { git, ProcessFailure, runProcess } from "../runtime/process";
 import { searchBinDir, searchCacheRoot, ZOEKT_VERSION, SEARCH_HELPER_VERSION } from "./install";
 
-import { discoverCtags, ctagsSetupMessage, type CtagsTool } from "./symbols";
+import { discoverCtags, ctagsSetupMessage, MAX_TAGGED_FILES, type CtagsTool } from "./symbols";
 import { symbolSearchSchema, type SymbolSearch } from "../../shared/symbols";
 
 const oid = z.string().regex(/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/);
@@ -52,6 +52,8 @@ export interface SearchOptions {
   /** A checkout with more files searches its last commit in the index, when
    * the index has it. */
   maxWorkingFiles?: number;
+  /** A Git search this slow, without the index, says once where it would help. */
+  slowGitSearchMs?: number;
 }
 /**
  * Git searches the working files of a checkout up to this size in about half
@@ -60,6 +62,16 @@ export interface SearchOptions {
  * from the index above the same size.
  */
 export const MAX_WORKING_SEARCH_FILES = 20_000;
+/** A Git search this slow is where the index would help. */
+export const SLOW_GIT_SEARCH_MS = 1000;
+/**
+ * A search that answered says nothing about the index. Once in a host's run,
+ * a slow Git search without the index says quietly where it would help.
+ */
+let indexHintShown = false;
+export function resetIndexHint() {
+  indexHintShown = false;
+}
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const alias = (name: string) => `med/${hash(name).slice(0, 24)}`;
 const same = (a: IndexedBranch[], b: IndexedBranch[]) => JSON.stringify(a) === JSON.stringify(b);
@@ -129,6 +141,8 @@ export class ZoektSearchService {
   private socketPath?: string;
   private indexed: IndexedBranch[] = [];
   private readonly counts = new Map<string, { files: number; at: number }>();
+  /** The index helpers are not installed. */
+  private notSetUp = false;
   private current: SearchIndexStatus = {
     state: "unavailable",
     message:
@@ -162,6 +176,7 @@ export class ZoektSearchService {
         ),
       );
     } catch {
+      this.notSetUp = true;
       return;
     }
     try {
@@ -502,6 +517,13 @@ export class ZoektSearchService {
     const bounded = signal ? AbortSignal.any([signal, this.abort.signal]) : this.abort.signal;
     const base: SymbolSearch = { source, query, matches: [], truncated: false, engine: "zoekt" };
     if (!query.trim()) return base;
+    // The index answers at a commit, and in a checkout too large for Ctags.
+    const fileSymbols = "Symbols in this file (⌘O) still work.";
+    if (this.notSetUp)
+      return {
+        ...base,
+        unavailable: `${source.kind === "commit" ? "At a commit" : `In a checkout of more than ${MAX_TAGGED_FILES.toLocaleString("en-US")} files`}, project symbols come from the Zoekt index, which is not set up; see Search file contents in med docs usage. ${fileSymbols}`,
+      };
     if (!this.ctags)
       return {
         ...base,
@@ -522,8 +544,10 @@ export class ZoektSearchService {
         resultSource,
         unavailable:
           this.current.state === "ready"
-            ? "This commit is not indexed. File symbol search is still available."
-            : (this.current.message ?? "The symbol index is not ready."),
+            ? `This commit is not indexed. ${fileSymbols}`
+            : this.current.state === "indexing"
+              ? `The index is still building; project symbols come from it when it is ready. ${fileSymbols}`
+              : (this.current.message ?? "The symbol index is not ready."),
       };
     const child = this.child;
     try {
@@ -598,9 +622,8 @@ export class ZoektSearchService {
         (await this.workingFiles(source.repo, bounded)) <= limit)
     )
       return {
-        ...(await searchBrowse(source, query, bounded, matchCase)),
+        ...(await this.gitSearch(source, query, bounded, matchCase)),
         resultSource: source,
-        engine: "git",
       };
     const resultSource: BrowseSource = { kind: "commit", repo: source.repo, oid: head! };
     // Results at a commit for a checkout leave out its uncommitted changes.
@@ -655,27 +678,44 @@ export class ZoektSearchService {
     }
     if (source.kind === "worktree" && !capped)
       return {
-        ...(await searchBrowse(source, query, bounded, matchCase)),
+        ...(await this.gitSearch(source, query, bounded, matchCase)),
         resultSource: source,
-        engine: "git",
       };
-    const fallback = await searchBrowse(resultSource, query, bounded, matchCase);
-    const state = this.status();
     return {
       ...scope,
-      ...fallback,
+      ...(await this.gitSearch(resultSource, query, bounded, matchCase)),
       source,
       resultSource,
+    };
+  }
+  /** Git's answer, with the index's state. A search that answered says
+   * nothing about the index, but a slow one without the index says once
+   * where it would help. */
+  private async gitSearch(
+    source: BrowseSource,
+    query: string,
+    signal: AbortSignal,
+    matchCase: boolean,
+  ): Promise<BrowseSearch> {
+    const started = performance.now();
+    const result = await searchBrowse(source, query, signal, matchCase);
+    const seconds = (performance.now() - started) / 1000;
+    const hint =
+      this.notSetUp &&
+      seconds * 1000 >= (this.options.slowGitSearchMs ?? SLOW_GIT_SEARCH_MS) &&
+      !indexHintShown;
+    if (hint) indexHintShown = true;
+    return {
+      ...result,
       engine: "git",
-      index: capped
-        ? { state: "ready" }
-        : {
-            state: state.state,
-            message:
-              state.state === "ready"
-                ? "This commit is not indexed. Using Git search."
-                : state.message,
-          },
+      index: {
+        state: this.current.state,
+        ...(hint
+          ? {
+              message: `Git took ${seconds.toFixed(1)} s for this search. The Zoekt index makes searches of large repositories faster; see Search file contents in med docs usage.`,
+            }
+          : {}),
+      },
     };
   }
   async close() {

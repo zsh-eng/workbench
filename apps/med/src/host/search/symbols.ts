@@ -170,7 +170,7 @@ const DATA_LANGUAGES = "-JSON,-SVG,-XML,-PlistXML";
 const MAX_TAGGED_BYTES = 1024 * 1024;
 /** A checkout with more files than this takes its project symbols from the
  * index. */
-const MAX_TAGGED_FILES = 20_000;
+export const MAX_TAGGED_FILES = 20_000;
 /** Files that one Ctags process parses. */
 const TAG_BATCH = 500;
 const pathTagSchema = tagSchema.extend({ path: z.string().min(1) });
