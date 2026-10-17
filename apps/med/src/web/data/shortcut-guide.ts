@@ -464,6 +464,7 @@ export const guideContexts: GuideContext[] = [
             note: "In the Search tab; Enter opens a match at its line",
             command: "content-search",
           },
+          { label: "Match case", keys: ["Alt+C"], note: "In the Search tab's query" },
           { label: "Resume the last search", keys: ["Alt+R"], command: "resume-picker" },
         ],
       },

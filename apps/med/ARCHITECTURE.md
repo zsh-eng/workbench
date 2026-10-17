@@ -296,6 +296,14 @@ Search tab of the workspace on screen with that query. Each repository's
 search is its own `X-Med-Latest` stream, so the searches of one query do not
 cancel each other, and four run at once.
 
+The host returns one line for each match. The view shows two lines around it
+(`data/search-excerpts.ts`) from the file at the commit searched. It reads a
+file only when the file's results come within 600 px of the view, three at a
+time, and highlights the whole file with the Pierre worker pool that the file
+view uses, so a line in a block comment has the comment's colors. Until then
+each match shows its line as plain text, with empty rows around it, so the
+list does not move when the file arrives. It keeps up to 60 read files.
+
 The row's tabs keep the order in which they last showed (`recent` in
 `data/file-workspace.ts`). Closing the tab on screen, Close all files, the
 Commit tab's `q`, and a full row's eviction all use that order.

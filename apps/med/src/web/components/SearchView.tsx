@@ -1,4 +1,6 @@
 import {
+  memo,
+  useCallback,
   useEffect,
   useId,
   useLayoutEffect,
@@ -9,11 +11,23 @@ import {
   type ReactNode,
 } from "react";
 import * as stylex from "@stylexjs/stylex";
-import type { BrowseSource } from "../../shared/browse";
+import { useWorkerPool } from "@pierre/diffs/react";
+import type { BrowseRead, BrowseSource } from "../../shared/browse";
 import type { BrowseSearch } from "../../shared/inspect";
+import { codeColors } from "../code-colors";
 import { browseSourceKey, type BrowseApi } from "../data/browse";
+import { pierreFile } from "../data/file-prefetch";
+import {
+  excerpts,
+  occurrences,
+  pieces,
+  tokensOf,
+  type Piece,
+  type Token,
+} from "../data/search-excerpts";
 import { matchRepositories, parseSearchQuery } from "../data/search-query";
 import { picked, tokens, ui } from "../theme.stylex";
+import { useTheme } from "../themes";
 import { Icon } from "./Icon";
 
 export interface SearchRepository {
@@ -41,6 +55,11 @@ const PARALLEL = 4;
 const DEBOUNCE_MS = 120;
 /** The host takes one line of up to 256 characters. */
 const MAX_TEXT = 256;
+/** Files read and highlighted at once, and how far outside the view they start. */
+const LOADS = 3;
+const NEAR = "600px 0px";
+/** Files whose text stays read for a later theme or query. */
+const KEPT_READS = 60;
 
 interface Entry {
   repository: SearchRepository;
@@ -51,13 +70,130 @@ interface Entry {
   previous?: BrowseSearch;
 }
 
+type Match = BrowseSearch["matches"][number];
+
+/** One file of results: its matches in line order, and the place of its first
+ * match among all of them, for the arrow keys. */
+interface Group {
+  key: string;
+  repository: SearchRepository;
+  source: BrowseSource;
+  path: string;
+  query: string;
+  stale: boolean;
+  matches: Match[];
+  first: number;
+}
+
+/** A file's text, and its lines as the file view highlights them. */
+interface Loaded {
+  lines?: string[];
+  code?: readonly unknown[];
+}
+
+type Pool = ReturnType<typeof useWorkerPool>;
+
+/**
+ * Reads and highlights the files of the results near the view, a few at a
+ * time, with the same worker, cache, and theme as the file view; a file far
+ * off screen is not read until the reader scrolls near it.
+ */
+function createFileLoader(
+  read: BrowseApi["read"],
+  pool: Pool,
+  publish: (key: string, loaded: Loaded) => void,
+) {
+  const abort = new AbortController();
+  // Each file's state: "loading", "failed", "plain", or the theme it was highlighted for.
+  const status = new Map<string, string>();
+  const reads = new Map<string, Promise<BrowseRead>>();
+  const near = new Set<string>();
+  let files = new Map<string, { source: BrowseSource; path: string }>();
+  let theme = "";
+  let running = 0;
+  const due = (key: string) => {
+    const state = status.get(key);
+    return state === undefined || (state.startsWith("theme:") && state !== `theme:${theme}`);
+  };
+  const load = async (key: string, file: { source: BrowseSource; path: string }) => {
+    let text = reads.get(key);
+    if (!text) {
+      text = read(file.source, file.path, abort.signal);
+      reads.set(key, text);
+      while (reads.size > KEPT_READS) reads.delete(reads.keys().next().value!);
+    }
+    const value = await text.catch((error: unknown) => {
+      reads.delete(key);
+      throw error;
+    });
+    if (value.kind !== "text" || value.text === undefined) return { status: "plain", loaded: {} };
+    const lines = value.text.split("\n").map((line) => line.replace(/\r$/, ""));
+    if (lines.length > 1 && lines.at(-1) === "") lines.pop();
+    if (!pool?.isWorkingPool() || value.plain) return { status: "plain", loaded: { lines } };
+    const wanted = theme;
+    const input = pierreFile(value);
+    if (!pool.getFileResultCache(input)) await pool.primeFileHighlightCache(input);
+    const code = pool.getFileResultCache(input)?.result.code;
+    return { status: code ? `theme:${wanted}` : "plain", loaded: { lines, code } };
+  };
+  const pump = () => {
+    while (running < LOADS && !abort.signal.aborted) {
+      const key = [...near].find(due);
+      if (key === undefined) return;
+      const file = files.get(key);
+      if (!file) {
+        near.delete(key);
+        continue;
+      }
+      status.set(key, "loading");
+      running++;
+      load(key, file)
+        .then(
+          (result) => {
+            status.set(key, result.status);
+            publish(key, result.loaded);
+          },
+          () => {
+            if (abort.signal.aborted) return;
+            status.set(key, "failed");
+          },
+        )
+        .finally(() => {
+          running--;
+          pump();
+        });
+    }
+  };
+  return {
+    /** The files of the shown results; others are forgotten. */
+    setFiles(next: Map<string, { source: BrowseSource; path: string }>) {
+      files = next;
+      for (const key of status.keys()) if (!next.has(key)) status.delete(key);
+      pump();
+    },
+    setTheme(name: string) {
+      theme = name;
+      pump();
+    },
+    near(key: string, shown: boolean) {
+      if (shown) near.add(key);
+      else near.delete(key);
+      pump();
+    },
+    dispose() {
+      abort.abort();
+    },
+  };
+}
+
 /**
  * The workspace's Search tab: text search in the committed files of its
  * checkout. `repo:name` searches other registered repositories instead, and
- * `repo:*` every one. Results show as you type, by file; arrows move through
- * them, Enter opens one at its line in a file tab, and Escape shows the tab
- * that showed before. The tab stays mounted while it is open, so its query,
- * results, and scroll survive a switch to another tab.
+ * `repo:*` every one. Results show as you type, by file, each match with two
+ * lines around it, highlighted as the file view highlights them; arrows move
+ * through the matches, Enter opens one at its line in a file tab, and Escape
+ * shows the tab that showed before. The tab stays mounted while it is open,
+ * so its query, results, and scroll survive a switch to another tab.
  */
 export function SearchView({
   api,
@@ -71,7 +207,7 @@ export function SearchView({
   onOpen,
   onLeave,
 }: {
-  api: Pick<BrowseApi, "search">;
+  api: Pick<BrowseApi, "search" | "read">;
   /** The workspace's checkout, such as a thread's worktree. */
   source: BrowseSource;
   repository: SearchRepository;
@@ -90,6 +226,7 @@ export function SearchView({
   const scroll = useRef(0);
   const id = useId();
   const parsed = useMemo(() => parseSearchQuery(query), [query]);
+  const [matchCase, setMatchCase] = useState(false);
   const targets = useMemo(() => {
     if (!parsed.repos.length) return [{ repository, source }];
     const all = repositories.some((entry) => entry.path === repository.path)
@@ -177,17 +314,42 @@ export function SearchView({
     if (active && list.current) list.current.scrollTop = scroll.current;
   }, [active]);
 
-  // Every match in page order, for the arrows and Enter.
-  const rows = useMemo(
-    () =>
-      entries.flatMap((entry) => {
-        const result = entry.result ?? entry.previous;
-        return (result?.matches ?? []).map((match) => ({ entry, result: result!, match }));
-      }),
-    [entries],
-  );
-  const current = Math.min(selected, Math.max(0, rows.length - 1));
-  const optionId = (index: number) => `${id}-match-${index}`;
+  // The results by file, each file's matches in line order. Match case keeps
+  // the lines where the text occurs as typed.
+  const groups = useMemo(() => {
+    const result: Group[] = [];
+    let first = 0;
+    for (const entry of entries) {
+      const found = entry.result ?? entry.previous;
+      if (!found) continue;
+      const at = found.resultSource ?? found.source;
+      const files = new Map<string, Match[]>();
+      for (const match of found.matches) {
+        if (matchCase && !match.text.includes(found.query)) continue;
+        const file = files.get(match.path);
+        if (file) file.push(match);
+        else files.set(match.path, [match]);
+      }
+      for (const [path, matches] of files) {
+        matches.sort((a, b) => a.line - b.line);
+        result.push({
+          key: `${browseSourceKey(at)}\0${path}`,
+          repository: entry.repository,
+          source: at,
+          path,
+          query: found.query,
+          stale: !entry.result,
+          matches,
+          first,
+        });
+        first += matches.length;
+      }
+    }
+    return result;
+  }, [entries, matchCase]);
+  const count = groups.reduce((sum, group) => sum + group.matches.length, 0);
+  const current = Math.min(selected, Math.max(0, count - 1));
+  const optionId = useCallback((index: number) => `${id}-match-${index}`, [id]);
   const moved = useRef(false);
   useEffect(() => {
     if (!moved.current) return;
@@ -197,15 +359,52 @@ export function SearchView({
       ?.scrollIntoView({ block: "nearest" });
   });
 
-  const open = (index: number) => {
-    const row = rows[index];
-    if (!row) return;
-    onOpen({
-      repository: row.entry.repository,
-      path: row.match.path,
-      line: row.match.line,
-      source: row.result.resultSource ?? row.result.source,
+  // The files near the view are read and highlighted; see createFileLoader.
+  const pool = useWorkerPool();
+  const { active: theme } = useTheme();
+  const [loaded, setLoaded] = useState<ReadonlyMap<string, Loaded>>(() => new Map());
+  const [loader] = useState(() =>
+    createFileLoader(api.read, pool, (key, value) =>
+      setLoaded((map) => new Map(map).set(key, value)),
+    ),
+  );
+  useEffect(() => () => loader.dispose(), [loader]);
+  useEffect(() => loader.setTheme(theme.pierreTheme), [loader, theme.pierreTheme]);
+  useEffect(() => {
+    loader.setFiles(new Map(groups.map((group) => [group.key, group])));
+    // Results that went keep no text.
+    setLoaded((map) => {
+      const keep = new Map([...map].filter(([key]) => groups.some((group) => group.key === key)));
+      return keep.size === map.size ? map : keep;
     });
+  }, [loader, groups]);
+  const [observer, setObserver] = useState<IntersectionObserver>();
+  useEffect(() => {
+    const root = list.current;
+    if (!root) return;
+    const next = new IntersectionObserver(
+      (changes) => {
+        for (const change of changes) {
+          const key = (change.target as HTMLElement).dataset.searchFile;
+          if (key) loader.near(key, change.isIntersecting);
+        }
+      },
+      { root, rootMargin: NEAR },
+    );
+    setObserver(next);
+    return () => next.disconnect();
+  }, [loader]);
+
+  const openLine = useCallback(
+    (group: Group, line: number) =>
+      onOpen({ repository: group.repository, path: group.path, line, source: group.source }),
+    [onOpen],
+  );
+  const open = (index: number) => {
+    const group = groups.find(
+      (entry) => index >= entry.first && index < entry.first + entry.matches.length,
+    );
+    if (group) openLine(group, group.matches[index - group.first]!.line);
   };
   const keydown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing) return;
@@ -213,7 +412,7 @@ export function SearchView({
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;
       moved.current = true;
-      setSelected(Math.max(0, Math.min(rows.length - 1, current + step)));
+      setSelected(Math.max(0, Math.min(count - 1, current + step)));
     } else if (event.key === "Enter") {
       event.preventDefault();
       open(current);
@@ -221,12 +420,15 @@ export function SearchView({
       event.preventDefault();
       event.stopPropagation();
       onLeave();
+    } else if (event.altKey && event.code === "KeyC" && !event.metaKey && !event.ctrlKey) {
+      // ⌥C, as in VS Code.
+      event.preventDefault();
+      setMatchCase((value) => !value);
     }
   };
 
   const searching = entries.filter((entry) => !entry.result && !entry.error).length;
-  const shown = entries.filter((entry) => entry.result ?? entry.previous);
-  const files = new Set(rows.map((row) => `${row.entry.repository.path}\0${row.match.path}`)).size;
+  const repositoriesShown = new Set(groups.map((group) => group.repository.path)).size;
   const truncated = entries.filter((entry) => entry.result?.truncated);
   // The host says why a search read less, such as Git while the index builds.
   const notes = [
@@ -246,12 +448,12 @@ export function SearchView({
   else if (parsed.text.length > MAX_TEXT) status = `Use at most ${MAX_TEXT} characters.`;
   else if (unmatched)
     status = `No repository matches ${parsed.repos.map((name) => `repo:${name}`).join(" ")}.`;
-  else if (!searching || rows.length)
+  else if (!searching || count)
     status = (
       <>
-        {rows.length === 0
+        {count === 0
           ? "No results"
-          : `${rows.length} ${rows.length === 1 ? "result" : "results"} in ${files} ${files === 1 ? "file" : "files"}`}
+          : `${count} ${count === 1 ? "result" : "results"} in ${groups.length} ${groups.length === 1 ? "file" : "files"}`}
         {targets.length === 1
           ? ` in ${targets[0]!.repository.name}`
           : ` across ${targets.length} repositories`}
@@ -260,7 +462,7 @@ export function SearchView({
     );
   else status = "Searching…";
 
-  let index = -1;
+  const colors = codeColors(theme);
   return (
     <div {...stylex.props(styles.view)}>
       <div {...stylex.props(styles.bar)}>
@@ -274,9 +476,9 @@ export function SearchView({
           type="text"
           role="combobox"
           aria-label="Search query"
-          aria-expanded={rows.length > 0}
+          aria-expanded={count > 0}
           aria-controls={`${id}-results`}
-          aria-activedescendant={rows.length ? optionId(current) : undefined}
+          aria-activedescendant={count ? optionId(current) : undefined}
           spellCheck={false}
           autoComplete="off"
           placeholder={`Search text in ${repository.name} · repo:name for others`}
@@ -285,6 +487,19 @@ export function SearchView({
           onKeyDown={keydown}
           {...stylex.props(ui.input, styles.input)}
         />
+        <button
+          type="button"
+          aria-label="Match case"
+          aria-pressed={matchCase}
+          title="Match case (⌥C)"
+          onClick={() => {
+            setMatchCase((value) => !value);
+            input.current?.focus({ preventScroll: true });
+          }}
+          {...stylex.props(styles.option, matchCase && styles.optionOn)}
+        >
+          Aa
+        </button>
       </div>
       <div
         ref={list}
@@ -323,57 +538,28 @@ export function SearchView({
                 </p>
               ))}
             <div id={`${id}-results`} role="listbox" aria-label="Results">
-              {shown.map((entry) => {
-                const result = (entry.result ?? entry.previous)!;
-                return byFile(result.matches).map(([path, matches]) => (
-                  <section
-                    key={`${entry.repository.path}\0${path}`}
-                    role="group"
-                    aria-label={`${entry.repository.name} ${path}`}
-                    {...stylex.props(styles.file, !entry.result && styles.stale)}
-                  >
-                    <h2 {...stylex.props(styles.fileHead)}>
-                      {shown.length > 1 && (
-                        <span {...stylex.props(styles.repository)}>{entry.repository.name}</span>
-                      )}
-                      <span {...stylex.props(styles.path)}>
-                        <span {...stylex.props(styles.folder)}>
-                          {path.slice(0, path.lastIndexOf("/") + 1)}
-                        </span>
-                        {path.slice(path.lastIndexOf("/") + 1)}
-                      </span>
-                      <span {...stylex.props(styles.count)}>{matches.length}</span>
-                    </h2>
-                    <div {...stylex.props(styles.lines)}>
-                      {matches.map((match) => {
-                        const at = ++index;
-                        return (
-                          // The query field takes the keys and names the chosen line.
-                          // oxlint-disable-next-line jsx-a11y/click-events-have-key-events
-                          <div
-                            key={match.line}
-                            id={optionId(at)}
-                            role="option"
-                            tabIndex={-1}
-                            aria-selected={at === current}
-                            onPointerMove={() => at !== current && setSelected(at)}
-                            onClick={() => open(at)}
-                            {...stylex.props(
-                              styles.line,
-                              at === current && [styles.lineSelected, picked],
-                            )}
-                          >
-                            <span {...stylex.props(styles.number)}>{match.line}</span>
-                            <code {...stylex.props(styles.text)}>
-                              <Marked text={match.text} needle={result.query} />
-                            </code>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </section>
-                ));
-              })}
+              {groups.map((group) => (
+                <ResultFile
+                  key={group.key}
+                  group={group}
+                  loaded={loaded.get(group.key)}
+                  current={
+                    current >= group.first && current < group.first + group.matches.length
+                      ? current
+                      : -1
+                  }
+                  matchCase={matchCase}
+                  showRepository={repositoriesShown > 1}
+                  markColor={colors.match}
+                  currentColor={colors.matchCurrent}
+                  currentBorder={colors.matchBorder}
+                  currentText={colors.matchText}
+                  observer={observer}
+                  optionId={optionId}
+                  onPick={setSelected}
+                  onOpen={openLine}
+                />
+              ))}
             </div>
           </>
         )}
@@ -382,34 +568,172 @@ export function SearchView({
   );
 }
 
-/** Matches in one file each, in the order that the search found them. */
-function byFile(matches: BrowseSearch["matches"]) {
-  const files = new Map<string, BrowseSearch["matches"]>();
-  for (const match of matches) {
-    const list = files.get(match.path);
-    if (list) list.push(match);
-    else files.set(match.path, [match]);
-  }
-  return [...files];
-}
+/** One file of results: excerpts of two lines around each match, merged when
+ * they meet, with a gap between excerpts. Lines that are not read yet keep
+ * their place, so the results do not move as files load. */
+const ResultFile = memo(function ResultFile({
+  group,
+  loaded,
+  current,
+  matchCase,
+  showRepository,
+  markColor,
+  currentColor,
+  currentBorder,
+  currentText,
+  observer,
+  optionId,
+  onPick,
+  onOpen,
+}: {
+  group: Group;
+  loaded: Loaded | undefined;
+  /** The chosen match, when it is in this file; else -1. */
+  current: number;
+  matchCase: boolean;
+  showRepository: boolean;
+  markColor: string;
+  currentColor: string;
+  currentBorder: string;
+  currentText: string | null;
+  observer: IntersectionObserver | undefined;
+  optionId(index: number): string;
+  onPick(index: number): void;
+  onOpen(group: Group, line: number): void;
+}) {
+  const section = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const node = section.current;
+    if (!node || !observer) return;
+    observer.observe(node);
+    return () => observer.unobserve(node);
+  }, [observer]);
+  const lines = loaded?.lines;
+  const hits = new Map(group.matches.map((match, index) => [match.line, group.first + index]));
+  const width = `${String(group.matches.at(-1)!.line + 2).length + 1}ch`;
+  const slash = group.path.lastIndexOf("/") + 1;
+  return (
+    <section
+      ref={section}
+      data-search-file={group.key}
+      data-highlighted={loaded?.code ? "" : undefined}
+      role="group"
+      aria-label={`${group.repository.name} ${group.path}`}
+      {...stylex.props(styles.file, group.stale && styles.stale)}
+    >
+      <h2 {...stylex.props(styles.fileHead)}>
+        {showRepository && (
+          <span {...stylex.props(styles.repository)}>{group.repository.name}</span>
+        )}
+        <span {...stylex.props(styles.path)}>
+          <span {...stylex.props(styles.folder)}>{group.path.slice(0, slash)}</span>
+          {group.path.slice(slash)}
+        </span>
+        <span {...stylex.props(styles.count)}>{group.matches.length}</span>
+      </h2>
+      {excerpts(
+        group.matches.map((match) => match.line),
+        lines?.length,
+      ).map((excerpt, place) => (
+        <div key={excerpt.start} {...stylex.props(styles.excerpt, place > 0 && styles.excerptGap)}>
+          {Array.from({ length: excerpt.end - excerpt.start + 1 }, (_, offset) => {
+            const line = excerpt.start + offset;
+            const index = hits.get(line);
+            const match = index === undefined ? undefined : group.matches[index - group.first];
+            const text = lines?.[line - 1] ?? match?.text;
+            const runs: Token[] | undefined =
+              text === undefined
+                ? undefined
+                : ((lines && loaded?.code ? tokensOf(loaded.code[line - 1], text) : undefined) ?? [
+                    { text },
+                  ]);
+            const chosen = index !== undefined && index === current;
+            const code = (
+              <code {...stylex.props(styles.text)}>
+                {runs ? (
+                  <Runs
+                    parts={pieces(runs, match ? occurrences(text!, group.query, matchCase) : [])}
+                    // The file view's colors for find matches, and for the current one.
+                    mark={stylex.props(
+                      styles.mark,
+                      styles.markFill(chosen ? currentColor : markColor),
+                      chosen && styles.markCurrent(currentBorder),
+                      chosen && currentText !== null && styles.markText(currentText),
+                    )}
+                  />
+                ) : (
+                  " "
+                )}
+              </code>
+            );
+            const number = (
+              <span {...stylex.props(styles.number, styles.numberWidth(width))}>{line}</span>
+            );
+            if (index === undefined)
+              return (
+                // A context line opens the file at that line; the arrows skip it.
+                // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
+                <div
+                  key={line}
+                  aria-hidden="true"
+                  onClick={() => onOpen(group, line)}
+                  {...stylex.props(styles.line, styles.context)}
+                >
+                  {number}
+                  {code}
+                </div>
+              );
+            return (
+              // The query field takes the keys and names the chosen line.
+              // oxlint-disable-next-line jsx-a11y/click-events-have-key-events
+              <div
+                key={line}
+                id={optionId(index)}
+                role="option"
+                tabIndex={-1}
+                aria-selected={chosen}
+                onPointerMove={() => !chosen && onPick(index)}
+                onClick={() => onOpen(group, line)}
+                {...stylex.props(styles.line, chosen && [styles.lineSelected, picked])}
+              >
+                {number}
+                {code}
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </section>
+  );
+});
 
-/** A line with each place that the text occurs marked, in any case. */
-function Marked({ text, needle }: { text: string; needle: string }) {
-  const parts: ReactNode[] = [];
-  const haystack = text.toLowerCase();
-  const wanted = needle.toLowerCase();
-  let from = 0;
-  for (let at = haystack.indexOf(wanted); wanted && at >= 0; at = haystack.indexOf(wanted, from)) {
-    if (at > from) parts.push(text.slice(from, at));
-    parts.push(
-      <mark key={at} {...stylex.props(styles.mark)}>
-        {text.slice(at, at + wanted.length)}
+/** A line's runs, each in its syntax color, with each match marked. */
+function Runs({ parts, mark }: { parts: Piece[]; mark: ReturnType<typeof stylex.props> }) {
+  const nodes: ReactNode[] = [];
+  const run = (part: Piece, key: number) =>
+    part.color ? (
+      <span key={key} style={{ color: part.color }}>
+        {part.text}
+      </span>
+    ) : (
+      part.text
+    );
+  for (let at = 0; at < parts.length;) {
+    const part = parts[at]!;
+    if (part.mark < 0) {
+      nodes.push(run(part, at++));
+      continue;
+    }
+    const start = at;
+    const marked: ReactNode[] = [];
+    while (at < parts.length && parts[at]!.mark === part.mark) marked.push(run(parts[at]!, at++));
+    nodes.push(
+      <mark key={`mark-${start}`} {...mark}>
+        {marked}
       </mark>,
     );
-    from = at + wanted.length;
   }
-  parts.push(text.slice(from));
-  return <>{parts}</>;
+  return <>{nodes}</>;
 }
 
 function Help({ repository }: { repository: string }) {
@@ -426,6 +750,10 @@ function Help({ repository }: { repository: string }) {
           Search another repository instead. Add more to search several, or{" "}
           <code {...stylex.props(styles.code)}>repo:*</code> for every one.
         </dd>
+        <dt>
+          <kbd {...stylex.props(styles.code)}>⌥C</kbd>
+        </dt>
+        <dd {...stylex.props(styles.syntaxText)}>Match case, or match in any case.</dd>
         <dt>
           <kbd {...stylex.props(styles.code)}>↑ ↓</kbd> <kbd {...stylex.props(styles.code)}>↵</kbd>
         </dt>
@@ -477,8 +805,33 @@ const styles = stylex.create({
     height: 32,
     boxSizing: "border-box",
     paddingInlineStart: 30,
+    paddingInlineEnd: 40,
     fontFamily: tokens.code,
     fontSize: 13,
+  },
+  // The options sit inside the field's end, as in VS Code and Zed.
+  option: {
+    position: "absolute",
+    insetInlineEnd: { default: 22, [narrow]: 14 },
+    height: 22,
+    minWidth: 26,
+    paddingInline: 4,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "transparent",
+    borderRadius: `calc(5px * ${tokens.round})`,
+    backgroundColor: { default: "transparent", ":hover": tokens.fill },
+    color: { default: tokens.muted, ":hover": tokens.text },
+    fontFamily: tokens.ui,
+    fontSize: 11.5,
+    fontWeight: 500,
+    cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+  },
+  optionOn: {
+    color: { default: tokens.text, ":hover": tokens.text },
+    backgroundColor: { default: tokens.accentSoft, ":hover": tokens.accentSoft },
+    borderColor: tokens.accentLine,
   },
   scroller: {
     flex: "1",
@@ -530,21 +883,27 @@ const styles = stylex.create({
   },
   folder: { color: tokens.muted, fontWeight: 400 },
   count: { flexShrink: 0, color: tokens.faint, fontVariantNumeric: "tabular-nums" },
-  lines: { paddingBlock: 2 },
+  excerpt: { paddingBlock: 3 },
+  // Lines skipped between two excerpts of one file.
+  excerptGap: {
+    borderTopWidth: 1,
+    borderTopStyle: "dashed",
+    borderTopColor: tokens.line,
+  },
   line: {
     display: "flex",
     gap: 12,
-    paddingBlock: 2,
     paddingInline: 10,
     cursor: "pointer",
     fontFamily: tokens.code,
     fontSize: 12,
     lineHeight: "20px",
+    tabSize: 2,
   },
-  lineSelected: { backgroundColor: tokens.pick, color: tokens.selectedText },
+  context: { opacity: { default: 0.7, ":hover": 1 } },
+  lineSelected: { backgroundColor: tokens.pick },
   number: {
     flexShrink: 0,
-    minWidth: "4ch",
     textAlign: "end",
     color: tokens.faint,
     fontVariantNumeric: "tabular-nums",
@@ -558,12 +917,16 @@ const styles = stylex.create({
     whiteSpace: "pre",
     fontFamily: "inherit",
   },
-  mark: {
-    color: "inherit",
-    backgroundColor: tokens.accentSoft,
-    borderRadius: 2,
-    boxShadow: `0 0 0 1px ${tokens.accentLine}`,
-  },
+  mark: { color: "inherit", borderRadius: 2 },
+  markFill: (backgroundColor: string) => ({ backgroundColor }),
+  markCurrent: (textDecorationColor: string) => ({
+    textDecorationLine: "underline",
+    textDecorationThickness: 2,
+    textDecorationColor,
+    textUnderlineOffset: 3,
+  }),
+  markText: (color: string) => ({ color }),
+  numberWidth: (minWidth: string) => ({ minWidth }),
   help: { paddingTop: 4, color: tokens.muted, fontSize: 13, lineHeight: 1.6, maxWidth: 640 },
   helpLead: { marginBlock: 0, marginBottom: 14 },
   syntax: {
