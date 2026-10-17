@@ -264,7 +264,8 @@ try {
       checks:
         "multi-repo launch, new workspace from the picker, ⌃Tab workspace switching, add/remove, scoped search, empty reload and re-add, agent reviews in two windows",
       repositories: after.repositories.map((repo) => repo.name),
-      searchEngine: process.env.MED_VALIDATION_ZOEKT_BIN ? "zoekt" : "git",
+      // Small checkouts search their working files with Git either way.
+      searchIndex: process.env.MED_VALIDATION_ZOEKT_BIN ? "ready" : "none",
       pageErrors,
     }),
   );
