@@ -33,6 +33,7 @@ import {
   READER_TOUCH_TAP_HANDLED_EVENT,
   TOUCH_TAP_SELECTION_SUPPRESSION_MS,
 } from "./reader-interaction-events";
+import { selectParagraph } from "../paragraph-selection";
 import { getSpreadContentKey } from "../spread-identity";
 import type { ReaderSessionChapterAccess } from "./use-reader-session";
 
@@ -433,6 +434,7 @@ export function useReaderAnnotations({
     };
 
     let timeoutId = 0;
+    let paragraphTimeoutId = 0;
     const isTouchDevice =
       "ontouchstart" in window || navigator.maxTouchPoints > 0;
     const delay = isTouchDevice ? 300 : 100;
@@ -445,6 +447,22 @@ export function useReaderAnnotations({
         event.target.closest("[data-note-composer]")
       )
         return;
+      // A triple-click means the paragraph. Selecting it fires selectionchange,
+      // so its timer must not be the one selectionchange cancels.
+      const container = stageContentRef.current;
+      const selection = window.getSelection();
+      if (
+        event instanceof MouseEvent &&
+        event.detail >= 3 &&
+        event.target instanceof Node &&
+        container?.contains(event.target) &&
+        selection &&
+        selectParagraph(selection)
+      ) {
+        window.clearTimeout(paragraphTimeoutId);
+        paragraphTimeoutId = window.setTimeout(handleResolvedSelection, delay);
+        return;
+      }
       timeoutId = window.setTimeout(handleResolvedSelection, delay);
     };
 
@@ -492,8 +510,9 @@ export function useReaderAnnotations({
       if (timeoutId) {
         clearTimeout(timeoutId);
       }
+      window.clearTimeout(paragraphTimeoutId);
     };
-  }, [resolveSelectionDraft]);
+  }, [resolveSelectionDraft, stageContentRef]);
 
   // Clear a selection when the pages it was made on go away.
   const visiblePagesKey = spread ? getSpreadContentKey(spread) : "";

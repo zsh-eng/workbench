@@ -1,5 +1,11 @@
 import type { Page } from "@playwright/test";
-import { expect, nextSpread, openLocalBook, test } from "./helpers/fixtures";
+import {
+  expect,
+  nextSpread,
+  openLocalBook,
+  test,
+  waitForReaderReady,
+} from "./helpers/fixtures";
 
 const CURRENT_SPREAD = '[data-reader-spread-layer="current"]';
 
@@ -178,4 +184,153 @@ test("two highlights that split a word meet flush without moving the text", asyn
   expect(second).toMatchObject({ start: false, end: true });
   expect(Math.abs(second!.left - first!.right)).toBeLessThan(0.5);
   expect(Math.abs((await lineRight()) - before)).toBeLessThan(0.5);
+});
+
+/**
+ * The text a paragraph's slices show on the current spread, without spaces:
+ * the lines end in <br>, so the page's text has no space between them.
+ */
+function paragraphText(page: Page, blockId: string) {
+  return page.evaluate(
+    ({ spreadSelector, blockId }) =>
+      [
+        ...document.querySelectorAll(
+          `${spreadSelector} p[data-reader-block-id="${blockId}"]`,
+        ),
+      ]
+        .map((slice) => slice.textContent)
+        .join("")
+        .replace(/\s+/g, ""),
+    { spreadSelector: CURRENT_SPREAD, blockId },
+  );
+}
+
+function highlightedText(page: Page) {
+  return page.evaluate(
+    (spreadSelector) =>
+      [
+        ...document.querySelectorAll(
+          `${spreadSelector} mark[data-highlight-id]`,
+        ),
+      ]
+        .map((mark) => mark.textContent)
+        .join("")
+        .replace(/\s+/g, ""),
+    CURRENT_SPREAD,
+  );
+}
+
+test("a triple-click highlights the whole paragraph, across italics", async ({
+  page,
+  localBook,
+}) => {
+  await openLocalBook(page, localBook.id);
+  await openChapter(page, /CHAPTER I\. Down the Rabbit-Hole/i);
+
+  // The third paragraph sets "very" and "took a watch" in italics.
+  const paragraph = page
+    .locator(`${CURRENT_SPREAD} p[data-reader-block-id]`)
+    .filter({ hasText: "There was nothing so" });
+  const blockId = (await paragraph.getAttribute("data-reader-block-id"))!;
+  const line = paragraph.locator(":scope > span").nth(1);
+  await line.click({ clickCount: 3, position: { x: 30, y: 8 } });
+
+  await page.getByRole("button", { name: "Highlight with yellow" }).click();
+  await expect(
+    page.locator(`${CURRENT_SPREAD} mark[data-highlight-id]`).first(),
+  ).toBeVisible();
+  expect(await highlightedText(page)).toBe(await paragraphText(page, blockId));
+});
+
+test("a triple-click highlights a paragraph over the page break", async ({
+  page,
+  localBook,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await openLocalBook(page, localBook.id);
+  await openChapter(page, /CHAPTER I\. Down the Rabbit-Hole/i);
+
+  // Find a spread whose left page ends partway through a paragraph.
+  const continuing = () =>
+    page.evaluate((spreadSelector) => {
+      const pages = document.querySelectorAll(
+        `${spreadSelector} [data-reader-page-content]`,
+      );
+      if (pages.length !== 2) return null;
+      const left = pages[0]!.querySelector(":scope > p:last-child");
+      const right = pages[1]!.querySelector(":scope > p:first-child");
+      const id = left?.getAttribute("data-reader-block-id");
+      return id && id === right?.getAttribute("data-reader-block-id")
+        ? id
+        : null;
+    }, CURRENT_SPREAD);
+  let blockId = await continuing();
+  for (let turn = 0; turn < 15 && !blockId; turn++) {
+    await nextSpread(page);
+    blockId = await continuing();
+  }
+  expect(blockId).toBeTruthy();
+
+  await page
+    .locator(`${CURRENT_SPREAD} [data-reader-page-content]`)
+    .first()
+    .locator(`p[data-reader-block-id="${blockId}"] > span`)
+    .last()
+    .click({ clickCount: 3, position: { x: 20, y: 8 } });
+  await page.getByRole("button", { name: "Highlight with yellow" }).click();
+
+  const pages = page.locator(`${CURRENT_SPREAD} [data-reader-page-content]`);
+  await expect(
+    pages.nth(0).locator("mark[data-highlight-id]").first(),
+  ).toBeVisible();
+  await expect(
+    pages.nth(1).locator("mark[data-highlight-id]").first(),
+  ).toBeVisible();
+  expect(await highlightedText(page)).toBe(await paragraphText(page, blockId!));
+});
+
+test.describe("on a phone", () => {
+  test.use({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+  });
+
+  test("a paragraph selected with the handles opens the highlight bar", async ({
+    page,
+    localBook,
+  }) => {
+    await openLocalBook(page, localBook.id);
+    const paragraph = page
+      .locator(`${CURRENT_SPREAD} p[data-reader-block-id]`)
+      .filter({ hasText: "There was nothing so" });
+    for (let turn = 0; turn < 12 && !(await paragraph.count()); turn++)
+      await nextSpread(page);
+    await waitForReaderReady(page);
+
+    // Playwright cannot drag the native handles, so set the selection they
+    // would leave: the whole paragraph, italics included.
+    await expect(paragraph).toBeVisible();
+    const blockId = (await paragraph.getAttribute("data-reader-block-id"))!;
+    await paragraph.evaluate((element) => {
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      const nodes: Text[] = [];
+      while (walker.nextNode()) nodes.push(walker.currentNode as Text);
+      const range = document.createRange();
+      range.setStart(nodes[0]!, 0);
+      range.setEnd(nodes.at(-1)!, nodes.at(-1)!.length);
+      getSelection()!.removeAllRanges();
+      getSelection()!.addRange(range);
+    });
+    await page.evaluate(() =>
+      document.dispatchEvent(new TouchEvent("touchend", { bubbles: true })),
+    );
+    await page.getByRole("button", { name: "Highlight with yellow" }).tap();
+    await expect(
+      page.locator(`${CURRENT_SPREAD} mark[data-highlight-id]`).first(),
+    ).toBeVisible();
+    expect(await highlightedText(page)).toBe(
+      await paragraphText(page, blockId),
+    );
+  });
 });
