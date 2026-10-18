@@ -1,9 +1,12 @@
+import type { ColumnSlice } from "./shared/layout-column";
 import type {
   FontConfig,
   LayoutTheme,
   PageSlice,
   TextCursorOffset,
 } from "./shared/types";
+
+export type { ColumnSlice } from "./shared/layout-column";
 
 // Re-export types that are unchanged from pagination v1
 export { areFontConfigsEqual } from "./shared/types";
@@ -165,3 +168,21 @@ export interface ResolvedSpreadWindow {
 }
 
 export type PaginationStatus = "idle" | "partial" | "recalculating" | "ready";
+
+/**
+ * One chapter laid out as a single scroll column (prototype, Debug mode).
+ * Built from the chapter's pages, so `pageStarts` and `pageAnchors` map any
+ * scroll offset to an exact page boundary and back.
+ */
+export interface ChapterColumnLayout {
+  chapterIndex: number;
+  /** The page width and height that the column and its pages were built for. */
+  width: number;
+  pageHeight: number;
+  height: number;
+  slices: ColumnSlice[];
+  /** Column offset of the top of each chapter-local page. */
+  pageStarts: number[];
+  /** A content anchor for each page; it resolves back to that page. */
+  pageAnchors: ContentAnchor[];
+}

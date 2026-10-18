@@ -1,6 +1,7 @@
 import type { PaginationChapterDiagnostics } from "./shared/types";
 import type {
   Block,
+  ChapterColumnLayout,
   ContentAnchor,
   PaginationConfig,
   ResolvedSpread,
@@ -94,8 +95,19 @@ export interface LocateAnchorsCommand {
   requestId: number;
 }
 
+/**
+ * Keeps one chapter's scroll column published (prototype scroll mode). The
+ * worker sends the column now and again after each relayout of that chapter.
+ * A null chapter stops the updates.
+ */
+export interface SetScrollChapterCommand {
+  type: "setScrollChapter";
+  chapterIndex: number | null;
+}
+
 export type PaginationCommand =
   | LocateAnchorsCommand
+  | SetScrollChapterCommand
   | InitCommand
   | AddChapterCommand
   | UpdateChapterCommand
@@ -181,6 +193,12 @@ export interface ChapterUnavailableEvent extends PaginationEventMetadata {
   chapterIndex: number;
 }
 
+export interface ChapterColumnEvent {
+  type: "chapterColumn";
+  epoch: number;
+  column: ChapterColumnLayout;
+}
+
 export interface ErrorEvent extends PaginationEventMetadata {
   type: "error";
   message: string;
@@ -204,6 +222,7 @@ export type PaginationEvent =
   | PageContentEvent
   | PageUnavailableEvent
   | ChapterUnavailableEvent
+  | ChapterColumnEvent
   | ErrorEvent
   | TraceEvent;
 

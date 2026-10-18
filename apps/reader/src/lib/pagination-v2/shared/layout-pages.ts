@@ -81,7 +81,7 @@ function getPublisherLengthPx(
   );
 }
 
-function getResolvedBlockSpacing(
+export function getResolvedBlockSpacing(
   block: PreparedTextBlock,
   theme: LayoutTheme,
   containingBlockWidthPx: number,
@@ -96,19 +96,17 @@ function getResolvedBlockSpacing(
         publisherStyle.margin?.before,
         theme,
         containingBlockWidthPx,
-      ) ??
-      fallback.above,
+      ) ?? fallback.above,
     below:
       getPublisherLengthPx(
         publisherStyle.margin?.after,
         theme,
         containingBlockWidthPx,
-      ) ??
-      fallback.below,
+      ) ?? fallback.below,
   };
 }
 
-function getResolvedCollapsedBlockGap(
+export function getResolvedCollapsedBlockGap(
   previousKind: PreparedTextBlock["tag"] | "image" | null,
   currentBlock: PreparedTextBlock,
   theme: LayoutTheme,
@@ -441,14 +439,8 @@ export function layoutPages(
     // Text block
     const textBlock = block as PreparedTextBlock;
     const textPlan = createTextLayoutPlan(textBlock, theme, safeWidth);
-    const {
-      lines,
-      renderMode,
-      lineHeight,
-      spacing,
-      insets,
-      textAlign,
-    } = textPlan;
+    const { lines, renderMode, lineHeight, spacing, insets, textAlign } =
+      textPlan;
     totalLineCount += lines.length;
 
     if (lines.length === 0) {
