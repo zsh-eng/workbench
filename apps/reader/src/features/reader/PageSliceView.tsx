@@ -53,6 +53,7 @@ function renderFragmentSequence(
       nodes.push(
         renderLeadingGap(
           fragment,
+          fragments[index - 1],
           `${keyPrefix}-gap-${index}`,
           getStyle(fragment, index),
         ),
@@ -90,6 +91,7 @@ function renderFragmentSequence(
       nodes.push(
         renderLeadingGap(
           fragment,
+          fragments[index - 1],
           `${keyPrefix}-gap-${index}`,
           getStyle(fragment, index),
         ),
@@ -113,6 +115,7 @@ function renderFragmentSequence(
         {group.flatMap((groupFragment, groupOffset) => [
           renderLeadingGap(
             groupFragment,
+            fragments[index + groupOffset - 1],
             `${keyPrefix}-gap-${index + groupOffset}`,
             getStyle(groupFragment, index + groupOffset),
           ),
@@ -130,12 +133,13 @@ function renderFragmentSequence(
   return nodes;
 }
 
-function renderFragmentContent(fragment: PageFragment) {
-  if (!fragment.highlightMarks || fragment.highlightMarks.length === 0) {
-    return fragment.text;
-  }
+function wrapInHighlightMarks(
+  text: string,
+  marks: PageFragment["highlightMarks"],
+): ReactNode {
+  if (!marks || marks.length === 0) return text;
 
-  return fragment.highlightMarks.reduceRight<ReactNode>(
+  return marks.reduceRight<ReactNode>(
     (
       content: ReactNode,
       mark: NonNullable<PageFragment["highlightMarks"]>[number],
@@ -154,8 +158,33 @@ function renderFragmentContent(fragment: PageFragment) {
         </mark>
       );
     },
-    fragment.text,
+    text,
   );
+}
+
+/**
+ * Returns the highlights that continue across the space before `fragment`.
+ *
+ * Text with different formatting renders as separate fragments, and the space
+ * between them renders as its own gap span. A highlight that covers both sides
+ * must also cover the gap, or the background breaks at each formatting change.
+ * Gap marks never carry start or end flags, so they get no end padding.
+ */
+function getGapHighlightMarks(
+  fragment: PageFragment,
+  previousFragment: PageFragment | undefined,
+): NonNullable<PageFragment["highlightMarks"]> {
+  if (!fragment.highlightMarks || !previousFragment?.highlightMarks) return [];
+
+  const previousIds = new Set(
+    previousFragment.highlightMarks.map((mark) => mark.id),
+  );
+  return fragment.highlightMarks
+    .filter((mark) => previousIds.has(mark.id))
+    .map((mark) => ({
+      id: mark.id,
+      ...(mark.color ? { color: mark.color } : {}),
+    }));
 }
 
 function getFragmentAnchorData(fragment: PageFragment) {
@@ -221,6 +250,7 @@ function getSliceBaseTypographyStyle(
 
 function renderLeadingGap(
   fragment: PageFragment,
+  previousFragment: PageFragment | undefined,
   key: string,
   style: CSSProperties,
 ) {
@@ -228,7 +258,10 @@ function renderLeadingGap(
 
   return (
     <span key={key} style={style}>
-      {" "}
+      {wrapInHighlightMarks(
+        " ",
+        getGapHighlightMarks(fragment, previousFragment),
+      )}
     </span>
   );
 }
@@ -245,7 +278,7 @@ function renderInlineFragment(
     "reader-inline-superscript": fragment.inlineRole === "superscript",
     "reader-note-ref": fragment.inlineRole === "note-ref",
   });
-  const content = renderFragmentContent(fragment);
+  const content = wrapInHighlightMarks(fragment.text, fragment.highlightMarks);
   const anchorData = getFragmentAnchorData(fragment);
   const raisePx = getInlineRaisePx(fragment.inlineRole, fragment.font);
   const noteRefMetrics =

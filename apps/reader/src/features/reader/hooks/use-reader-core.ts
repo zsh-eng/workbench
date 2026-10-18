@@ -205,6 +205,7 @@ export function useReaderCore(
   useReaderCheckpointController({
     bookId,
     spread: pagination.spread,
+    isFullyPaginated: pagination.status === "ready",
   });
 
   useReaderReadingSession({

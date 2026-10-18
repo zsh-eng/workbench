@@ -55,8 +55,8 @@ interface ResolveTapNavigationActionOptions {
   canGoPrev: boolean;
 }
 
-const INTERACTIVE_TARGET_SELECTOR = [
-  "[data-highlight-id]",
+const HIGHLIGHT_TARGET_SELECTOR = "[data-highlight-id]";
+const CONTROL_TARGET_SELECTOR = [
   "button",
   "[role='button']",
   "a[href]",
@@ -66,6 +66,7 @@ const INTERACTIVE_TARGET_SELECTOR = [
   "[contenteditable='true']",
   "[contenteditable='']",
 ].join(", ");
+const INTERACTIVE_TARGET_SELECTOR = `${HIGHLIGHT_TARGET_SELECTOR}, ${CONTROL_TARGET_SELECTOR}`;
 
 export const TOUCH_TAP_MOVE_TOLERANCE_PX = 10;
 export const MAX_TOUCH_TAP_DURATION_MS = 450;
@@ -89,7 +90,10 @@ export function getHorizontalTapZone(
   return "right";
 }
 
-export function isInteractiveTapTarget(target: EventTarget | null): boolean {
+function matchesTargetSelector(
+  target: EventTarget | null,
+  selector: string,
+): boolean {
   const element = getTargetElement(target);
   if (!element) return false;
 
@@ -97,7 +101,23 @@ export function isInteractiveTapTarget(target: EventTarget | null): boolean {
     return true;
   }
 
-  return element.closest(INTERACTIVE_TARGET_SELECTOR) !== null;
+  return element.closest(selector) !== null;
+}
+
+/**
+ * A tap on a highlight or a control belongs to that element, not to page
+ * navigation.
+ */
+export function isInteractiveTapTarget(target: EventTarget | null): boolean {
+  return matchesTargetSelector(target, INTERACTIVE_TARGET_SELECTOR);
+}
+
+/**
+ * A drag that starts on a control belongs to that control. A highlight owns
+ * only its tap, so a horizontal drag that starts on one still turns the page.
+ */
+export function isControlTarget(target: EventTarget | null): boolean {
+  return matchesTargetSelector(target, CONTROL_TARGET_SELECTOR);
 }
 
 export function hasExceededTouchTapMoveTolerance(

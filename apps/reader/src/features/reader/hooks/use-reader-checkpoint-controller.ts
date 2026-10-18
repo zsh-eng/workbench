@@ -23,6 +23,8 @@ import {
 interface UseReaderCheckpointControllerOptions {
   bookId?: string;
   spread: ResolvedSpread | null;
+  /** Page numbers are final, so the snapshot can include whole-book progress. */
+  isFullyPaginated: boolean;
 }
 
 /**
@@ -30,7 +32,8 @@ interface UseReaderCheckpointControllerOptions {
  *
  * Responsibilities:
  * - derive a persistable `(chapterIndex, scrollProgress)` snapshot from the
- *   leading visible page of the current spread
+ *   leading visible page of the current spread, plus whole-book progress once
+ *   the whole book is paginated
  * - ignore non-committal navigation like scrubber preview
  * - flush immediately for committed page turns and jumps
  * - flush periodically and on lifecycle exits for restore/relayout snapshots
@@ -41,6 +44,7 @@ interface UseReaderCheckpointControllerOptions {
 export function useReaderCheckpointController({
   bookId,
   spread,
+  isFullyPaginated,
 }: UseReaderCheckpointControllerOptions): void {
   const queryClient = useQueryClient();
   const latestSnapshotRef = useRef<ReaderCheckpointSnapshot | null>(null);
@@ -105,6 +109,9 @@ export function useReaderCheckpointController({
         bookId: snapshot.bookId,
         currentSpineIndex: snapshot.currentSpineIndex,
         scrollProgress: snapshot.scrollProgress,
+        ...(snapshot.bookProgress !== undefined
+          ? { bookProgress: snapshot.bookProgress }
+          : {}),
         lastRead: Date.now(),
       };
       lastRequestedRef.current = { key, checkpoint, pending: true };
@@ -123,14 +130,18 @@ export function useReaderCheckpointController({
       return;
     }
 
-    const checkpoint = createReaderCheckpointSnapshot(bookId, spread);
+    const checkpoint = createReaderCheckpointSnapshot(
+      bookId,
+      spread,
+      isFullyPaginated,
+    );
     if (!checkpoint) return;
     latestSnapshotRef.current = checkpoint;
 
     if (shouldFlushCheckpointImmediately(spread.intent)) {
       flushLatest();
     }
-  }, [bookId, spread, flushLatest]);
+  }, [bookId, spread, isFullyPaginated, flushLatest]);
 
   useEffect(() => {
     if (!bookId) return;

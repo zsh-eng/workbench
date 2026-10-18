@@ -73,9 +73,11 @@ export function sortBooks(
 }
 
 /**
- * How far through the book its latest position is, from 0 to 1. Chapters
- * count equally, so this is an estimate; exact pages exist only while the
- * Reader has the book open.
+ * How far through the book its latest position is, from 0 to 1. The Reader
+ * saves the leading page's place among all pages once it has paginated the
+ * whole book. A checkpoint without that falls back to an estimate in which
+ * chapters count equally, so a short cover page counts as much as a long
+ * chapter.
  */
 export function readingProgress(
   book: Book,
@@ -84,6 +86,7 @@ export function readingProgress(
 ): number {
   if (status === "finished") return 1;
   if (!checkpoint) return 0;
+  if (checkpoint.bookProgress !== undefined) return checkpoint.bookProgress;
   const chapters = Math.max(1, book.spine.length);
   const position =
     checkpoint.currentSpineIndex + checkpoint.scrollProgress / 100;

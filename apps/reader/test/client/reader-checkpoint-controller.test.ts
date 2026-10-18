@@ -98,7 +98,7 @@ describe("reader checkpoint snapshot derivation", () => {
       totalPagesInChapter: 5,
     });
 
-    expect(createReaderCheckpointSnapshot("book-1", spread)).toEqual({
+    expect(createReaderCheckpointSnapshot("book-1", spread, false)).toEqual({
       bookId: "book-1",
       currentSpineIndex: 4,
       localPageIndex: 2,
@@ -107,14 +107,29 @@ describe("reader checkpoint snapshot derivation", () => {
     });
   });
 
+  it("adds whole-book progress only after the whole book is paginated", () => {
+    const spread = makeSpread({
+      intent: { kind: "linear", direction: "forward" },
+      currentPageInChapter: 34,
+      totalPagesInChapter: 40,
+    });
+
+    expect(
+      createReaderCheckpointSnapshot("book-1", spread, true)?.bookProgress,
+    ).toBeCloseTo(33 / 99);
+    expect(
+      createReaderCheckpointSnapshot("book-1", spread, false),
+    ).not.toHaveProperty("bookProgress");
+  });
+
   it("returns null without a book id or visible page", () => {
     const spread = makeSpread({
       intent: { kind: "linear", direction: "forward" },
     });
 
-    expect(createReaderCheckpointSnapshot(undefined, spread)).toBeNull();
+    expect(createReaderCheckpointSnapshot(undefined, spread, true)).toBeNull();
     expect(
-      createReaderCheckpointSnapshot("book-1", { ...spread, slots: [] }),
+      createReaderCheckpointSnapshot("book-1", { ...spread, slots: [] }, true),
     ).toBeNull();
   });
 });
@@ -139,6 +154,7 @@ describe("useReaderCheckpointController", () => {
     renderHook(() =>
       useReaderCheckpointController({
         bookId: "book-1",
+        isFullyPaginated: false,
         spread: makeSpread({ intent: { kind: "preview", source: "scrubber" } }),
       }),
     );
@@ -198,6 +214,7 @@ describe("useReaderCheckpointController", () => {
     renderHook(() =>
       useReaderCheckpointController({
         bookId: "book-1",
+        isFullyPaginated: false,
         spread: makeSpread({
           intent: { kind: "jump", source: "chapter" },
           chapterIndex: 4,
@@ -220,6 +237,7 @@ describe("useReaderCheckpointController", () => {
     renderHook(() =>
       useReaderCheckpointController({
         bookId: "book-1",
+        isFullyPaginated: false,
         spread: makeSpread({ intent: { kind: "restore" } }),
       }),
     );
@@ -244,6 +262,7 @@ describe("useReaderCheckpointController", () => {
     renderHook(() =>
       useReaderCheckpointController({
         bookId: "book-1",
+        isFullyPaginated: false,
         spread: makeSpread({ intent: { kind: "restore" } }),
       }),
     );
@@ -264,6 +283,7 @@ describe("useReaderCheckpointController", () => {
     renderHook(() =>
       useReaderCheckpointController({
         bookId: "book-1",
+        isFullyPaginated: false,
         spread: makeSpread({ intent: { kind: "restore" } }),
       }),
     );
@@ -283,6 +303,7 @@ describe("useReaderCheckpointController", () => {
     const { unmount } = renderHook(() =>
       useReaderCheckpointController({
         bookId: "book-1",
+        isFullyPaginated: false,
         spread: makeSpread({ intent: { kind: "restore" } }),
       }),
     );
