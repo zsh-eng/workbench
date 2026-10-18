@@ -1,6 +1,7 @@
 import type { AnnotationColor } from "@/lib/highlight-constants";
 import {
   prepareBlocks,
+  resolveCanonicalRangeText,
   resolveContentAnchorRangeToHighlight,
   resolveDomEndpointToContentAnchor,
   type FontConfig,
@@ -45,6 +46,8 @@ interface PendingHighlightDraft {
   highlight: NonNullable<
     ReturnType<typeof resolveContentAnchorRangeToHighlight>
   >;
+  /** The passage as copied: page spacing and paragraph breaks, not source whitespace. */
+  copyText: string;
 }
 
 /**
@@ -89,6 +92,8 @@ interface UseReaderAnnotationsResult {
   isCreatingHighlight: boolean;
   creationPosition: { x: number; y: number };
   creationText: string;
+  /** The selected highlight's text as the toolbar copies it. */
+  activeHighlightCopyText: string;
   selectColor: (color: AnnotationColor) => Highlight | undefined;
   closeCreation: () => void;
   clearActiveHighlight: () => void;
@@ -247,7 +252,36 @@ function resolvePendingHighlightDraft(options: {
     position,
     spineItemId: chapter.spineItemId,
     highlight,
+    copyText: resolveCanonicalRangeText({
+      chapterBlocks,
+      chapterCanonicalText,
+      startOffset: highlight.startOffset,
+      endOffset: highlight.endOffset,
+    }),
   };
+}
+
+/** A saved highlight's copy text, from its chapter when that is loaded. */
+function resolveHighlightCopyText(
+  highlight: Highlight,
+  chapterEntries: ChapterEntry[],
+  chapterAccess: ReaderSessionChapterAccess,
+): string {
+  const chapterIndex = chapterEntries.findIndex(
+    (entry) => entry.spineItemId === highlight.spineItemId,
+  );
+  if (chapterIndex < 0) return highlight.selectedText;
+  const chapterBlocks = chapterAccess.getBlocks(chapterIndex);
+  const chapterCanonicalText = chapterAccess.getCanonicalText(chapterIndex);
+  if (!chapterBlocks || !chapterCanonicalText) return highlight.selectedText;
+  return (
+    resolveCanonicalRangeText({
+      chapterBlocks,
+      chapterCanonicalText,
+      startOffset: highlight.startOffset,
+      endOffset: highlight.endOffset,
+    }) || highlight.selectedText
+  );
 }
 
 export function useReaderAnnotations({
@@ -289,6 +323,18 @@ export function useReaderAnnotations({
       null
     );
   }, [activeHighlight, highlights]);
+
+  const activeHighlightCopyText = useMemo(
+    () =>
+      activeHighlightData
+        ? resolveHighlightCopyText(
+            activeHighlightData,
+            chapterEntries,
+            chapterAccess,
+          )
+        : "",
+    [activeHighlightData, chapterAccess, chapterEntries],
+  );
 
   const resolveSelectionDraft = useCallback(
     (selection: Selection): PendingHighlightDraft | null => {
@@ -414,6 +460,17 @@ export function useReaderAnnotations({
       clearDomSelection();
     };
 
+    // A native copy (Cmd+C, or Copy in the iOS selection menu) would take
+    // a line break from every wrapped line. Copy the passage as text instead.
+    const handleCopy = (event: ClipboardEvent) => {
+      const selection = window.getSelection();
+      const draft = selection ? resolveSelectionDraft(selection) : null;
+      if (!draft || !event.clipboardData) return;
+      event.clipboardData.setData("text/plain", draft.copyText);
+      event.preventDefault();
+    };
+
+    document.addEventListener("copy", handleCopy);
     document.addEventListener("mouseup", handlePointerUp);
     document.addEventListener("touchend", handlePointerUp);
     document.addEventListener("selectionchange", handleSelectionChange);
@@ -423,6 +480,7 @@ export function useReaderAnnotations({
     );
 
     return () => {
+      document.removeEventListener("copy", handleCopy);
       document.removeEventListener("mouseup", handlePointerUp);
       document.removeEventListener("touchend", handlePointerUp);
       document.removeEventListener("selectionchange", handleSelectionChange);
@@ -507,7 +565,8 @@ export function useReaderAnnotations({
     activeHighlightData,
     isCreatingHighlight: state.kind === "creating",
     creationPosition: pendingDraft?.position ?? { x: 0, y: 0 },
-    creationText: pendingDraft?.highlight.selectedText ?? "",
+    creationText: pendingDraft?.copyText ?? "",
+    activeHighlightCopyText,
     selectColor,
     closeCreation,
     clearActiveHighlight,

@@ -6,6 +6,7 @@ import { applyHighlightsToChapterHtml } from "@/features/reader/highlight-virtua
 import {
   parseChapterHtmlWithCanonicalText,
   prepareBlocks,
+  resolveCanonicalRangeText,
   resolveContentAnchorRangeToHighlight,
   type ChapterCanonicalText,
   type ContentAnchor,
@@ -340,4 +341,30 @@ it("round trips a stored note offset through prepared text with whitespace and e
       resolveTextAnchorToCanonicalOffset({ ...options, anchor: anchor! }),
     ).toBe(offset);
   }
+});
+
+describe("resolveCanonicalRangeText", () => {
+  const { blocks, canonicalText } = buildChapter(
+    "<p>First   line\n of a <em>wrapped</em> para\u00adgraph</p>" +
+      "<p>Poem one<br/>Poem two</p>" +
+      "<pre>code\n  indented\n</pre>",
+  );
+  const copy = (start: string, end: string) =>
+    resolveCanonicalRangeText({
+      chapterBlocks: blocks,
+      chapterCanonicalText: canonicalText,
+      startOffset: canonicalText.fullText.indexOf(start),
+      endOffset: canonicalText.fullText.indexOf(end) + end.length,
+    });
+
+  it("collapses source whitespace and separates paragraphs with a blank line", () => {
+    expect(copy("First", "indented\n")).toBe(
+      "First line of a wrapped paragraph\n\nPoem one\nPoem two\n\ncode\n  indented",
+    );
+  });
+
+  it("keeps only the line breaks inside the range", () => {
+    expect(copy("wrapped", "Poem o")).toBe("wrapped paragraph\n\nPoem o");
+    expect(copy("one", "Poem t")).toBe("one\nPoem t");
+  });
 });

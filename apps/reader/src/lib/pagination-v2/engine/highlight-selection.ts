@@ -330,6 +330,68 @@ export function resolveContentAnchorRangeToHighlight(options: {
   };
 }
 
+const INVISIBLE_CHARACTERS = /[­​]/g;
+
+/**
+ * The text a reader expects to copy from a range of canonical chapter text.
+ *
+ * Canonical text keeps the source file's whitespace: line wraps and
+ * indentation inside a paragraph, and any or no whitespace between
+ * paragraphs. The rendered page has neither. Here spaces collapse as they do
+ * on the page, a `<br>` stays a line break, preformatted text stays as it is,
+ * and paragraphs are separated by a blank line.
+ */
+export function resolveCanonicalRangeText(options: {
+  chapterBlocks: Block[];
+  chapterCanonicalText: ChapterCanonicalText;
+  startOffset: number;
+  endOffset: number;
+}): string {
+  const { chapterBlocks, chapterCanonicalText, startOffset, endOffset } =
+    options;
+  const { fullText, blockStarts } = chapterCanonicalText;
+  const paragraphs: string[] = [];
+
+  for (const block of chapterBlocks) {
+    if (!isTextBlock(block)) continue;
+    const blockStart = blockStarts.get(block.id);
+    if (blockStart === undefined || blockStart >= endOffset) continue;
+
+    const isPreformatted = block.tag === "pre";
+    // Lines split only at <br>; source whitespace is never a line break.
+    const lines = [""];
+    let runStart = blockStart;
+    for (const run of block.runs) {
+      const runEnd = runStart + getPersistedRunText(block.tag, run).length;
+      if (run.hardBreak && !isPreformatted) {
+        if (runStart > startOffset && runStart < endOffset) lines.push("");
+      } else {
+        const from = Math.max(runStart, startOffset);
+        const to = Math.min(runEnd, endOffset);
+        if (from < to) {
+          const text = fullText
+            .slice(from, to)
+            .replace(INVISIBLE_CHARACTERS, "");
+          lines[lines.length - 1] += isPreformatted
+            ? text
+            : text.replace(/\s+/g, " ");
+        }
+      }
+      runStart = runEnd;
+    }
+
+    const paragraph = isPreformatted
+      ? lines.join("").replace(/^\n+|\n+$/g, "")
+      : lines
+          .map((line) => line.trim())
+          .join("\n")
+          .trim();
+    if (paragraph) paragraphs.push(paragraph);
+  }
+
+  return paragraphs.join("\n\n");
+}
+
 /** Resolve persisted chapter text coordinates without depending on page layout. */
 export function canonicalOffsetToContentAnchor(options: {
   chapterIndex: number;

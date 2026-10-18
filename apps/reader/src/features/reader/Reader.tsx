@@ -157,6 +157,7 @@ export function Reader() {
     isCreatingHighlight,
     creationPosition,
     creationText,
+    activeHighlightCopyText,
     selectColor,
     closeCreation,
     clearActiveHighlight,
@@ -763,6 +764,7 @@ export function Reader() {
                       isCreatingHighlight={isCreatingHighlight}
                       creationPosition={creationPosition}
                       creationText={creationText}
+                      activeHighlightCopyText={activeHighlightCopyText}
                       onCreateColorSelect={selectColor}
                       onCreateClose={closeCreation}
                       activeHighlight={
