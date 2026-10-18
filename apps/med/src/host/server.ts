@@ -1127,15 +1127,35 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           response.once("close", () => sessionStreams.delete(response));
           const write = (event: string, data: unknown) =>
             response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+          // The first view goes in parts, so no event is larger than the client
+          // reads. The reset says how many there are, so the thread takes them
+          // in one step.
+          const parts = (events: SessionEvent[]) => {
+            const result: SessionEvent[][] = [[]];
+            let size = 0;
+            for (const event of events) {
+              const bytes = JSON.stringify(event).length;
+              if (size + bytes > SESSION_EVENT_BYTES && result.at(-1)!.length) {
+                result.push([]);
+                size = 0;
+              }
+              result.at(-1)!.push(event);
+              size += bytes;
+            }
+            return result;
+          };
           if (session.agent === "acp") {
             // Med keeps an ACP session's updates itself.
             const idle = () => runner?.state().status !== "working";
-            write("reset", {
-              events: await ownedSessions.events(session.id),
-              idle: idle(),
-              modifiedAt: Date.now(),
-              truncated: false,
-            });
+            const all = parts(await ownedSessions.events(session.id));
+            all.forEach((part, index) =>
+              write(index ? "updates" : "reset", {
+                events: part,
+                idle: idle(),
+                modifiedAt: Date.now(),
+                ...(index ? {} : { truncated: false, parts: all.length }),
+              }),
+            );
             const unsubscribe = [
               runner?.log?.subscribe((events) =>
                 write("updates", { events, idle: idle(), modifiedAt: Date.now() }),
@@ -1155,23 +1175,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             path = await findTranscript(session);
           }
           if (!path) return;
-          // The first view goes in parts, so no event is larger than the client
-          // reads. The reset says how many there are, so the thread takes them
-          // in one step.
-          const parts = (events: SessionEvent[]) => {
-            const result: SessionEvent[][] = [[]];
-            let size = 0;
-            for (const event of events) {
-              const bytes = JSON.stringify(event).length;
-              if (size + bytes > SESSION_EVENT_BYTES && result.at(-1)!.length) {
-                result.push([]);
-                size = 0;
-              }
-              result.at(-1)!.push(event);
-              size += bytes;
-            }
-            return result;
-          };
           // A thread kept in the browser names the updates it has.
           const feed = url.searchParams.get("feed") ?? "";
           const count = Number(url.searchParams.get("count"));

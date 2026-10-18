@@ -117,6 +117,15 @@ function connect(token: string): Live {
         },
         undefined,
         LIVE_EVENT_BYTES,
+        // An event too large for one channel ends that channel, and the
+        // page's other channels go on.
+        (event) => {
+          const key = event.slice(0, event.indexOf(":"));
+          const controller = live.channels.get(key);
+          if (!controller) return;
+          live.channels.delete(key);
+          controller.error(new Error("The server sent an invalid event size."));
+        },
       );
     })()
       .catch(() => {})

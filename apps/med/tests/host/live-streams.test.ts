@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SavedReview } from "../../src/shared/saved-review";
@@ -116,6 +116,87 @@ test("a page reads all its event streams over one connection", async () => {
   await host.close();
   hosts.splice(0);
   await Promise.all(opened.slice(1).map((stream) => stream.done));
+});
+
+test("a long ACP thread comes over the live stream in parts, and the page's other channels go on", async () => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), "med live ")));
+  directories.push(directory);
+  execFileSync("git", ["init", "-q", "-b", "main"], { cwd: directory });
+  const stateDir = join(directory, ".state");
+  // 6,000 updates of 2 KB: Med keeps the last 5,000, about 10 MB.
+  const sessionId = "acp-long-thread";
+  await mkdir(join(stateDir, "sessions"), { recursive: true });
+  const update = (index: number) => ({
+    at: index,
+    update: {
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: `${index} ${"x".repeat(2000)}` },
+    },
+  });
+  await writeFile(
+    join(stateDir, "sessions", `${sessionId}.jsonl`),
+    Array.from({ length: 6000 }, (_, index) => `${JSON.stringify(update(index))}\n`).join(""),
+  );
+  const host = await startHost({ repo: directory, repos: [directory], stateDir, port: 0 });
+  hosts.push(host);
+  const base = `http://127.0.0.1:${host.port}`;
+  const nodeFetch = globalThis.fetch;
+  vi.stubGlobal("fetch", (input: string, init?: RequestInit) =>
+    nodeFetch(new URL(input, base), init),
+  );
+  const api = createApi(browserFetch, host.token);
+  const review = (await browserFetch("/api/reviews", {
+    method: "POST",
+    headers: { authorization: `Bearer ${host.token}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      title: "Long Codex thread",
+      targets: [{ repo: directory, comparison: { kind: "working" } }],
+      sessions: [{ agent: "acp", name: "Codex", id: sessionId, cwd: directory }],
+    }),
+  }).then((response) => response.json())) as SavedReview;
+
+  const open = async (path: string, maxEventSize?: number) => {
+    const controller = new AbortController();
+    streams.push(controller);
+    const response = await api.stream(path, controller.signal);
+    const events: ServerEvent[] = [];
+    const done = readServerEvents(
+      response.body!,
+      (event) => events.push(event),
+      controller.signal,
+      maxEventSize,
+    );
+    return { events, done };
+  };
+  const list = await open("/api/threads/events");
+  // The session pane reads events up to 4 MiB, as session-stream.ts does.
+  const thread = await open(`/api/reviews/${review.id}/sessions/${sessionId}/events`, 4 << 20);
+  await vi.waitFor(
+    () => {
+      const [reset, ...rest] = thread.events.map(
+        (event) => [event.event, JSON.parse(event.data)] as const,
+      );
+      expect(reset?.[0]).toBe("reset");
+      expect(rest).toHaveLength(reset![1].parts - 1);
+      const updates = [reset!, ...rest].flatMap(([, payload]) => payload.events);
+      expect(updates).toHaveLength(5000);
+      expect(updates[0].update.content.text).toMatch(/^1000 /);
+    },
+    { timeout: 10_000 },
+  );
+  expect(Math.max(...thread.events.map((event) => event.data.length))).toBeLessThan(2 << 20);
+
+  // The thread list on the same connection still takes changes.
+  const before = list.events.length;
+  await browserFetch(`/api/threads/${review.id}/name`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${host.token}`, "content-type": "application/json" },
+    body: JSON.stringify({ name: "Codex export" }),
+  });
+  await vi.waitFor(() => {
+    expect(list.events.length).toBeGreaterThan(before);
+    expect(list.events.at(-1)!.data).toContain("Codex export");
+  });
 });
 
 test("the live stream takes a WebSocket from the page, with its cookie, and refuses others", async () => {

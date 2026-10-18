@@ -11,6 +11,9 @@ export async function readServerEvents(
   signal?: AbortSignal,
   /** Session streams carry tool output and diffs; other streams keep the 64 KiB bound. */
   maxEventSize = 65_536,
+  /** Skips an event larger than the bound and names it, where the stream
+   * carries other events that must go on; otherwise the read ends. */
+  onTooLarge?: (event: string) => void,
 ): Promise<void> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
@@ -20,8 +23,20 @@ export async function readServerEvents(
   let id: string | undefined;
   let data: string[] = [];
   let eventSize = 0;
+  // An event over the bound, which is skipped to its end; its lines are not kept.
+  let skipping = false;
+  let lineSize = 0;
   const flushLine = () => {
-    if (!line) {
+    const blank = lineSize === 0;
+    lineSize = 0;
+    if (skipping) {
+      if (!blank) return;
+      skipping = false;
+      onTooLarge?.(event);
+      event = "message";
+      data = [];
+      eventSize = 0;
+    } else if (!line) {
       if (data.length)
         onEvent({ event, data: data.join("\n"), ...(id === undefined ? {} : { id }) });
       event = "message";
@@ -39,8 +54,16 @@ export async function readServerEvents(
     line = "";
   };
   const append = (part: string) => {
+    lineSize += part.length;
+    if (skipping) return;
     eventSize += part.length;
-    if (eventSize > maxEventSize) throw new Error("The server sent an invalid event size.");
+    if (eventSize > maxEventSize) {
+      if (!onTooLarge) throw new Error("The server sent an invalid event size.");
+      skipping = true;
+      line = "";
+      data = [];
+      return;
+    }
     line += part;
   };
   // A session's first event can be megabytes: find line ends with indexOf,

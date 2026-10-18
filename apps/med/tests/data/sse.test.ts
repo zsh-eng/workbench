@@ -36,4 +36,18 @@ describe("fetch-stream SSE transport", () => {
       readServerEvents(stream(`data: ${"x".repeat(65_537)}`), () => undefined),
     ).rejects.toThrow("event size");
   });
+
+  test("skips an event over the bound and names it, so the stream's other events go on", async () => {
+    const events: ServerEvent[] = [];
+    const skipped: string[] = [];
+    await readServerEvents(
+      stream(`event: c1:reset\ndata: ${"x".repeat(70_000)}\n\nevent: c2:state\ndata: ok\n\n`, true),
+      (event) => events.push(event),
+      undefined,
+      65_536,
+      (event) => skipped.push(event),
+    );
+    expect(skipped).toEqual(["c1:reset"]);
+    expect(events).toEqual([{ event: "c2:state", data: "ok" }]);
+  });
 });
