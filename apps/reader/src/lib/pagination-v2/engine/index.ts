@@ -258,14 +258,18 @@ export class PaginationEngine {
         for (const [index, { id, offset }] of chapter.offsets.entries()) {
           if (index > 0 && index % LOCATE_OFFSETS_PER_STEP === 0) yield;
           const anchor = locate?.(offset) ?? null;
+          const resolved = anchor
+            ? resolveAnchorToPage(this.pagesByChapter, anchor)
+            : null;
           locations[id] = anchor
             ? {
                 anchor,
-                page: resolveAnchorToGlobalPage(
-                  this.pagesByChapter,
-                  this.chapterPageOffsets,
-                  anchor,
-                ),
+                page: resolved
+                  ? (this.chapterPageOffsets[resolved.chapterIndex] ?? 0) +
+                    resolved.localPageIndex +
+                    1
+                  : null,
+                pageInChapter: resolved ? resolved.localPageIndex + 1 : null,
               }
             : null;
         }

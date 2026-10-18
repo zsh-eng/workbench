@@ -113,8 +113,9 @@ interface UseReaderSearchOptions {
   locateTextOffsets: ReaderSessionResources["locateTextOffsets"];
   /** Changes whenever pages are laid out again, so page numbers follow. */
   layoutKey: string;
-  currentPage: number;
+  /** The reader's chapter, and its first page shown, counted from 1. */
   currentChapterIndex: number;
+  currentPageInChapter: number | null;
   goToTextOffset: (
     chapterIndex: number,
     offset: number,
@@ -182,8 +183,8 @@ export function useReaderSearch({
   locations,
   locateTextOffsets,
   layoutKey,
-  currentPage,
   currentChapterIndex,
+  currentPageInChapter,
   goToTextOffset,
 }: UseReaderSearchOptions): ReaderSearch {
   const [query, setQueryState] = useState(() => readSavedQuery(bookId));
@@ -591,23 +592,27 @@ export function useReaderSearch({
   // Stepping starts from where the reader is. Read at the step, so a page
   // turn does not make a new search object for everything that shows it.
   const position = useRef({
-    currentPage,
     currentChapterIndex,
-    pages,
+    currentPageInChapter,
     locations,
   });
   useLayoutEffect(() => {
-    position.current = { currentPage, currentChapterIndex, pages, locations };
+    position.current = { currentChapterIndex, currentPageInChapter, locations };
   });
-  /** Whether a result sits after (1), at (0) or before (-1) the reader. */
+  /**
+   * Whether a result sits after (1), at (0) or before (-1) the reader.
+   * Within a chapter it compares pages of that chapter: book page numbers
+   * shift while earlier chapters are still being laid out.
+   */
   const compareToReader = useCallback((result: ReaderSearchResult) => {
-    const { currentPage, currentChapterIndex, pages } = position.current;
-    const page = pages[result.id];
-    return Math.sign(
-      page !== null && page !== undefined
-        ? page - currentPage
-        : result.chapterIndex - currentChapterIndex,
-    );
+    const { currentChapterIndex, currentPageInChapter, locations } =
+      position.current;
+    if (result.chapterIndex !== currentChapterIndex)
+      return Math.sign(result.chapterIndex - currentChapterIndex);
+    const page = locations[result.id]?.pageInChapter;
+    return page && currentPageInChapter
+      ? Math.sign(page - currentPageInChapter)
+      : 0;
   }, []);
 
   // Until the matches in the reader's chapter are on pages, a step could

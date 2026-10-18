@@ -16,6 +16,7 @@ import { isInteractiveTapTarget } from "./hooks/use-touch-spread-tap-nav";
 import { highlightNoteTarget } from "./note-locations";
 import type { NoteTarget } from "@/types/note";
 import type { TOCItem } from "@/lib/db";
+import type { ResolvedSpread } from "@/lib/pagination-v2";
 import { ReaderNotesPrototype } from "./ReaderNotesPrototype";
 import { ReaderController } from "./ReaderController";
 import { ReaderHeader } from "./ReaderHeader";
@@ -81,6 +82,13 @@ function DisplayReadyCommitProbe({
 }
 
 const EMPTY_TOC: TOCItem[] = [];
+
+/** The first page a spread shows, counted within its chapter. */
+function leadingPageInChapter(spread: ResolvedSpread | null): number | null {
+  for (const slot of spread?.slots ?? [])
+    if (slot.kind === "page") return slot.page.currentPageInChapter;
+  return null;
+}
 
 export function Reader() {
   const debugEnabled = useDebugEnabled();
@@ -202,8 +210,8 @@ export function Reader() {
     locations: sessionState.pagination.searchLocations,
     locateTextOffsets: sessionResources.locateTextOffsets,
     layoutKey: `${sessionState.pagination.status}:${sessionState.navigation.totalPages}`,
-    currentPage: sessionState.navigation.currentPage,
     currentChapterIndex: sessionState.navigation.currentChapterIndex,
+    currentPageInChapter: leadingPageInChapter(sessionState.pagination.spread),
     goToTextOffset: sessionActions.goToTextOffset,
   });
   const searchActiveIndex = search.state.activeIndex;

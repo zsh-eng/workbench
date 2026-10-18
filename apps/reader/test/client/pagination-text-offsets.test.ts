@@ -118,6 +118,10 @@ describe("canonical text offsets", () => {
     expect(before.currentPage).toBeGreaterThan(1);
     expect(shownText(before)).toContain("café");
     expect(locate(1)?.page).toBe(before.currentPage);
+    expect(locate(1)?.pageInChapter).toBe(
+      before.slots.find((slot) => slot.kind === "page")?.page
+        .currentPageInChapter,
+    );
 
     run(engine, {
       type: "updatePaginationConfig",

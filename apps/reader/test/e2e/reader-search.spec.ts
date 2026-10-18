@@ -203,6 +203,26 @@ test("a step from the page starts where the reader is", async ({
     .toEqual(["the"]);
 });
 
+test("a step as the book opens starts where the reader is", async ({
+  page,
+  localBook,
+}) => {
+  await openLocalBook(page, localBook.id);
+  for (let spread = 0; spread < 4; spread++) await nextSpread(page);
+  const start = await currentPages(page);
+  // Book page numbers count the chapters laid out so far, so they settle
+  // once the earlier chapters are.
+  await page.reload();
+  await waitForReaderReady(page);
+  await expect.poll(() => currentPages(page)).toEqual(start);
+
+  // Design ideas' `?search=` steps as soon as the page shows, before then.
+  await page.goto(`/reader/${localBook.id}?search=the`);
+  await expect(page.getByTestId("search-stepper")).toBeVisible();
+  await waitForReaderReady(page);
+  await expect.poll(() => currentPages(page)).toEqual(start);
+});
+
 test("a result opens the right page after the type changes", async ({
   page,
   localBook,

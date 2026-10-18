@@ -126,7 +126,10 @@ export interface LocateTextOffsetsCommand {
 /** Where a text offset sits: its anchor and global page, once laid out. */
 export interface TextOffsetLocation {
   anchor: ContentAnchor;
+  /** The page in the book; it counts only the chapters laid out so far. */
   page: number | null;
+  /** The page in its chapter, from 1, which earlier chapters do not move. */
+  pageInChapter: number | null;
 }
 
 export type PaginationCommand =
