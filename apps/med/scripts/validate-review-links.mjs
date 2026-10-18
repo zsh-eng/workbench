@@ -534,8 +534,16 @@ try {
   await page.getByText("No matching branches.", { exact: true }).waitFor();
   await page.getByRole("textbox", { name: "Filter comparison branches" }).fill("main");
   await page.getByRole("menuitem", { name: "main", exact: true }).click();
+  // Changes since the base branch include the uncommitted edit to same.ts.
   await page.waitForFunction(
-    () => window.shown('[data-review-status="ready"]')?.getAttribute("data-file-count") === "0",
+    () => window.shown('[data-review-status="ready"]')?.getAttribute("data-file-count") === "1",
+  );
+  assert.match(
+    await page
+      .getByRole("button", { name: "Compare against base branch" })
+      .filter({ visible: true })
+      .innerText(),
+    /Base\s*main/,
   );
   // The base branch comparison shows in Changes; the Review tab shows the hand-off again.
   await page.getByRole("tab", { name: "Review", exact: true }).filter({ visible: true }).click();
