@@ -209,6 +209,8 @@ export function useReaderSearch({
   const workerRef = useRef<Worker | null>(null);
   const sentTexts = useRef(new Map<number, ChapterCanonicalText>());
   const sentBook = useRef("");
+  /** A step from the reader, waiting for its chapter's matches' pages. */
+  const pendingStep = useRef<"next" | "previous" | null>(null);
   const locateRequest = useRef<{ startedAt: number; results: number } | null>(
     null,
   );
@@ -376,6 +378,7 @@ export function useReaderSearch({
 
   const setQuery = useCallback(
     (next: string, options?: { remember?: boolean }) => {
+      pendingStep.current = null;
       setQueryState(next);
       if (options?.remember !== false)
         saveQuery(bookId, next.trim() ? next : "");
@@ -575,6 +578,7 @@ export function useReaderSearch({
     (index: number) => {
       const result = results[index];
       if (!result) return;
+      pendingStep.current = null;
       setActiveIndex(index);
       setShown((count) =>
         Math.max(count, Math.ceil((index + 1) / RESULTS_PAGE) * RESULTS_PAGE),
@@ -586,9 +590,14 @@ export function useReaderSearch({
 
   // Stepping starts from where the reader is. Read at the step, so a page
   // turn does not make a new search object for everything that shows it.
-  const position = useRef({ currentPage, currentChapterIndex, pages });
+  const position = useRef({
+    currentPage,
+    currentChapterIndex,
+    pages,
+    locations,
+  });
   useLayoutEffect(() => {
-    position.current = { currentPage, currentChapterIndex, pages };
+    position.current = { currentPage, currentChapterIndex, pages, locations };
   });
   /** Whether a result sits after (1), at (0) or before (-1) the reader. */
   const compareToReader = useCallback((result: ReaderSearchResult) => {
@@ -601,26 +610,54 @@ export function useReaderSearch({
     );
   }, []);
 
+  // Until the matches in the reader's chapter are on pages, a step could
+  // only tell the chapter and would open its first match, which may be
+  // behind the reader. Such a step waits for them in `pendingStep`.
+  const placingReaderChapter = useCallback(() => {
+    const { currentChapterIndex, locations } = position.current;
+    return results.some(
+      (result) =>
+        result.chapterIndex === currentChapterIndex &&
+        !(result.id in locations),
+    );
+  }, [results]);
+
+  const stepFromReader = useCallback(
+    (direction: "next" | "previous") => {
+      if (placingReaderChapter()) {
+        pendingStep.current = direction;
+        return;
+      }
+      pendingStep.current = null;
+      if (direction === "next") {
+        const after = results.findIndex(
+          (result) => compareToReader(result) >= 0,
+        );
+        open(after < 0 ? 0 : after);
+      } else {
+        let before = results.length - 1;
+        while (before >= 0 && compareToReader(results[before]!) > 0) before--;
+        open(before < 0 ? results.length - 1 : before);
+      }
+    },
+    [compareToReader, open, placingReaderChapter, results],
+  );
+  useEffect(() => {
+    const direction = pendingStep.current;
+    if (direction && !placingReaderChapter()) stepFromReader(direction);
+  }, [locations, placingReaderChapter, stepFromReader]);
+
   const next = useCallback(() => {
     if (!results.length) return;
-    if (activeIndex !== null) {
-      if (activeIndex < results.length - 1) open(activeIndex + 1);
-      return;
-    }
-    const after = results.findIndex((result) => compareToReader(result) >= 0);
-    open(after < 0 ? 0 : after);
-  }, [activeIndex, compareToReader, open, results]);
+    if (activeIndex === null) stepFromReader("next");
+    else if (activeIndex < results.length - 1) open(activeIndex + 1);
+  }, [activeIndex, open, results.length, stepFromReader]);
 
   const previous = useCallback(() => {
     if (!results.length) return;
-    if (activeIndex !== null) {
-      if (activeIndex > 0) open(activeIndex - 1);
-      return;
-    }
-    let before = results.length - 1;
-    while (before >= 0 && compareToReader(results[before]!) > 0) before--;
-    open(before < 0 ? results.length - 1 : before);
-  }, [activeIndex, compareToReader, open, results]);
+    if (activeIndex === null) stepFromReader("previous");
+    else if (activeIndex > 0) open(activeIndex - 1);
+  }, [activeIndex, open, results.length, stepFromReader]);
 
   const openAnnotation = useCallback(
     (annotation: ReaderSearchAnnotation) => {
@@ -634,7 +671,10 @@ export function useReaderSearch({
     [goToTextOffset],
   );
 
-  const exit = useCallback(() => setActiveIndex(null), []);
+  const exit = useCallback(() => {
+    pendingStep.current = null;
+    setActiveIndex(null);
+  }, []);
   const showMore = useCallback(
     () => setShown((count) => count + RESULTS_PAGE),
     [],

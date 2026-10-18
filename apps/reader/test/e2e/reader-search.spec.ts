@@ -178,6 +178,31 @@ test("next and previous step across chapters", async ({ page, localBook }) => {
   await expect(stepper).toContainText(`${last + 2} of`);
 });
 
+test("a step from the page starts where the reader is", async ({
+  page,
+  localBook,
+}) => {
+  await openLocalBook(page, localBook.id);
+  for (let spread = 0; spread < 4; spread++) await nextSpread(page);
+  const start = await currentPages(page);
+  const chapter = await shownChapters(page);
+
+  // Enter straight after typing, before the matches are on pages.
+  await page.keyboard.press(FIND_SHORTCUT);
+  await searchField(page).fill("the");
+  await searchField(page).press("Enter");
+  await expect(page.getByTestId("search-stepper")).toBeVisible();
+  await waitForReaderReady(page);
+  // The chapter's earlier matches are behind the reader.
+  expect(await shownChapters(page)).toEqual(chapter);
+  expect(await currentPages(page)).toEqual(start);
+  await expect
+    .poll(async () =>
+      (await marks(page, "reader-search-active")).map((m) => m.toLowerCase()),
+    )
+    .toEqual(["the"]);
+});
+
 test("a result opens the right page after the type changes", async ({
   page,
   localBook,
