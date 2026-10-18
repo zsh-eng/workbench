@@ -67,6 +67,25 @@ The Reader cache has four owners under `data/reader-cache/`:
 - pagination config or spread config change:
   Pagination handles relayout itself. Reader-side chapter content does not reload.
 
+## Search
+
+Search runs over canonical chapter text, the same coordinates highlights and
+notes use, so a result stays correct when the type changes and pages move.
+
+- `search/search.worker.ts` holds the book's text and searches it chapter by
+  chapter, yielding every 8ms. It sends the first match at once, then
+  progress, and stops at 1,000 matches. A newer query or a cancel stops the
+  old search.
+- `search/search-text.ts` folds case, accents, curly quotes and invisible
+  characters, and maps folded matches back to canonical offsets.
+- `goToTextOffset` and `locateTextOffsets` in `pagination-v2` turn an offset
+  into a page. Locating covers only the results shown and the current
+  chapter, so a long result list does not hold up page turns.
+- `search/search-marks.ts` marks the matches on the pages in view with the
+  CSS Custom Highlight API, without changing the page's DOM.
+- Searching never moves the page or the reading checkpoint. Opening a result
+  is a `search` jump, so the history strip leads back.
+
 ## Reader diagnostics CLI
 
 Use the reader diagnostics CLI when investigating pagination or rendered-layout
