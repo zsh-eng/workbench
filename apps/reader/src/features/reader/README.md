@@ -32,6 +32,16 @@ This job scheduling bears a passing similarity to React Fiber: split expensive w
 
 Epochs keep events from old layout work from overwriting newer results on the main thread. Coalescing prevents repeated config changes or repeated navigation commands from forcing the worker to finish work that no longer matters.
 
+## Scroll mode prototype (Debug)
+
+With Debug mode on, a Pages/Scroll switch sits under the mobile header. Scroll mode shows one chapter as a vertical column (`scroll/`).
+
+- The engine builds the column from the chapter's paged layout (`shared/layout-column.ts`), so lines break exactly as on the pages. Each page's start is a column offset, and its anchor comes from `pickAnchorForPage`.
+- `ScrollStage` positions rows at exact offsets and mounts only the rows near the view. Long blocks split into chunks of 8 lines. The rows of a text selection stay mounted.
+- Pages → Scroll opens at the current page's offset. Scroll → Pages snaps to the page of the first fully visible line, or to the next page when it starts within two lines of the top.
+- The settled scroll position goes to pagination as a linear move, so checkpoints and reading sessions follow it. Highlights resolve against a one-page spread of the whole column and save the same offsets as on a page.
+- `?scrollWindow=off` mounts every row, for comparing frame times.
+
 ## High-level stages
 
 1. `Book -> ChapterEntry[]`

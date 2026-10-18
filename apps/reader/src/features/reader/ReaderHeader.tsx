@@ -31,6 +31,8 @@ export interface ReaderHeaderProps {
   chapterTitle?: string;
   activeSheet?: ReaderSheetId | null;
   onToggleSheet?: (sheet: ReaderSheetId) => void;
+  /** A Debug-mode control row under the header bar (mobile only). */
+  debugAccessory?: ReactNode;
 }
 
 /** "Aa": the reading appearance, set in the book's serif. */
@@ -56,6 +58,7 @@ export function ReaderHeader({
   chapterTitle,
   activeSheet = null,
   onToggleSheet,
+  debugAccessory,
 }: ReaderHeaderProps) {
   if (!isMobile) {
     return (
@@ -146,6 +149,11 @@ export function ReaderHeader({
             </Button>
           </div>
         </div>
+        {debugAccessory && (
+          <div className="relative z-10 flex justify-center pb-2">
+            {debugAccessory}
+          </div>
+        )}
       </motion.header>
 
       {/* A prompt keeps one place at the top edge: it does not ride the

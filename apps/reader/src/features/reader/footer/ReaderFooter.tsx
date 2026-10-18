@@ -34,6 +34,8 @@ export interface ReaderFooterProps {
   showPageNumbers?: boolean;
   /** Progress content shared by the Reader and debug playground. */
   pageIndicator?: ReactNode;
+  /** Replaces the page indicator, as scroll mode does with chapter progress. */
+  progressLabel?: ReactNode;
 }
 
 export function ReaderFooter({
@@ -59,6 +61,7 @@ export function ReaderFooter({
   isLoading = false,
   showPageNumbers = true,
   pageIndicator,
+  progressLabel,
 }: ReaderFooterProps) {
   const [cancelMomentumSignal, setCancelMomentumSignal] = useState(0);
   const animateReadyTransition = false;
@@ -244,7 +247,9 @@ export function ReaderFooter({
                 </div>
               </div>
               <div className="relative">
-                {showPageNumbers && !isLoading && pageIndicator ? (
+                {progressLabel ? (
+                  progressLabel
+                ) : showPageNumbers && !isLoading && pageIndicator ? (
                   pageIndicator
                 ) : (
                   <FooterPageIndicator
