@@ -12,6 +12,7 @@ import type {
   SpreadIntent,
 } from "@/lib/pagination-v2";
 import type { Highlight } from "@/types/highlight";
+import type { ReaderLocation } from "../reader-location";
 import type { ReaderSettings } from "@/types/reader.types";
 import { useMemo } from "react";
 import type { ChapterEntry } from "../types";
@@ -31,6 +32,8 @@ export interface UseReaderSessionOptions {
   paragraphSpacingFactor?: number;
   /** Prevents the first pagination run until the real reader stage is known. */
   layoutReady?: boolean;
+  /** Scroll mode's location; page numbers and progress follow it while set. */
+  scrollLocation?: ReaderLocation | null;
 }
 
 export type ReaderSessionStatus =

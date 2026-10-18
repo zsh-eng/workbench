@@ -13,22 +13,29 @@ import {
 } from "../data/reader-cache/queries";
 import {
   CHECKPOINT_FLUSH_INTERVAL_MS,
-  createReaderCheckpointSnapshot,
+  createReaderCheckpointSnapshotFromLocation,
   getReaderCheckpointSnapshotKey,
   type ReaderCheckpointSnapshot,
   shouldFlushCheckpointImmediately,
   shouldTrackCheckpointIntent,
 } from "./reader-checkpoint-controller";
+import {
+  readerLocationFromSpread,
+  type ReaderLocation,
+} from "../reader-location";
 
 interface UseReaderCheckpointControllerOptions {
   bookId?: string;
   spread: ResolvedSpread | null;
+  /** Scroll mode's location; it replaces the spread while set. */
+  location?: ReaderLocation | null;
   /** Page numbers are final, so the snapshot can include whole-book progress. */
   isFullyPaginated: boolean;
 }
 
 /**
- * Keeps the Reader checkpoint in sync with the currently resolved spread.
+ * Keeps the Reader checkpoint in sync with the current spread, or with the
+ * scroll location while scroll mode is on.
  *
  * Responsibilities:
  * - derive a persistable `(chapterIndex, scrollProgress)` snapshot from the
@@ -44,6 +51,7 @@ interface UseReaderCheckpointControllerOptions {
 export function useReaderCheckpointController({
   bookId,
   spread,
+  location: scrollLocation = null,
   isFullyPaginated,
 }: UseReaderCheckpointControllerOptions): void {
   const queryClient = useQueryClient();
@@ -126,22 +134,23 @@ export function useReaderCheckpointController({
   }, [bookId]);
 
   useEffect(() => {
-    if (!bookId || !spread || !shouldTrackCheckpointIntent(spread.intent)) {
+    const location = scrollLocation ?? readerLocationFromSpread(spread);
+    if (!bookId || !location || !shouldTrackCheckpointIntent(location.intent)) {
       return;
     }
 
-    const checkpoint = createReaderCheckpointSnapshot(
+    const checkpoint = createReaderCheckpointSnapshotFromLocation(
       bookId,
-      spread,
+      location,
       isFullyPaginated,
     );
     if (!checkpoint) return;
     latestSnapshotRef.current = checkpoint;
 
-    if (shouldFlushCheckpointImmediately(spread.intent)) {
+    if (shouldFlushCheckpointImmediately(location.intent)) {
       flushLatest();
     }
-  }, [bookId, spread, isFullyPaginated, flushLatest]);
+  }, [bookId, spread, scrollLocation, isFullyPaginated, flushLatest]);
 
   useEffect(() => {
     if (!bookId) return;

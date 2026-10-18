@@ -7,7 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CHECKPOINT_FLUSH_INTERVAL_MS,
   createReaderCheckpointSnapshot,
+  createReaderCheckpointSnapshotFromLocation,
 } from "@/features/reader/hooks/reader-checkpoint-controller";
+import { readerLocationFromSpread } from "@/features/reader/reader-location";
 import { useReaderCheckpointController } from "@/features/reader/hooks/use-reader-checkpoint-controller";
 import { upsertCurrentDeviceReadingCheckpoint } from "@/lib/db";
 import type { ResolvedSpread, SpreadIntent } from "@/lib/pagination-v2";
@@ -120,6 +122,37 @@ describe("reader checkpoint snapshot derivation", () => {
     expect(
       createReaderCheckpointSnapshot("book-1", spread, false),
     ).not.toHaveProperty("bookProgress");
+  });
+
+  it("saves a scroll-mode location like the page that holds it", () => {
+    const spread = makeSpread({
+      intent: { kind: "linear", direction: "forward" },
+      chapterIndex: 4,
+      currentPageInChapter: 3,
+      totalPagesInChapter: 5,
+    });
+    const anchor = {
+      type: "block" as const,
+      chapterIndex: 4,
+      blockId: "p-12",
+    };
+
+    expect(
+      createReaderCheckpointSnapshotFromLocation(
+        "book-1",
+        {
+          chapterIndex: 4,
+          pageIndexInChapter: 2,
+          totalPagesInChapter: 5,
+          currentPage: 3,
+          totalPages: 100,
+          anchor,
+          intent: { kind: "linear", direction: "forward" },
+        },
+        true,
+      ),
+    ).toEqual(createReaderCheckpointSnapshot("book-1", spread, true));
+    expect(readerLocationFromSpread(spread, anchor)?.anchor).toBe(anchor);
   });
 
   it("returns null without a book id or visible page", () => {

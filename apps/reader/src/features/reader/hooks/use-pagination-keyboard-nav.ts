@@ -3,15 +3,18 @@ import { useHotkey } from "@tanstack/react-hotkeys";
 interface UsePaginationKeyboardNavOptions {
   onNextSpread: () => void;
   onPrevSpread: () => void;
+  /** Off while scroll mode owns the keyboard. */
+  enabled?: boolean;
 }
 
 export function usePaginationKeyboardNav(
   options: UsePaginationKeyboardNavOptions,
 ) {
-  const { onNextSpread, onPrevSpread } = options;
+  const { onNextSpread, onPrevSpread, enabled = true } = options;
 
   useHotkey("ArrowLeft", onPrevSpread, {
     target: window,
+    enabled,
     ignoreInputs: true,
     stopPropagation: false,
     meta: {
@@ -22,6 +25,7 @@ export function usePaginationKeyboardNav(
 
   useHotkey("ArrowRight", onNextSpread, {
     target: window,
+    enabled,
     ignoreInputs: true,
     stopPropagation: false,
     meta: {

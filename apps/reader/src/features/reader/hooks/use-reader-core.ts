@@ -7,12 +7,21 @@ import {
   usePagination,
   type Block,
   type ChapterCanonicalText,
+  type ContentAnchor,
   type PaginationConfig,
   type SpreadConfig,
+  type SpreadIntent,
 } from "@/lib/pagination-v2";
 import type { Highlight } from "@/types/highlight";
 import type { FontFamily, ReaderSettings } from "@/types/reader.types";
-import { useCallback, useEffect, useMemo } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from "react";
+import type { ReaderLocation } from "../reader-location";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { ReaderHighlightTarget } from "./use-reader-chapter-content";
 import type { ChapterEntry } from "../types";
@@ -30,6 +39,11 @@ interface UseReaderCoreOptions {
   spreadColumns: 1 | 2 | 3;
   paragraphSpacingFactor?: number;
   layoutReady?: boolean;
+  /**
+   * Scroll mode's location (prototype). While set, it replaces the spread as
+   * the source of progress, sessions, history and page numbers.
+   */
+  scrollLocation?: ReaderLocation | null;
 }
 
 interface UseReaderCoreResult {
@@ -126,6 +140,7 @@ export function useReaderCore(
     spreadColumns,
     paragraphSpacingFactor = DEFAULT_PARAGRAPH_SPACING,
     layoutReady = true,
+    scrollLocation = null,
   } = options;
   const { settings, updateSettings } = useReaderSettings();
   const { book, isLoading: isBookLoading } = useBookLoader(bookId);
@@ -179,9 +194,30 @@ export function useReaderCore(
     book?.id ?? "",
     book?.sourceFileId ?? "",
   );
+  // While scrolling, the scroll position owns history. The engine still
+  // reports its own place after background layout; only its navigations
+  // (contents, links, notes, history) count then.
+  const scrollingRef = useRef(false);
+  useLayoutEffect(() => {
+    scrollingRef.current = scrollLocation !== null;
+  }, [scrollLocation]);
+  const recordEngineLocation = jumpHistory.record;
+  const onLocationResolved = useCallback(
+    (anchor: ContentAnchor, intent: SpreadIntent) => {
+      if (
+        scrollingRef.current &&
+        intent.kind !== "jump" &&
+        intent.kind !== "history"
+      ) {
+        return;
+      }
+      recordEngineLocation(anchor, intent);
+    },
+    [recordEngineLocation],
+  );
   const pagination = usePagination({
     sessionKey: book ? `${book.id}:${book.sourceFileId}` : bookId,
-    onLocationResolved: jumpHistory.record,
+    onLocationResolved,
     paginationConfig,
     spreadConfig,
   });
@@ -205,17 +241,31 @@ export function useReaderCore(
   useReaderCheckpointController({
     bookId,
     spread: pagination.spread,
+    location: scrollLocation,
     isFullyPaginated: pagination.status === "ready",
   });
 
   useReaderReadingSession({
     bookId,
     spread: pagination.spread,
+    location: scrollLocation,
   });
+
+  // Scrolling records the line at the top of the view, so history and the
+  // resume point follow the scroll position without moving the paged engine.
+  // Jumps reach history from the engine, as on the pages.
+  const recordHistory = jumpHistory.record;
+  useEffect(() => {
+    if (!scrollLocation?.anchor || scrollLocation.intent.kind !== "linear") {
+      return;
+    }
+    recordHistory(scrollLocation.anchor, scrollLocation.intent);
+  }, [recordHistory, scrollLocation]);
 
   usePaginationKeyboardNav({
     onPrevSpread: pagination.prevSpread,
     onNextSpread: pagination.nextSpread,
+    enabled: !scrollLocation,
   });
 
   const {
@@ -254,12 +304,16 @@ export function useReaderCore(
     [updateSettings],
   );
 
-  const currentPage = pagination.spread?.currentPage ?? 1;
-  const totalPages = pagination.spread?.totalPages ?? 0;
-  const currentChapterIndex = pagination.spread?.chapterIndexStart ?? 0;
+  const currentPage =
+    scrollLocation?.currentPage ?? pagination.spread?.currentPage ?? 1;
+  const totalPages =
+    scrollLocation?.totalPages ?? pagination.spread?.totalPages ?? 0;
+  const currentChapterIndex =
+    scrollLocation?.chapterIndex ?? pagination.spread?.chapterIndexStart ?? 0;
   // When a spread crosses a chapter boundary, prefer the later visible chapter
   // for UI identity while leaving pagination anchors and page numbers unchanged.
   const displayChapterIndex =
+    scrollLocation?.chapterIndex ??
     pagination.spread?.chapterIndexEnd ??
     pagination.spread?.chapterIndexStart ??
     initialLocation?.chapterIndex ??

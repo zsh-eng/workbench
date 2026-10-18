@@ -351,6 +351,7 @@ export function usePagination(
           previous: event.previousSpread,
           current: event.spread,
           next: event.nextSpread,
+          anchor: event.anchor,
         });
         setStatus("partial");
         endReaderTraceSpan(firstSpreadSpanRef.current, {
@@ -394,6 +395,7 @@ export function usePagination(
           previous: event.previousSpread,
           current: event.spread,
           next: event.nextSpread,
+          anchor: event.anchor,
         });
         setStatus(isComplete ? "ready" : "partial");
         endReaderTraceSpan(firstSpreadSpanRef.current, {
@@ -427,6 +429,7 @@ export function usePagination(
           previous: event.previousSpread,
           current: event.spread,
           next: event.nextSpread,
+          anchor: event.anchor,
         });
         break;
 

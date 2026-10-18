@@ -165,6 +165,11 @@ export interface ResolvedSpreadWindow {
   previous: ResolvedSpread | null;
   current: ResolvedSpread;
   next: ResolvedSpread | null;
+  /**
+   * The engine's reading anchor for `current`: a jump's exact target, or the
+   * anchor that a page turn chose. Scroll mode places its column by it.
+   */
+  anchor?: ContentAnchor;
 }
 
 export type PaginationStatus = "idle" | "partial" | "recalculating" | "ready";
