@@ -38,14 +38,53 @@ function isClusteredLinkFragment(fragment: PageFragment): boolean {
   return Boolean(fragment.link) && fragment.inlineRole !== "note-ref";
 }
 
+/** Highlight ids whose start or end cap a fragment leaves off. */
+interface FlushHighlightEdges {
+  start: Set<string>;
+  end: Set<string>;
+}
+
+const NO_FLUSH_EDGES: FlushHighlightEdges = {
+  start: new Set(),
+  end: new Set(),
+};
+
+/**
+ * Finds highlights that end where another begins with no space between, as
+ * when two highlights split a word. Neither side gets a rounded cap there, so
+ * the colours meet flush.
+ */
+function getFlushHighlightEdges(
+  fragments: PageFragment[],
+): FlushHighlightEdges[] {
+  const edges = fragments.map(() => NO_FLUSH_EDGES);
+  for (let index = 0; index < fragments.length - 1; index++) {
+    const next = fragments[index + 1]!;
+    if (next.leadingGap > 0) continue;
+    const ending = fragments[index]!.highlightMarks?.filter((m) => m.isEnd);
+    const starting = next.highlightMarks?.filter((m) => m.isStart);
+    if (!ending?.length || !starting?.length) continue;
+    edges[index] = {
+      start: edges[index]!.start,
+      end: new Set(ending.map((mark) => mark.id)),
+    };
+    edges[index + 1] = {
+      start: new Set(starting.map((mark) => mark.id)),
+      end: NO_FLUSH_EDGES.end,
+    };
+  }
+  return edges;
+}
+
 function renderFragmentSequence(
   fragments: PageFragment[],
   keyPrefix: string,
   getStyle: (fragment: PageFragment, fragmentIndex: number) => CSSProperties,
 ): ReactNode[] {
   const nodes: ReactNode[] = [];
+  const flushEdges = getFlushHighlightEdges(fragments);
 
-  for (let index = 0; index < fragments.length; ) {
+  for (let index = 0; index < fragments.length;) {
     const fragment = fragments[index];
     if (!fragment) break;
 
@@ -63,6 +102,7 @@ function renderFragmentSequence(
           fragment,
           `${keyPrefix}-frag-${index}`,
           getStyle(fragment, index),
+          flushEdges[index],
         ),
       );
       index += 1;
@@ -101,6 +141,7 @@ function renderFragmentSequence(
           fragment,
           `${keyPrefix}-frag-${index}`,
           getStyle(fragment, index),
+          flushEdges[index],
         ),
       );
       index = groupEnd;
@@ -123,6 +164,7 @@ function renderFragmentSequence(
             groupFragment,
             `${keyPrefix}-frag-${index + groupOffset}`,
             getStyle(groupFragment, index + groupOffset),
+            flushEdges[index + groupOffset],
           ),
         ])}
       </span>,
@@ -136,6 +178,7 @@ function renderFragmentSequence(
 function wrapInHighlightMarks(
   text: string,
   marks: PageFragment["highlightMarks"],
+  flushEdges: FlushHighlightEdges = NO_FLUSH_EDGES,
 ): ReactNode {
   if (!marks || marks.length === 0) return text;
 
@@ -149,10 +192,12 @@ function wrapInHighlightMarks(
           className="epub-highlight"
           data-highlight-id={mark.id}
           data-color={mark.color}
-          {...(mark.isStart
+          {...(mark.isStart && !flushEdges.start.has(mark.id)
             ? { [EPUB_HIGHLIGHT_START_ATTRIBUTE]: "true" }
             : {})}
-          {...(mark.isEnd ? { [EPUB_HIGHLIGHT_END_ATTRIBUTE]: "true" } : {})}
+          {...(mark.isEnd && !flushEdges.end.has(mark.id)
+            ? { [EPUB_HIGHLIGHT_END_ATTRIBUTE]: "true" }
+            : {})}
         >
           {content}
         </mark>
@@ -270,6 +315,7 @@ function renderInlineFragment(
   fragment: PageFragment,
   key: string,
   style: CSSProperties,
+  flushEdges?: FlushHighlightEdges,
 ) {
   const className = cn({
     "reader-inline-link":
@@ -278,7 +324,11 @@ function renderInlineFragment(
     "reader-inline-superscript": fragment.inlineRole === "superscript",
     "reader-note-ref": fragment.inlineRole === "note-ref",
   });
-  const content = wrapInHighlightMarks(fragment.text, fragment.highlightMarks);
+  const content = wrapInHighlightMarks(
+    fragment.text,
+    fragment.highlightMarks,
+    flushEdges,
+  );
   const anchorData = getFragmentAnchorData(fragment);
   const raisePx = getInlineRaisePx(fragment.inlineRole, fragment.font);
   const noteRefMetrics =
@@ -402,7 +452,8 @@ export function PageSliceView({
       data-reader-line-height={slice.lineHeight}
       data-reader-expected-height={slice.lines.length * slice.lineHeight}
       className={cn("m-0 box-border text-foreground", {
-        "reader-blockquote": slice.tag === "blockquote" && !slice.publisherStyle,
+        "reader-blockquote":
+          slice.tag === "blockquote" && !slice.publisherStyle,
         "reader-figcaption": slice.tag === "figcaption",
       })}
       {...{ [CONTENT_ANCHOR_BLOCK_ID_ATTR]: slice.blockId }}
@@ -421,7 +472,9 @@ export function PageSliceView({
         height: `${slice.lines.length * slice.lineHeight}px`,
         textAlign,
         marginLeft:
-          slice.marginLeftPx !== undefined ? `${slice.marginLeftPx}px` : undefined,
+          slice.marginLeftPx !== undefined
+            ? `${slice.marginLeftPx}px`
+            : undefined,
         marginRight:
           slice.marginRightPx !== undefined
             ? `${slice.marginRightPx}px`

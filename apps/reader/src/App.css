@@ -295,16 +295,21 @@
     outline 0.15s ease;
 }
 
+/* The caps reach past the first and last glyph without moving any text:
+   lines are laid out from measured glyph widths, so padding that took space
+   would push the rest of the line along. */
 .epub-highlight[data-highlight-start="true"] {
   border-top-left-radius: 0.18em;
   border-bottom-left-radius: 0.18em;
   padding-left: 0.08em;
+  margin-left: -0.08em;
 }
 
 .epub-highlight[data-highlight-end="true"] {
   border-top-right-radius: 0.18em;
   border-bottom-right-radius: 0.18em;
   padding-right: 0.08em;
+  margin-right: -0.08em;
 }
 
 @media (hover: hover) {
