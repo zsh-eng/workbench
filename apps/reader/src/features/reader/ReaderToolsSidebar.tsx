@@ -38,6 +38,8 @@ interface ReaderToolsSidebarProps {
   currentChapterHref: string;
   onNavigateToHref: (href: string) => boolean;
   notesPanel?: ReactNode;
+  /** Pages or Scroll (Debug mode), first in the settings panel. */
+  layoutControl?: ReactNode;
   onCopyDebugDump?: () => void;
   /** The header control that opens the sidebar. Escape returns focus to it. */
   triggerRef: RefObject<HTMLButtonElement | null>;
@@ -82,6 +84,7 @@ export function ReaderToolsSidebar({
   onNavigateToHref,
   onCopyDebugDump,
   notesPanel,
+  layoutControl,
   triggerRef,
 }: ReaderToolsSidebarProps) {
   // Closing changes visibility, not the content shown during the exit.
@@ -295,6 +298,7 @@ export function ReaderToolsSidebar({
               <ReaderSettingsList
                 settings={settings}
                 onUpdateSettings={onUpdateSettings}
+                layoutControl={layoutControl}
                 className="pb-[env(safe-area-inset-bottom)]"
               />
             )}

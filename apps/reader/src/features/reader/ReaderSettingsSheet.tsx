@@ -11,7 +11,7 @@ import {
 import type { ReaderSettings } from "@/types/reader.types";
 import { cn } from "@/lib/utils";
 import { AlignLeft, ChevronLeft, Palette, Type } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { ReaderSheet } from "./shared/ReaderSheet";
 
 export type ReaderSettingsPanelTab = "type" | "layout" | "theme";
@@ -21,12 +21,16 @@ interface ReaderSettingsPanelProps {
   onUpdateSettings: (settings: Partial<ReaderSettings>) => void;
   activeTab: ReaderSettingsPanelTab;
   onActiveTabChange: (tab: ReaderSettingsPanelTab) => void;
+  /** Pages or Scroll (Debug mode); shown above every tab. */
+  layoutControl?: ReactNode;
   className?: string;
 }
 
 interface ReaderSettingsListProps {
   settings: ReaderSettings;
   onUpdateSettings: (settings: Partial<ReaderSettings>) => void;
+  /** Pages or Scroll (Debug mode); shown first. */
+  layoutControl?: ReactNode;
   className?: string;
 }
 
@@ -89,6 +93,7 @@ export function ReaderSettingsPanel({
   onUpdateSettings,
   activeTab,
   onActiveTabChange,
+  layoutControl,
   className,
 }: ReaderSettingsPanelProps) {
   return (
@@ -102,6 +107,7 @@ export function ReaderSettingsPanel({
         className,
       )}
     >
+      {layoutControl && <div className="mx-4 mb-4">{layoutControl}</div>}
       <SegmentedTabsList className="mx-4 mb-3 grid h-auto grid-cols-3 rounded-full bg-secondary/50 p-1 self-center">
         <SegmentedTabsTrigger
           value="type"
@@ -162,6 +168,7 @@ export function ReaderSettingsPanel({
 export function ReaderSettingsList({
   settings,
   onUpdateSettings,
+  layoutControl,
   className,
 }: ReaderSettingsListProps) {
   return (
@@ -177,6 +184,7 @@ export function ReaderSettingsList({
         contentClassName="min-w-0 max-w-full overflow-x-hidden"
       >
         <div className="space-y-7 px-4 py-3">
+          {layoutControl}
           <TypographyPanel
             settings={settings}
             onUpdateSettings={onUpdateSettings}
