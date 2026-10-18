@@ -17,6 +17,7 @@ interface ReaderControlMenuProps {
   onOpenBookActions: () => void;
   onOpenSettings: () => void;
   onOpenNotes?: () => void;
+  onOpenSearch?: () => void;
   onCopyDebugDump?: () => void;
 }
 
@@ -37,7 +38,7 @@ const MENU_ITEMS: MenuItem[] = [
     icon: BookMarked,
     isAvailable: true,
   },
-  { id: "search", label: "Search book", icon: Search, isAvailable: false },
+  { id: "search", label: "Search book", icon: Search, isAvailable: true },
   {
     id: "debug-dump",
     label: "Copy Debug Dump",
@@ -90,6 +91,7 @@ export function ReaderControlMenu({
   onOpenBookActions,
   onOpenSettings,
   onOpenNotes,
+  onOpenSearch,
   onCopyDebugDump,
 }: ReaderControlMenuProps) {
   const handleRowClick = (id: MenuItemId) => {
@@ -100,6 +102,11 @@ export function ReaderControlMenu({
 
     if (id === "book-actions") {
       onOpenBookActions();
+      return;
+    }
+
+    if (id === "search") {
+      onOpenSearch?.();
       return;
     }
 
@@ -120,7 +127,9 @@ export function ReaderControlMenu({
           (item) => item.id !== "debug-dump" || onCopyDebugDump,
         ).map((item, index) => {
           const isDisabled =
-            !item.isAvailable || (item.id === "debug-dump" && !onCopyDebugDump);
+            !item.isAvailable ||
+            (item.id === "debug-dump" && !onCopyDebugDump) ||
+            (item.id === "search" && !onOpenSearch);
 
           return (
             <ReaderControlMenuItem

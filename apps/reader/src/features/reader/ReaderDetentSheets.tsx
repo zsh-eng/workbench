@@ -35,7 +35,7 @@ export const READER_SHEET_PAGES: Record<ReaderSheetId, ReaderSheetPage> = {
     stacks: false,
     dim: false,
   },
-  search: { title: "Search", stacks: true, dim: true },
+  search: { title: "Search book", height: "tall", stacks: true, dim: true },
   "book-actions": { title: "Reading status", stacks: true, dim: true },
   notes: {
     title: "Notebook",

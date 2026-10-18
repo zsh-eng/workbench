@@ -38,6 +38,7 @@ interface ReaderToolsSidebarProps {
   currentChapterHref: string;
   onNavigateToHref: (href: string) => boolean;
   notesPanel?: ReactNode;
+  searchPanel?: ReactNode;
   onCopyDebugDump?: () => void;
   /** The header control that opens the sidebar. Escape returns focus to it. */
   triggerRef: RefObject<HTMLButtonElement | null>;
@@ -82,6 +83,7 @@ export function ReaderToolsSidebar({
   onNavigateToHref,
   onCopyDebugDump,
   notesPanel,
+  searchPanel,
   triggerRef,
 }: ReaderToolsSidebarProps) {
   // Closing changes visibility, not the content shown during the exit.
@@ -277,17 +279,8 @@ export function ReaderToolsSidebar({
             )}
 
             {activePanel === "search" && (
-              <div className="flex h-full flex-col items-center justify-center px-8 pb-[env(safe-area-inset-bottom)] text-center">
-                <div className="flex size-12 items-center justify-center rounded-full bg-secondary/45 text-muted-foreground">
-                  <Search className="size-5" />
-                </div>
-                <p className="mt-4 text-sm font-medium text-foreground">
-                  Search is coming soon
-                </p>
-                <p className="mt-1 max-w-56 text-sm leading-relaxed text-muted-foreground">
-                  Full-book search needs a text index before it can return
-                  accurate results.
-                </p>
+              <div className="flex h-full min-h-0 flex-col pt-1">
+                {searchPanel}
               </div>
             )}
 

@@ -29,6 +29,8 @@ interface ReaderSheetHostProps {
   currentChapterHref: string;
   onNavigateToHref: (href: string) => boolean;
   notesPanel?: ReactNode;
+  /** Book search, for the sidebar or a phone sheet page. */
+  searchPanel?: ReactNode;
   onCopyDebugDump?: () => void;
   /** The desktop header control that opens the tools sidebar. */
   toolsTriggerRef: RefObject<HTMLButtonElement | null>;
@@ -56,6 +58,7 @@ export function ReaderSheetHost({
   onNavigateToHref,
   onCopyDebugDump,
   notesPanel,
+  searchPanel,
   toolsTriggerRef,
 }: ReaderSheetHostProps) {
   const [settingsTab, setSettingsTab] =
@@ -75,6 +78,7 @@ export function ReaderSheetHost({
         currentChapterHref={currentChapterHref}
         onNavigateToHref={onNavigateToHref}
         notesPanel={notesPanel}
+        searchPanel={searchPanel}
         onCopyDebugDump={onCopyDebugDump}
         triggerRef={toolsTriggerRef}
       />
@@ -89,6 +93,7 @@ export function ReaderSheetHost({
           onOpenBookActions={() => onOpenSheet("book-actions")}
           onOpenSettings={() => onOpenSheet("settings")}
           onOpenNotes={() => onOpenSheet("notes")}
+          onOpenSearch={searchPanel ? () => onOpenSheet("search") : undefined}
           onCopyDebugDump={onCopyDebugDump}
         />
       )}
@@ -129,6 +134,7 @@ export function ReaderSheetHost({
           />
         ))}
       {page === "notes" && notesPanel}
+      {page === "search" && searchPanel}
     </>
   );
 
@@ -150,6 +156,7 @@ export function ReaderSheetHost({
     settings: "Reading settings",
     "book-actions": "Reading status",
     notes: "Notebook",
+    search: "Search book",
   };
   return (
     <SlidingSheet

@@ -353,6 +353,21 @@ mark {
   color: inherit;
 }
 
+/* Search matches on the page, painted by the CSS Custom Highlight API so
+   the text is never re-rendered. They use the text colour, not a hue, so a
+   match reads apart from the reader's own highlights. */
+::highlight(reader-search) {
+  background-color: color-mix(in srgb, var(--foreground) 13%, transparent);
+}
+
+::highlight(reader-search-active) {
+  background-color: color-mix(in srgb, var(--foreground) 24%, transparent);
+  text-decoration: underline;
+  text-decoration-color: var(--foreground);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
 .reader-inline-link:focus-visible,
 .reader-inline-link-cluster:focus-within .reader-inline-link {
   color: var(--foreground);

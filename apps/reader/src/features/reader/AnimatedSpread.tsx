@@ -85,6 +85,7 @@ export function SpreadView({
               key={`page-${slot.slotIndex}-${getPageContentKey(slot.page)}`}
               data-reader-page-slot={slot.slotIndex}
               data-reader-current-page={slot.page.currentPage}
+              data-reader-chapter-index={slot.page.chapterIndex}
               className={
                 showDebugOutlines
                   ? "relative h-full w-full overflow-x-visible overflow-y-clip reader-container-outline"

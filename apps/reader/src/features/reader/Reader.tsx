@@ -15,6 +15,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { isInteractiveTapTarget } from "./hooks/use-touch-spread-tap-nav";
 import { highlightNoteTarget } from "./note-locations";
 import type { NoteTarget } from "@/types/note";
+import type { TOCItem } from "@/lib/db";
 import { ReaderNotesPrototype } from "./ReaderNotesPrototype";
 import { ReaderController } from "./ReaderController";
 import { ReaderHeader } from "./ReaderHeader";
@@ -43,6 +44,11 @@ import {
   serializeReaderPageDebugDump,
 } from "./debug/page-debug-dump";
 import { DeferredEpubImageProvider } from "./shared/DeferredEpubImageProvider";
+import { ReaderSearchPanel } from "./search/ReaderSearchPanel";
+import { ReaderSearchStepper } from "./search/ReaderSearchStepper";
+import { useReaderSearch } from "./search/use-reader-search";
+import { useSearchMarks } from "./search/use-search-marks";
+import { useHotkey } from "@tanstack/react-hotkeys";
 
 function DisplayReadyCommitProbe({
   paginationStatus,
@@ -73,6 +79,8 @@ function DisplayReadyCommitProbe({
 
   return null;
 }
+
+const EMPTY_TOC: TOCItem[] = [];
 
 export function Reader() {
   const debugEnabled = useDebugEnabled();
@@ -176,6 +184,39 @@ export function Reader() {
     onCreateHighlight: sessionActions.createHighlight,
   });
 
+  // Search starts its worker the first time it opens.
+  const searchOpen = chromeState.activeReaderSheet === "search";
+  const [searchStarted, setSearchStarted] = useState(false);
+  if (searchOpen && !searchStarted) setSearchStarted(true);
+  const search = useReaderSearch({
+    bookId: bookId ?? "",
+    enabled: searchStarted,
+    chapters: sessionState.chapters.entries,
+    toc: sessionState.book?.toc ?? EMPTY_TOC,
+    chapterAccess: sessionResources.chapterAccess,
+    highlights: sessionState.highlights,
+    locations: sessionState.pagination.searchLocations,
+    locateTextOffsets: sessionResources.locateTextOffsets,
+    layoutKey: `${sessionState.pagination.status}:${sessionState.navigation.totalPages}`,
+    currentPage: sessionState.navigation.currentPage,
+    currentChapterIndex: sessionState.navigation.currentChapterIndex,
+    goToTextOffset: sessionActions.goToTextOffset,
+  });
+  const searchActiveIndex = search.state.activeIndex;
+  useSearchMarks({
+    enabled: searchOpen || searchActiveIndex !== null,
+    containerRef: stageContentRef,
+    spread: sessionState.pagination.spread,
+    spreadWindow: sessionState.pagination.spreadWindow,
+    results: search.state.results,
+    activeId:
+      searchActiveIndex === null
+        ? null
+        : (search.state.results[searchActiveIndex]?.id ?? null),
+    getCanonicalText: sessionResources.chapterAccess.getCanonicalText,
+  });
+  const [searchFocusRequest, setSearchFocusRequest] = useState(0);
+
   const { displayReady, settledPaintReady } = useReaderDisplayReadiness({
     bookId,
     contentReady: isReaderStageMeasured && sessionState.status === "ready",
@@ -206,6 +247,59 @@ export function Reader() {
     if (!settledPaintReady) return;
     resumeBackgroundLoad();
   }, [resumeBackgroundLoad, settledPaintReady]);
+  // Find next and previous, as in a browser.
+  const stepEnabled = displayReady && search.state.results.length > 0;
+  useHotkey(
+    "Mod+G",
+    (event) => {
+      event.preventDefault();
+      search.next();
+    },
+    {
+      target: window,
+      enabled: stepEnabled,
+      ignoreInputs: false,
+      stopPropagation: false,
+      meta: { name: "Next search result", description: "Go to the next match" },
+    },
+  );
+  useHotkey(
+    "Mod+Shift+G",
+    (event) => {
+      event.preventDefault();
+      search.previous();
+    },
+    {
+      target: window,
+      enabled: stepEnabled,
+      ignoreInputs: false,
+      stopPropagation: false,
+      meta: {
+        name: "Previous search result",
+        description: "Go to the previous match",
+      },
+    },
+  );
+
+  useHotkey(
+    "Mod+F",
+    (event) => {
+      event.preventDefault();
+      if (!displayReady) return;
+      chromeActions.openReaderSheet("search");
+      setSearchFocusRequest((request) => request + 1);
+    },
+    {
+      target: window,
+      ignoreInputs: false,
+      requireReset: true,
+      stopPropagation: false,
+      meta: {
+        name: "Search book",
+        description: "Find words in this book",
+      },
+    },
+  );
   const statusPrompt = useReaderStatusPrompt({
     bookId,
     isReady: displayReady,
@@ -469,7 +563,20 @@ export function Reader() {
                   !isReaderInteractionSuppressed &&
                   !mobileAnnotationVisible &&
                   !(isMobile && annotationState.kind === "active") &&
-                  (handoffPrompt ? (
+                  (searchActiveIndex !== null ? (
+                    <ReaderSearchStepper
+                      floating={isMobile}
+                      index={searchActiveIndex}
+                      total={search.state.results.length}
+                      truncated={search.state.truncated}
+                      onPrevious={search.previous}
+                      onNext={search.next}
+                      onShowResults={() =>
+                        chromeActions.openReaderSheet("search")
+                      }
+                      onClose={search.exit}
+                    />
+                  ) : handoffPrompt ? (
                     <ReaderChromeAccessory
                       kind="handoff"
                       floating={isMobile}
@@ -745,6 +852,18 @@ export function Reader() {
                         currentChapterHref={currentChapterEntry?.href ?? ""}
                         onNavigateToHref={sessionActions.openTocHref}
                         notesPanel={notesPanel}
+                        searchPanel={
+                          <ReaderSearchPanel
+                            search={search}
+                            isOpen={searchOpen}
+                            autoFocus={isMobile ? "when-empty" : "always"}
+                            focusRequest={searchFocusRequest}
+                            // The tools cover part of the spread, and
+                            // the match may sit under them.
+                            onResultOpened={chromeActions.closeReaderSheet}
+                            className={isMobile ? undefined : "h-full"}
+                          />
+                        }
                         onCopyDebugDump={
                           debugEnabled
                             ? () => void handleCopyDebugDump()

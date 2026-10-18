@@ -20,7 +20,12 @@ function SheetPage({
   const reduceMotion = useReducedMotion();
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
-    if (present) ref.current?.focus({ preventScroll: true });
+    if (!present) return;
+    // A page can name the control that should take focus, such as a field.
+    const target =
+      ref.current?.querySelector<HTMLElement>("[data-sheet-autofocus]") ??
+      ref.current;
+    target?.focus({ preventScroll: true });
   }, [present]);
   return (
     <motion.div
