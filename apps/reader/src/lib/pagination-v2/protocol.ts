@@ -87,6 +87,19 @@ export interface GoToTargetCommand {
   intent: SpreadIntent;
 }
 
+/**
+ * Opens the page that holds a canonical text offset, the coordinates search
+ * and highlights use. The engine resolves the offset against the chapter's
+ * current runs, so it lands right after any relayout.
+ */
+export interface GoToTextOffsetCommand {
+  type: "goToTextOffset";
+  chapterIndex: number;
+  blockStarts: [string, number][];
+  offset: number;
+  intent: SpreadIntent;
+}
+
 export interface LocateAnchorsCommand {
   type: "locateAnchors";
   scope: string;
@@ -94,8 +107,31 @@ export interface LocateAnchorsCommand {
   requestId: number;
 }
 
+/**
+ * Places canonical text offsets, the coordinates highlights and search use,
+ * on pages. Each chapter sends its block starts, since the engine has the
+ * blocks but not the canonical text.
+ */
+export interface LocateTextOffsetsCommand {
+  type: "locateTextOffsets";
+  scope: string;
+  requestId: number;
+  chapters: {
+    chapterIndex: number;
+    blockStarts: [string, number][];
+    offsets: { id: string; offset: number }[];
+  }[];
+}
+
+/** Where a text offset sits: its anchor and global page, once laid out. */
+export interface TextOffsetLocation {
+  anchor: ContentAnchor;
+  page: number | null;
+}
+
 export type PaginationCommand =
   | LocateAnchorsCommand
+  | LocateTextOffsetsCommand
   | InitCommand
   | AddChapterCommand
   | UpdateChapterCommand
@@ -106,7 +142,8 @@ export type PaginationCommand =
   | GoToPageCommand
   | GoToAnchorCommand
   | GoToChapterCommand
-  | GoToTargetCommand;
+  | GoToTargetCommand
+  | GoToTextOffsetCommand;
 
 interface PaginationEventMetadata {
   intent: SpreadIntent;
@@ -197,6 +234,12 @@ export type PaginationEvent =
       scope: string;
       requestId: number;
       pages: Record<string, number | null>;
+    }
+  | {
+      type: "textOffsetsLocated";
+      scope: string;
+      requestId: number;
+      locations: Record<string, TextOffsetLocation | null>;
     }
   | PartialReadyEvent
   | ReadyEvent

@@ -8,6 +8,7 @@ import type {
   ResolvedSpreadWindow,
   SpreadConfig,
 } from "@/lib/pagination-v2";
+import type { TextOffsetLocation } from "@/lib/pagination-v2/protocol";
 import type { Highlight } from "@/types/highlight";
 import type { ReaderSettings } from "@/types/reader.types";
 import { useMemo } from "react";
@@ -20,6 +21,7 @@ import {
 } from "./use-reader-navigation-actions";
 
 const EMPTY_HISTORY_PAGES: Record<string, number | null> = {};
+const EMPTY_SEARCH_LOCATIONS: Record<string, TextOffsetLocation | null> = {};
 
 export interface UseReaderSessionOptions {
   bookId?: string;
@@ -31,10 +33,7 @@ export interface UseReaderSessionOptions {
 }
 
 export type ReaderSessionStatus =
-  | "loading"
-  | "ready"
-  | "not-found"
-  | "file-error";
+  "loading" | "ready" | "not-found" | "file-error";
 
 export interface ReaderSessionChapterAccess {
   getBlocks: (chapterIndex: number) => Block[] | null;
@@ -66,6 +65,8 @@ export interface ReaderSessionPaginationState {
   historyAnchorPages: Record<string, number | null>;
   /** Pages of the notebook's highlights, located in their own scope. */
   highlightAnchorPages: Record<string, number | null>;
+  /** Where search matches sit, by match id, once located. */
+  searchLocations: Record<string, TextOffsetLocation | null>;
   spread: ResolvedSpread | null;
   spreadWindow: ResolvedSpreadWindow | null;
   status: PaginationStatus;
@@ -91,6 +92,9 @@ export interface ReaderSessionResources {
   locateAnchors: ReturnType<
     typeof useReaderCore
   >["pagination"]["locateAnchors"];
+  locateTextOffsets: ReturnType<
+    typeof useReaderCore
+  >["pagination"]["locateTextOffsets"];
   chapterAccess: ReaderSessionChapterAccess;
 }
 
@@ -113,6 +117,15 @@ export interface ReaderSessionActions {
   openTocHref: ReaderNavigationActions["openTocHref"];
   goToNotePage: ReaderNavigationActions["goToNotePage"];
   goToHighlight: ReaderNavigationActions["goToHighlight"];
+  /**
+   * Opens the page holding a canonical text offset, such as a search result,
+   * as a jump the reader can go back from.
+   */
+  goToTextOffset: (
+    chapterIndex: number,
+    offset: number,
+    source: "search" | "highlight" | "note",
+  ) => void;
   createHighlight: (highlight: Highlight) => void;
   resumeBackgroundLoad: () => void;
 }
@@ -189,6 +202,8 @@ export function useReaderSession(
         highlightAnchorPages:
           core.pagination.anchorPagesByScope["notebook-highlights"] ??
           EMPTY_HISTORY_PAGES,
+        searchLocations:
+          core.pagination.textOffsetsByScope.search ?? EMPTY_SEARCH_LOCATIONS,
         spread: core.pagination.spread,
         spreadWindow: core.pagination.spreadWindow,
         status: core.pagination.status,
@@ -213,6 +228,7 @@ export function useReaderSession(
     core.jumpHistory.state,
     core.jumpHistory.presentation,
     core.pagination.anchorPagesByScope,
+    core.pagination.textOffsetsByScope,
     core.book,
     core.bookHighlights,
     core.chapterEntries,
@@ -238,10 +254,17 @@ export function useReaderSession(
     () => ({
       chapterAccess,
       locateAnchors: core.pagination.locateAnchors,
+      locateTextOffsets: core.pagination.locateTextOffsets,
     }),
-    [chapterAccess, core.pagination.locateAnchors],
+    [
+      chapterAccess,
+      core.pagination.locateAnchors,
+      core.pagination.locateTextOffsets,
+    ],
   );
 
+  const { goToTextOffset } = core.pagination;
+  const { getChapterCanonicalText } = core;
   const actions = useMemo<ReaderSessionActions>(
     () => ({
       selectHistoryVisit: (index) =>
@@ -254,12 +277,22 @@ export function useReaderSession(
       endHistoryGroup: core.jumpHistory.endGroup,
       updateSettings: core.onUpdateSettings,
       ...navigationActions,
+      goToTextOffset: (chapterIndex, offset, source) => {
+        const text = getChapterCanonicalText(chapterIndex);
+        if (!text) return;
+        goToTextOffset(
+          { chapterIndex, offset, blockStarts: [...text.blockStarts] },
+          { intent: { kind: "jump", source } },
+        );
+      },
       createHighlight,
       resumeBackgroundLoad: core.resumeBackgroundLoad,
     }),
     [
       core.jumpHistory,
       core.pagination.goToAnchor,
+      goToTextOffset,
+      getChapterCanonicalText,
       core.onUpdateSettings,
       core.resumeBackgroundLoad,
       createHighlight,

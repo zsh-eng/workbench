@@ -15,8 +15,10 @@ export function getCoalesceKey(command: PaginationCommand): string | null {
     case "goToAnchor":
     case "goToChapter":
     case "goToTarget":
+    case "goToTextOffset":
       return command.type;
     case "locateAnchors":
+    case "locateTextOffsets":
       return `${command.type}:${command.scope}`;
     case "updateChapter":
       return `${command.type}:${command.chapterIndex}`;
@@ -40,6 +42,7 @@ export const NAVIGATION_COMMANDS = new Set<PaginationCommand["type"]>([
   "goToAnchor",
   "goToChapter",
   "goToTarget",
+  "goToTextOffset",
 ]);
 
 export interface QueuedPaginationCommand {

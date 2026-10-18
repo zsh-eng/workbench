@@ -3,6 +3,9 @@
 import type {
   ChapterUnavailableEvent,
   ErrorEvent,
+  GoToTextOffsetCommand,
+  LocateTextOffsetsCommand,
+  TextOffsetLocation,
   PageContentEvent,
   PageUnavailableEvent,
   PaginationCommand,
@@ -35,6 +38,7 @@ import {
   resolveTargetToAnchor,
   resolveHighlightToAnchor,
 } from "./anchors";
+import { createCanonicalOffsetLocator } from "./highlight-selection";
 import {
   buildResolvedSpreadWindow,
   countTotalSpreads,
@@ -42,12 +46,21 @@ import {
   resolveCurrentSpreadIndex,
 } from "./spreads";
 
+/** Text offsets placed between yields, so a page turn can run between. */
+const LOCATE_OFFSETS_PER_STEP = 32;
+
 export type EnginePaginationEvent =
   | {
       type: "anchorsLocated";
       scope: string;
       requestId: number;
       pages: Record<string, number | null>;
+    }
+  | {
+      type: "textOffsetsLocated";
+      scope: string;
+      requestId: number;
+      locations: Record<string, TextOffsetLocation | null>;
     }
   | Omit<PartialReadyEvent, "epoch">
   | Omit<ReadyEvent, "epoch">
@@ -93,8 +106,10 @@ function resolveIntent(command: PaginationCommand): SpreadIntent {
     case "goToAnchor":
     case "goToChapter":
     case "goToTarget":
+    case "goToTextOffset":
       return command.intent;
     case "locateAnchors":
+    case "locateTextOffsets":
     case "addChapter":
     case "updateChapter":
     case "updatePaginationConfig":
@@ -203,6 +218,12 @@ export class PaginationEngine {
             pages,
           });
         });
+      case "locateTextOffsets":
+        return this.runLocateTextOffsetsWork(intent, cmd);
+      case "goToTextOffset":
+        return this.runOneStepWork(intent, () => {
+          this.goToTextOffset(intent, cmd);
+        });
       case "goToTarget":
         return this.runOneStepWork(intent, () => {
           this.goToTarget(
@@ -213,6 +234,53 @@ export class PaginationEngine {
           );
         });
     }
+  }
+
+  /** A few offsets per step, so a page turn never waits on a long chapter. */
+  private *runLocateTextOffsetsWork(
+    intent: SpreadIntent,
+    cmd: LocateTextOffsetsCommand,
+  ): PaginationEngineWork {
+    const locations: Record<string, TextOffsetLocation | null> = {};
+    try {
+      for (const chapter of cmd.chapters) {
+        const chapterBlocks = this.blocksByChapter[chapter.chapterIndex];
+        const preparedChapter = this.preparedByChapter[chapter.chapterIndex];
+        const locate =
+          chapterBlocks && preparedChapter
+            ? createCanonicalOffsetLocator({
+                chapterIndex: chapter.chapterIndex,
+                chapterBlocks,
+                preparedChapter,
+                blockStarts: new Map(chapter.blockStarts),
+              })
+            : null;
+        for (const [index, { id, offset }] of chapter.offsets.entries()) {
+          if (index > 0 && index % LOCATE_OFFSETS_PER_STEP === 0) yield;
+          const anchor = locate?.(offset) ?? null;
+          locations[id] = anchor
+            ? {
+                anchor,
+                page: resolveAnchorToGlobalPage(
+                  this.pagesByChapter,
+                  this.chapterPageOffsets,
+                  anchor,
+                ),
+              }
+            : null;
+        }
+        yield;
+      }
+    } catch (err) {
+      this.emitException(intent, err);
+      return;
+    }
+    this.emit({
+      type: "textOffsetsLocated",
+      scope: cmd.scope,
+      requestId: cmd.requestId,
+      locations,
+    });
   }
 
   private *runOneStepWork(
@@ -621,6 +689,28 @@ export class PaginationEngine {
       return;
     }
     this.preferredAnchorSlotIndex = 0;
+    this.anchor = anchor;
+    this.emitPageContent(intent);
+  }
+
+  goToTextOffset(intent: SpreadIntent, cmd: GoToTextOffsetCommand): void {
+    const chapterBlocks = this.blocksByChapter[cmd.chapterIndex];
+    const preparedChapter = this.preparedByChapter[cmd.chapterIndex];
+    const anchor =
+      chapterBlocks && preparedChapter && this.pagesByChapter[cmd.chapterIndex]
+        ? createCanonicalOffsetLocator({
+            chapterIndex: cmd.chapterIndex,
+            chapterBlocks,
+            preparedChapter,
+            blockStarts: new Map(cmd.blockStarts),
+          })(cmd.offset)
+        : null;
+    if (!anchor) {
+      this.emitPageUnavailable(intent);
+      return;
+    }
+    // The page falls where it would when reading, not at the spread's start.
+    this.preferredAnchorSlotIndex = null;
     this.anchor = anchor;
     this.emitPageContent(intent);
   }

@@ -393,6 +393,46 @@ export function resolveCanonicalRangeText(options: {
 }
 
 /** Resolve persisted chapter text coordinates without depending on page layout. */
+function getTextCursorBoundaries(
+  prepared: PreparedTextBlock,
+): TextCursorOffset[] {
+  const boundaries: TextCursorOffset[] = [];
+  prepared.items.forEach((item, itemIndex) => {
+    item.prepared.segments.forEach((segment, segmentIndex) => {
+      const count = getSegmentGraphemes(segment).length;
+      for (let graphemeIndex = 0; graphemeIndex <= count; graphemeIndex++)
+        boundaries.push({ itemIndex, segmentIndex, graphemeIndex });
+    });
+  });
+  return boundaries;
+}
+
+/** The last cursor at or before `blockOffset` characters into a block. */
+function blockOffsetToTextCursor(
+  block: TextBlock,
+  prepared: PreparedTextBlock,
+  boundaries: TextCursorOffset[],
+  blockOffset: number,
+): TextCursorOffset | null | undefined {
+  let low = 0,
+    high = boundaries.length - 1;
+  let result: TextCursorOffset | undefined;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const position = resolveAnchorToBlockOffset(
+      block,
+      prepared,
+      boundaries[middle]!,
+    );
+    if (position === null) return null;
+    if (position <= blockOffset) {
+      result = boundaries[middle];
+      low = middle + 1;
+    } else high = middle - 1;
+  }
+  return result;
+}
+
 export function canonicalOffsetToContentAnchor(options: {
   chapterIndex: number;
   offset: number;
@@ -413,39 +453,71 @@ export function canonicalOffsetToContentAnchor(options: {
       (chapterCanonicalText.blockStarts.get(block.id) ?? Infinity) <= offset,
   );
   const block = candidates.at(-1);
-  if (!block) return null;
+  if (!block || block.type !== "text") return null;
   const prepared = findPreparedTextBlock(preparedChapter, block.id);
   if (!prepared) return null;
-  const boundaries: TextCursorOffset[] = [];
-  prepared.items.forEach((item, itemIndex) => {
-    item.prepared.segments.forEach((segment, segmentIndex) => {
-      const count = getSegmentGraphemes(segment).length;
-      for (let graphemeIndex = 0; graphemeIndex <= count; graphemeIndex++)
-        boundaries.push({ itemIndex, segmentIndex, graphemeIndex });
-    });
+  const cursor = blockOffsetToTextCursor(
+    block,
+    prepared,
+    getTextCursorBoundaries(prepared),
+    offset - chapterCanonicalText.blockStarts.get(block.id)!,
+  );
+  return cursor
+    ? { type: "text", chapterIndex, blockId: block.id, offset: cursor }
+    : null;
+}
+
+/**
+ * `canonicalOffsetToContentAnchor` for many offsets in one chapter: the
+ * chapter's blocks are indexed once, and each block's cursors once.
+ */
+export function createCanonicalOffsetLocator(options: {
+  chapterIndex: number;
+  chapterBlocks: Block[];
+  preparedChapter: PreparedBlock[];
+  blockStarts: ReadonlyMap<string, number>;
+}): (offset: number) => ContentAnchor | null {
+  const { chapterIndex, chapterBlocks, preparedChapter, blockStarts } = options;
+  // Canonical text runs in document order, so the starts already ascend.
+  const textBlocks = chapterBlocks.flatMap((block) => {
+    const start = blockStarts.get(block.id);
+    return block.type === "text" && start !== undefined
+      ? [{ block, start }]
+      : [];
   });
-  let low = 0,
-    high = boundaries.length - 1;
-  let result: ContentAnchor | null = null;
-  while (low <= high) {
-    const middle = Math.floor((low + high) / 2);
-    const anchor: ContentAnchor = {
-      type: "text",
-      chapterIndex,
-      blockId: block.id,
-      offset: boundaries[middle],
-    };
-    const position = resolveTextAnchorToCanonicalOffset({
-      anchor,
-      chapterBlocks,
-      preparedChapter,
-      chapterCanonicalText,
-    });
-    if (position === null) return null;
-    if (position <= offset) {
-      result = anchor;
-      low = middle + 1;
-    } else high = middle - 1;
-  }
-  return result;
+  const preparedById = new Map(
+    preparedChapter.flatMap((block) =>
+      block.type === "text" ? [[block.id, block] as const] : [],
+    ),
+  );
+  const boundariesById = new Map<string, TextCursorOffset[]>();
+  return (offset) => {
+    let low = 0;
+    let high = textBlocks.length - 1;
+    let found: (typeof textBlocks)[number] | undefined;
+    while (low <= high) {
+      const middle = (low + high) >> 1;
+      if (textBlocks[middle]!.start <= offset) {
+        found = textBlocks[middle];
+        low = middle + 1;
+      } else high = middle - 1;
+    }
+    if (!found) return null;
+    const prepared = preparedById.get(found.block.id);
+    if (!prepared) return null;
+    let boundaries = boundariesById.get(found.block.id);
+    if (!boundaries) {
+      boundaries = getTextCursorBoundaries(prepared);
+      boundariesById.set(found.block.id, boundaries);
+    }
+    const cursor = blockOffsetToTextCursor(
+      found.block,
+      prepared,
+      boundaries,
+      offset - found.start,
+    );
+    return cursor
+      ? { type: "text", chapterIndex, blockId: found.block.id, offset: cursor }
+      : null;
+  };
 }
