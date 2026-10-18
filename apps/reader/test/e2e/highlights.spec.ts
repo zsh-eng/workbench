@@ -274,4 +274,45 @@ test.describe("Touch highlight rendering", () => {
     });
     expect(breaks).toEqual([]);
   });
+
+  test("a swipe that starts on a highlight turns the page", async ({
+    page,
+    localBook,
+  }) => {
+    const { currentPages } = await import("./helpers/fixtures");
+    const marks = await highlightMixedFormatPassage(page, localBook.id);
+    await waitForReaderReady(page);
+    const before = await currentPages(page);
+    // Start on the part of the highlight farthest right, so a full swipe fits.
+    const start = await marks.evaluateAll((elements) => {
+      const rect = elements
+        .flatMap((element) => [...element.getClientRects()])
+        .sort((a, b) => b.left + b.right - (a.left + a.right))[0]!;
+      return {
+        x: (rect.left + rect.right) / 2,
+        y: (rect.top + rect.bottom) / 2,
+      };
+    });
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [start],
+    });
+    for (const distance of [20, 60, 100, 140, 180]) {
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [{ x: Math.max(30, start.x - distance), y: start.y }],
+      });
+    }
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchEnd",
+      touchPoints: [],
+    });
+    await cdp.detach();
+    await expect.poll(() => currentPages(page)).not.toEqual(before);
+    // The swipe is not also a tap that opens the highlight.
+    await expect(
+      page.getByRole("button", { name: "Remove highlight" }),
+    ).toBeHidden();
+  });
 });

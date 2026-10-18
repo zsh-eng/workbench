@@ -10,7 +10,7 @@ import {
 } from "react";
 import {
   getHorizontalTapZone,
-  isInteractiveTapTarget,
+  isControlTarget,
   MAX_TOUCH_TAP_DURATION_MS,
 } from "./use-touch-spread-tap-nav";
 
@@ -325,7 +325,7 @@ export function useSpreadSwipeNavigation(
       if (phaseRef.current !== "idle" && phaseRef.current !== "settling") {
         return;
       }
-      if (isInteractiveTapTarget(event.target)) return;
+      if (isControlTarget(event.target)) return;
       if (hasActiveTextSelection()) return;
       if (isSystemNavigationEdge(event.clientX)) return;
 
