@@ -4,6 +4,7 @@ import { readBrowserToken } from "./auth";
 import { createApi, HttpError } from "./api";
 import { browserFetch } from "./live";
 import { readServerEvents } from "./sse";
+import { reconnectPause } from "./reconnect";
 
 /** Asks the host to open a pull request: find its repository, check it out
  * in a worktree, save its review, and start `agent` there if set. */
@@ -15,12 +16,6 @@ export function startPull(url: string, agent: string | undefined, fetcher = brow
   });
 }
 
-const pause = (ms: number, signal: AbortSignal) =>
-  new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener("abort", () => (clearTimeout(timer), resolve()), { once: true });
-  });
-
 /** A job's state as it changes, or "lost" when the host no longer has it. */
 export function usePullJob(jobId: string | undefined, fetcher = browserFetch) {
   const [state, setState] = useState<{ id: string; value: PullJob | "lost" } | null>(null);
@@ -30,7 +25,7 @@ export function usePullJob(jobId: string | undefined, fetcher = browserFetch) {
     const { signal } = controller;
     const api = createApi(fetcher, readBrowserToken());
     void (async () => {
-      let delay = 1000;
+      let attempt = 0;
       while (!signal.aborted) {
         let finished = false;
         // A finished job sends nothing more, so its stream closes.
@@ -47,7 +42,7 @@ export function usePullJob(jobId: string | undefined, fetcher = browserFetch) {
             return;
           }
           if (!response.ok || !response.body) throw new HttpError("closed", response.status);
-          delay = 1000;
+          attempt = 0;
           await readServerEvents(
             response.body,
             (event) => {
@@ -65,8 +60,7 @@ export function usePullJob(jobId: string | undefined, fetcher = browserFetch) {
           signal.removeEventListener("abort", stop);
         }
         if (finished) return;
-        await pause(delay, signal);
-        delay = Math.min(delay * 2, 30_000);
+        await reconnectPause(attempt++, signal);
       }
     })();
     return () => controller.abort();

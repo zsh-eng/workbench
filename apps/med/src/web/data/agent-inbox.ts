@@ -14,12 +14,7 @@ import { readBrowserToken } from "./auth";
 import { createApi } from "./api";
 import { browserFetch } from "./live";
 import { readServerEvents } from "./sse";
-
-const pause = (ms: number, signal: AbortSignal) =>
-  new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener("abort", () => (clearTimeout(timer), resolve()), { once: true });
-  });
+import { reconnectPause } from "./reconnect";
 
 /** Follows a review's messages to its agents, its drafts, and who waits. */
 async function followInbox(
@@ -29,7 +24,7 @@ async function followInbox(
   fetcher: typeof fetch,
 ) {
   const api = createApi(fetcher, readBrowserToken());
-  let delay = 1000;
+  let attempt = 0;
   while (!signal.aborted) {
     try {
       const response = await api.stream(
@@ -38,7 +33,7 @@ async function followInbox(
       );
       if (response.status === 404) return;
       if (!response.ok || !response.body) throw new Error("The inbox stream closed.");
-      delay = 1000;
+      attempt = 0;
       await readServerEvents(
         response.body,
         (event) => {
@@ -52,8 +47,7 @@ async function followInbox(
     } catch {
       if (signal.aborted) return;
     }
-    await pause(delay, signal);
-    delay = Math.min(delay * 2, 30_000);
+    await reconnectPause(attempt++, signal);
   }
 }
 

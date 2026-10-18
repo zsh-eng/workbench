@@ -13,12 +13,7 @@ import { readBrowserToken } from "./auth";
 import { createApi } from "./api";
 import { browserFetch } from "./live";
 import { readServerEvents } from "./sse";
-
-const pause = (ms: number, signal: AbortSignal) =>
-  new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener("abort", () => (clearTimeout(timer), resolve()), { once: true });
-  });
+import { reconnectPause } from "./reconnect";
 
 /** The agents that Med can start on this computer, once `enabled`. */
 export function useAgentPresets(enabled: boolean, fetcher: typeof fetch = browserFetch) {
@@ -110,14 +105,14 @@ export function useOwnedSession(
     const { signal } = controller;
     const api = createApi(fetcher, readBrowserToken());
     void (async () => {
-      let delay = 1000;
+      let attempt = 0;
       while (!signal.aborted) {
         try {
           const response = await api.stream(`${path}/events`, signal);
           // Med does not run this session; its thread comes from the transcript only.
           if (response.status === 404) return setState(null);
           if (!response.ok || !response.body) throw new Error("The session stream closed.");
-          delay = 1000;
+          attempt = 0;
           await readServerEvents(
             response.body,
             (event) => {
@@ -131,8 +126,7 @@ export function useOwnedSession(
         } catch {
           if (signal.aborted) return;
         }
-        await pause(delay, signal);
-        delay = Math.min(delay * 2, 30_000);
+        await reconnectPause(attempt++, signal);
       }
     })();
     return () => controller.abort();

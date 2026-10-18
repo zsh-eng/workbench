@@ -6,6 +6,7 @@ import { createApi, HttpError } from "./api";
 import { browserFetch } from "./live";
 import { createSessionStore, type SessionStore } from "./session-store";
 import { readServerEvents } from "./sse";
+import { reconnectPause } from "./reconnect";
 
 /** A session counts as working until its agent ends the turn, or until the
  * transcript has not changed for this long (the agent stopped or crashed). */
@@ -46,17 +47,6 @@ interface Payload {
  * not take and build the first view again. */
 const held = new WeakMap<SessionStore, { feed: string; count: number; size: number }>();
 
-const pause = (ms: number, signal: AbortSignal) =>
-  new Promise<void>((resolve) => {
-    const done = () => {
-      clearTimeout(timer);
-      signal.removeEventListener("abort", done);
-      resolve();
-    };
-    const timer = setTimeout(done, ms);
-    signal.addEventListener("abort", done);
-  });
-
 export const sessionRunning = (state: SessionStreamState, now = Date.now()) =>
   state.status === "live" && !state.idle && now - (state.modifiedAt ?? 0) < STALE_MS;
 
@@ -80,7 +70,7 @@ export async function followSession(
     onState(state);
     store.setRunning(sessionRunning(state));
   };
-  let delay = 1000;
+  let attempt = 0;
   // The first view, while its parts come. The store takes it in one step, so
   // the thread does not render and grow after each part.
   let first: { reset: Payload; events: SessionEvent[]; left: number } | undefined;
@@ -107,7 +97,7 @@ export async function followSession(
       }
       if (!response.ok || !response.body)
         throw new HttpError("The session stream closed.", response.status);
-      delay = 1000;
+      attempt = 0;
       await readServerEvents(
         response.body,
         (event) => {
@@ -162,8 +152,7 @@ export async function followSession(
       if (signal.aborted) return;
       set({ status: "error", message: "Reconnecting to the session…" });
     }
-    await pause(delay, signal);
-    delay = Math.min(delay * 2, 30_000);
+    await reconnectPause(attempt++, signal);
   }
 }
 

@@ -97,6 +97,7 @@ import {
   useNeedsYouNotifications,
   useNotifyChoice,
 } from "../data/signals";
+import { reconnectPause } from "../data/reconnect";
 
 /** Workspaces kept mounted besides the tabs, such as branches, most recently
  * shown first. Older ones reload. */
@@ -428,17 +429,6 @@ const reviewEvent = z.object({
 
 type ReviewEvent = z.infer<typeof reviewEvent>;
 
-const pause = (ms: number, signal: AbortSignal) =>
-  new Promise<void>((resolve) => {
-    const done = () => {
-      clearTimeout(timer);
-      signal.removeEventListener("abort", done);
-      resolve();
-    };
-    const timer = setTimeout(done, ms);
-    signal.addEventListener("abort", done);
-  });
-
 /** Reads the host's window channel until `signal` aborts, and reconnects with
  * backoff. It returns early from a host without the channel. */
 async function listenForReviews(
@@ -447,13 +437,13 @@ async function listenForReviews(
   onReview: (review: ReviewEvent) => void,
 ) {
   const api = createApi(fetcher, readBrowserToken());
-  let delay = 1000;
+  let attempt = 0;
   while (!signal.aborted) {
     try {
       const response = await api.stream("/api/windows", signal);
       if (response.status === 404) return;
       if (!response.ok || !response.body) throw new Error("The window channel closed.");
-      delay = 1000;
+      attempt = 0;
       await readServerEvents(
         response.body,
         (event) => {
@@ -470,8 +460,7 @@ async function listenForReviews(
     } catch {
       /* Reconnect below. */
     }
-    await pause(delay, signal);
-    delay = Math.min(delay * 2, 30_000);
+    await reconnectPause(attempt++, signal);
   }
 }
 

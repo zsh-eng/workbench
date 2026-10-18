@@ -5,12 +5,7 @@ import { orderAttempts } from "./attempts";
 import { readBrowserToken } from "./auth";
 import { noteFoundSettings } from "./found-threads";
 import { readServerEvents } from "./sse";
-
-const pause = (ms: number, signal: AbortSignal) =>
-  new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener("abort", () => (clearTimeout(timer), resolve()), { once: true });
-  });
+import { reconnectPause } from "./reconnect";
 
 /** The list of a host without threads, such as `med review` alone. */
 export const NO_THREADS: ThreadList = { threads: [], repositories: [] };
@@ -43,14 +38,14 @@ export function useThreads(fetcher: typeof fetch): ThreadList | null {
       return { ...next, threads };
     };
     void (async () => {
-      let delay = 1000;
+      let attempt = 0;
       while (!signal.aborted) {
         try {
           const response = await api.stream("/api/threads/events", signal);
           // A host without threads lists none.
           if (response.status === 404) return setList(NO_THREADS);
           if (!response.ok || !response.body) throw new Error("The thread stream closed.");
-          delay = 1000;
+          attempt = 0;
           await readServerEvents(
             response.body,
             (event) => {
@@ -66,8 +61,7 @@ export function useThreads(fetcher: typeof fetch): ThreadList | null {
         } catch {
           if (signal.aborted) return;
         }
-        await pause(delay, signal);
-        delay = Math.min(delay * 2, 30_000);
+        await reconnectPause(attempt++, signal);
       }
     })();
     return () => controller.abort();
