@@ -142,3 +142,37 @@ test("Elements shows the Reading shelf as covers on a phone", async ({
       .getByRole("heading", { name: "Middlemarch" }),
   ).toBeVisible();
 });
+
+test.describe("on a phone", () => {
+  test.use({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+  });
+
+  test("Design ideas fit a phone, one live frame at a time", async ({
+    page,
+  }) => {
+    await page.goto("/debug");
+    await page.getByRole("link", { name: /Design ideas/ }).click();
+    await page.getByRole("link", { name: "Sessions ideas" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Current Sessions" }),
+    ).toBeVisible();
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(390);
+
+    await page
+      .getByRole("group", { name: "Show" })
+      .getByRole("button", { name: "In the Library's frame" })
+      .click();
+    const frame = page.locator(
+      'iframe[title="In the Library\'s frame, phone"]',
+    );
+    expect((await frame.boundingBox())!.width).toBeGreaterThan(300);
+
+    await page.getByRole("link", { name: "Open full screen" }).click();
+    await expect(page).toHaveURL(/\/debug\/ideas\/sessions$/);
+  });
+});

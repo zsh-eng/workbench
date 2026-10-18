@@ -67,7 +67,8 @@ const THEME_LABELS: Record<ReaderTheme, string> = {
 
 /**
  * The frame for the Elements and ideas pages: a bar with the frame
- * theme and zoom, section navigation, and the content. Built for desktop.
+ * theme and zoom, section navigation, and the content. On a phone the bar
+ * wraps and the pages scroll sideways; the section list is left out.
  * The theme here previews frames only; the app keeps its saved theme.
  */
 export function ElementsLayout({
@@ -113,7 +114,7 @@ export function ElementsLayout({
   return (
     <StageContext.Provider value={stage}>
       <div className="min-h-svh bg-background text-foreground">
-        <header className="sticky top-0 z-20 flex h-12 items-center gap-2 border-b border-border/70 bg-background/90 px-3 backdrop-blur-xl">
+        <header className="sticky top-0 z-20 flex min-h-12 flex-wrap items-center gap-x-2 gap-y-1 border-b border-border/70 bg-background/90 px-3 py-2 backdrop-blur-xl">
           <Link
             to="/settings"
             aria-label="Back to Settings"
@@ -121,7 +122,10 @@ export function ElementsLayout({
           >
             <ArrowLeft className="size-4" aria-hidden="true" />
           </Link>
-          <nav aria-label="Design pages" className="flex items-center gap-1">
+          <nav
+            aria-label="Design pages"
+            className="order-last -mx-3 flex w-[calc(100%+1.5rem)] items-center gap-1 overflow-x-auto px-3 whitespace-nowrap md:order-none md:mx-0 md:w-auto md:px-0"
+          >
             {[
               { id: "elements", label: "Elements", to: "/debug/elements" },
               ...IDEA_TOPICS.map(({ id, label }) => ({
@@ -171,10 +175,10 @@ export function ElementsLayout({
             onChange={(zoom) => setStage((value) => ({ ...value, zoom }))}
           />
         </header>
-        <div className="mx-auto grid max-w-[110rem] grid-cols-[11rem_minmax(0,1fr)] gap-8 px-6">
+        <div className="mx-auto grid max-w-[110rem] grid-cols-1 gap-8 px-4 md:grid-cols-[11rem_minmax(0,1fr)] md:px-6">
           <nav
             aria-label="Sections"
-            className="sticky top-12 flex flex-col gap-0.5 self-start pt-8"
+            className="sticky top-12 hidden flex-col gap-0.5 self-start pt-8 md:flex"
           >
             {sections.map((section) => (
               <a
