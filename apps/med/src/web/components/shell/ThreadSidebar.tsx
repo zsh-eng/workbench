@@ -15,7 +15,7 @@ import type { Thread, ThreadSubagent } from "../../../shared/threads";
 import { useAttemptsAddress } from "../../data/attempts";
 import { foundSessionThread, threadInput } from "../../data/found-threads";
 import { shownSubagents, type ReadState } from "../../data/tabs";
-import { groupThreads, needsYou, shortAge } from "../../data/threads";
+import { groupThreads, needsYou, shortAge, type ThreadGroup } from "../../data/threads";
 import {
   lazygitCommand,
   resumeCommand,
@@ -27,6 +27,7 @@ import { withAttempts } from "../attempts/AttemptGroupRow";
 import { Icon, type IconName } from "../Icon";
 import { ShortcutKeys } from "../ShortcutKeys";
 import { RenameField } from "./RenameField";
+import { StreamHeader, StreamTabs, type SidebarStream, type StreamActions } from "./StreamHeader";
 import { ToolButton } from "../ToolButton";
 
 const SOURCES_KEY = "med:sidebar-sources";
@@ -146,6 +147,9 @@ export function ThreadSidebar({
   renaming,
   onRenaming,
   onRename,
+  streams,
+  streamActions,
+  closedStreams,
 }: {
   /** The tabs, in the reader's order. */
   threads: readonly Thread[];
@@ -182,6 +186,12 @@ export function ThreadSidebar({
   onRenaming?(thread: Thread | null): void;
   /** Names the thread; an empty name gives it its agent's title again. */
   onRename?(thread: Thread, name: string): void;
+  /** Streams of work, in the reader's order: they group the tabs in place of
+   * the repositories (the durable sessions design). */
+  streams?: readonly SidebarStream[];
+  streamActions?: StreamActions;
+  /** The streams in history, under the tabs. */
+  closedStreams?: { count: number; open(): void };
 }) {
   const active = newThread
     ? undefined
@@ -198,7 +208,11 @@ export function ThreadSidebar({
           : active?.kind === "repository" && active.found
             ? foundSessionThread(active.found)
             : null;
-  const groups = useMemo(() => groupThreads(threads), [threads]);
+  const groups = useMemo<(ThreadGroup & { stream?: SidebarStream })[]>(
+    () => (streams ? streamGroups(streams, threads) : groupThreads(threads)),
+    [streams, threads],
+  );
+  const [renamingStream, setRenamingStream] = useState<string | null>(null);
   const needs = threads.filter(needsYou).length;
   const working = threads.filter(
     (thread) => thread.state === "working" && !needsYou(thread),
@@ -435,15 +449,46 @@ export function ThreadSidebar({
                 />
               );
             };
-            return (
+            const rows = (
+              <ul {...stylex.props(styles.list)}>
+                {withAttempts(group.threads, row, { current: currentThread, now })}
+              </ul>
+            );
+            const stream = group.stream;
+            return stream && streamActions ? (
+              <section
+                key={group.key}
+                aria-label={group.name}
+                {...stylex.props(styles.group, styles.streamGroup)}
+              >
+                <StreamHeader
+                  stream={stream}
+                  threads={group.threads}
+                  actions={streamActions}
+                  renaming={renamingStream === stream.id}
+                  onRenaming={(on) => setRenamingStream(on ? stream.id : null)}
+                />
+                <StreamTabs collapsed={!!stream.collapsed}>{rows}</StreamTabs>
+              </section>
+            ) : (
               <section key={group.key} aria-label={group.name} {...stylex.props(styles.group)}>
                 <h2 {...stylex.props(ui.label, styles.groupName)}>{group.name}</h2>
-                <ul {...stylex.props(styles.list)}>
-                  {withAttempts(group.threads, row, { current: currentThread, now })}
-                </ul>
+                {rows}
               </section>
             );
           })}
+          {closedStreams && closedStreams.count > 0 && (
+            <button
+              type="button"
+              data-sidebar-row=""
+              onClick={closedStreams.open}
+              {...stylex.props(styles.row, styles.closedStreams)}
+            >
+              <Icon name="history" size={13} />
+              <span {...stylex.props(styles.title)}>Closed streams</span>
+              <span {...stylex.props(styles.sourceCount)}>{closedStreams.count}</span>
+            </button>
+          )}
         </ContextMenu.Trigger>
         <ContextMenu.Portal>
           <ContextMenu.Positioner {...stylex.props(styles.menuPositioner)}>
@@ -517,6 +562,26 @@ export function ThreadSidebar({
 }
 
 const agentNames = { claude: "Claude Code", codex: "Codex" } as const;
+
+/** The tabs by stream, in the streams' order; a stream keeps its tabs' order. */
+function streamGroups(streams: readonly SidebarStream[], threads: readonly Thread[]) {
+  const byId = new Map(threads.map((thread) => [thread.id, thread]));
+  return streams.map((stream) => ({
+    key: stream.id,
+    name: stream.name,
+    stream,
+    threads: stream.threads.flatMap((id) => byId.get(id) ?? []),
+  }));
+}
+
+/** How a row names work that stopped until the reader acts. A cut turn can
+ * go on; the others need the agent started again. */
+const HALTS = {
+  interrupted: { label: "Interrupted", warning: true },
+  stopped: { label: "Stopped", warning: false },
+  login: { label: "Log in", warning: false },
+  crashing: { label: "Stopped", warning: false },
+} as const;
 
 /** What the rows do: one object for all rows, so that a row renders again
  * only when its own thread or state changes. */
@@ -599,8 +664,10 @@ const ThreadRow = memo(function ThreadRow({
   const rest = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(rest.current), []);
   const branch = thread.branch ?? thread.checkout?.split("/").at(-1);
-  const busy = thread.state === "working";
-  const asking = needsYou(thread);
+  // Work that stopped until the reader acts says so in place of its age.
+  const halt = thread.halt;
+  const busy = thread.state === "working" && !halt;
+  const asking = needsYou(thread) && !halt;
   // A turn that runs shows what it does now in place of its branch, unless
   // that is a subagent's task, which its own row shows.
   const doing = busy && !asking ? thread.turn?.activity : undefined;
@@ -615,7 +682,14 @@ const ThreadRow = memo(function ThreadRow({
   const read = () => !current && prefetch && actions.prefetch(thread);
   const mark = (
     <span {...stylex.props(styles.mark)} aria-hidden="true">
-      {asking ? (
+      {halt ? (
+        <span
+          {...stylex.props(
+            styles.dot,
+            HALTS[halt.kind].warning ? styles.dotWarning : styles.dotRed,
+          )}
+        />
+      ) : asking ? (
         <span {...stylex.props(styles.dot, thread.state === "waiting" && styles.waiting)}>
           {thread.state === "waiting" && <span {...stylex.props(styles.pulse)} />}
         </span>
@@ -626,7 +700,11 @@ const ThreadRow = memo(function ThreadRow({
   );
   const detail = (
     <span {...stylex.props(styles.detailLine)}>
-      {activity ? (
+      {halt?.detail ? (
+        <span title={halt.detail} {...stylex.props(styles.activity)}>
+          {halt.detail}
+        </span>
+      ) : activity ? (
         <span title={activity} {...stylex.props(styles.activity)}>
           {activity}
         </span>
@@ -704,7 +782,7 @@ const ThreadRow = memo(function ThreadRow({
                 styles.title,
                 busy && !asking && styles.busy,
                 unread && styles.unread,
-                asking && styles.asking,
+                (asking || halt) && styles.asking,
               )}
             >
               {/* A name that the reader gave wins over an attempt's label. */}
@@ -713,6 +791,17 @@ const ThreadRow = memo(function ThreadRow({
             {copied ? (
               <span role="status" {...stylex.props(styles.age)}>
                 Copied
+              </span>
+            ) : halt ? (
+              <span
+                {...stylex.props(
+                  styles.age,
+                  styles.halted,
+                  HALTS[halt.kind].warning ? styles.warningText : styles.redText,
+                  closable && styles.ageHides,
+                )}
+              >
+                {HALTS[halt.kind].label}
               </span>
             ) : (
               (asking || !busy) && (
@@ -731,7 +820,15 @@ const ThreadRow = memo(function ThreadRow({
           {detail}
         </span>
         <span {...stylex.props(styles.hidden)}>
-          {asking ? ", needs you" : busy ? ", working" : unread ? ", new" : ""}
+          {halt
+            ? `, ${HALTS[halt.kind].label.toLowerCase()}`
+            : asking
+              ? ", needs you"
+              : busy
+                ? ", working"
+                : unread
+                  ? ", new"
+                  : ""}
         </span>
       </button>
       {editing && (
@@ -805,6 +902,58 @@ const ThreadRow = memo(function ThreadRow({
     </li>
   );
 }, sameRow);
+
+const previewActions: RowActions = {
+  open() {},
+  openSubagent() {},
+  close() {},
+  move() {},
+  prefetch() {},
+  dragStart() {},
+  dragOver: () => false,
+  drop() {},
+  dragEnd() {},
+  rename() {},
+  renamed() {},
+};
+
+/** Tab rows as the sidebar draws them, without the sidebar: for the
+ * Elements page, which shows each state of a tab on its own. */
+export function ThreadRowsPreview({
+  threads,
+  now,
+  current,
+  unread = [],
+}: {
+  threads: readonly Thread[];
+  now: number;
+  current?: string;
+  unread?: readonly string[];
+}) {
+  return (
+    <ul {...stylex.props(styles.list)}>
+      {threads.map((thread) => (
+        <ThreadRow
+          key={thread.id}
+          thread={thread}
+          editing={false}
+          group="preview"
+          current={thread.id === current}
+          unread={unread.includes(thread.id)}
+          copied={false}
+          now={now}
+          subagents={[]}
+          fresh=""
+          closable={false}
+          movable={false}
+          draggable={false}
+          prefetch={false}
+          actions={previewActions}
+        />
+      ))}
+    </ul>
+  );
+}
 
 /** A tab's right-click menu: rename it, resume its agent in a terminal, mark it
  * read or unread, close it, with the worktree Med made for it, or delete it. */
@@ -936,6 +1085,12 @@ const styles = stylex.create({
     scrollbarWidth: "thin",
   },
   group: { marginTop: 14 },
+  streamGroup: { marginTop: 10 },
+  closedStreams: {
+    height: 30,
+    marginTop: 14,
+    color: { default: tokens.faint, ":hover": tokens.text },
+  },
   groupName: {
     margin: 0,
     paddingInline: 8,
@@ -1017,6 +1172,9 @@ const styles = stylex.create({
     fontVariantNumeric: "tabular-nums",
   },
   needsYou: { color: tokens.accent, fontWeight: 500 },
+  halted: { fontWeight: 500 },
+  warningText: { color: tokens.warning },
+  redText: { color: tokens.red },
   // The close control takes the age's place while the row is hovered.
   ageHides: {
     opacity: {
@@ -1142,6 +1300,8 @@ const styles = stylex.create({
   added: { color: tokens.green },
   removed: { color: tokens.red },
   dot: { width: 7, height: 7, borderRadius: "50%", backgroundColor: tokens.accent },
+  dotWarning: { backgroundColor: tokens.warning },
+  dotRed: { backgroundColor: tokens.red },
   waiting: { position: "relative", isolation: "isolate" },
   // A disc behind the dot grows and fades: transform and opacity only, which
   // the compositor runs without a style recalculation in each frame.

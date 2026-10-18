@@ -76,6 +76,9 @@ export interface MedMeta {
     queued?: boolean;
     /** The agent's message ended its turn (Claude Code's `end_turn`). */
     endsTurn?: boolean;
+    /** A tool call that a restart cut before it ended: Med recorded its turn
+     * as interrupted (the durable sessions design). */
+    interrupted?: boolean;
     model?: string;
   };
 }

@@ -129,7 +129,10 @@ export const ToolCall = memo(function ToolCall({
   // renders when the reader opens it, as in Claude Desktop.
   const [open, setOpen] = useRowOpen(item.id, false);
   // A wait is not work: it does not shimmer or spin.
-  const running = (call.status === "pending" || call.status === "in_progress") && !isMedWait(call);
+  const running =
+    (call.status === "pending" || call.status === "in_progress") &&
+    !isMedWait(call) &&
+    !call.interrupted;
   const stat = useMemo(
     () =>
       diffs.reduce(
@@ -177,6 +180,7 @@ export const ToolCall = memo(function ToolCall({
           </span>
         )}
         {call.status === "failed" && <span {...stylex.props(styles.failed)}>Failed</span>}
+        {call.interrupted && <span {...stylex.props(styles.stopped)}>Stopped</span>}
         {running ? (
           <span aria-label="Running" {...stylex.props(motion.spinner)} />
         ) : (
@@ -324,6 +328,7 @@ const styles = stylex.create({
     fontSize: 11,
   },
   failed: { color: tokens.red },
+  stopped: { color: tokens.warning },
   failedIcon: { color: tokens.red },
   chevron: {
     display: "flex",

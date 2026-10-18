@@ -109,9 +109,10 @@ export const tabOrder = (threads: readonly Thread[]) =>
 const answered = (thread: Thread) =>
   !!thread.replied && thread.replied.at > (thread.turn?.endedAt ?? 0);
 
-/** A permission request, `med review wait`, or a question that waits for an answer. */
+/** A permission request, `med review wait`, a question that waits for an
+ * answer, or work that stopped until the reader acts (`halt`). */
 export const needsYou = (thread: Thread) =>
-  thread.state === "waiting" || (!!thread.turn?.asks && !answered(thread));
+  thread.state === "waiting" || !!thread.halt || (!!thread.turn?.asks && !answered(thread));
 
 /** A short age: now, 4m, 3h, 2d, then the date. */
 export function shortAge(at: number, now: number) {

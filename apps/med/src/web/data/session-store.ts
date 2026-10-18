@@ -23,6 +23,8 @@ export interface ToolCallState {
   /** The agent's own name for the tool, such as Bash. */
   tool?: string;
   background?: { id: string; kind: "shell" | "agent" };
+  /** A restart cut the call before it ended. */
+  interrupted?: boolean;
 }
 
 /** One row of a thread. Items never change in place; an update replaces the item. */
@@ -257,6 +259,7 @@ export function createSessionStore() {
             : {}),
           ...(meta?.tool ? { tool: meta.tool } : {}),
           ...(meta?.background ? { background: meta.background } : {}),
+          ...(meta?.interrupted ? { interrupted: true } : {}),
         };
         const ended = call.status === "completed" || call.status === "failed";
         // Updates that waited for this call, or for the task it started.

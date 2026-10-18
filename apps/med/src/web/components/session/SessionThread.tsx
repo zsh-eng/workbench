@@ -913,12 +913,16 @@ export function SessionThread({
   loading = false,
   showWork = false,
   recap,
+  endMark,
   onOpenLink,
 }: {
   snapshot: SessionSnapshot;
   /** The recap of a turn that ended unseen, at the end of the thread. It
    * takes the place of the plan for that turn. */
   recap?: TurnRecapProps;
+  /** In place of the last turn's end, such as the mark of a turn that a
+   * restart cut (SessionNotice's TurnMark). */
+  endMark?: ReactNode;
   /** Opens this subagent's tab once for each nonce, once the session has it. */
   openAgent?: { id: string; nonce: number };
   /** The first view has not come yet. */
@@ -974,8 +978,15 @@ export function SessionThread({
     setFlipped(new Set());
   }
   const all = useMemo(
-    () => fold(plain, finals, snapshot.running, (key) => showWork !== flipped.has(key)),
-    [plain, finals, snapshot.running, showWork, flipped],
+    // A turn that an end mark closes shows its work, as a live one does.
+    () =>
+      fold(
+        plain,
+        finals,
+        snapshot.running || endMark !== undefined,
+        (key) => showWork !== flipped.has(key),
+      ),
+    [plain, finals, snapshot.running, endMark, showWork, flipped],
   );
 
   // Heights: a unit's own from when it last rendered, else an estimate.
@@ -1654,6 +1665,8 @@ export function SessionThread({
                     </span>
                     <span {...stylex.props(styles.elapsed)}>{formatSeconds(elapsed)}</span>
                   </div>
+                ) : endMark ? (
+                  <div {...stylex.props(styles.endMark)}>{endMark}</div>
                 ) : (
                   snapshot.items.length > 0 &&
                   // The last turn's own row says so when its work folds.
@@ -2167,6 +2180,7 @@ const styles = stylex.create({
   rule: { flex: "1", height: 1, backgroundColor: tokens.line },
   status: { color: tokens.muted, marginTop: 4 },
   elapsed: { color: tokens.faint, fontVariantNumeric: "tabular-nums" },
+  endMark: { marginTop: 14 },
   done: {
     display: "flex",
     alignItems: "center",

@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { useId, useRef, useState, type KeyboardEvent } from "react";
+import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import {
   MAX_PROMPT_IMAGE_BYTES,
   PROMPT_IMAGE_TYPES,
@@ -157,6 +157,7 @@ export function SessionComposer({
   onRemoveAttachment,
   onSend,
   owned,
+  notice,
   mentions: mentionSources,
   onMentionsWanted,
 }: {
@@ -171,6 +172,8 @@ export function SessionComposer({
   onMentionsWanted?(): void;
   /** Med runs this session: pickers, the `/` menu, Stop, and permission requests. */
   owned?: OwnedControls;
+  /** Above the field, such as a SessionNotice for an agent that stopped. */
+  notice?: ReactNode;
   agent: AgentMessage["agent"];
   /** The agent's name, such as Claude or OpenCode. */
   name: string;
@@ -325,6 +328,7 @@ export function SessionComposer({
           }
         />
       )}
+      {notice}
       <form
         aria-label={`Message ${name}`}
         onSubmit={(event) => {
