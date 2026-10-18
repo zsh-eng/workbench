@@ -96,6 +96,11 @@ stdio --session-id <id>`, with `--model`, `--effort`, and `--permission-mode`
   own. A record that Med cannot read costs only itself, and the file keeps a
   copy beside it (`<file>.unreadable-<time>`) before Med writes it again
   (`src/host/runtime/state-file.ts`).
+- **Restarts and the page**: the agents stop as the host closes, but the
+  page keeps their last state, so its message box stays open. A request that
+  fails because the host closes gets no answer, not an error. The page then
+  waits for Med: a live load keeps what it shows, and a message keeps
+  trying (see [Sessions](SESSIONS.md)).
 - **Adopted sessions**: a Claude Code session that Med did not start, such
   as one that Keep in Med or `med thread adopt` saved, becomes an owned
   session when a message comes and no process runs it (`resume`), with a

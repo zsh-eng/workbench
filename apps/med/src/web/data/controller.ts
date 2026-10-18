@@ -54,6 +54,7 @@ import {
   pullRequestCommentsSchema,
   revealSchema,
   HttpError,
+  unanswered,
   notesSchema,
   repositoriesSchema,
   reviewSchema,
@@ -671,6 +672,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         cacheHit: false,
       });
     } catch (error) {
+      if (waitsForMed(error) && !immutableComparison(comparison)) return;
       if (isCurrent(generation)) update({ status: "error", error: message(error) });
     }
   }
@@ -721,6 +723,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         });
       }
     } catch (error) {
+      if (waitsForMed(error)) return;
       if (!disposed && generation === branchGeneration) update({ branchesError: message(error) });
     }
   }
@@ -865,6 +868,12 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     eventAbort = undefined;
     clearTimeout(eventTimer);
     clearTimeout(refreshTimer);
+  }
+
+  /** A live load that Med did not answer, as in a restart, keeps what the
+   * page shows: the event stream reconciles when it connects again. */
+  function waitsForMed(error: unknown) {
+    return unanswered(error) && options.events !== false;
   }
 
   /** Reload what live updates would have changed: sources, branches, and a

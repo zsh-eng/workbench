@@ -39,9 +39,12 @@ export function useMentions({
   input,
   off = false,
   area: given,
+  initial,
 }: {
   /** The text area's own ref, if the box has one. */
   area?: RefObject<HTMLTextAreaElement | null>;
+  /** The mentions of a text that the box restores, such as a kept draft. */
+  initial?: Mention[];
   text: string;
   setText(text: string): void;
   /** Without sources, @ is text. */
@@ -57,7 +60,7 @@ export function useMentions({
   const area = given ?? own;
   const backdrop = useRef<HTMLDivElement>(null);
   const [caret, setCaret] = useState(0);
-  const [mentioned, setMentioned] = useState<Mention[]>([]);
+  const [mentioned, setMentioned] = useState<Mention[]>(initial ?? []);
   // Escape closes the menu for this @: the text up to it names it.
   const [closed, setClosed] = useState<string | null>(null);
   const [highlight, setHighlight] = useState(0);
@@ -86,15 +89,20 @@ export function useMentions({
     const token = `@${label} `;
     setText(text.slice(0, start) + token + text.slice(caret));
     const thread = candidate.thread;
+    const path =
+      candidate.path ??
+      sources.resolveThread(thread!).catch(() => thread!.checkout ?? candidate.name);
     setMentioned((current) => [
       ...current.filter((entry) => entry.label !== label),
-      {
-        label,
-        path:
-          candidate.path ??
-          sources.resolveThread(thread!).catch(() => thread!.checkout ?? candidate.name),
-      },
+      { label, path },
     ]);
+    // A thread's path comes later; the mention keeps it, so a draft can too.
+    if (typeof path !== "string")
+      void path.then((resolved) =>
+        setMentioned((current) =>
+          current.map((entry) => (entry.path === path ? { label, path: resolved } : entry)),
+        ),
+      );
     placeCaret.current = start + token.length;
     setCaret(start + token.length);
     setHighlight(0);
@@ -215,6 +223,10 @@ export function useMentions({
     onKeyDown,
     /** The message with each mention's absolute path. */
     expand: (message: string) => expandMentions(message, mentioned),
+    /** The chosen mentions whose paths Med has. */
+    known: mentioned.filter(
+      (entry): entry is { label: string; path: string } => typeof entry.path === "string",
+    ),
     clear: () => setMentioned([]),
   };
 }

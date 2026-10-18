@@ -53,6 +53,8 @@ async function fixture() {
     port: 0,
     queueCodex: async (thread, text) => {
       queued.push([thread, text]);
+      // codex queue runs a process; a second send can arrive meanwhile.
+      await new Promise((resolve) => setTimeout(resolve, 50));
     },
     agentAckMs: 300,
     agents: async () => [
@@ -181,10 +183,15 @@ test("a message to a Codex session goes to its queue once", async () => {
     text: "Use minutes.",
     noteIds: [commentId],
   };
-  const sent = await api(`/api/reviews/${saved.id}/agent/messages`, message);
+  // Two windows that reload send the same message at once.
+  const [sent, again] = await Promise.all([
+    api(`/api/reviews/${saved.id}/agent/messages`, message),
+    api(`/api/reviews/${saved.id}/agent/messages`, message),
+  ]);
   expect(sent.data).toMatchObject({
     message: { id: message.id, agent: "codex", delivery: "queued" },
   });
+  expect(again.data).toMatchObject({ message: { id: message.id, delivery: "queued" } });
   // Med sends again with the same ID when it lost the answer; the agent gets it once.
   expect((await api(`/api/reviews/${saved.id}/agent/messages`, message)).status).toBe(200);
   expect(queued).toHaveLength(1);

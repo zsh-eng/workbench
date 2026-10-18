@@ -370,6 +370,41 @@ describe("live event reconciliation", () => {
     controller.dispose();
   });
 
+  test("a reload that Med does not answer, as in a restart, keeps the review until Med is back", async () => {
+    let writer!: ReadableStreamDefaultController<Uint8Array>;
+    let reviews = 0;
+    const { controller } = fixture({
+      review: async (comparison, repo) => {
+        reviews += 1;
+        if (reviews === 2) throw new TypeError("Failed to fetch");
+        return json(response(comparison, repo));
+      },
+      events: () =>
+        new ReadableStream({
+          start(value) {
+            writer = value;
+            value.enqueue(
+              new TextEncoder().encode('data: {"type":"ready","repo":"/repo","revision":0}\n\n'),
+            );
+          },
+        }),
+    });
+    await controller.initialize();
+    await vi.waitFor(() => expect(controller.getSnapshot().connection).toBe("connected"));
+    writer.enqueue(
+      new TextEncoder().encode('data: {"type":"changed","repo":"/repo","revision":1}\n\n'),
+    );
+    await vi.waitFor(() => expect(reviews).toBe(2));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(controller.getSnapshot()).toMatchObject({ status: "ready", error: null });
+    expect(controller.getSnapshot().review?.id).toBe("working");
+    // Med is back: the stream connects again and the review loads.
+    writer.close();
+    await vi.waitFor(() => expect(reviews).toBe(3), { timeout: 2000 });
+    expect(controller.getSnapshot()).toMatchObject({ status: "ready", error: null });
+    controller.dispose();
+  });
+
   test("reconciles after reconnect even if the ready event repeats its revision", async () => {
     let connections = 0;
     let writer!: ReadableStreamDefaultController<Uint8Array>;

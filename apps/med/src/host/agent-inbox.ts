@@ -56,6 +56,8 @@ export class AgentInbox {
   private writes = new Map<string, Promise<unknown>>();
   /** Each review's newest message, read once after each change. */
   private newest = new Map<string, AgentMessage | null>();
+  /** Sends with a client's message ID that run now, as `review:id`. */
+  private sending = new Map<string, Promise<void>>();
 
   constructor(
     private readonly directory: string,
@@ -232,6 +234,30 @@ export class AgentInbox {
       }
       return { delivered: error ? 0 : due.length, left: waiting.length - due.length };
     });
+  }
+
+  /**
+   * Runs `send` for the message with the client's ID `id`, one at a time. A
+   * message that Med has already comes back, and `send` does not run, so a
+   * message sent again, as from two windows that reload, goes once.
+   */
+  async once(
+    reviewId: string,
+    id: string | undefined,
+    send: () => Promise<AgentMessage>,
+  ): Promise<AgentMessage> {
+    if (!id) return send();
+    const key = `${reviewId}:${id}`;
+    for (let running = this.sending.get(key); running; running = this.sending.get(key))
+      await running;
+    let done!: () => void;
+    this.sending.set(key, new Promise<void>((resolve) => (done = resolve)));
+    try {
+      return (await this.messages(reviewId)).find((entry) => entry.id === id) ?? (await send());
+    } finally {
+      this.sending.delete(key);
+      done();
+    }
   }
 
   async send(

@@ -1414,8 +1414,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               "x-accel-buffering": "no",
             });
             ownedStreams.add(response);
-            const push = () =>
-              response.write(`event: state\ndata: ${JSON.stringify(runner.state())}\n\n`);
+            // The agents stop as the host closes. The page keeps their last
+            // state, so its message box stays open while Med restarts.
+            const push = () => {
+              if (!closing)
+                response.write(`event: state\ndata: ${JSON.stringify(runner.state())}\n\n`);
+            };
             const unsubscribe = runner.subscribe(push);
             response.once("close", () => {
               ownedStreams.delete(response);
@@ -1538,70 +1542,75 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 "This review has no such agent session.",
                 404,
               );
-            const parts: string[] = [];
-            if (input.text.trim()) parts.push(input.text.trim());
-            // The thread shows the comments as they read now.
-            const drafts = input.noteIds.length ? (await inboxState()).drafts : [];
-            const comments = input.noteIds.flatMap((id) =>
-              drafts
-                .filter((draft) => draft.id === id)
-                .map(({ id: _id, replies: _replies, ...comment }) => comment),
-            );
-            if (input.noteIds.length) {
-              const feedback = await savedReviews.feedback(reviewId, new Set(input.noteIds));
-              if (feedback.count) parts.push(feedback.text);
-            }
-            for (const attachment of input.attachments)
-              parts.push(`## ${attachment.label}\n\n${attachment.text}`);
-            const runner = ownedSessions.get(session.id);
-            const live = runner && runner.state().status !== "exited" ? runner : undefined;
-            // A Claude session that Med does not run, or restored without its
-            // process, can run in another process, such as Claude Code in a
-            // terminal. Then the message waits until that process takes it
-            // with `med review wait`, or ends. Otherwise Med resumes the
-            // session and sends the message as its next prompt.
-            let held = false;
-            let resume = false;
-            if ((!live || live.dormant()) && session.agent === "claude" && (!runner || live)) {
-              const waits = inbox.waiting(reviewId);
-              held =
-                waits.includes(session.id) ||
-                waits.includes("*") ||
-                (await ownedSessions.runsElsewhere(session.id));
-              resume = !held && !live;
-            }
-            // An agent that Med runs and that takes images gets them in the
-            // prompt, as Claude Code does. Any other agent gets the paths of
-            // saved copies.
-            const native = resume || (live && !held && live.state().images) ? input.images : [];
-            if (input.images.length && !native.length)
-              parts.push(imagesText(await saveImages(imageDirectory, input.images)));
-            if (!parts.length && !native.length)
-              throw new HostError(
-                "empty-message",
-                "Write a message or choose comments to send.",
-                400,
+            // The page sends a message again when it lost Med's answer, or
+            // after a reload, with the same ID: Med sends it once.
+            const message = await inbox.once(reviewId, input.id, async () => {
+              const parts: string[] = [];
+              if (input.text.trim()) parts.push(input.text.trim());
+              // The thread shows the comments as they read now.
+              const drafts = input.noteIds.length ? (await inboxState()).drafts : [];
+              const comments = input.noteIds.flatMap((id) =>
+                drafts
+                  .filter((draft) => draft.id === id)
+                  .map(({ id: _id, replies: _replies, ...comment }) => comment),
               );
-            // A session that Med runs takes the message as its next prompt.
-            const target = held
-              ? undefined
-              : resume
-                ? await ownedSessions.resume(session, bundle.key ? { key: bundle.key } : {})
-                : live;
-            const message = await inbox.send(
-              reviewId,
-              session,
-              {
-                ...(input.id ? { id: input.id } : {}),
-                text: input.text.trim(),
-                noteIds: input.noteIds,
-                comments,
-                attachmentCount: input.attachments.length,
-              },
-              parts.join("\n\n"),
-              target ? { deliver: (body) => target.prompt(body, native) } : { held },
-            );
-            if (held && message.delivery === "pending") heldMessages.watch(reviewId, session.id);
+              if (input.noteIds.length) {
+                const feedback = await savedReviews.feedback(reviewId, new Set(input.noteIds));
+                if (feedback.count) parts.push(feedback.text);
+              }
+              for (const attachment of input.attachments)
+                parts.push(`## ${attachment.label}\n\n${attachment.text}`);
+              const runner = ownedSessions.get(session.id);
+              const live = runner && runner.state().status !== "exited" ? runner : undefined;
+              // A Claude session that Med does not run, or restored without its
+              // process, can run in another process, such as Claude Code in a
+              // terminal. Then the message waits until that process takes it
+              // with `med review wait`, or ends. Otherwise Med resumes the
+              // session and sends the message as its next prompt.
+              let held = false;
+              let resume = false;
+              if ((!live || live.dormant()) && session.agent === "claude" && (!runner || live)) {
+                const waits = inbox.waiting(reviewId);
+                held =
+                  waits.includes(session.id) ||
+                  waits.includes("*") ||
+                  (await ownedSessions.runsElsewhere(session.id));
+                resume = !held && !live;
+              }
+              // An agent that Med runs and that takes images gets them in the
+              // prompt, as Claude Code does. Any other agent gets the paths of
+              // saved copies.
+              const native = resume || (live && !held && live.state().images) ? input.images : [];
+              if (input.images.length && !native.length)
+                parts.push(imagesText(await saveImages(imageDirectory, input.images)));
+              if (!parts.length && !native.length)
+                throw new HostError(
+                  "empty-message",
+                  "Write a message or choose comments to send.",
+                  400,
+                );
+              // A session that Med runs takes the message as its next prompt.
+              const target = held
+                ? undefined
+                : resume
+                  ? await ownedSessions.resume(session, bundle.key ? { key: bundle.key } : {})
+                  : live;
+              const message = await inbox.send(
+                reviewId,
+                session,
+                {
+                  ...(input.id ? { id: input.id } : {}),
+                  text: input.text.trim(),
+                  noteIds: input.noteIds,
+                  comments,
+                  attachmentCount: input.attachments.length,
+                },
+                parts.join("\n\n"),
+                target ? { deliver: (body) => target.prompt(body, native) } : { held },
+              );
+              if (held && message.delivery === "pending") heldMessages.watch(reviewId, session.id);
+              return message;
+            });
             send({ message, state: await inboxState() });
             return;
           }
@@ -2866,7 +2875,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       response.end(request.method === "HEAD" ? undefined : data);
     })()
       .catch((error: unknown) => {
-        if (response.headersSent || response.destroyed) {
+        // A request that fails because the host closes gets no answer, as
+        // after the host has closed; the page asks again when Med is back.
+        if (response.headersSent || response.destroyed || closing) {
           response.destroy();
           return;
         }

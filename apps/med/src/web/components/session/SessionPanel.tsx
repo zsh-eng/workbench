@@ -14,7 +14,7 @@ import {
 } from "react";
 import type { AgentPreset, OwnedAction } from "../../../shared/owned-session";
 import { agentName, type AgentSession, type PinMutation } from "../../../shared/saved-review";
-import type { AgentMessageInput, SentComment } from "../../../shared/agent-inbox";
+import type { AgentMessageInput } from "../../../shared/agent-inbox";
 import {
   openIn,
   withSentMessages,
@@ -22,6 +22,7 @@ import {
   type SentMessage,
 } from "../../data/agent-inbox";
 import { useOwnedSession } from "../../data/owned-session";
+import { useOutbox, type Outgoing } from "../../data/outbox";
 import { useQuietChrome } from "../../data/chrome";
 import type { SessionItem } from "../../data/session-store";
 import {
@@ -54,16 +55,6 @@ export interface SessionPins {
   pinned: ReadonlyMap<string, string>;
   pin(source: PinSource, text: string): Promise<void>;
   show(pinId: string): void;
-}
-
-/** A message that the browser sent, until the host has it. */
-interface Outgoing {
-  id: string;
-  input: AgentMessageInput;
-  createdAt: string;
-  /** The comments as they read when sent, to show at once. */
-  comments: SentComment[];
-  error?: string;
 }
 
 /** Agents that Med can start in the review's repository. */
@@ -615,24 +606,11 @@ export function SessionPanel({
   const messages = inbox?.state?.messages;
   const streaming = ownedState?.streaming;
   // Messages on their way to the host show at once, as in a chat app. The
-  // host keeps the browser's ID, so the row stays when its answer comes.
-  const [outgoing, setOutgoing] = useState<Outgoing[]>([]);
-  const post = (message: Outgoing) => {
-    setOutgoing((list) =>
-      list.map((entry) => (entry.id === message.id ? { ...entry, error: undefined } : entry)),
-    );
-    inbox!.send({ ...message.input, id: message.id }).then(
-      () => setOutgoing((list) => list.filter((entry) => entry.id !== message.id)),
-      (reason: unknown) =>
-        setOutgoing((list) =>
-          list.map((entry) =>
-            entry.id === message.id
-              ? { ...entry, error: reason instanceof Error ? reason.message : "Not sent." }
-              : entry,
-          ),
-        ),
-    );
-  };
+  // host keeps the browser's ID, so the row stays when its answer comes. The
+  // outbox keeps them across a reload, until the host has them.
+  const known = useMemo(() => new Set(messages?.map((message) => message.id)), [messages]);
+  const outbox = useOutbox(`${reviewId}/${session.id}`, inbox?.send, known);
+  const { outgoing } = outbox;
   const send = (input: Omit<AgentMessageInput, "sessionId">) => {
     const drafts = inbox?.state?.drafts ?? [];
     const message: Outgoing = {
@@ -645,8 +623,7 @@ export function SessionPanel({
           .map(({ id: _id, replies: _replies, ...comment }) => comment),
       ),
     };
-    setOutgoing((list) => [...list, message]);
-    post(message);
+    outbox.send(message);
   };
   const sending = new Set(outgoing.flatMap((message) => message.input.noteIds));
   const shown = useMemo(() => {
@@ -678,9 +655,8 @@ export function SessionPanel({
             ...(message.error
               ? {
                   error: message.error,
-                  retry: () => post(message),
-                  discard: () =>
-                    setOutgoing((list) => list.filter((entry) => entry.id !== message.id)),
+                  retry: () => outbox.retry(message.id),
+                  discard: () => outbox.discard(message.id),
                 }
               : {}),
           };
@@ -693,7 +669,7 @@ export function SessionPanel({
     return items === snapshot.items && snapshot.running === running
       ? snapshot
       : { ...snapshot, items, running };
-    // post changes each render; the rows take it when the list changes.
+    // outbox changes each render; the rows take it when the list changes.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot, messages, outgoing, session.id, session.agent, streaming, running, presence]);
   const needsYou = !!ownedState?.permission;
@@ -841,6 +817,7 @@ export function SessionPanel({
         inbox && (
           <SessionComposer
             key={session.id}
+            draftKey={`${reviewId}/${session.id}`}
             agent={session.agent}
             name={agent}
             waiting={waiting}

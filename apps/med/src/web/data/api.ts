@@ -162,6 +162,11 @@ export class HttpError extends Error {
   }
 }
 
+/** Med did not answer in full: nothing listens on its port, or the host
+ * closed, as in a restart, before its answer ended. */
+export const unanswered = (error: unknown) =>
+  error instanceof TypeError || error instanceof SyntaxError;
+
 export function createApi(fetcher: typeof fetch, token: string) {
   const headers = (input?: HeadersInit) => {
     const result = new Headers(input);

@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import {
   MAX_PROMPT_IMAGE_BYTES,
   PROMPT_IMAGE_TYPES,
@@ -24,6 +24,7 @@ import { ImageViewer, imageSource } from "./ImageThumbs";
 import { useMentions } from "../Mentions";
 import { SessionNotice } from "./SessionNotice";
 import type { MentionSources } from "../../data/mentions";
+import { readDraft, writeDraft } from "../../data/outbox";
 
 export interface ComposerAttachment {
   id: string;
@@ -164,7 +165,10 @@ export function SessionComposer({
   notice,
   mentions: mentionSources,
   onMentionsWanted,
+  draftKey,
 }: {
+  /** Keeps the unsent text in the browser under this key, across a reload. */
+  draftKey?: string;
   /** Where a Claude session runs, when Med does not run it: in a terminal or
    * another app, or nowhere, so a message resumes it. */
   presence?: SessionPlace | "resumable";
@@ -194,7 +198,8 @@ export function SessionComposer({
     images: PromptImage[];
   }): void;
 }) {
-  const [text, setText] = useState("");
+  const [kept] = useState(() => (draftKey ? readDraft(draftKey) : undefined));
+  const [text, setText] = useState(kept?.text ?? "");
   const [images, setImages] = useState<(PromptImage & { id: string })[]>([]);
   const [shownImage, setShownImage] = useState<number | null>(null);
   const imageInput = useRef<HTMLInputElement>(null);
@@ -245,7 +250,14 @@ export function SessionComposer({
     onWanted: onMentionsWanted,
     input: styles.input,
     off: matches.length > 0,
+    initial: kept?.mentions,
   });
+  useEffect(() => {
+    if (draftKey) writeDraft(draftKey, { text, mentions: mentions.known });
+    // mentions.known is new each render; it changes with the text, or when
+    // a thread's path comes.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftKey, text, mentions.known.length]);
   const act = (action: OwnedAction) =>
     owned
       ?.act(action)

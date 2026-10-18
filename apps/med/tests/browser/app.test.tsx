@@ -58,6 +58,8 @@ const commits = [
 ];
 let root: Root | undefined;
 let mount: HTMLDivElement | undefined;
+/** An answer to an agent message: nothing listens on Med's port. */
+const NO_ANSWER = "no answer";
 
 // Test files share the page's storage. A chrome that another file stores does
 // not reach these tests.
@@ -78,10 +80,16 @@ const storedPreferences = [
   "med:viewed:v1:saved",
   "med:changes-rail",
 ];
+/** Message drafts and outboxes that a test leaves in the browser. */
+function forgetDrafts() {
+  for (const key of Object.keys(localStorage))
+    if (key.startsWith("med:draft:") || key.startsWith("med:outbox:")) localStorage.removeItem(key);
+}
 beforeEach(async () => {
   // A desktop window: the review and its side panes fit beside each other.
   await page.viewport(1280, 800);
   for (const key of storedPreferences) localStorage.removeItem(key);
+  forgetDrafts();
   // The review without the window's shell has the full chrome's toolbar and
   // status bar, which these tests use. The workspace tests cover quiet chrome.
   setChromeMode("full", false);
@@ -92,6 +100,7 @@ afterEach(() => {
   root = undefined;
   mount = undefined;
   for (const key of storedPreferences) localStorage.removeItem(key);
+  forgetDrafts();
   // As from another window: the viewed marks drop their in-memory copy.
   window.dispatchEvent(new StorageEvent("storage", { key: "med:viewed:v1:saved" }));
 });
@@ -228,7 +237,8 @@ async function mountApp(
   const pullRequestReads: string[] = [];
   let inbox = options.inbox;
   const agentMessages: unknown[] = [];
-  // The host's answers to the messages that wait, in order.
+  // The host's answers to the messages that wait, in order: an error, or
+  // NO_ANSWER for a host that is not there.
   const agentAnswers: ((error?: string) => void)[] = [];
   const savedRepositories = savedTargets.slice(0, options.oneBranch ? 1 : 2).map((target) => ({
     id: target.repositoryId,
@@ -480,6 +490,7 @@ async function mountApp(
           const error = await new Promise<string | undefined>((answer) =>
             agentAnswers.push(answer),
           );
+          if (error === NO_ANSWER) throw new TypeError("Failed to fetch");
           if (error)
             return Response.json({ error: { code: "busy", message: error } }, { status: 503 });
         }
@@ -3553,6 +3564,88 @@ describe("agent session", () => {
     await expect.element(panel.getByText("Sending…")).not.toBeInTheDocument();
     await expect.element(panel.getByText("Not sent", { exact: false })).not.toBeInTheDocument();
     expect(panel.getByText("Use minutes.").elements()).toHaveLength(1);
+  });
+
+  test("a draft and the messages that Med did not take stay after a reload", async () => {
+    const options = {
+      savedReview: true,
+      answerAgentMessages: true,
+      session: `event: reset\ndata: ${JSON.stringify({ events: [], idle: true, modifiedAt: 0, truncated: false })}\n\n`,
+      inbox: { messages: [], waiting: ["s1"], drafts: [] },
+    };
+    const panel = page.getByRole("region", { name: "Agent session" });
+    const input = panel.getByRole("combobox", { name: "Message Claude" });
+    const reload = async () => {
+      root?.unmount();
+      mount?.remove();
+      const app = await mountApp(options);
+      if (!panel.query()) await page.getByRole("button", { name: "Toggle agent session" }).click();
+      await expect.element(input).toBeVisible();
+      return app;
+    };
+    let app = await reload();
+    await input.fill("Use minutes.");
+    app = await reload();
+    await expect.element(input).toHaveValue("Use minutes.");
+
+    // A message on its way when the page closes goes again after the reload.
+    await input.click();
+    await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
+    await expect.poll(() => app.agentAnswers.length).toBe(1);
+    const onTheWay = Object.entries(localStorage).filter(([key]) => key.startsWith("med:outbox:"));
+    expect(onTheWay).toHaveLength(1);
+    app.agentAnswers.shift()!("The host is busy.");
+    await expect.element(panel.getByText("Not sent: The host is busy.")).toBeVisible();
+    for (const [key, value] of onTheWay) localStorage.setItem(key, value);
+    app = await reload();
+    await expect.element(input).toHaveValue("");
+    await expect.element(panel.getByText("Sending…")).toBeVisible();
+    await expect.poll(() => app.agentAnswers.length).toBe(1);
+
+    // One that failed comes back with its reason and Retry.
+    app.agentAnswers.shift()!("The host is busy.");
+    await expect.element(panel.getByText("Not sent: The host is busy.")).toBeVisible();
+    app = await reload();
+    await expect.element(panel.getByText("Not sent: The host is busy.")).toBeVisible();
+    await panel.getByRole("button", { name: "Retry" }).click();
+    await expect.poll(() => app.agentAnswers.length).toBe(1);
+    app.agentAnswers.shift()!();
+    await expect
+      .poll(() => app.agentMessages)
+      .toEqual([
+        {
+          id: expect.stringMatching(/^[0-9a-f-]{36}$/),
+          sessionId: "s1",
+          text: "Use minutes.",
+          noteIds: [],
+          attachments: [],
+          images: [],
+        },
+      ]);
+    await expect.element(panel.getByText("Not sent", { exact: false })).not.toBeInTheDocument();
+    expect(panel.getByText("Use minutes.").elements()).toHaveLength(1);
+  });
+
+  test("a message waits while Med does not answer, and goes when Med is back", async () => {
+    const { agentMessages, agentAnswers } = await mountApp({
+      savedReview: true,
+      answerAgentMessages: true,
+      session: `event: reset\ndata: ${JSON.stringify({ events: [], idle: true, modifiedAt: 0, truncated: false })}\n\n`,
+      inbox: { messages: [], waiting: ["s1"], drafts: [] },
+    });
+    await page.getByRole("button", { name: "Toggle agent session" }).click();
+    const panel = page.getByRole("region", { name: "Agent session" });
+    await panel.getByRole("combobox", { name: "Message Claude" }).fill("Use minutes.");
+    await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
+    await expect.poll(() => agentAnswers.length).toBe(1);
+    agentAnswers.shift()!(NO_ANSWER);
+    // The page tries again by itself; the message stays Sending meanwhile.
+    await expect.poll(() => agentAnswers.length).toBe(1);
+    await expect.element(panel.getByText("Sending…")).toBeVisible();
+    expect(panel.getByText("Not sent", { exact: false }).query()).toBeNull();
+    agentAnswers.shift()!();
+    await expect.poll(() => agentMessages).toMatchObject([{ text: "Use minutes." }]);
+    await expect.element(panel.getByText("Sending…")).not.toBeInTheDocument();
   });
 
   test("a session open in a terminal says so; a message waits for it, and Continue in Med forks it", async () => {

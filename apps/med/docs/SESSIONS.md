@@ -343,8 +343,15 @@ those messages as another session's, not as the user's.
   it; the arrow keys, Home, and End move between the tabs.
 - A message from the composer shows in the thread at once, with "Sending…".
   The host keeps the browser's ID for it, so a retry after a lost answer does
-  not send it twice. A failed send keeps the text with Retry and Discard. A
-  message that waits says for what: "Waiting for Claude to take it", or, while
+  not send it twice, and two sends of one ID at the same time go once. While
+  Med does not answer, as during a restart, the message stays "Sending…" and
+  goes again for about 20 seconds; then it fails with "Med is not running". A
+  failed send keeps the text with Retry and Discard. The browser keeps each
+  session's unsent messages and its composer draft, with the paths of its @
+  mentions, in `localStorage` (`data/outbox.ts`). After a reload, a message
+  that was on its way goes again with its ID, and a failed one comes back with
+  its reason. A message with more than 1 MB of images comes back without them,
+  and says so. A message that waits says for what: "Waiting for Claude to take it", or, while
   a terminal or another app runs the session, for that session to close, such
   as "Waiting for the terminal session to close"
   ([messages to adopted sessions](#messages-to-adopted-sessions)).
