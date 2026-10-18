@@ -198,7 +198,10 @@ test("a result opens the right page after the type changes", async ({
 
   await result.click();
   await waitForReaderReady(page);
-  expect(await currentPages(page)).toContain(await pageNumber());
+  // The page number follows the new layout to the page that opened.
+  await expect
+    .poll(async () => (await currentPages(page)).includes(await pageNumber()))
+    .toBe(true);
   await expect
     .poll(() => marks(page, "reader-search-active"))
     .toEqual(["Dinah"]);
