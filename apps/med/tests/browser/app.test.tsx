@@ -2953,10 +2953,16 @@ describe("review brief", () => {
       brief: "# Flow\n\n```mermaid\nflowchart LR\n  Edit --> Journal\n```\n",
     });
     await expect.element(page.getByRole("img", { name: "Mermaid diagram" })).toBeInTheDocument();
-    expect(document.querySelector(".med-md-diagram svg")?.textContent).toContain("Journal");
-    // Flat shapes: Mermaid's default look adds grey drop shadows.
-    const shapes = document.querySelectorAll(".med-md-diagram svg :is(rect, path, polygon)");
-    expect([...shapes].filter((shape) => getComputedStyle(shape).filter !== "none")).toEqual([]);
+    const diagram = document.querySelector(".med-md-diagram svg")!;
+    expect(diagram.textContent).toContain("Journal");
+    // Nodes are raised cards in the theme's colors, not Pele's own grey.
+    const raised = document.createElement("span");
+    raised.style.color = "var(--med-raised)";
+    diagram.parentElement!.append(raised);
+    expect(getComputedStyle(diagram.querySelector(".pele-node rect")!).fill).toBe(
+      getComputedStyle(raised).color,
+    );
+    raised.remove();
   });
 
   test("loads a brief image from the repository", async () => {

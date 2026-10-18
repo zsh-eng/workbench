@@ -81,7 +81,7 @@
     "decode-named-character-reference": "1.3.0",
     "hast-util-from-html-isomorphic": "2.0.0",
     "katex": "0.16.21",
-    "mermaid": "12.0.0",
+    "pele": "1.6.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "rehype-katex": "7.0.1",

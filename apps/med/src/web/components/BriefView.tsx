@@ -763,7 +763,7 @@ export default function BriefView({
               {blocks.map(({ block, index }) => (
                 <Fragment key={index}>
                   {block.diagram !== undefined ? (
-                    <DiagramBlock block={block} dark={theme.appearance === "dark"} />
+                    <DiagramBlock block={block} />
                   ) : (
                     <Block html={block.html} index={index} start={block.start} end={block.end} />
                   )}

@@ -91,9 +91,7 @@ from the message. After that, the run adds a second comment, opens the Commit
 tab and the commit dialog, and opens a small Obsidian vault
 (`scripts/screenshots/vault.ts`) on a second Med server, on the next port. It
 records those answers into `public/demo/recording.json` and
-`public/demo/vault.json`. It also records the vault note's Mermaid diagram as
-Med draws it in Med Dawn and Med Night, into `vault.json`. Then it builds the
-live demo, serves it on the
+`public/demo/vault.json`. Then it builds the live demo, serves it on the
 port after the vault's, and captures each scene of the demo (see
 [Live demo](#live-demo)) in Med's own Med Dawn and Med Night themes. So each
 screenshot shows what the live window shows. Each feature also gets a capture
@@ -185,9 +183,8 @@ its scene again: Replay in the hero's title bar and under the commit window,
 Reset under the others. The new scene loads behind the old one and fades in
 when it is ready.
 
-The demo build does not include Mermaid. `vite.demo.config.ts` points
-`mermaid` at `apps/med/src/web/demo-diagrams.ts`, which returns the recorded
-drawings. A diagram that a visitor edits shows its source.
+The demo draws Mermaid diagrams as Med does, with Pele, so a diagram that a
+visitor edits draws again.
 
 A feature's scene shows only its part:
 the brief, a short unified diff with the comment, the agent's session, the

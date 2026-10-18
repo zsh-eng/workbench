@@ -79,7 +79,7 @@ flowchart TB
 | Editing                                      | CodeMirror 6 and `@replit/codemirror-vim`, loaded on demand                            |
 | Selectors, menus, dialogs, tooltips          | `@base-ui/react`                                                                       |
 | Layout, themes, focus, density               | StyleX and a small CSS reset                                                           |
-| Markdown                                     | unified, remark, and rehype in a worker; KaTeX and Mermaid on demand                   |
+| Markdown                                     | unified, remark, and rehype in a worker; KaTeX and Pele (Mermaid) on demand            |
 | Separators and status elements               | Local React, HTML, and SVG                                                             |
 | Browser state                                | Local controllers and React external-store subscriptions                               |
 | Review semantics                             | Pinned Hunk source ([Hunk provenance](#hunk-provenance))                               |
@@ -657,8 +657,10 @@ The preview worker runs remark-parse, remark-gfm, remark-math, remark-rehype,
 and rehype-stringify. It keeps top-level source ranges for scroll mapping and
 heading IDs for navigation. **Raw HTML is disabled and link schemes are
 limited.** KaTeX loads only for math, with trust disabled and expansion
-limits. Mermaid loads on demand, renders near the viewport, and uses strict
-security. Code fences use the Twinkleplop adapter.
+limits. Pele draws Mermaid diagrams near the viewport, and each diagram type
+loads on demand. Diagram links and images are off. Diagram colors are CSS
+variables that MarkdownPreview.css maps to theme tokens, so a theme change does
+not draw again. Code fences use the Twinkleplop adapter.
 
 Image requests accept only supported image types up to 8 MiB, with exact
 document grants or registered repository access. Standalone images stay in the

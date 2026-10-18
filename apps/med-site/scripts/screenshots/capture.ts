@@ -20,7 +20,6 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   realpathSync,
   rmSync,
   statSync,
@@ -34,7 +33,7 @@ import { comments, message, rounds } from "./fixture.ts";
 import { applyRound, createRepository, write } from "./repo.ts";
 import { sessionId, Transcript } from "./session.ts";
 import { buildDemo } from "../demo.ts";
-import { createVault, diagramsIn, noteNames, vaultNote } from "./vault.ts";
+import { createVault, noteNames, vaultNote } from "./vault.ts";
 
 const commitMessage =
   "Show active filters as chips\n\nThe search bar lists each filter as a chip, and the list announces\nchanges to screen readers.";
@@ -511,71 +510,6 @@ async function recordVault(browser: Browser) {
   await context.close();
 }
 
-/** Records the note's Mermaid diagrams as Med draws them in Med Dawn and Med
- * Night, into vault.json. The demo shows these drawings and does not load
- * Mermaid (apps/med/src/web/demo-diagrams.ts). */
-async function drawDiagrams(browser: Browser) {
-  const sources = diagramsIn(vaultNote);
-  const diagrams = [];
-  for (const dark of [false, true]) {
-    const context = await browser.newContext({
-      viewport: shots.notes.viewport,
-      colorScheme: dark ? "dark" : "light",
-      reducedMotion: "reduce",
-    });
-    await context.addInitScript(
-      (theme) => localStorage.setItem("med:theme:v1", theme),
-      dark ? "med-night" : "med-dawn",
-    );
-    const page = await context.newPage();
-    await page.goto(vaultUrl);
-    await page.waitForURL((url) => !url.hash.includes("token"));
-    await page.locator(`a[href="/vault/${vaultId}"]`).click();
-    await page
-      .getByRole("complementary", { name: "Vault files" })
-      .getByRole("treeitem", { name: vaultNote, exact: true })
-      .dblclick();
-    // A diagram draws when it comes near the view.
-    const blocks = page.locator("pre[data-mermaid]");
-    await blocks.first().waitFor();
-    for (const block of await blocks.all())
-      await block.scrollIntoViewIfNeeded();
-    const drawn = page.locator(".med-md-diagram > svg");
-    await drawn.first().waitFor({ state: "attached" });
-    await expectCount(drawn, sources.length);
-    const svgs = await drawn.evaluateAll((nodes) =>
-      nodes.map((node) => ({ id: node.id, svg: node.outerHTML })),
-    );
-    svgs.forEach(({ id, svg }, index) =>
-      diagrams.push({
-        dark,
-        source: sources[index]!,
-        id,
-        // Med lets a wide diagram shrink only so far; it adds that again.
-        svg: svg.replace(
-          /^(<svg[^>]*?style="max-width: [\d.]+px;) min-width: \d+px;/,
-          "$1",
-        ),
-      }),
-    );
-    await context.close();
-  }
-  const file = join(site, "public/demo/vault.json");
-  const recording = JSON.parse(readFileSync(file, "utf8"));
-  writeFileSync(file, JSON.stringify({ ...recording, diagrams }));
-  console.log(`vault.json: ${diagrams.length} drawings`);
-}
-
-async function expectCount(locator: Locator, count: number) {
-  for (let step = 0; step < 50; step += 1) {
-    if ((await locator.count()) === count) return;
-    await Bun.sleep(100);
-  }
-  throw new Error(
-    `Expected ${count} diagrams, found ${await locator.count()}.`,
-  );
-}
-
 type Entry = {
   method: string;
   url: string;
@@ -774,7 +708,6 @@ async function recordDemo(browser: Browser) {
 
     await record(browser, token, path);
     await recordVault(browser);
-    await drawDiagrams(browser);
   } finally {
     waiter?.kill();
     server.kill();

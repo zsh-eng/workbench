@@ -169,14 +169,49 @@
 .med-md-prose pre[data-diagram-error="true"]::before {
   content: "Mermaid · check syntax";
 }
+/* Pele draws in these colors and fonts, so a diagram matches the theme. It
+ * sits on the code-block surface, and its nodes are raised cards on it. */
 .med-md-diagram {
-  display: flex;
-  justify-content: safe center;
-  overflow-x: auto;
+  --pele-bg: var(--med-panel);
+  --pele-fg: var(--med-text);
+  --pele-muted: var(--med-muted);
+  --pele-line: color-mix(in srgb, var(--med-text) 40%, var(--med-panel));
+  --pele-surface: var(--med-raised);
+  --pele-surface-alt: color-mix(in srgb, var(--med-text) 5%, var(--med-panel));
+  --pele-border: color-mix(in srgb, var(--med-text) 20%, var(--med-panel));
+  --pele-accent: var(--med-accent);
+  --pele-critical: var(--med-red);
+  --pele-error: var(--med-red);
+  --pele-series-1: var(--med-accent);
+  --pele-series-2: var(--med-green);
+  --pele-series-3: var(--med-warning);
+  --pele-series-4: var(--med-red);
+  --pele-series-5: var(--med-muted);
+  --pele-series-6: color-mix(in srgb, var(--med-accent) 50%, var(--med-green));
+  --pele-series-7: color-mix(in srgb, var(--med-warning) 50%, var(--med-red));
+  --pele-series-8: var(--med-faint);
+  /* The theme's interface font, so labels match the page (Paper Mono in Paper). */
+  --pele-font: var(--med-font-ui);
+  --pele-font-mono: "Paper Mono", monospace;
+  --pele-radius: calc(6px * var(--med-round, 1));
+  /* In the code block's padding, at its corner. */
+  --pele-zoom-top: -16px;
+  --pele-zoom-right: -8px;
+  white-space: normal;
+  line-height: normal;
 }
-.med-md-diagram svg {
-  max-width: 100%;
-  height: auto;
+.med-md-diagram > svg {
+  display: block;
+  margin-inline: auto;
+}
+/* Pele offers zoom when a diagram has to shrink to fit. The buttons show while
+ * the pointer or the focus is in the diagram, so they do not cover it. */
+.med-md-diagram .pele-zoom {
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.med-md-diagram:is(:hover, :focus-within) .pele-zoom {
+  opacity: 1;
 }
 .med-md-prose img {
   max-width: 100%;

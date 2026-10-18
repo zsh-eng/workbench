@@ -5,7 +5,8 @@ import { useTheme } from "../themes";
 import type { MarkdownModel, MarkdownBlock, MarkdownResult } from "../markdown/model";
 import { connectPreviewScroll } from "../markdown/scroll";
 import RenderWorker from "../markdown/render.worker?worker";
-import { renderDiagram } from "../markdown/diagrams";
+import type { Mounted } from "pele/lazy";
+import { mountDiagram } from "../markdown/diagrams";
 import { DiagramBlock } from "./DiagramBlock";
 import "katex/dist/katex.min.css";
 import "./MarkdownPreview.css";
@@ -17,16 +18,16 @@ const Block = memo(
     block,
     source,
     path,
-    dark,
     vault,
   }: {
     block: MarkdownBlock;
     source: FileRead["source"];
     path: string;
-    dark: boolean;
     vault?: boolean;
   }) {
     const element = useRef<HTMLDivElement>(null);
+    const mounted = useRef<Mounted[]>([]);
+    const theme = useTheme().active.id;
     useEffect(() => {
       if (block.diagram !== undefined) return;
       const host = element.current!;
@@ -49,6 +50,8 @@ const Block = memo(
           image.title = `Image unavailable: ${raw}`;
         };
       }
+      // A diagram inside a list or a quote; a top-level one is a DiagramBlock.
+      const diagrams: Mounted[] = [];
       const observer = new IntersectionObserver(
         (entries) => {
           for (const entry of entries) {
@@ -56,23 +59,24 @@ const Block = memo(
             observer.unobserve(entry.target);
             const pre = entry.target as HTMLElement;
             const code = pre.querySelector("code")!;
-            const source = code.textContent ?? "";
-            void renderDiagram(source, dark)
-              .then((svg) => {
-                if (cancelled) return;
-                const figure = document.createElement("div");
-                figure.className = "med-md-diagram";
+            const figure = document.createElement("div");
+            figure.className = "med-md-diagram";
+            pre.prepend(figure);
+            mountDiagram(figure, code.textContent ?? "").then(
+              (diagram) => {
+                if (cancelled) return diagram.destroy();
+                diagrams.push(diagram);
                 figure.setAttribute("role", "img");
                 figure.setAttribute("aria-label", "Mermaid diagram");
-                figure.innerHTML = svg;
-                pre.replaceChildren(figure);
+                code.remove();
                 pre.dataset.rendered = "true";
-              })
-              .catch(() => {
+              },
+              () => {
                 if (cancelled) return;
+                figure.remove();
                 pre.dataset.diagramError = "true";
-                pre.title = "Diagram could not render. Check the Mermaid syntax.";
-              });
+              },
+            );
           }
         },
         { rootMargin: "300px" },
@@ -80,12 +84,19 @@ const Block = memo(
       host
         .querySelectorAll("pre[data-mermaid]:not([data-rendered])")
         .forEach((pre) => observer.observe(pre));
+      mounted.current = diagrams;
       return () => {
         cancelled = true;
         observer.disconnect();
+        for (const diagram of diagrams) diagram.destroy();
+        mounted.current = [];
       };
-    }, [block.html, block.diagram, source, path, dark, vault]);
-    if (block.diagram !== undefined) return <DiagramBlock block={block} dark={dark} />;
+    }, [block.html, block.diagram, source, path, vault]);
+    // A theme can change the font, which sizes the labels; colors follow by CSS.
+    useEffect(() => {
+      for (const diagram of mounted.current) diagram.refresh();
+    }, [theme]);
+    if (block.diagram !== undefined) return <DiagramBlock block={block} />;
     return (
       <div
         ref={element}
@@ -102,7 +113,6 @@ const Block = memo(
     a.block.end === b.block.end &&
     a.source === b.source &&
     a.path === b.path &&
-    a.dark === b.dark &&
     a.vault === b.vault,
 );
 
@@ -244,12 +254,11 @@ export default function MarkdownPreview({
           <article className="med-md-prose">
             {result?.blocks.map((block, index) => (
               <Block
-                key={`${index}:${active.id}`}
+                key={index}
                 block={block}
                 vault={"vault" in file && !!file.vault}
                 source={file.source}
                 path={file.path}
-                dark={active.appearance === "dark"}
               />
             ))}
             {result && !result.blocks.length && (

@@ -97,7 +97,7 @@ export const SessionMarkdown = memo(function SessionMarkdown({
       {blocks ? (
         blocks.map((block, index) =>
           block.diagram !== undefined ? (
-            <DiagramBlock key={index} block={block} dark={theme.appearance === "dark"} />
+            <DiagramBlock key={index} block={block} />
           ) : (
             <div
               key={index}

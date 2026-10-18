@@ -21,7 +21,6 @@ import type { Note, NoteMutation, NoteState, RegisteredRepository } from "../sha
 import type { SavedReview } from "../shared/saved-review";
 import type { ThreadList } from "../shared/threads";
 import type { WorkingStatus } from "../shared/git-actions";
-import { addDrawing, type Drawing } from "./demo-diagrams";
 
 interface Chunk {
   /** Milliseconds from the start of the timeline. */
@@ -54,8 +53,6 @@ interface Recording {
   /** The app's local settings: panes, workspaces, modes, and drafts. */
   storage: Record<string, string>;
   entries: Entry[];
-  /** Mermaid diagrams as Med drew them, which stand in for Mermaid. */
-  diagrams?: Drawing[];
 }
 
 const params = new URLSearchParams(location.search);
@@ -65,7 +62,6 @@ const file = scene === "notes" ? "vault.json" : scene === "review" ? "hero.json"
 const recording: Recording = await fetch(new URL(file, document.baseURI)).then((response) =>
   response.json(),
 );
-for (const drawing of recording.diagrams ?? []) addDrawing(drawing);
 
 // The clock. A timeline's recording time is its start, which the clock
 // shows again when the timeline starts.
