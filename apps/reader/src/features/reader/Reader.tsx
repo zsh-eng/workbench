@@ -600,8 +600,14 @@ export function Reader() {
                       index={searchActiveIndex}
                       total={search.state.results.length}
                       truncated={search.state.truncated}
-                      onPrevious={search.previous}
-                      onNext={search.next}
+                      onPrevious={() => {
+                        search.previous();
+                        if (chromeInteractionMode === "touch") hideChrome();
+                      }}
+                      onNext={() => {
+                        search.next();
+                        if (chromeInteractionMode === "touch") hideChrome();
+                      }}
                       onShowResults={() =>
                         chromeActions.openReaderSheet("search")
                       }
@@ -889,9 +895,13 @@ export function Reader() {
                             isOpen={searchOpen}
                             autoFocus={isMobile ? "when-empty" : "always"}
                             focusRequest={searchFocusRequest}
-                            // The tools cover part of the spread, and
-                            // the match may sit under them.
-                            onResultOpened={chromeActions.closeReaderSheet}
+                            // The tools and, on a touch screen, the
+                            // header and footer can cover the match.
+                            onResultOpened={() => {
+                              chromeActions.closeReaderSheet();
+                              if (chromeInteractionMode === "touch")
+                                hideChrome();
+                            }}
                             className={isMobile ? undefined : "h-full"}
                           />
                         }

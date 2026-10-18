@@ -231,13 +231,20 @@ test.describe("on a phone", () => {
     const stepper = page.getByTestId("search-stepper");
     await expect(stepper).toContainText("7 of");
     await expect(searchField(page)).toHaveCount(0);
+    // The header and footer would cover a match near the page's edge.
+    const back = page.getByRole("button", { name: "Back to library" });
+    await expect(back).not.toBeInViewport();
     await waitForReaderReady(page);
     await expect
       .poll(() => marks(page, "reader-search-active"))
       .toEqual(["Dinah"]);
 
+    // Stepping with the header showing clears it too.
+    await page.touchscreen.tap(195, 350);
+    await expect(back).toBeInViewport();
     await stepper.getByRole("button", { name: "Next result" }).tap();
     await expect(stepper).toContainText("8 of");
+    await expect(back).not.toBeInViewport();
     await expect
       .poll(() => marks(page, "reader-search-active"))
       .toEqual(["Dinah"]);
