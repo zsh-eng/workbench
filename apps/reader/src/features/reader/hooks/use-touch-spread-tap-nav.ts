@@ -11,9 +11,25 @@ type TapNavigationAction =
   | null;
 type TouchPressSource = "pointer" | "touch";
 
+/**
+ * Pull to scroll (scroll-mode prototype). An upward drag first lifts the
+ * progress peek; travel past the peek's height hands over to the pull, which
+ * moves the text instead. With the chrome showing there is no peek, so the
+ * pull starts at once.
+ */
+export interface TouchPullHandlers {
+  canStart: () => boolean;
+  start: () => boolean;
+  /** Finger travel beyond the peek, in pixels. */
+  move: (distance: number) => void;
+  /** Release; zero cancels. */
+  end: (distance: number) => void;
+}
+
 interface UseTouchSpreadTapNavOptions {
   containerRef: RefObject<HTMLElement | null>;
   enabled: boolean;
+  pull?: TouchPullHandlers;
   onNextSpread: () => void;
   onPrevSpread: () => void;
   onShowChrome?: () => void;
@@ -31,8 +47,12 @@ interface TouchPressState {
   startedAt: number;
   target: EventTarget | null;
   moved: boolean;
-  axis: "pending" | "horizontal" | "down" | "peek" | "blocked";
+  axis: "pending" | "horizontal" | "down" | "peek" | "pull" | "blocked";
   peekStartOffset: number;
+  /** The pull took over; finger travel beyond the peek. */
+  pulling: boolean;
+  pullDistance: number;
+  pullOriginY: number;
 }
 
 interface TouchTapCandidate {
@@ -217,6 +237,7 @@ export function useTouchSpreadTapNav(options: UseTouchSpreadTapNavOptions) {
     chromeVisible = false,
     canGoNext,
     canGoPrev,
+    pull,
   } = options;
 
   const pressRef = useRef<TouchPressState | null>(null);
@@ -227,7 +248,12 @@ export function useTouchSpreadTapNav(options: UseTouchSpreadTapNavOptions) {
 
   // Native listeners keep their lifetime but use committed navigation state.
   const showChrome = useEffectEvent(() => onShowChrome?.());
+  const hideChromeForPull = useEffectEvent(() => onHideChrome?.());
   const canPeek = useEffectEvent(() => !chromeVisible);
+  const pullCanStart = useEffectEvent(() => pull?.canStart() ?? false);
+  const pullStart = useEffectEvent(() => pull?.start() ?? false);
+  const pullMove = useEffectEvent((distance: number) => pull?.move(distance));
+  const pullEnd = useEffectEvent((distance: number) => pull?.end(distance));
   const navigateForTap = useEffectEvent(
     (
       clientX: number,
@@ -284,9 +310,17 @@ export function useTouchSpreadTapNav(options: UseTouchSpreadTapNavOptions) {
     const cancelPress = () => {
       const press = pressRef.current;
       pressRef.current = null;
+      if (press?.pulling) pullEnd(0);
       if (!press || press.axis !== "peek") return;
       releasePeekCapture(press);
       endPeek();
+    };
+
+    const beginPull = (press: TouchPressState, originY: number): boolean => {
+      if (!pullCanStart() || !pullStart()) return false;
+      press.pulling = true;
+      press.pullOriginY = originY;
+      return true;
     };
 
     const movePress = (
@@ -308,7 +342,7 @@ export function useTouchSpreadTapNav(options: UseTouchSpreadTapNavOptions) {
         press.moved = true;
       }
       if (Math.max(Math.abs(dx), Math.abs(dy)) < TOUCH_TAP_MOVE_TOLERANCE_PX) {
-        if (press.axis !== "peek") return;
+        if (press.axis !== "peek" && press.axis !== "pull") return;
       }
 
       if (press.axis === "pending") {
@@ -323,19 +357,42 @@ export function useTouchSpreadTapNav(options: UseTouchSpreadTapNavOptions) {
           press.axis = "down";
           return;
         }
-        if (!canPeek()) return;
         if (Date.now() - press.startedAt > MAX_TOUCH_TAP_DURATION_MS) return;
-        press.axis = "peek";
-        peekOffset.stop();
-        press.peekStartOffset = peekOffset.get();
-        if (press.source === "pointer") container.setPointerCapture(press.id);
+        if (!canPeek()) {
+          // No peek with the chrome showing: the pull starts at once.
+          if (!beginPull(press, clientY)) return;
+          hideChromeForPull();
+          press.axis = "pull";
+          if (press.source === "pointer") container.setPointerCapture(press.id);
+        } else {
+          press.axis = "peek";
+          peekOffset.stop();
+          press.peekStartOffset = peekOffset.get();
+          if (press.source === "pointer") container.setPointerCapture(press.id);
+        }
       }
 
+      if (press.axis === "pull") {
+        event.preventDefault();
+        press.pullDistance = Math.max(0, press.pullOriginY - clientY);
+        pullMove(press.pullDistance);
+        return;
+      }
       if (press.axis !== "peek") return;
       event.preventDefault();
-      peekOffset.set(
-        Math.max(0, Math.min(peekHeight.get(), press.peekStartOffset - dy)),
-      );
+      const travel = press.peekStartOffset - dy;
+      const height = peekHeight.get();
+      if (travel > height && !press.pulling) {
+        beginPull(press, clientY);
+      }
+      if (press.pulling) {
+        // The peek recedes as the text takes over.
+        press.pullDistance = Math.max(0, press.pullOriginY - clientY);
+        pullMove(press.pullDistance);
+        peekOffset.set(Math.max(0, height - press.pullDistance * 1.5));
+        return;
+      }
+      peekOffset.set(Math.max(0, Math.min(height, travel)));
     };
 
     const markHandled = (x: number) => {
@@ -366,6 +423,15 @@ export function useTouchSpreadTapNav(options: UseTouchSpreadTapNavOptions) {
       preventDefault: () => void,
     ) => {
       const endedAt = Date.now();
+      if (press.pulling) {
+        preventDefault();
+        markHandled(clientX);
+        pullEnd(Math.max(0, press.pullOriginY - clientY));
+        if (press.source === "pointer" && container.hasPointerCapture(press.id))
+          container.releasePointerCapture(press.id);
+        if (press.axis === "peek") endPeek();
+        return;
+      }
       if (press.axis === "peek") {
         preventDefault();
         markHandled(clientX);
@@ -431,6 +497,9 @@ export function useTouchSpreadTapNav(options: UseTouchSpreadTapNavOptions) {
         moved: false,
         axis: hasActiveTextSelection() ? "blocked" : "pending",
         peekStartOffset: 0,
+        pulling: false,
+        pullDistance: 0,
+        pullOriginY: 0,
       };
     };
 
@@ -495,6 +564,9 @@ export function useTouchSpreadTapNav(options: UseTouchSpreadTapNavOptions) {
         moved: false,
         axis: hasActiveTextSelection() ? "blocked" : "pending",
         peekStartOffset: 0,
+        pulling: false,
+        pullDistance: 0,
+        pullOriginY: 0,
       };
     };
 

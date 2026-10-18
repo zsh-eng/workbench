@@ -6,7 +6,10 @@ import {
   useHoverChromeBehavior,
 } from "./hooks/use-hover-chrome-behavior";
 import { useScrollTapChrome } from "./hooks/use-scroll-tap-chrome";
-import { useTouchSpreadTapNav } from "./hooks/use-touch-spread-tap-nav";
+import {
+  useTouchSpreadTapNav,
+  type TouchPullHandlers,
+} from "./hooks/use-touch-spread-tap-nav";
 
 export { CHROME_HIDE_DELAY_MS };
 
@@ -33,6 +36,8 @@ interface ReaderControllerProps {
    * zones, page swipes and the upward progress peek are off.
    */
   scrollMode?: boolean;
+  /** Pull to scroll from pages (prototype). */
+  pull?: TouchPullHandlers;
   onDismissContentTap?: () => void;
   containerRef: RefObject<HTMLElement | null>;
   topRailHeight: number;
@@ -66,6 +71,7 @@ export function ReaderController({
   chromeInteractionMode,
   isChromeSuppressed = false,
   scrollMode = false,
+  pull,
   onDismissContentTap,
   containerRef,
   topRailHeight,
@@ -99,6 +105,7 @@ export function ReaderController({
   const progressPeek = useTouchSpreadTapNav({
     containerRef,
     enabled: isTouchMode && !isChromeSuppressed && !scrollMode,
+    pull,
     onPrevSpread: onPrevPage,
     onNextSpread: onNextPage,
     onShowChrome: showChrome,
