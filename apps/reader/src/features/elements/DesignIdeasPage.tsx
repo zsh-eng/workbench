@@ -72,6 +72,31 @@ const TOPICS: Record<IdeaTopic, TopicIdeas> = {
       },
     ],
   },
+  search: {
+    current: {
+      id: "search-tint",
+      title: "Tint and underline",
+      description:
+        "What ships: every match on the page tinted with the text colour, the one you are on darker and underlined. Searching “the” in the book you read last shows the busiest page.",
+      src: (bookId) => `/reader/${bookId}?search=the&searchMarks=tint`,
+    },
+    ideas: [
+      {
+        id: "search-underline",
+        title: "Underlines only",
+        description:
+          "Other matches get a thin underline instead of a tint, so they never look like your highlights. The one you are on stays tinted.",
+        src: (bookId) => `/reader/${bookId}?search=the&searchMarks=underline`,
+      },
+      {
+        id: "search-current",
+        title: "Only the current match",
+        description:
+          "Nothing marks the other matches; the page stays quiet and the stepper says where the next one is.",
+        src: (bookId) => `/reader/${bookId}?search=the&searchMarks=current`,
+      },
+    ],
+  },
   dark: {
     current: {
       id: "dark-current",

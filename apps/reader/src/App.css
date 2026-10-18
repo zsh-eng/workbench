@@ -360,6 +360,19 @@ mark {
   background-color: color-mix(in srgb, var(--foreground) 13%, transparent);
 }
 
+/* Ideas for Design ideas: underlines alone, or only the current match. */
+[data-search-marks="underline"] ::highlight(reader-search) {
+  background-color: transparent;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--foreground) 55%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+[data-search-marks="current"] ::highlight(reader-search) {
+  background-color: transparent;
+}
+
 ::highlight(reader-search-active) {
   background-color: color-mix(in srgb, var(--foreground) 24%, transparent);
   text-decoration: underline;

@@ -186,8 +186,12 @@ export function Reader() {
 
   // Search starts its worker the first time it opens.
   const searchOpen = chromeState.activeReaderSheet === "search";
+  // Search ideas for Design ideas, Debug mode only: `?search=` steps to the
+  // nearest match and `?searchMarks=` picks how matches are marked.
+  const searchIdea = debugEnabled ? searchParams.get("search") : null;
+  const searchMarks = debugEnabled ? searchParams.get("searchMarks") : null;
   const [searchStarted, setSearchStarted] = useState(false);
-  if (searchOpen && !searchStarted) setSearchStarted(true);
+  if ((searchOpen || searchIdea) && !searchStarted) setSearchStarted(true);
   const search = useReaderSearch({
     bookId: bookId ?? "",
     enabled: searchStarted,
@@ -247,6 +251,30 @@ export function Reader() {
     if (!settledPaintReady) return;
     resumeBackgroundLoad();
   }, [resumeBackgroundLoad, settledPaintReady]);
+  const searchIdeaStep = useRef<"query" | "open" | "done">("query");
+  const { setQuery: setSearchQuery, next: nextSearchResult } = search;
+  useEffect(() => {
+    if (!searchIdea || !displayReady) return;
+    if (searchIdeaStep.current === "query") {
+      searchIdeaStep.current = "open";
+      setSearchQuery(searchIdea, { remember: false });
+    } else if (
+      searchIdeaStep.current === "open" &&
+      search.state.status === "done" &&
+      search.state.results.length
+    ) {
+      searchIdeaStep.current = "done";
+      nextSearchResult();
+    }
+  }, [
+    displayReady,
+    nextSearchResult,
+    search.state.results.length,
+    search.state.status,
+    searchIdea,
+    setSearchQuery,
+  ]);
+
   // Find next and previous, as in a browser.
   const stepEnabled = displayReady && search.state.results.length > 0;
   useHotkey(
@@ -422,7 +450,10 @@ export function Reader() {
   };
 
   return (
-    <div className="relative h-dvh overflow-hidden overscroll-none bg-background">
+    <div
+      data-search-marks={searchMarks ?? undefined}
+      className="relative h-dvh overflow-hidden overscroll-none bg-background"
+    >
       {displayReady && (
         <DisplayReadyCommitProbe
           key={bookId}

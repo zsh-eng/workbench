@@ -203,4 +203,32 @@ test.describe("on a phone", () => {
     await page.getByRole("link", { name: "Back to Dark mode ideas" }).click();
     await expect(page).toHaveURL(/\/debug\/elements\/dark$/);
   });
+
+  test("Design ideas compare how search marks matches", async ({
+    page,
+    localBook,
+  }) => {
+    expect(localBook.id).toBeTruthy();
+    await page.goto("/debug");
+    await page.getByRole("link", { name: /Design ideas/ }).click();
+    await page.getByRole("link", { name: "Reader search ideas" }).click();
+
+    // Each frame opens the book at the nearest match for “the”.
+    const show = page.getByRole("group", { name: "Show" });
+    const marks = async (title: string) => {
+      await show.getByRole("button", { name: title }).click();
+      const frame = page
+        .locator(`iframe[title="${title}, phone"]`)
+        .contentFrame();
+      await expect(frame.getByTestId("search-stepper")).toBeVisible({
+        timeout: 20_000,
+      });
+      return frame
+        .locator("[data-search-marks]")
+        .getAttribute("data-search-marks");
+    };
+    expect(await marks("Tint and underline")).toBe("tint");
+    expect(await marks("Underlines only")).toBe("underline");
+    expect(await marks("Only the current match")).toBe("current");
+  });
 });
