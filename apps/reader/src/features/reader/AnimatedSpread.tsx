@@ -54,8 +54,12 @@ export function SpreadView({
         paddingRight: `${paddingRightPx}px`,
       }}
     >
+      {/* Pages clip only vertically. Glyph ink can extend past the text
+          column, such as a line-initial "j" or a line-final italic "f", and
+          the page margin must show it. The spread still clips at the stage
+          edge above. */}
       <div
-        className="h-full w-full overflow-hidden grid"
+        className="grid h-full w-full overflow-x-visible overflow-y-clip"
         style={{
           gridTemplateColumns: `repeat(${spreadConfig.columns}, minmax(0, 1fr))`,
           columnGap: `${columnSpacingPx}px`,
@@ -82,8 +86,8 @@ export function SpreadView({
               data-reader-current-page={slot.page.currentPage}
               className={
                 showDebugOutlines
-                  ? "relative h-full w-full overflow-hidden reader-container-outline"
-                  : "relative h-full w-full overflow-hidden"
+                  ? "relative h-full w-full overflow-x-visible overflow-y-clip reader-container-outline"
+                  : "relative h-full w-full overflow-x-visible overflow-y-clip"
               }
             >
               <div
@@ -91,7 +95,7 @@ export function SpreadView({
                 aria-hidden="true"
               />
               <div
-                className="relative z-10 h-full w-full overflow-hidden"
+                className="relative z-10 h-full w-full overflow-x-visible overflow-y-clip"
                 data-reader-page-content
               >
                 {slot.page.content.map((slice, i) => (
