@@ -394,16 +394,66 @@ export function useReaderSearch({
     setStatus("done");
   }, []);
 
+  // Fragment targets and headings live in a chapter's blocks, which arrive
+  // as each chapter is parsed, so the sections are placed again as they do.
+  const parsedChapters = enabled
+    ? chapters.filter(
+        (chapter) => chapterAccess.getBlocks(chapter.index) !== null,
+      ).length
+    : 0;
+  const sections = useMemo(
+    () =>
+      parsedChapters
+        ? buildSearchSections(
+            toc,
+            chapters,
+            chapterAccess.getBlocks,
+            chapterAccess.getCanonicalText,
+          )
+        : [],
+    [chapterAccess, chapters, parsedChapters, toc],
+  );
+  const resultGroups = useMemo(() => {
+    const grouped: (ReaderSearchChapterGroup & { section: boolean })[] = [];
+    results.forEach((result, index) => {
+      const section = findSection(sections, result.chapterIndex, result.start);
+      const key = section
+        ? `section:${section.order}`
+        : `chapter:${result.chapterIndex}`;
+      const last = grouped.at(-1);
+      if (last?.key === key) {
+        last.results.push(result);
+        return;
+      }
+      grouped.push({
+        key,
+        title: section?.title ?? "",
+        section: !!section,
+        firstIndex: index,
+        results: [result],
+      });
+    });
+    return grouped;
+  }, [results, sections]);
+
   // Results are placed on pages again whenever the layout changes.
   useEffect(() => {
     if (!results.length) return;
     const timer = window.setTimeout(() => {
-      // Only results on screen, and those near the reader for stepping from
-      // where they are, need a page.
+      // Only results on screen, those near the reader for stepping from
+      // where they are, and the last of each group on screen, whose page
+      // ends the group's title, need a page.
+      const groupEnds = new Set(
+        resultGroups
+          .filter((group) => group.firstIndex < shown)
+          .map((group) => group.results.at(-1)!.id),
+      );
       const byChapter = new Map<number, { id: string; offset: number }[]>();
       const wanted = results.filter(
         (result, index) =>
-          index < shown || result.chapterIndex === currentChapterIndex,
+          index < shown ||
+          result.chapterIndex === currentChapterIndex ||
+          groupEnds.has(result.id),
       );
       for (const result of wanted) {
         const offsets = byChapter.get(result.chapterIndex) ?? [];
@@ -430,6 +480,7 @@ export function useReaderSearch({
     currentChapterIndex,
     layoutKey,
     locateTextOffsets,
+    resultGroups,
     results,
     shown,
   ]);
@@ -450,62 +501,27 @@ export function useReaderSearch({
     return byId;
   }, [locations, results]);
 
-  // Fragment targets and headings live in a chapter's blocks, which arrive
-  // as each chapter is parsed, so the sections are placed again as they do.
-  const parsedChapters = enabled
-    ? chapters.filter(
-        (chapter) => chapterAccess.getBlocks(chapter.index) !== null,
-      ).length
-    : 0;
-  const sections = useMemo(
+  // A file with no table of contents entry or heading is named by its
+  // pages; its file name means nothing to a reader.
+  const groups = useMemo(
     () =>
-      parsedChapters
-        ? buildSearchSections(
-            toc,
-            chapters,
-            chapterAccess.getBlocks,
-            chapterAccess.getCanonicalText,
-          )
-        : [],
-    [chapterAccess, chapters, parsedChapters, toc],
+      resultGroups.map(({ section, ...group }) => {
+        if (section) return group;
+        const first = pages[group.results[0]!.id];
+        const last = pages[group.results.at(-1)!.id];
+        return {
+          ...group,
+          title: !first
+            ? ""
+            : !last
+              ? `From page ${first}`
+              : last !== first
+                ? `Pages ${first}–${last}`
+                : `Page ${first}`,
+        };
+      }),
+    [pages, resultGroups],
   );
-  const groups = useMemo(() => {
-    const grouped: (ReaderSearchChapterGroup & { section: boolean })[] = [];
-    results.forEach((result, index) => {
-      const section = findSection(sections, result.chapterIndex, result.start);
-      const key = section
-        ? `section:${section.order}`
-        : `chapter:${result.chapterIndex}`;
-      const last = grouped.at(-1);
-      if (last?.key === key) {
-        last.results.push(result);
-        return;
-      }
-      grouped.push({
-        key,
-        title: section?.title ?? "",
-        section: !!section,
-        firstIndex: index,
-        results: [result],
-      });
-    });
-    // A file with no table of contents entry or heading is named by its
-    // pages; its file name means nothing to a reader.
-    return grouped.map(({ section, ...group }) => {
-      if (section) return group;
-      const first = pages[group.results[0]!.id];
-      const last = pages[group.results.at(-1)!.id];
-      const chapterIndex = group.results[0]!.chapterIndex;
-      return {
-        ...group,
-        title: first
-          ? last && last !== first
-            ? `Pages ${first}–${last}`
-            : `Page ${first}`
-          : chapters[chapterIndex]?.title || `Part ${chapterIndex + 1}`,
-      };
-    });
-  }, [chapters, pages, results, sections]);
 
   const notes = useBookNotesQuery(bookId).data;
   const annotations = useMemo(() => {
