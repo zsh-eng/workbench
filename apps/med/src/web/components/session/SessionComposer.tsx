@@ -22,6 +22,7 @@ import { Icon } from "../Icon";
 import { tooltip } from "../ToolButton";
 import { ImageViewer, imageSource } from "./ImageThumbs";
 import { useMentions } from "../Mentions";
+import { SessionNotice } from "./SessionNotice";
 import type { MentionSources } from "../../data/mentions";
 
 export interface ComposerAttachment {
@@ -146,6 +147,9 @@ export function PermissionCard({
  * another app runs takes it when it runs `med review wait`, or gets it when
  * that session closes. A Codex session reads its queue.
  */
+const clock = (at: number) =>
+  new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
 export function SessionComposer({
   agent,
   name,
@@ -230,6 +234,7 @@ export function SessionComposer({
   const status = owned?.state.status;
   const working = status === "working";
   const stopped = status === "exited";
+  const halt = owned?.state.halt;
   const slash = owned && !menuClosed ? /^\/(\S*)$/.exec(text) : null;
   const matches = slash ? matchCommands(owned!.state.commands, slash[1]!) : [];
   const active = Math.min(highlight, Math.max(0, matches.length - 1));
@@ -328,7 +333,21 @@ export function SessionComposer({
           }
         />
       )}
-      {notice}
+      {notice ??
+        (halt?.kind === "stopped" && !stopped && (
+          <SessionNotice
+            tone="stopped"
+            title={`${name} stopped`}
+            lines={halt.lines}
+            actions={[
+              { label: "Restart", primary: true, run: () => void act({ action: "restart" }) },
+            ]}
+          >
+            {halt.detail ?? "It stopped"}
+            {halt.at ? ` at ${clock(halt.at)}` : ""}. Restart resumes the session where it was; a
+            message restarts it too.
+          </SessionNotice>
+        ))}
       <form
         aria-label={`Message ${name}`}
         onSubmit={(event) => {

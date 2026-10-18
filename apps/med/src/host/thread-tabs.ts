@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { z } from "zod";
 import { agentSessionSchema, MAX_SESSIONS } from "../shared/saved-review";
+import { keepAside } from "./runtime/state-file";
 
 // Open tabs and cold history. A thread is a tab (open) or in history
 // (closed). The host keeps which, the order of the tabs, and when each thread
@@ -65,6 +66,35 @@ type TabsState = z.infer<typeof stateSchema>;
 
 export type ThreadTabs = ReturnType<typeof createThreadTabs>;
 
+/** The tabs in a file's text, with each entry checked on its own. */
+function readTabs(text: string): { state?: TabsState; partial: boolean } {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return { partial: true };
+  }
+  const whole = stateSchema.safeParse(raw);
+  if (whole.success) return { state: whole.data, partial: false };
+  const file = z
+    .object({
+      version: z.literal(1),
+      order: z.array(z.unknown()),
+      entries: z.record(z.string(), z.unknown()),
+    })
+    .safeParse(raw);
+  if (!file.success) return { partial: true };
+  const entries: TabsState["entries"] = {};
+  for (const [id, value] of Object.entries(file.data.entries)) {
+    const entry = entrySchema.safeParse(value);
+    if (entry.success && id.length <= 200) entries[id] = entry.data;
+  }
+  const order = file.data.order
+    .filter((id): id is string => typeof id === "string" && id.length <= 200)
+    .slice(0, 1000);
+  return { state: { version: 1, order, entries }, partial: true };
+}
+
 /** The tabs store. Changes apply in memory at once; `save()` writes them. */
 export function createThreadTabs(options: { file: string; now?: () => number }) {
   const now = options.now ?? Date.now;
@@ -79,12 +109,22 @@ export function createThreadTabs(options: { file: string; now?: () => number }) 
   const entry = (id: string) => (state.entries[id] ??= {});
 
   const tabs = {
-    /** Reads the file. False when there is none yet, as before the first start. */
+    /** Reads the file. False when there is none yet, as before the first
+     * start, or when Med can read none of it: the tabs are made again. An
+     * entry that Med cannot read costs only itself, and a file that it could
+     * not read in full keeps a copy beside it. */
     async load(): Promise<boolean> {
       try {
-        const parsed = stateSchema.safeParse(JSON.parse(await readFile(options.file, "utf8")));
-        if (!parsed.success) return false;
-        state = parsed.data;
+        let text: string;
+        try {
+          text = await readFile(options.file, "utf8");
+        } catch {
+          return false;
+        }
+        const read = readTabs(text);
+        if (read.partial) await keepAside(options.file);
+        if (!read.state) return false;
+        state = read.state;
         // An entry and its place in the order agree.
         state.order = [...new Set(state.order)];
         for (const id of state.order) delete entry(id).closedAt;

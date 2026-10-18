@@ -1,7 +1,16 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { appendFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -355,6 +364,107 @@ test("the sessions that Med started come back after the host restarts: Claude Co
   expect(args).toEqual(expect.arrayContaining(["--resume", kept.id, "--effort", "high"]));
   const env = JSON.parse(await readFile(join(project, `${kept.id}.env.json`), "utf8"));
   expect(env.MED_PORT).toBe(String(host.port));
+});
+
+test("a turn that a host restart cuts waits as Interrupted: Continue asks the agent to go on, and Dismiss clears it", async () => {
+  const { review, thread, start, threads, restart } = await fixture();
+  const session = await start("claude");
+  await session.until((state) => state.status === "idle" && state.settings.length > 0);
+  await session.act({ action: "prompt", text: "Wait for the build." });
+  await session.until((state) => state.status === "working");
+
+  await restart();
+  // Nothing runs by itself: the turn waits for the reader.
+  const cut = await session.until((state) => state.halt !== undefined);
+  expect(cut).toMatchObject({ status: "idle", halt: { kind: "interrupted" } });
+  const latest = await threads();
+  await vi.waitFor(() =>
+    expect(latest.value.find((entry) => entry.id === review.id)).toMatchObject({
+      state: "idle",
+      halt: { kind: "interrupted" },
+    }),
+  );
+
+  const replies = await thread(session.id);
+  await session.act({ action: "continue" });
+  await vi.waitFor(() =>
+    expect(replies().at(-1)).toMatch(/: Your last turn stopped before it ended/),
+  );
+  expect((await session.until((state) => state.status === "idle")).halt).toBeUndefined();
+
+  // A second cut turn, dismissed: it does not come back after a restart.
+  await session.act({ action: "prompt", text: "Wait for the deploy." });
+  await session.until((state) => state.status === "working");
+  await restart();
+  await session.until((state) => state.halt?.kind === "interrupted");
+  await session.act({ action: "dismiss" });
+  expect((await session.state()).halt).toBeUndefined();
+  await restart();
+  const back = await session.until((state) => state.settings.length > 0);
+  expect(back.halt).toBeUndefined();
+});
+
+test("an agent that exits says why; Restart and a message each resume its session", async () => {
+  const { api, home, review, thread, start, threads } = await fixture();
+  const session = await start("claude");
+  await session.until((state) => state.status === "idle" && state.settings.length > 0);
+  await session.act({ action: "prompt", text: "Crash during the build." });
+  const stopped = await session.until((state) => state.halt !== undefined);
+  expect(stopped).toMatchObject({
+    status: "idle",
+    halt: { kind: "stopped", detail: "Exited with code 1" },
+  });
+  expect(stopped.halt!.lines).toContain("FATAL ERROR: the fake ran out of memory");
+  const latest = await threads();
+  await vi.waitFor(() =>
+    expect(latest.value.find((entry) => entry.id === review.id)?.halt).toEqual({
+      kind: "stopped",
+      detail: "Exited with code 1",
+    }),
+  );
+
+  // Restart starts Claude Code again on the session's transcript.
+  await session.act({ action: "restart" });
+  const restarted = await session.until((state) => state.status === "idle" && !state.halt);
+  expect(restarted.halt).toBeUndefined();
+  const project = join(home, ".claude", "projects", "-fake-repo");
+  const args = JSON.parse(await readFile(join(project, `${session.id}.args.json`), "utf8"));
+  expect(args).toEqual(expect.arrayContaining(["--resume", session.id]));
+
+  // A message to an agent that stopped resumes it too, and arrives once.
+  await session.act({ action: "prompt", text: "Crash again." });
+  await session.until((state) => state.halt?.kind === "stopped");
+  const replies = await thread(session.id);
+  const sent = await api<{ message: { delivery: string } }>(
+    `/api/reviews/${review.id}/agent/messages`,
+    { sessionId: session.id, text: "Are you back?", noteIds: [] },
+  );
+  expect(sent.data.message.delivery).toBe("delivered");
+  await vi.waitFor(() => expect(replies().at(-1)).toMatch(/: Are you back\?$/));
+  expect((await session.until((state) => state.status === "idle")).halt).toBeUndefined();
+});
+
+test("a session record that Med cannot read costs only itself, and the file keeps a copy", async () => {
+  const { stateDir, start, restart } = await fixture();
+  const session = await start("claude");
+  await session.until((state) => state.status === "idle" && state.settings.length > 0);
+  const file = join(stateDir, "owned-sessions.json");
+  await vi.waitFor(async () =>
+    expect(Object.keys(JSON.parse(await readFile(file, "utf8")))).toEqual([session.id]),
+  );
+  const records = JSON.parse(await readFile(file, "utf8"));
+  records["unknown-kind"] = { ...records[session.id], kind: "telepathy" };
+  await writeFile(file, JSON.stringify(records));
+
+  await restart();
+  expect((await session.until((state) => state.settings.length > 0)).status).toBe("idle");
+  const kept = (await readdir(stateDir)).filter((name) =>
+    name.startsWith("owned-sessions.json.unreadable-"),
+  );
+  expect(kept).toHaveLength(1);
+  expect(JSON.parse(await readFile(join(stateDir, kept[0]!), "utf8"))).toHaveProperty(
+    "unknown-kind",
+  );
 });
 
 test("Med runs an ACP agent and keeps its thread", async () => {

@@ -42,10 +42,17 @@ function Command({ command }: { command: string }) {
   );
 }
 
-function Actions({ actions }: { actions?: readonly NoticeAction[] }) {
+function Actions({
+  actions,
+  centered,
+}: {
+  actions?: readonly NoticeAction[];
+  /** Under centered text, as in a turn mark. */
+  centered?: boolean;
+}) {
   if (!actions?.length) return null;
   return (
-    <div {...stylex.props(styles.actions)}>
+    <div {...stylex.props(styles.actions, centered && styles.actionsCentered)}>
       {actions.map((action) => (
         <button
           key={action.label}
@@ -137,7 +144,7 @@ export function TurnMark({
         {at && <span {...stylex.props(styles.markAt)}>{at}</span>}
       </div>
       {children && <p {...stylex.props(styles.markBody)}>{children}</p>}
-      <Actions actions={actions} />
+      <Actions actions={actions} centered />
     </div>
   );
 }
@@ -271,6 +278,7 @@ const styles = stylex.create({
     outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
   actions: { display: "flex", flexWrap: "wrap", gap: 6 },
+  actionsCentered: { justifyContent: "center" },
   button: { minHeight: 26, fontSize: 12 },
 
   mark: {

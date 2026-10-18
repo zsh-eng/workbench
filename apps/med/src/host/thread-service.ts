@@ -252,6 +252,7 @@ export function createThreadService(options: ThreadServiceOptions) {
       updatedAt: Math.max(review.modifiedAt, status?.updatedAt ?? 0),
       ...(live && { changes: live }),
       ...(status && { agent: status.agent, state: status.state }),
+      ...(status?.halt && { halt: status.halt }),
       ...(status?.turn && { turn: status.turn }),
       ...(reply && {
         replied: {

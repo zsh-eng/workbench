@@ -1,7 +1,16 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, realpath, rm, utimes, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SavedReview } from "../../src/shared/saved-review";
@@ -122,12 +131,13 @@ async function fixture() {
     (await api<ThreadList>("/api/threads")).data.threads.map((thread) => thread.title);
   const history = async () =>
     (await api<{ threads: Thread[] }>("/api/threads/history")).data.threads;
+  const stop = async () => void (await hosts.splice(hosts.indexOf(host), 1)[0]!.close());
   const restart = async () => {
-    await hosts.splice(hosts.indexOf(host), 1)[0]!.close();
+    await stop();
     await start();
   };
   const record = (id: string) => join(stateDir, "reviews", `${id}.json`);
-  return { api, save, tabs, history, restart, record, repo, home, stateDir };
+  return { api, save, tabs, history, start, stop, restart, record, repo, home, stateDir };
 }
 
 test("the first start with tabs opens the recent threads, closes the rest, and keeps the order", async () => {
@@ -250,6 +260,28 @@ test("a thread keeps the name that the reader gives it across a restart, a hand-
   // A thread that Med does not know cannot be named.
   expect((await api(`/api/threads/r_${"0".repeat(24)}/name`, { name: "Nothing" })).status).toBe(
     404,
+  );
+});
+
+test("a tabs file with an entry that Med cannot read keeps the other tabs and their names, and a copy of the file", async () => {
+  const { api, save, tabs, start, stop, stateDir } = await fixture();
+  const first = await save("Forgiving station search");
+  const second = await save("Tide tables offline");
+  await api(`/api/threads/${first.id}/name`, { name: "Station search v2" });
+  await api(`/api/threads/${second.id}/name`, { name: "Offline tides" });
+  expect(await tabs()).toEqual(["Offline tides", "Station search v2"]);
+  await stop();
+  const file = join(stateDir, "tabs.json");
+  const saved = JSON.parse(await readFile(file, "utf8"));
+  saved.entries[second.id].name = 42;
+  await writeFile(file, JSON.stringify(saved));
+
+  await start();
+  expect(await tabs()).toEqual(["Tide tables offline", "Station search v2"]);
+  const kept = (await readdir(stateDir)).filter((name) => name.startsWith("tabs.json.unreadable-"));
+  expect(kept).toHaveLength(1);
+  expect(JSON.parse(await readFile(join(stateDir, kept[0]!), "utf8")).entries[second.id].name).toBe(
+    42,
   );
 });
 

@@ -83,6 +83,19 @@ stdio --session-id <id>`, with `--model`, `--effort`, and `--permission-mode`
   ([messages to adopted sessions](SESSIONS.md#messages-to-adopted-sessions)).
   A session that the user stopped stays stopped, and an ACP session shows as
   stopped, with its log, so the prompt box offers a new session.
+- **Cut turns and exits**: the record also keeps a turn that has not ended.
+  A host that restarts during a turn brings that session back as
+  **Interrupted**, with Continue and Dismiss at the end of its thread; Med
+  never continues the turn alone. A Claude Code process that exits without
+  a stop from Med leaves its session idle without a process, as after a
+  restart, and **Stopped** with the reason and the last error lines. Restart,
+  or the next message, resumes it with `--resume`. The owned state carries
+  this as `halt`, and the thread list shows it.
+- **State files**: Med writes `owned-sessions.json` and `tabs.json` to a
+  temporary file that then replaces the old one, and reads each record on its
+  own. A record that Med cannot read costs only itself, and the file keeps a
+  copy beside it (`<file>.unreadable-<time>`) before Med writes it again
+  (`src/host/runtime/state-file.ts`).
 - **Adopted sessions**: a Claude Code session that Med did not start, such
   as one that Keep in Med or `med thread adopt` saved, becomes an owned
   session when a message comes and no process runs it (`resume`), with a

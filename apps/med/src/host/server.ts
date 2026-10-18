@@ -91,7 +91,7 @@ import {
 } from "./agent-transcripts";
 import { AgentInbox, findCodex } from "./agent-inbox";
 import { createHeldMessages } from "./held-messages";
-import { findAgents, OwnedSessions, type RunnableAgent } from "./owned-sessions";
+import { CONTINUE_TURN, findAgents, OwnedSessions, type RunnableAgent } from "./owned-sessions";
 import { loadShellEnvironment } from "./shell-environment";
 import { createAgentStatus } from "./agent-status";
 import { createFoundSessions } from "./found-sessions";
@@ -1432,6 +1432,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             else if (action.action === "permission") runner.answer(action.id, action.option);
             else if (action.action === "interrupt") runner.interrupt();
             else if (action.action === "setting") await runner.set(action.id, action.value);
+            else if (action.action === "restart") await runner.restart();
+            else if (action.action === "continue") await runner.prompt(CONTINUE_TURN);
+            else if (action.action === "dismiss") runner.dismiss();
             else ownedSessions.end(runner);
             send(runner.state());
             return;

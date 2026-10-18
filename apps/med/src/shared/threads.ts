@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { agentStatusSchema, threadTurnSchema } from "./agent-status";
+import { agentStatusSchema, sessionHaltSchema, threadTurnSchema } from "./agent-status";
 import { attemptRefSchema } from "./attempts";
 import { agentChoicesSchema } from "./owned-session";
 import { agentSessionSchema } from "./saved-review";
@@ -71,17 +71,8 @@ export const threadSchema = z.object({
   /** The lead session's last turn, from its transcript's tail: what it does
    * or said, and its checks. With `changes`, the facts of the turn recap. */
   turn: threadTurnSchema.optional(),
-  /** What stopped the lead session's work until the reader acts: a turn that
-   * a restart cut, an agent that exited, a login that the agent needs, or an
-   * agent that keeps stopping. From the durable sessions design, which the
-   * Elements page's Agent states draw; the host does not send it yet. */
-  halt: z
-    .object({
-      kind: z.enum(["interrupted", "stopped", "login", "crashing"]),
-      /** The reason in a few words, such as "Exited with code 1". */
-      detail: z.string().max(200).optional(),
-    })
-    .optional(),
+  /** What stopped the lead session's work until the reader acts. */
+  halt: sessionHaltSchema.optional(),
   /** The newest message that the user sent from Med to the thread's agents. */
   replied: z
     .object({

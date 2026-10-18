@@ -36,6 +36,16 @@ export const threadTurnSchema = z.object({
 });
 export type ThreadTurn = z.infer<typeof threadTurnSchema>;
 
+/** What stopped a session's work until the reader acts: a turn that a
+ * restart cut, an agent that exited, a login that the agent needs, or an
+ * agent that keeps stopping. The Elements page's Agent states draw each. */
+export const sessionHaltSchema = z.object({
+  kind: z.enum(["interrupted", "stopped", "login", "crashing"]),
+  /** The reason in a few words, such as "Exited with code 1". */
+  detail: z.string().max(200).optional(),
+});
+export type SessionHalt = z.infer<typeof sessionHaltSchema>;
+
 /**
  * The state of a saved review's lead session, for the thread list:
  * working, waiting for the user, or idle since `updatedAt`. The lead is the
@@ -51,5 +61,6 @@ export const agentStatusSchema = z.object({
   /** The time of the session's last update, in milliseconds. */
   updatedAt: z.number(),
   turn: threadTurnSchema.optional(),
+  halt: sessionHaltSchema.optional(),
 });
 export type AgentStatus = z.infer<typeof agentStatusSchema>;

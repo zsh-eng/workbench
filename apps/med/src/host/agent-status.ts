@@ -74,7 +74,7 @@ export function createAgentStatus(sources: {
       owned?.state.status !== "starting" &&
       read.modifiedAt > (owned?.updatedAt ?? 0);
     if (owned && !othersTurn) {
-      const { status, permission } = owned.state;
+      const { status, permission, halt } = owned.state;
       // A permission request is what the turn waits on now.
       const asked = permission && {
         ...turn,
@@ -90,6 +90,9 @@ export function createAgentStatus(sources: {
             : "idle",
         updatedAt,
         ...(shown && { turn: shown }),
+        ...(halt && {
+          halt: { kind: halt.kind, ...(halt.detail ? { detail: halt.detail } : {}) },
+        }),
       };
     }
     // The open `med review wait` call is not work: the turn shows what the

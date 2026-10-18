@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { sessionHaltSchema } from "./agent-status";
 
 /**
  * Sessions that Med starts and owns, as opposed to sessions it attaches to by
@@ -71,6 +72,15 @@ export const ownedStateSchema = z.object({
   /** The agent takes images in a prompt. */
   images: z.boolean().optional(),
   error: z.string().optional(),
+  /** What stopped the session's work: Med shows its cause and one action. */
+  halt: sessionHaltSchema
+    .extend({
+      /** The agent's last error lines. */
+      lines: z.string().max(600).optional(),
+      /** When the work stopped, in milliseconds since the epoch. */
+      at: z.number().optional(),
+    })
+    .optional(),
   /** When the state last changed, in milliseconds since the epoch. While the
    * session waits, a transcript that changed later is another process's turn. */
   updatedAt: z.number().optional(),
@@ -124,5 +134,11 @@ export const ownedActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("interrupt") }),
   z.object({ action: z.literal("setting"), id: z.string().max(80), value: z.string().max(400) }),
   z.object({ action: z.literal("stop") }),
+  /** Starts a stopped agent again; the session resumes. */
+  z.object({ action: z.literal("restart") }),
+  /** Asks the agent to go on with a turn that stopped before its end. */
+  z.object({ action: z.literal("continue") }),
+  /** Clears what stopped the work, without an action. */
+  z.object({ action: z.literal("dismiss") }),
 ]);
 export type OwnedAction = z.infer<typeof ownedActionSchema>;

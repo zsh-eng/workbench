@@ -240,6 +240,11 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     waiting = true;
     return;
   }
+  // An agent that dies during its turn, as on an out-of-memory error.
+  if (text.includes("Crash")) {
+    process.stderr.write("FATAL ERROR: the fake ran out of memory\n");
+    process.exit(1);
+  }
   if (images.length)
     return reply(
       `Saw ${images.map((image) => `${image.source.type} ${image.source.media_type}`).join(", ")}: ${text}`,

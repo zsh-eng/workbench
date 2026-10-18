@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { constants, existsSync } from "node:fs";
-import { access, appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, appendFile, mkdir, readFile } from "node:fs/promises";
 import { delimiter, isAbsolute, join, relative } from "node:path";
 import { createInterface } from "node:readline";
 import { z } from "zod";
@@ -21,6 +21,7 @@ import type { AgentSession } from "../shared/saved-review";
 import { compactUpdate } from "./agent-transcripts";
 import { createJsonRpc, RpcError, type JsonRpc } from "./json-rpc";
 import { HostError } from "./runtime/errors";
+import { readRecords, writeStateFile } from "./runtime/state-file";
 import { userHome } from "./service/discover";
 import { createSessionProcesses, type SessionProcesses } from "./session-processes";
 import { shellEnvironment } from "./shell-environment";
@@ -47,9 +48,16 @@ export interface OwnedRunner {
   answer(id: string, option: string): void;
   interrupt(): void;
   set(id: string, value: string): Promise<void>;
+  /** Starts the agent of a session whose process stopped; it resumes. */
+  restart(): Promise<void>;
+  /** Clears what stopped the work (`OwnedState.halt`). */
+  dismiss(): void;
   stop(): void;
   subscribe(listener: () => void): () => void;
 }
+
+/** What Continue sends to an agent whose turn stopped before its end. */
+export const CONTINUE_TURN = "Your last turn stopped before it ended. Continue where you stopped.";
 
 /** Updates kept at most per session, in memory and on disk. */
 const MAX_EVENTS = 5000;
@@ -292,6 +300,8 @@ export function startClaude(
     fork?: string;
     /** Whether another process runs a session (session-processes.ts). */
     elsewhere?: (sessionId: string) => Promise<boolean>;
+    /** What stopped the work before the host restarted, such as a cut turn. */
+    halt?: OwnedState["halt"];
   } = {},
 ): OwnedRunner {
   const sessionId = options.sessionId ?? randomUUID();
@@ -509,19 +519,17 @@ export function startClaude(
     });
     // A process that a restart replaced has nothing more to say.
     current.on("error", (error) => {
-      if (current === child) store.set({ status: "exited", error: error.message });
+      if (current === child) ended(error.message, errors);
     });
-    current.on("exit", (code) => {
+    current.on("exit", (code, signal) => {
       if (current !== child) return;
       for (const done of pending.values()) done({ error: "Claude Code stopped." });
       pending.clear();
       if (stopping) return;
-      store.set({
-        status: "exited",
-        permission: undefined,
-        streaming: undefined,
-        ...(code ? { error: lastLines(errors) || `Claude Code stopped with code ${code}.` } : {}),
-      });
+      ended(
+        signal ? `Stopped by ${signal}` : code ? `Exited with code ${code}` : undefined,
+        errors,
+      );
     });
     createInterface({ input: current.stdout, crlfDelay: Infinity }).on("line", (line) => {
       if (current !== child) return;
@@ -552,9 +560,40 @@ export function startClaude(
             })),
         });
       })
-      .catch((error: unknown) =>
-        store.set({ error: error instanceof Error ? error.message : String(error) }),
-      );
+      .catch((error: unknown) => {
+        // The process ended; `ended` says why.
+        if (current === child)
+          store.set({ error: error instanceof Error ? error.message : String(error) });
+      });
+  };
+  /**
+   * The process ended, and Med did not stop it. The session waits without a
+   * process, as after a host restart, and its next prompt or Restart resumes
+   * it. A turn that it cut, or an exit with an error, says why.
+   */
+  const ended = (reason: string | undefined, errors: string) => {
+    const before = store.get().status;
+    child = undefined;
+    clearTimeout(streamTimer);
+    streamTimer = undefined;
+    streaming = undefined;
+    ask = undefined;
+    const lines = lastLines(errors);
+    store.set({
+      status: "idle",
+      permission: undefined,
+      streaming: undefined,
+      ...(reason || before !== "idle"
+        ? {
+            halt: {
+              kind: "stopped",
+              detail: reason ?? "Exited during the turn",
+              ...(lines ? { lines } : {}),
+              at: Date.now(),
+            },
+          }
+        : {}),
+    });
   };
   /** Starts a restored session's process, unless another one runs it. */
   const wake = async () => {
@@ -567,7 +606,7 @@ export function startClaude(
     if (!child && !stopping) launch();
   };
   if (options.resume) {
-    store.set({ status: "idle", settings: settings() });
+    store.set({ status: "idle", settings: settings(), halt: options.halt });
     // The models come from a probe; until then, only the mode shows.
     void Promise.resolve(options.models).then((offered) => {
       if (models.length || !offered?.length) return;
@@ -601,7 +640,12 @@ export function startClaude(
         : text;
       write({ type: "user", message: { role: "user", content } });
       exists = true;
-      store.set({ status: "working", turns: store.get().turns + 1, error: undefined });
+      store.set({
+        status: "working",
+        turns: store.get().turns + 1,
+        error: undefined,
+        halt: undefined,
+      });
     },
     answer(id, option) {
       if (!ask || ask.id !== id) return;
@@ -651,10 +695,22 @@ export function startClaude(
       }
       store.set({ settings: settings() });
     },
+    async restart() {
+      if (store.get().status === "exited")
+        throw new HostError("session-stopped", "This session has stopped.", 409);
+      if (child) return;
+      await (waking ??= wake().finally(() => {
+        waking = undefined;
+      }));
+      store.set({ status: "starting", halt: undefined, error: undefined });
+    },
+    dismiss() {
+      store.set({ halt: undefined });
+    },
     stop() {
       stopping = true;
       child?.kill("SIGTERM");
-      store.set({ status: "exited", permission: undefined, streaming: undefined });
+      store.set({ status: "exited", permission: undefined, streaming: undefined, halt: undefined });
     },
   };
 }
@@ -684,6 +740,8 @@ function stoppedRunner(session: AgentSession, preset: string, name: string): Own
     answer() {},
     interrupt() {},
     set: async () => stopped(),
+    restart: async () => stopped(),
+    dismiss() {},
     stop() {},
   };
 }
@@ -1034,6 +1092,18 @@ export function startAcp(
       await ready;
       await change(id, value);
     },
+    // Med starts an ACP agent's session again only through `session/load`,
+    // which comes with the session holders.
+    async restart() {
+      throw new HostError(
+        "session-stopped",
+        `${agent.name} cannot resume this session. Start a new one.`,
+        409,
+      );
+    },
+    dismiss() {
+      store.set({ halt: undefined });
+    },
     stop() {
       stopping = true;
       answer?.(null);
@@ -1183,6 +1253,9 @@ const recordSchema = z.object({
   agentSessionId: z.string().max(200).optional(),
   /** A fork (Continue in Med) before its first prompt: the session it starts from. */
   forkOf: z.string().max(128).optional(),
+  /** A turn that has not ended. After a restart, it is a turn that the
+   * restart cut, which waits for the reader to continue it. */
+  turn: z.object({ startedAt: z.number() }).optional(),
   updatedAt: z.number(),
 });
 type SessionRecord = z.infer<typeof recordSchema>;
@@ -1212,6 +1285,8 @@ export class OwnedSessions {
   private offered: Promise<Record<string, OwnedSetting[]>> | undefined;
   private records: Record<string, SessionRecord> = {};
   private writing: Promise<void> = Promise.resolve();
+  /** The host closes: the turns that it cuts stay recorded. */
+  private closing = false;
   /** The Claude Code processes that Med does not run (session-processes.ts). */
   private processes: SessionProcesses;
   constructor(
@@ -1281,7 +1356,7 @@ export class OwnedSessions {
       (setting) => setting.category === "model" || setting.category === "effort",
     );
     if (this.options.offersFile)
-      await writeFile(this.options.offersFile, JSON.stringify(offers)).catch(() => {});
+      await writeStateFile(this.options.offersFile, JSON.stringify(offers)).catch(() => {});
   }
   /**
    * The models and efforts that an agent offers, valued with the choices for
@@ -1449,16 +1524,15 @@ export class OwnedSessions {
   async restore() {
     const file = this.options.recordsFile;
     if (!file) return;
-    try {
-      this.records = z
-        .record(z.string(), recordSchema)
-        .parse(JSON.parse(await readFile(file, "utf8")));
-    } catch {
-      return;
-    }
+    // Each record on its own: one that Med cannot read costs only itself.
+    const records = await readRecords(file, (id, value) =>
+      /^[A-Za-z0-9_-]{1,128}$/.test(id) ? recordSchema.safeParse(value).data : undefined,
+    ).catch(() => undefined);
+    if (!records) return;
+    this.records = records;
     const agents = await this.options.agents();
     for (const [id, record] of Object.entries(this.records)) {
-      if (this.runners.has(id) || !/^[A-Za-z0-9_-]{1,128}$/.test(id)) continue;
+      if (this.runners.has(id)) continue;
       const agent = agents.find((entry) => entry.id === record.preset);
       const session: AgentSession = {
         agent: record.kind,
@@ -1473,6 +1547,11 @@ export class OwnedSessions {
               env: () => this.environment(record.key, record.cwd),
               resume: record.choices,
               ...(record.forkOf ? { fork: record.forkOf } : {}),
+              ...(record.turn
+                ? {
+                    halt: { kind: "interrupted" as const, detail: "Med restarted during the turn" },
+                  }
+                : {}),
               models: this.models(agent),
               elsewhere: (session) => this.runsElsewhere(session),
             })
@@ -1490,13 +1569,33 @@ export class OwnedSessions {
     runner.subscribe(() => {
       this.updated.set(id, Date.now());
       const current = this.records[id];
-      if (!current) return;
-      const choices = { ...current.choices, ...chosenSettings(runner.state()) };
+      if (!current || this.closing) return;
+      const state = runner.state();
+      const choices = { ...current.choices, ...chosenSettings(state) };
       // A fork's first prompt makes its transcript: it resumes as itself.
-      const forked = !!current.forkOf && runner.state().turns > 0;
-      if (!forked && JSON.stringify(choices) === JSON.stringify(current.choices)) return;
-      const { forkOf: _forkOf, ...rest } = current;
-      this.records[id] = { ...(forked ? rest : current), choices, updatedAt: Date.now() };
+      const forked = !!current.forkOf && state.turns > 0;
+      // A turn stays recorded until it ends, or until the reader acts on the
+      // work that stopped.
+      const turn =
+        state.status === "working"
+          ? (current.turn ?? { startedAt: Date.now() })
+          : state.halt
+            ? current.turn
+            : undefined;
+      if (
+        !forked &&
+        JSON.stringify(choices) === JSON.stringify(current.choices) &&
+        turn === current.turn
+      )
+        return;
+      const { forkOf, turn: _turn, ...rest } = current;
+      this.records[id] = {
+        ...rest,
+        ...(forkOf && !forked ? { forkOf } : {}),
+        ...(turn ? { turn } : {}),
+        choices,
+        updatedAt: Date.now(),
+      };
       this.save();
     });
     runner.log?.subscribe(() => this.updated.set(id, Date.now()));
@@ -1509,7 +1608,7 @@ export class OwnedSessions {
       .slice(0, MAX_RECORDS);
     this.records = Object.fromEntries(kept);
     const text = JSON.stringify(this.records);
-    this.writing = this.writing.then(() => writeFile(file, text)).catch(() => {});
+    this.writing = this.writing.then(() => writeStateFile(file, text)).catch(() => {});
   }
   private noteAgentSession(sessionId: string, agentSessionId: string) {
     const record = this.records[sessionId];
@@ -1568,8 +1667,10 @@ export class OwnedSessions {
       return runner.state().status !== "exited" && !inside.startsWith("..") && !isAbsolute(inside);
     });
   }
-  /** Stops every process as the host closes; the sessions resume after it starts. */
+  /** Stops every process as the host closes; the sessions resume after it
+   * starts, and a turn that this cuts waits for the reader to continue it. */
   async stopAll() {
+    this.closing = true;
     for (const runner of this.runners.values())
       if (runner.state().status !== "exited") runner.stop();
     await this.writing;

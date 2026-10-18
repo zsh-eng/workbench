@@ -12,7 +12,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import type { AgentPreset } from "../../../shared/owned-session";
+import type { AgentPreset, OwnedAction } from "../../../shared/owned-session";
 import { agentName, type AgentSession, type PinMutation } from "../../../shared/saved-review";
 import type { AgentMessageInput, SentComment } from "../../../shared/agent-inbox";
 import {
@@ -42,6 +42,7 @@ import { ToolButton } from "../ToolButton";
 import { paneHandle } from "../PaneTree";
 import { ZenContext } from "../ZenExit";
 import { SessionComposer, type ComposerAttachment } from "./SessionComposer";
+import { TurnMark } from "./SessionNotice";
 import { ReplyActionsContext, SessionThread, type ReplyActions } from "./SessionThread";
 import { FileRefsContext, type FileRefs } from "../FileRefs";
 import type { TurnRecapProps } from "./TurnRecap";
@@ -552,6 +553,39 @@ export function SessionPanel({
     sessionRunning(state, now);
   const runner = othersTurn ? undefined : ownedState;
   const running = runner ? runner.status === "working" : sessionRunning(state, now);
+  // A turn that a restart cut waits for the reader: Med never continues it
+  // alone, because it may have stopped in the middle of a migration or a push.
+  const halt = runner?.halt;
+  const [haltError, setHaltError] = useState<string>();
+  const onHalt = (action: OwnedAction) => {
+    setHaltError(undefined);
+    owned
+      .act(action)
+      .catch((reason: unknown) =>
+        setHaltError(reason instanceof Error ? reason.message : "The agent did not respond."),
+      );
+  };
+  const endMark =
+    halt?.kind === "interrupted" ? (
+      <TurnMark
+        title="Interrupted by a restart"
+        {...(halt.at ? { at: turnTime(halt.at) } : {})}
+        actions={[
+          { label: "Continue", primary: true, run: () => onHalt({ action: "continue" }) },
+          { label: "Dismiss", run: () => onHalt({ action: "dismiss" }) },
+        ]}
+      >
+        {haltError ??
+          `The turn stopped before it ended. Continue asks ${agentName(session)} to go on from here.`}
+      </TurnMark>
+    ) : halt?.kind === "stopped" ? (
+      // In place of "Worked for", which would read as a turn that ended; the
+      // notice above the composer has the reason and Restart.
+      <TurnMark
+        title={`${agentName(session)} stopped`}
+        {...(halt.at ? { at: turnTime(halt.at) } : {})}
+      />
+    ) : undefined;
   useEffect(() => {
     store.setRunning(running);
     if (!running) return;
@@ -680,15 +714,19 @@ export function SessionPanel({
   // The first view has not come, and no earlier thread stays meanwhile.
   const loading = state.status === "connecting" && !snapshot.items.length;
   const status = runner
-    ? needsYou
-      ? "Needs you"
-      : runner.status === "starting"
-        ? "Starting"
-        : runner.status === "working"
-          ? "Working"
-          : runner.status === "exited"
-            ? "Stopped"
-            : "Idle"
+    ? halt
+      ? halt.kind === "interrupted"
+        ? "Interrupted"
+        : "Stopped"
+      : needsYou
+        ? "Needs you"
+        : runner.status === "starting"
+          ? "Starting"
+          : runner.status === "working"
+            ? "Working"
+            : runner.status === "exited"
+              ? "Stopped"
+              : "Idle"
     : state.status === "connecting"
       ? "Connecting"
       : state.status === "error"
@@ -776,6 +814,7 @@ export function SessionPanel({
                 openAgent={openAgent}
                 showWork={showWork}
                 recap={turnRecap}
+                endMark={endMark}
                 now={running ? now : undefined}
                 before={
                   state.truncated && !pageable ? (
