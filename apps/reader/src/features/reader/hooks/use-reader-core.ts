@@ -304,16 +304,20 @@ export function useReaderCore(
     [updateSettings],
   );
 
+  // A scrubber preview shows its page over the scroll column; page numbers
+  // follow it as they do on the pages.
+  const shownLocation =
+    pagination.spread?.intent.kind === "preview" ? null : scrollLocation;
   const currentPage =
-    scrollLocation?.currentPage ?? pagination.spread?.currentPage ?? 1;
+    shownLocation?.currentPage ?? pagination.spread?.currentPage ?? 1;
   const totalPages =
-    scrollLocation?.totalPages ?? pagination.spread?.totalPages ?? 0;
+    shownLocation?.totalPages ?? pagination.spread?.totalPages ?? 0;
   const currentChapterIndex =
-    scrollLocation?.chapterIndex ?? pagination.spread?.chapterIndexStart ?? 0;
+    shownLocation?.chapterIndex ?? pagination.spread?.chapterIndexStart ?? 0;
   // When a spread crosses a chapter boundary, prefer the later visible chapter
   // for UI identity while leaving pagination anchors and page numbers unchanged.
   const displayChapterIndex =
-    scrollLocation?.chapterIndex ??
+    shownLocation?.chapterIndex ??
     pagination.spread?.chapterIndexEnd ??
     pagination.spread?.chapterIndexStart ??
     initialLocation?.chapterIndex ??

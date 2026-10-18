@@ -462,6 +462,12 @@ export function useReaderScrollMode({
     [chapterStartPages, spread, stageColumn, totalPages],
   );
 
+  // Page numbers and totals grow while the rest of the book paginates.
+  useEffect(() => {
+    if (phase.kind !== "on" || !position) return;
+    onLocationChange(toLocation(position, { kind: "replace" }));
+  }, [onLocationChange, phase.kind, position, toLocation]);
+
   const onPageChange = useCallback(
     (next: ScrollPosition) => {
       if (phase.kind !== "on") return;

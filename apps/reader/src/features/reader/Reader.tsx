@@ -177,7 +177,9 @@ export function Reader() {
     column: sessionState.pagination.scrollColumn,
     chapterEntries: sessionState.chapters.entries,
     chapterStartPages: sessionState.navigation.chapterStartPages,
-    totalPages: sessionState.navigation.totalPages,
+    // The engine's count grows while the book paginates; the navigation
+    // total would echo scroll mode's own report back.
+    totalPages: sessionState.pagination.spread?.totalPages ?? 0,
     chapterAccess: sessionResources.chapterAccess,
     setScrollChapter: sessionActions.setScrollChapter,
     goToAnchor: sessionActions.goToAnchor,
@@ -647,7 +649,7 @@ export function Reader() {
                   scrollMode.progressLabel && (
                     <p
                       data-testid="reader-scroll-progress"
-                      className="pb-1 pt-0.5 text-center text-[10px] font-numeric font-medium uppercase tracking-[0.14em] text-muted-foreground tabular-nums"
+                      className="-mt-0.5 pb-1 text-center text-[9px] font-numeric font-medium uppercase tracking-[0.14em] text-muted-foreground/80 tabular-nums"
                     >
                       {scrollMode.progressLabel}
                     </p>

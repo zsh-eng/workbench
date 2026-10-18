@@ -34,6 +34,7 @@ import {
   findLineTextPosition,
   findPageAtOffset,
   findTextPositionOffset,
+  READING_LINE_FRACTION,
   readingLineOffset,
   resolveSnapPage,
   type ScrollRow,
@@ -417,7 +418,12 @@ export function ScrollStage({
   const readingLineRef = useRef<{
     /** Column offset of the line's top. */
     y: number;
-    viewOffset: number;
+    /**
+     * The line's top relative to the reading line, a third of the way down.
+     * A rotation changes the view's height; the line stays at the reading
+     * line, not at the same distance from the top.
+     */
+    fromReadingLine: number;
   } | null>(null);
   const rowsRef = useRef(rows);
 
@@ -514,7 +520,14 @@ export function ScrollStage({
     const offset = readingLineOffset(scrollTop, paddingTopPx, viewportHeight);
     const line = findLineAtOrAfter(rows, column.chapterIndex, offset);
     readingLineRef.current = line
-      ? { y: line.y, viewOffset: paddingTopPx + line.y - scrollTop }
+      ? {
+          y: line.y,
+          fromReadingLine:
+            paddingTopPx +
+            line.y -
+            scrollTop -
+            viewportHeight * READING_LINE_FRACTION,
+        }
       : null;
   };
 
@@ -546,7 +559,11 @@ export function ScrollStage({
       : null;
     const offset = position ? findTextPositionOffset(rows, position) : null;
     if (readingLine && offset !== null) {
-      const nextTop = paddingTopPx + offset - readingLine.viewOffset;
+      const nextTop =
+        paddingTopPx +
+        offset -
+        (scroller.clientHeight * READING_LINE_FRACTION +
+          readingLine.fromReadingLine);
       if (Math.abs(nextTop - scroller.scrollTop) >= 0.5) {
         setScrollTop(scroller, nextTop);
       }
