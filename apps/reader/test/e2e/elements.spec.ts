@@ -175,4 +175,32 @@ test.describe("on a phone", () => {
     await page.getByRole("link", { name: "Open full screen" }).click();
     await expect(page).toHaveURL(/\/debug\/ideas\/sessions$/);
   });
+
+  test("Design ideas show the dark mode colour options", async ({ page }) => {
+    await page.goto("/debug");
+    await page.getByRole("link", { name: /Design ideas/ }).click();
+    await page.getByRole("link", { name: "Dark mode ideas" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Today's dark colours" }),
+    ).toBeVisible();
+
+    const show = page.getByRole("group", { name: "Show" });
+    const yellowOnNight = async (title: string) => {
+      await show.getByRole("button", { name: title }).click();
+      const night = page
+        .locator(`iframe[title="${title}, phone"]`)
+        .contentFrame()
+        .getByRole("region", { name: "Night" });
+      const mark = night.locator('mark[data-color="yellow"]');
+      await expect(mark).toBeVisible();
+      return mark.evaluate((node) => getComputedStyle(node).backgroundColor);
+    };
+    const today = await yellowOnNight("Today's dark colours");
+    expect(await yellowOnNight("Light hues on the dark page")).not.toBe(today);
+
+    await page.getByRole("link", { name: "Open full screen" }).click();
+    await expect(page).toHaveURL(/\/debug\/ideas\/dark-colours\?palette=mixed/);
+    await page.getByRole("link", { name: "Back to Dark mode ideas" }).click();
+    await expect(page).toHaveURL(/\/debug\/elements\/dark$/);
+  });
 });

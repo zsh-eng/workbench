@@ -3,6 +3,7 @@ export const IDEA_TOPICS = [
   { id: "library", label: "Library" },
   { id: "reader", label: "Reader" },
   { id: "sessions", label: "Sessions" },
+  { id: "dark", label: "Dark mode" },
 ] as const;
 
 export type IdeaTopic = (typeof IDEA_TOPICS)[number]["id"];

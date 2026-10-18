@@ -72,6 +72,38 @@ const TOPICS: Record<IdeaTopic, TopicIdeas> = {
       },
     ],
   },
+  dark: {
+    current: {
+      id: "dark-current",
+      title: "Today's dark colours",
+      description:
+        "What ships: the highlight fills on Dark, Night (true black) and Flexoki dark. Light comes first for the hues.",
+      src: "/debug/ideas/dark-colours",
+    },
+    ideas: [
+      {
+        id: "dark-mixed",
+        title: "Light hues on the dark page",
+        description:
+          "Each fill is the light theme's colour mixed into the page, so a yellow stays that yellow on every theme and darkens on true black.",
+        src: "/debug/ideas/dark-colours?palette=mixed",
+      },
+      {
+        id: "dark-quiet",
+        title: "Quieter fills",
+        description:
+          "Today's fills pulled toward the page, so highlights recede when reading at night.",
+        src: "/debug/ideas/dark-colours?palette=quiet",
+      },
+      {
+        id: "night-bright",
+        title: "Night with brighter text",
+        description:
+          "True black with text at 88% lightness instead of 78%, for when Night reads too dim. The fills stay as they are.",
+        src: "/debug/ideas/dark-colours?night=bright",
+      },
+    ],
+  },
   sessions: {
     current: {
       id: "sessions-current",

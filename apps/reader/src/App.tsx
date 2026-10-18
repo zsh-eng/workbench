@@ -67,6 +67,12 @@ const SessionsIdea = lazy(() =>
   })),
 );
 
+const DarkColoursIdea = lazy(() =>
+  import("@/features/elements/DarkColoursIdea").then((module) => ({
+    default: module.DarkColoursIdea,
+  })),
+);
+
 const ElementsFrame = lazy(() =>
   import("@/features/elements/ElementsFrame").then((module) => ({
     default: module.ElementsFrame,
@@ -255,6 +261,16 @@ function App() {
                         <DebugGate>
                           <Suspense fallback={null}>
                             <DesignIdeasPage />
+                          </Suspense>
+                        </DebugGate>
+                      }
+                    />
+                    <Route
+                      path="/debug/ideas/dark-colours"
+                      element={
+                        <DebugGate>
+                          <Suspense fallback={null}>
+                            <DarkColoursIdea />
                           </Suspense>
                         </DebugGate>
                       }
