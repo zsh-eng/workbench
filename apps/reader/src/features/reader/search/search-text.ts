@@ -287,22 +287,34 @@ export class ChapterSearchText {
     return found;
   }
 
-  search(foldedQuery: string, limit = Infinity): ChapterSearchMatch[] {
+  /**
+   * The chapter's matches in order, up to `limit`, or only those starting
+   * at or after `range.from`, or before `range.to`.
+   */
+  search(
+    foldedQuery: string,
+    limit = Infinity,
+    range: { from?: number; to?: number } = {},
+  ): ChapterSearchMatch[] {
+    const { from = 0, to = Infinity } = range;
     return findFoldedMatches(
       this.folded,
       this.chapter.fullText,
       foldedQuery,
-      limit,
-    ).flatMap((match) => {
-      const block = this.blockAt(match.start);
-      if (!block) return [];
-      return [
-        {
-          ...match,
-          blockId: block.blockId,
-          snippet: buildSnippet(this.chapter.fullText, block, match),
-        },
-      ];
-    });
+      from > 0 ? Infinity : limit,
+    )
+      .filter((match) => match.start >= from && match.start < to)
+      .slice(0, limit)
+      .flatMap((match) => {
+        const block = this.blockAt(match.start);
+        if (!block) return [];
+        return [
+          {
+            ...match,
+            blockId: block.blockId,
+            snippet: buildSnippet(this.chapter.fullText, block, match),
+          },
+        ];
+      });
   }
 }

@@ -16,7 +16,11 @@ import { isInteractiveTapTarget } from "./hooks/use-touch-spread-tap-nav";
 import { highlightNoteTarget } from "./note-locations";
 import type { NoteTarget } from "@/types/note";
 import type { TOCItem } from "@/lib/db";
-import type { ResolvedSpread } from "@/lib/pagination-v2";
+import type {
+  ChapterCanonicalText,
+  ResolvedLeafPage,
+  ResolvedSpread,
+} from "@/lib/pagination-v2";
 import { ReaderNotesPrototype } from "./ReaderNotesPrototype";
 import { ReaderController } from "./ReaderController";
 import { ReaderHeader } from "./ReaderHeader";
@@ -83,10 +87,24 @@ function DisplayReadyCommitProbe({
 
 const EMPTY_TOC: TOCItem[] = [];
 
-/** The first page a spread shows, counted within its chapter. */
-function leadingPageInChapter(spread: ResolvedSpread | null): number | null {
+/** The first page a spread shows. */
+function leadingPage(spread: ResolvedSpread | null): ResolvedLeafPage | null {
   for (const slot of spread?.slots ?? [])
-    if (slot.kind === "page") return slot.page.currentPageInChapter;
+    if (slot.kind === "page") return slot.page;
+  return null;
+}
+
+/** The canonical offset of the first text block a page shows, if loaded. */
+function pageTextOffset(
+  page: ResolvedLeafPage | null,
+  getCanonicalText: (chapterIndex: number) => ChapterCanonicalText | null,
+): number | null {
+  if (!page) return null;
+  const text = getCanonicalText(page.chapterIndex);
+  for (const slice of page.content) {
+    const start = text?.blockStarts.get(slice.blockId);
+    if (start !== undefined) return start;
+  }
   return null;
 }
 
@@ -199,6 +217,7 @@ export function Reader() {
   const searchIdea = debugEnabled ? searchParams.get("search") : null;
   const searchMarks = debugEnabled ? searchParams.get("searchMarks") : null;
   const [searchStarted, setSearchStarted] = useState(false);
+  const readerPage = leadingPage(sessionState.pagination.spread);
   if ((searchOpen || searchIdea) && !searchStarted) setSearchStarted(true);
   const search = useReaderSearch({
     bookId: bookId ?? "",
@@ -211,7 +230,14 @@ export function Reader() {
     locateTextOffsets: sessionResources.locateTextOffsets,
     layoutKey: `${sessionState.pagination.status}:${sessionState.navigation.totalPages}`,
     currentChapterIndex: sessionState.navigation.currentChapterIndex,
-    currentPageInChapter: leadingPageInChapter(sessionState.pagination.spread),
+    currentPageInChapter: readerPage?.currentPageInChapter ?? null,
+    readerOffset:
+      readerPage?.chapterIndex === sessionState.navigation.currentChapterIndex
+        ? pageTextOffset(
+            readerPage,
+            sessionResources.chapterAccess.getCanonicalText,
+          )
+        : null,
     goToTextOffset: sessionActions.goToTextOffset,
     // A Design ideas preview leaves the book where its reader left it.
     previewOnly: Boolean(searchIdea),

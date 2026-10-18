@@ -33,8 +33,9 @@ function StatusLine({ search }: { search: ReaderSearch }) {
       ? `${formatCount(state.results.length)} so far · searching ${state.searchedChapters} of ${state.totalChapters} chapters`
       : `Searching ${state.searchedChapters} of ${state.totalChapters} chapters…`;
   else if (!state.results.length) text = "No matches in the book";
+  // A search starts at the reader's page, so the limit keeps the nearest.
   else if (state.truncated)
-    text = `First ${formatCount(state.results.length)} matches · try more words`;
+    text = `Next ${formatCount(state.results.length)} matches · try more words`;
   else
     text = `${formatCount(state.results.length)} ${state.results.length === 1 ? "match" : "matches"}`;
 

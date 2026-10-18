@@ -71,6 +71,47 @@ describe("search worker", () => {
     expect(of(1).some((response) => response.type === "done")).toBe(false);
   });
 
+  it("starts at the reader and keeps the matches nearest it", async () => {
+    const { handle, of } = setUp();
+    const offset = PARAGRAPH.length * 100;
+    const from = { chapterIndex: 120, offset };
+    const matches = async (searchId: number, limit: number) => {
+      handle({ type: "search", searchId, query: "needle", limit, from });
+      await waitFor(() =>
+        of(searchId).some((response) => response.type === "done"),
+      );
+      return of(searchId).flatMap((response) =>
+        response.type === "progress"
+          ? response.chapters.flatMap(({ chapterIndex, matches }) =>
+              matches.map((match) => [chapterIndex, match.start]),
+            )
+          : [],
+      );
+    };
+
+    // The first match is the reader's next one; the limit keeps those after.
+    const near = await matches(1, 450);
+    expect(near[0]).toEqual([120, offset + "The ".length]);
+    expect(near).toHaveLength(450);
+    expect(near.every(([chapter]) => chapter === 120 || chapter === 121)).toBe(
+      true,
+    );
+
+    // With no limit it wraps round to the chapter's start, then stops.
+    const all = await matches(2, 100_000);
+    expect(all).toHaveLength(CHAPTER_COUNT * 300);
+    expect(all.at(-1)).toEqual([120, offset - PARAGRAPH.length + 4]);
+    expect(of(2).at(-1)).toMatchObject({
+      type: "done",
+      truncated: false,
+      missingChapters: 0,
+    });
+    const last = of(2).findLast((response) => response.type === "progress");
+    expect(last?.type === "progress" && last.searchedChapters).toBe(
+      CHAPTER_COUNT,
+    );
+  });
+
   it("stops a search that a newer query replaces", async () => {
     const { handle, of } = setUp();
     handle({ type: "search", searchId: 1, query: "needle", limit: 100_000 });

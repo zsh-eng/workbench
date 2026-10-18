@@ -19,6 +19,7 @@ import type {
 import type { ChapterEntry } from "../types";
 import { buildSearchSections, findSection } from "./search-sections";
 import type {
+  SearchStart,
   SearchWorkerChapter,
   SearchWorkerRequest,
   SearchWorkerResponse,
@@ -30,8 +31,13 @@ import {
   type TextMatch,
 } from "./search-text";
 
-/** Enough to step through; a word on every page stops here. */
+/**
+ * Enough to step through. A search starts at the reader, so a word on every
+ * page keeps the matches nearest it.
+ */
 export const SEARCH_RESULT_LIMIT = 1000;
+/** Results from the reader's page placed on pages, to step from it. */
+const READER_RESULTS_PLACED = 32;
 /** Results drawn at a time; a long list grows as it scrolls. */
 const RESULTS_PAGE = 30;
 const QUERY_KEY_PREFIX = "epub-reader-search-query:";
@@ -116,6 +122,8 @@ interface UseReaderSearchOptions {
   /** The reader's chapter, and its first page shown, counted from 1. */
   currentChapterIndex: number;
   currentPageInChapter: number | null;
+  /** Canonical offset in the reader's chapter where its page begins. */
+  readerOffset: number | null;
   goToTextOffset: (
     chapterIndex: number,
     offset: number,
@@ -190,6 +198,7 @@ export function useReaderSearch({
   layoutKey,
   currentChapterIndex,
   currentPageInChapter,
+  readerOffset,
   goToTextOffset,
   previewOnly = false,
 }: UseReaderSearchOptions): ReaderSearch {
@@ -202,25 +211,40 @@ export function useReaderSearch({
     firstResultMs: number | null;
     totalMs: number | null;
   }>({ firstResultMs: null, totalMs: null });
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [shown, setShown] = useState(RESULTS_PAGE);
   // Each book keeps its own last search.
   const [searchedBook, setSearchedBook] = useState(bookId);
   if (searchedBook !== bookId) {
     setSearchedBook(bookId);
     setQueryState(readSavedQuery(bookId));
-    setActiveIndex(null);
+    setActiveId(null);
   }
   const [textVersion, setTextVersion] = useState(0);
 
   const workerRef = useRef<Worker | null>(null);
   const sentTexts = useRef(new Map<number, ChapterCanonicalText>());
   const sentBook = useRef("");
-  /** A step from the reader, waiting for its chapter's matches' pages. */
+  /** A step from the reader, waiting for the nearest results' pages. */
   const pendingStep = useRef<"next" | "previous" | null>(null);
-  const locateRequest = useRef<{ startedAt: number; results: number } | null>(
-    null,
-  );
+  /**
+   * Where the reader's page begins: the start of its first text block.
+   * Searches start here, and a step from the reader compares with it.
+   */
+  const readerStart = useRef<SearchStart | null>(null);
+  useLayoutEffect(() => {
+    readerStart.current =
+      readerOffset === null
+        ? null
+        : { chapterIndex: currentChapterIndex, offset: readerOffset };
+  });
+  /** The results the latest pages are for. */
+  const placedResults = useRef<ReaderSearchResult[] | null>(null);
+  const locateRequest = useRef<{
+    startedAt: number;
+    results: ReaderSearchResult[];
+    wanted: number;
+  } | null>(null);
   const running = useRef<RunningSearch | null>(null);
   const searchIds = useRef(0);
   /** The last search finished without some chapters' text. */
@@ -246,7 +270,14 @@ export function useReaderSearch({
         });
         setTiming({ firstResultMs: search.firstResultMs, totalMs: null });
       }
-      if (found.length) setResults((previous) => [...previous, ...found]);
+      // A search starts at the reader and wraps, so earlier chapters can
+      // arrive last; the list stays in book order.
+      if (found.length)
+        setResults((previous) =>
+          [...previous, ...found].sort(
+            (a, b) => a.chapterIndex - b.chapterIndex || a.start - b.start,
+          ),
+        );
       setProgress({
         searched: response.searchedChapters,
         total: response.totalChapters,
@@ -350,7 +381,7 @@ export function useReaderSearch({
       running.current = null;
     }
     setResults(EMPTY_RESULTS);
-    setActiveIndex(null);
+    setActiveId(null);
     setShown(RESULTS_PAGE);
     setTruncated(false);
     setTiming({ firstResultMs: null, totalMs: null });
@@ -379,6 +410,7 @@ export function useReaderSearch({
       searchId: id,
       query: foldedQuery,
       limit: SEARCH_RESULT_LIMIT,
+      from: readerStart.current ?? undefined,
     } satisfies SearchWorkerRequest);
     // `textVersion` runs the search again when more text arrives.
   }, [chapters.length, foldedQuery, textVersion, workerReady]);
@@ -450,21 +482,29 @@ export function useReaderSearch({
   useEffect(() => {
     if (!results.length) return;
     const timer = window.setTimeout(() => {
-      // Only results on screen, those near the reader for stepping from
-      // where they are, and the last of each group on screen, whose page
-      // ends the group's title, need a page.
+      // Only results on screen, the last of each group on screen, whose
+      // page ends the group's title, and the first few from the reader's
+      // page, which a step from the reader picks between, need a page.
       const groupEnds = new Set(
         resultGroups
           .filter((group) => group.firstIndex < shown)
           .map((group) => group.results.at(-1)!.id),
       );
+      const reader = readerStart.current;
+      let nearReader = 0;
       const byChapter = new Map<number, { id: string; offset: number }[]>();
-      const wanted = results.filter(
-        (result, index) =>
-          index < shown ||
-          result.chapterIndex === currentChapterIndex ||
-          groupEnds.has(result.id),
-      );
+      const wanted = results.filter((result, index) => {
+        if (index < shown || groupEnds.has(result.id)) return true;
+        if (
+          reader?.chapterIndex === result.chapterIndex &&
+          result.start >= reader.offset &&
+          nearReader < READER_RESULTS_PLACED
+        ) {
+          nearReader++;
+          return true;
+        }
+        return false;
+      });
       for (const result of wanted) {
         const offsets = byChapter.get(result.chapterIndex) ?? [];
         offsets.push({ id: result.id, offset: result.start });
@@ -472,7 +512,8 @@ export function useReaderSearch({
       }
       locateRequest.current = {
         startedAt: performance.now(),
-        results: wanted.length,
+        results,
+        wanted: wanted.length,
       };
       locateTextOffsets(
         [...byChapter].flatMap(([chapterIndex, offsets]) => {
@@ -498,9 +539,10 @@ export function useReaderSearch({
     const request = locateRequest.current;
     if (!request) return;
     locateRequest.current = null;
+    placedResults.current = request.results;
     performance.measure("reader-search:locate", {
       start: request.startedAt,
-      detail: { results: request.results },
+      detail: { results: request.wanted },
     });
   }, [locations]);
 
@@ -581,12 +623,20 @@ export function useReaderSearch({
     );
   }, [chapters, foldedQuery, highlights, notes]);
 
+  // The active result is kept by id: matches from earlier chapters can
+  // arrive after it and move it down the list.
+  const activeIndex = useMemo(() => {
+    if (activeId === null) return null;
+    const index = results.findIndex((result) => result.id === activeId);
+    return index < 0 ? null : index;
+  }, [activeId, results]);
+
   const open = useCallback(
     (index: number) => {
       const result = results[index];
       if (!result) return;
       pendingStep.current = null;
-      setActiveIndex(index);
+      setActiveId(result.id);
       setShown((count) =>
         Math.max(count, Math.ceil((index + 1) / RESULTS_PAGE) * RESULTS_PAGE),
       );
@@ -611,8 +661,9 @@ export function useReaderSearch({
   });
   /**
    * Whether a result sits after (1), at (0) or before (-1) the reader.
-   * Within a chapter it compares pages of that chapter: book page numbers
-   * shift while earlier chapters are still being laid out.
+   * Within the reader's chapter a placed result compares pages of that
+   * chapter, since book page numbers shift while earlier chapters are laid
+   * out. Any other compares with where the reader's page begins.
    */
   const compareToReader = useCallback((result: ReaderSearchResult) => {
     const { currentChapterIndex, currentPageInChapter, locations } =
@@ -620,26 +671,19 @@ export function useReaderSearch({
     if (result.chapterIndex !== currentChapterIndex)
       return Math.sign(result.chapterIndex - currentChapterIndex);
     const page = locations[result.id]?.pageInChapter;
-    return page && currentPageInChapter
-      ? Math.sign(page - currentPageInChapter)
-      : 0;
+    if (page && currentPageInChapter)
+      return Math.sign(page - currentPageInChapter);
+    const reader = readerStart.current;
+    if (reader?.chapterIndex !== result.chapterIndex) return 0;
+    return result.start < reader.offset ? -1 : 1;
   }, []);
-
-  // Until the matches in the reader's chapter are on pages, a step could
-  // only tell the chapter and would open its first match, which may be
-  // behind the reader. Such a step waits for them in `pendingStep`.
-  const placingReaderChapter = useCallback(() => {
-    const { currentChapterIndex, locations } = position.current;
-    return results.some(
-      (result) =>
-        result.chapterIndex === currentChapterIndex &&
-        !(result.id in locations),
-    );
-  }, [results]);
 
   const stepFromReader = useCallback(
     (direction: "next" | "previous") => {
-      if (placingReaderChapter()) {
+      // Until these results nearest the reader are on pages, a step waits
+      // in `pendingStep`, or it could open a match on the page before, in a
+      // paragraph that runs onto the reader's page.
+      if (placedResults.current !== results) {
         pendingStep.current = direction;
         return;
       }
@@ -655,12 +699,13 @@ export function useReaderSearch({
         open(before < 0 ? results.length - 1 : before);
       }
     },
-    [compareToReader, open, placingReaderChapter, results],
+    [compareToReader, open, results],
   );
   useEffect(() => {
     const direction = pendingStep.current;
-    if (direction && !placingReaderChapter()) stepFromReader(direction);
-  }, [locations, placingReaderChapter, stepFromReader]);
+    if (direction && placedResults.current === results)
+      stepFromReader(direction);
+  }, [locations, results, stepFromReader]);
 
   const next = useCallback(() => {
     if (!results.length) return;
@@ -676,7 +721,7 @@ export function useReaderSearch({
 
   const openAnnotation = useCallback(
     (annotation: ReaderSearchAnnotation) => {
-      setActiveIndex(null);
+      setActiveId(null);
       goToTextOffset(
         annotation.chapterIndex,
         annotation.offset,
@@ -688,7 +733,7 @@ export function useReaderSearch({
 
   const exit = useCallback(() => {
     pendingStep.current = null;
-    setActiveIndex(null);
+    setActiveId(null);
   }, []);
   const showMore = useCallback(
     () => setShown((count) => count + RESULTS_PAGE),

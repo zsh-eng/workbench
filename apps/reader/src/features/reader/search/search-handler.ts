@@ -1,9 +1,16 @@
 import type {
   SearchChapterResult,
+  SearchStart,
   SearchWorkerRequest,
   SearchWorkerResponse,
 } from "./search-protocol";
 import { ChapterSearchText, foldQuery } from "./search-text";
+
+/** A chapter, or the part of it before or after the reader. */
+interface SearchPart {
+  chapterIndex: number;
+  range?: { from?: number; to?: number };
+}
 
 /** Work between yields, so a cancel or a newer query lands quickly. */
 const SLICE_MS = 8;
@@ -32,7 +39,32 @@ export function createSearchHandler(
     });
   }
 
-  async function runSearch(searchId: number, query: string, limit: number) {
+  /** Chapters, or parts of one, in the order a search from `from` reads them. */
+  function searchOrder(from: SearchStart | undefined): SearchPart[] {
+    const count = chapters.length;
+    if (!from || from.chapterIndex < 0 || from.chapterIndex >= count)
+      return Array.from({ length: count }, (_, chapterIndex) => ({
+        chapterIndex,
+      }));
+    const order: SearchPart[] = [
+      { chapterIndex: from.chapterIndex, range: { from: from.offset } },
+    ];
+    for (let step = 1; step < count; step++)
+      order.push({ chapterIndex: (from.chapterIndex + step) % count });
+    if (from.offset > 0)
+      order.push({
+        chapterIndex: from.chapterIndex,
+        range: { to: from.offset },
+      });
+    return order;
+  }
+
+  async function runSearch(
+    searchId: number,
+    query: string,
+    limit: number,
+    from?: SearchStart,
+  ) {
     const startedAt = performance.now();
     const foldedQuery = foldQuery(query);
     let firstMatchMs: number | null = null;
@@ -54,16 +86,18 @@ export function createSearchHandler(
       pending = [];
     };
 
-    for (let chapterIndex = 0; chapterIndex < chapters.length; chapterIndex++) {
+    for (const { chapterIndex, range } of searchOrder(from)) {
       if (searchId !== activeSearchId) return;
       const chapter = chapters[chapterIndex];
-      searchedChapters++;
+      // The reader's chapter is read in two parts but counts once.
+      const firstPart = range?.to === undefined;
+      if (firstPart) searchedChapters++;
       if (!chapter) {
-        missingChapters++;
+        if (firstPart) missingChapters++;
         continue;
       }
       const matches = foldedQuery
-        ? chapter.search(foldedQuery, limit - totalMatches)
+        ? chapter.search(foldedQuery, limit - totalMatches, range)
         : [];
       if (matches.length) {
         firstMatchMs ??= performance.now() - startedAt;
@@ -113,7 +147,12 @@ export function createSearchHandler(
         return;
       case "search":
         activeSearchId = request.searchId;
-        void runSearch(request.searchId, request.query, request.limit);
+        void runSearch(
+          request.searchId,
+          request.query,
+          request.limit,
+          request.from,
+        );
         return;
       case "cancel":
         if (request.searchId === activeSearchId) activeSearchId = 0;
