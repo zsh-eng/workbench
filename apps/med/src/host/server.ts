@@ -3023,6 +3023,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         server.close(() => resolvePromise());
         server.closeAllConnections();
         for (const socket of sockets) socket.destroy();
+        // Bun's node:http keeps waiting for a socket that a page's WebSocket
+        // upgraded, after it ends. The port is free once `close` returns.
+        setTimeout(resolvePromise, 500).unref();
       });
       await options.onClose?.();
     },
