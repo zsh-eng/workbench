@@ -213,6 +213,8 @@ export function Reader() {
     currentChapterIndex: sessionState.navigation.currentChapterIndex,
     currentPageInChapter: leadingPageInChapter(sessionState.pagination.spread),
     goToTextOffset: sessionActions.goToTextOffset,
+    // A Design ideas preview leaves the book where its reader left it.
+    previewOnly: Boolean(searchIdea),
   });
   const searchActiveIndex = search.state.activeIndex;
   useSearchMarks({

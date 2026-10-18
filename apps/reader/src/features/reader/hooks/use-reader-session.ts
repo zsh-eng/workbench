@@ -121,10 +121,11 @@ export interface ReaderSessionActions {
    * Opens the page holding a canonical text offset, such as a search result,
    * as a jump the reader can go back from.
    */
+  /** Opens canonical text as a jump, or for search, as a preview only. */
   goToTextOffset: (
     chapterIndex: number,
     offset: number,
-    source: "search" | "highlight" | "note",
+    source: "search" | "highlight" | "note" | "search-preview",
   ) => void;
   createHighlight: (highlight: Highlight) => void;
   resumeBackgroundLoad: () => void;
@@ -282,7 +283,12 @@ export function useReaderSession(
         if (!text) return;
         goToTextOffset(
           { chapterIndex, offset, blockStarts: [...text.blockStarts] },
-          { intent: { kind: "jump", source } },
+          {
+            intent:
+              source === "search-preview"
+                ? { kind: "preview", source: "search" }
+                : { kind: "jump", source },
+          },
         );
       },
       createHighlight,

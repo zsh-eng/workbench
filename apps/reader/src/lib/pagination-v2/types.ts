@@ -108,8 +108,9 @@ export type SpreadIntent =
         | "scrubber";
     }
   | {
+      /** Shows a place without moving the reading position or history. */
       kind: "preview";
-      source: "scrubber";
+      source: "scrubber" | "search";
     }
   | {
       kind: "restore";

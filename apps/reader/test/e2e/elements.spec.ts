@@ -1,4 +1,10 @@
-import { test, expect } from "./helpers/fixtures";
+import {
+  test,
+  expect,
+  nextSpread,
+  openLocalBook,
+  waitForReaderReady,
+} from "./helpers/fixtures";
 
 test.use({
   viewport: { width: 1440, height: 900 },
@@ -208,7 +214,30 @@ test.describe("on a phone", () => {
     page,
     localBook,
   }) => {
-    expect(localBook.id).toBeTruthy();
+    // The previews open the book being read, and leave its place alone.
+    await openLocalBook(page, localBook.id);
+    for (let spread = 0; spread < 3; spread++) await nextSpread(page);
+    await waitForReaderReady(page);
+    const place = () =>
+      page.evaluate(async (bookId) => {
+        const { syncV2Db: db } = await import("/src/lib/sync-v2/db.ts");
+        const row = await db
+          .table("readingCheckpoints")
+          .where("bookId")
+          .equals(bookId)
+          .first();
+        const history = JSON.parse(
+          localStorage.getItem("reader-jump-history-v1") ?? "[]",
+        ).find((record: { bookId: string }) => record.bookId === bookId);
+        return {
+          spine: row?.currentSpineIndex,
+          progress: row?.scrollProgress,
+          history: history?.history.entries.length ?? 0,
+        };
+      }, localBook.id);
+    await expect.poll(async () => (await place()).spine).toBeDefined();
+    const before = await place();
+
     await page.goto("/debug");
     await page.getByRole("link", { name: /Design ideas/ }).click();
     await page.getByRole("link", { name: "Reader search ideas" }).click();
@@ -230,5 +259,6 @@ test.describe("on a phone", () => {
     expect(await marks("Tint and underline")).toBe("tint");
     expect(await marks("Underlines only")).toBe("underline");
     expect(await marks("Only the current match")).toBe("current");
+    expect(await place()).toEqual(before);
   });
 });

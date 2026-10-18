@@ -119,8 +119,13 @@ interface UseReaderSearchOptions {
   goToTextOffset: (
     chapterIndex: number,
     offset: number,
-    source: "search" | "highlight" | "note",
+    source: "search" | "highlight" | "note" | "search-preview",
   ) => void;
+  /**
+   * Opens results without moving the reading position or adding to the
+   * history, for a preview of a book that is being read elsewhere.
+   */
+  previewOnly?: boolean;
 }
 
 function readSavedQuery(bookId: string): string {
@@ -186,6 +191,7 @@ export function useReaderSearch({
   currentChapterIndex,
   currentPageInChapter,
   goToTextOffset,
+  previewOnly = false,
 }: UseReaderSearchOptions): ReaderSearch {
   const [query, setQueryState] = useState(() => readSavedQuery(bookId));
   const [status, setStatus] = useState<ReaderSearchStatus>("idle");
@@ -584,9 +590,13 @@ export function useReaderSearch({
       setShown((count) =>
         Math.max(count, Math.ceil((index + 1) / RESULTS_PAGE) * RESULTS_PAGE),
       );
-      goToTextOffset(result.chapterIndex, result.start, "search");
+      goToTextOffset(
+        result.chapterIndex,
+        result.start,
+        previewOnly ? "search-preview" : "search",
+      );
     },
-    [goToTextOffset, results],
+    [goToTextOffset, previewOnly, results],
   );
 
   // Stepping starts from where the reader is. Read at the step, so a page
