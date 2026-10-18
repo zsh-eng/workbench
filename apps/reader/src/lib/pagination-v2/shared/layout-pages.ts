@@ -37,7 +37,7 @@ interface TextLayoutPlan {
   renderMode: "native" | "manual-justify";
   lineHeight: number;
   spacing: { above: number; below: number };
-  insets: { left: number; right: number };
+  insets: ReturnType<typeof getResolvedTextInsets>;
   textAlign: LayoutTheme["textAlign"];
 }
 
@@ -96,15 +96,13 @@ function getResolvedBlockSpacing(
         publisherStyle.margin?.before,
         theme,
         containingBlockWidthPx,
-      ) ??
-      fallback.above,
+      ) ?? fallback.above,
     below:
       getPublisherLengthPx(
         publisherStyle.margin?.after,
         theme,
         containingBlockWidthPx,
-      ) ??
-      fallback.below,
+      ) ?? fallback.below,
   };
 }
 
@@ -151,20 +149,27 @@ function getResolvedLineHeight(
   return Math.round(theme.baseFontSizePx * fontScale * lineHeightFactor);
 }
 
+/**
+ * The horizontal space a text block takes from the column. `drawnByCss` is
+ * true for the Reader's own blockquote inset: `.reader-blockquote` draws it as
+ * a border and padding, so the slice must not add it again as a margin.
+ */
 function getResolvedTextInsets(
   block: PreparedTextBlock,
   theme: LayoutTheme,
   containingBlockWidthPx: number,
-): { left: number; right: number } {
+): { left: number; right: number; drawnByCss: boolean } {
   const publisherStyle = block.publisherStyle;
   if (!publisherStyle) {
     return {
       left: getBlockInsetLeft(block.tag, theme),
       right: 0,
+      drawnByCss: true,
     };
   }
 
   return {
+    drawnByCss: false,
     left:
       getPublisherLengthPx(
         publisherStyle.margin?.left,
@@ -441,14 +446,8 @@ export function layoutPages(
     // Text block
     const textBlock = block as PreparedTextBlock;
     const textPlan = createTextLayoutPlan(textBlock, theme, safeWidth);
-    const {
-      lines,
-      renderMode,
-      lineHeight,
-      spacing,
-      insets,
-      textAlign,
-    } = textPlan;
+    const { lines, renderMode, lineHeight, spacing, insets, textAlign } =
+      textPlan;
     totalLineCount += lines.length;
 
     if (lines.length === 0) {
@@ -532,8 +531,12 @@ export function layoutPages(
         lineHeight,
         textAlign,
         renderMode,
-        ...(insets.left > 0 ? { marginLeftPx: insets.left } : {}),
-        ...(insets.right > 0 ? { marginRightPx: insets.right } : {}),
+        ...(!insets.drawnByCss && insets.left > 0
+          ? { marginLeftPx: insets.left }
+          : {}),
+        ...(!insets.drawnByCss && insets.right > 0
+          ? { marginRightPx: insets.right }
+          : {}),
         lines: sliceLines,
       });
       current.usedHeight += take * lineHeight;
