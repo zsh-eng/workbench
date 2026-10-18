@@ -35,6 +35,14 @@ Git and Go as a server that you start in a terminal. Install it again after a
 tool moves. Its log is `service.log` in the state folder. On other systems, run
 `med serve` from your own service manager.
 
+launchd reads no shell profile, so the login service reads your login shell's
+environment once as it starts (`$SHELL -i -l`, at most 5 s) and gives it to
+the agents that it starts. A token or a PATH that `~/.zshrc` exports, such as
+`ANTHROPIC_API_KEY` for Claude Code, then reaches the agents as in a terminal;
+restart the service after you change it. Your profile can check
+`MED_RESOLVING_ENVIRONMENT` to skip slow work, and `MED_SHELL_ENVIRONMENT=0`
+turns the read off.
+
 ### Install as an app
 
 In Chrome or Edge, select the install icon in the address bar, or **Install

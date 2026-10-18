@@ -92,6 +92,7 @@ import {
 import { AgentInbox, findCodex } from "./agent-inbox";
 import { createHeldMessages } from "./held-messages";
 import { findAgents, OwnedSessions, type RunnableAgent } from "./owned-sessions";
+import { loadShellEnvironment } from "./shell-environment";
 import { createAgentStatus } from "./agent-status";
 import { createFoundSessions } from "./found-sessions";
 import { Questions } from "./questions";
@@ -333,6 +334,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       ...(bin ? { bin } : {}),
       ...(key ? { thread: { key, repo } } : {}),
     });
+  // The login service reads the user's shell environment before any agent
+  // starts, so agents get the tokens and PATH that a terminal gives them.
+  await loadShellEnvironment();
   // Sessions that Med starts. ACP sessions keep their updates in the state
   // directory, and the sessions from before a restart come back first.
   const ownedSessions = new OwnedSessions({

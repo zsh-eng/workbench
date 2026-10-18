@@ -23,6 +23,7 @@ import { createJsonRpc, RpcError, type JsonRpc } from "./json-rpc";
 import { HostError } from "./runtime/errors";
 import { userHome } from "./service/discover";
 import { createSessionProcesses, type SessionProcesses } from "./session-processes";
+import { shellEnvironment } from "./shell-environment";
 import type { PromptImage } from "../shared/agent-inbox";
 
 /** An installed agent with the command that starts it. */
@@ -120,10 +121,11 @@ const SESSION_VARIABLES = [
   "CLAUDE_AGENT_SDK_MCP_NO_PREFIX",
   "CLAUDE_PID",
 ];
-/** The environment of an agent that Med starts: Med's own, without the
- * variables of the session that started Med, and with `extra`. */
+/** The environment of an agent that Med starts: Med's own with the login
+ * shell's variables when Med runs as the login service (shell-environment.ts),
+ * without the variables of the session that started Med, and with `extra`. */
 export function agentEnvironment(extra: Record<string, string> = {}) {
-  const env = { ...process.env };
+  const env = { ...process.env, ...shellEnvironment() };
   for (const name of SESSION_VARIABLES) delete env[name];
   return { ...env, ...extra };
 }
@@ -1144,7 +1146,10 @@ export async function findAgents(stateDir?: string, home = userHome()): Promise<
   ];
   const found: RunnableAgent[] = await Promise.all(
     known.map(async ({ binary, folders, ...agent }) => {
-      const command = await findExecutable(binary, folders);
+      const command = await findExecutable(binary, folders, {
+        ...process.env,
+        ...shellEnvironment(),
+      });
       return { ...agent, command: command ?? binary, available: !!command };
     }),
   );
