@@ -3,6 +3,7 @@ import type {
   ContentAnchor,
   PageSlice,
   ResolvedSpread,
+  TextCursorOffset,
 } from "@/lib/pagination-v2";
 
 /**
@@ -173,55 +174,179 @@ export function findFirstFullyVisibleLine(
   return null;
 }
 
+/** The reading line sits this far down the view. */
+export const READING_LINE_FRACTION = 1 / 3;
+
 /**
- * Chooses the page that Scroll → Pages snaps to.
+ * Column offset of the reading line. Rows sit at `paddingTop + y`, so the
+ * view's top edge is at column offset `scrollTop - paddingTop`.
+ */
+export function readingLineOffset(
+  scrollTop: number,
+  paddingTop: number,
+  viewportHeight: number,
+): number {
+  return scrollTop - paddingTop + viewportHeight * READING_LINE_FRACTION;
+}
+
+/** The line that contains `offset`, or the first line below it. */
+export function findLineAtOrAfter(
+  rows: readonly ScrollRow[],
+  chapterIndex: number,
+  offset: number,
+): ScrollLine | null {
+  for (
+    let index = findFirstRowEndingAfter(rows, offset);
+    index < rows.length;
+    index++
+  ) {
+    const row = rows[index]!;
+    const { slice } = row;
+    if (slice.type === "spacer") continue;
+    if (slice.type === "image") {
+      return {
+        y: row.y,
+        height: row.height,
+        pageIndex: row.pageIndex,
+        anchor: blockAnchor(chapterIndex, slice.blockId),
+      };
+    }
+    for (let lineIndex = 0; lineIndex < slice.lines.length; lineIndex++) {
+      const top = row.y + lineIndex * slice.lineHeight;
+      if (top + slice.lineHeight <= offset) continue;
+      const startOffset = slice.lines[lineIndex]?.startOffset;
+      return {
+        y: top,
+        height: slice.lineHeight,
+        pageIndex: row.pageIndex,
+        anchor: startOffset
+          ? {
+              type: "text",
+              chapterIndex,
+              blockId: slice.blockId,
+              offset: { ...startOffset },
+            }
+          : blockAnchor(chapterIndex, slice.blockId),
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Chooses the page that Scroll → Pages snaps to: the page that holds the
+ * reading line, a third of the way down the view.
  *
- * The page that holds the first fully visible line wins, so the snap never
- * skips text the reader has not seen. The next page wins only when its start
- * is within about two lines of the top of the view: the lines above it are
- * the ones the reader just finished.
+ * A backward snap therefore moves the text at most about two thirds of a
+ * page, and a forward snap skips at most the lines above the reading line.
  */
 export function resolveSnapPage(options: {
   column: ChapterColumnLayout;
-  rows: readonly ScrollRow[];
-  viewTop: number;
-  bodyLineHeight: number;
+  readingLine: number;
 }): number {
-  const { column, rows, viewTop, bodyLineHeight } = options;
-  const line = findFirstFullyVisibleLine(rows, column.chapterIndex, viewTop);
-  if (!line) return findPageAtOffset(column.pageStarts, viewTop);
-
-  const nextStart = column.pageStarts[line.pageIndex + 1];
-  const slack = 2 * Math.max(bodyLineHeight, 1) + 0.5;
-  if (nextStart !== undefined && nextStart - viewTop <= slack) {
-    return line.pageIndex + 1;
-  }
-  return line.pageIndex;
+  const { column, readingLine } = options;
+  return findPageAtOffset(column.pageStarts, Math.max(0, readingLine));
 }
 
-/** The column offset of an anchor, for keeping it in place after relayout. */
+function compareCursor(a: TextCursorOffset, b: TextCursorOffset): number {
+  if (a.itemIndex !== b.itemIndex) return a.itemIndex - b.itemIndex;
+  if (a.segmentIndex !== b.segmentIndex) return a.segmentIndex - b.segmentIndex;
+  return a.graphemeIndex - b.graphemeIndex;
+}
+
+/**
+ * A line named by its block and the characters before it in that block.
+ *
+ * Cursor offsets count a block's text runs, and a new highlight splits a run
+ * in two, which renumbers every offset after it. The characters stay the
+ * same, so this survives a highlight relayout; it also survives a font
+ * change, where it names the line that now holds the same character.
+ */
+export interface LineTextPosition {
+  blockId: string;
+  textOffset: number;
+}
+
+function lineTextLength(
+  line: Extract<PageSlice, { type: "text" }>["lines"][number],
+): number {
+  let length = 0;
+  for (const fragment of line.fragments) length += fragment.text.length;
+  return length;
+}
+
+/** The text position of the line that holds column offset `y`. */
+export function findLineTextPosition(
+  rows: readonly ScrollRow[],
+  y: number,
+): LineTextPosition | null {
+  const target = rows[findFirstRowEndingAfter(rows, y)];
+  if (!target || target.slice.type === "spacer") return null;
+  const { blockId } = target.slice;
+  if (target.slice.type === "image") return { blockId, textOffset: 0 };
+
+  let textOffset = 0;
+  for (const row of rows) {
+    const { slice } = row;
+    if (slice.type !== "text" || slice.blockId !== blockId) continue;
+    for (let lineIndex = 0; lineIndex < slice.lines.length; lineIndex++) {
+      const top = row.y + lineIndex * slice.lineHeight;
+      if (row === target && top + slice.lineHeight > y) {
+        return { blockId, textOffset };
+      }
+      textOffset += lineTextLength(slice.lines[lineIndex]!);
+    }
+    if (row === target) break;
+  }
+  return { blockId, textOffset };
+}
+
+/** The column offset of the line that holds a text position. */
+export function findTextPositionOffset(
+  rows: readonly ScrollRow[],
+  position: LineTextPosition,
+): number | null {
+  let textOffset = 0;
+  let last: number | null = null;
+  for (const row of rows) {
+    const { slice } = row;
+    if (slice.blockId !== position.blockId || slice.type === "spacer") {
+      continue;
+    }
+    if (slice.type === "image") return row.y;
+    for (let lineIndex = 0; lineIndex < slice.lines.length; lineIndex++) {
+      const top = row.y + lineIndex * slice.lineHeight;
+      const length = lineTextLength(slice.lines[lineIndex]!);
+      if (position.textOffset < textOffset + length) return top;
+      textOffset += length;
+      last = top;
+    }
+  }
+  return last;
+}
+
+/**
+ * The column offset of the line that holds an anchor. A text anchor inside
+ * a line resolves to that line; a block anchor to the block's first row.
+ */
 export function findAnchorOffset(
   rows: readonly ScrollRow[],
   anchor: ContentAnchor,
 ): number | null {
+  let best: number | null = null;
   for (const row of rows) {
     const { slice } = row;
     if (slice.blockId !== anchor.blockId) continue;
     if (anchor.type === "block" || slice.type !== "text") return row.y;
 
     for (let lineIndex = 0; lineIndex < slice.lines.length; lineIndex++) {
-      const offset = slice.lines[lineIndex]?.startOffset;
-      if (
-        offset &&
-        offset.itemIndex === anchor.offset.itemIndex &&
-        offset.segmentIndex === anchor.offset.segmentIndex &&
-        offset.graphemeIndex === anchor.offset.graphemeIndex
-      ) {
-        return row.y + lineIndex * slice.lineHeight;
-      }
+      const start = slice.lines[lineIndex]?.startOffset;
+      if (!start) continue;
+      if (compareCursor(start, anchor.offset) > 0) return best ?? row.y;
+      best = row.y + lineIndex * slice.lineHeight;
     }
   }
-  return null;
+  return best;
 }
 
 /**
@@ -251,6 +376,69 @@ export function buildColumnSelectionSpread(
     currentPage: 1,
     totalPages: 1,
     // A spread id that no paged spread uses.
+    currentSpread: -1 - column.chapterIndex,
+    totalSpreads: 1,
+    chapterIndexStart: column.chapterIndex,
+    chapterIndexEnd: column.chapterIndex,
+  };
+}
+
+/**
+ * A one-page spread of what the view shows, from the top line down. Notes
+ * capture a page target from the first line of a spread; in scroll mode
+ * that is the line at the top of the view.
+ */
+export function buildColumnViewSpread(
+  column: ChapterColumnLayout,
+  topAnchor: ContentAnchor | null,
+  pageIndex: number,
+): ResolvedSpread {
+  let startIndex = column.slices.findIndex(
+    (entry) => entry.pageIndex === pageIndex,
+  );
+  let firstSlice: PageSlice | null = null;
+  if (topAnchor) {
+    const index = column.slices.findIndex(
+      (entry) => entry.slice.blockId === topAnchor.blockId,
+    );
+    if (index >= 0) {
+      startIndex = index;
+      const slice = column.slices[index]!.slice;
+      if (slice.type === "text" && topAnchor.type === "text") {
+        const lineIndex = slice.lines.findIndex(
+          (line) =>
+            line.startOffset &&
+            compareCursor(line.startOffset, topAnchor.offset) >= 0,
+        );
+        if (lineIndex > 0) {
+          firstSlice = { ...slice, lines: slice.lines.slice(lineIndex) };
+        }
+      }
+    }
+  }
+  const content = column.slices
+    .slice(Math.max(0, startIndex), Math.max(0, startIndex) + 24)
+    .map((entry, index) =>
+      index === 0 && firstSlice ? firstSlice : entry.slice,
+    );
+  return {
+    slots: [
+      {
+        kind: "page",
+        slotIndex: 0,
+        page: {
+          currentPage: 1,
+          totalPages: 1,
+          currentPageInChapter: pageIndex + 1,
+          totalPagesInChapter: column.pageStarts.length,
+          chapterIndex: column.chapterIndex,
+          content,
+        },
+      },
+    ],
+    intent: { kind: "replace" },
+    currentPage: 1,
+    totalPages: 1,
     currentSpread: -1 - column.chapterIndex,
     totalSpreads: 1,
     chapterIndexStart: column.chapterIndex,

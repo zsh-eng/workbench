@@ -43,8 +43,10 @@ import {
   serializeReaderPageDebugDump,
 } from "./debug/page-debug-dump";
 import { DeferredEpubImageProvider } from "./shared/DeferredEpubImageProvider";
-import { ReadingModeSwitch } from "./scroll/ReadingModeSwitch";
+import type { ReaderLocation } from "./reader-location";
+import { ReadingLayoutRow } from "./scroll/ReadingLayoutRow";
 import { ScrollStage } from "./scroll/ScrollStage";
+import { SelectionScrollChip } from "./scroll/SelectionScrollChip";
 import { useReaderScrollMode } from "./scroll/use-reader-scroll-mode";
 
 function DisplayReadyCommitProbe({
@@ -137,6 +139,10 @@ export function Reader() {
   const isReaderStageMeasured =
     isStageMeasured && stageSlotElement?.dataset.readerStageSlot === "content";
 
+  // Scroll mode's place in the book; pages mode leaves it null.
+  const [scrollLocation, setScrollLocation] = useState<ReaderLocation | null>(
+    null,
+  );
   const {
     resources: sessionResources,
     state: sessionState,
@@ -146,6 +152,7 @@ export function Reader() {
     viewport: stageViewport,
     spreadColumns: resolvedSpreadColumns,
     layoutReady: isReaderStageMeasured,
+    scrollLocation,
   });
   const resumeBackgroundLoad = sessionActions.resumeBackgroundLoad;
   const endHistoryGroup = sessionActions.endHistoryGroup;
@@ -153,18 +160,30 @@ export function Reader() {
     endHistoryGroup();
   }, [chromeState.activeReaderSheet, endHistoryGroup]);
 
+  const { displayReady, settledPaintReady } = useReaderDisplayReadiness({
+    bookId,
+    contentReady: isReaderStageMeasured && sessionState.status === "ready",
+    stageContentRef,
+  });
+
   // Debug-mode prototype: per-chapter scroll mode beside paged reading.
   const scrollMode = useReaderScrollMode({
+    bookId,
     enabled: debugEnabled,
+    touch: chromeInteractionMode === "touch",
+    ready: displayReady,
     spread: sessionState.pagination.spread,
+    spreadWindow: sessionState.pagination.spreadWindow,
     column: sessionState.pagination.scrollColumn,
     chapterEntries: sessionState.chapters.entries,
     chapterStartPages: sessionState.navigation.chapterStartPages,
+    totalPages: sessionState.navigation.totalPages,
     chapterAccess: sessionResources.chapterAccess,
     setScrollChapter: sessionActions.setScrollChapter,
     goToAnchor: sessionActions.goToAnchor,
     goToChapter: sessionActions.goToChapter,
     stageContentRef,
+    onLocationChange: setScrollLocation,
   });
 
   const {
@@ -193,11 +212,6 @@ export function Reader() {
     onCreateHighlight: sessionActions.createHighlight,
   });
 
-  const { displayReady, settledPaintReady } = useReaderDisplayReadiness({
-    bookId,
-    contentReady: isReaderStageMeasured && sessionState.status === "ready",
-    stageContentRef,
-  });
   const { prompt: handoffPrompt } = useReaderHandoffPrompt({
     bookId,
     // The handoff target needs the complete chapter-to-page map. Starting this
@@ -362,6 +376,7 @@ export function Reader() {
           chromeInteractionMode={chromeInteractionMode}
           isChromeSuppressed={isReaderInteractionSuppressed}
           scrollMode={scrollMode.scrollGestures}
+          pull={scrollMode.pull}
           onDismissContentTap={
             noteViewportHeight === null &&
             !(isMobile && (isCreatingHighlight || activeHighlightData))
@@ -461,32 +476,44 @@ export function Reader() {
               >
                 <DeferredEpubImageProvider key={bookId} bookId={bookId}>
                   {scrollMode.showSpreadStage && (
-                    <SpreadStage
-                      spread={sessionState.pagination.spread}
-                      previousSpread={
-                        sessionState.pagination.spreadWindow?.previous
-                      }
-                      nextSpread={sessionState.pagination.spreadWindow?.next}
-                      spreadConfig={sessionState.pagination.spreadConfig}
-                      columnSpacingPx={columnGapPx}
-                      paginationConfig={
-                        sessionState.pagination.paginationConfig
-                      }
-                      stageContentRef={stageContentRef}
-                      onLinkActivate={sessionActions.openInternalHref}
-                      disableAnimations={
-                        !sessionState.settings.pageAnimationsEnabled
-                      }
-                      renderAdjacentSpreads={shouldPrepareSwipePages}
-                      swipeEnabled={swipeNavigationEnabled}
-                      onSwipeStart={hideChrome}
-                      onSwipeNext={sessionActions.nextSpread}
-                      onSwipePrevious={sessionActions.prevSpread}
-                      paddingTopPx={stagePadding.paddingTop}
-                      paddingBottomPx={stagePadding.paddingBottom}
-                      paddingLeftPx={stagePadding.paddingX}
-                      paddingRightPx={stagePadding.paddingX}
-                    />
+                    <div
+                      className="absolute inset-0"
+                      style={{
+                        // Over the column for a scrubber preview or a jump.
+                        zIndex: scrollMode.spreadAboveStage ? 4 : undefined,
+                        // Reopening in scroll mode: no page flash first.
+                        visibility: scrollMode.hideSpreadStage
+                          ? "hidden"
+                          : undefined,
+                      }}
+                    >
+                      <SpreadStage
+                        spread={sessionState.pagination.spread}
+                        previousSpread={
+                          sessionState.pagination.spreadWindow?.previous
+                        }
+                        nextSpread={sessionState.pagination.spreadWindow?.next}
+                        spreadConfig={sessionState.pagination.spreadConfig}
+                        columnSpacingPx={columnGapPx}
+                        paginationConfig={
+                          sessionState.pagination.paginationConfig
+                        }
+                        stageContentRef={stageContentRef}
+                        onLinkActivate={sessionActions.openInternalHref}
+                        disableAnimations={
+                          !sessionState.settings.pageAnimationsEnabled
+                        }
+                        renderAdjacentSpreads={shouldPrepareSwipePages}
+                        swipeEnabled={swipeNavigationEnabled}
+                        onSwipeStart={hideChrome}
+                        onSwipeNext={sessionActions.nextSpread}
+                        onSwipePrevious={sessionActions.prevSpread}
+                        paddingTopPx={stagePadding.paddingTop}
+                        paddingBottomPx={stagePadding.paddingBottom}
+                        paddingLeftPx={stagePadding.paddingX}
+                        paddingRightPx={stagePadding.paddingX}
+                      />
+                    </div>
                   )}
                   {scrollMode.stage && (
                     <ScrollStage
@@ -503,13 +530,13 @@ export function Reader() {
                             .lineHeightFactor,
                       )}
                       paddingTopPx={stagePadding.paddingTop}
-                      paddingBottomPx={stagePadding.paddingBottom}
                       paddingLeftPx={stagePadding.paddingX}
                       paddingRightPx={stagePadding.paddingX}
                       onScrollDirection={(direction) => {
                         if (direction === "down") hideChrome();
                         else showChrome();
                       }}
+                      onSnapStart={hideChrome}
                       onLinkActivate={sessionActions.openInternalHref}
                     />
                   )}
@@ -551,15 +578,6 @@ export function Reader() {
                   if (displayReady) chromeActions.openReaderSheet("tools");
                 }}
                 toolsTriggerRef={toolsTriggerRef}
-                debugAccessory={
-                  debugEnabled && isMobile ? (
-                    <ReadingModeSwitch
-                      value={scrollMode.mode}
-                      onChange={scrollMode.setMode}
-                      disabled={scrollMode.switchDisabled || !displayReady}
-                    />
-                  ) : undefined
-                }
                 variant={headerVariant}
                 chapterTitle={currentChapterEntry?.title}
                 activeSheet={chromeState.activeReaderSheet}
@@ -624,9 +642,7 @@ export function Reader() {
                 }
                 chromeSurfaceProps={chromeSurfaceProps}
                 isContentsOpen={chromeState.activeReaderSheet === "contents"}
-                currentPage={
-                  scrollMode.livePage ?? sessionState.navigation.currentPage
-                }
+                currentPage={sessionState.navigation.currentPage}
                 progressLabel={
                   scrollMode.progressLabel && (
                     <p
@@ -738,7 +754,15 @@ export function Reader() {
                     onVisitHighlight={sessionActions.goToHighlight}
                     chapters={sessionState.chapters.entries}
                     chapterAccess={sessionResources.chapterAccess}
-                    pagination={sessionState.pagination}
+                    pagination={
+                      // Notes capture and place against what the view shows.
+                      scrollMode.viewSpread
+                        ? {
+                            ...sessionState.pagination,
+                            spread: scrollMode.viewSpread,
+                          }
+                        : sessionState.pagination
+                    }
                     locateAnchors={sessionResources.locateAnchors}
                     open={
                       noteViewportHeight !== null ||
@@ -748,7 +772,9 @@ export function Reader() {
                       sessionState.navigation.currentChapterIndex
                     }
                     location={{
-                      page: sessionState.navigation.currentPage,
+                      page:
+                        scrollMode.visiblePages?.first ??
+                        sessionState.navigation.currentPage,
                       chapter: currentChapterEntry?.title ?? "Current chapter",
                     }}
                     notebook={
@@ -782,15 +808,27 @@ export function Reader() {
                     onDraftPresenceChange={setNoteDraftPresent}
                     onReturnToReading={hideChrome}
                     margin={{
-                      width: stagePadding.paddingX,
+                      // Scroll mode centres one page-wide column, so a spread
+                      // layout leaves it the wider margins.
+                      width:
+                        scrollMode.mode === "scroll"
+                          ? stagePadding.paddingX +
+                            ((resolvedSpreadColumns - 1) *
+                              (stageViewport.width + columnGapPx)) /
+                              2
+                          : stagePadding.paddingX,
                       enabled: !isMobile && !isReaderInteractionSuppressed,
+                      // In scroll mode notes move with their passages.
+                      follow: scrollMode.mode === "scroll",
                       location: {
-                        page: Math.min(
-                          sessionState.navigation.totalPages,
-                          sessionState.navigation.currentPage +
-                            resolvedSpreadColumns -
-                            1,
-                        ),
+                        page:
+                          scrollMode.visiblePages?.last ??
+                          Math.min(
+                            sessionState.navigation.totalPages,
+                            sessionState.navigation.currentPage +
+                              resolvedSpreadColumns -
+                              1,
+                          ),
                         chapter:
                           sessionState.chapters.entries[
                             sessionState.pagination.spread?.chapterIndexEnd ??
@@ -823,9 +861,34 @@ export function Reader() {
                             ? () => void handleCopyDebugDump()
                             : undefined
                         }
+                        layoutControl={
+                          debugEnabled ? (
+                            <ReadingLayoutRow
+                              value={scrollMode.preferredMode}
+                              disabled={scrollMode.switchDisabled}
+                              onChange={(next) => {
+                                // The sheet closes while the layout changes
+                                // behind it.
+                                chromeActions.closeReaderSheet();
+                                scrollMode.setMode(next);
+                              }}
+                            />
+                          ) : undefined
+                        }
                       />
                     )}
                   </ReaderNotesPrototype>
+
+                  <SelectionScrollChip
+                    enabled={
+                      scrollMode.chipAvailable && !isReaderInteractionSuppressed
+                    }
+                    stageContentRef={stageContentRef}
+                    onActivate={(locators) => {
+                      closeCreation();
+                      scrollMode.enterWithSelection(locators);
+                    }}
+                  />
 
                   {!isMobile && (
                     <HighlightToolbarContainer
