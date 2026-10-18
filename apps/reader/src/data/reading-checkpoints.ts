@@ -8,6 +8,12 @@ export interface ReadingCheckpoint {
   deviceId: string; // Device that owns this checkpoint
   currentSpineIndex: number; // Current chapter/spine index
   scrollProgress: number; // Chapter-local percentage in the range 0-100
+  /**
+   * Whole-book progress in the range 0-1: the leading page's place among all
+   * pages. Only a Reader that has paginated the whole book knows it, so a
+   * checkpoint saved before that, or by an older client, does not have it.
+   */
+  bookProgress?: number;
   lastRead: number; // Timestamp when this checkpoint was last updated
 }
 
@@ -92,6 +98,9 @@ export async function upsertReadingCheckpoint(
     scrollProgress: normalizeCheckpointScrollProgress(
       checkpoint.scrollProgress,
     ),
+    ...(checkpoint.bookProgress !== undefined
+      ? { bookProgress: Math.max(0, Math.min(1, checkpoint.bookProgress)) }
+      : {}),
   };
 
   await db.readingCheckpoints.put({

@@ -12,6 +12,7 @@ export interface ReaderCheckpointSnapshot {
   localPageIndex: number;
   totalPagesInChapter: number;
   scrollProgress: number;
+  bookProgress?: number;
 }
 
 type ResolvedPageSlot = Extract<
@@ -36,9 +37,19 @@ function toCheckpointScrollProgress(
   return (localPageIndex / (totalPagesInChapter - 1)) * 100;
 }
 
+/**
+ * Page numbers count only the chapters laid out so far, so the whole-book
+ * fraction is exact only after pagination of the whole book is complete.
+ */
+function toBookProgress(page: ResolvedLeafPage): number {
+  if (page.totalPages <= 1) return 0;
+  return (page.currentPage - 1) / (page.totalPages - 1);
+}
+
 export function createReaderCheckpointSnapshot(
   bookId: string | undefined,
   spread: ResolvedSpread | null,
+  isFullyPaginated: boolean,
 ): ReaderCheckpointSnapshot | null {
   if (!bookId) return null;
 
@@ -57,6 +68,7 @@ export function createReaderCheckpointSnapshot(
       localPageIndex,
       totalPagesInChapter,
     ),
+    ...(isFullyPaginated ? { bookProgress: toBookProgress(leadingPage) } : {}),
   };
 }
 
@@ -82,5 +94,6 @@ export function getReaderCheckpointSnapshotKey(
     snapshot.currentSpineIndex,
     snapshot.localPageIndex,
     snapshot.totalPagesInChapter,
+    snapshot.bookProgress,
   ]);
 }
