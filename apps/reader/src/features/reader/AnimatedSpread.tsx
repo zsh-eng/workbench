@@ -3,6 +3,7 @@ import type { ResolvedSpread, SpreadConfig } from "@/lib/pagination-v2/types";
 import { motion, useIsPresent, usePresenceData } from "motion/react";
 import { useState } from "react";
 import { PageSliceView } from "./PageSliceView";
+import { getPageContentKey } from "./spread-identity";
 
 export type NavDirection = "forward" | "backward" | "instant";
 
@@ -81,7 +82,7 @@ export function SpreadView({
 
           return (
             <div
-              key={`page-${slot.slotIndex}-${slot.page.currentPage}`}
+              key={`page-${slot.slotIndex}-${getPageContentKey(slot.page)}`}
               data-reader-page-slot={slot.slotIndex}
               data-reader-current-page={slot.page.currentPage}
               className={

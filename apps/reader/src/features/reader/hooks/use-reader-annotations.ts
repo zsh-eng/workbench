@@ -33,6 +33,7 @@ import {
   READER_TOUCH_TAP_HANDLED_EVENT,
   TOUCH_TAP_SELECTION_SUPPRESSION_MS,
 } from "./reader-interaction-events";
+import { getSpreadContentKey } from "../spread-identity";
 import type { ReaderSessionChapterAccess } from "./use-reader-session";
 
 export interface ActiveHighlightState {
@@ -494,16 +495,14 @@ export function useReaderAnnotations({
     };
   }, [resolveSelectionDraft]);
 
+  // Clear a selection when the pages it was made on go away.
+  const visiblePagesKey = spread ? getSpreadContentKey(spread) : "";
   useEffect(() => {
     clearDomSelection();
     setState((previousState) =>
       previousState.kind === "creating" ? { kind: "idle" } : previousState,
     );
-  }, [
-    spread?.currentSpread,
-    spread?.chapterIndexEnd,
-    spread?.chapterIndexStart,
-  ]);
+  }, [visiblePagesKey]);
 
   useEffect(() => {
     if (state.kind !== "active") return;
