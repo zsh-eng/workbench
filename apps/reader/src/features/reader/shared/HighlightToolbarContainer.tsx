@@ -35,6 +35,8 @@ interface HighlightToolbarContainerProps {
   onCreateNoteSubmit?: (content: string) => void;
   /** A further action for a new selection, after the desktop pill's own. */
   creationAction?: ReactNode;
+  /** A line under the creation pill. */
+  creationAccessory?: ReactNode;
 
   // For editing existing highlights
   activeHighlight: ActiveHighlightState | null;
@@ -56,6 +58,7 @@ export function HighlightToolbarContainer({
   onAddHighlightNote,
   onAddSelectionNote,
   creationAction,
+  creationAccessory,
   activeHighlight,
   onEditClose,
 }: HighlightToolbarContainerProps) {
@@ -126,6 +129,7 @@ export function HighlightToolbarContainer({
             onNoteSubmit={onCreateNoteSubmit}
             textToCopy={creationText}
             action={creationAction}
+            accessory={creationAccessory}
           />
         )}
       </AnimatePresence>

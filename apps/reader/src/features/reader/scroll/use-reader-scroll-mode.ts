@@ -14,12 +14,14 @@ import {
   type RefObject,
 } from "react";
 import { sameReaderAnchor } from "../jump-history";
+import { getSpreadContentKey } from "../spread-identity";
 import { getLeadingVisiblePage, type ReaderLocation } from "../reader-location";
 import type { ChapterEntry } from "../types";
 import type { ReaderSessionChapterAccess } from "../hooks/use-reader-session";
 import {
   pullResistance,
   type ScrollPosition,
+  type SelectionHandoff,
   type ScrollStageEnter,
   type ScrollStageHandle,
   type ScrollStageStart,
@@ -45,6 +47,18 @@ export type { ReadingMode };
 /** Pull distance, after resistance, at which a release enters scroll mode. */
 export const PULL_THRESHOLD_PX = 64;
 
+/** A page selection on its way into the column. */
+type Handoff = Omit<SelectionHandoff, "onDone">;
+
+/**
+ * A visit to the column for one selection, from pages: it returns to pages
+ * once the selection is done with, and leaves the reading mode alone.
+ */
+interface Excursion {
+  /** The page it left from, chapter-local. */
+  originPageIndex: number;
+}
+
 /**
  * - off: paged reading.
  * - opening: waits for the chapter column; the page stays on screen.
@@ -63,7 +77,8 @@ type ScrollPhase =
       enter: ScrollStageEnter;
       /** Hides the paged spread until the column shows (reopening a book). */
       restoring: boolean;
-      selection: SelectionLocators | null;
+      handoff: Handoff | null;
+      excursion: Excursion | null;
     }
   | {
       kind: "pulling";
@@ -78,7 +93,13 @@ type ScrollPhase =
       enter: ScrollStageEnter;
       entered: boolean;
       restoring: boolean;
-      selection: SelectionLocators | null;
+      handoff: Handoff | null;
+      excursion: Excursion | null;
+      /**
+       * The spread the column opened from. A preview spread (Design ideas
+       * shows a page without moving the book) is not a scrubber preview.
+       */
+      entrySpread: ResolvedSpread | null;
       generation: number;
       pending: { chapterIndex: number; start: ScrollStageStart } | null;
     }
@@ -112,6 +133,8 @@ interface UseReaderScrollModeOptions {
   stageContentRef: RefObject<HTMLDivElement | null>;
   /** Scroll mode's location; null in pages. */
   onLocationChange: (location: ReaderLocation | null) => void;
+  /** A page selection is in the column and done moving. */
+  onSelectionHandedOver?: () => void;
 }
 
 const NAVIGATION_INTENTS = new Set<SpreadIntent["kind"]>(["jump", "history"]);
@@ -161,8 +184,9 @@ function targetPage(
  *
  * Content anchors carry the place across modes. Scroll → Pages snaps the
  * page that holds the reading line into place; Pages → Scroll opens at that
- * page's offset, from the settings switch, a pull past the threshold, or
- * "Select across pages" in the highlight tools. While scrolling, the
+ * page's offset, from the settings switch or a pull past the threshold. A
+ * selection cut by a page break can also visit the column (`excursion`)
+ * to take in the next page's words, then return to pages. While scrolling, the
  * location goes to the reader as a mode-neutral `ReaderLocation`: progress,
  * sessions, history and page numbers follow it without moving the paged
  * engine. Jumps (contents, scrubber, links, notes, history) still run
@@ -186,6 +210,7 @@ export function useReaderScrollMode({
   goToChapter,
   stageContentRef,
   onLocationChange,
+  onSelectionHandedOver,
 }: UseReaderScrollModeOptions) {
   const preferredMode = useReadingModePreference();
   const [phase, setPhase] = useState<ScrollPhase>({ kind: "off" });
@@ -206,8 +231,8 @@ export function useReaderScrollMode({
   const leadingPage = getLeadingVisiblePage(spread);
   const leadingChapter = leadingPage?.chapterIndex ?? null;
 
-  // Pages mode keeps the current chapter's column ready, so a pull or
-  // "Select across pages" can start without waiting for the worker.
+  // Pages mode keeps the current chapter's column ready, so a pull or a
+  // selection's visit can start without waiting for the worker.
   const subscribedChapter =
     !enabled || !ready
       ? null
@@ -236,7 +261,8 @@ export function useReaderScrollMode({
       start?: ScrollStageStart;
       enter?: ScrollStageEnter;
       restoring?: boolean;
-      selection?: SelectionLocators | null;
+      handoff?: Handoff | null;
+      excursion?: boolean;
     }) => {
       const page = options.page ?? getLeadingVisiblePage(spread);
       if (!page) return false;
@@ -249,7 +275,10 @@ export function useReaderScrollMode({
         },
         enter: options.enter ?? "keep-page",
         restoring: options.restoring ?? false,
-        selection: options.selection ?? null,
+        handoff: options.handoff ?? null,
+        excursion: options.excursion
+          ? { originPageIndex: page.currentPageInChapter - 1 }
+          : null,
       });
       return true;
     },
@@ -257,17 +286,26 @@ export function useReaderScrollMode({
   );
 
   const close = useCallback(
-    (velocityX = 0) => {
+    (velocityX = 0, targetPage?: number) => {
       if (phase.kind !== "on" || !phase.entered || !stageColumn) return;
       const handle = handleRef.current;
       if (!handle) return;
-      const { pageIndex, finished } = handle.snapToPage({ velocityX });
+      const { pageIndex, finished } = handle.snapToPage({
+        velocityX,
+        pageIndex: targetPage,
+      });
       const anchor = stageColumn.pageAnchors[pageIndex];
       // The pages own the place again: the engine's move to the snapped page
-      // is the reading move that progress and history record.
+      // is the reading move that progress and history record. A column
+      // opened from a preview returns as one, and moves nothing.
       onLocationChange(null);
       if (anchor) {
-        goToAnchor(anchor, { kind: "linear", direction: "forward" });
+        goToAnchor(
+          anchor,
+          phase.entrySpread?.intent.kind === "preview"
+            ? { kind: "preview", source: "search" }
+            : { kind: "linear", direction: "forward" },
+        );
       }
       setPhase({
         kind: "closing",
@@ -293,11 +331,15 @@ export function useReaderScrollMode({
       setReadingModePreference(next);
       if (next === "scroll") {
         if (phase.kind === "off") open({});
+        // Choosing Scroll during a visit for a selection keeps the column.
+        if (phase.kind === "on" && phase.excursion) {
+          setPhase({ ...phase, excursion: null });
+        }
         return;
       }
       close(options.velocityX);
     },
-    [close, open, phase.kind],
+    [close, open, phase],
   );
 
   // Debug mode turned off: return to pages without animation.
@@ -356,7 +398,9 @@ export function useReaderScrollMode({
       enter: phase.enter,
       entered: false,
       restoring: phase.restoring,
-      selection: phase.selection,
+      handoff: phase.handoff,
+      excursion: phase.excursion,
+      entrySpread: spread,
       generation: generationRef.current,
       pending: null,
     });
@@ -375,7 +419,9 @@ export function useReaderScrollMode({
       enter: "fade-all",
       entered: true,
       restoring: false,
-      selection: null,
+      handoff: null,
+      // Another chapter ends a visit for a selection: the column stays.
+      excursion: null,
       generation: generationRef.current,
       pending: null,
     });
@@ -518,27 +564,102 @@ export function useReaderScrollMode({
     );
   }, []);
 
-  // "Select across pages": select the same text in the column once it shows.
+  // A page selection moves into the column as it shows.
+  const handedOver = useRef(onSelectionHandedOver);
+  handedOver.current = onSelectionHandedOver;
   useEffect(() => {
-    if (phase.kind !== "on" || !phase.entered || !phase.selection) return;
-    handleRef.current?.restoreSelection(phase.selection);
-    setPhase({ ...phase, selection: null });
+    if (phase.kind !== "on" || !phase.handoff) return;
+    const handle = handleRef.current;
+    if (!handle) return;
+    handle.takeSelection({
+      ...phase.handoff,
+      onDone: () => handedOver.current?.(),
+    });
+    setPhase({ ...phase, handoff: null });
   }, [phase]);
 
-  /** Select across pages: moves a page selection into scroll mode. */
+  /**
+   * Moves a page selection into the column. A visit (`excursion`) leaves
+   * the reading mode alone and returns to pages with `endExcursion`;
+   * otherwise the reader stays in scroll mode.
+   */
   const enterWithSelection = useCallback(
-    (captured?: SelectionLocators | null) => {
+    (
+      captured?: SelectionLocators | null,
+      options: {
+        excursion?: boolean;
+        /** The page that holds the selection; the leading page otherwise. */
+        pageIndex?: number;
+        extension?: Handoff["extension"];
+        reveal?: Handoff["reveal"];
+      } = {},
+    ) => {
       if (phase.kind !== "off") return false;
       const container = stageContentRef.current?.querySelector(
         '[data-reader-spread-layer="current"]',
       );
-      const selection =
+      const locators =
         captured ??
         (container ? captureSelection(container, window.getSelection()) : null);
-      setReadingModePreference("scroll");
-      return open({ selection });
+      if (!options.excursion) setReadingModePreference("scroll");
+      const page =
+        options.pageIndex === undefined
+          ? undefined
+          : spreadPages(spread).find(
+              (candidate) =>
+                candidate.currentPageInChapter - 1 === options.pageIndex,
+            );
+      return open({
+        page,
+        excursion: options.excursion,
+        handoff: {
+          locators,
+          extension: options.extension ?? null,
+          reveal: options.reveal,
+        },
+      });
     },
-    [open, phase.kind, stageContentRef],
+    [open, phase.kind, spread, stageContentRef],
+  );
+
+  // During a visit, the page that holds the selection's end, which is where
+  // the reader returns once the selection becomes a highlight or a note.
+  const selectionEndPageRef = useRef<number | null>(null);
+  const excursion = phase.kind === "on" ? phase.excursion : null;
+  useEffect(() => {
+    selectionEndPageRef.current = null;
+    if (!excursion) return;
+    const onSelectionChange = () => {
+      const selection = window.getSelection();
+      const content = scrollContentRef.current;
+      if (!selection || selection.isCollapsed || !selection.rangeCount) return;
+      const range = selection.getRangeAt(0);
+      if (!content?.contains(range.endContainer)) return;
+      const node = range.endContainer;
+      const element = node instanceof Element ? node : node.parentElement;
+      const row = element?.closest<HTMLElement>("[data-page-index]");
+      if (row) selectionEndPageRef.current = Number(row.dataset.pageIndex);
+    };
+    document.addEventListener("selectionchange", onSelectionChange);
+    onSelectionChange();
+    return () =>
+      document.removeEventListener("selectionchange", onSelectionChange);
+  }, [excursion]);
+
+  /**
+   * Ends a visit for a selection. A kept selection returns to the page
+   * where it ends; a dismissed one to the page it started from.
+   */
+  const endExcursion = useCallback(
+    (outcome: "kept" | "dismissed") => {
+      if (phase.kind !== "on" || !phase.excursion) return;
+      const target =
+        outcome === "kept" && selectionEndPageRef.current !== null
+          ? selectionEndPageRef.current
+          : phase.excursion.originPageIndex;
+      close(0, target);
+    },
+    [close, phase],
   );
 
   // Pull to scroll, driven by the pages' touch handler.
@@ -593,7 +714,9 @@ export function useReaderScrollMode({
                   enter: "pull",
                   entered: false,
                   restoring: false,
-                  selection: null,
+                  handoff: null,
+                  excursion: null,
+                  entrySpread: spread,
                   // Same generation: the pulled stage stays mounted.
                   generation: current.generation,
                   pending: null,
@@ -683,7 +806,13 @@ export function useReaderScrollMode({
       : phase.kind === "pulling"
         ? "pull"
         : "keep-page";
-  const previewing = phase.kind === "on" && spread?.intent.kind === "preview";
+  const previewing =
+    phase.kind === "on" &&
+    spread?.intent.kind === "preview" &&
+    !(
+      phase.entrySpread &&
+      getSpreadContentKey(spread) === getSpreadContentKey(phase.entrySpread)
+    );
   const stageGeneration =
     phase.kind === "on" || phase.kind === "closing" || phase.kind === "pulling"
       ? phase.generation
@@ -768,5 +897,8 @@ export function useReaderScrollMode({
     enterWithSelection,
     /** Selections in pages can offer to move into scroll mode. */
     selectAcrossPagesAvailable: enabled && phase.kind === "off",
+    /** The column is showing for one selection; see `endExcursion`. */
+    excursion: phase.kind === "on" && phase.excursion !== null && phase.entered,
+    endExcursion,
   };
 }

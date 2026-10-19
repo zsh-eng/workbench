@@ -87,8 +87,19 @@ interface UseReaderAnnotationsOptions {
   onCreateHighlight: (highlight: Highlight) => void;
 }
 
+/**
+ * A canonical range a highlight grows to cover, beyond what the page's
+ * selection can reach: the rest of a sentence across a page break.
+ */
+export interface HighlightExtension {
+  startOffset: number;
+  endOffset: number;
+}
+
 interface UseReaderAnnotationsResult {
-  captureSelectionNote: () => Highlight | null;
+  captureSelectionNote: (
+    extension?: HighlightExtension | null,
+  ) => Highlight | null;
   state: ReaderAnnotationState;
   activeHighlight: ActiveHighlightState | null;
   activeHighlightData: Highlight | null;
@@ -97,9 +108,20 @@ interface UseReaderAnnotationsResult {
   creationText: string;
   /** The selected highlight's text as the toolbar copies it. */
   activeHighlightCopyText: string;
-  selectColor: (color: AnnotationColor) => Highlight | undefined;
+  selectColor: (
+    color: AnnotationColor,
+    extension?: HighlightExtension | null,
+  ) => Highlight | undefined;
   closeCreation: () => void;
   clearActiveHighlight: () => void;
+  /** The current selection's canonical range, without opening any tools. */
+  resolveSelectionRange: (selection: Selection) => {
+    chapterIndex: number;
+    startOffset: number;
+    endOffset: number;
+  } | null;
+  /** Reads a selection set by code, which no pointer release announces. */
+  refreshSelection: () => void;
 }
 
 function clearDomSelection(): void {
@@ -168,12 +190,16 @@ function getVisibleSpineItemIds(
   return visibleIds;
 }
 
+const CONTEXT_LENGTH = 50;
+
 function buildHighlightFromDraft(
   bookId: string,
   draft: PendingHighlightDraft,
   color: AnnotationColor,
+  extension: HighlightExtension | null,
+  chapterAccess: ReaderSessionChapterAccess,
 ): Highlight {
-  return {
+  const base = {
     id: crypto.randomUUID(),
     bookId,
     spineItemId: draft.spineItemId,
@@ -184,6 +210,27 @@ function buildHighlightFromDraft(
     textAfter: draft.highlight.textAfter,
     color,
     createdAt: Date.now(),
+  };
+  const fullText = chapterAccess.getCanonicalText(
+    draft.highlight.chapterIndex,
+  )?.fullText;
+  if (!extension || !fullText) return base;
+  // The highlight covers the selection and the text across the break.
+  const startOffset = Math.min(base.startOffset, extension.startOffset);
+  const endOffset = Math.max(base.endOffset, extension.endOffset);
+  return {
+    ...base,
+    startOffset,
+    endOffset,
+    selectedText: fullText.slice(startOffset, endOffset).trim(),
+    textBefore: fullText.substring(
+      Math.max(0, startOffset - CONTEXT_LENGTH),
+      startOffset,
+    ),
+    textAfter: fullText.substring(
+      endOffset,
+      Math.min(fullText.length, endOffset + CONTEXT_LENGTH),
+    ),
   };
 }
 
@@ -540,20 +587,26 @@ export function useReaderAnnotations({
   }, [state, visibleHighlights]);
 
   const selectColor = useCallback(
-    (color: AnnotationColor) => {
+    (color: AnnotationColor, extension: HighlightExtension | null = null) => {
       if (state.kind !== "creating" || !bookId) {
         clearDomSelection();
         setState({ kind: "idle" });
         return;
       }
 
-      const highlight = buildHighlightFromDraft(bookId, state.draft, color);
+      const highlight = buildHighlightFromDraft(
+        bookId,
+        state.draft,
+        color,
+        extension,
+        chapterAccess,
+      );
       onCreateHighlight(highlight);
       clearDomSelection();
       setState({ kind: "idle" });
       return highlight;
     },
-    [bookId, onCreateHighlight, state],
+    [bookId, chapterAccess, onCreateHighlight, state],
   );
 
   const closeCreation = useCallback(() => {
@@ -569,7 +622,9 @@ export function useReaderAnnotations({
     );
   }, []);
 
-  const captureSelectionNote = () => {
+  const captureSelectionNote = (
+    extension: HighlightExtension | null = null,
+  ) => {
     const selection = window.getSelection();
     const draft =
       state.kind === "creating"
@@ -578,8 +633,40 @@ export function useReaderAnnotations({
           ? resolveSelectionDraft(selection)
           : null;
     if (!draft || !bookId) return null;
-    return buildHighlightFromDraft(bookId, draft, "invisible");
+    return buildHighlightFromDraft(
+      bookId,
+      draft,
+      "invisible",
+      extension,
+      chapterAccess,
+    );
   };
+
+  const resolveSelectionRange = useCallback(
+    (selection: Selection) => {
+      const draft = resolveSelectionDraft(selection);
+      return draft
+        ? {
+            chapterIndex: draft.highlight.chapterIndex,
+            startOffset: draft.highlight.startOffset,
+            endOffset: draft.highlight.endOffset,
+          }
+        : null;
+    },
+    [resolveSelectionDraft],
+  );
+
+  const refreshSelection = useCallback(() => {
+    const selection = window.getSelection();
+    const draft = selection ? resolveSelectionDraft(selection) : null;
+    setState((previousState) =>
+      draft
+        ? { kind: "creating", draft }
+        : previousState.kind === "creating"
+          ? { kind: "idle" }
+          : previousState,
+    );
+  }, [resolveSelectionDraft]);
 
   return {
     captureSelectionNote,
@@ -593,5 +680,7 @@ export function useReaderAnnotations({
     selectColor,
     closeCreation,
     clearActiveHighlight,
+    resolveSelectionRange,
+    refreshSelection,
   };
 }
