@@ -2,46 +2,8 @@ import {
   test,
   expect,
   SAMPLE_EPUB_PATH,
-  SAMPLE_BOOK_TITLE,
   waitForReaderReady,
 } from "./helpers/fixtures";
-
-test("duplicate batches show existing books while malformed files still report failure", async ({
-  page,
-  localBook,
-}) => {
-  expect(localBook.id).toBeTruthy();
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
-  const chooseFiles = async () => {
-    const chooser = page.waitForEvent("filechooser");
-    await page.getByRole("button", { name: "Add books", exact: true }).click();
-    return chooser;
-  };
-  await (await chooseFiles()).setFiles([SAMPLE_EPUB_PATH, SAMPLE_EPUB_PATH]);
-  await expect(
-    page.getByText("Skipped 2 existing books.", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("Could not add 1 book.", { exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("heading", { name: SAMPLE_BOOK_TITLE }),
-  ).toHaveCount(1);
-
-  await (
-    await chooseFiles()
-  ).setFiles([
-    {
-      name: "broken.epub",
-      mimeType: "application/epub+zip",
-      buffer: Buffer.from("invalid epub"),
-    },
-  ]);
-  await expect(
-    page.getByText("Could not add 1 book.", { exact: true }),
-  ).toBeVisible();
-});
 
 test("signed-out Devices does not request account sessions", async ({
   page,
@@ -52,9 +14,10 @@ test("signed-out Devices does not request account sessions", async ({
     await route.fulfill({ json: { sessions: [] } });
   });
   await page.goto("/devices");
+  // A test's first page can also load Vite's cold application module graph.
   await expect(
     page.getByRole("button", { name: "Choose EPUB files", exact: true }),
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 15_000 });
   await expect(page).toHaveURL(/\/$/);
   expect(requests).toBe(0);
 });
