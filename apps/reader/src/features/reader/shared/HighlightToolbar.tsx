@@ -24,7 +24,8 @@ import {
 import { toast } from "sonner";
 
 interface HighlightToolbarProps {
-  position: { x: number; y: number };
+  /** The selection's top centre, and its foot when known. */
+  position: { x: number; y: number; bottom?: number };
   onColorSelect: (color: AnnotationColor) => void;
   onClose: () => void;
   currentColor?: AnnotationColor;
@@ -86,7 +87,7 @@ export function HighlightToolbar({
 
     // Adjust vertical position (show below if not enough space above)
     if (y < padding) {
-      y = position.y + padding;
+      y = (position.bottom ?? position.y) + padding;
     }
   }
 

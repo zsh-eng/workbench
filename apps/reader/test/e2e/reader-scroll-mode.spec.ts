@@ -480,6 +480,33 @@ test("Select across pages sits in the highlight tools at either page edge", asyn
   await expect(page.locator(SELECT_ACROSS_PAGES)).toHaveCount(0);
 });
 
+test.describe("on a desktop", () => {
+  test.use({
+    viewport: { width: 1280, height: 800 },
+    isMobile: false,
+    hasTouch: false,
+  });
+
+  test("Select across pages sits in the highlight pill at either page edge", async ({
+    page,
+    localBook,
+  }) => {
+    await openLocalBook(page, localBook.id);
+    for (let index = 0; index < 3; index++) await nextSpread(page);
+    for (const edge of ["last", "first"] as const) {
+      await selectAtPageEdge(page, edge);
+      await expect(page.locator(SELECT_ACROSS_PAGES)).toBeVisible();
+      await page.waitForTimeout(300);
+      const layout = await selectionLayout(page, ".highlight-toolbar");
+      expect(contains(layout.tools, layout.action)).toBe(true);
+      for (const rect of layout.selection)
+        expect(overlaps(rect, layout.tools)).toBe(false);
+      await clearSelection(page);
+      await expect(page.locator(SELECT_ACROSS_PAGES)).toHaveCount(0);
+    }
+  });
+});
+
 test("Select across pages moves a selection at a page break into scroll mode", async ({
   page,
   localBook,

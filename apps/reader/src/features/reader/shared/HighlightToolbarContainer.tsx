@@ -22,7 +22,7 @@ interface HighlightToolbarContainerProps {
 
   // For creating new highlights (text selection mode)
   isCreatingHighlight: boolean;
-  creationPosition: { x: number; y: number };
+  creationPosition: { x: number; y: number; bottom?: number };
   creationText: string;
   /** The selected highlight's text as Copy writes it. */
   activeHighlightCopyText?: string;
