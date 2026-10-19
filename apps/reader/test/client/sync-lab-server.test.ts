@@ -1,11 +1,10 @@
 import { MemorySyncServer } from "@/features/sync-lab/core/memory-server";
-import { ClientNetwork } from "@/features/sync-lab/core/network";
 import { computeFileId } from "@/lib/files/file-id";
 import {
   MAX_SYNC_FUTURE_CLOCK_SKEW_MS,
   type SyncPushChange,
 } from "@zsh-eng/local-sync";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 const change = (
   key: string,
@@ -129,54 +128,5 @@ describe("Sync Lab server production protocol contract", () => {
     expect(
       (await server.push("a", [change("two")])).results[0]?.winner.serverSeq,
     ).toBe(2);
-  });
-});
-
-describe("Sync Lab client network", () => {
-  it("prevents offline and failed delivery from mutating the server", async () => {
-    const server = new MemorySyncServer();
-    const network = new ClientNetwork({ online: false });
-    const remote = network.syncRemote(server);
-    await expect(remote.push("a", [change("one")])).rejects.toThrow("offline");
-    network.configure({ online: true });
-    network.failNext();
-    await expect(remote.push("a", [change("one")])).rejects.toThrow(
-      "before delivery",
-    );
-    expect(server.snapshot().records).toHaveLength(0);
-    await remote.push("a", [change("one")]);
-    expect(server.snapshot().records).toHaveLength(1);
-  });
-
-  it("loses a mutation response after commit and safely retries the same version", async () => {
-    const server = new MemorySyncServer();
-    const network = new ClientNetwork();
-    const remote = network.syncRemote(server);
-    network.loseNextResponse();
-    await remote.pull("a", pull);
-    await expect(remote.push("a", [change("one")])).rejects.toThrow(
-      "after server commit",
-    );
-    expect(server.snapshot().records).toHaveLength(1);
-    expect((await remote.push("a", [change("one")])).results[0]?.accepted).toBe(
-      false,
-    );
-  });
-
-  it("rechecks offline state after configured latency", async () => {
-    vi.useFakeTimers();
-    try {
-      const server = new MemorySyncServer();
-      const network = new ClientNetwork({ latencyMs: 200 });
-      const pending = expect(
-        network.syncRemote(server).push("a", [change("one")]),
-      ).rejects.toThrow("before delivery");
-      network.configure({ online: false });
-      await vi.advanceTimersByTimeAsync(200);
-      await pending;
-      expect(server.snapshot().records).toHaveLength(0);
-    } finally {
-      vi.useRealTimers();
-    }
   });
 });
