@@ -59,6 +59,7 @@ import type { ReaderLocation } from "./reader-location";
 import { ReadingLayoutRow } from "./scroll/ReadingLayoutRow";
 import { ScrollStage } from "./scroll/ScrollStage";
 import { useSelectAcross } from "./scroll/use-select-across";
+import { useDetentSheetsEnabled } from "@/lib/detent-sheets-preference";
 import { useReaderScrollMode } from "./scroll/use-reader-scroll-mode";
 
 function DisplayReadyCommitProbe({
@@ -145,6 +146,7 @@ export function Reader() {
 
   const { state: chromeState, actions: chromeActions } =
     useReaderChromeState(isMobile);
+  const detentSheets = useDetentSheetsEnabled();
   const { chromeInteractionMode } = useInputBehavior();
   useReaderPerformanceTraceRoute(bookId);
 
@@ -920,6 +922,11 @@ export function Reader() {
                       }
                       onJot={() => handleNotesActive(true)}
                       onOpenNotebook={() => {
+                        // The same Notebook as Reader tools → Notebook.
+                        if (detentSheets) {
+                          chromeActions.openReaderSheet("notes");
+                          return;
+                        }
                         handleNotesActive(true);
                         setNotebookOpen(true);
                       }}

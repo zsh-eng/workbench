@@ -4,6 +4,8 @@ import {
   expect,
   openLocalBook,
   openReaderTools,
+  showNotesCapsule,
+  waitForReaderReady,
   waitForSheet,
 } from "./helpers/fixtures";
 
@@ -254,4 +256,76 @@ test("Search rests at the medium detent and full height", async ({
   await field.tap();
   await expect(field).toBeFocused();
   await expect.poll(() => visibleShare(sheet)).toBeGreaterThan(0.98);
+});
+
+test("Open notebook in the notes bubble opens the Notebook sheet that Reader tools open, and its notes stay", async ({
+  page,
+  localBook,
+}) => {
+  const openFromBubble = async () => {
+    await showNotesCapsule(page);
+    await page
+      .getByRole("button", { name: "Open notebook", exact: true })
+      .click();
+    return waitForSheet(page, "Notebook");
+  };
+  await openLocalBook(page, localBook.id);
+
+  // Reader tools → Notebook, for comparison.
+  await page.touchscreen.tap(195, 422);
+  const tools = await openReaderTools(page);
+  await tools.getByRole("button", { name: "Notebook", exact: true }).click();
+  const fromTools = await waitForSheet(page, "Notebook");
+  const toolsShare = await screenShare(fromTools);
+  // Escape steps back to the tools, then closes them.
+  await page.keyboard.press("Escape");
+  await expect(fromTools).toHaveCount(0);
+  await expect(tools.getByRole("button", { name: "Notebook" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+
+  // The bubble opens the same sheet, at the same height.
+  const notebook = await openFromBubble();
+  await expect.poll(() => screenShare(notebook)).toBeCloseTo(toolsShare, 2);
+  const input = notebook.getByRole("textbox", { name: "Write a note" });
+  await input.fill("A note from the bubble");
+  await input.press("Control+Enter");
+  await expect(
+    notebook.getByText("A note from the bubble", { exact: true }),
+  ).toBeVisible();
+
+  await page.reload();
+  await waitForReaderReady(page);
+  const reopened = await openFromBubble();
+  await expect(
+    reopened.getByText("A note from the bubble", { exact: true }),
+  ).toBeVisible();
+});
+
+test("With detent sheets off, Open notebook in the notes bubble still opens the Notebook", async ({
+  page,
+  localBook,
+}) => {
+  await page.addInitScript(() =>
+    localStorage.setItem("reader-detent-sheets-v1", "false"),
+  );
+  await openLocalBook(page, localBook.id);
+  await showNotesCapsule(page);
+  await page
+    .getByRole("button", { name: "Open notebook", exact: true })
+    .click();
+  const notebook = await waitForSheet(page, "Notebook");
+  const input = notebook.getByRole("textbox", { name: "Write a note" });
+  await input.fill("A note in the fixed sheet");
+  await input.press("Control+Enter");
+  const note = notebook.getByText("A note in the fixed sheet", { exact: true });
+  await expect(note).toBeVisible();
+  await notebook.getByRole("button", { name: "Close notebook" }).click();
+  await expect(notebook).toBeHidden();
+
+  await showNotesCapsule(page);
+  await page
+    .getByRole("button", { name: "Open notebook", exact: true })
+    .click();
+  await expect(note).toBeVisible();
 });
