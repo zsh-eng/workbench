@@ -60,7 +60,4 @@ test("mobile settings expose choices and apply themes when preference storage is
   ).toBeVisible();
   await expect(page.locator("html")).toHaveClass(/night/);
   await expect(page.locator("html")).toHaveCSS("color-scheme", "dark");
-  await page.screenshot({
-    path: test.info().outputPath("settings-denied-storage.png"),
-  });
 });
