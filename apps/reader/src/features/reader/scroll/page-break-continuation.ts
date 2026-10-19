@@ -221,3 +221,23 @@ export function findPageBreakContinuation({
     wordCount: beyondWords.length,
   };
 }
+
+/**
+ * The sentence a page's foot cuts: the one holding the page's last
+ * character, when it runs on past the page. Null when the page ends a
+ * sentence or the chapter.
+ */
+export function findCutSentence(
+  fullText: string,
+  blocks: readonly TextBlockRange[],
+  page: PageTextBounds,
+): { start: number; end: number } | null {
+  const last = lastNonSpaceEnd(fullText, page.end, page.start) - 1;
+  if (last < page.start) return null;
+  const block = blockAt(blocks, last);
+  if (!block) return null;
+  const sentence = sentencesOf(fullText, block).find(
+    (span) => span.start <= last && last < span.end,
+  );
+  return sentence && sentence.end > page.end ? sentence : null;
+}

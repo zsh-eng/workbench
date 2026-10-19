@@ -14,6 +14,7 @@ import {
   type RefObject,
 } from "react";
 import { sameReaderAnchor } from "../jump-history";
+import { getSpreadContentKey } from "../spread-identity";
 import { getLeadingVisiblePage, type ReaderLocation } from "../reader-location";
 import type { ChapterEntry } from "../types";
 import type { ReaderSessionChapterAccess } from "../hooks/use-reader-session";
@@ -94,6 +95,11 @@ type ScrollPhase =
       restoring: boolean;
       handoff: Handoff | null;
       excursion: Excursion | null;
+      /**
+       * The spread the column opened from. A preview spread (Design ideas
+       * shows a page without moving the book) is not a scrubber preview.
+       */
+      entrySpread: ResolvedSpread | null;
       generation: number;
       pending: { chapterIndex: number; start: ScrollStageStart } | null;
     }
@@ -289,10 +295,16 @@ export function useReaderScrollMode({
       });
       const anchor = stageColumn.pageAnchors[pageIndex];
       // The pages own the place again: the engine's move to the snapped page
-      // is the reading move that progress and history record.
+      // is the reading move that progress and history record. A column
+      // opened from a preview returns as one, and moves nothing.
       onLocationChange(null);
       if (anchor) {
-        goToAnchor(anchor, { kind: "linear", direction: "forward" });
+        goToAnchor(
+          anchor,
+          phase.entrySpread?.intent.kind === "preview"
+            ? { kind: "preview", source: "search" }
+            : { kind: "linear", direction: "forward" },
+        );
       }
       setPhase({
         kind: "closing",
@@ -387,6 +399,7 @@ export function useReaderScrollMode({
       restoring: phase.restoring,
       handoff: phase.handoff,
       excursion: phase.excursion,
+      entrySpread: spread,
       generation: generationRef.current,
       pending: null,
     });
@@ -702,6 +715,7 @@ export function useReaderScrollMode({
                   restoring: false,
                   handoff: null,
                   excursion: null,
+                  entrySpread: spread,
                   // Same generation: the pulled stage stays mounted.
                   generation: current.generation,
                   pending: null,
@@ -791,7 +805,13 @@ export function useReaderScrollMode({
       : phase.kind === "pulling"
         ? "pull"
         : "keep-page";
-  const previewing = phase.kind === "on" && spread?.intent.kind === "preview";
+  const previewing =
+    phase.kind === "on" &&
+    spread?.intent.kind === "preview" &&
+    !(
+      phase.entrySpread &&
+      getSpreadContentKey(spread) === getSpreadContentKey(phase.entrySpread)
+    );
   const stageGeneration =
     phase.kind === "on" || phase.kind === "closing" || phase.kind === "pulling"
       ? phase.generation

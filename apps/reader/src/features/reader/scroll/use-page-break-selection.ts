@@ -99,6 +99,21 @@ export function canonicalBlockRanges(
 }
 
 /** Canonical bounds of a page's text, from its first and last lines. */
+export function readPageTextBounds(
+  page: ResolvedLeafPage,
+  blocks: Block[],
+  text: ChapterCanonicalText,
+  fontConfig: FontConfig,
+  publisherBookStylingEnabled: boolean,
+): PageTextBounds | null {
+  return pageTextBounds(
+    page,
+    blocks,
+    preparedChapter(blocks, fontConfig, publisherBookStylingEnabled),
+    text,
+  );
+}
+
 function pageTextBounds(
   page: ResolvedLeafPage,
   blocks: Block[],
