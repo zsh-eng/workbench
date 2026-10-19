@@ -217,6 +217,7 @@ export function SheetsSpecimen({
           rootPage="tools"
           title={READER_SHEET_PAGES[active ?? "tools"].title}
           onBack={() => setActive("tools")}
+          safeAreaBottom={active !== "settings"}
         >
           {renderPage(active ?? "tools")}
         </SlidingSheet>

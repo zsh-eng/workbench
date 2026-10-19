@@ -9,8 +9,8 @@ const itemClassName =
   "h-9 flex-1 gap-1.5 rounded-full text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground data-[pressed]:text-foreground";
 
 /**
- * Appearance row: Pages or Scroll, like Apple Books' Scrolling View.
- * Debug mode only while scroll mode is a prototype.
+ * Appearance row: Pages or Scroll, like Apple Books' Scrolling View. It
+ * leads the Layout tab. Debug mode only while scroll mode is a prototype.
  */
 export function ReadingLayoutRow({
   value,
@@ -25,14 +25,14 @@ export function ReadingLayoutRow({
     <div className="space-y-2" data-reading-layout-row={value}>
       <div className="flex items-center gap-2">
         <h4 className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-          Layout
+          Reading mode
         </h4>
         <span className="rounded-full border border-border/70 px-1.5 py-px text-[9px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
           Debug
         </span>
       </div>
       <SegmentedToggleGroup
-        aria-label="Layout"
+        aria-label="Reading mode"
         value={value}
         disabled={disabled}
         onValueChange={(next) => {

@@ -65,7 +65,7 @@ export function ReaderSheetHost({
   toolsTriggerRef,
 }: ReaderSheetHostProps) {
   const [settingsTab, setSettingsTab] =
-    useState<ReaderSettingsPanelTab>("theme");
+    useState<ReaderSettingsPanelTab>("type");
   const detentSheets = useDetentSheetsEnabled();
   if (!isMobile) {
     return (
@@ -172,6 +172,7 @@ export function ReaderSheetHost({
       rootPage="tools"
       title={titles[page] ?? "Reader tools"}
       onBack={() => onOpenSheet("tools")}
+      safeAreaBottom={page !== "settings"}
     >
       {renderPage(page, false)}
     </SlidingSheet>

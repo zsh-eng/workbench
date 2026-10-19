@@ -42,9 +42,10 @@ async function openReadingSettings(page: Page) {
   await page.getByRole("button", { name: "Appearance", exact: true }).tap();
 }
 
-/** Debug mode's Layout row sits at the top of the reading settings. */
+/** Debug mode's Pages or Scroll row leads Appearance's Layout tab. */
 async function chooseLayout(page: Page, layout: "Pages" | "Scroll") {
   await openReadingSettings(page);
+  await page.getByRole("tab", { name: "Layout", exact: true }).tap();
   await page
     .locator("[data-reading-layout-row]")
     .getByRole("button", { name: layout, exact: true })
