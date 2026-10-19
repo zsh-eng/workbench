@@ -77,8 +77,8 @@ export function Settings() {
                     id="detent-sheets-description"
                     className="text-xs text-muted-foreground mt-0.5"
                   >
-                    Try the Reader's phone sheets on React Aria's Sheet. They
-                    rest on detents and stack.
+                    The Reader's phone sheets rest on detents and stack. Turn
+                    off for the fixed-height sheets.
                   </p>
                 </div>
                 <Switch
