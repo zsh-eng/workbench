@@ -605,9 +605,12 @@ export function Reader() {
   };
 
   return (
+    // The Reader never scrolls as a whole: `overflow-clip`, unlike hidden,
+    // makes no scroll container, so bringing a sliding header, a hidden
+    // footer or a focused control into view can't shift the page.
     <div
       data-search-marks={searchMarks ?? undefined}
-      className="relative h-dvh overflow-hidden overscroll-none bg-background"
+      className="relative h-dvh overflow-clip overscroll-none bg-background"
     >
       {displayReady && (
         <DisplayReadyCommitProbe
@@ -651,7 +654,7 @@ export function Reader() {
             hideChrome,
           }) => (
             <div
-              className="relative h-dvh overflow-hidden font-sans text-foreground"
+              className="relative h-dvh overflow-clip font-sans text-foreground"
               style={
                 noteViewportHeight === null
                   ? undefined
