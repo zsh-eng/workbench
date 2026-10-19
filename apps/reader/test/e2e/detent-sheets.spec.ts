@@ -168,13 +168,10 @@ test("A menu and a toast opened from a sheet take taps", async ({
   await expect(notebook).toBeVisible();
 });
 
-test("With the trial on, the Reader opens Contents as a detent sheet", async ({
+test("The Reader opens Contents as a detent sheet by default", async ({
   page,
   localBook,
 }) => {
-  await page.addInitScript(() =>
-    localStorage.setItem("reader-detent-sheets-v1", "true"),
-  );
   await openLocalBook(page, localBook.id);
   await page.touchscreen.tap(195, 422);
   await page
@@ -188,7 +185,7 @@ test("With the trial on, the Reader opens Contents as a detent sheet", async ({
   await expect.poll(() => screenShare(contents)).toBeCloseTo(0.55, 1);
 
   // A chapter is a tap away at the detent; the book turns to it behind the
-  // sheet, which stays open, as the shipped sheet does.
+  // sheet, which stays open, as the fixed-height sheet does.
   const chapter = contents
     .getByRole("button")
     .filter({ hasText: /Pool of Tears/i })
@@ -205,13 +202,10 @@ test("With the trial on, the Reader opens Contents as a detent sheet", async ({
   await expect(tools).toBeVisible();
 });
 
-test("With the trial on, search rests at the medium detent and full height", async ({
+test("Search rests at the medium detent and full height", async ({
   page,
   localBook,
 }) => {
-  await page.addInitScript(() =>
-    localStorage.setItem("reader-detent-sheets-v1", "true"),
-  );
   await openLocalBook(page, localBook.id);
   await page.touchscreen.tap(195, 422);
   await page
