@@ -154,6 +154,8 @@ interface ScrollStageProps {
   /** The snap is starting; the chrome hides so no line sits under it. */
   onSnapStart?: () => void;
   onLinkActivate?: (href: string) => boolean;
+  /** Other rows mounted; marks drawn over the text repaint. */
+  onRowsChange: (rows: RowRange) => void;
 }
 
 type Phase =
@@ -370,6 +372,7 @@ export function ScrollStage({
   onSwipeToPages,
   onSnapStart,
   onLinkActivate,
+  onRowsChange,
 }: ScrollStageProps) {
   const rows = useMemo(() => buildScrollRows(column), [column]);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -477,6 +480,11 @@ export function ScrollStage({
     computeTargetRange(initialScrollTop, stageHeightEstimate),
   );
   const rangeRef = useRef(range);
+
+  const notifyRowsChange = useEffectEvent(onRowsChange);
+  useLayoutEffect(() => {
+    notifyRowsChange(range);
+  }, [range]);
 
   const commitRange = (next: RowRange) => {
     if (sameRange(next, rangeRef.current)) return;
@@ -1125,6 +1133,7 @@ export function ScrollStage({
           <div
             ref={contentRef}
             data-reader-scroll-content=""
+            data-reader-chapter-index={column.chapterIndex}
             className="relative h-full"
             style={{
               width: column.width,

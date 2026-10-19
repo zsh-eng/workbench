@@ -189,6 +189,7 @@ export function useReaderScrollMode({
   const preferredMode = useReadingModePreference();
   const [phase, setPhase] = useState<ScrollPhase>({ kind: "off" });
   const [position, setPosition] = useState<ScrollPosition | null>(null);
+  const [renderedRows, setRenderedRows] = useState("");
   const handleRef = useRef<ScrollStageHandle>(null);
   const scrollContentRef = useRef<HTMLDivElement>(null);
   const handledSpreadRef = useRef<ResolvedSpread | null>(null);
@@ -721,6 +722,8 @@ export function useReaderScrollMode({
             column: stageColumn,
             handleRef,
             contentRef: scrollContentRef,
+            onRowsChange: ({ start, end }: { start: number; end: number }) =>
+              setRenderedRows(`${start}:${end}`),
             start: stageStart,
             enter: stageEnter,
             windowing,
@@ -757,6 +760,8 @@ export function useReaderScrollMode({
     annotationContainerRef: selectionSpread
       ? scrollContentRef
       : stageContentRef,
+    /** Changes when the scroll view mounts other rows. */
+    renderedRows,
     progressLabel,
     pull,
     enterWithSelection,

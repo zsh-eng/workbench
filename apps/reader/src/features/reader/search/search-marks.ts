@@ -149,18 +149,26 @@ export function collectSearchRanges(
 ): { all: Range[]; active: Range[] } {
   const all: Range[] = [];
   const active: Range[] = [];
-  for (const page of root.querySelectorAll<HTMLElement>(
-    "[data-reader-chapter-index]",
-  )) {
+  const chapterSelector = "[data-reader-chapter-index]";
+  // The scroll column is itself one chapter.
+  const pages = root.matches(chapterSelector)
+    ? [root as HTMLElement]
+    : root.querySelectorAll<HTMLElement>(chapterSelector);
+  for (const page of pages) {
     const chapterIndex = Number(page.dataset.readerChapterIndex);
     const text = source.getChapterText(chapterIndex);
     if (!text) continue;
     const slices = [
       ...page.querySelectorAll<HTMLElement>(
-        "[data-reader-page-content] > [data-reader-page-slice]",
+        "[data-reader-page-content] > [data-reader-page-slice], [data-scroll-row-index] > [data-reader-page-slice]",
       ),
     ];
     slices.forEach((slice, sliceIndex) => {
+      // A scroll column keeps the page cuts, so a row that opens a page can
+      // continue a block, as the first slice of a page does.
+      const startsPage =
+        sliceIndex === 0 ||
+        scrollRowPage(slice) !== scrollRowPage(slices[sliceIndex - 1]!);
       const blockId = slice.dataset.readerBlockId;
       if (!blockId || slice.dataset.readerSliceType !== "text") return;
       const matches = source.matchesFor(chapterIndex, blockId);
@@ -170,7 +178,7 @@ export function collectSearchRanges(
         slice,
         text.fullText.slice(block.start, block.end),
         block.start,
-        sliceIndex === 0,
+        startsPage,
       );
       if (!aligned) return;
       for (const match of matches) {
@@ -182,6 +190,11 @@ export function collectSearchRanges(
     });
   }
   return { all, active };
+}
+
+/** The page of a scroll row's slice; a paged slice has none. */
+function scrollRowPage(slice: HTMLElement): string | undefined {
+  return slice.parentElement?.dataset.pageIndex;
 }
 
 /** Paints the ranges, or clears the marks when given none. */

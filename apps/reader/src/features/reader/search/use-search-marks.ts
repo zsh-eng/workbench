@@ -44,6 +44,7 @@ export function useSearchMarks({
   results,
   activeId,
   getCanonicalText,
+  contentKey,
 }: {
   enabled: boolean;
   containerRef: RefObject<HTMLElement | null>;
@@ -52,6 +53,8 @@ export function useSearchMarks({
   results: ReaderSearchResult[];
   activeId: string | null;
   getCanonicalText: (chapterIndex: number) => ChapterCanonicalText | null;
+  /** Changes when the view mounts other text, as scroll mode does. */
+  contentKey: string;
 }) {
   const byBlock = useMemo(() => {
     const map = new Map<string, SearchMarkMatch[]>();
@@ -85,6 +88,7 @@ export function useSearchMarks({
     activeId,
     byBlock,
     containerRef,
+    contentKey,
     enabled,
     getCanonicalText,
     spread,

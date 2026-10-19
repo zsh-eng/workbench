@@ -284,7 +284,10 @@ export function Reader() {
   const searchActiveIndex = search.state.activeIndex;
   useSearchMarks({
     enabled: searchOpen || searchActiveIndex !== null,
-    containerRef: stageContentRef,
+    // In scroll mode the column holds the text, and it mounts rows as the
+    // reader scrolls.
+    containerRef: scrollMode.annotationContainerRef,
+    contentKey: scrollMode.renderedRows,
     spread: sessionState.pagination.spread,
     spreadWindow: sessionState.pagination.spreadWindow,
     results: search.state.results,

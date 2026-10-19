@@ -563,3 +563,60 @@ test("A typography change in scroll mode keeps the reading line in place", async
     })
     .toBe(true);
 });
+
+/** The text of the search marks drawn in the scroll column. */
+const scrollSearchMarks = (
+  page: Page,
+  name: "reader-search" | "reader-search-active",
+) =>
+  page.evaluate(
+    ({ name, selector }) => {
+      const stage = document.querySelector(selector);
+      if (!stage) return [];
+      return [...(CSS.highlights.get(name) ?? [])]
+        .filter((range) =>
+          stage.contains((range as Range).commonAncestorContainer),
+        )
+        .map((range) => range.toString().replace(/\s+/g, ""));
+    },
+    { name, selector: SCROLL_STAGE },
+  );
+
+test("Search marks its matches in the scroll column as rows mount", async ({
+  page,
+  localBook,
+}) => {
+  await openLocalBook(page, localBook.id);
+  await nextSpread(page);
+  await enterScroll(page);
+
+  await showChrome(page);
+  await page.getByRole("button", { name: "Open reader tools" }).tap();
+  await page.getByRole("button", { name: /Search book/ }).tap();
+  const field = page.getByRole("searchbox", { name: "Search this book" });
+  await field.fill("Dinah");
+  await expect(page.locator("[data-search-status]")).toHaveAttribute(
+    "data-search-status",
+    "done",
+  );
+  await page.locator("[data-search-result]").nth(2).tap();
+  await expect(page.getByTestId("search-stepper")).toContainText("3 of");
+  await expect(page.locator(SETTLED_STAGE)).toHaveCount(1);
+  await expect
+    .poll(() => scrollSearchMarks(page, "reader-search-active"))
+    .toEqual(["Dinah"]);
+
+  // Far rows are unmounted; the marks come back with them.
+  const matchTop = await stageScrollTop(page);
+  const height = await page
+    .locator(SCROLL_STAGE)
+    .evaluate((element) => element.scrollHeight);
+  await scrollStageTo(page, matchTop > height / 2 ? 0 : height - 844);
+  await expect
+    .poll(() => scrollSearchMarks(page, "reader-search-active"))
+    .toEqual([]);
+  await scrollStageTo(page, matchTop);
+  await expect
+    .poll(() => scrollSearchMarks(page, "reader-search-active"))
+    .toEqual(["Dinah"]);
+});
