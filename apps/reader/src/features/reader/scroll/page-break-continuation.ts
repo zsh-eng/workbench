@@ -79,7 +79,9 @@ function sentencesOf(
   fullText: string,
   block: TextBlockRange,
 ): { start: number; end: number }[] {
-  const text = fullText.slice(block.start, block.end);
+  // Source line wraps are spaces to a reader; a sentence segmenter would
+  // break at each one. Replacing them keeps every offset in place.
+  const text = fullText.slice(block.start, block.end).replace(/\s/g, " ");
   const spans: { start: number; end: number }[] = [];
   const segments = sentenceSegmenter
     ? Array.from(sentenceSegmenter.segment(text), (segment) => ({

@@ -153,6 +153,21 @@ describe("findPageBreakContinuation", () => {
     expect(result.previewTruncated).toBe(false);
   });
 
+  it("reads source line wraps inside a paragraph as spaces", () => {
+    const wrapped = chapter(
+      "She had never\n    before seen a rabbit with\n    a watch. Then she ran.",
+    );
+    const bounds = page(wrapped.fullText, "She had", "She had never");
+    const result = findPageBreakContinuation({
+      fullText: wrapped.fullText,
+      blocks: wrapped.blocks,
+      selection: { start: at(wrapped.fullText, "had"), end: bounds.end },
+      page: bounds,
+      edge: "end",
+    })!;
+    expect(result.beyond).toBe("before seen a rabbit with a watch.");
+  });
+
   it("offers nothing at the end of the chapter", () => {
     const bounds = page(fullText, "The merchant", "It has two sentences.");
     const selection = { start: at(fullText, "It has"), end: bounds.end };
