@@ -43,8 +43,13 @@ for (const target of ["auth", "fonts", "files", "all", "offline"]) {
     if (target === "files") {
       // A synced book can have local EPUB bytes but no downloaded cover yet.
       await page.evaluate(async () => {
+        // Production names the database after its shared sync service.
+        const name = (await indexedDB.databases())
+          .map((database) => database.name)
+          .find((name) => name?.startsWith("epub-reader-db-v2"));
+        if (!name) throw new Error("No Reader database");
         const db = await new Promise<IDBDatabase>((resolve, reject) => {
-          const open = indexedDB.open("epub-reader-db-v2");
+          const open = indexedDB.open(name);
           open.onsuccess = () => resolve(open.result);
           open.onerror = () => reject(open.error);
         });
@@ -82,7 +87,9 @@ for (const target of ["auth", "fonts", "files", "all", "offline"]) {
       fresh.getByRole("heading", { name: SAMPLE_BOOK_TITLE }),
     ).toBeVisible({ timeout: 3000 });
     const libraryMs = Date.now() - started;
-    if (target === "auth" || target === "files" || target === "all") {
+    // A signed-out device asks only for its session; it fetches no files, so
+    // the files case checks only that a missing cover doesn't block opening.
+    if (target === "auth" || target === "all") {
       await expect
         .poll(async () => (await (await request.get(control)).json()).held)
         .toBeGreaterThan(0);

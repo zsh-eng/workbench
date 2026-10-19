@@ -24,7 +24,7 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "diagnostics:reader": "bun scripts/reader-diagnostics.ts",
-    "diagnostics:network": "VITE_BETTER_AUTH_URL=http://127.0.0.1:5196 bun run build && bun scripts/network-lab.ts",
+    "diagnostics:network": "VITE_BETTER_AUTH_URL=http://127.0.0.1:5196 VITE_SHARED_API_URL=http://127.0.0.1:5196 bun run build && bun scripts/network-lab.ts",
     "benchmark:highlights": "bun run build && bun x vite build --config scripts/highlights-performance/vite.config.ts && bun scripts/highlights-performance/benchmark.ts",
     "benchmark:reader-startup": "bun run build && bun scripts/benchmark-reader-startup.ts",
     "db:backup-remote": "bun scripts/backup-remote-d1.ts",
