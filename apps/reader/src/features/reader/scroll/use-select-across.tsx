@@ -73,6 +73,13 @@ export function useSelectAcross({
   const offered =
     pageBreak && annotation.kind === "creating" ? pageBreak : null;
 
+  // The column is made ready while the tab shows, so a tap opens it soon.
+  const { prepareColumn } = scrollMode;
+  const offeredChapter = offered?.chapterIndex ?? null;
+  useEffect(() => {
+    prepareColumn(offeredChapter);
+  }, [offeredChapter, prepareColumn]);
+
   // The visit to the column. It ends once the selection is a highlight or
   // a note, or is gone.
   const [handedOver, setHandedOver] = useState(false);
@@ -111,7 +118,6 @@ export function useSelectAcross({
     if (!text) return;
     const { continuation } = from;
     const entered = scrollMode.enterWithSelection(from.locators, {
-      excursion: true,
       pageIndex: from.pageIndex,
       extension: {
         edge: continuation.edge,

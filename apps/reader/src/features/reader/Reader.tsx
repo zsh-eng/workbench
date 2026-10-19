@@ -201,11 +201,12 @@ export function Reader() {
     stageContentRef,
   });
 
-  // Debug-mode prototype: per-chapter scroll mode beside paged reading.
+  // The chapter column: a selection's visit across a page break for every
+  // reader, and Scroll as a reading layout in Debug mode.
   const selectionHandedOver = useRef<() => void>(() => {});
   const scrollMode = useReaderScrollMode({
     bookId,
-    enabled: debugEnabled,
+    layoutEnabled: debugEnabled,
     touch: chromeInteractionMode === "touch",
     ready: displayReady,
     spread: sessionState.pagination.spread,
