@@ -94,6 +94,8 @@ export function ReaderNotesPrototype({
   mobileAnnotation?: {
     identity: object;
     tools: ReactNode;
+    /** An action between the tools and Note. */
+    action?: ReactNode;
     /** The existing highlight being edited, if any. */
     highlightId?: string;
     captureTarget: () => NoteTarget | null;
@@ -1451,6 +1453,7 @@ export function ReaderNotesPrototype({
                   {islandState === "tools" && mobileAnnotation && (
                     <IslandTools
                       tools={mobileAnnotation.tools}
+                      action={mobileAnnotation.action}
                       actionLabel={composeHasText ? "Attach" : "Note"}
                       onNote={() => void noteOnPassage()}
                     />

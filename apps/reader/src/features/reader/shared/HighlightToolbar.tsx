@@ -14,7 +14,13 @@ import {
 import { useHotkey } from "@tanstack/react-hotkeys";
 import { Send } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { toast } from "sonner";
 
 interface HighlightToolbarProps {
@@ -27,6 +33,8 @@ interface HighlightToolbarProps {
   textToCopy?: string;
   /** Called when user submits a note (creates invisible annotation + note) */
   onNoteSubmit?: (content: string) => void;
+  /** One more icon action at the end of the row. */
+  action?: ReactNode;
 }
 
 export function HighlightToolbar({
@@ -38,6 +46,7 @@ export function HighlightToolbar({
   onAddNote,
   textToCopy,
   onNoteSubmit,
+  action,
 }: HighlightToolbarProps) {
   const isMobile = useIsMobile();
   const prefersReducedMotion = useReducedMotion();
@@ -54,9 +63,7 @@ export function HighlightToolbar({
   // A note composer keeps the wider two-row surface.
   // Mobile: ~260px width, ~120px height
   const toolbarWidth = isBareDesktopPicker
-    ? hasCopyAction
-      ? 228 + (onAddNote ? 40 : 0)
-      : 172 + (onAddNote ? 40 : 0)
+    ? (hasCopyAction ? 228 : 172) + (onAddNote ? 40 : 0) + (action ? 40 : 0)
     : isMobile
       ? 260
       : 220;
@@ -282,6 +289,7 @@ export function HighlightToolbar({
             <MessageSquarePlus size={19} />
           </button>
         )}
+        {action}
       </div>
 
       {/* Note input row */}

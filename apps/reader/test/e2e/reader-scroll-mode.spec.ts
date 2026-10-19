@@ -345,7 +345,142 @@ test("A highlight made, opened and deleted in scroll mode never moves the text",
   expect(await visibleLines(page)).toEqual(linesBefore);
 });
 
-test("The selection chip moves a selection at a page break into scroll mode", async ({
+/**
+ * Selects a few words at the start of the page's first line or the end of
+ * its last, holds as a finger would before lifting, then releases.
+ */
+async function selectAtPageEdge(page: Page, edge: "first" | "last") {
+  const selected = await page.evaluate(
+    ({ spread, edge }) => {
+      const slices = document.querySelectorAll(
+        `${spread} [data-reader-slice-type="text"]`,
+      );
+      const slice = slices[edge === "first" ? 0 : slices.length - 1]!;
+      const walker = document.createTreeWalker(slice, NodeFilter.SHOW_TEXT);
+      const nodes: Text[] = [];
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (node.textContent?.trim()) nodes.push(node as Text);
+      }
+      const node = nodes[edge === "first" ? 0 : nodes.length - 1]!;
+      const range = document.createRange();
+      if (edge === "first") {
+        range.setStart(node, 0);
+        range.setEnd(node, Math.min(node.length, 12));
+      } else {
+        range.setStart(node, Math.max(0, node.length - 12));
+        range.setEnd(node, node.length);
+      }
+      getSelection()!.removeAllRanges();
+      getSelection()!.addRange(range);
+      return range.toString();
+    },
+    { spread: CURRENT_SPREAD, edge },
+  );
+  await page.waitForTimeout(700);
+  await page.evaluate(() =>
+    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })),
+  );
+  return selected;
+}
+
+/** Selects a few words in the middle of the page, clear of its edges. */
+async function selectInPage(page: Page) {
+  await page.evaluate((spread) => {
+    const slices = [
+      ...document.querySelectorAll(`${spread} [data-reader-slice-type="text"]`),
+    ];
+    const top = slices[0]!.getBoundingClientRect().bottom + 40;
+    const bottom = slices.at(-1)!.getBoundingClientRect().top - 40;
+    for (const slice of slices) {
+      const walker = document.createTreeWalker(slice, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if ((node.textContent?.length ?? 0) < 12) continue;
+        const range = document.createRange();
+        range.setStart(node, 0);
+        range.setEnd(node, 12);
+        const rects = [...range.getClientRects()];
+        if (rects.some((rect) => rect.top < top || rect.bottom > bottom))
+          continue;
+        getSelection()!.removeAllRanges();
+        getSelection()!.addRange(range);
+        return;
+      }
+    }
+    throw new Error("No passage clear of the page's edges");
+  }, CURRENT_SPREAD);
+  await page.waitForTimeout(200);
+  await page.evaluate(() =>
+    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })),
+  );
+}
+
+async function clearSelection(page: Page) {
+  await page.evaluate(() => {
+    getSelection()!.removeAllRanges();
+    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  });
+}
+
+const SELECT_ACROSS_PAGES = "[data-reader-select-across-pages]";
+
+/** Boxes of the selection, the page-edge action and the highlight tools. */
+const selectionLayout = (page: Page, tools: string) =>
+  page.evaluate(
+    ({ action, tools }) => {
+      const box = (rect: DOMRect) => ({
+        top: rect.top,
+        bottom: rect.bottom,
+        left: rect.left,
+        right: rect.right,
+      });
+      const range = getSelection()!.getRangeAt(0);
+      return {
+        selection: [...range.getClientRects()].map(box),
+        action: box(document.querySelector(action)!.getBoundingClientRect()),
+        tools: box(document.querySelector(tools)!.getBoundingClientRect()),
+      };
+    },
+    { action: SELECT_ACROSS_PAGES, tools },
+  );
+
+type Box = { top: number; bottom: number; left: number; right: number };
+const overlaps = (a: Box, b: Box) =>
+  a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+const contains = (outer: Box, inner: Box) =>
+  inner.left >= outer.left &&
+  inner.right <= outer.right &&
+  inner.top >= outer.top &&
+  inner.bottom <= outer.bottom;
+
+test("Select across pages sits in the highlight tools at either page edge", async ({
+  page,
+  localBook,
+}) => {
+  await openLocalBook(page, localBook.id);
+  for (let index = 0; index < 6; index++) await nextSpread(page);
+
+  for (const edge of ["last", "first"] as const) {
+    await selectAtPageEdge(page, edge);
+    await expect(page.locator('[data-notes-island="tools"]')).toBeVisible();
+    await expect(page.locator(SELECT_ACROSS_PAGES)).toBeVisible();
+    // Let the island finish rising.
+    await page.waitForTimeout(500);
+    const layout = await selectionLayout(page, '[data-notes-island="tools"]');
+    expect(contains(layout.tools, layout.action)).toBe(true);
+    for (const rect of layout.selection)
+      expect(overlaps(rect, layout.action)).toBe(false);
+
+    await clearSelection(page);
+    await expect(page.locator(SELECT_ACROSS_PAGES)).toHaveCount(0);
+  }
+  // A selection clear of the page's edges does not offer it.
+  await selectInPage(page);
+  await expect(page.locator('[data-notes-island="tools"]')).toBeVisible();
+  await page.waitForTimeout(300);
+  await expect(page.locator(SELECT_ACROSS_PAGES)).toHaveCount(0);
+});
+
+test("Select across pages moves a selection at a page break into scroll mode", async ({
   page,
   localBook,
 }) => {
@@ -354,28 +489,11 @@ test("The selection chip moves a selection at a page break into scroll mode", as
   const [pageNumber] = await currentPages(page);
 
   // Select the end of the page's last line.
-  const selected = await page.evaluate((spread) => {
-    const slices = document.querySelectorAll(
-      `${spread} [data-reader-slice-type="text"]`,
-    );
-    const walker = document.createTreeWalker(
-      slices[slices.length - 1]!,
-      NodeFilter.SHOW_TEXT,
-    );
-    let last: Text | null = null;
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      if (node.textContent?.trim()) last = node as Text;
-    }
-    const range = document.createRange();
-    range.setStart(last!, Math.max(0, last!.length - 12));
-    range.setEnd(last!, last!.length);
-    getSelection()!.removeAllRanges();
-    getSelection()!.addRange(range);
-    return range.toString();
-  }, CURRENT_SPREAD);
-  const chip = page.locator("[data-reader-selection-scroll-chip]");
-  await expect(chip).toHaveText("Select across pages in Scroll");
-  await chip.tap();
+  const selected = await selectAtPageEdge(page, "last");
+  const action = page.locator(SELECT_ACROSS_PAGES);
+  await expect(action).toHaveText("Scroll");
+  await expect(action).toHaveAccessibleName("Select across pages in Scroll");
+  await action.tap();
 
   await expect(page.locator(SETTLED_STAGE)).toHaveCount(1);
   await expect
