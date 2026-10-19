@@ -91,11 +91,15 @@ export function useSelectAcross({
   // The visit to the column. It ends once the selection is a highlight or
   // a note, or is gone.
   const [handedOver, setHandedOver] = useState(false);
+  // From the tap until the column holds the grown selection, the tools
+  // would act on the page's shorter one, so they wait.
+  const [handingOver, setHandingOver] = useState(false);
   const kept = useRef(false);
   const visiting = scrollMode.mode === "scroll" && handedOver;
   useEffect(() => {
     if (scrollMode.mode === "pages") {
       setHandedOver(false);
+      setHandingOver(false);
       kept.current = false;
     }
   }, [scrollMode.mode]);
@@ -114,7 +118,15 @@ export function useSelectAcross({
   const onSelectionHandedOver = useCallback(() => {
     refreshSelection();
     setHandedOver(true);
+    setHandingOver(false);
   }, [refreshSelection]);
+  const enterWithSelection: typeof scrollMode.enterWithSelection = (
+    ...args
+  ) => {
+    const entered = scrollMode.enterWithSelection(...args);
+    if (entered) setHandingOver(true);
+    return entered;
+  };
 
   const textOf = (chapterIndex: number) => {
     const text = chapterAccess.getCanonicalText(chapterIndex);
@@ -127,7 +139,7 @@ export function useSelectAcross({
     const text = textOf(from.chapterIndex);
     if (!text) return;
     const { continuation } = from;
-    scrollMode.enterWithSelection(from.locators, {
+    enterWithSelection(from.locators, {
       excursion: true,
       pageIndex: from.pageIndex,
       extension: grow
@@ -214,14 +226,14 @@ export function useSelectAcross({
     variant === "toolbar" && offered ? (
       <SelectAcrossPagesButton
         variant="island"
-        onSelect={() => scrollMode.enterWithSelection(offered.locators)}
+        onSelect={() => enterWithSelection(offered.locators)}
       />
     ) : undefined;
   const toolbarAction =
     variant === "toolbar" && offered ? (
       <SelectAcrossPagesButton
         variant="toolbar"
-        onSelect={() => scrollMode.enterWithSelection(offered.locators)}
+        onSelect={() => enterWithSelection(offered.locators)}
       />
     ) : undefined;
   const sentenceLine = (kind: "island" | "toolbar"): ReactNode =>
@@ -258,6 +270,8 @@ export function useSelectAcross({
     toolbarAccessory: sentenceLine("toolbar"),
     /** What a highlight or note made now should also cover. */
     extension,
+    /** The selection is moving into the column; its tools wait for it. */
+    handingOver,
     /** The visit keeps its selection: return to where it ends. */
     keep: () => {
       if (scrollMode.excursion) kept.current = true;

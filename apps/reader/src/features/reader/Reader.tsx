@@ -977,7 +977,9 @@ export function Reader() {
                     key={bookId}
                     bookId={bookId}
                     mobileAnnotation={
-                      isMobile && (isCreatingHighlight || activeHighlightData)
+                      isMobile &&
+                      ((isCreatingHighlight && !selectAcross.handingOver) ||
+                        activeHighlightData)
                         ? {
                             identity: annotationState,
                             action: selectAcross.islandAction,
@@ -1179,7 +1181,9 @@ export function Reader() {
                         activeHighlightData?.spineItemId ?? undefined
                       }
                       highlights={sessionState.highlights}
-                      isCreatingHighlight={isCreatingHighlight}
+                      isCreatingHighlight={
+                        isCreatingHighlight && !selectAcross.handingOver
+                      }
                       creationPosition={creationPosition}
                       creationText={creationText}
                       activeHighlightCopyText={activeHighlightCopyText}
