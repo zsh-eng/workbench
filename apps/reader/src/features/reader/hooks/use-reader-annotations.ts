@@ -100,6 +100,14 @@ interface UseReaderAnnotationsResult {
   selectColor: (color: AnnotationColor) => Highlight | undefined;
   closeCreation: () => void;
   clearActiveHighlight: () => void;
+  /** The current selection's canonical range, without opening any tools. */
+  resolveSelectionRange: (selection: Selection) => {
+    chapterIndex: number;
+    startOffset: number;
+    endOffset: number;
+  } | null;
+  /** Reads a selection set by code, which no pointer release announces. */
+  refreshSelection: () => void;
 }
 
 function clearDomSelection(): void {
@@ -581,6 +589,32 @@ export function useReaderAnnotations({
     return buildHighlightFromDraft(bookId, draft, "invisible");
   };
 
+  const resolveSelectionRange = useCallback(
+    (selection: Selection) => {
+      const draft = resolveSelectionDraft(selection);
+      return draft
+        ? {
+            chapterIndex: draft.highlight.chapterIndex,
+            startOffset: draft.highlight.startOffset,
+            endOffset: draft.highlight.endOffset,
+          }
+        : null;
+    },
+    [resolveSelectionDraft],
+  );
+
+  const refreshSelection = useCallback(() => {
+    const selection = window.getSelection();
+    const draft = selection ? resolveSelectionDraft(selection) : null;
+    setState((previousState) =>
+      draft
+        ? { kind: "creating", draft }
+        : previousState.kind === "creating"
+          ? { kind: "idle" }
+          : previousState,
+    );
+  }, [resolveSelectionDraft]);
+
   return {
     captureSelectionNote,
     state,
@@ -593,5 +627,7 @@ export function useReaderAnnotations({
     selectColor,
     closeCreation,
     clearActiveHighlight,
+    resolveSelectionRange,
+    refreshSelection,
   };
 }

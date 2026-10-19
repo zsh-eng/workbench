@@ -1,10 +1,11 @@
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import {
   test,
   expect,
   openLocalBook,
   nextSpread,
   waitForReaderReady,
+  waitForSheet,
 } from "./helpers/fixtures";
 
 test.use({
@@ -12,6 +13,19 @@ test.use({
   hasTouch: true,
   isMobile: true,
 });
+
+/**
+ * Closes a phone sheet as a reader does: a tap on the dimmed page above
+ * it. The detent Notebook has no close button of its own.
+ */
+async function closeSheet(page: Page, sheet: Locator) {
+  const top = await sheet.evaluate(
+    (element) =>
+      (element.closest(".reader-sheet") ?? element).getBoundingClientRect().top,
+  );
+  await page.touchscreen.tap(195, Math.max(8, top / 2));
+  await expect(sheet).not.toBeVisible();
+}
 
 async function selectPassage(page: Page, index = 0) {
   await page.evaluate((index) => {
@@ -146,10 +160,9 @@ test("Notes Island annotation and retained draft", async ({
     "1 note in this book",
   );
   await notebookButton.click();
-  const sheet = page.getByRole("dialog", { name: "Notebook", exact: true });
+  const sheet = await waitForSheet(page, "Notebook");
   await expect(sheet).toContainText("This draft belongs to a passage.");
-  await sheet.getByRole("button", { name: "Close notebook" }).click();
-  await expect(sheet).not.toBeVisible();
+  await closeSheet(page, sheet);
   await expect(page.locator("[data-note-composer]")).toHaveCount(0);
   const overlaps = await page.evaluate(() => {
     const state = (
@@ -288,6 +301,7 @@ test("the notebook gathers highlights and filters them by type and colour", asyn
     "1 note and 1 highlight in this book",
   );
   await open.click();
+  await waitForSheet(page, "Notebook");
   const notebook = page.getByRole("region", { name: "Book notebook" });
   const heading = notebook.getByRole("heading", { level: 2 });
   await expect(heading).toHaveText(/Notebook\s*2$/);
@@ -307,6 +321,8 @@ test("the notebook gathers highlights and filters them by type and colour", asyn
   await expect(notebook).toContainText("Green thought.");
   await show.getByRole("button", { name: "Show highlights" }).click();
   await expect(notebook).toContainText("Nothing matches these filters.");
+  // The filtered-out entries leave before the empty state takes taps.
+  await expect(notebook.locator("[data-note-id]")).toHaveCount(0);
   await notebook.getByRole("button", { name: "Show everything" }).click();
   await expect(heading).toHaveText(/Notebook\s*2$/);
   // A highlight opens its page and returns to reading.
@@ -349,6 +365,7 @@ test("the notebook opens at the current chapter", async ({
   await page
     .getByRole("button", { name: "Open notebook", exact: true })
     .click();
+  await waitForSheet(page, "Notebook");
   const groups = page
     .getByRole("region", { name: "Book notebook" })
     .locator("[data-notebook-group]");
@@ -370,6 +387,7 @@ test("a notebook highlight has the note menu on phones too", async ({
   await page
     .getByRole("button", { name: "Open notebook", exact: true })
     .click();
+  await waitForSheet(page, "Notebook");
   const notebook = page.getByRole("region", { name: "Book notebook" });
   const entry = notebook.locator('[aria-label^="Highlight;"]');
   // A long press opens the same menu as a note's, without Edit.

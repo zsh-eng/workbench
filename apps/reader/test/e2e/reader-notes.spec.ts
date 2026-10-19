@@ -17,6 +17,32 @@ test.use({
   isMobile: true,
 });
 
+/**
+ * Taps a control in a detent sheet once it has finished animating in. A
+ * tap that meets it mid-animation is retried with scrolling, and scrolling
+ * a detent sheet moves the sheet itself.
+ */
+async function tapSettled(control: Locator) {
+  await expect(control).toBeEnabled();
+  await control.evaluate((element) =>
+    Promise.all(element.getAnimations().map((animation) => animation.finished)),
+  );
+  await control.click();
+}
+
+/**
+ * Closes a phone sheet as a reader does: a tap on the dimmed page above
+ * it. The detent Notebook has no close button of its own.
+ */
+async function closeSheet(page: Page, sheet: Locator) {
+  const top = await sheet.evaluate(
+    (element) =>
+      (element.closest(".reader-sheet") ?? element).getBoundingClientRect().top,
+  );
+  await page.touchscreen.tap(195, Math.max(8, top / 2));
+  await expect(sheet).not.toBeVisible();
+}
+
 test("captures thoughts over a stable book and browses both notebook orders", async ({
   page,
   localBook,
@@ -110,6 +136,7 @@ test("captures thoughts over a stable book and browses both notebook orders", as
   await expect(input).not.toBeVisible();
   await showNotesCapsule(page);
   await page.getByRole("button", { name: "Open notebook" }).click();
+  await waitForSheet(page, "Notebook");
   await expect(
     page.getByRole("region", { name: "Book notebook" }),
   ).toContainText("Notebook 2");
@@ -130,8 +157,7 @@ test("captures thoughts over a stable book and browses both notebook orders", as
   ).toBeVisible();
   await expect(input).toHaveValue("");
   await input.fill("Keep this draft.");
-  await sheet.getByRole("button", { name: "Close notebook" }).click();
-  await expect(sheet).not.toBeVisible();
+  await closeSheet(page, sheet);
   // Closing the notebook returns to reading; the draft waits in the capsule.
   await expect(input).toHaveCount(0);
   await showNotesCapsule(page);
@@ -760,6 +786,7 @@ test("swipes to edit without losing the compose draft or changing the note ancho
   await compose.press("Escape");
   await showNotesCapsule(page);
   await page.getByRole("button", { name: "Open notebook" }).click();
+  await waitForSheet(page, "Notebook");
   const row = page.locator(`[data-note-id="${original.id}"]`);
   const notebookList = row.locator("..");
   async function expectNoHorizontalOverflow() {
@@ -816,7 +843,7 @@ test("swipes to edit without losing the compose draft or changing the note ancho
     page.locator('button[aria-label="Save changes"]'),
   ).toBeDisabled();
   await editor.fill("The revised thought.");
-  await page.getByRole("button", { name: "Save changes" }).click();
+  await tapSettled(page.getByRole("button", { name: "Save changes" }));
   await expect(compose).toHaveValue("Keep my next thought.");
   await expect(row).toContainText("The revised thought.");
   const saved = await readNotes();
@@ -892,6 +919,7 @@ test("swipes to edit without losing the compose draft or changing the note ancho
   await compose.press("Escape");
   await showNotesCapsule(page);
   await page.getByRole("button", { name: "Open notebook" }).click();
+  await waitForSheet(page, "Notebook");
   await row.locator("article").click({ button: "right" });
   await page.getByRole("menuitem", { name: "Edit note" }).click();
   await expect(editor).toHaveValue("Resume this edit.");
@@ -903,7 +931,7 @@ test("swipes to edit without losing the compose draft or changing the note ancho
     },
     { path: "/src/data/notes.ts", id: original.id },
   );
-  await page.getByRole("button", { name: "Save changes" }).click();
+  await tapSettled(page.getByRole("button", { name: "Save changes" }));
   await expect(page.getByRole("alert")).toContainText(
     "changed on another device",
   );
@@ -941,6 +969,7 @@ test("keeps the mobile draft and its full height between the island and the note
   await input.press("Escape");
   await showNotesCapsule(page);
   await page.getByRole("button", { name: "Open notebook" }).click();
+  await waitForSheet(page, "Notebook");
   const sheet = page.getByRole("dialog", { name: "Notebook", exact: true });
   const sheetInput = sheet.getByRole("textbox", { name: "Write a note" });
   /** The field grows to show every line instead of scrolling inside. */
@@ -956,8 +985,7 @@ test("keeps the mobile draft and its full height between the island and the note
     .poll(async () => (await sheetInput.boundingBox())!.height)
     .toBeGreaterThan(threeLines);
   await expect.poll(showsEveryLine).toBe(true);
-  await sheet.getByRole("button", { name: "Close notebook" }).click();
-  await expect(sheet).not.toBeVisible();
+  await closeSheet(page, sheet);
   await showNotesCapsule(page);
   await page.getByRole("button", { name: "Continue draft" }).click();
   await expect(input).toHaveValue(`${text}\nWritten in the notebook.`);
@@ -965,6 +993,7 @@ test("keeps the mobile draft and its full height between the island and the note
   await input.press("Escape");
   await showNotesCapsule(page);
   await page.getByRole("button", { name: "Open notebook" }).click();
+  await waitForSheet(page, "Notebook");
   await expect(sheetInput).toHaveValue("Now a shorter thought.");
   await expect
     .poll(async () => (await sheetInput.boundingBox())!.height)
@@ -1009,6 +1038,7 @@ test("swipes right to delete and undo while keeping the compose draft", async ({
   await compose.press("Escape");
   await showNotesCapsule(page);
   await page.getByRole("button", { name: "Open notebook" }).click();
+  await waitForSheet(page, "Notebook");
   await expect(page.getByRole("button", { name: "Note actions" })).toHaveCount(
     0,
   );

@@ -222,15 +222,13 @@ function IslandLayer({
   );
 }
 
-/** The colour tools for a passage, then any further action, then Note. */
+/** The colour tools for a passage, followed by Note. */
 export function IslandTools({
   tools,
-  action,
   actionLabel,
   onNote,
 }: {
   tools: ReactNode;
-  action?: ReactNode;
   actionLabel: "Note" | "Attach";
   onNote: () => void;
 }) {
@@ -238,7 +236,6 @@ export function IslandTools({
     <div className="flex h-[52px] items-center gap-3 pr-1.5 pl-4 whitespace-nowrap">
       {tools}
       <span aria-hidden="true" className="h-5 w-px bg-border" />
-      {action && <div className="-mr-1.5 flex">{action}</div>}
       <button
         type="button"
         aria-label={actionLabel === "Attach" ? "Attach to draft" : "Add note"}

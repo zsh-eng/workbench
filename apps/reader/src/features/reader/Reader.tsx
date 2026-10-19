@@ -15,6 +15,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { isInteractiveTapTarget } from "./hooks/use-touch-spread-tap-nav";
 import { highlightNoteTarget } from "./note-locations";
 import type { NoteTarget } from "@/types/note";
+import type { AnnotationColor } from "@/lib/highlight-constants";
 import type { TOCItem } from "@/lib/db";
 import type {
   ChapterCanonicalText,
@@ -57,8 +58,8 @@ import { useHotkey } from "@tanstack/react-hotkeys";
 import type { ReaderLocation } from "./reader-location";
 import { ReadingLayoutRow } from "./scroll/ReadingLayoutRow";
 import { ScrollStage } from "./scroll/ScrollStage";
-import { SelectAcrossPagesButton } from "./scroll/SelectAcrossPagesButton";
-import { useSelectionAtPageEdge } from "./scroll/use-selection-at-page-edge";
+import { useSelectAcross } from "./scroll/use-select-across";
+import { useDetentSheetsEnabled } from "@/lib/detent-sheets-preference";
 import { useReaderScrollMode } from "./scroll/use-reader-scroll-mode";
 
 function DisplayReadyCommitProbe({
@@ -145,6 +146,7 @@ export function Reader() {
 
   const { state: chromeState, actions: chromeActions } =
     useReaderChromeState(isMobile);
+  const detentSheets = useDetentSheetsEnabled();
   const { chromeInteractionMode } = useInputBehavior();
   useReaderPerformanceTraceRoute(bookId);
 
@@ -201,10 +203,12 @@ export function Reader() {
     stageContentRef,
   });
 
-  // Debug-mode prototype: per-chapter scroll mode beside paged reading.
+  // The chapter column: a selection's visit across a page break for every
+  // reader, and Scroll as a reading layout in Debug mode.
+  const selectionHandedOver = useRef<() => void>(() => {});
   const scrollMode = useReaderScrollMode({
     bookId,
-    enabled: debugEnabled,
+    layoutEnabled: debugEnabled,
     touch: chromeInteractionMode === "touch",
     ready: displayReady,
     spread: sessionState.pagination.spread,
@@ -221,6 +225,7 @@ export function Reader() {
     goToChapter: sessionActions.goToChapter,
     stageContentRef,
     onLocationChange: setScrollLocation,
+    onSelectionHandedOver: () => selectionHandedOver.current(),
   });
 
   const {
@@ -235,6 +240,8 @@ export function Reader() {
     closeCreation,
     clearActiveHighlight,
     captureSelectionNote,
+    resolveSelectionRange,
+    refreshSelection,
   } = useReaderAnnotations({
     bookId,
     // In scroll mode the column is the selectable surface.
@@ -250,14 +257,26 @@ export function Reader() {
     onCreateHighlight: sessionActions.createHighlight,
   });
 
-  // A page selection that a page break stops can move into scroll mode.
-  const selectionAtPageEdge = useSelectionAtPageEdge({
-    enabled:
-      scrollMode.selectAcrossPagesAvailable &&
-      chromeState.activeReaderSheet === null &&
-      displayReady,
+  // A page selection that a page break cuts can carry on across it.
+  const selectAcross = useSelectAcross({
+    enabled: chromeState.activeReaderSheet === null && displayReady,
+    isMobile,
+    scrollMode,
     stageContentRef,
+    spread: sessionState.pagination.spread,
+    chapterAccess: sessionResources.chapterAccess,
+    fontConfig: sessionState.pagination.paginationConfig.fontConfig,
+    publisherBookStylingEnabled:
+      sessionState.pagination.paginationConfig.publisherBookStylingEnabled ??
+      false,
+    annotation: {
+      kind: annotationState.kind,
+      resolveSelectionRange,
+      refreshSelection,
+    },
+    notesActive: noteViewportHeight !== null || noteComposerPresent,
   });
+  selectionHandedOver.current = selectAcross.onSelectionHandedOver;
 
   // Search starts its worker once the book has settled, or when it opens.
   const searchOpen = chromeState.activeReaderSheet === "search";
@@ -469,16 +488,16 @@ export function Reader() {
     sessionState.chapters.entries[sessionState.navigation.currentChapterIndex];
   const isReaderInteractionSuppressed =
     chromeState.activeReaderSheet !== null || !displayReady;
-  const selectAcrossPages = (variant: "island" | "toolbar") =>
-    selectionAtPageEdge && isCreatingHighlight ? (
-      <SelectAcrossPagesButton
-        variant={variant}
-        onSelect={() => {
-          closeCreation();
-          scrollMode.enterWithSelection(selectionAtPageEdge);
-        }}
-      />
-    ) : undefined;
+  // A highlight or note from a selection cut by a page break can also
+  // cover the rest of its sentence.
+  const highlightSelection = (color: AnnotationColor) => {
+    selectAcross.keep();
+    return selectColor(color);
+  };
+  const captureSelectionTarget = () => {
+    selectAcross.keep();
+    return captureSelectionNote();
+  };
   // The annotation panel owns the mobile bottom edge, including before focus
   // and while its notebook is open. Reading controls must not compete with it.
   const mobileAnnotationVisible =
@@ -544,9 +563,12 @@ export function Reader() {
   };
 
   return (
+    // The Reader never scrolls as a whole: `overflow-clip`, unlike hidden,
+    // makes no scroll container, so bringing a sliding header, a hidden
+    // footer or a focused control into view can't shift the page.
     <div
       data-search-marks={searchMarks ?? undefined}
-      className="relative h-dvh overflow-hidden overscroll-none bg-background"
+      className="relative h-dvh overflow-clip overscroll-none bg-background"
     >
       {displayReady && (
         <DisplayReadyCommitProbe
@@ -590,7 +612,7 @@ export function Reader() {
             hideChrome,
           }) => (
             <div
-              className="relative h-dvh overflow-hidden font-sans text-foreground"
+              className="relative h-dvh overflow-clip font-sans text-foreground"
               style={
                 noteViewportHeight === null
                   ? undefined
@@ -900,6 +922,11 @@ export function Reader() {
                       }
                       onJot={() => handleNotesActive(true)}
                       onOpenNotebook={() => {
+                        // The same Notebook as Reader tools → Notebook.
+                        if (detentSheets) {
+                          chromeActions.openReaderSheet("notes");
+                          return;
+                        }
                         handleNotesActive(true);
                         setNotebookOpen(true);
                       }}
@@ -911,14 +938,17 @@ export function Reader() {
 
               {displayReady && (
                 <>
+                  {selectAcross.overlay}
                   <ReaderNotesPrototype
                     key={bookId}
                     bookId={bookId}
                     mobileAnnotation={
-                      isMobile && (isCreatingHighlight || activeHighlightData)
+                      isMobile &&
+                      ((isCreatingHighlight && !selectAcross.handingOver) ||
+                        activeHighlightData)
                         ? {
                             identity: annotationState,
-                            action: selectAcrossPages("island"),
+                            dock: selectAcross.islandDock,
                             highlightId: activeHighlightData?.id,
                             tools: (
                               <HighlightToolbarContainer
@@ -929,7 +959,7 @@ export function Reader() {
                                 creationPosition={creationPosition}
                                 creationText={creationText}
                                 onCreateColorSelect={(color) => {
-                                  const highlight = selectColor(color);
+                                  const highlight = highlightSelection(color);
                                   if (highlight && noteViewportHeight !== null)
                                     setNoteQuote(
                                       highlightNoteTarget(highlight, true),
@@ -948,7 +978,7 @@ export function Reader() {
                             ),
                             captureTarget: () => {
                               const highlight =
-                                activeHighlightData ?? captureSelectionNote();
+                                activeHighlightData ?? captureSelectionTarget();
                               return highlight
                                 ? highlightNoteTarget(
                                     highlight,
@@ -1115,11 +1145,13 @@ export function Reader() {
                         activeHighlightData?.spineItemId ?? undefined
                       }
                       highlights={sessionState.highlights}
-                      isCreatingHighlight={isCreatingHighlight}
+                      isCreatingHighlight={
+                        isCreatingHighlight && !selectAcross.handingOver
+                      }
                       creationPosition={creationPosition}
                       creationText={creationText}
                       activeHighlightCopyText={activeHighlightCopyText}
-                      onCreateColorSelect={selectColor}
+                      onCreateColorSelect={highlightSelection}
                       onCreateClose={closeCreation}
                       activeHighlight={
                         annotationState.kind === "active"
@@ -1128,9 +1160,8 @@ export function Reader() {
                       }
                       onEditClose={clearActiveHighlight}
                       onCreateNoteSubmit={undefined}
-                      creationAction={selectAcrossPages("toolbar")}
                       onAddSelectionNote={() => {
-                        const note = captureSelectionNote();
+                        const note = captureSelectionTarget();
                         if (!note) return;
                         setNoteQuote(highlightNoteTarget(note, false));
                         setCommentPosition({

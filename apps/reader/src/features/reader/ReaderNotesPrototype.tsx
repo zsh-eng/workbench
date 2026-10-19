@@ -1,4 +1,5 @@
 import { flushSync } from "react-dom";
+import { cn } from "@/lib/utils";
 import { NotebookNote } from "./NotebookNote";
 import { DesktopNotebookNote, NotebookNoteBody } from "./DesktopNotebookNote";
 import { ReaderSheet } from "./shared/ReaderSheet";
@@ -94,8 +95,11 @@ export function ReaderNotesPrototype({
   mobileAnnotation?: {
     identity: object;
     tools: ReactNode;
-    /** An action between the tools and Note. */
-    action?: ReactNode;
+    /**
+     * Where the tools sit. "top" leaves the bottom edge to something that
+     * belongs there, as the phone's selection menu moves when it has no room.
+     */
+    dock?: "top" | "bottom";
     /** The existing highlight being edited, if any. */
     highlightId?: string;
     captureTarget: () => NoteTarget | null;
@@ -230,6 +234,8 @@ export function ReaderNotesPrototype({
           : notice
             ? "notice"
             : "none";
+  const islandDock =
+    islandState === "tools" ? (mobileAnnotation?.dock ?? "bottom") : "bottom";
   // Keep reading chrome suppressed through exit, including quick dismiss/reopen.
   useLayoutEffect(() => {
     if (desktop) onMobileComposerPresenceChange(false);
@@ -1416,29 +1422,41 @@ export function ReaderNotesPrototype({
           {islandState !== "none" && (
             <motion.div
               ref={composer}
-              key="island"
+              key={`island-${islandDock}`}
               data-notes-island={islandState}
+              data-notes-island-dock={islandDock}
               data-note-composer={islandState === "compose" ? "" : undefined}
               initial={{
                 opacity: 0,
-                transform: reduceMotion ? "none" : "translateY(16px)",
+                transform: reduceMotion
+                  ? "none"
+                  : `translateY(${islandDock === "top" ? -16 : 16}px)`,
               }}
               animate={{ opacity: 1, transform: "none" }}
               exit={{
                 opacity: 0,
-                transform: reduceMotion ? "none" : "translateY(12px)",
+                transform: reduceMotion
+                  ? "none"
+                  : `translateY(${islandDock === "top" ? -12 : 12}px)`,
                 transition: MOTION.exit,
               }}
               transition={MOTION.enter}
-              className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center"
+              className={cn(
+                "pointer-events-none fixed inset-x-0 z-40 flex justify-center",
+                islandDock === "top" ? "top-0" : "bottom-0",
+              )}
             >
               <div
                 className="flex justify-center"
-                style={{
-                  paddingBottom: keyboardOpen
-                    ? 8
-                    : "max(env(safe-area-inset-bottom), 14px)",
-                }}
+                style={
+                  islandDock === "top"
+                    ? { paddingTop: "max(env(safe-area-inset-top), 14px)" }
+                    : {
+                        paddingBottom: keyboardOpen
+                          ? 8
+                          : "max(env(safe-area-inset-bottom), 14px)",
+                      }
+                }
               >
                 <IslandSurface
                   layerKey={islandState}
@@ -1453,7 +1471,6 @@ export function ReaderNotesPrototype({
                   {islandState === "tools" && mobileAnnotation && (
                     <IslandTools
                       tools={mobileAnnotation.tools}
-                      action={mobileAnnotation.action}
                       actionLabel={composeHasText ? "Attach" : "Note"}
                       onNote={() => void noteOnPassage()}
                     />
