@@ -3,7 +3,13 @@ import { MOTION } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { ChevronLeft } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Heading } from "react-aria-components/Dialog";
 import {
   Sheet,
@@ -24,6 +30,11 @@ export interface DetentSheetProps {
    * percentage of the sheet. The sheet opens at the first and can always be
    * dragged to its full height. Omit them for a sheet that fits its content;
    * its height then follows the content, as when a tab changes.
+   *
+   * The phone keyboard would cover a lower detent, so a sheet with detents
+   * opens at full height when its page names a field to focus
+   * (`data-sheet-autofocus`), rises to full height when a field takes focus,
+   * and puts the keyboard away when it is dragged lower.
    */
   snapPoints?: DetentSheetSnapPoint[];
   /** "content" fits the content; "tall" takes the screen below the inset. */
@@ -55,11 +66,22 @@ export function DetentSheet({
   dim = true,
   children,
 }: DetentSheetProps) {
+  const hasDetents = !!snapPoints?.length;
+  // React Aria opens a sheet at its first detent. Full height goes first
+  // when the page will focus a field, and the others stay below it.
+  const [opensFull, setOpensFull] = useState(false);
+  const [wasOpen, setWasOpen] = useState(isOpen);
+  if (wasOpen !== isOpen) {
+    setWasOpen(isOpen);
+    if (isOpen) setOpensFull(false);
+  }
+  const detents =
+    hasDetents && opensFull ? ["100%", ...snapPoints] : snapPoints;
   return (
     <SheetOverlay
       isOpen={isOpen}
       onOpenChange={onOpenChange}
-      snapPoints={snapPoints}
+      snapPoints={detents}
       className="reader-sheet-overlay"
       // The lower sheet hides each new node outside it. A sheet marks itself
       // visible in an effect, which runs too late when a timer or an async
@@ -67,54 +89,147 @@ export function DetentSheet({
       // its top layer, so a stacked sheet joins it.
       data-react-aria-top-layer={stacked || undefined}
     >
-      {dim && (
-        <SheetBackdrop
-          className="reader-sheet-backdrop"
-          swipeAnimation="reader-sheet-backdrop"
-          swipeAnimationRange={
-            snapPoints?.length ? { start: snapPoints.length - 1 } : undefined
-          }
-        />
-      )}
-      <Sheet
-        className={cn("reader-sheet", height === "tall" && "reader-sheet-tall")}
-        stackAnimation="reader-sheet-recede"
-        overscrollPadding
-      >
-        <SheetContent className="reader-sheet-content">
-          <div className="reader-sheet-handle" aria-hidden="true" />
-          <div className="grid h-10 shrink-0 grid-cols-[2rem_1fr_2rem] items-center gap-3 px-4">
-            {onBack ? (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={onBack}
-                aria-label={backLabel}
-                className="size-8 rounded-full border border-border/60 bg-secondary/20"
+      {({ isExpanded }) => (
+        <>
+          {dim && (
+            <SheetBackdrop
+              className="reader-sheet-backdrop"
+              swipeAnimation="reader-sheet-backdrop"
+              // The page dims above the highest detent below full height.
+              swipeAnimationRange={
+                detents?.length ? { start: detents.length - 1 } : undefined
+              }
+            />
+          )}
+          <Sheet
+            className={cn(
+              "reader-sheet",
+              height === "tall" && "reader-sheet-tall",
+            )}
+            stackAnimation="reader-sheet-recede"
+            overscrollPadding
+          >
+            <SheetContent className="reader-sheet-content">
+              <div className="reader-sheet-handle" aria-hidden="true" />
+              <div className="grid h-10 shrink-0 grid-cols-[2rem_1fr_2rem] items-center gap-3 px-4">
+                {onBack ? (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={onBack}
+                    aria-label={backLabel}
+                    className="size-8 rounded-full border border-border/60 bg-secondary/20"
+                  >
+                    <ChevronLeft className="size-4" />
+                  </Button>
+                ) : (
+                  <div />
+                )}
+                <Heading
+                  slot="title"
+                  className="truncate text-center text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground"
+                >
+                  {title}
+                </Heading>
+                <div />
+              </div>
+              <SheetBody
+                hasDetents={hasDetents}
+                isExpanded={isExpanded}
+                setOpensFull={setOpensFull}
               >
-                <ChevronLeft className="size-4" />
-              </Button>
-            ) : (
-              <div />
-            )}
-            <Heading
-              slot="title"
-              className="truncate text-center text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground"
-            >
-              {title}
-            </Heading>
-            <div />
-          </div>
-          <div className="reader-sheet-body">
-            {snapPoints?.length || height === "tall" ? (
-              children
-            ) : (
-              <FitHeight>{children}</FitHeight>
-            )}
-          </div>
-        </SheetContent>
-      </Sheet>
+                {hasDetents || height === "tall" ? (
+                  children
+                ) : (
+                  <FitHeight>{children}</FitHeight>
+                )}
+              </SheetBody>
+            </SheetContent>
+          </Sheet>
+        </>
+      )}
     </SheetOverlay>
+  );
+}
+
+/** Fields that open the phone keyboard. */
+const TEXT_FIELD =
+  "input:not([type=button],[type=checkbox],[type=radio],[type=range],[type=submit],[type=reset],[type=file],[type=color]), textarea, [contenteditable]:not([contenteditable=false])";
+
+function isTextField(element: Element | null): element is HTMLElement {
+  return element instanceof HTMLElement && element.matches(TEXT_FIELD);
+}
+
+/**
+ * The sheet's content. In a sheet with detents it keeps the keyboard and
+ * the detents apart: the keyboard covers the lower part of the screen
+ * without resizing the page, so a field below full height would sit under
+ * it.
+ */
+function SheetBody({
+  hasDetents,
+  isExpanded,
+  setOpensFull,
+  children,
+}: {
+  hasDetents: boolean;
+  isExpanded: boolean;
+  setOpensFull: (opensFull: boolean) => void;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  // The body mounts each time the sheet opens, before React Aria scrolls the
+  // sheet to its first detent, so this runs once per opening.
+  useLayoutEffect(() => {
+    if (hasDetents && ref.current?.querySelector("[data-sheet-autofocus]"))
+      setOpensFull(true);
+  }, [hasDetents, setOpensFull]);
+
+  // Dragged below full height, the sheet puts the keyboard away instead of
+  // leaving the field under it.
+  const wasExpanded = useRef(isExpanded);
+  useEffect(() => {
+    const collapsed = wasExpanded.current && !isExpanded;
+    wasExpanded.current = isExpanded;
+    const field = document.activeElement;
+    if (
+      collapsed &&
+      hasDetents &&
+      isTextField(field) &&
+      ref.current?.contains(field)
+    )
+      field.blur();
+  }, [hasDetents, isExpanded]);
+
+  return (
+    <div
+      ref={ref}
+      className="reader-sheet-body"
+      onFocus={(event) => {
+        if (!hasDetents || isExpanded || !isTextField(event.target)) return;
+        const sheet = event.currentTarget.closest<HTMLElement>(".reader-sheet");
+        const scroller = event.currentTarget.closest<HTMLElement>(
+          "[data-sheet-scroll]",
+        );
+        // A sheet still below the screen is entering; it settles itself.
+        if (
+          !sheet ||
+          !scroller ||
+          sheet.getBoundingClientRect().top >= innerHeight
+        )
+          return;
+        // Full height is the end of the sheet's scroll range.
+        scroller.scrollTo({
+          top: scroller.scrollHeight - scroller.clientHeight,
+          behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
+            ? "auto"
+            : "smooth",
+        });
+      }}
+    >
+      {children}
+    </div>
   );
 }
 

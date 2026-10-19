@@ -172,3 +172,60 @@ test("With the trial on, the Reader opens Contents as a detent sheet", async ({
   await expect(contents).toBeHidden();
   await expect(tools).toBeVisible();
 });
+
+test("With the trial on, search rests at the medium detent and full height", async ({
+  page,
+  localBook,
+}) => {
+  await page.addInitScript(() =>
+    localStorage.setItem("reader-detent-sheets-v1", "true"),
+  );
+  await openLocalBook(page, localBook.id);
+  await page.touchscreen.tap(195, 422);
+  await page
+    .getByRole("button", { name: "Open reader tools", exact: true })
+    .click();
+  const tools = page.getByRole("dialog", { name: "Reader tools" });
+  await settled(tools);
+  await tools.getByRole("button", { name: /Search book/ }).click();
+  const sheet = page.getByRole("dialog", { name: "Search book" });
+  await settled(sheet);
+
+  // An empty field takes focus. The keyboard would cover the medium
+  // detent, so the sheet opens at full height.
+  const field = sheet.getByRole("searchbox");
+  await expect(field).toBeFocused();
+  await expect.poll(() => visibleShare(sheet)).toBeGreaterThan(0.98);
+  await field.fill("Dinah");
+  await expect(sheet.locator("[data-search-status]")).toHaveAttribute(
+    "data-search-status",
+    "done",
+  );
+
+  // Dragged down by its header, it rests at the medium detent and puts the
+  // keyboard away.
+  await swipe(page, 60, 420);
+  await expect.poll(() => screenShare(sheet)).toBeCloseTo(0.55, 1);
+  await expect(field).not.toBeFocused();
+
+  // A result opens its page, and the sheet closes over it.
+  const results = sheet.locator("[data-search-result]");
+  await results.nth(1).click();
+  await expect(sheet).toBeHidden();
+  const stepper = page.getByTestId("search-stepper");
+  await expect(stepper).toContainText("2 of");
+
+  // The count brings the results back at the medium detent, with the
+  // result in view and the keyboard away.
+  await stepper.getByRole("button", { name: /Show all results/ }).tap();
+  await settled(sheet);
+  await expect.poll(() => screenShare(sheet)).toBeCloseTo(0.55, 1);
+  await expect(results.nth(1)).toHaveAttribute("aria-current", "true");
+  await expect(results.nth(1)).toBeInViewport();
+  await expect(field).not.toBeFocused();
+
+  // Tapping the field raises the sheet to full height.
+  await field.tap();
+  await expect(field).toBeFocused();
+  await expect.poll(() => visibleShare(sheet)).toBeGreaterThan(0.98);
+});

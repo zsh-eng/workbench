@@ -37,7 +37,15 @@ export const READER_SHEET_PAGES: Record<ReaderSheetId, ReaderSheetPage> = {
     dim: true,
   },
   settings: { title: "Appearance", stacks: false, dim: false },
-  search: { title: "Search book", height: "tall", stacks: true, dim: true },
+  // Results stream in under the field, so search keeps its full height
+  // and rests at the medium detent below it.
+  search: {
+    title: "Search book",
+    snapPoints: [MEDIUM_DETENT],
+    height: "tall",
+    stacks: true,
+    dim: true,
+  },
   "book-actions": { title: "Reading status", stacks: true, dim: true },
   notes: {
     title: "Notebook",

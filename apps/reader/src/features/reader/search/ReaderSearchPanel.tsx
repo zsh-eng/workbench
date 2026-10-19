@@ -358,6 +358,9 @@ export function ReaderSearchPanel({
 
       <div
         ref={listRef}
+        // A detent sheet keeps it still below full height, and ends it above
+        // the keyboard.
+        data-detent-scroll=""
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[calc(1rem+env(safe-area-inset-bottom))]"
       >
         {hasQuery && state.annotations.length > 0 && (
