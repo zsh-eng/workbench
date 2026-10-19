@@ -39,7 +39,7 @@ interface ReaderToolsSidebarProps {
   onNavigateToHref: (href: string) => boolean;
   notesPanel?: ReactNode;
   searchPanel?: ReactNode;
-  /** Pages or Scroll (Debug mode), first in the settings panel. */
+  /** Pages or Scroll (Debug mode), in the settings panel's layout section. */
   layoutControl?: ReactNode;
   onCopyDebugDump?: () => void;
   /** The header control that opens the sidebar. Escape returns focus to it. */
