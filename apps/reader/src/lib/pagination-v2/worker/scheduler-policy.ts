@@ -20,6 +20,8 @@ export function getCoalesceKey(command: PaginationCommand): string | null {
     case "locateAnchors":
     case "locateTextOffsets":
       return `${command.type}:${command.scope}`;
+    case "setScrollChapter":
+      return command.type;
     case "updateChapter":
       return `${command.type}:${command.chapterIndex}`;
     default:
@@ -84,7 +86,8 @@ export function getCommandPriority(
 ): PaginationJobPriority {
   if (
     NAVIGATION_COMMANDS.has(command.type) ||
-    command.type === "updateSpreadConfig"
+    command.type === "updateSpreadConfig" ||
+    command.type === "setScrollChapter"
   ) {
     return "user";
   }

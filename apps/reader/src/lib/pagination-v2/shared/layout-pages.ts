@@ -81,7 +81,7 @@ function getPublisherLengthPx(
   );
 }
 
-function getResolvedBlockSpacing(
+export function getResolvedBlockSpacing(
   block: PreparedTextBlock,
   theme: LayoutTheme,
   containingBlockWidthPx: number,
@@ -106,7 +106,7 @@ function getResolvedBlockSpacing(
   };
 }
 
-function getResolvedCollapsedBlockGap(
+export function getResolvedCollapsedBlockGap(
   previousKind: PreparedTextBlock["tag"] | "image" | null,
   currentBlock: PreparedTextBlock,
   theme: LayoutTheme,

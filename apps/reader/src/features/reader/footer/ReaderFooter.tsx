@@ -34,6 +34,8 @@ export interface ReaderFooterProps {
   showPageNumbers?: boolean;
   /** Progress content shared by the Reader and debug playground. */
   pageIndicator?: ReactNode;
+  /** A line under the page number, such as scroll mode's chapter time. */
+  progressLabel?: ReactNode;
 }
 
 export function ReaderFooter({
@@ -59,6 +61,7 @@ export function ReaderFooter({
   isLoading = false,
   showPageNumbers = true,
   pageIndicator,
+  progressLabel,
 }: ReaderFooterProps) {
   const [cancelMomentumSignal, setCancelMomentumSignal] = useState(0);
   const animateReadyTransition = false;
@@ -256,6 +259,7 @@ export function ReaderFooter({
                     animateReadyDetails={animateReadyTransition}
                   />
                 )}
+                {progressLabel}
               </div>
             </div>
           </LeavingInert>

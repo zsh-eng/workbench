@@ -25,6 +25,7 @@ import {
 } from "./worker/pagination-worker-service";
 import type {
   Block,
+  ChapterColumnLayout,
   ContentAnchor,
   PaginationChapterDiagnostics,
   PaginationConfig,
@@ -144,6 +145,10 @@ export interface UsePaginationResult {
   status: PaginationStatus;
   /** Maps chapterIndex → page count, published with visible partials and final ready. */
   chapterPageCounts: Map<number, number>;
+  /** The subscribed chapter's scroll column (prototype scroll mode). */
+  scrollColumn: ChapterColumnLayout | null;
+  /** Subscribes one chapter's scroll column; null stops the updates. */
+  setScrollChapter: (chapterIndex: number | null) => void;
 
   nextSpread: () => void;
   prevSpread: () => void;
@@ -221,6 +226,9 @@ export function usePagination(
   const [chapterPageCounts, setChapterPageCounts] = useState<
     Map<number, number>
   >(new Map());
+  const [scrollColumn, setScrollColumn] = useState<ChapterColumnLayout | null>(
+    null,
+  );
 
   const workerSessionKeyRef = useRef(sessionKey);
   const workerSessionRef = useRef<PaginationWorkerSession | null>(null);
@@ -373,6 +381,7 @@ export function usePagination(
           previous: event.previousSpread,
           current: event.spread,
           next: event.nextSpread,
+          anchor: event.anchor,
         });
         setStatus("partial");
         endReaderTraceSpan(firstSpreadSpanRef.current, {
@@ -416,6 +425,7 @@ export function usePagination(
           previous: event.previousSpread,
           current: event.spread,
           next: event.nextSpread,
+          anchor: event.anchor,
         });
         setStatus(isComplete ? "ready" : "partial");
         endReaderTraceSpan(firstSpreadSpanRef.current, {
@@ -449,12 +459,17 @@ export function usePagination(
           previous: event.previousSpread,
           current: event.spread,
           next: event.nextSpread,
+          anchor: event.anchor,
         });
         break;
 
       case "pageUnavailable":
       case "chapterUnavailable":
         // Keep current page as-is.
+        break;
+
+      case "chapterColumn":
+        setScrollColumn(event.column);
         break;
 
       case "error":
@@ -482,6 +497,7 @@ export function usePagination(
 
   useEffect(() => {
     setSpreadWindow(null);
+    setScrollColumn(null);
     setAnchorPagesByScope({});
     setTextOffsetsByScope({});
     latestAnchorRequests.current.clear();
@@ -720,6 +736,14 @@ export function usePagination(
     [postCommand],
   );
 
+  const setScrollChapter = useCallback(
+    (chapterIndex: number | null) => {
+      if (chapterIndex === null) setScrollColumn(null);
+      postCommand({ type: "setScrollChapter", chapterIndex });
+    },
+    [postCommand],
+  );
+
   const locateAnchors = useCallback(
     (anchors: { id: string; anchor: ContentAnchor }[], scope = "default") => {
       const requestId = ++anchorRequest.current;
@@ -755,6 +779,8 @@ export function usePagination(
     spreadWindow,
     status,
     chapterPageCounts,
+    scrollColumn,
+    setScrollChapter,
     nextSpread,
     prevSpread,
     goToPage,

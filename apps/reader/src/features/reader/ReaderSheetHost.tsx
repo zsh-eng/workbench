@@ -31,6 +31,8 @@ interface ReaderSheetHostProps {
   notesPanel?: ReactNode;
   /** Book search, for the sidebar or a phone sheet page. */
   searchPanel?: ReactNode;
+  /** Pages or Scroll (Debug mode), for the reading settings. */
+  layoutControl?: ReactNode;
   onCopyDebugDump?: () => void;
   /** The desktop header control that opens the tools sidebar. */
   toolsTriggerRef: RefObject<HTMLButtonElement | null>;
@@ -59,6 +61,7 @@ export function ReaderSheetHost({
   onCopyDebugDump,
   notesPanel,
   searchPanel,
+  layoutControl,
   toolsTriggerRef,
 }: ReaderSheetHostProps) {
   const [settingsTab, setSettingsTab] =
@@ -79,6 +82,7 @@ export function ReaderSheetHost({
         onNavigateToHref={onNavigateToHref}
         notesPanel={notesPanel}
         searchPanel={searchPanel}
+        layoutControl={layoutControl}
         onCopyDebugDump={onCopyDebugDump}
         triggerRef={toolsTriggerRef}
       />
@@ -122,6 +126,7 @@ export function ReaderSheetHost({
           <ReaderSettingsList
             settings={settings}
             onUpdateSettings={onUpdateSettings}
+            layoutControl={layoutControl}
             className="min-h-0 flex-1"
           />
         ) : (
@@ -130,6 +135,7 @@ export function ReaderSheetHost({
             onUpdateSettings={onUpdateSettings}
             activeTab={settingsTab}
             onActiveTabChange={setSettingsTab}
+            layoutControl={layoutControl}
             className="mt-0 h-full"
           />
         ))}

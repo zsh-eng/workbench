@@ -2,14 +2,18 @@ import type { Book } from "@/lib/db";
 import type {
   Block,
   ChapterCanonicalText,
+  ChapterColumnLayout,
+  ContentAnchor,
   PaginationConfig,
   PaginationStatus,
   ResolvedSpread,
   ResolvedSpreadWindow,
   SpreadConfig,
+  SpreadIntent,
 } from "@/lib/pagination-v2";
 import type { TextOffsetLocation } from "@/lib/pagination-v2/protocol";
 import type { Highlight } from "@/types/highlight";
+import type { ReaderLocation } from "../reader-location";
 import type { ReaderSettings } from "@/types/reader.types";
 import { useMemo } from "react";
 import type { ChapterEntry } from "../types";
@@ -30,6 +34,8 @@ export interface UseReaderSessionOptions {
   paragraphSpacingFactor?: number;
   /** Prevents the first pagination run until the real reader stage is known. */
   layoutReady?: boolean;
+  /** Scroll mode's location; page numbers and progress follow it while set. */
+  scrollLocation?: ReaderLocation | null;
 }
 
 export type ReaderSessionStatus =
@@ -72,6 +78,8 @@ export interface ReaderSessionPaginationState {
   status: PaginationStatus;
   spreadConfig: SpreadConfig;
   paginationConfig: PaginationConfig;
+  /** The subscribed chapter's scroll column (prototype scroll mode). */
+  scrollColumn: ChapterColumnLayout | null;
 }
 
 export interface ReaderSessionState {
@@ -129,6 +137,9 @@ export interface ReaderSessionActions {
   ) => void;
   createHighlight: (highlight: Highlight) => void;
   resumeBackgroundLoad: () => void;
+  /** Subscribes one chapter's scroll column; null stops the updates. */
+  setScrollChapter: (chapterIndex: number | null) => void;
+  goToAnchor: (anchor: ContentAnchor, intent: SpreadIntent) => void;
 }
 
 export interface UseReaderSessionResult {
@@ -210,6 +221,7 @@ export function useReaderSession(
         status: core.pagination.status,
         spreadConfig: core.spreadConfig,
         paginationConfig: core.paginationConfig,
+        scrollColumn: core.pagination.scrollColumn,
       },
       navigation: {
         currentPage: core.currentPage,
@@ -243,6 +255,7 @@ export function useReaderSession(
     core.pagination.spread,
     core.pagination.spreadWindow,
     core.pagination.status,
+    core.pagination.scrollColumn,
     core.paginationConfig,
     core.settings,
     core.spreadConfig,
@@ -266,15 +279,13 @@ export function useReaderSession(
 
   const { goToTextOffset } = core.pagination;
   const { getChapterCanonicalText } = core;
+  const goToAnchor = core.pagination.goToAnchor;
   const actions = useMemo<ReaderSessionActions>(
     () => ({
-      selectHistoryVisit: (index) =>
-        core.jumpHistory.select(index, core.pagination.goToAnchor),
+      selectHistoryVisit: (index) => core.jumpHistory.select(index, goToAnchor),
       setHistoryExpanded: core.jumpHistory.setExpanded,
-      goBackInHistory: () =>
-        core.jumpHistory.go("back", core.pagination.goToAnchor),
-      goForwardInHistory: () =>
-        core.jumpHistory.go("forward", core.pagination.goToAnchor),
+      goBackInHistory: () => core.jumpHistory.go("back", goToAnchor),
+      goForwardInHistory: () => core.jumpHistory.go("forward", goToAnchor),
       endHistoryGroup: core.jumpHistory.endGroup,
       updateSettings: core.onUpdateSettings,
       ...navigationActions,
@@ -293,12 +304,15 @@ export function useReaderSession(
       },
       createHighlight,
       resumeBackgroundLoad: core.resumeBackgroundLoad,
+      setScrollChapter: core.pagination.setScrollChapter,
+      goToAnchor: (anchor, intent) => goToAnchor(anchor, { intent }),
     }),
     [
       core.jumpHistory,
-      core.pagination.goToAnchor,
+      goToAnchor,
       goToTextOffset,
       getChapterCanonicalText,
+      core.pagination.setScrollChapter,
       core.onUpdateSettings,
       core.resumeBackgroundLoad,
       createHighlight,

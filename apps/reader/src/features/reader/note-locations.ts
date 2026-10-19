@@ -206,7 +206,8 @@ function compareCursors(a: TextCursorOffset, b: TextCursorOffset): number {
  */
 export function noteMarginTop(anchor: ContentAnchor | null): number {
   if (!anchor) return MARGIN_NOTE_FALLBACK_TOP;
-  const slices = `[data-reader-spread-layer="current"] [${CONTENT_ANCHOR_BLOCK_ID_ATTR}="${CSS.escape(anchor.blockId)}"]`;
+  // The current page, or the scroll column in scroll mode.
+  const slices = `:is([data-reader-spread-layer="current"], [data-reader-scroll-content]) [${CONTENT_ANCHOR_BLOCK_ID_ATTR}="${CSS.escape(anchor.blockId)}"]`;
   if (anchor.type === "block")
     return (
       document.querySelector(slices)?.getBoundingClientRect().top ??

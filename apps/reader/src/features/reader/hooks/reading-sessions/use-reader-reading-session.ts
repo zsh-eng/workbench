@@ -3,7 +3,11 @@ import { updateCurrentDeviceReadingSession } from "@/lib/db";
 import type { ResolvedSpread } from "@/lib/pagination-v2";
 import { useEffect, useRef } from "react";
 import {
-  createReaderReadingSessionPosition,
+  readerLocationFromSpread,
+  type ReaderLocation,
+} from "../../reader-location";
+import {
+  createReaderReadingSessionPositionFromLocation,
   ReaderReadingSessionController,
   READING_SESSION_FLUSH_INTERVAL_MS,
   shouldRecordReadingSessionActivity,
@@ -13,6 +17,8 @@ import {
 interface UseReaderReadingSessionOptions {
   bookId?: string;
   spread: ResolvedSpread | null;
+  /** Scroll mode's location; it replaces the spread while set. */
+  location?: ReaderLocation | null;
 }
 
 /**
@@ -24,6 +30,7 @@ interface UseReaderReadingSessionOptions {
 export function useReaderReadingSession({
   bookId,
   spread,
+  location: scrollLocation = null,
 }: UseReaderReadingSessionOptions): void {
   const controllerRef = useRef<ReaderReadingSessionController | null>(null);
   if (controllerRef.current === null) {
@@ -40,19 +47,27 @@ export function useReaderReadingSession({
   const controller = controllerRef.current;
 
   useEffect(() => {
-    if (!bookId || !spread || !shouldTrackReadingSessionIntent(spread.intent)) {
+    const location = scrollLocation ?? readerLocationFromSpread(spread);
+    if (
+      !bookId ||
+      !location ||
+      !shouldTrackReadingSessionIntent(location.intent)
+    ) {
       return;
     }
 
-    const position = createReaderReadingSessionPosition(bookId, spread);
+    const position = createReaderReadingSessionPositionFromLocation(
+      bookId,
+      location,
+    );
     if (!position) return;
 
     controller.setPosition(position, {
       now: Date.now(),
-      recordActivity: shouldRecordReadingSessionActivity(spread.intent),
+      recordActivity: shouldRecordReadingSessionActivity(location.intent),
     });
     controller.flushLatest();
-  }, [bookId, spread, controller]);
+  }, [bookId, spread, scrollLocation, controller]);
 
   useEffect(() => {
     if (!bookId) return;

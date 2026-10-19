@@ -63,6 +63,8 @@ export type {
   PublisherFontFace,
   PublisherStyleOptions,
   BookStylesheet,
+  ChapterColumnLayout,
+  ColumnSlice,
   PublisherTextStyle,
   ResolvedLeafPage,
   ResolvedSpread,
