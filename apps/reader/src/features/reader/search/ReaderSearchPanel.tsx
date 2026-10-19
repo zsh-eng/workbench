@@ -242,13 +242,32 @@ export function ReaderSearchPanel({
     inputRef.current?.select();
   }, [focusRequest]);
 
-  // Keep the active result in view while stepping.
+  // Keep the active result in view while stepping. Reopened results start
+  // with it at the top, where a sheet at its medium detent shows it. Only
+  // the list scrolls: scrollIntoView would also move a detent sheet, and
+  // stop it closing after a result opens.
+  const placedActive = useRef(false);
   useEffect(() => {
-    if (state.activeIndex === null) return;
-    listRef.current
-      ?.querySelector(`[data-search-result="${state.activeIndex}"]`)
-      ?.scrollIntoView({ block: "nearest" });
-  }, [state.activeIndex]);
+    if (!isOpen) {
+      placedActive.current = false;
+      return;
+    }
+    const list = listRef.current;
+    const row = list?.querySelector<HTMLElement>(
+      `[data-search-result="${state.activeIndex}"]`,
+    );
+    if (!list || !row) return;
+    const heading =
+      row.closest("section")?.querySelector("h3")?.offsetHeight ?? 0;
+    const listBox = list.getBoundingClientRect();
+    const rowBox = row.getBoundingClientRect();
+    const above = rowBox.top - (listBox.top + heading);
+    const below = rowBox.bottom - listBox.bottom;
+    if (!placedActive.current) list.scrollTop += above;
+    else if (above < 0) list.scrollTop += above;
+    else if (below > 0) list.scrollTop += below;
+    placedActive.current = true;
+  }, [isOpen, state.activeIndex]);
 
   const pendingStep = useRef<"next" | "previous" | null>(null);
   const stepIfDone = () => {
