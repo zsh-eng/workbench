@@ -271,6 +271,11 @@ test("a triple-click highlights a paragraph over the page break", async ({
   }
   expect(blockId).toBeTruthy();
 
+  // The chrome stays while focus is in it, and its footer covers the
+  // pages' last lines. Reading on, the pointer and focus leave it.
+  await page.mouse.move(640, 300);
+  await page.evaluate(() => (document.activeElement as HTMLElement)?.blur());
+  await expect(page.locator("[data-reader-footer]")).toHaveCount(0);
   await page
     .locator(`${CURRENT_SPREAD} [data-reader-page-content]`)
     .first()
