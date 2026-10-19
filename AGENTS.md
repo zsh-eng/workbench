@@ -15,7 +15,8 @@ Include line numbers when useful. Preserve unrelated edits.
 Read [Architecture](docs/ARCHITECTURE.md) before changes to data, caching, sync,
 or performance. Read the owning app's architecture and tests as well. Read
 [Dependencies](docs/DEPENDENCIES.md) before you add, replace, or remove a
-dependency.
+dependency. Read [Elements](docs/ELEMENTS.md) before you add to an Elements
+page or build a demo that plays, resets, or scrubs.
 
 ## Tools and checks
 
