@@ -96,8 +96,8 @@ type ScrollPhase =
       handoff: Handoff | null;
       excursion: Excursion | null;
       /**
-       * The spread the column opened from. A preview spread (Design ideas
-       * shows a page without moving the book) is not a scrubber preview.
+       * The spread the column opened from. When that is itself a preview (a
+       * page shown without moving the book), the column is not one over it.
        */
       entrySpread: ResolvedSpread | null;
       generation: number;
@@ -114,7 +114,12 @@ type ScrollPhase =
 
 interface UseReaderScrollModeOptions {
   bookId: string | undefined;
-  enabled: boolean;
+  /**
+   * Scroll as a reading layout: the settings switch, the pull from pages,
+   * the saved choice and reopening in it. Debug mode only. A selection's
+   * visit to the column works without it.
+   */
+  layoutEnabled: boolean;
   /** Pull-to-scroll needs touch; the switch works everywhere. */
   touch: boolean;
   /** The reader has painted its first spread. */
@@ -180,13 +185,15 @@ function targetPage(
 }
 
 /**
- * Owns the Debug-mode reading layout for one Reader: Pages or Scroll.
+ * Owns one Reader's chapter column: Scroll as a reading layout beside
+ * Pages (a Debug-mode choice), and the visits to the column that a
+ * selection cut by a page break makes from pages, which every reader has.
  *
  * Content anchors carry the place across modes. Scroll → Pages snaps the
  * page that holds the reading line into place; Pages → Scroll opens at that
  * page's offset, from the settings switch or a pull past the threshold. A
- * selection cut by a page break can also visit the column (`excursion`)
- * to take in the next page's words, then return to pages. While scrolling, the
+ * visit (`excursion`) takes in the next page's words, then returns to pages
+ * and never changes the reading layout. While scrolling, the
  * location goes to the reader as a mode-neutral `ReaderLocation`: progress,
  * sessions, history and page numbers follow it without moving the paged
  * engine. Jumps (contents, scrubber, links, notes, history) still run
@@ -195,7 +202,7 @@ function targetPage(
  */
 export function useReaderScrollMode({
   bookId,
-  enabled,
+  layoutEnabled,
   touch,
   ready,
   spread,
@@ -231,16 +238,22 @@ export function useReaderScrollMode({
   const leadingPage = getLeadingVisiblePage(spread);
   const leadingChapter = leadingPage?.chapterIndex ?? null;
 
-  // Pages mode keeps the current chapter's column ready, so a pull or a
-  // selection's visit can start without waiting for the worker.
-  const subscribedChapter =
-    !enabled || !ready
-      ? null
-      : phase.kind === "off"
+  // Pages keep a column ready, so a pull or a selection's visit can start
+  // without waiting for the worker: the current chapter's when Scroll is a
+  // layout, otherwise the one a selection may visit (`prepareColumn`).
+  const [preparedChapter, setPreparedChapter] = useState<number | null>(null);
+  const prepareColumn = useCallback((chapterIndex: number | null) => {
+    setPreparedChapter(chapterIndex);
+  }, []);
+  const subscribedChapter = !ready
+    ? null
+    : phase.kind === "off"
+      ? layoutEnabled
         ? leadingChapter
-        : phase.kind === "on" && phase.pending
-          ? phase.pending.chapterIndex
-          : phase.chapterIndex;
+        : preparedChapter
+      : phase.kind === "on" && phase.pending
+        ? phase.pending.chapterIndex
+        : phase.chapterIndex;
   useEffect(() => {
     setScrollChapter(subscribedChapter);
   }, [setScrollChapter, subscribedChapter]);
@@ -328,7 +341,9 @@ export function useReaderScrollMode({
 
   const setMode = useCallback(
     (next: ReadingMode, options: { velocityX?: number } = {}) => {
-      setReadingModePreference(next);
+      // Without Scroll as a layout, only a visit's column returns to pages.
+      if (!layoutEnabled && next === "scroll") return;
+      if (layoutEnabled) setReadingModePreference(next);
       if (next === "scroll") {
         if (phase.kind === "off") open({});
         // Choosing Scroll during a visit for a selection keeps the column.
@@ -339,20 +354,24 @@ export function useReaderScrollMode({
       }
       close(options.velocityX);
     },
-    [close, open, phase],
+    [close, layoutEnabled, open, phase],
   );
 
-  // Debug mode turned off: return to pages without animation.
+  // Scroll as a layout turned off (Debug mode off), or a visit's column
+  // that became one: return to pages without animation. A visit stays.
+  const layoutColumn =
+    phase.kind === "pulling" ||
+    ((phase.kind === "opening" || phase.kind === "on") && !phase.excursion);
   useEffect(() => {
-    if (enabled || phase.kind === "off") return;
+    if (layoutEnabled || !layoutColumn) return;
     setPhase({ kind: "off" });
     onLocationChange(null);
-  }, [enabled, onLocationChange, phase.kind]);
+  }, [layoutColumn, layoutEnabled, onLocationChange]);
 
   // A book last read in scroll mode reopens in scroll mode, at the line that
   // was at the top of the view. The engine opened at that exact anchor.
   useEffect(() => {
-    if (restoredRef.current || !enabled || !ready) return;
+    if (restoredRef.current || !layoutEnabled || !ready) return;
     if (!spread || phase.kind !== "off") return;
     restoredRef.current = true;
     if (preferredMode !== "scroll") return;
@@ -375,7 +394,7 @@ export function useReaderScrollMode({
     });
   }, [
     bookId,
-    enabled,
+    layoutEnabled,
     open,
     phase.kind,
     preferredMode,
@@ -543,7 +562,8 @@ export function useReaderScrollMode({
         previous && previous.pageIndex > next.pageIndex
           ? "backward"
           : "forward";
-      if (moved && bookId && next.topAnchor) {
+      // A visit returns to pages, so it leaves no place to reopen at.
+      if (moved && bookId && next.topAnchor && !phase.excursion) {
         saveScrollPlace(bookId, next.topAnchor);
       }
       onLocationChange(
@@ -553,7 +573,7 @@ export function useReaderScrollMode({
         ),
       );
     },
-    [bookId, onLocationChange, phase.kind, toLocation],
+    [bookId, onLocationChange, phase, toLocation],
   );
 
   const onEntered = useCallback(() => {
@@ -579,15 +599,13 @@ export function useReaderScrollMode({
   }, [phase]);
 
   /**
-   * Moves a page selection into the column. A visit (`excursion`) leaves
-   * the reading mode alone and returns to pages with `endExcursion`;
-   * otherwise the reader stays in scroll mode.
+   * Moves a page selection into the column for a visit, which leaves the
+   * reading layout alone and returns to pages with `endExcursion`.
    */
   const enterWithSelection = useCallback(
     (
       captured?: SelectionLocators | null,
       options: {
-        excursion?: boolean;
         /** The page that holds the selection; the leading page otherwise. */
         pageIndex?: number;
         extension?: Handoff["extension"];
@@ -601,7 +619,6 @@ export function useReaderScrollMode({
       const locators =
         captured ??
         (container ? captureSelection(container, window.getSelection()) : null);
-      if (!options.excursion) setReadingModePreference("scroll");
       const page =
         options.pageIndex === undefined
           ? undefined
@@ -611,7 +628,7 @@ export function useReaderScrollMode({
             );
       return open({
         page,
-        excursion: options.excursion,
+        excursion: true,
         handoff: {
           locators,
           extension: options.extension ?? null,
@@ -666,7 +683,7 @@ export function useReaderScrollMode({
   const pull = useMemo(
     () => ({
       canStart: () =>
-        enabled &&
+        layoutEnabled &&
         touch &&
         phase.kind === "off" &&
         leadingChapter !== null &&
@@ -726,7 +743,7 @@ export function useReaderScrollMode({
         });
       },
     }),
-    [column, enabled, leadingChapter, phase.kind, spread, touch],
+    [column, layoutEnabled, leadingChapter, phase.kind, spread, touch],
   );
 
   const chapterWords = useMemo(() => {
@@ -821,7 +838,7 @@ export function useReaderScrollMode({
   return {
     mode,
     /** The saved layout choice, for the settings switch. */
-    preferredMode: enabled ? preferredMode : ("pages" as const),
+    preferredMode: layoutEnabled ? preferredMode : ("pages" as const),
     setMode,
     switchDisabled:
       phase.kind === "opening" ||
@@ -895,8 +912,10 @@ export function useReaderScrollMode({
     progressLabel,
     pull,
     enterWithSelection,
-    /** Selections in pages can offer to move into scroll mode. */
-    selectAcrossPagesAvailable: enabled && phase.kind === "off",
+    /** Readies the column a page selection may visit; null lets it go. */
+    prepareColumn,
+    /** Selections in pages can offer a visit to the column. */
+    selectAcrossPagesAvailable: phase.kind === "off",
     /** The column is showing for one selection; see `endExcursion`. */
     excursion: phase.kind === "on" && phase.excursion !== null && phase.entered,
     endExcursion,

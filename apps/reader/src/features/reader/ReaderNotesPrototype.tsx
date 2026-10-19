@@ -95,10 +95,6 @@ export function ReaderNotesPrototype({
   mobileAnnotation?: {
     identity: object;
     tools: ReactNode;
-    /** An action between the tools and Note. */
-    action?: ReactNode;
-    /** A line above the tools, part of the same surface. */
-    accessory?: ReactNode;
     /**
      * Where the tools sit. "top" leaves the bottom edge to something that
      * belongs there, as the phone's selection menu moves when it has no room.
@@ -1475,9 +1471,6 @@ export function ReaderNotesPrototype({
                   {islandState === "tools" && mobileAnnotation && (
                     <IslandTools
                       tools={mobileAnnotation.tools}
-                      action={mobileAnnotation.action}
-                      accessory={mobileAnnotation.accessory}
-                      accessoryBelow={islandDock === "top"}
                       actionLabel={composeHasText ? "Attach" : "Note"}
                       onNote={() => void noteOnPassage()}
                     />

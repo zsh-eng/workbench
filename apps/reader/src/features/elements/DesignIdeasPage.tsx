@@ -97,39 +97,6 @@ const TOPICS: Record<IdeaTopic, TopicIdeas> = {
       },
     ],
   },
-  "select-across": {
-    current: {
-      id: "select-spill",
-      title: "Spill tab",
-      description:
-        "The Reader's default with Debug mode on. A page break cuts the selection, so a tab in its tint hangs under the cut and shows the next words. Tap it, or pull it down: the page eases into one column and the selection runs to the sentence's end. Highlight, and the page you land on is where it ends. Highlights made here stay in this frame.",
-      src: (bookId) => `/reader/${bookId}?selectAcross=spill&selectDemo=1`,
-    },
-    ideas: [
-      {
-        id: "select-sentence",
-        title: "Finish the sentence",
-        description:
-          "A quiet line on the highlight tools quotes the rest of the sentence from the next page. Choose it and the highlight covers those words too, without leaving the page; turn the page to see it continue.",
-        src: (bookId) => `/reader/${bookId}?selectAcross=sentence&selectDemo=1`,
-      },
-      {
-        id: "select-hold",
-        title: "Hold at the edge",
-        description:
-          "Drag the selection's end to the page's last word and hold: the page eases into one column so you can keep dragging. A page cannot see a finger on the selection handles, so it waits for the selection to stop at the last word; ending a selection there can turn the page too. The panel lists what the page hears.",
-        src: (bookId) =>
-          `/reader/${bookId}?selectAcross=hold&selectAcrossLog=1&selectDemo=1`,
-      },
-      {
-        id: "select-toolbar",
-        title: "Scroll button (before)",
-        description:
-          "The earlier version, for comparison: Scroll beside Note in the highlight tools moves the selection into scroll mode and stays there.",
-        src: (bookId) => `/reader/${bookId}?selectAcross=toolbar&selectDemo=1`,
-      },
-    ],
-  },
   dark: {
     current: {
       id: "dark-current",

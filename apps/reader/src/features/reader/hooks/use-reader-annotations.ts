@@ -87,19 +87,8 @@ interface UseReaderAnnotationsOptions {
   onCreateHighlight: (highlight: Highlight) => void;
 }
 
-/**
- * A canonical range a highlight grows to cover, beyond what the page's
- * selection can reach: the rest of a sentence across a page break.
- */
-export interface HighlightExtension {
-  startOffset: number;
-  endOffset: number;
-}
-
 interface UseReaderAnnotationsResult {
-  captureSelectionNote: (
-    extension?: HighlightExtension | null,
-  ) => Highlight | null;
+  captureSelectionNote: () => Highlight | null;
   state: ReaderAnnotationState;
   activeHighlight: ActiveHighlightState | null;
   activeHighlightData: Highlight | null;
@@ -108,10 +97,7 @@ interface UseReaderAnnotationsResult {
   creationText: string;
   /** The selected highlight's text as the toolbar copies it. */
   activeHighlightCopyText: string;
-  selectColor: (
-    color: AnnotationColor,
-    extension?: HighlightExtension | null,
-  ) => Highlight | undefined;
+  selectColor: (color: AnnotationColor) => Highlight | undefined;
   closeCreation: () => void;
   clearActiveHighlight: () => void;
   /** The current selection's canonical range, without opening any tools. */
@@ -190,16 +176,12 @@ function getVisibleSpineItemIds(
   return visibleIds;
 }
 
-const CONTEXT_LENGTH = 50;
-
 function buildHighlightFromDraft(
   bookId: string,
   draft: PendingHighlightDraft,
   color: AnnotationColor,
-  extension: HighlightExtension | null,
-  chapterAccess: ReaderSessionChapterAccess,
 ): Highlight {
-  const base = {
+  return {
     id: crypto.randomUUID(),
     bookId,
     spineItemId: draft.spineItemId,
@@ -210,27 +192,6 @@ function buildHighlightFromDraft(
     textAfter: draft.highlight.textAfter,
     color,
     createdAt: Date.now(),
-  };
-  const fullText = chapterAccess.getCanonicalText(
-    draft.highlight.chapterIndex,
-  )?.fullText;
-  if (!extension || !fullText) return base;
-  // The highlight covers the selection and the text across the break.
-  const startOffset = Math.min(base.startOffset, extension.startOffset);
-  const endOffset = Math.max(base.endOffset, extension.endOffset);
-  return {
-    ...base,
-    startOffset,
-    endOffset,
-    selectedText: fullText.slice(startOffset, endOffset).trim(),
-    textBefore: fullText.substring(
-      Math.max(0, startOffset - CONTEXT_LENGTH),
-      startOffset,
-    ),
-    textAfter: fullText.substring(
-      endOffset,
-      Math.min(fullText.length, endOffset + CONTEXT_LENGTH),
-    ),
   };
 }
 
@@ -587,26 +548,20 @@ export function useReaderAnnotations({
   }, [state, visibleHighlights]);
 
   const selectColor = useCallback(
-    (color: AnnotationColor, extension: HighlightExtension | null = null) => {
+    (color: AnnotationColor) => {
       if (state.kind !== "creating" || !bookId) {
         clearDomSelection();
         setState({ kind: "idle" });
         return;
       }
 
-      const highlight = buildHighlightFromDraft(
-        bookId,
-        state.draft,
-        color,
-        extension,
-        chapterAccess,
-      );
+      const highlight = buildHighlightFromDraft(bookId, state.draft, color);
       onCreateHighlight(highlight);
       clearDomSelection();
       setState({ kind: "idle" });
       return highlight;
     },
-    [bookId, chapterAccess, onCreateHighlight, state],
+    [bookId, onCreateHighlight, state],
   );
 
   const closeCreation = useCallback(() => {
@@ -622,9 +577,7 @@ export function useReaderAnnotations({
     );
   }, []);
 
-  const captureSelectionNote = (
-    extension: HighlightExtension | null = null,
-  ) => {
+  const captureSelectionNote = () => {
     const selection = window.getSelection();
     const draft =
       state.kind === "creating"
@@ -633,13 +586,7 @@ export function useReaderAnnotations({
           ? resolveSelectionDraft(selection)
           : null;
     if (!draft || !bookId) return null;
-    return buildHighlightFromDraft(
-      bookId,
-      draft,
-      "invisible",
-      extension,
-      chapterAccess,
-    );
+    return buildHighlightFromDraft(bookId, draft, "invisible");
   };
 
   const resolveSelectionRange = useCallback(

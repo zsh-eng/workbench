@@ -452,6 +452,12 @@ async function clearSelection(page: Page) {
 }
 
 const SPILL_TAB = "[data-reader-spill-tab]";
+
+/** A reader without Debug mode, where Scroll is not a reading layout. */
+const withoutDebugMode = (page: Page) =>
+  page.addInitScript(() =>
+    localStorage.setItem("reader-debug-enabled-v1", "false"),
+  );
 const ISLAND_TOOLS = '[data-notes-island="tools"]';
 
 type Box = { top: number; bottom: number; left: number; right: number };
@@ -526,6 +532,8 @@ test("The spill tab finishes the sentence on the next page, and the highlight re
   page,
   localBook,
 }) => {
+  // Every reader has it, not only Debug mode.
+  await withoutDebugMode(page);
   await openLocalBook(page, localBook.id);
   for (let index = 0; index < 6; index++) await nextSpread(page);
   const [pageNumber] = await currentPages(page);
@@ -567,6 +575,45 @@ test("The spill tab finishes the sentence on the next page, and the highlight re
   ).not.toBe("scroll");
 });
 
+test("Without Debug mode, a visit to the column leaves no Scroll layout behind, and Scroll is not offered", async ({
+  page,
+  localBook,
+}) => {
+  await withoutDebugMode(page);
+  await openLocalBook(page, localBook.id);
+  for (let index = 0; index < 6; index++) await nextSpread(page);
+  await selectAtPageEdge(page, "last");
+  await page.locator(SPILL_TAB).tap();
+  await expect(page.locator(SETTLED_STAGE)).toHaveCount(1);
+
+  // Reloading mid-visit reopens the book in pages.
+  await page.reload();
+  await waitForReaderReady(page);
+  await expect(
+    page.locator(`${CURRENT_SPREAD} [data-reader-page-content]`).first(),
+  ).toBeVisible();
+  await expect(page.locator(SCROLL_STAGE)).toHaveCount(0);
+  expect(
+    await page.evaluate(() => localStorage.getItem("reader-reading-mode-v1")),
+  ).not.toBe("scroll");
+
+  // A long pull from pages stays on the page.
+  const cdp = await page.context().newCDPSession(page);
+  await touchDrag(cdp, { x: 195, y: 780 }, { x: 195, y: 300 }, 36, false);
+  await expect(page.locator("[data-reader-pull-pill]")).toHaveCount(0);
+  await cdp.send("Input.dispatchTouchEvent", {
+    type: "touchEnd",
+    touchPoints: [],
+  });
+  await expect(page.locator(SCROLL_STAGE)).toHaveCount(0);
+
+  // Appearance's Layout has no Pages or Scroll row.
+  const settings = await openReadingSettings(page);
+  await settings.getByRole("tab", { name: "Layout", exact: true }).tap();
+  await expect(settings.getByRole("tabpanel")).toBeVisible();
+  await expect(settings.locator("[data-reading-layout-row]")).toHaveCount(0);
+});
+
 test.describe("on a desktop", () => {
   test.use({
     viewport: { width: 1280, height: 800 },
@@ -578,6 +625,7 @@ test.describe("on a desktop", () => {
     page,
     localBook,
   }) => {
+    await withoutDebugMode(page);
     await openLocalBook(page, localBook.id);
     for (let index = 0; index < 3; index++) await nextSpread(page);
     // The right page's foot: the next page is not in view.

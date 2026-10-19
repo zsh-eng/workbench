@@ -222,28 +222,20 @@ function IslandLayer({
   );
 }
 
-/** The colour tools for a passage, then any further action, then Note. An
- * accessory line can sit above them on the same surface. */
+/** The colour tools for a passage, followed by Note. */
 export function IslandTools({
   tools,
-  action,
-  accessory,
-  accessoryBelow = false,
   actionLabel,
   onNote,
 }: {
   tools: ReactNode;
-  action?: ReactNode;
-  accessory?: ReactNode;
-  accessoryBelow?: boolean;
   actionLabel: "Note" | "Attach";
   onNote: () => void;
 }) {
-  const row = (
+  return (
     <div className="flex h-[52px] items-center gap-3 pr-1.5 pl-4 whitespace-nowrap">
       {tools}
       <span aria-hidden="true" className="h-5 w-px bg-border" />
-      {action && <div className="-mr-1.5 flex">{action}</div>}
       <button
         type="button"
         aria-label={actionLabel === "Attach" ? "Attach to draft" : "Add note"}
@@ -254,14 +246,6 @@ export function IslandTools({
         <PencilLine className="size-4" aria-hidden="true" />
         {actionLabel}
       </button>
-    </div>
-  );
-  if (!accessory) return row;
-  // The accessory sits between the tools and the page.
-  return (
-    <div className="flex flex-col">
-      {accessoryBelow ? row : accessory}
-      {accessoryBelow ? accessory : row}
     </div>
   );
 }
