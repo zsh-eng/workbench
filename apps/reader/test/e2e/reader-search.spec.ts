@@ -6,6 +6,7 @@ import {
   openLocalBook,
   test,
   waitForReaderReady,
+  waitForSheet,
 } from "./helpers/fixtures";
 
 const CURRENT_SPREAD = '[data-reader-spread-layer="current"]';
@@ -268,7 +269,9 @@ test.describe("on a phone", () => {
     await page
       .getByRole("button", { name: "Open reader tools", exact: true })
       .tap();
-    await page.getByRole("button", { name: /Search book/ }).tap();
+    const tools = await waitForSheet(page, "Reader tools");
+    await tools.getByRole("button", { name: /Search book/ }).tap();
+    await waitForSheet(page, "Search book");
     await expect(searchField(page)).toBeFocused();
     await search(page, "Dinah");
 
@@ -296,6 +299,7 @@ test.describe("on a phone", () => {
 
     // The count brings the results back, with this book's query.
     await stepper.getByRole("button", { name: /Show all results/ }).tap();
+    await waitForSheet(page, "Search book");
     await expect(searchField(page)).toHaveValue("Dinah");
     await expect(results(page).nth(7)).toHaveAttribute("aria-current", "true");
     await page.keyboard.press("Escape");
@@ -311,7 +315,8 @@ test.describe("on a phone", () => {
     await page
       .getByRole("button", { name: "Open reader tools", exact: true })
       .tap();
-    await page.getByRole("button", { name: /Search book/ }).tap();
+    const reopened = await waitForSheet(page, "Reader tools");
+    await reopened.getByRole("button", { name: /Search book/ }).tap();
     await expect(searchField(page)).toHaveValue("Dinah");
     await expect(results(page).first()).toBeVisible();
   });
