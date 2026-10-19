@@ -1,5 +1,11 @@
 import type { Locator, Page } from "@playwright/test";
-import { test, expect, openLocalBook } from "./helpers/fixtures";
+import {
+  test,
+  expect,
+  openLocalBook,
+  openReaderTools,
+  waitForSheet,
+} from "./helpers/fixtures";
 
 test.use({
   viewport: { width: 390, height: 844 },
@@ -134,6 +140,32 @@ test("A page tapped while Reader tools still opens takes taps", async ({
   const finished = status.getByRole("button", { name: "Finished" });
   await finished.click();
   await expect(finished).toHaveAttribute("aria-pressed", "true");
+});
+
+test("A menu and a toast opened from a sheet take taps", async ({
+  page,
+  localBook,
+}) => {
+  // The sheet makes the page behind it inert. A menu or toast renders
+  // outside the sheet, and stayed inert under it until it joined React
+  // Aria's top layer.
+  await openLocalBook(page, localBook.id);
+  await page.touchscreen.tap(195, 422);
+  const tools = await openReaderTools(page);
+  await tools.getByRole("button", { name: "Notebook", exact: true }).click();
+  const notebook = await waitForSheet(page, "Notebook");
+  const input = notebook.getByRole("textbox", { name: "Write a note" });
+  await input.fill("A note to delete");
+  await input.press("Control+Enter");
+  const note = notebook.getByText("A note to delete", { exact: true });
+  await expect(note).toBeVisible();
+
+  await note.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Delete note" }).click();
+  await expect(note).toHaveCount(0);
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(note).toBeVisible();
+  await expect(notebook).toBeVisible();
 });
 
 test("With the trial on, the Reader opens Contents as a detent sheet", async ({

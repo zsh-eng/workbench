@@ -53,6 +53,11 @@ export interface DetentSheetProps {
  * A bottom sheet on React Aria's Sheet. The browser's own scrolling moves
  * it, so a drag follows the finger, rests on detents, and keeps momentum.
  * Sheets opened over it stack, and it steps back.
+ *
+ * The sheet is modal: the rest of the page turns inert, focus stays inside,
+ * and a press outside closes it. Menus, dialogs and toasts render elsewhere
+ * in the document, so they mark themselves as React Aria's top layer
+ * (`data-react-aria-top-layer`), which the sheet leaves usable.
  */
 export function DetentSheet({
   isOpen,
