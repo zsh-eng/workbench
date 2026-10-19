@@ -70,6 +70,11 @@ async function main() {
     await runReviewCommand(process.argv.slice(3));
     return;
   }
+  if (process.argv[2] === "agents") {
+    const { runAgentsCommand } = await import("./agents");
+    await runAgentsCommand(process.argv.slice(3));
+    return;
+  }
   if (process.argv[2] === "thread") {
     const { runThreadCommand } = await import("./thread");
     await runThreadCommand(process.argv.slice(3));

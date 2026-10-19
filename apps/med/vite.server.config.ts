@@ -12,12 +12,17 @@ export default defineConfig({
     },
   ],
   build: {
-    ssr: "src/cli/index.ts",
+    ssr: true,
     outDir: "dist",
     emptyOutDir: false,
     target: "node22",
     sourcemap: true,
-    // Bun's own `ws` module, imported only under Bun.
-    rolldownOptions: { external: ["ws"], output: { entryFileNames: "cli.js" } },
+    rolldownOptions: {
+      // The CLI, and the small process that keeps an agent (holder.ts).
+      input: { cli: "src/cli/index.ts", holder: "src/host/holder.ts" },
+      // Bun's own `ws` module, imported only under Bun.
+      external: ["ws"],
+      output: { entryFileNames: "[name].js" },
+    },
   },
 });

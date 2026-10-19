@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { constants, existsSync } from "node:fs";
 import { access, appendFile, mkdir, readFile } from "node:fs/promises";
@@ -19,7 +19,16 @@ import {
 } from "../shared/owned-session";
 import type { AgentSession } from "../shared/saved-review";
 import { compactUpdate } from "./agent-transcripts";
-import { createJsonRpc, RpcError, type JsonRpc } from "./json-rpc";
+import {
+  attachHeld,
+  forgetLog,
+  holderEnded,
+  readHolder,
+  startHeld,
+  type HeldAgent,
+  type HeldEvents,
+} from "./held-agent";
+import { createJsonRpc, parseRpc, RpcError, type JsonRpc } from "./json-rpc";
 import { HostError } from "./runtime/errors";
 import { readRecords, writeStateFile } from "./runtime/state-file";
 import { userHome } from "./service/discover";
@@ -33,9 +42,12 @@ export interface RunnableAgent extends AgentPreset {
   args: string[];
 }
 
-/** A session that Med started. Its process belongs to the Med host. */
+/** A session that Med started. A holder keeps its process (holder.ts), so
+ * the agent outlives a restart of the host. */
 export interface OwnedRunner {
   readonly session: AgentSession;
+  /** Settles when the runner has read its holder's log, after a restart. */
+  readonly attached?: Promise<void>;
   state(): OwnedState;
   /** A session from before the host restarted, whose agent starts again
    * with its next prompt. */
@@ -53,6 +65,8 @@ export interface OwnedRunner {
   /** Clears what stopped the work (`OwnedState.halt`). */
   dismiss(): void;
   stop(): void;
+  /** Leaves the agent running for the next host, as when the host closes. */
+  detach(): void;
   subscribe(listener: () => void): () => void;
 }
 
@@ -64,21 +78,47 @@ const MAX_EVENTS = 5000;
 /** A streaming reply sends its state at most this often. */
 const STREAM_MS = 80;
 
+/** An update as an ACP session's file keeps it: with the holder's lifetime
+ * and the number of the log entry that it came from. */
+export type LoggedEvent = SessionEvent & { held?: [string, number] };
+
 /** An ACP session's updates, kept in memory and appended to a file, so the
  * thread stays readable after the agent or the host stops. */
 export class SessionLog {
   readonly events: SessionEvent[] = [];
   private listeners = new Set<(events: SessionEvent[]) => void>();
   private writing: Promise<void> = Promise.resolve();
-  constructor(private path?: string) {}
-  push(update: SessionUpdate) {
+  /** The holder's lifetime, and its last log entry that the file has. */
+  private generation: string | undefined;
+  private through = 0;
+  private last: [string, number] | undefined;
+  constructor(
+    private path?: string,
+    earlier: LoggedEvent[] = [],
+  ) {
+    for (const { held, ...event } of earlier) {
+      this.events.push(event);
+      if (held) this.last = held;
+    }
+  }
+  /** A holder's log starts. Its entries up to the last that the file has
+   * are in the thread already. */
+  begin(generation: string) {
+    this.generation = generation;
+    this.through = this.last?.[0] === generation ? this.last[1] : 0;
+  }
+  /** `entry` is the number of the log entry that the update came from. */
+  push(update: SessionUpdate, entry?: number) {
+    if (entry !== undefined && entry <= this.through) return;
     const event = { at: Date.now(), update: compactUpdate(update) };
     this.events.push(event);
     if (this.events.length > MAX_EVENTS) this.events.splice(0, this.events.length - MAX_EVENTS);
     const path = this.path;
+    const kept: LoggedEvent =
+      entry !== undefined && this.generation ? { ...event, held: [this.generation, entry] } : event;
     if (path)
       this.writing = this.writing
-        .then(() => appendFile(path, `${JSON.stringify(event)}\n`))
+        .then(() => appendFile(path, `${JSON.stringify(kept)}\n`))
         .catch(() => {});
     for (const listener of this.listeners) listener([event]);
   }
@@ -86,8 +126,8 @@ export class SessionLog {
     this.listeners.add(listener);
     return () => void this.listeners.delete(listener);
   }
-  /** The updates of a session whose agent no longer runs. */
-  static async read(path: string): Promise<SessionEvent[]> {
+  /** The updates in a session's file, with the entries they came from. */
+  static async read(path: string): Promise<LoggedEvent[]> {
     let text: string;
     try {
       text = await readFile(path, "utf8");
@@ -100,7 +140,7 @@ export class SessionLog {
       .slice(-MAX_EVENTS)
       .flatMap((line) => {
         try {
-          return [JSON.parse(line) as SessionEvent];
+          return [JSON.parse(line) as LoggedEvent];
         } catch {
           return [];
         }
@@ -156,6 +196,17 @@ function createState(initial: OwnedState) {
 }
 
 const lastLines = (text: string) => text.trim().split("\n").slice(-3).join("\n").slice(-600);
+
+/** The parts of a runner's state that a checkpoint keeps (holder.ts). */
+const kept = ({ status, settings, commands, turns, context, error, images }: OwnedState) => ({
+  status,
+  settings,
+  commands,
+  turns,
+  ...(context ? { context } : {}),
+  ...(error ? { error } : {}),
+  ...(images ? { images } : {}),
+});
 
 /** Claude Code processes in the user's home, for a runner that no
  * OwnedSessions starts (session-processes.ts). */
@@ -278,14 +329,21 @@ async function probeClaude(agent: RunnableAgent): Promise<ClaudeModel[]> {
 
 /**
  * Claude Code through `stream-json`. Med starts the binary that the user
- * installed and signed in to, and answers its control requests: permission
- * prompts go to the review, and Med sends interrupts and model changes. The
- * session writes its transcript as usual, which the thread reads.
+ * installed and signed in to, through a holder (holder.ts), and answers its
+ * control requests: permission prompts go to the review, and Med sends
+ * interrupts and model changes. The session writes its transcript as usual,
+ * which the thread reads.
+ *
+ * The runner's state comes from the holder's log: a host that attaches to a
+ * running agent reads the log from its start, without acting on it again,
+ * and then follows the agent live.
  */
 export function startClaude(
   agent: RunnableAgent,
   cwd: string,
   options: {
+    /** The folder of the agents' holders and their logs. */
+    holders: string;
     sessionId?: string;
     /** The variables to add, read when the process starts. */
     env?: () => Record<string, string>;
@@ -295,6 +353,9 @@ export function startClaude(
     /** The session exists: it continues with `--resume` at its next prompt,
      * with the model, effort, and mode it had. */
     resume?: { model?: string; effort?: string; mode?: string };
+    /** A session from before the host restarted: Med attaches to its holder,
+     * or reads how its agent ended from the holder's log. */
+    attach?: boolean;
     /** A new session that starts from this one's history (`--fork-session`),
      * until its first prompt makes its own transcript. */
     fork?: string;
@@ -302,7 +363,7 @@ export function startClaude(
     elsewhere?: (sessionId: string) => Promise<boolean>;
     /** What stopped the work before the host restarted, such as a cut turn. */
     halt?: OwnedState["halt"];
-  } = {},
+  },
 ): OwnedRunner {
   const sessionId = options.sessionId ?? randomUUID();
   const session: AgentSession = { agent: "claude", id: sessionId, cwd };
@@ -316,8 +377,13 @@ export function startClaude(
     turns: 0,
     images: true,
   });
-  // No process until a restored session's next prompt.
-  let child: ChildProcessWithoutNullStreams | undefined;
+  // The holder of the agent's process, while one runs. Each holder has a
+  // token; the events of one that Med left are not this runner's.
+  let held: HeldAgent | undefined;
+  let active: object | undefined;
+  // The runner reads entries from before it attached: it writes nothing.
+  let replaying = false;
+  let attached: Promise<void> = Promise.resolve();
   let waking: Promise<void> | undefined;
   // Claude Code has the session's transcript: a new process resumes it. A
   // fork has its own transcript after its first prompt.
@@ -338,16 +404,8 @@ export function startClaude(
   let streaming: OwnedState["streaming"];
 
   const write = (message: object) => {
-    if (child?.stdin.writable) child.stdin.write(`${JSON.stringify(message)}\n`);
+    if (!replaying) held?.write(JSON.stringify(message));
   };
-  const control = (request: object) =>
-    new Promise<unknown>((resolve, reject) => {
-      const id = `med-${++sequence}`;
-      pending.set(id, ({ error, value }) =>
-        error ? reject(new HostError("agent-error", error, 502)) : resolve(value),
-      );
-      write({ type: "control_request", request_id: id, request });
-    });
   const settings = (): OwnedSetting[] => {
     const model = models.find((entry) => entry.value === chosen.model) ?? models[0];
     const efforts = model?.supportedEffortLevels ?? [];
@@ -384,9 +442,68 @@ export function startClaude(
       },
     ];
   };
+  // What each answer to Med's control requests changes, live or read again.
+  const effects: Record<string, (value: unknown, request: Record<string, any>) => void> = {
+    initialize(value) {
+      // The reply also names the signed-in account; Med keeps none of it.
+      const parsed = claudeInitSchema.safeParse(value);
+      if (!parsed.success) return;
+      models = parsed.data.models;
+      // A session that Med restores keeps the mode it had.
+      if (parsed.data.current_permission_mode && !options.resume?.mode)
+        chosen.mode = parsed.data.current_permission_mode;
+      store.set({
+        status: store.get().status === "starting" ? "idle" : store.get().status,
+        settings: settings(),
+        commands: parsed.data.commands
+          .filter((command) => !command.builtin)
+          .map((command): OwnedCommand => ({
+            name: command.name,
+            description: command.description,
+            ...(command.argumentHint ? { hint: command.argumentHint } : {}),
+          })),
+      });
+    },
+    get_context_usage(value) {
+      const { totalTokens, maxTokens } = (value ?? {}) as Record<string, unknown>;
+      if (typeof totalTokens === "number" && typeof maxTokens === "number" && maxTokens > 0)
+        store.set({ context: { used: totalTokens, total: maxTokens } });
+    },
+    set_model(_value, request) {
+      chosen.model = typeof request.model === "string" ? request.model : "default";
+      store.set({ settings: settings() });
+    },
+    set_permission_mode(_value, request) {
+      if (typeof request.mode === "string") chosen.mode = request.mode;
+      store.set({ settings: settings() });
+    },
+  };
+  const expect = (
+    id: string,
+    request: Record<string, any>,
+    done?: (response: { error?: string; value?: unknown }) => void,
+  ) =>
+    pending.set(id, (response) => {
+      if (!response.error) effects[String(request.subtype)]?.(response.value, request);
+      done?.(response);
+    });
+  const control = (request: { subtype: string } & Record<string, unknown>) =>
+    new Promise<unknown>((resolve, reject) => {
+      const id = `med-${++sequence}`;
+      expect(id, request, ({ error, value }) =>
+        error ? reject(new HostError("agent-error", error, 502)) : resolve(value),
+      );
+      write({ type: "control_request", request_id: id, request });
+    });
   const flushStreaming = () => {
     streamTimer = undefined;
     store.set({ streaming });
+  };
+  const clearTurn = () => {
+    clearTimeout(streamTimer);
+    streamTimer = undefined;
+    streaming = undefined;
+    ask = undefined;
   };
 
   const onMessage = (message: Record<string, any>) => {
@@ -463,9 +580,7 @@ export function startClaude(
         return;
       }
       case "result": {
-        clearTimeout(streamTimer);
-        streamTimer = undefined;
-        streaming = undefined;
+        clearTurn();
         store.set({
           status: "idle",
           streaming: undefined,
@@ -474,17 +589,108 @@ export function startClaude(
             ? { error: String(message.result ?? "The turn failed.") }
             : { error: undefined }),
         });
-        ask = undefined;
-        void control({ subtype: "get_context_usage" })
-          .then((value) => {
-            const { totalTokens, maxTokens } = (value ?? {}) as Record<string, unknown>;
-            if (typeof totalTokens === "number" && typeof maxTokens === "number" && maxTokens > 0)
-              store.set({ context: { used: totalTokens, total: maxTokens } });
-          })
-          .catch(() => {});
+        if (!replaying) {
+          held?.checkpoint({ state: kept(store.get()), models, chosen, exists, sequence });
+          void control({ subtype: "get_context_usage" }).catch(() => {});
+        }
         return;
       }
     }
+  };
+  /** The state at a checkpoint, where a long log starts again. */
+  const restore = (checkpoint: any) => {
+    if (!checkpoint?.state) return;
+    models = checkpoint.models ?? models;
+    chosen = checkpoint.chosen ?? chosen;
+    exists = !!checkpoint.exists;
+    sequence = Math.max(sequence, Number(checkpoint.sequence) || 0);
+    pending.clear();
+    clearTurn();
+    store.set({ ...checkpoint.state, permission: undefined, streaming: undefined });
+  };
+  /** A line that Med wrote to the agent, read again from the log. */
+  const onSent = (message: Record<string, any>) => {
+    if (message.type === "user") {
+      exists = true;
+      store.set({
+        status: "working",
+        turns: store.get().turns + 1,
+        error: undefined,
+        halt: undefined,
+      });
+    } else if (message.type === "control_request") {
+      const id = String(message.request_id ?? "");
+      const number = Number(/^med-(\d+)$/.exec(id)?.[1] ?? 0);
+      sequence = Math.max(sequence, number);
+      expect(id, message.request ?? {});
+    } else if (message.type === "control_response" && ask?.id === message.response?.request_id) {
+      ask = undefined;
+      store.set({ permission: undefined });
+    }
+  };
+  /** The events of the holder with `token`. */
+  const events = (token: object, done?: () => void): HeldEvents => {
+    let errors = "";
+    return {
+      entry(entry, replay) {
+        if (active !== token) return;
+        replaying = replay;
+        try {
+          // A holder's log starts with its agent: what stopped earlier is past.
+          if (entry.kind === "h") store.set({ halt: undefined });
+          else if (entry.kind === "m" && replay) restore(JSON.parse(entry.text).checkpoint);
+          else if (entry.kind === "o") onMessage(JSON.parse(entry.text));
+          else if (entry.kind === "i" && replay) onSent(JSON.parse(entry.text));
+          else if (entry.kind === "e") errors = `${errors}${entry.text}\n`.slice(-4000);
+        } catch {
+          /* Not a message. */
+        } finally {
+          replaying = false;
+        }
+      },
+      live: () => done?.(),
+      exit(exit) {
+        done?.();
+        if (active !== token) return;
+        active = undefined;
+        held = undefined;
+        void forgetLog(options.holders, sessionId);
+        for (const settle of pending.values()) settle({ error: "Claude Code stopped." });
+        pending.clear();
+        if (stopping) return;
+        const before = store.get().status;
+        clearTurn();
+        // Med or the user stopped it, as `med agents stop` does: it resumes
+        // with the next message. A holder that ended without a word, as in a
+        // reboot, cut the turn that ran.
+        if (exit.requested || exit.lost) {
+          store.set({
+            status: "idle",
+            permission: undefined,
+            streaming: undefined,
+            ...(exit.lost && before === "working"
+              ? {
+                  halt: {
+                    kind: "interrupted" as const,
+                    detail: "The agent's process ended during the turn",
+                  },
+                }
+              : {}),
+          });
+          return;
+        }
+        ended(
+          exit.error ??
+            (exit.signal
+              ? `Stopped by ${exit.signal}`
+              : exit.code
+                ? `Exited with code ${exit.code}`
+                : undefined),
+          exit.errors || errors,
+          before,
+        );
+      },
+    };
   };
 
   const launch = () => {
@@ -507,77 +713,33 @@ export function startClaude(
       ...(chosen.effort !== "default" ? ["--effort", chosen.effort] : []),
       ...(chosen.mode !== "default" ? ["--permission-mode", chosen.mode] : []),
     ];
-    const current = spawn(agent.command, [...agent.args, ...args], {
-      cwd,
-      env: agentEnvironment(options.env?.()),
-      stdio: ["pipe", "pipe", "pipe"],
+    const token = {};
+    active = token;
+    held = startHeld(
+      options.holders,
+      {
+        sessionId,
+        kind: "claude",
+        name: agent.name,
+        command: agent.command,
+        args: [...agent.args, ...args],
+        cwd,
+        env: agentEnvironment(options.env?.()),
+      },
+      events(token),
+    );
+    void control({ subtype: "initialize" }).catch((error: unknown) => {
+      // The process ended; the exit says why.
+      if (active === token)
+        store.set({ error: error instanceof Error ? error.message : String(error) });
     });
-    child = current;
-    let errors = "";
-    current.stderr.on("data", (data: Buffer) => {
-      errors = (errors + data.toString()).slice(-4000);
-    });
-    // A process that a restart replaced has nothing more to say.
-    current.on("error", (error) => {
-      if (current === child) ended(error.message, errors);
-    });
-    current.on("exit", (code, signal) => {
-      if (current !== child) return;
-      for (const done of pending.values()) done({ error: "Claude Code stopped." });
-      pending.clear();
-      if (stopping) return;
-      ended(
-        signal ? `Stopped by ${signal}` : code ? `Exited with code ${code}` : undefined,
-        errors,
-      );
-    });
-    createInterface({ input: current.stdout, crlfDelay: Infinity }).on("line", (line) => {
-      if (current !== child) return;
-      try {
-        onMessage(JSON.parse(line));
-      } catch {
-        /* Not a message. */
-      }
-    });
-    void control({ subtype: "initialize" })
-      .then((value) => {
-        // The reply also names the signed-in account; Med keeps none of it.
-        const parsed = claudeInitSchema.safeParse(value);
-        if (!parsed.success) return;
-        models = parsed.data.models;
-        // A session that Med restores keeps the mode it had.
-        if (parsed.data.current_permission_mode && !options.resume?.mode)
-          chosen.mode = parsed.data.current_permission_mode;
-        store.set({
-          status: store.get().status === "starting" ? "idle" : store.get().status,
-          settings: settings(),
-          commands: parsed.data.commands
-            .filter((command) => !command.builtin)
-            .map((command): OwnedCommand => ({
-              name: command.name,
-              description: command.description,
-              ...(command.argumentHint ? { hint: command.argumentHint } : {}),
-            })),
-        });
-      })
-      .catch((error: unknown) => {
-        // The process ended; `ended` says why.
-        if (current === child)
-          store.set({ error: error instanceof Error ? error.message : String(error) });
-      });
   };
   /**
    * The process ended, and Med did not stop it. The session waits without a
    * process, as after a host restart, and its next prompt or Restart resumes
    * it. A turn that it cut, or an exit with an error, says why.
    */
-  const ended = (reason: string | undefined, errors: string) => {
-    const before = store.get().status;
-    child = undefined;
-    clearTimeout(streamTimer);
-    streamTimer = undefined;
-    streaming = undefined;
-    ask = undefined;
+  const ended = (reason: string | undefined, errors: string, before: OwnedState["status"]) => {
     const lines = lastLines(errors);
     store.set({
       status: "idle",
@@ -597,13 +759,15 @@ export function startClaude(
   };
   /** Starts a restored session's process, unless another one runs it. */
   const wake = async () => {
+    await attached;
+    if (held || stopping) return;
     if (await (options.elsewhere ?? runsElsewhere)(sessionId))
       throw new HostError(
         "session-busy",
         `Another ${agent.name} process runs this session, such as one in a terminal. End it, then send again.`,
         409,
       );
-    if (!child && !stopping) launch();
+    if (!held && !stopping) launch();
   };
   if (options.resume) {
     store.set({ status: "idle", settings: settings(), halt: options.halt });
@@ -613,18 +777,37 @@ export function startClaude(
       models = offered;
       store.set({ settings: settings() });
     });
+    if (options.attach) {
+      const token = {};
+      active = token;
+      attached = new Promise<void>((done) => {
+        void attachHeld(options.holders, sessionId, events(token, done)).then(
+          (found) => {
+            if (!found) {
+              active = undefined;
+              done();
+            } else if (active === token) held = found;
+          },
+          () => {
+            active = undefined;
+            done();
+          },
+        );
+      });
+    }
   } else launch();
 
   return {
     session,
+    attached,
     state: store.get,
-    dormant: () => !child,
-    pid: () => (child && child.exitCode === null && !child.signalCode ? child.pid : undefined),
+    dormant: () => !held,
+    pid: () => held?.pid(),
     subscribe: store.subscribe,
     async prompt(text, images = []) {
       if (store.get().status === "exited")
         throw new HostError("session-stopped", "This session has stopped.", 409);
-      if (!child)
+      if (!held)
         await (waking ??= wake().finally(() => {
           waking = undefined;
         }));
@@ -667,38 +850,40 @@ export function startClaude(
       store.set({ permission: undefined });
     },
     interrupt() {
-      if (child) void control({ subtype: "interrupt" }).catch(() => {});
+      if (held) void control({ subtype: "interrupt" }).catch(() => {});
     },
     async set(id, value) {
       const setting = store.get().settings.find((entry) => entry.id === id);
       if (!setting || !setting.options.some((option) => option.value === value))
         throw new HostError("invalid-setting", "The agent does not offer this choice.", 400);
       // Without a process, the choice waits for the next start.
-      if (!child) {
+      if (!held) {
         if (id === "model" || id === "effort" || id === "mode") chosen[id] = value;
       } else if (id === "model") {
         await control({ subtype: "set_model", ...(value === "default" ? {} : { model: value }) });
-        chosen.model = value;
       } else if (id === "mode") {
         await control({ subtype: "set_permission_mode", mode: value });
-        chosen.mode = value;
       } else if (id === "effort") {
-        // Claude Code takes the effort when it starts, so it starts again.
+        // Claude Code takes the effort when it starts, so it starts again,
+        // once the holder of the process before has ended.
         if (store.get().status === "working")
           throw new HostError("agent-busy", "Change the effort when the turn ends.", 409);
         chosen.effort = value;
-        const previous = child;
-        for (const done of pending.values()) done({ error: "Claude Code started again." });
+        const previous = held;
+        active = undefined;
+        held = undefined;
+        for (const settle of pending.values()) settle({ error: "Claude Code started again." });
         pending.clear();
-        launch();
-        previous.kill("SIGTERM");
+        previous.stop();
+        await holderEnded(options.holders, sessionId);
+        if (!stopping) launch();
       }
       store.set({ settings: settings() });
     },
     async restart() {
       if (store.get().status === "exited")
         throw new HostError("session-stopped", "This session has stopped.", 409);
-      if (child) return;
+      if (held) return;
       await (waking ??= wake().finally(() => {
         waking = undefined;
       }));
@@ -709,8 +894,13 @@ export function startClaude(
     },
     stop() {
       stopping = true;
-      child?.kill("SIGTERM");
+      held?.stop();
       store.set({ status: "exited", permission: undefined, streaming: undefined, halt: undefined });
+    },
+    detach() {
+      active = undefined;
+      held?.detach();
+      held = undefined;
     },
   };
 }
@@ -743,6 +933,7 @@ function stoppedRunner(session: AgentSession, preset: string, name: string): Own
     restart: async () => stopped(),
     dismiss() {},
     stop() {},
+    detach() {},
   };
 }
 
@@ -822,17 +1013,25 @@ function stopNotice(name: string, reason: string | undefined, answered: boolean)
  * the client: it creates a session in the review's repository, sends prompts,
  * answers permission requests, and keeps the session's updates, because an
  * ACP agent keeps no transcript that Med can read.
+ *
+ * A holder (holder.ts) keeps the agent's process. A host that attaches to it
+ * after a restart reads its log for the session's state: the requests that
+ * wait for answers and the agent's questions that wait for the reader.
  */
 export function startAcp(
-  agent: RunnableAgent,
+  agent: Pick<RunnableAgent, "id" | "name" | "command" | "args">,
   cwd: string,
   {
+    holders,
     logDirectory,
     env,
     choices = {},
     onOffer,
     onAgentSession,
+    attach,
   }: {
+    /** The folder of the agents' holders and their logs. */
+    holders: string;
     logDirectory?: string;
     env?: Record<string, string>;
     /** The model and effort to set, where the agent offers them. */
@@ -842,11 +1041,17 @@ export function startAcp(
     /** The agent's own ID for the session. codex-acp gives Codex's thread
      * ID, which also names the session's rollout in ~/.codex/sessions. */
     onAgentSession?(id: string): void;
-  } = {},
+    /** A session from before the host restarted, whose holder runs, with
+     * the updates that its thread has. */
+    attach?: { sessionId: string; earlier: LoggedEvent[] };
+  },
 ): OwnedRunner {
-  const sessionId = randomUUID();
+  const sessionId = attach?.sessionId ?? randomUUID();
   const session: AgentSession = { agent: "acp", name: agent.name, id: sessionId, cwd };
-  const log = new SessionLog(logDirectory ? join(logDirectory, `${sessionId}.jsonl`) : undefined);
+  const log = new SessionLog(
+    logDirectory ? join(logDirectory, `${sessionId}.jsonl`) : undefined,
+    attach?.earlier,
+  );
   if (logDirectory) void mkdir(logDirectory, { recursive: true }).catch(() => {});
   const store = createState({
     sessionId,
@@ -865,184 +1070,392 @@ export function startAcp(
   // The prompt of the turn in progress, which some agents, such as OpenCode,
   // send back as a user update; and whether the agent answered it.
   let turn: { text: string; answered: boolean } | undefined;
+  let held: HeldAgent | undefined;
+  let active: object | undefined;
+  let replaying = false;
+  // The log entry that Med reads now: the thread's updates keep its number.
+  let entryNumber: number | undefined;
   // New config options replace the old ones; settings from `models` and `modes` stay.
   const withConfig = (options: unknown) => [
     ...configSettings(options),
     ...store.get().settings.filter((setting) => legacy.has(setting.id)),
   ];
-  const child = spawn(agent.command, agent.args, {
-    cwd,
-    env: agentEnvironment(env),
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-  let errors = "";
-  child.stderr.on("data", (data: Buffer) => {
-    errors = (errors + data.toString()).slice(-4000);
-  });
   const fail = (error: unknown) =>
     store.set({ error: error instanceof Error ? error.message : String(error) });
-  const rpc: JsonRpc = createJsonRpc(child.stdin, child.stdout, {
-    async request(method, params) {
-      if (method !== "session/request_permission")
-        throw new RpcError(`Med does not offer ${method}.`, -32601);
-      const { toolCall, options } = params as {
-        toolCall?: { toolCallId?: string; title?: string; rawInput?: Record<string, unknown> };
-        options?: {
-          optionId: string;
-          name: string;
-          kind: OwnedPermission["options"][number]["kind"];
-        }[];
-      };
-      const id = toolCall?.toolCallId ?? randomUUID();
-      const detail = inputSummary(toolCall?.rawInput);
-      const permission: OwnedPermission = {
-        id,
-        title: `${agent.name} wants to ${toolCall?.title ? `run ${toolCall.title}` : "use a tool"}`,
-        ...(detail ? { detail } : {}),
-        options: (options ?? []).map((option) => ({
-          id: option.optionId,
-          name: option.name,
-          kind: option.kind,
-        })),
-      };
-      const chosen = await new Promise<string | null>((resolve) => {
-        answer = resolve;
-        store.set({ permission });
-      });
-      answer = undefined;
-      store.set({ permission: undefined });
-      return {
-        outcome: chosen ? { outcome: "selected", optionId: chosen } : { outcome: "cancelled" },
-      };
+  const push = (update: SessionUpdate) => log.push(update, entryNumber);
+  const rpc: JsonRpc = createJsonRpc(
+    (line) => {
+      if (!replaying) held?.write(line);
     },
-    notify(method, params) {
-      if (method !== "session/update") return;
-      const update = (params as { update?: Record<string, unknown> })?.update;
-      if (!update || typeof update.sessionUpdate !== "string") return;
-      switch (update.sessionUpdate) {
-        case "available_commands_update":
-          store.set({
-            commands: (Array.isArray(update.availableCommands) ? update.availableCommands : [])
-              .filter((command) => typeof command?.name === "string")
-              .map((command: Record<string, any>) => ({
-                name: command.name,
-                description: String(command.description ?? ""),
-                ...(typeof command.input?.hint === "string" ? { hint: command.input.hint } : {}),
-              })),
-          });
-          return;
-        case "config_option_update":
-          store.set({ settings: withConfig(update.configOptions) });
-          return;
-        case "current_mode_update":
-          store.set({
-            settings: store
-              .get()
-              .settings.map((setting) =>
-                setting.id === "mode"
-                  ? { ...setting, value: String(update.currentModeId) }
-                  : setting,
-              ),
-          });
-          return;
-        case "usage_update":
-          if (typeof update.used === "number" && typeof update.size === "number" && update.size > 0)
-            store.set({ context: { used: update.used, total: update.size } });
-          log.push(update as SessionUpdate);
-          return;
-        case "user_message_chunk": {
-          const content = update.content as { type?: string; text?: string } | undefined;
-          // Med logged the prompt when it sent it.
-          if (turn && content?.type === "text" && content.text && turn.text.includes(content.text))
+    {
+      async request(method, params) {
+        if (method !== "session/request_permission")
+          throw new RpcError(`Med does not offer ${method}.`, -32601);
+        const { toolCall, options } = params as {
+          toolCall?: { toolCallId?: string; title?: string; rawInput?: Record<string, unknown> };
+          options?: {
+            optionId: string;
+            name: string;
+            kind: OwnedPermission["options"][number]["kind"];
+          }[];
+        };
+        const id = toolCall?.toolCallId ?? randomUUID();
+        const detail = inputSummary(toolCall?.rawInput);
+        const permission: OwnedPermission = {
+          id,
+          title: `${agent.name} wants to ${toolCall?.title ? `run ${toolCall.title}` : "use a tool"}`,
+          ...(detail ? { detail } : {}),
+          options: (options ?? []).map((option) => ({
+            id: option.optionId,
+            name: option.name,
+            kind: option.kind,
+          })),
+        };
+        const chosen = await new Promise<string | null>((resolve) => {
+          answer = resolve;
+          store.set({ permission });
+        });
+        answer = undefined;
+        store.set({ permission: undefined });
+        return {
+          outcome: chosen ? { outcome: "selected", optionId: chosen } : { outcome: "cancelled" },
+        };
+      },
+      notify(method, params) {
+        if (method !== "session/update") return;
+        const update = (params as { update?: Record<string, unknown> })?.update;
+        if (!update || typeof update.sessionUpdate !== "string") return;
+        switch (update.sessionUpdate) {
+          case "available_commands_update":
+            store.set({
+              commands: (Array.isArray(update.availableCommands) ? update.availableCommands : [])
+                .filter((command) => typeof command?.name === "string")
+                .map((command: Record<string, any>) => ({
+                  name: command.name,
+                  description: String(command.description ?? ""),
+                  ...(typeof command.input?.hint === "string" ? { hint: command.input.hint } : {}),
+                })),
+            });
             return;
-          log.push(update as SessionUpdate);
-          return;
-        }
-        default:
-          if (
-            turn &&
-            ["agent_message_chunk", "agent_thought_chunk", "tool_call"].includes(
-              update.sessionUpdate,
+          case "config_option_update":
+            store.set({ settings: withConfig(update.configOptions) });
+            return;
+          case "current_mode_update":
+            store.set({
+              settings: store
+                .get()
+                .settings.map((setting) =>
+                  setting.id === "mode"
+                    ? { ...setting, value: String(update.currentModeId) }
+                    : setting,
+                ),
+            });
+            return;
+          case "usage_update":
+            if (
+              typeof update.used === "number" &&
+              typeof update.size === "number" &&
+              update.size > 0
             )
-          )
-            turn.answered = true;
-          log.push(update as SessionUpdate);
+              store.set({ context: { used: update.used, total: update.size } });
+            push(update as SessionUpdate);
+            return;
+          case "user_message_chunk": {
+            const content = update.content as { type?: string; text?: string } | undefined;
+            // Med logged the prompt when it sent it.
+            if (
+              turn &&
+              content?.type === "text" &&
+              content.text &&
+              turn.text.includes(content.text)
+            )
+              return;
+            push(update as SessionUpdate);
+            return;
+          }
+          default:
+            if (
+              turn &&
+              ["agent_message_chunk", "agent_thought_chunk", "tool_call"].includes(
+                update.sessionUpdate,
+              )
+            )
+              turn.answered = true;
+            push(update as SessionUpdate);
+        }
+      },
+    },
+  );
+
+  // What each answer to Med's requests changes, live or read again.
+  const settingValue = (id: string, value: string) =>
+    store.set({
+      settings: store
+        .get()
+        .settings.map((entry) => (entry.id === id ? { ...entry, value } : entry)),
+    });
+  const answered = (method: string, params: any, result: any, error?: RpcError) => {
+    if (method === "session/prompt") {
+      const current = turn;
+      turn = undefined;
+      if (error) fail(error);
+      else {
+        // An agent can end a turn without a word, as OpenCode does when its
+        // model refuses the request; the thread says so.
+        const notice = stopNotice(agent.name, result?.stopReason, current?.answered ?? true);
+        if (notice) push(notice);
+      }
+      if (store.get().status !== "exited") store.set({ status: "idle" });
+      if (!replaying)
+        held?.checkpoint({
+          state: kept(store.get()),
+          acpSession,
+          legacy: [...legacy],
+          lastId: rpc.last(),
+        });
+      return;
+    }
+    if (error) return;
+    if (method === "initialize") {
+      if (result?.agentCapabilities?.promptCapabilities?.image === true)
+        store.set({ images: true });
+    } else if (method === "session/new") {
+      acpSession = String(result.sessionId);
+      onAgentSession?.(acpSession);
+      const settings = configSettings(result.configOptions);
+      const has = (category: string) => settings.some((setting) => setting.category === category);
+      if (!has("model") && Array.isArray(result.models?.availableModels)) {
+        legacy.add("model");
+        settings.push({
+          id: "model",
+          name: "Model",
+          category: "model",
+          value: String(result.models.currentModelId ?? ""),
+          options: result.models.availableModels.map((model: Record<string, any>) => ({
+            value: String(model.modelId),
+            name: String(model.name ?? model.modelId),
+          })),
+        });
+      }
+      if (!has("mode") && Array.isArray(result.modes?.availableModes)) {
+        legacy.add("mode");
+        settings.push({
+          id: "mode",
+          name: "Mode",
+          category: "mode",
+          value: String(result.modes.currentModeId ?? ""),
+          options: result.modes.availableModes.map((mode: Record<string, any>) => ({
+            value: String(mode.id),
+            name: String(mode.name ?? mode.id),
+            ...(mode.description ? { description: String(mode.description) } : {}),
+          })),
+        });
+      }
+      store.set({ settings, ...(store.get().status === "starting" ? { status: "idle" } : {}) });
+    } else if (method === "session/set_config_option") {
+      if (Array.isArray(result?.configOptions))
+        store.set({ settings: withConfig(result.configOptions) });
+      else settingValue(String(params?.configId), String(params?.value));
+    } else if (method === "session/set_model") settingValue("model", String(params?.modelId));
+    else if (method === "session/set_mode") settingValue("mode", String(params?.modeId));
+  };
+  // The answer counts as it arrives, with its log entry's number.
+  const call = <T = any>(method: string, params: Record<string, unknown>) =>
+    rpc.request<T>(method, params, (result, error) => answered(method, params, result, error));
+
+  // Read again from the log: Med's requests that wait for answers, and the
+  // agent's that wait for the reader.
+  const sent = new Map<number, { method: string; params: any }>();
+  const asked = new Map<number | string, { method: string; params: unknown }>();
+  let lastId = 0;
+  /** A line that Med wrote, live or read again. */
+  const onSent = (line: string, replay: boolean) => {
+    const message = parseRpc(line);
+    if (!message) return;
+    if (message.method === "session/prompt") {
+      // The prompt goes to the thread with its log entry's number.
+      const prompt = Array.isArray((message.params as any)?.prompt)
+        ? ((message.params as any).prompt as Record<string, any>[])
+        : [];
+      for (const content of prompt)
+        push({ sessionUpdate: "user_message_chunk", content } as SessionUpdate);
+      if (replay) {
+        turn = {
+          text: prompt.map((block) => (typeof block.text === "string" ? block.text : "")).join(""),
+          answered: false,
+        };
+        store.set({ status: "working", turns: store.get().turns + 1, error: undefined });
+      }
+    }
+    if (!replay) return;
+    if (message.method !== undefined && typeof message.id === "number") {
+      sent.set(message.id, { method: message.method, params: message.params });
+      lastId = Math.max(lastId, message.id);
+    } else if (message.method === undefined && message.id !== undefined) asked.delete(message.id);
+  };
+  /** A line that the agent wrote, read again. */
+  const onReplayed = (line: string) => {
+    const message = parseRpc(line);
+    if (!message) return;
+    if (message.method !== undefined && message.id !== undefined)
+      asked.set(message.id, { method: message.method, params: message.params });
+    else if (message.method !== undefined) rpc.receive(line);
+    else if (typeof message.id === "number") {
+      const request = sent.get(message.id);
+      if (!request) return;
+      sent.delete(message.id);
+      answered(
+        request.method,
+        request.params,
+        message.result,
+        message.error
+          ? new RpcError(
+              message.error.message ?? "The agent returned an error.",
+              message.error.code ?? 0,
+            )
+          : undefined,
+      );
+    }
+  };
+  /** The state at a checkpoint, where a long log starts again. */
+  const restore = (checkpoint: any) => {
+    if (!checkpoint?.state) return;
+    acpSession = checkpoint.acpSession;
+    legacy.clear();
+    for (const id of checkpoint.legacy ?? []) legacy.add(id);
+    lastId = Math.max(lastId, Number(checkpoint.lastId) || 0);
+    sent.clear();
+    asked.clear();
+    turn = undefined;
+    store.set({ ...checkpoint.state, permission: undefined });
+  };
+  let errors = "";
+  let ready: Promise<void>;
+  const events = (token: object, done: () => void): HeldEvents => ({
+    entry(entry, replay) {
+      if (active !== token) return;
+      replaying = replay;
+      entryNumber = entry.n;
+      try {
+        if (entry.kind === "h") log.begin(JSON.parse(entry.text).generation);
+        else if (entry.kind === "m" && replay) restore(JSON.parse(entry.text).checkpoint);
+        else if (entry.kind === "o" && replay) onReplayed(entry.text);
+        else if (entry.kind === "o") rpc.receive(entry.text);
+        else if (entry.kind === "i") onSent(entry.text, replay);
+        else if (entry.kind === "e") errors = `${errors}${entry.text}\n`.slice(-4000);
+      } catch {
+        /* Not a message. */
+      } finally {
+        replaying = false;
+        entryNumber = undefined;
       }
     },
-  });
-  child.on("error", (error) => store.set({ status: "exited", error: error.message }));
-  child.on("exit", (code) => {
-    rpc.close(`${agent.name} stopped.`);
-    answer?.(null);
-    if (stopping) return;
-    store.set({
-      status: "exited",
-      permission: undefined,
-      ...(code ? { error: lastLines(errors) || `${agent.name} stopped with code ${code}.` } : {}),
-    });
+    live() {
+      if (active !== token) return done();
+      // Med's requests that wait go on waiting; the agent's get answers.
+      rpc.resume(
+        new Map(
+          [...sent].map(([id, { method, params }]) => [
+            id,
+            (result: unknown, error?: RpcError) => answered(method, params, result, error),
+          ]),
+        ),
+        asked,
+        lastId,
+      );
+      sent.clear();
+      asked.clear();
+      done();
+    },
+    exit(exit) {
+      done();
+      if (active !== token) return;
+      active = undefined;
+      held = undefined;
+      void forgetLog(holders, sessionId);
+      rpc.close(`${agent.name} stopped.`);
+      answer?.(null);
+      if (stopping) return;
+      store.set({
+        status: "exited",
+        permission: undefined,
+        ...(exit.error
+          ? { error: exit.error }
+          : exit.code || exit.signal
+            ? {
+                error:
+                  lastLines(exit.errors || errors) ||
+                  `${agent.name} stopped with ${exit.signal ?? `code ${exit.code}`}.`,
+              }
+            : {}),
+      });
+    },
   });
 
-  const ready = (async () => {
-    const initialized = await rpc.request<Record<string, any>>("initialize", {
-      protocolVersion: 1,
-      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
-      clientInfo: { name: "Med", version: "0.1" },
+  const token = {};
+  active = token;
+  if (attach) {
+    ready = new Promise<void>((done) => {
+      void attachHeld(holders, sessionId, events(token, done)).then(
+        (found) => {
+          if (!found) {
+            active = undefined;
+            store.set({ status: "exited" });
+            done();
+          } else if (active === token) held = found;
+        },
+        (error: unknown) => {
+          active = undefined;
+          fail(error);
+          store.set({ status: "exited" });
+          done();
+        },
+      );
     });
-    if (initialized?.agentCapabilities?.promptCapabilities?.image === true)
-      store.set({ images: true });
-    const created = await rpc.request<Record<string, any>>("session/new", { cwd, mcpServers: [] });
-    acpSession = String(created.sessionId);
-    onAgentSession?.(acpSession);
-    const settings = configSettings(created.configOptions);
-    const has = (category: string) => settings.some((setting) => setting.category === category);
-    if (!has("model") && Array.isArray(created.models?.availableModels)) {
-      legacy.add("model");
-      settings.push({
-        id: "model",
-        name: "Model",
-        category: "model",
-        value: String(created.models.currentModelId ?? ""),
-        options: created.models.availableModels.map((model: Record<string, any>) => ({
-          value: String(model.modelId),
-          name: String(model.name ?? model.modelId),
-        })),
+  } else {
+    held = startHeld(
+      holders,
+      {
+        sessionId,
+        kind: "acp",
+        name: agent.name,
+        command: agent.command,
+        args: agent.args,
+        cwd,
+        env: agentEnvironment(env),
+      },
+      events(token, () => {}),
+    );
+    ready = (async () => {
+      await call("initialize", {
+        protocolVersion: 1,
+        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+        clientInfo: { name: "Med", version: "0.1" },
       });
-    }
-    if (!has("mode") && Array.isArray(created.modes?.availableModes)) {
-      legacy.add("mode");
-      settings.push({
-        id: "mode",
-        name: "Mode",
-        category: "mode",
-        value: String(created.modes.currentModeId ?? ""),
-        options: created.modes.availableModes.map((mode: Record<string, any>) => ({
-          value: String(mode.id),
-          name: String(mode.name ?? mode.id),
-          ...(mode.description ? { description: String(mode.description) } : {}),
-        })),
-      });
-    }
-    store.set({ settings });
-    onOffer?.(settings);
-    for (const category of ["model", "effort"] as const) {
-      const wanted = choices[category];
-      const setting = settings.find((entry) => entry.category === category);
-      if (wanted && setting && setting.value !== wanted)
-        await change(setting.id, wanted).catch(() => {});
-    }
-    store.set({ status: "idle" });
-  })();
-  ready.catch((error) => {
-    fail(error);
-    if (!stopping) store.set({ status: "exited" });
-  });
+      await call("session/new", { cwd, mcpServers: [] });
+      const settings = store.get().settings;
+      onOffer?.(settings);
+      for (const category of ["model", "effort"] as const) {
+        const wanted = choices[category];
+        const setting = settings.find((entry) => entry.category === category);
+        if (wanted && setting && setting.value !== wanted)
+          await change(setting.id, wanted).catch(() => {});
+      }
+      if (store.get().status === "starting") store.set({ status: "idle" });
+    })();
+    ready.catch((error) => {
+      fail(error);
+      if (!stopping) store.set({ status: "exited" });
+    });
+  }
 
   return {
     session,
     log,
+    attached: ready.catch(() => {}),
     state: store.get,
     dormant: () => false,
-    pid: () => (child.exitCode === null && !child.signalCode ? child.pid : undefined),
+    pid: () => held?.pid(),
     subscribe: store.subscribe,
     async prompt(text, images = []) {
       await ready;
@@ -1054,31 +1467,9 @@ export function startAcp(
         ...images.map((image) => ({ type: "image" as const, ...image })),
         ...(text ? [{ type: "text" as const, text }] : []),
       ];
-      for (const content of prompt) log.push({ sessionUpdate: "user_message_chunk", content });
       store.set({ status: "working", turns: store.get().turns + 1, error: undefined });
-      const current = { text, answered: false };
-      turn = current;
-      rpc
-        .request<{ stopReason?: string }>("session/prompt", {
-          sessionId: acpSession,
-          prompt,
-        })
-        .then(
-          (result) => {
-            // An agent can end a turn without a word, as OpenCode does when its
-            // model refuses the request; the thread says so.
-            const notice = stopNotice(agent.name, result?.stopReason, current.answered);
-            if (notice) log.push(notice);
-            store.set({ status: "idle" });
-          },
-          (error: unknown) => {
-            fail(error);
-            if (store.get().status !== "exited") store.set({ status: "idle" });
-          },
-        )
-        .finally(() => {
-          if (turn === current) turn = undefined;
-        });
+      turn = { text, answered: false };
+      call("session/prompt", { sessionId: acpSession, prompt }).catch(() => {});
     },
     answer(_id, option) {
       answer?.(option);
@@ -1093,7 +1484,7 @@ export function startAcp(
       await change(id, value);
     },
     // Med starts an ACP agent's session again only through `session/load`,
-    // which comes with the session holders.
+    // which comes with ACP resume.
     async restart() {
       throw new HostError(
         "session-stopped",
@@ -1107,8 +1498,13 @@ export function startAcp(
     stop() {
       stopping = true;
       answer?.(null);
-      child.kill("SIGTERM");
+      held?.stop();
       store.set({ status: "exited", permission: undefined });
+    },
+    detach() {
+      active = undefined;
+      held?.detach();
+      held = undefined;
     },
   };
   async function change(id: string, value: string) {
@@ -1117,21 +1513,16 @@ export function startAcp(
       throw new HostError("invalid-setting", "The agent does not offer this choice.", 400);
     try {
       if (legacy.has(id))
-        await rpc.request(id === "model" ? "session/set_model" : "session/set_mode", {
+        await call(id === "model" ? "session/set_model" : "session/set_mode", {
           sessionId: acpSession,
           ...(id === "model" ? { modelId: value } : { modeId: value }),
         });
-      else {
-        const result = await rpc.request<Record<string, unknown>>("session/set_config_option", {
+      else
+        await call("session/set_config_option", {
           sessionId: acpSession,
           configId: id,
           value,
         });
-        if (Array.isArray(result?.configOptions)) {
-          store.set({ settings: withConfig(result.configOptions) });
-          return;
-        }
-      }
     } catch (error) {
       throw new HostError(
         "agent-error",
@@ -1139,11 +1530,6 @@ export function startAcp(
         502,
       );
     }
-    store.set({
-      settings: store
-        .get()
-        .settings.map((entry) => (entry.id === id ? { ...entry, value } : entry)),
-    });
   }
 }
 
@@ -1261,6 +1647,8 @@ const recordSchema = z.object({
 type SessionRecord = z.infer<typeof recordSchema>;
 /** Records kept at most; the oldest go first. */
 const MAX_RECORDS = 200;
+/** How long a host that starts waits for the sessions' holders' logs. */
+const ATTACH_MS = 3000;
 
 /** The model, effort, and mode that a session's settings show now. */
 function chosenSettings(state: OwnedState): SessionRecord["choices"] {
@@ -1292,6 +1680,8 @@ export class OwnedSessions {
   constructor(
     private options: {
       agents: () => Promise<RunnableAgent[]>;
+      /** Where the agents' holders keep their files (holder.ts). */
+      holderDirectory: string;
       /** Where ACP sessions keep their updates. */
       logDirectory?: string;
       /** Where Med keeps what each ACP agent offered, for the next new session. */
@@ -1425,12 +1815,14 @@ export class OwnedSessions {
     const runner =
       agent.kind === "claude"
         ? startClaude(agent, cwd, {
+            holders: this.options.holderDirectory,
             env: () => this.environment(key, cwd),
             choices: wanted,
             models: await this.models(agent),
             elsewhere: (id) => this.runsElsewhere(id),
           })
         : startAcp(agent, cwd, {
+            holders: this.options.holderDirectory,
             ...(this.options.logDirectory ? { logDirectory: this.options.logDirectory } : {}),
             env: this.environment(key, cwd),
             choices: wanted,
@@ -1473,6 +1865,7 @@ export class OwnedSessions {
     const current = this.runners.get(session.id);
     if (current) return current;
     const runner = startClaude(agent, session.cwd, {
+      holders: this.options.holderDirectory,
       sessionId: session.id,
       env: () => this.environment(key, session.cwd),
       resume: {},
@@ -1499,6 +1892,7 @@ export class OwnedSessions {
   async fork(session: AgentSession, { key }: { key?: string } = {}): Promise<OwnedRunner> {
     const agent = await this.claude(session.cwd);
     const runner = startClaude(agent, session.cwd, {
+      holders: this.options.holderDirectory,
       fork: session.id,
       env: () => this.environment(key, session.cwd),
       models: await this.models(agent),
@@ -1518,8 +1912,11 @@ export class OwnedSessions {
   }
   /**
    * Brings back the sessions that this host started before it restarted. A
-   * Claude Code session waits without a process and resumes with its next
-   * prompt; other sessions show as stopped, with their threads.
+   * session whose holder runs goes on: Med reads the holder's log and follows
+   * the agent. A holder that ended left its log, which says how the agent
+   * ended. Without either, a Claude Code session waits without a process and
+   * resumes with its next prompt; other sessions show as stopped, with their
+   * threads.
    */
   async restore() {
     const file = this.options.recordsFile;
@@ -1531,6 +1928,8 @@ export class OwnedSessions {
     if (!records) return;
     this.records = records;
     const agents = await this.options.agents();
+    const holders = this.options.holderDirectory;
+    const runners: OwnedRunner[] = [];
     for (const [id, record] of Object.entries(this.records)) {
       if (this.runners.has(id)) continue;
       const agent = agents.find((entry) => entry.id === record.preset);
@@ -1540,24 +1939,49 @@ export class OwnedSessions {
         id,
         cwd: record.cwd,
       };
-      const runner =
-        agent?.kind === "claude" && agent.available && !record.stopped
-          ? startClaude(agent, record.cwd, {
+      let runner: OwnedRunner;
+      if (record.stopped) runner = stoppedRunner(session, record.preset, record.name);
+      else if (record.kind === "claude" && agent?.kind === "claude" && agent.available)
+        runner = startClaude(agent, record.cwd, {
+          holders,
+          sessionId: id,
+          env: () => this.environment(record.key, record.cwd),
+          resume: record.choices,
+          attach: true,
+          ...(record.forkOf ? { fork: record.forkOf } : {}),
+          ...(record.turn
+            ? {
+                halt: { kind: "interrupted" as const, detail: "Med restarted during the turn" },
+              }
+            : {}),
+          models: this.models(agent),
+          elsewhere: (session) => this.runsElsewhere(session),
+        });
+      else if (record.kind === "acp" && (await readHolder(holders, id)))
+        runner = startAcp(
+          { id: record.preset, name: record.name, command: "", args: [] },
+          record.cwd,
+          {
+            holders,
+            ...(this.options.logDirectory ? { logDirectory: this.options.logDirectory } : {}),
+            attach: {
               sessionId: id,
-              env: () => this.environment(record.key, record.cwd),
-              resume: record.choices,
-              ...(record.forkOf ? { fork: record.forkOf } : {}),
-              ...(record.turn
-                ? {
-                    halt: { kind: "interrupted" as const, detail: "Med restarted during the turn" },
-                  }
-                : {}),
-              models: this.models(agent),
-              elsewhere: (session) => this.runsElsewhere(session),
-            })
-          : stoppedRunner(session, record.preset, record.name);
+              earlier: this.options.logDirectory
+                ? await SessionLog.read(join(this.options.logDirectory, `${id}.jsonl`))
+                : [],
+            },
+            onAgentSession: (agentSessionId) => this.noteAgentSession(id, agentSessionId),
+          },
+        );
+      else runner = stoppedRunner(session, record.preset, record.name);
       this.track(runner, record, false);
+      runners.push(runner);
     }
+    // The page shows each session as its log left it, not as it was first.
+    await Promise.race([
+      Promise.all(runners.map((runner) => runner.attached)),
+      new Promise((done) => setTimeout(done, ATTACH_MS)),
+    ]);
   }
   /** Keeps a runner, and its record up to date with its choices. */
   private track(runner: OwnedRunner, record: SessionRecord, save = true) {
@@ -1658,7 +2082,9 @@ export class OwnedSessions {
     const runner = this.runners.get(sessionId);
     if (runner?.log) return runner.log.events;
     if (!this.options.logDirectory || !/^[A-Za-z0-9_-]+$/.test(sessionId)) return [];
-    return SessionLog.read(join(this.options.logDirectory, `${sessionId}.jsonl`));
+    return (await SessionLog.read(join(this.options.logDirectory, `${sessionId}.jsonl`))).map(
+      ({ held: _held, ...event }) => event,
+    );
   }
   /** Sessions that still run, or wait to resume, in a folder or below it. */
   within(folder: string) {
@@ -1667,12 +2093,11 @@ export class OwnedSessions {
       return runner.state().status !== "exited" && !inside.startsWith("..") && !isAbsolute(inside);
     });
   }
-  /** Stops every process as the host closes; the sessions resume after it
-   * starts, and a turn that this cuts waits for the reader to continue it. */
-  async stopAll() {
+  /** The host closes: the agents keep working in their holders, and the
+   * next host attaches to them. */
+  async detachAll() {
     this.closing = true;
-    for (const runner of this.runners.values())
-      if (runner.state().status !== "exited") runner.stop();
+    for (const runner of this.runners.values()) runner.detach();
     await this.writing;
   }
 }

@@ -84,7 +84,7 @@ interface FrameSpec {
 
 const turnStopped = (
   <TurnMark
-    title="Interrupted by a restart"
+    title="Interrupted"
     at="13:52"
     actions={[
       { label: "Continue", primary: true, run: noop },

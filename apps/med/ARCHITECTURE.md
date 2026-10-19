@@ -591,6 +591,14 @@ process only while a message waits. Continue in Med forks such a session into
 one that Med runs. See [messages to adopted
 sessions](docs/SESSIONS.md#messages-to-adopted-sessions).
 
+**Owned agents.** `src/host/owned-sessions.ts` runs each agent that Med starts
+through a holder (`src/host/holder.ts`): a detached process that owns the
+agent's pipes and logs each line to `agents/<session>.log` in the state
+directory. The runner's state comes from that log, so a host that starts
+later attaches to the holder, reads the log without acting on it again, and
+follows the agent live. A host that closes leaves the holders running. See
+[owned sessions](docs/AGENT_WORKSPACES.md#owned-sessions).
+
 **Questions.** `src/host/questions.ts` answers a question about lines in a
 fork of the thread's lead agent, so the thread gets nothing.
 `POST /api/questions` takes the thread, the question, and the excerpt

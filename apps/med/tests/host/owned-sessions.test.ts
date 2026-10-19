@@ -20,6 +20,7 @@ import type { Thread, ThreadList } from "../../src/shared/threads";
 import type { AgentOptions, OwnedState } from "../../src/shared/owned-session";
 import type { SavedReview } from "../../src/shared/saved-review";
 import { startHost, type RunningHost } from "../../src/host/server";
+import { runAgentsCommand } from "../../src/cli/agents";
 import { readServerEvents } from "../../src/web/data/sse";
 
 /** A one-pixel PNG, in base64. */
@@ -36,6 +37,15 @@ afterEach(async () => {
   );
   vi.unstubAllEnvs();
 });
+
+const alive = (pid: number) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 const agentScript = (name: string) =>
   fileURLToPath(new URL(`../fixtures/agents/${name}`, import.meta.url));
@@ -79,10 +89,26 @@ async function fixture() {
   };
   let host = await startHost(options);
   hosts.push(host);
-  /** Closes the host and starts it again on the same state, as a restart does. */
-  const restart = async () => {
+  /** Closes the host and starts it again on the same state, as a restart
+   * does. With `reboot`, the agents and their holders end too, as when the
+   * Mac restarts. */
+  const restart = async ({ reboot = false } = {}) => {
     await host.close();
     hosts.splice(hosts.indexOf(host), 1);
+    if (reboot) {
+      const agents = join(stateDir, "agents");
+      for (const name of await readdir(agents).catch(() => [] as string[])) {
+        if (!name.endsWith(".json")) continue;
+        const info = JSON.parse(await readFile(join(agents, name), "utf8")) as {
+          pid: number;
+          agentPid?: number;
+        };
+        for (const pid of [info.pid, info.agentPid]) if (pid) process.kill(pid, "SIGKILL");
+        await vi.waitFor(() => {
+          for (const pid of [info.pid, info.agentPid]) if (pid && alive(pid)) throw new Error();
+        });
+      }
+    }
     host = await startHost(options);
     hosts.push(host);
     return host;
@@ -299,7 +325,7 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
   expect((await readFile(path!)).toString("base64")).toBe(PNG);
 });
 
-test("the sessions that Med started come back after the host restarts: Claude Code resumes, others stay stopped", async () => {
+test("agents keep working through a host restart; after a reboot, Claude Code resumes and others stay stopped", async () => {
   const { api, home, review, thread, start, restart } = await fixture();
   const kept = await start("claude");
   await kept.until((state) => state.status === "idle" && state.settings.length > 0);
@@ -317,7 +343,29 @@ test("the sessions that Med started come back after the host restarts: Claude Co
   const acp = await start("fake");
   await acp.until((state) => state.status === "idle");
 
-  const host = await restart();
+  // A restart leaves the agents in their holders: each goes on where it was.
+  await restart();
+  const project = join(home, ".claude", "projects", "-fake-repo");
+  const started = async () =>
+    JSON.parse(await readFile(join(project, `${kept.id}.args.json`), "utf8")) as string[];
+  const before = await started();
+  expect((await kept.state()).settings.map((setting) => [setting.id, setting.value])).toEqual([
+    ["model", "opus"],
+    ["effort", "high"],
+    ["mode", "plan"],
+  ]);
+  const after = await thread(kept.id);
+  await kept.act({ action: "prompt", text: "Still here?" });
+  await vi.waitFor(() =>
+    expect(after().at(-1)).toBe("Model opus, effort high, mode plan: Still here?"),
+  );
+  expect(await started()).toEqual(before);
+  const acpReplies = await thread(acp.id);
+  await acp.act({ action: "prompt", text: "Still here?" });
+  await vi.waitFor(() => expect(acpReplies().at(-1)).toBe("(small, build) Still here?"));
+  expect((await ended.state()).status).toBe("exited");
+
+  const host = await restart({ reboot: true });
   // Claude Code waits without a process, with the choices it had.
   const back = await kept.until((state) => state.settings.length === 3);
   expect(back.status).toBe("idle");
@@ -359,14 +407,13 @@ test("the sessions that Med started come back after the host restarts: Claude Co
   await vi.waitFor(() =>
     expect(again().at(-1)).toBe("Model opus, effort high, mode plan: Check the summary."),
   );
-  const project = join(home, ".claude", "projects", "-fake-repo");
-  const args = JSON.parse(await readFile(join(project, `${kept.id}.args.json`), "utf8"));
+  const args = await started();
   expect(args).toEqual(expect.arrayContaining(["--resume", kept.id, "--effort", "high"]));
   const env = JSON.parse(await readFile(join(project, `${kept.id}.env.json`), "utf8"));
   expect(env.MED_PORT).toBe(String(host.port));
 });
 
-test("a turn that a host restart cuts waits as Interrupted: Continue asks the agent to go on, and Dismiss clears it", async () => {
+test("a turn goes on through a host restart; one that a reboot cuts waits as Interrupted: Continue asks the agent to go on, and Dismiss clears it", async () => {
   const { review, thread, start, threads, restart } = await fixture();
   const session = await start("claude");
   await session.until((state) => state.status === "idle" && state.settings.length > 0);
@@ -374,6 +421,10 @@ test("a turn that a host restart cuts waits as Interrupted: Continue asks the ag
   await session.until((state) => state.status === "working");
 
   await restart();
+  expect(await session.state()).toMatchObject({ status: "working" });
+  expect((await session.state()).halt).toBeUndefined();
+
+  await restart({ reboot: true });
   // Nothing runs by itself: the turn waits for the reader.
   const cut = await session.until((state) => state.halt !== undefined);
   expect(cut).toMatchObject({ status: "idle", halt: { kind: "interrupted" } });
@@ -395,13 +446,55 @@ test("a turn that a host restart cuts waits as Interrupted: Continue asks the ag
   // A second cut turn, dismissed: it does not come back after a restart.
   await session.act({ action: "prompt", text: "Wait for the deploy." });
   await session.until((state) => state.status === "working");
-  await restart();
+  await restart({ reboot: true });
   await session.until((state) => state.halt?.kind === "interrupted");
   await session.act({ action: "dismiss" });
   expect((await session.state()).halt).toBeUndefined();
   await restart();
   const back = await session.until((state) => state.settings.length > 0);
   expect(back.halt).toBeUndefined();
+});
+
+test("med agents lists the agents that keep working; one that it stops resumes with the next message, and one whose holder dies waits as Interrupted", async () => {
+  const { stateDir, thread, start } = await fixture();
+  const session = await start("claude");
+  await session.until((state) => state.status === "idle" && state.settings.length > 0);
+  const printed: string[] = [];
+  const log = vi
+    .spyOn(console, "log")
+    .mockImplementation((text) => void printed.push(String(text)));
+  const agents = async (...args: string[]) => {
+    printed.length = 0;
+    await runAgentsCommand([...args, "--state-dir", stateDir]);
+    return [...printed];
+  };
+  try {
+    expect(await agents()).toEqual([
+      expect.stringMatching(new RegExp(`^${session.id.slice(0, 8)}  Claude Code  0 min  /`)),
+    ]);
+    expect(await agents("stop", session.id.slice(0, 8))).toEqual(["Stopped 1 agent."]);
+    expect(await agents()).toEqual(["No agents run."]);
+  } finally {
+    log.mockRestore();
+  }
+  // Without a mark: the next message resumes the session.
+  expect((await session.state()).halt).toBeUndefined();
+  const replies = await thread(session.id);
+  await session.act({ action: "prompt", text: "Are you back?" });
+  await vi.waitFor(() => expect(replies().at(-1)).toMatch(/: Are you back\?$/));
+  await session.until((state) => state.status === "idle");
+
+  // A holder that dies, as in a crash of the Mac, cuts the turn that ran.
+  await session.act({ action: "prompt", text: "Wait for the build." });
+  await session.until((state) => state.status === "working");
+  const info = JSON.parse(
+    await readFile(join(stateDir, "agents", `${session.id}.json`), "utf8"),
+  ) as { pid: number };
+  process.kill(info.pid, "SIGKILL");
+  expect(await session.until((state) => state.halt !== undefined)).toMatchObject({
+    status: "idle",
+    halt: { kind: "interrupted" },
+  });
 });
 
 test("an agent that exits says why; Restart and a message each resume its session", async () => {
@@ -572,6 +665,91 @@ test("Med runs an ACP agent and keeps its thread", async () => {
   expect(JSON.stringify(await log())).toContain("Outcome: selected allow");
   const again = await thread(session.id);
   await vi.waitFor(() => expect(again()).toEqual(replies()));
+});
+
+test("a long holder log starts again at Med's last checkpoint, and a new host reads the same state from it", async () => {
+  vi.stubEnv("MED_HOLDER_COMPACT_BYTES", "1");
+  const { stateDir, thread, start, restart } = await fixture();
+  const claude = await start("claude");
+  await claude.until((state) => state.status === "idle" && state.settings.length > 0);
+  await claude.act({ action: "setting", id: "mode", value: "plan" });
+  const acp = await start("fake");
+  await acp.until((state) => state.status === "idle");
+  await acp.act({ action: "setting", id: "model", value: "large" });
+  for (const text of ["Format the durations.", "Check it."]) {
+    await claude.act({ action: "prompt", text });
+    await claude.until((state) => state.status === "idle");
+    await acp.act({ action: "prompt", text });
+    await acp.until((state) => state.status === "idle");
+  }
+  // Each log keeps its first line, then the last checkpoint and what followed.
+  for (const id of [claude.id, acp.id]) {
+    const kinds = (await readFile(join(stateDir, "agents", `${id}.log`), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => line.split(" ")[1]);
+    expect(kinds.slice(0, 2)).toEqual(["h", "m"]);
+    expect(kinds.filter((kind) => kind === "m")).toHaveLength(1);
+  }
+  const before = { claude: await claude.state(), acp: await acp.state() };
+  const same = (state: OwnedState) => ({
+    status: state.status,
+    turns: state.turns,
+    settings: state.settings.map((setting) => [setting.id, setting.value]),
+    commands: state.commands.map((command) => command.name),
+  });
+
+  await restart();
+  expect(same(await claude.state())).toEqual(same(before.claude));
+  expect(same(await acp.state())).toEqual(same(before.acp));
+  const replies = await thread(acp.id);
+  await acp.act({ action: "prompt", text: "Still here?" });
+  await vi.waitFor(() => expect(replies().at(-1)).toBe("(large, build) Still here?"));
+  const claudeReplies = await thread(claude.id);
+  await claude.act({ action: "prompt", text: "Still here?" });
+  await vi.waitFor(() =>
+    expect(claudeReplies().at(-1)).toBe("Model opus, effort medium, mode plan: Still here?"),
+  );
+});
+
+test("an ACP agent keeps its question and its turn through a host restart, and its thread shows each update once", async () => {
+  const { stateDir, thread, start, restart } = await fixture();
+  const session = await start("fake");
+  await session.until((state) => state.status === "idle");
+  await session.act({ action: "prompt", text: "Edit summary.ts." });
+  await session.until((state) => state.permission !== undefined);
+
+  // The question waits for the reader on the new host.
+  await restart();
+  const asked = await session.until((state) => state.permission !== undefined);
+  expect(asked).toMatchObject({
+    status: "working",
+    permission: { title: "Fake ACP wants to run Edit summary.ts" },
+  });
+  const replies = await thread(session.id);
+  await session.act({ action: "permission", id: asked.permission!.id, option: "allow" });
+  await vi.waitFor(() => expect(replies().at(-1)).toBe("Outcome: selected allow"));
+  await session.until((state) => state.status === "idle");
+
+  // A turn that runs while the host restarts ends on the new host.
+  await session.act({ action: "prompt", text: "Wait for the build." });
+  await session.until((state) => state.status === "working");
+  await restart();
+  await session.act({ action: "interrupt" });
+  await session.until((state) => state.status === "idle");
+  const updates = (await readFile(join(stateDir, "sessions", `${session.id}.jsonl`), "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => (JSON.parse(line) as SessionEvent).update);
+  expect(
+    updates
+      .filter((update) => update.sessionUpdate === "user_message_chunk")
+      .map((update) => "content" in update && update.content),
+  ).toEqual(["Edit summary.ts.", "Wait for the build."].map((text) => ({ type: "text", text })));
+  expect(updates.filter((update) => update.sessionUpdate === "agent_message_chunk")).toHaveLength(
+    1,
+  );
+  expect(updates.at(-1)).toMatchObject({ sessionUpdate: "notice", title: "Interrupted" });
 });
 
 test("the thread list follows each thread's lead session: working, needs you, and idle", async () => {

@@ -73,18 +73,33 @@ stdio --session-id <id>`, with `--model`, `--effort`, and `--permission-mode`
   answers `session/request_permission` with the user's choice and appends the
   updates to `sessions/<id>.jsonl` in the state directory. A turn that ends
   with no reply gets a notice.
+- **Holders** (`src/host/holder.ts`, `src/host/held-agent.ts`): each agent
+  runs in a holder of its own, a small Med process in its own process group.
+  The holder owns the agent's pipes and writes each line between Med and the
+  agent to `agents/<session>.log` in the state directory, numbered and
+  appended only (`src/host/holder-log.ts`), with Med's own records and
+  checkpoints. A host attaches to the holder over a socket (mode 0600) and
+  reads the log from its first line, or from the last checkpoint, before live
+  lines; it acts on none of the earlier lines again. The holder writes the
+  agent's exit last and ends; it stops the agent when its files belong to
+  another holder. A log over 8 MiB starts again at a checkpoint between turns.
+  The release binary runs `med __hold`, and a built Med runs `dist/holder.js`.
 - **After a restart**: the host keeps the sessions it started in
   `owned-sessions.json` in the state directory, with the thread's key and the
-  model, effort, and mode that each one has now. When it starts again, a Claude
-  Code session comes back idle without a process, and its next prompt starts
-  `claude` with `--resume` and those choices. Med does not resume a session
-  that another Claude Code process runs, such as one that the user resumed in
-  a terminal; the message waits until that process ends
-  ([messages to adopted sessions](SESSIONS.md#messages-to-adopted-sessions)).
-  A session that the user stopped stays stopped, and an ACP session shows as
-  stopped, with its log, so the prompt box offers a new session.
-- **Cut turns and exits**: the record also keeps a turn that has not ended.
-  A host that restarts during a turn brings that session back as
+  model, effort, and mode that each one has now. When it starts again, it
+  attaches to each session's holder, and the session goes on: a turn keeps
+  working, and a question or a permission prompt waits for its answer. An ACP
+  thread adds only the updates that its log has after `sessions/<id>.jsonl`.
+  Without a holder, a Claude Code session comes back idle without a process,
+  and its next prompt starts `claude` with `--resume` and those choices. Med
+  does not resume a session that another Claude Code process runs, such as
+  one that the user resumed in a terminal; the message waits until that
+  process ends ([messages to adopted sessions](SESSIONS.md#messages-to-adopted-sessions)).
+  A session that the user stopped stays stopped, and an ACP session without a
+  holder shows as stopped, with its log, so the prompt box offers a new
+  session.
+- **Cut turns and exits**: a holder that ends without the agent's exit, as in
+  a reboot or a kill, cuts the turn that ran. That session comes back as
   **Interrupted**, with Continue and Dismiss at the end of its thread; Med
   never continues the turn alone. A Claude Code process that exits without
   a stop from Med leaves its session idle without a process, as after a
@@ -96,11 +111,16 @@ stdio --session-id <id>`, with `--model`, `--effort`, and `--permission-mode`
   own. A record that Med cannot read costs only itself, and the file keeps a
   copy beside it (`<file>.unreadable-<time>`) before Med writes it again
   (`src/host/runtime/state-file.ts`).
-- **Restarts and the page**: the agents stop as the host closes, but the
-  page keeps their last state, so its message box stays open. A request that
+- **Restarts and the page**: the agents keep working as the host closes,
+  and the page keeps their last state, so its message box stays open. A request that
   fails because the host closes gets no answer, not an error. The page then
   waits for Med: a live load keeps what it shows, and a message keeps
   trying (see [Sessions](SESSIONS.md)).
+- **Stopping agents**: `med stop`, an update, a restart, and a closed tab
+  leave the agents working. `med agents` lists the holders, and `med agents
+stop <session> | --all` stops them, also while the server is down. A holder closes the agent's input, then sends
+  `SIGTERM` after 2 s and `SIGKILL` after 5 s. The login service sets
+  `AbandonProcessGroup`, so launchd does not stop the holders with the server.
 - **Adopted sessions**: a Claude Code session that Med did not start, such
   as one that Keep in Med or `med thread adopt` saved, becomes an owned
   session when a message comes and no process runs it (`resume`), with a

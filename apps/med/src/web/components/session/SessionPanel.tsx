@@ -544,8 +544,9 @@ export function SessionPanel({
     sessionRunning(state, now);
   const runner = othersTurn ? undefined : ownedState;
   const running = runner ? runner.status === "working" : sessionRunning(state, now);
-  // A turn that a restart cut waits for the reader: Med never continues it
-  // alone, because it may have stopped in the middle of a migration or a push.
+  // A turn that a reboot or a kill cut waits for the reader: Med never
+  // continues it alone, because it may have stopped in the middle of a
+  // migration or a push.
   const halt = runner?.halt;
   const [haltError, setHaltError] = useState<string>();
   const onHalt = (action: OwnedAction) => {
@@ -559,7 +560,7 @@ export function SessionPanel({
   const endMark =
     halt?.kind === "interrupted" ? (
       <TurnMark
-        title="Interrupted by a restart"
+        title="Interrupted"
         {...(halt.at ? { at: turnTime(halt.at) } : {})}
         actions={[
           { label: "Continue", primary: true, run: () => onHalt({ action: "continue" }) },

@@ -18,7 +18,7 @@ try {
   const entry = join(temporary, "entry.ts");
   await writeFile(
     entry,
-    `${imports.join("\n")}\nconst assets:Record<string,string>={${map.join(",")}};\n(globalThis as any).__medAssets=async(path:string)=>assets[path]?Bun.file(assets[path]).bytes():undefined;\nawait import(${JSON.stringify(join(root, "src", "cli", "index.ts"))});\n`,
+    `${imports.join("\n")}\nconst assets:Record<string,string>={${map.join(",")}};\n(globalThis as any).__medAssets=async(path:string)=>assets[path]?Bun.file(assets[path]).bytes():undefined;\nif(process.argv[2]==="__hold")await import(${JSON.stringify(join(root, "src", "host", "holder.ts"))});\nelse await import(${JSON.stringify(join(root, "src", "cli", "index.ts"))});\n`,
   );
   await mkdir(resolve(output, ".."), { recursive: true });
   const build = await Bun.build({

@@ -341,6 +341,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   // directory, and the sessions from before a restart come back first.
   const ownedSessions = new OwnedSessions({
     agents: options.agents ?? (() => findAgents(options.stateDir)),
+    holderDirectory: join(options.stateDir ?? temporaryState!, "agents"),
     logDirectory: join(options.stateDir ?? temporaryState!, "sessions"),
     offersFile: join(options.stateDir ?? temporaryState!, "agent-offers.json"),
     recordsFile: join(options.stateDir ?? temporaryState!, "owned-sessions.json"),
@@ -3008,7 +3009,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       closing = true;
       clearInterval(heartbeat);
       heldMessages.stop();
-      await ownedSessions.stopAll();
+      await ownedSessions.detachAll();
       await questions.stopAll();
       for (const stream of questionStreams) stream.end();
       closeTranscripts();
