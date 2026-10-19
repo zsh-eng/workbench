@@ -12,13 +12,20 @@ import {
   type ReaderTraceSpanToken,
 } from "@/lib/reader-performance-trace";
 import { PaginationTracer } from "./diagnostics/tracer";
-import type { PaginationCommand, PaginationEvent } from "./protocol";
+import type {
+  GoToTextOffsetCommand,
+  LocateTextOffsetsCommand,
+  PaginationCommand,
+  PaginationEvent,
+  TextOffsetLocation,
+} from "./protocol";
 import {
   acquirePaginationWorkerSession,
   type PaginationWorkerSession,
 } from "./worker/pagination-worker-service";
 import type {
   Block,
+  ChapterColumnLayout,
   ContentAnchor,
   PaginationChapterDiagnostics,
   PaginationConfig,
@@ -124,6 +131,12 @@ export interface UsePaginationResult {
     scope?: string,
   ) => void;
   anchorPagesByScope: Record<string, Record<string, number | null>>;
+  /** Places canonical text offsets; results land in `textOffsetsByScope`. */
+  locateTextOffsets: (
+    chapters: LocateTextOffsetsCommand["chapters"],
+    scope: string,
+  ) => void;
+  textOffsetsByScope: Record<string, Record<string, TextOffsetLocation | null>>;
   anchorPages: Record<string, number | null>;
   /** Available once this hook owns a worker session; changes on reacquisition. */
   sessionGeneration: number | null;
@@ -132,6 +145,10 @@ export interface UsePaginationResult {
   status: PaginationStatus;
   /** Maps chapterIndex → page count, published with visible partials and final ready. */
   chapterPageCounts: Map<number, number>;
+  /** The subscribed chapter's scroll column (prototype scroll mode). */
+  scrollColumn: ChapterColumnLayout | null;
+  /** Subscribes one chapter's scroll column; null stops the updates. */
+  setScrollChapter: (chapterIndex: number | null) => void;
 
   nextSpread: () => void;
   prevSpread: () => void;
@@ -148,6 +165,11 @@ export interface UsePaginationResult {
     chapterIndex: number,
     targetId: string,
     options: { intent: SpreadIntent; targetKind?: "element" | "highlight" },
+  ) => void;
+  /** Opens the page holding a canonical text offset in a chapter. */
+  goToTextOffset: (
+    target: Omit<GoToTextOffsetCommand, "type" | "intent">,
+    options: { intent: SpreadIntent },
   ) => void;
 
   init: (options: {
@@ -185,6 +207,9 @@ export function usePagination(
   const [anchorPagesByScope, setAnchorPagesByScope] = useState<
     Record<string, Record<string, number | null>>
   >({});
+  const [textOffsetsByScope, setTextOffsetsByScope] = useState<
+    Record<string, Record<string, TextOffsetLocation | null>>
+  >({});
   const anchorRequest = useRef(0);
   const latestAnchorRequests = useRef(new Map<string, number>());
   const {
@@ -201,6 +226,9 @@ export function usePagination(
   const [chapterPageCounts, setChapterPageCounts] = useState<
     Map<number, number>
   >(new Map());
+  const [scrollColumn, setScrollColumn] = useState<ChapterColumnLayout | null>(
+    null,
+  );
 
   const workerSessionKeyRef = useRef(sessionKey);
   const workerSessionRef = useRef<PaginationWorkerSession | null>(null);
@@ -301,6 +329,16 @@ export function usePagination(
             [event.scope]: event.pages,
           }));
         return;
+      case "textOffsetsLocated":
+        if (
+          event.requestId ===
+          latestAnchorRequests.current.get(`text:${event.scope}`)
+        )
+          setTextOffsetsByScope((previous) => ({
+            ...previous,
+            [event.scope]: event.locations,
+          }));
+        return;
       case "trace":
         if (event.name === "worker-fonts-ready") {
           endReaderTraceSpan(workerStartupSpanRef.current, {
@@ -343,6 +381,7 @@ export function usePagination(
           previous: event.previousSpread,
           current: event.spread,
           next: event.nextSpread,
+          anchor: event.anchor,
         });
         setStatus("partial");
         endReaderTraceSpan(firstSpreadSpanRef.current, {
@@ -386,6 +425,7 @@ export function usePagination(
           previous: event.previousSpread,
           current: event.spread,
           next: event.nextSpread,
+          anchor: event.anchor,
         });
         setStatus(isComplete ? "ready" : "partial");
         endReaderTraceSpan(firstSpreadSpanRef.current, {
@@ -419,12 +459,17 @@ export function usePagination(
           previous: event.previousSpread,
           current: event.spread,
           next: event.nextSpread,
+          anchor: event.anchor,
         });
         break;
 
       case "pageUnavailable":
       case "chapterUnavailable":
         // Keep current page as-is.
+        break;
+
+      case "chapterColumn":
+        setScrollColumn(event.column);
         break;
 
       case "error":
@@ -452,7 +497,9 @@ export function usePagination(
 
   useEffect(() => {
     setSpreadWindow(null);
+    setScrollColumn(null);
     setAnchorPagesByScope({});
+    setTextOffsetsByScope({});
     latestAnchorRequests.current.clear();
     setStatus("idle");
     prevPaginationConfigRef.current = null;
@@ -557,6 +604,7 @@ export function usePagination(
       const currentSpreadConfig = spreadConfigRef.current;
       currentEpochRef.current = 0;
       setAnchorPagesByScope({});
+      setTextOffsetsByScope({});
       latestAnchorRequests.current.clear();
       anchorRequest.current++;
       expectedChapterCountRef.current = opts.totalChapters;
@@ -678,6 +726,24 @@ export function usePagination(
     [postCommand],
   );
 
+  const goToTextOffset = useCallback(
+    (
+      target: Omit<GoToTextOffsetCommand, "type" | "intent">,
+      options: { intent: SpreadIntent },
+    ) => {
+      postCommand({ type: "goToTextOffset", ...target, intent: options.intent });
+    },
+    [postCommand],
+  );
+
+  const setScrollChapter = useCallback(
+    (chapterIndex: number | null) => {
+      if (chapterIndex === null) setScrollColumn(null);
+      postCommand({ type: "setScrollChapter", chapterIndex });
+    },
+    [postCommand],
+  );
+
   const locateAnchors = useCallback(
     (anchors: { id: string; anchor: ContentAnchor }[], scope = "default") => {
       const requestId = ++anchorRequest.current;
@@ -692,6 +758,20 @@ export function usePagination(
     [],
   );
 
+  const locateTextOffsets = useCallback(
+    (chapters: LocateTextOffsetsCommand["chapters"], scope: string) => {
+      const requestId = ++anchorRequest.current;
+      latestAnchorRequests.current.set(`text:${scope}`, requestId);
+      workerSessionRef.current?.postCommand({
+        type: "locateTextOffsets",
+        chapters,
+        scope,
+        requestId,
+      });
+    },
+    [],
+  );
+
   return {
     sessionGeneration:
       workerSessionKeyRef.current === sessionKey ? sessionGeneration : null,
@@ -699,15 +779,20 @@ export function usePagination(
     spreadWindow,
     status,
     chapterPageCounts,
+    scrollColumn,
+    setScrollChapter,
     nextSpread,
     prevSpread,
     goToPage,
     goToAnchor,
     goToChapter,
     goToTarget,
+    goToTextOffset,
     locateAnchors,
     anchorPages: anchorPagesByScope.default ?? EMPTY_ANCHOR_PAGES,
     anchorPagesByScope,
+    locateTextOffsets,
+    textOffsetsByScope,
     init,
     addChapter,
     updateChapter,

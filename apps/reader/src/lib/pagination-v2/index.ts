@@ -3,7 +3,10 @@ export type {
   PaginationRunTimings,
   PaginationTracerSnapshot,
 } from "./diagnostics/tracer";
-export { resolveContentAnchorRangeToHighlight } from "./engine/highlight-selection";
+export {
+  resolveCanonicalRangeText,
+  resolveContentAnchorRangeToHighlight,
+} from "./engine/highlight-selection";
 export type { ResolvedHighlightSelection } from "./engine/highlight-selection";
 export { resolveDomEndpointToContentAnchor } from "./engine/selection-anchors";
 export type { PaginationCommand, PaginationEvent } from "./protocol";
@@ -60,6 +63,8 @@ export type {
   PublisherFontFace,
   PublisherStyleOptions,
   BookStylesheet,
+  ChapterColumnLayout,
+  ColumnSlice,
   PublisherTextStyle,
   ResolvedLeafPage,
   ResolvedSpread,

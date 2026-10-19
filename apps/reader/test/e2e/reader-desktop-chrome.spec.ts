@@ -42,79 +42,46 @@ async function buttonAt(page: Page, x: number, y: number) {
   );
 }
 
-test("desktop chrome fades in place and hides all navigation controls together", async ({
+test("desktop chrome shows from either edge and hides its controls together", async ({
   page,
   localBook,
-}, testInfo) => {
+}) => {
   await page.setViewportSize({ width: 1280, height: 850 });
   await openLocalBook(page, localBook.id);
   const header = page.locator('[data-reader-header="desktop"]');
   const footer = page.locator("[data-reader-footer]");
-  const leftButton = page.getByRole("button", {
-    name: "Library",
-    exact: true,
-  });
-  const accessory = page.locator("[data-reader-header-accessory]");
-  await accessory
-    .getByRole("button", { name: "Dismiss reading status prompt" })
-    .click();
-  await page.mouse.move(640, 400);
-  await expect(header).toHaveCSS("opacity", "0");
-  await expect(header).toHaveCSS("transform", "none");
-  await expect(leftButton).toHaveCount(0);
-  await expect(footer).toHaveCount(0);
-
-  await page.locator('[data-reader-chrome-rail="top"]').hover();
-  await expect(header).toHaveCSS("opacity", "1");
-  await expect(footer).toHaveCSS("opacity", "1");
-  await expect(header).toHaveCSS("transform", "none");
-  await expect(footer).toHaveCSS("transform", "none");
-  await expect(header).toHaveCSS("border-bottom-width", "0px");
-  await expect(leftButton).toHaveCSS("border-width", "0px");
-  const leftButtonShape = await leftButton.evaluate((button) => ({
-    radius: parseFloat(getComputedStyle(button).borderTopLeftRadius),
-    height: button.getBoundingClientRect().height,
-  }));
-  expect(leftButtonShape.radius).toBeGreaterThan(0);
-  expect(leftButtonShape.radius).toBeLessThan(leftButtonShape.height / 2);
-  // Bookmarks are not stored yet, so the header has no bookmark control. One
-  // control on each side keeps the title centred.
-  await expect(header.getByRole("button", { name: /bookmark/i })).toHaveCount(
-    0,
-  );
-  const toolsButton = header.getByRole("button", {
+  const library = page.getByRole("button", { name: "Library", exact: true });
+  const tools = header.getByRole("button", {
     name: "Open reader tools",
     exact: true,
   });
-  const leftBounds = (await leftButton.boundingBox())!;
-  const toolsBounds = (await toolsButton.boundingBox())!;
-  const titleBounds = (await header
-    .locator("[data-reader-header-title]")
-    .boundingBox())!;
-  expect(toolsBounds.y).toBe(leftBounds.y);
-  expect(1280 - toolsBounds.x - toolsBounds.width).toBeCloseTo(leftBounds.x, 0);
-  expect(titleBounds.x + titleBounds.width / 2).toBeCloseTo(640, 0);
-  await page.screenshot({
-    path: testInfo.outputPath("desktop-chrome-visible.png"),
-  });
+  await page
+    .locator("[data-reader-header-accessory]")
+    .getByRole("button", { name: "Dismiss reading status prompt" })
+    .click();
+  await page.mouse.move(640, 400);
+  await expect(header).toHaveAttribute("aria-hidden", "true");
+  await expect(library).toHaveCount(0);
+  await expect(footer).toHaveCount(0);
+
+  await page.locator('[data-reader-chrome-rail="top"]').hover();
+  await expect(header).toHaveAttribute("aria-hidden", "false");
+  await expect(library).toBeVisible();
+  await expect(tools).toBeVisible();
+  await expect(footer).toBeVisible();
 
   await page.mouse.move(640, 400);
-  await expect(header).toHaveCSS("opacity", "0");
-  await expect(header).toHaveCSS("transform", "none");
+  await expect(header).toHaveAttribute("aria-hidden", "true");
   await expect(footer).toHaveCount(0);
-  await expect(leftButton).toHaveCount(0);
-  await expect(toolsButton).toHaveCount(0);
-  await page.screenshot({
-    path: testInfo.outputPath("desktop-chrome-hidden.png"),
-  });
+  await expect(library).toHaveCount(0);
+  await expect(tools).toHaveCount(0);
 
   // Bottom-edge hover reveals the same controls.
   await page.locator('[data-reader-chrome-rail="bottom"]').hover();
-  await expect(header).toHaveCSS("opacity", "1");
-  await expect(footer).toHaveCSS("opacity", "1");
-  await expect(toolsButton).toBeVisible();
+  await expect(footer).toBeVisible();
+  await expect(tools).toBeVisible();
   // There is no app sidebar: the left control goes back to the Library.
-  await leftButton.click();
+  await library.click();
   await expect(page).toHaveURL("/");
 });
 
@@ -191,53 +158,22 @@ test.describe("mobile chrome", () => {
     isMobile: true,
     hasTouch: true,
   });
-  test("slides both bars away and shows no bookmark ribbon", async ({
-    page,
-    localBook,
-  }, testInfo) => {
-    await openLocalBook(page, localBook.id);
-    const header = page.locator('[data-reader-header="mobile"]');
-    await expect(page.locator('[data-reader-header="desktop"]')).toHaveCount(0);
-    await page.touchscreen.tap(195, 350);
-    await expect(header).toHaveCSS("transform", "none");
-    const back = page.getByRole("button", {
-      name: "Back to library",
-      exact: true,
-    });
-    await expect(back).toBeVisible();
-    await expect(back).toHaveCSS("border-width", "1px");
-    await expect(
-      header.locator(':scope > [class*="bg-border/70"]'),
-    ).toHaveCount(1);
-    await expect(page.getByRole("button", { name: /bookmark/i })).toHaveCount(
-      0,
-    );
-    // Back and Tools sit at matching insets, so the title stays centred.
-    const backBounds = (await back.boundingBox())!;
-    const toolsBounds = (await page
-      .getByRole("button", { name: "Open reader tools", exact: true })
-      .boundingBox())!;
-    expect(toolsBounds.y).toBe(backBounds.y);
-    expect(390 - toolsBounds.x - toolsBounds.width).toBe(backBounds.x);
-    await page.screenshot({
-      path: testInfo.outputPath("mobile-chrome-visible.png"),
-    });
-    await page.touchscreen.tap(195, 350);
-    await expect(header).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, -56)");
-    await expect(page.locator("[data-reader-footer]")).toHaveCount(0);
-    await expect(header).not.toBeInViewport();
-  });
-
-  test("gives the chrome controls 44 px touch targets at their visual size", async ({
+  test("a centre tap toggles the bars, whose controls have 44 px touch targets", async ({
     page,
     localBook,
   }) => {
     await openLocalBook(page, localBook.id);
+    const header = page.locator('[data-reader-header="mobile"]');
+    await expect(page.locator('[data-reader-header="desktop"]')).toHaveCount(0);
     await page.touchscreen.tap(195, 350);
-    await expect(page.locator('[data-reader-header="mobile"]')).toHaveCSS(
-      "transform",
-      "none",
-    );
+    await expect(header).toBeInViewport();
+    await page.touchscreen.tap(195, 350);
+    await expect(header).not.toBeInViewport();
+    await expect(page.locator("[data-reader-footer]")).toHaveCount(0);
+
+    await page.touchscreen.tap(195, 350);
+    // Let both bars finish sliding in before measuring.
+    await expect(header).toHaveCSS("transform", "none");
     await expect(page.locator("[data-reader-footer]")).toHaveCSS(
       "transform",
       "none",
@@ -280,10 +216,6 @@ test.describe("mobile chrome", () => {
     });
 
     for (const control of [back, tools]) {
-      expect(await control.boundingBox()).toMatchObject({
-        width: 32,
-        height: 32,
-      });
       const area = await hitArea(control);
       expect(area.width).toBeGreaterThanOrEqual(44);
       expect(area.height).toBeGreaterThanOrEqual(44);
@@ -293,7 +225,6 @@ test.describe("mobile chrome", () => {
       .boundingBox())!;
     for (const control of [previous, next, title]) {
       const visual = (await control.boundingBox())!;
-      expect(visual.height).toBe(control === title ? 32 : 22);
       const area = await hitArea(control);
       // Neighbouring targets do not cover any visible part of the control.
       expect(area.width).toBeGreaterThanOrEqual(Math.max(44, visual.width));

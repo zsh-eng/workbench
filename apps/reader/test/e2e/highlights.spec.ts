@@ -75,16 +75,32 @@ test("a long list renders near the view and returns to its place from a book", a
 
   // A passage partway down opens the book, and Back returns to it.
   await page.evaluate(() => window.scrollTo(0, 8000));
-  await page.waitForTimeout(200);
-  const before = await page.evaluate(() => {
-    const button = [
-      ...document.querySelectorAll<HTMLElement>('[aria-label^="Open at:"]'),
-    ].find((item) => item.getBoundingClientRect().top >= 0)!;
-    return {
-      name: button.getAttribute("aria-label")!,
-      top: button.getBoundingClientRect().top,
-    };
-  });
+  const firstInView = () =>
+    page.evaluate(() => {
+      const button = [
+        ...document.querySelectorAll<HTMLElement>('[aria-label^="Open at:"]'),
+      ].find((item) => {
+        const top = item.getBoundingClientRect().top;
+        return top >= 0 && top < innerHeight;
+      });
+      return button
+        ? {
+            name: button.getAttribute("aria-label")!,
+            top: button.getBoundingClientRect().top,
+          }
+        : null;
+    });
+  // Wait for the list to render and measure the rows at the new position.
+  let previous = "";
+  await expect
+    .poll(async () => {
+      const current = JSON.stringify(await firstInView());
+      const settled = current !== "null" && current === previous;
+      previous = current;
+      return settled;
+    })
+    .toBe(true);
+  const before = (await firstInView())!;
   await page.getByRole("button", { name: before.name, exact: true }).click();
   await expect(page).toHaveURL(`/reader/${localBook.id}`);
   await waitForReaderReady(page);

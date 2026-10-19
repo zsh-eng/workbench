@@ -605,7 +605,9 @@ function lineBadness(
   isLastLine: boolean,
 ): number {
   if (isLastLine) {
-    if (lineStats.wordWidth > maxWidth) return HUGE_BADNESS;
+    // The last line is not justified. It keeps its natural spaces, so the
+    // spaces must fit as well as the words.
+    if (lineStats.naturalWidth > maxWidth) return HUGE_BADNESS;
     return 0;
   }
 

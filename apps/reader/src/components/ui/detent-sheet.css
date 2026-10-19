@@ -48,14 +48,26 @@
 }
 
 /* At a partial detent, a swipe on the content moves the sheet. The content
-   scrolls only once the sheet is at its full height, as on iOS. */
+   scrolls only once the sheet is at its full height, as on iOS. A list that
+   scrolls itself, not in a ScrollArea, marks itself with data-detent-scroll. */
 .reader-sheet-overlay[data-expanded] .reader-sheet-body {
   overflow-y: auto;
 }
 .reader-sheet-overlay:not([data-expanded])
   .reader-sheet-body
-  [data-slot="scroll-area-viewport"] {
+  :is([data-slot="scroll-area-viewport"], [data-detent-scroll]) {
   overflow: hidden !important;
+  overscroll-behavior: auto;
+}
+
+/* The phone keyboard covers the bottom of the sheet without resizing it.
+   React Aria measures it as the gap between the screen and the visual
+   viewport. Such a list pads its end by that much, so its last rows can
+   scroll above the keyboard. */
+.reader-sheet-body [data-detent-scroll] {
+  padding-bottom: calc(
+    1rem + max(env(safe-area-inset-bottom), var(--sheet-scroll-padding-y, 0px))
+  );
 }
 
 .reader-sheet-handle {

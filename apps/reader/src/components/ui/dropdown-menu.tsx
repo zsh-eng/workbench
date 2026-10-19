@@ -14,7 +14,12 @@ function DropdownMenuPortal({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Portal>) {
   return (
-    <DropdownMenuPrimitive.Portal data-slot="dropdown-menu-portal" {...props} />
+    <DropdownMenuPrimitive.Portal
+      data-slot="dropdown-menu-portal"
+      // Opens over a detent sheet, which leaves React Aria's top layer usable.
+      data-react-aria-top-layer=""
+      {...props}
+    />
   );
 }
 
@@ -38,7 +43,7 @@ function DropdownMenuContent({
 }: DropdownMenuPrimitive.Popup.Props &
   Pick<DropdownMenuPrimitive.Positioner.Props, "align" | "side" | "sideOffset">) {
   return (
-    <DropdownMenuPrimitive.Portal>
+    <DropdownMenuPortal>
       <DropdownMenuPrimitive.Positioner
         data-slot="dropdown-menu-positioner"
         className="z-50"
@@ -55,7 +60,7 @@ function DropdownMenuContent({
           {...props}
         />
       </DropdownMenuPrimitive.Positioner>
-    </DropdownMenuPrimitive.Portal>
+    </DropdownMenuPortal>
   );
 }
 

@@ -22,7 +22,14 @@ function DialogTrigger({
 function DialogPortal({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Portal>) {
-  return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />;
+  return (
+    <DialogPrimitive.Portal
+      data-slot="dialog-portal"
+      // Opens over a detent sheet, which leaves React Aria's top layer usable.
+      data-react-aria-top-layer=""
+      {...props}
+    />
+  );
 }
 
 function DialogClose({

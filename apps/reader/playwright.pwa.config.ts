@@ -13,8 +13,9 @@ export default defineConfig({
     screenshot: "only-on-failure",
   },
   webServer: {
-    command:
-      "python3 -m http.server 5195 --bind 127.0.0.1 --directory dist/client",
+    // http.server queues only 5 connections and resets the rest, which the
+    // service worker's precache burst exceeds while the page loads modules.
+    command: `python3 -c "import functools, http.server as h; h.ThreadingHTTPServer.request_queue_size = 256; h.test(HandlerClass=functools.partial(h.SimpleHTTPRequestHandler, directory='dist/client'), ServerClass=h.ThreadingHTTPServer, port=5195, bind='127.0.0.1')"`,
     url: "http://127.0.0.1:5195",
     reuseExistingServer: false,
   },

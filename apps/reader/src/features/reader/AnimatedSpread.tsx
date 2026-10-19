@@ -3,6 +3,7 @@ import type { ResolvedSpread, SpreadConfig } from "@/lib/pagination-v2/types";
 import { motion, useIsPresent, usePresenceData } from "motion/react";
 import { useState } from "react";
 import { PageSliceView } from "./PageSliceView";
+import { getPageContentKey } from "./spread-identity";
 
 export type NavDirection = "forward" | "backward" | "instant";
 
@@ -54,8 +55,12 @@ export function SpreadView({
         paddingRight: `${paddingRightPx}px`,
       }}
     >
+      {/* Pages clip only vertically. Glyph ink can extend past the text
+          column, such as a line-initial "j" or a line-final italic "f", and
+          the page margin must show it. The spread still clips at the stage
+          edge above. */}
       <div
-        className="h-full w-full overflow-hidden grid"
+        className="grid h-full w-full overflow-x-visible overflow-y-clip"
         style={{
           gridTemplateColumns: `repeat(${spreadConfig.columns}, minmax(0, 1fr))`,
           columnGap: `${columnSpacingPx}px`,
@@ -77,13 +82,14 @@ export function SpreadView({
 
           return (
             <div
-              key={`page-${slot.slotIndex}-${slot.page.currentPage}`}
+              key={`page-${slot.slotIndex}-${getPageContentKey(slot.page)}`}
               data-reader-page-slot={slot.slotIndex}
               data-reader-current-page={slot.page.currentPage}
+              data-reader-chapter-index={slot.page.chapterIndex}
               className={
                 showDebugOutlines
-                  ? "relative h-full w-full overflow-hidden reader-container-outline"
-                  : "relative h-full w-full overflow-hidden"
+                  ? "relative h-full w-full overflow-x-visible overflow-y-clip reader-container-outline"
+                  : "relative h-full w-full overflow-x-visible overflow-y-clip"
               }
             >
               <div
@@ -91,7 +97,7 @@ export function SpreadView({
                 aria-hidden="true"
               />
               <div
-                className="relative z-10 h-full w-full overflow-hidden"
+                className="relative z-10 h-full w-full overflow-x-visible overflow-y-clip"
                 data-reader-page-content
               >
                 {slot.page.content.map((slice, i) => (

@@ -31,8 +31,13 @@ test("cached production PWA opens in a fresh page offline and reconnects", async
   await expect
     .poll(() =>
       page.evaluate(async () => {
+        // Production names the database after its shared sync service.
+        const name = (await indexedDB.databases())
+          .map((database) => database.name)
+          .find((name) => name?.startsWith("epub-reader-db-v2"));
+        if (!name) return false;
         const db = await new Promise<IDBDatabase>((resolve, reject) => {
-          const request = indexedDB.open("epub-reader-db-v2");
+          const request = indexedDB.open(name);
           request.onsuccess = () => resolve(request.result);
           request.onerror = () => reject(request.error);
         });

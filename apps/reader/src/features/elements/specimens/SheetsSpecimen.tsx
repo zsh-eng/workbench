@@ -12,7 +12,6 @@ import {
 } from "@/features/reader/ReaderDetentSheets";
 import { ReaderHeader } from "@/features/reader/ReaderHeader";
 import {
-  ReaderSettingsList,
   ReaderSettingsPanel,
   type ReaderSettingsPanelTab,
 } from "@/features/reader/ReaderSettingsSheet";
@@ -147,19 +146,13 @@ export function SheetsSpecimen({
           />
         );
       case "settings":
-        return variant === "detents" ? (
-          <ReaderSettingsList
-            settings={settings}
-            onUpdateSettings={update}
-            className="min-h-0 flex-1"
-          />
-        ) : (
+        return (
           <ReaderSettingsPanel
             settings={settings}
             onUpdateSettings={update}
             activeTab={settingsTab}
             onActiveTabChange={setSettingsTab}
-            className="mt-0 h-full"
+            className={variant === "detents" ? "mt-0 h-auto" : "mt-0 h-full"}
           />
         );
       case "book-actions":
@@ -217,6 +210,7 @@ export function SheetsSpecimen({
           rootPage="tools"
           title={READER_SHEET_PAGES[active ?? "tools"].title}
           onBack={() => setActive("tools")}
+          safeAreaBottom={active !== "settings"}
         >
           {renderPage(active ?? "tools")}
         </SlidingSheet>
@@ -246,13 +240,10 @@ function useDrivenSheet(page: ReaderSheetId | null) {
     const height =
       sheet.getBoundingClientRect().height -
       parseFloat(getComputedStyle(sheet).paddingBottom);
-    const point = READER_SHEET_PAGES[page].snapPoints?.[0];
-    const detent =
-      point === undefined
-        ? height
-        : typeof point === "number"
-          ? point
-          : (parseFloat(point) / 100) * height;
+    // React Aria marks the first detent inside the sheet, as far down from
+    // its top edge as the detent shows.
+    const marker = sheet.querySelector<HTMLElement>("[data-sheet-initial]");
+    const detent = marker ? Math.min(marker.offsetTop, height) : height;
     const progress = Math.min(1, Math.max(0, time / SHEET_TIMELINE.duration));
     const lerp = (from: number, to: number, t: number) =>
       from + (to - from) * t;

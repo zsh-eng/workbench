@@ -94,6 +94,8 @@ export function ReaderNotesPrototype({
   mobileAnnotation?: {
     identity: object;
     tools: ReactNode;
+    /** An action between the tools and Note. */
+    action?: ReactNode;
     /** The existing highlight being edited, if any. */
     highlightId?: string;
     captureTarget: () => NoteTarget | null;
@@ -115,7 +117,13 @@ export function ReaderNotesPrototype({
   embeddedNotebook?: boolean;
   quote: NoteTarget | null;
   onClearQuote: () => void;
-  margin: { width: number; location: Location; enabled: boolean };
+  margin: {
+    width: number;
+    location: Location;
+    enabled: boolean;
+    /** Scroll mode: notes move with their passages instead of clamping. */
+    follow?: boolean;
+  };
   location: Location;
   currentChapterIndex: number;
   open: boolean;
@@ -296,13 +304,41 @@ export function ReaderNotesPrototype({
   // in the page and before it is painted; during render the page still shows
   // the previous spread.
   const [marginTops, setMarginTops] = useState<Record<string, number>>({});
+  const marginAsideRef = useRef<HTMLElement>(null);
+  // Scroll mode: the scroll offset the tops were measured at.
+  const marginScrollTopRef = useRef(0);
   useLayoutEffect(() => {
+    marginScrollTopRef.current =
+      document.querySelector("[data-reader-scroll-stage]")?.scrollTop ?? 0;
+    if (marginAsideRef.current) marginAsideRef.current.style.translate = "";
     setMarginTops(
       Object.fromEntries(
         resolved.map(({ note, anchor }) => [note.id, noteMarginTop(anchor)]),
       ),
     );
   }, [resolved]);
+  // In scroll mode the notes move with the text between measurements.
+  const marginFollow = margin.follow ?? false;
+  useEffect(() => {
+    if (!marginFollow) return;
+    const onScroll = (event: Event) => {
+      const scroller = event.target;
+      const aside = marginAsideRef.current;
+      if (
+        !aside ||
+        !(scroller instanceof HTMLElement) ||
+        !scroller.hasAttribute("data-reader-scroll-stage")
+      )
+        return;
+      aside.style.translate = `0 ${marginScrollTopRef.current - scroller.scrollTop}px`;
+    };
+    document.addEventListener("scroll", onScroll, {
+      capture: true,
+      passive: true,
+    });
+    return () =>
+      document.removeEventListener("scroll", onScroll, { capture: true });
+  }, [marginFollow]);
   const handledTarget = useRef<NoteTarget | null>(null);
   useEffect(() => {
     if (
@@ -1306,18 +1342,21 @@ export function ReaderNotesPrototype({
       )}
       {margin.enabled && !notebook && (
         <aside
+          ref={marginAsideRef}
           aria-label="Page margin notes"
           className="fixed z-40 max-h-[calc(100dvh-6rem)] overflow-y-auto"
           style={{
             left: marginColumn.left,
             width: marginColumn.width,
-            top: Math.max(
-              80,
-              Math.min(
-                marginEntries[0]?.top ?? commentPosition.top,
-                window.innerHeight - 220,
-              ),
-            ),
+            top: marginFollow
+              ? (marginEntries[0]?.top ?? commentPosition.top)
+              : Math.max(
+                  80,
+                  Math.min(
+                    marginEntries[0]?.top ?? commentPosition.top,
+                    window.innerHeight - 220,
+                  ),
+                ),
           }}
         >
           {marginRail
@@ -1414,6 +1453,7 @@ export function ReaderNotesPrototype({
                   {islandState === "tools" && mobileAnnotation && (
                     <IslandTools
                       tools={mobileAnnotation.tools}
+                      action={mobileAnnotation.action}
                       actionLabel={composeHasText ? "Attach" : "Note"}
                       onNote={() => void noteOnPassage()}
                     />

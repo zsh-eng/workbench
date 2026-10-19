@@ -5,7 +5,11 @@ import {
   CHROME_HIDE_DELAY_MS,
   useHoverChromeBehavior,
 } from "./hooks/use-hover-chrome-behavior";
-import { useTouchSpreadTapNav } from "./hooks/use-touch-spread-tap-nav";
+import { useScrollTapChrome } from "./hooks/use-scroll-tap-chrome";
+import {
+  useTouchSpreadTapNav,
+  type TouchPullHandlers,
+} from "./hooks/use-touch-spread-tap-nav";
 
 export { CHROME_HIDE_DELAY_MS };
 
@@ -16,6 +20,7 @@ interface ReaderControllerChildrenState {
   topRailProps: ReaderChromeRailProps;
   bottomRailProps: ReaderChromeRailProps;
   chromeSurfaceProps: ReaderChromeSurfaceProps;
+  showChrome: () => void;
   hideChrome: () => void;
 }
 
@@ -26,6 +31,13 @@ interface ReaderControllerProps {
   canGoNext: boolean;
   chromeInteractionMode: ChromeInteractionMode;
   isChromeSuppressed?: boolean;
+  /**
+   * Prototype scroll mode: a tap toggles the chrome and nothing else. Tap
+   * zones, page swipes and the upward progress peek are off.
+   */
+  scrollMode?: boolean;
+  /** Pull to scroll from pages (prototype). */
+  pull?: TouchPullHandlers;
   onDismissContentTap?: () => void;
   containerRef: RefObject<HTMLElement | null>;
   topRailHeight: number;
@@ -58,6 +70,8 @@ export function ReaderController({
   canGoNext,
   chromeInteractionMode,
   isChromeSuppressed = false,
+  scrollMode = false,
+  pull,
   onDismissContentTap,
   containerRef,
   topRailHeight,
@@ -90,7 +104,8 @@ export function ReaderController({
 
   const progressPeek = useTouchSpreadTapNav({
     containerRef,
-    enabled: isTouchMode && !isChromeSuppressed,
+    enabled: isTouchMode && !isChromeSuppressed && !scrollMode,
+    pull,
     onPrevSpread: onPrevPage,
     onNextSpread: onNextPage,
     onShowChrome: showChrome,
@@ -98,6 +113,14 @@ export function ReaderController({
     chromeVisible: chromeVisible || Boolean(onDismissContentTap),
     canGoPrev,
     canGoNext,
+  });
+
+  useScrollTapChrome({
+    containerRef,
+    enabled: isTouchMode && !isChromeSuppressed && scrollMode,
+    chromeVisible: chromeVisible || Boolean(onDismissContentTap),
+    onShowChrome: showChrome,
+    onHideChrome: onDismissContentTap ?? hideChrome,
   });
 
   const hoverChrome = useHoverChromeBehavior({
@@ -115,6 +138,7 @@ export function ReaderController({
         chromeVisible,
         progressPeek,
         showHoverRails: hoverChrome.showHoverRails,
+        showChrome,
         hideChrome,
         topRailProps: hoverChrome.topRailProps,
         bottomRailProps: hoverChrome.bottomRailProps,

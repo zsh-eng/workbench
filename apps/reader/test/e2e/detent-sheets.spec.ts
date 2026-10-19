@@ -1,5 +1,11 @@
 import type { Locator, Page } from "@playwright/test";
-import { test, expect, openLocalBook } from "./helpers/fixtures";
+import {
+  test,
+  expect,
+  openLocalBook,
+  openReaderTools,
+  waitForSheet,
+} from "./helpers/fixtures";
 
 test.use({
   viewport: { width: 390, height: 844 },
@@ -17,6 +23,14 @@ function visibleShare(dialog: Locator) {
     const padding = parseFloat(getComputedStyle(sheet).paddingBottom);
     const height = box.height - padding;
     return Math.min(1, (innerHeight - box.top) / height);
+  });
+}
+
+/** The share of the screen a sheet covers. Lists rest at 55% of it. */
+function screenShare(dialog: Locator) {
+  return dialog.evaluate((element) => {
+    const sheet = element.closest(".reader-sheet") as HTMLElement;
+    return (innerHeight - sheet.getBoundingClientRect().top) / innerHeight;
   });
 }
 
@@ -61,11 +75,11 @@ test("Reader sheets rest on detents and stack over Reader tools", async ({
   );
   expect(toolsTop).toBeGreaterThan(844 / 2);
 
-  // Contents stacks over the tools at its first detent.
+  // Contents stacks over the tools at the lists' medium detent.
   await tools.getByRole("button", { name: /Contents/ }).click();
   const contents = page.getByRole("dialog", { name: "Contents" });
   await settled(contents);
-  await expect.poll(() => visibleShare(contents)).toBeCloseTo(0.6, 1);
+  await expect.poll(() => screenShare(contents)).toBeCloseTo(0.55, 1);
   await expect(tools).toBeAttached();
 
   // A swipe up takes it to full height; Back returns to the tools.
@@ -75,13 +89,30 @@ test("Reader sheets rest on detents and stack over Reader tools", async ({
   await expect(contents).toBeHidden();
   await expect(tools).toBeVisible();
 
-  // Appearance takes the place of the tools, low and without dimming.
-  await tools.getByRole("button", { name: "Themes & settings" }).click();
-  const settings = page.getByRole("dialog", { name: "Reading settings" });
+  // Appearance takes the place of the tools, fits its tab, and does not dim.
+  await tools.getByRole("button", { name: "Appearance", exact: true }).click();
+  const settings = page.getByRole("dialog", {
+    name: "Appearance",
+    exact: true,
+  });
   await settled(settings);
   await expect(tools).toBeHidden();
-  await expect.poll(() => visibleShare(settings)).toBeLessThan(0.6);
+  await expect.poll(() => visibleShare(settings)).toBeCloseTo(1, 1);
   await expect(page.locator(".reader-sheet-backdrop")).toHaveCount(0);
+
+  // A taller tab raises the sheet's top edge, and the page stays in view.
+  const top = () =>
+    settings.evaluate(
+      (element) =>
+        element.closest(".reader-sheet")!.getBoundingClientRect().top,
+    );
+  const typeTop = await top();
+  expect(typeTop).toBeGreaterThan(844 / 4);
+  await settings.getByRole("tab", { name: "Theme" }).click();
+  await expect.poll(top).toBeLessThan(typeTop - 40);
+  await expect.poll(() => visibleShare(settings)).toBeCloseTo(1, 1);
+  await settings.getByRole("tab", { name: "Type" }).click();
+  await expect.poll(top).toBeCloseTo(typeTop, 0);
 
   // Changes apply to the page behind the sheet.
   const page17 = page.getByText("Curiouser and curiouser!", { exact: false });
@@ -111,13 +142,36 @@ test("A page tapped while Reader tools still opens takes taps", async ({
   await expect(finished).toHaveAttribute("aria-pressed", "true");
 });
 
-test("With the trial on, the Reader opens Contents as a detent sheet", async ({
+test("A menu and a toast opened from a sheet take taps", async ({
   page,
   localBook,
 }) => {
-  await page.addInitScript(() =>
-    localStorage.setItem("reader-detent-sheets-v1", "true"),
-  );
+  // The sheet makes the page behind it inert. A menu or toast renders
+  // outside the sheet, and stayed inert under it until it joined React
+  // Aria's top layer.
+  await openLocalBook(page, localBook.id);
+  await page.touchscreen.tap(195, 422);
+  const tools = await openReaderTools(page);
+  await tools.getByRole("button", { name: "Notebook", exact: true }).click();
+  const notebook = await waitForSheet(page, "Notebook");
+  const input = notebook.getByRole("textbox", { name: "Write a note" });
+  await input.fill("A note to delete");
+  await input.press("Control+Enter");
+  const note = notebook.getByText("A note to delete", { exact: true });
+  await expect(note).toBeVisible();
+
+  await note.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Delete note" }).click();
+  await expect(note).toHaveCount(0);
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(note).toBeVisible();
+  await expect(notebook).toBeVisible();
+});
+
+test("The Reader opens Contents as a detent sheet by default", async ({
+  page,
+  localBook,
+}) => {
   await openLocalBook(page, localBook.id);
   await page.touchscreen.tap(195, 422);
   await page
@@ -128,10 +182,10 @@ test("With the trial on, the Reader opens Contents as a detent sheet", async ({
   await tools.getByRole("button", { name: /Contents/ }).click();
   const contents = page.getByRole("dialog", { name: "Contents" });
   await settled(contents);
-  await expect.poll(() => visibleShare(contents)).toBeCloseTo(0.6, 1);
+  await expect.poll(() => screenShare(contents)).toBeCloseTo(0.55, 1);
 
   // A chapter is a tap away at the detent; the book turns to it behind the
-  // sheet, which stays open, as the shipped sheet does.
+  // sheet, which stays open, as the fixed-height sheet does.
   const chapter = contents
     .getByRole("button")
     .filter({ hasText: /Pool of Tears/i })
@@ -146,4 +200,58 @@ test("With the trial on, the Reader opens Contents as a detent sheet", async ({
   await contents.getByRole("button", { name: "Back to reader tools" }).click();
   await expect(contents).toBeHidden();
   await expect(tools).toBeVisible();
+});
+
+test("Search rests at the medium detent and full height", async ({
+  page,
+  localBook,
+}) => {
+  await openLocalBook(page, localBook.id);
+  await page.touchscreen.tap(195, 422);
+  await page
+    .getByRole("button", { name: "Open reader tools", exact: true })
+    .click();
+  const tools = page.getByRole("dialog", { name: "Reader tools" });
+  await settled(tools);
+  await tools.getByRole("button", { name: /Search book/ }).click();
+  const sheet = page.getByRole("dialog", { name: "Search book" });
+  await settled(sheet);
+
+  // An empty field takes focus. The keyboard would cover the medium
+  // detent, so the sheet opens at full height.
+  const field = sheet.getByRole("searchbox");
+  await expect(field).toBeFocused();
+  await expect.poll(() => visibleShare(sheet)).toBeGreaterThan(0.98);
+  await field.fill("Dinah");
+  await expect(sheet.locator("[data-search-status]")).toHaveAttribute(
+    "data-search-status",
+    "done",
+  );
+
+  // Dragged down by its header, it rests at the medium detent and puts the
+  // keyboard away.
+  await swipe(page, 60, 420);
+  await expect.poll(() => screenShare(sheet)).toBeCloseTo(0.55, 1);
+  await expect(field).not.toBeFocused();
+
+  // A result opens its page, and the sheet closes over it.
+  const results = sheet.locator("[data-search-result]");
+  await results.nth(1).click();
+  await expect(sheet).toBeHidden();
+  const stepper = page.getByTestId("search-stepper");
+  await expect(stepper).toContainText("2 of");
+
+  // The count brings the results back at the medium detent, with the
+  // result in view and the keyboard away.
+  await stepper.getByRole("button", { name: /Show all results/ }).tap();
+  await settled(sheet);
+  await expect.poll(() => screenShare(sheet)).toBeCloseTo(0.55, 1);
+  await expect(results.nth(1)).toHaveAttribute("aria-current", "true");
+  await expect(results.nth(1)).toBeInViewport();
+  await expect(field).not.toBeFocused();
+
+  // Tapping the field raises the sheet to full height.
+  await field.tap();
+  await expect(field).toBeFocused();
+  await expect.poll(() => visibleShare(sheet)).toBeGreaterThan(0.98);
 });

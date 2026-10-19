@@ -2,13 +2,18 @@ import type { Book } from "@/lib/db";
 import type {
   Block,
   ChapterCanonicalText,
+  ChapterColumnLayout,
+  ContentAnchor,
   PaginationConfig,
   PaginationStatus,
   ResolvedSpread,
   ResolvedSpreadWindow,
   SpreadConfig,
+  SpreadIntent,
 } from "@/lib/pagination-v2";
+import type { TextOffsetLocation } from "@/lib/pagination-v2/protocol";
 import type { Highlight } from "@/types/highlight";
+import type { ReaderLocation } from "../reader-location";
 import type { ReaderSettings } from "@/types/reader.types";
 import { useMemo } from "react";
 import type { ChapterEntry } from "../types";
@@ -20,6 +25,7 @@ import {
 } from "./use-reader-navigation-actions";
 
 const EMPTY_HISTORY_PAGES: Record<string, number | null> = {};
+const EMPTY_SEARCH_LOCATIONS: Record<string, TextOffsetLocation | null> = {};
 
 export interface UseReaderSessionOptions {
   bookId?: string;
@@ -28,13 +34,12 @@ export interface UseReaderSessionOptions {
   paragraphSpacingFactor?: number;
   /** Prevents the first pagination run until the real reader stage is known. */
   layoutReady?: boolean;
+  /** Scroll mode's location; page numbers and progress follow it while set. */
+  scrollLocation?: ReaderLocation | null;
 }
 
 export type ReaderSessionStatus =
-  | "loading"
-  | "ready"
-  | "not-found"
-  | "file-error";
+  "loading" | "ready" | "not-found" | "file-error";
 
 export interface ReaderSessionChapterAccess {
   getBlocks: (chapterIndex: number) => Block[] | null;
@@ -66,11 +71,15 @@ export interface ReaderSessionPaginationState {
   historyAnchorPages: Record<string, number | null>;
   /** Pages of the notebook's highlights, located in their own scope. */
   highlightAnchorPages: Record<string, number | null>;
+  /** Where search matches sit, by match id, once located. */
+  searchLocations: Record<string, TextOffsetLocation | null>;
   spread: ResolvedSpread | null;
   spreadWindow: ResolvedSpreadWindow | null;
   status: PaginationStatus;
   spreadConfig: SpreadConfig;
   paginationConfig: PaginationConfig;
+  /** The subscribed chapter's scroll column (prototype scroll mode). */
+  scrollColumn: ChapterColumnLayout | null;
 }
 
 export interface ReaderSessionState {
@@ -91,6 +100,9 @@ export interface ReaderSessionResources {
   locateAnchors: ReturnType<
     typeof useReaderCore
   >["pagination"]["locateAnchors"];
+  locateTextOffsets: ReturnType<
+    typeof useReaderCore
+  >["pagination"]["locateTextOffsets"];
   chapterAccess: ReaderSessionChapterAccess;
 }
 
@@ -113,8 +125,21 @@ export interface ReaderSessionActions {
   openTocHref: ReaderNavigationActions["openTocHref"];
   goToNotePage: ReaderNavigationActions["goToNotePage"];
   goToHighlight: ReaderNavigationActions["goToHighlight"];
+  /**
+   * Opens the page holding a canonical text offset, such as a search result,
+   * as a jump the reader can go back from.
+   */
+  /** Opens canonical text as a jump, or for search, as a preview only. */
+  goToTextOffset: (
+    chapterIndex: number,
+    offset: number,
+    source: "search" | "highlight" | "note" | "search-preview",
+  ) => void;
   createHighlight: (highlight: Highlight) => void;
   resumeBackgroundLoad: () => void;
+  /** Subscribes one chapter's scroll column; null stops the updates. */
+  setScrollChapter: (chapterIndex: number | null) => void;
+  goToAnchor: (anchor: ContentAnchor, intent: SpreadIntent) => void;
 }
 
 export interface UseReaderSessionResult {
@@ -189,11 +214,14 @@ export function useReaderSession(
         highlightAnchorPages:
           core.pagination.anchorPagesByScope["notebook-highlights"] ??
           EMPTY_HISTORY_PAGES,
+        searchLocations:
+          core.pagination.textOffsetsByScope.search ?? EMPTY_SEARCH_LOCATIONS,
         spread: core.pagination.spread,
         spreadWindow: core.pagination.spreadWindow,
         status: core.pagination.status,
         spreadConfig: core.spreadConfig,
         paginationConfig: core.paginationConfig,
+        scrollColumn: core.pagination.scrollColumn,
       },
       navigation: {
         currentPage: core.currentPage,
@@ -213,6 +241,7 @@ export function useReaderSession(
     core.jumpHistory.state,
     core.jumpHistory.presentation,
     core.pagination.anchorPagesByScope,
+    core.pagination.textOffsetsByScope,
     core.book,
     core.bookHighlights,
     core.chapterEntries,
@@ -226,6 +255,7 @@ export function useReaderSession(
     core.pagination.spread,
     core.pagination.spreadWindow,
     core.pagination.status,
+    core.pagination.scrollColumn,
     core.paginationConfig,
     core.settings,
     core.spreadConfig,
@@ -238,28 +268,51 @@ export function useReaderSession(
     () => ({
       chapterAccess,
       locateAnchors: core.pagination.locateAnchors,
+      locateTextOffsets: core.pagination.locateTextOffsets,
     }),
-    [chapterAccess, core.pagination.locateAnchors],
+    [
+      chapterAccess,
+      core.pagination.locateAnchors,
+      core.pagination.locateTextOffsets,
+    ],
   );
 
+  const { goToTextOffset } = core.pagination;
+  const { getChapterCanonicalText } = core;
+  const goToAnchor = core.pagination.goToAnchor;
   const actions = useMemo<ReaderSessionActions>(
     () => ({
-      selectHistoryVisit: (index) =>
-        core.jumpHistory.select(index, core.pagination.goToAnchor),
+      selectHistoryVisit: (index) => core.jumpHistory.select(index, goToAnchor),
       setHistoryExpanded: core.jumpHistory.setExpanded,
-      goBackInHistory: () =>
-        core.jumpHistory.go("back", core.pagination.goToAnchor),
-      goForwardInHistory: () =>
-        core.jumpHistory.go("forward", core.pagination.goToAnchor),
+      goBackInHistory: () => core.jumpHistory.go("back", goToAnchor),
+      goForwardInHistory: () => core.jumpHistory.go("forward", goToAnchor),
       endHistoryGroup: core.jumpHistory.endGroup,
       updateSettings: core.onUpdateSettings,
       ...navigationActions,
+      goToTextOffset: (chapterIndex, offset, source) => {
+        const text = getChapterCanonicalText(chapterIndex);
+        if (!text) return;
+        goToTextOffset(
+          { chapterIndex, offset, blockStarts: [...text.blockStarts] },
+          {
+            intent:
+              source === "search-preview"
+                ? { kind: "preview", source: "search" }
+                : { kind: "jump", source },
+          },
+        );
+      },
       createHighlight,
       resumeBackgroundLoad: core.resumeBackgroundLoad,
+      setScrollChapter: core.pagination.setScrollChapter,
+      goToAnchor: (anchor, intent) => goToAnchor(anchor, { intent }),
     }),
     [
       core.jumpHistory,
-      core.pagination.goToAnchor,
+      goToAnchor,
+      goToTextOffset,
+      getChapterCanonicalText,
+      core.pagination.setScrollChapter,
       core.onUpdateSettings,
       core.resumeBackgroundLoad,
       createHighlight,

@@ -51,7 +51,7 @@ Roadmap (v0.3):
 - [ ] Text notes
 - [ ] Reading stats over time
 - [ ] Book shelves (DNF, completed, etc.)
-- [ ] Full text search
+- [x] Full text search
 - [ ] Add multiple EPUBs at once
 
 Future:

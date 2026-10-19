@@ -173,8 +173,6 @@ export interface ProcessResourcesOptions {
   skipImages?: boolean;
   /** Whether linked resources (CSS/fonts/etc.) should be loaded and blob-URL rewritten */
   loadLinkedResources?: boolean;
-  /** Optional intrinsic dimensions keyed by resolved EPUB resource path */
-  imageDimensionsByPath?: Map<string, { width: number; height: number }>;
 }
 
 /**
@@ -211,7 +209,6 @@ export async function processEmbeddedResources(
     resourceUrlMap,
     skipImages = false,
     loadLinkedResources = true,
-    imageDimensionsByPath,
   } = options;
 
   // Use provided map or create a new one
@@ -266,17 +263,6 @@ export async function processEmbeddedResources(
 
     // Resolve the resource path relative to the base path
     const resolvedPath = resolvePath(basePath, resourcePath);
-    const maybeDimensions = imageDimensionsByPath?.get(resolvedPath);
-    if (maybeDimensions && (tagName === "img" || tagName === "image")) {
-      element.setAttribute(
-        "data-epub-intrinsic-width",
-        String(maybeDimensions.width),
-      );
-      element.setAttribute(
-        "data-epub-intrinsic-height",
-        String(maybeDimensions.height),
-      );
-    }
 
     if (skipImages && src && tagName === "img") {
       element.setAttribute(DEFERRED_EPUB_IMAGE_ATTR, resolvedPath);

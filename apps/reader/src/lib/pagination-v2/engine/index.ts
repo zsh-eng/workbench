@@ -1,8 +1,12 @@
 // Engine orchestrator: owns pagination state, creates stepwise pagination jobs,
 // and delegates anchor/spread calculations to the engine helper modules.
 import type {
+  ChapterColumnEvent,
   ChapterUnavailableEvent,
   ErrorEvent,
+  GoToTextOffsetCommand,
+  LocateTextOffsetsCommand,
+  TextOffsetLocation,
   PageContentEvent,
   PageUnavailableEvent,
   PaginationCommand,
@@ -10,6 +14,7 @@ import type {
   ProgressEvent,
   ReadyEvent,
 } from "../protocol";
+import { layoutChapterColumn } from "../shared/layout-column";
 import { layoutPages } from "../shared/layout-pages";
 import { prepareBlocks } from "../shared/prepare-blocks";
 import type {
@@ -35,12 +40,16 @@ import {
   resolveTargetToAnchor,
   resolveHighlightToAnchor,
 } from "./anchors";
+import { createCanonicalOffsetLocator } from "./highlight-selection";
 import {
   buildResolvedSpreadWindow,
   countTotalSpreads,
   resolveAnchorForSpreadIndex,
   resolveCurrentSpreadIndex,
 } from "./spreads";
+
+/** Text offsets placed between yields, so a page turn can run between. */
+const LOCATE_OFFSETS_PER_STEP = 32;
 
 export type EnginePaginationEvent =
   | {
@@ -49,12 +58,19 @@ export type EnginePaginationEvent =
       requestId: number;
       pages: Record<string, number | null>;
     }
+  | {
+      type: "textOffsetsLocated";
+      scope: string;
+      requestId: number;
+      locations: Record<string, TextOffsetLocation | null>;
+    }
   | Omit<PartialReadyEvent, "epoch">
   | Omit<ReadyEvent, "epoch">
   | Omit<ProgressEvent, "epoch">
   | Omit<PageContentEvent, "epoch">
   | Omit<PageUnavailableEvent, "epoch">
   | Omit<ChapterUnavailableEvent, "epoch">
+  | Omit<ChapterColumnEvent, "epoch">
   | ErrorEvent;
 
 export type PaginationEngineWork = Generator<void, void, void>;
@@ -93,8 +109,11 @@ function resolveIntent(command: PaginationCommand): SpreadIntent {
     case "goToAnchor":
     case "goToChapter":
     case "goToTarget":
+    case "goToTextOffset":
       return command.intent;
     case "locateAnchors":
+    case "locateTextOffsets":
+    case "setScrollChapter":
     case "addChapter":
     case "updateChapter":
     case "updatePaginationConfig":
@@ -122,6 +141,8 @@ export class PaginationEngine {
   private anchor!: ContentAnchor;
   /** Keeps the current anchor in the same visible slot across 2-up reprojections. */
   private preferredAnchorSlotIndex: number | null = null;
+  /** The chapter whose scroll column is republished after each layout. */
+  private scrollChapterIndex: number | null = null;
 
   constructor(emit: (event: EnginePaginationEvent) => void) {
     this.emit = emit;
@@ -203,6 +224,19 @@ export class PaginationEngine {
             pages,
           });
         });
+      case "locateTextOffsets":
+        return this.runLocateTextOffsetsWork(intent, cmd);
+      case "goToTextOffset":
+        return this.runOneStepWork(intent, () => {
+          this.goToTextOffset(intent, cmd);
+        });
+      case "setScrollChapter":
+        return this.runOneStepWork(intent, () => {
+          this.scrollChapterIndex = cmd.chapterIndex;
+          if (cmd.chapterIndex !== null) {
+            this.emitChapterColumn(cmd.chapterIndex);
+          }
+        });
       case "goToTarget":
         return this.runOneStepWork(intent, () => {
           this.goToTarget(
@@ -213,6 +247,57 @@ export class PaginationEngine {
           );
         });
     }
+  }
+
+  /** A few offsets per step, so a page turn never waits on a long chapter. */
+  private *runLocateTextOffsetsWork(
+    intent: SpreadIntent,
+    cmd: LocateTextOffsetsCommand,
+  ): PaginationEngineWork {
+    const locations: Record<string, TextOffsetLocation | null> = {};
+    try {
+      for (const chapter of cmd.chapters) {
+        const chapterBlocks = this.blocksByChapter[chapter.chapterIndex];
+        const preparedChapter = this.preparedByChapter[chapter.chapterIndex];
+        const locate =
+          chapterBlocks && preparedChapter
+            ? createCanonicalOffsetLocator({
+                chapterIndex: chapter.chapterIndex,
+                chapterBlocks,
+                preparedChapter,
+                blockStarts: new Map(chapter.blockStarts),
+              })
+            : null;
+        for (const [index, { id, offset }] of chapter.offsets.entries()) {
+          if (index > 0 && index % LOCATE_OFFSETS_PER_STEP === 0) yield;
+          const anchor = locate?.(offset) ?? null;
+          const resolved = anchor
+            ? resolveAnchorToPage(this.pagesByChapter, anchor)
+            : null;
+          locations[id] = anchor
+            ? {
+                anchor,
+                page: resolved
+                  ? (this.chapterPageOffsets[resolved.chapterIndex] ?? 0) +
+                    resolved.localPageIndex +
+                    1
+                  : null,
+                pageInChapter: resolved ? resolved.localPageIndex + 1 : null,
+              }
+            : null;
+        }
+        yield;
+      }
+    } catch (err) {
+      this.emitException(intent, err);
+      return;
+    }
+    this.emit({
+      type: "textOffsetsLocated",
+      scope: cmd.scope,
+      requestId: cmd.requestId,
+      locations,
+    });
   }
 
   private *runOneStepWork(
@@ -625,6 +710,28 @@ export class PaginationEngine {
     this.emitPageContent(intent);
   }
 
+  goToTextOffset(intent: SpreadIntent, cmd: GoToTextOffsetCommand): void {
+    const chapterBlocks = this.blocksByChapter[cmd.chapterIndex];
+    const preparedChapter = this.preparedByChapter[cmd.chapterIndex];
+    const anchor =
+      chapterBlocks && preparedChapter && this.pagesByChapter[cmd.chapterIndex]
+        ? createCanonicalOffsetLocator({
+            chapterIndex: cmd.chapterIndex,
+            chapterBlocks,
+            preparedChapter,
+            blockStarts: new Map(cmd.blockStarts),
+          })(cmd.offset)
+        : null;
+    if (!anchor) {
+      this.emitPageUnavailable(intent);
+      return;
+    }
+    // The page falls where it would when reading, not at the spread's start.
+    this.preferredAnchorSlotIndex = null;
+    this.anchor = anchor;
+    this.emitPageContent(intent);
+  }
+
   goToChapter(intent: SpreadIntent, chapterIndex: number): void {
     const chapter = Math.floor(chapterIndex);
     if (chapter < 0 || chapter >= this.totalChapters) {
@@ -774,7 +881,40 @@ export class PaginationEngine {
       totalMs: stage2PrepareMs + result.diagnostics.computeMs,
     };
     this.chapterDiagnosticsByChapter[chapterIndex] = diagnostics;
+    if (chapterIndex === this.scrollChapterIndex) {
+      this.emitChapterColumn(chapterIndex);
+    }
     return diagnostics;
+  }
+
+  /**
+   * Publishes one chapter as a scroll column. It waits for the chapter's
+   * first layout; layoutPreparedChapter calls it again after each relayout.
+   */
+  private emitChapterColumn(chapterIndex: number): void {
+    const prepared = this.preparedByChapter[chapterIndex];
+    const pages = this.pagesByChapter[chapterIndex];
+    if (!prepared || !pages) return;
+
+    const { viewport, layoutTheme } = this.paginationConfig;
+    const column = layoutChapterColumn(
+      prepared,
+      pages,
+      viewport.width,
+      layoutTheme,
+    );
+    this.emit({
+      type: "chapterColumn",
+      column: {
+        chapterIndex,
+        width: viewport.width,
+        pageHeight: viewport.height,
+        ...column,
+        pageAnchors: pages.map((_, pageIndex) =>
+          pickAnchorForPage(this.pagesByChapter, chapterIndex, pageIndex),
+        ),
+      },
+    });
   }
 
   private get chapterPageOffsets(): number[] {

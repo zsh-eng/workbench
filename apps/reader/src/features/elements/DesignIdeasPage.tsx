@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useState, useSyncExternalStore } from "react";
+import { Link, useParams } from "react-router-dom";
 import { useBooksWithStatuses } from "@/hooks/use-books-with-statuses";
 import {
   DEVICES,
@@ -72,21 +72,60 @@ const TOPICS: Record<IdeaTopic, TopicIdeas> = {
       },
     ],
   },
-  sessions: {
+  search: {
     current: {
-      id: "sessions-current",
-      title: "Current Sessions",
+      id: "search-tint",
+      title: "Tint and underline",
       description:
-        "What ships today: a dashboard of cards, a teal chart, and a row of month chips.",
-      src: "/reading-sessions",
+        "What ships: every match on the page tinted with the text colour, the one you are on darker and underlined. Searching “the” in the book you read last shows the busiest page.",
+      src: (bookId) => `/reader/${bookId}?search=the&searchMarks=tint`,
     },
     ideas: [
       {
-        id: "sessions-quiet",
-        title: "In the Library's frame",
+        id: "search-underline",
+        title: "Underlines only",
         description:
-          "The period as text with a stepper, the totals set large, a chart in the text colour, then your books and recent visits. No cards.",
-        src: "/debug/ideas/sessions",
+          "Other matches get a thin underline instead of a tint, so they never look like your highlights. The one you are on stays tinted.",
+        src: (bookId) => `/reader/${bookId}?search=the&searchMarks=underline`,
+      },
+      {
+        id: "search-current",
+        title: "Only the current match",
+        description:
+          "Nothing marks the other matches; the page stays quiet and the stepper says where the next one is.",
+        src: (bookId) => `/reader/${bookId}?search=the&searchMarks=current`,
+      },
+    ],
+  },
+  dark: {
+    current: {
+      id: "dark-current",
+      title: "Today's dark colours",
+      description:
+        "What ships: the highlight fills on Dark, Night (true black) and Flexoki dark. Light comes first for the hues.",
+      src: "/debug/ideas/dark-colours",
+    },
+    ideas: [
+      {
+        id: "dark-mixed",
+        title: "Light hues on the dark page",
+        description:
+          "Each fill is the light theme's colour mixed into the page, so a yellow stays that yellow on every theme and darkens on true black.",
+        src: "/debug/ideas/dark-colours?palette=mixed",
+      },
+      {
+        id: "dark-quiet",
+        title: "Quieter fills",
+        description:
+          "Today's fills pulled toward the page, so highlights recede when reading at night.",
+        src: "/debug/ideas/dark-colours?palette=quiet",
+      },
+      {
+        id: "night-bright",
+        title: "Night with brighter text",
+        description:
+          "True black with text at 88% lightness instead of 78%, for when Night reads too dim. The fills stay as they are.",
+        src: "/debug/ideas/dark-colours?night=bright",
       },
     ],
   },
@@ -109,6 +148,24 @@ function readNotes(): Record<string, string> {
 
 type View = "desktop" | "phone" | "both";
 
+const PHONE_QUERY = "(max-width: 767px)";
+
+/**
+ * True on a phone, from the first render. The desktop frames are wider than
+ * a phone, and once they overflow, a phone browser widens the page to fit
+ * them, so a width read after they render says desktop.
+ */
+function usePhoneWidth(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      const query = window.matchMedia(PHONE_QUERY);
+      query.addEventListener("change", onChange);
+      return () => query.removeEventListener("change", onChange);
+    },
+    () => window.matchMedia(PHONE_QUERY).matches,
+  );
+}
+
 /**
  * Ideas next to what ships, at the same size and theme. The frames run the
  * real app, so with dev:local-data both sides show your books.
@@ -128,6 +185,7 @@ function TopicPage({ topic }: { topic: IdeaTopic }) {
   const needsBook = [CURRENT, ...IDEAS].some(
     (item) => typeof item.src === "function",
   );
+  const isMobile = usePhoneWidth();
   const [ideaId, setIdeaId] = useState(IDEAS[0].id);
   const [view, setView] = useState<View>("desktop");
   const [notes, setNotes] = useState(readNotes);
@@ -136,67 +194,90 @@ function TopicPage({ topic }: { topic: IdeaTopic }) {
 
   return (
     <ElementsLayout page={topic} sections={SECTIONS}>
-      <ElementsSection
-        id="compare"
-        title="Compare"
-        description="What ships on the left, an idea on the right. Both are live: scroll, search and open books in either."
-        actions={
-          <div className="flex flex-wrap items-center gap-3">
-            {IDEAS.length > 1 && (
-              <Choice
-                label="Idea"
-                value={ideaId}
-                options={IDEAS.map(({ id, title }) => ({ id, label: title }))}
-                onChange={setIdeaId}
-              />
-            )}
-            <Choice
-              label="Devices"
-              value={view}
-              options={[
-                { id: "desktop", label: "Desktop" },
-                { id: "phone", label: "Phone" },
-                { id: "both", label: "Both" },
-              ]}
-              onChange={setView}
+      {isMobile ? (
+        <ElementsSection
+          id="compare"
+          title="Compare"
+          description="What ships, then each idea, at phone size. Each is live, or open it full screen."
+        >
+          {needsBook && !bookId ? (
+            <p className="py-16 text-center text-sm text-muted-foreground">
+              {data
+                ? "Add a book to compare the Reader."
+                : "Loading your books…"}
+            </p>
+          ) : (
+            <PhoneComparison
+              items={[CURRENT, ...IDEAS]}
+              bookId={bookId ?? ""}
             />
-          </div>
-        }
-      >
-        <div className="mb-3 grid grid-cols-2 gap-6">
-          {[CURRENT, idea].map((item) => (
-            <div key={item.id}>
-              <h3 className="text-sm font-medium">{item.title}</h3>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                {item.description}
-              </p>
-            </div>
-          ))}
-        </div>
-        {needsBook && !bookId ? (
-          <p className="py-16 text-center text-sm text-muted-foreground">
-            {data ? "Add a book to compare the Reader." : "Loading your books…"}
-          </p>
-        ) : (
-          <div className="space-y-8">
-            {rows.map((device) => (
-              <ComparisonRow
-                key={device}
-                device={device}
-                left={CURRENT}
-                right={idea}
-                bookId={bookId ?? ""}
+          )}
+        </ElementsSection>
+      ) : (
+        <ElementsSection
+          id="compare"
+          title="Compare"
+          description="What ships on the left, an idea on the right. Both are live: scroll, search and open books in either."
+          actions={
+            <div className="flex flex-wrap items-center gap-3">
+              {IDEAS.length > 1 && (
+                <Choice
+                  label="Idea"
+                  value={ideaId}
+                  options={IDEAS.map(({ id, title }) => ({ id, label: title }))}
+                  onChange={setIdeaId}
+                />
+              )}
+              <Choice
+                label="Devices"
+                value={view}
+                options={[
+                  { id: "desktop", label: "Desktop" },
+                  { id: "phone", label: "Phone" },
+                  { id: "both", label: "Both" },
+                ]}
+                onChange={setView}
               />
+            </div>
+          }
+        >
+          <div className="mb-3 grid grid-cols-2 gap-6">
+            {[CURRENT, idea].map((item) => (
+              <div key={item.id}>
+                <h3 className="text-sm font-medium">{item.title}</h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {item.description}
+                </p>
+              </div>
             ))}
           </div>
-        )}
-      </ElementsSection>
+          {needsBook && !bookId ? (
+            <p className="py-16 text-center text-sm text-muted-foreground">
+              {data
+                ? "Add a book to compare the Reader."
+                : "Loading your books…"}
+            </p>
+          ) : (
+            <div className="space-y-8">
+              {rows.map((device) => (
+                <ComparisonRow
+                  key={device}
+                  device={device}
+                  left={CURRENT}
+                  right={idea}
+                  bookId={bookId ?? ""}
+                />
+              ))}
+            </div>
+          )}
+        </ElementsSection>
+      )}
       <ElementsSection
         id="notes"
         title="Notes"
         description="What works and what does not, kept in this browser only."
       >
-        <div className="grid grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
           {[CURRENT, ...IDEAS].map((item) => (
             <label key={item.id} className="block">
               <span className="text-sm font-medium">{item.title}</span>
@@ -220,6 +301,58 @@ function TopicPage({ topic }: { topic: IdeaTopic }) {
         </div>
       </ElementsSection>
     </ElementsLayout>
+  );
+}
+
+function resolveSrc(item: Idea, bookId: string): string {
+  return typeof item.src === "function" ? item.src(bookId) : item.src;
+}
+
+/**
+ * On a phone, two frames side by side are too small to judge, so one shows
+ * at a time at nearly full width. Open leaves for the page itself.
+ */
+function PhoneComparison({
+  items,
+  bookId,
+}: {
+  items: readonly Idea[];
+  bookId: string;
+}) {
+  const [shownId, setShownId] = useState(items[0]!.id);
+  const shown = items.find((item) => item.id === shownId) ?? items[0]!;
+  const src = resolveSrc(shown, bookId);
+  const { row, scale } = useRowScale(["phone"]);
+  return (
+    <div className="space-y-4">
+      <Choice
+        label="Show"
+        value={shown.id}
+        options={items.map(({ id, title }) => ({ id, label: title }))}
+        onChange={setShownId}
+      />
+      <div>
+        <h3 className="text-sm font-medium">{shown.title}</h3>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          {shown.description}
+        </p>
+        <Link
+          to={src}
+          className="mt-2 inline-flex h-8 items-center rounded-full bg-secondary px-3 text-xs font-medium text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+        >
+          Open full screen
+        </Link>
+      </div>
+      <div ref={row} className="flex justify-center">
+        <DeviceFrame
+          key={shown.id}
+          device="phone"
+          src={src}
+          title={`${shown.title}, phone`}
+          scale={scale}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -249,7 +382,7 @@ function ComparisonRow({
         >
           <DeviceFrame
             device={device}
-            src={typeof item.src === "function" ? item.src(bookId) : item.src}
+            src={resolveSrc(item, bookId)}
             title={`${item.title}, ${DEVICES[device].label.toLowerCase()}`}
             scale={scale}
           />
