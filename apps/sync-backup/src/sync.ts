@@ -11,7 +11,21 @@ import {
   closeSync,
 } from "node:fs";
 import { join } from "node:path";
-import { Store, keyParts, hasObject, objectPath, NAMESPACES } from "./store";
+import {
+  Store,
+  keyParts,
+  hasObject,
+  objectPath,
+  NAMESPACES,
+  FILE_NAMESPACES,
+} from "./store";
+
+const RECORD_PATH = new RegExp(
+  `^/api/apps/(${NAMESPACES.join("|")})/(sync/v3/(state|pull|pull-stream)|me)$`,
+);
+const FILE_PATH = new RegExp(
+  `^/api/apps/(${FILE_NAMESPACES.join("|")})/files(?:/xxh64:[a-f0-9]{16})?/?$`,
+);
 export function readFetch(origin: string, token: string): typeof fetch {
   return (async (input: any, init?: RequestInit) => {
     const u = new URL(
@@ -29,13 +43,9 @@ export function readFetch(origin: string, token: string): typeof fetch {
       !(
         u.pathname === "/api/me" ||
         u.pathname === "/api/namespaces" ||
-        /^\/api\/apps\/(reader|spaced|arctic)\/(sync\/v3\/(state|pull|pull-stream)|me)$/.test(
-          decodeURIComponent(u.pathname),
-        ) ||
-        // Arctic has no file API.
-        /^\/api\/apps\/(reader|spaced)\/files(?:\/xxh64:[a-f0-9]{16})?\/?$/.test(
-          decodeURIComponent(u.pathname),
-        )
+        RECORD_PATH.test(decodeURIComponent(u.pathname)) ||
+        // Native Arctic has no file API; its text copies are in arctic-content.
+        FILE_PATH.test(decodeURIComponent(u.pathname))
       )
     )
       throw Error("Read-only transport refused request");
