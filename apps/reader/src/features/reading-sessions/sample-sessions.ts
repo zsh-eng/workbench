@@ -107,9 +107,10 @@ function buildSample(now: number): {
 }
 
 /**
- * The Sessions pages' records. With `?sample` in the address, a made-up
- * year of reading with the Elements sample books replaces them, so Design
- * ideas can compare the pages on any device.
+ * The Sessions page's records. With `?sample` in the address, a made-up
+ * year of reading with the Elements sample books replaces them, for
+ * reviewing the page where there is no reading history, such as a dev
+ * server.
  */
 export function useSessionsSource() {
   const query = useReadingSessionsQuery();

@@ -128,7 +128,9 @@ test("loads stored reading history offline with the default query policy", async
   await context.setOffline(true);
   await page.getByRole("link", { name: "Sessions", exact: true }).click();
   await expect(page).toHaveURL(/\/reading-sessions$/);
-  await expect(
-    page.getByRole("link", { name: /Alice.*Wonderland 10 min Lewis Carroll/i }),
-  ).toBeVisible();
+  const book = page.getByRole("button", {
+    name: /Open Alice.*Wonderland/i,
+  });
+  await expect(book).toBeVisible();
+  await expect(book).toContainText("10 min");
 });

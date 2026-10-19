@@ -61,11 +61,6 @@ const DesignIdeasPage = lazy(() =>
     default: module.DesignIdeasPage,
   })),
 );
-const SessionsIdea = lazy(() =>
-  import("@/features/reading-sessions/SessionsIdea").then((module) => ({
-    default: module.SessionsIdea,
-  })),
-);
 
 const DarkColoursIdea = lazy(() =>
   import("@/features/elements/DarkColoursIdea").then((module) => ({
@@ -141,16 +136,6 @@ function App() {
                       <Route
                         path="/reading-sessions"
                         element={<ReadingSessions />}
-                      />
-                      <Route
-                        path="/debug/ideas/sessions"
-                        element={
-                          <DebugGate>
-                            <Suspense fallback={null}>
-                              <SessionsIdea />
-                            </Suspense>
-                          </DebugGate>
-                        }
                       />
                       <Route
                         path="/reader-traces"

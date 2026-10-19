@@ -129,24 +129,6 @@ const TOPICS: Record<IdeaTopic, TopicIdeas> = {
       },
     ],
   },
-  sessions: {
-    current: {
-      id: "sessions-current",
-      title: "Current Sessions",
-      description:
-        "What ships today: a dashboard of cards, a teal chart, and a row of month chips. Both show a sample year of reading.",
-      src: "/reading-sessions?sample",
-    },
-    ideas: [
-      {
-        id: "sessions-quiet",
-        title: "In the Library's frame",
-        description:
-          "The period as text with a stepper, the totals set large, a chart in the text colour, then your books and recent visits. No cards.",
-        src: "/debug/ideas/sessions?sample",
-      },
-    ],
-  },
 };
 
 const SECTIONS = [

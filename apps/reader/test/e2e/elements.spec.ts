@@ -173,9 +173,9 @@ test.describe("on a phone", () => {
   }) => {
     await page.goto("/debug");
     await page.getByRole("link", { name: /Design ideas/ }).click();
-    await page.getByRole("link", { name: "Sessions ideas" }).click();
+    await page.getByRole("link", { name: "Dark mode ideas" }).click();
     await expect(
-      page.getByRole("heading", { name: "Current Sessions" }),
+      page.getByRole("heading", { name: "Today's dark colours" }),
     ).toBeVisible();
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth),
@@ -183,15 +183,17 @@ test.describe("on a phone", () => {
 
     await page
       .getByRole("group", { name: "Show" })
-      .getByRole("button", { name: "In the Library's frame" })
+      .getByRole("button", { name: "Light hues on the dark page" })
       .click();
     const frame = page.locator(
-      'iframe[title="In the Library\'s frame, phone"]',
+      'iframe[title="Light hues on the dark page, phone"]',
     );
     expect((await frame.boundingBox())!.width).toBeGreaterThan(300);
 
     await page.getByRole("link", { name: "Open full screen" }).click();
-    await expect(page).toHaveURL(/\/debug\/ideas\/sessions$/);
+    await expect(page).toHaveURL(
+      /\/debug\/ideas\/dark-colours\?palette=mixed$/,
+    );
   });
 
   test("Design ideas show the dark mode colour options", async ({ page }) => {
