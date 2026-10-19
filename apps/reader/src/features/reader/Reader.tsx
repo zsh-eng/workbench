@@ -57,7 +57,8 @@ import { useHotkey } from "@tanstack/react-hotkeys";
 import type { ReaderLocation } from "./reader-location";
 import { ReadingLayoutRow } from "./scroll/ReadingLayoutRow";
 import { ScrollStage } from "./scroll/ScrollStage";
-import { SelectionScrollChip } from "./scroll/SelectionScrollChip";
+import { SelectAcrossPagesButton } from "./scroll/SelectAcrossPagesButton";
+import { useSelectionAtPageEdge } from "./scroll/use-selection-at-page-edge";
 import { useReaderScrollMode } from "./scroll/use-reader-scroll-mode";
 
 function DisplayReadyCommitProbe({
@@ -249,7 +250,16 @@ export function Reader() {
     onCreateHighlight: sessionActions.createHighlight,
   });
 
-  // Search starts its worker the first time it opens.
+  // A page selection that a page break stops can move into scroll mode.
+  const selectionAtPageEdge = useSelectionAtPageEdge({
+    enabled:
+      scrollMode.selectAcrossPagesAvailable &&
+      chromeState.activeReaderSheet === null &&
+      displayReady,
+    stageContentRef,
+  });
+
+  // Search starts its worker once the book has settled, or when it opens.
   const searchOpen = chromeState.activeReaderSheet === "search";
   // Search ideas for Design ideas, Debug mode only: `?search=` steps to the
   // nearest match and `?searchMarks=` picks how matches are marked.
@@ -261,6 +271,7 @@ export function Reader() {
   const search = useReaderSearch({
     bookId: bookId ?? "",
     enabled: searchStarted,
+    warm: settledPaintReady,
     chapters: sessionState.chapters.entries,
     toc: sessionState.book?.toc ?? EMPTY_TOC,
     chapterAccess: sessionResources.chapterAccess,
@@ -458,6 +469,16 @@ export function Reader() {
     sessionState.chapters.entries[sessionState.navigation.currentChapterIndex];
   const isReaderInteractionSuppressed =
     chromeState.activeReaderSheet !== null || !displayReady;
+  const selectAcrossPages = (variant: "island" | "toolbar") =>
+    selectionAtPageEdge && isCreatingHighlight ? (
+      <SelectAcrossPagesButton
+        variant={variant}
+        onSelect={() => {
+          closeCreation();
+          scrollMode.enterWithSelection(selectionAtPageEdge);
+        }}
+      />
+    ) : undefined;
   // The annotation panel owns the mobile bottom edge, including before focus
   // and while its notebook is open. Reading controls must not compete with it.
   const mobileAnnotationVisible =
@@ -705,6 +726,11 @@ export function Reader() {
                       }}
                       onSnapStart={hideChrome}
                       onLinkActivate={sessionActions.openInternalHref}
+                      // A phone's header and footer cover the stage's
+                      // soft edges while they show.
+                      chromeVisible={
+                        isMobile && noteViewportHeight === null && chromeVisible
+                      }
                     />
                   )}
                 </DeferredEpubImageProvider>
@@ -892,6 +918,7 @@ export function Reader() {
                       isMobile && (isCreatingHighlight || activeHighlightData)
                         ? {
                             identity: annotationState,
+                            action: selectAcrossPages("island"),
                             highlightId: activeHighlightData?.id,
                             tools: (
                               <HighlightToolbarContainer
@@ -1081,17 +1108,6 @@ export function Reader() {
                     )}
                   </ReaderNotesPrototype>
 
-                  <SelectionScrollChip
-                    enabled={
-                      scrollMode.chipAvailable && !isReaderInteractionSuppressed
-                    }
-                    stageContentRef={stageContentRef}
-                    onActivate={(locators) => {
-                      closeCreation();
-                      scrollMode.enterWithSelection(locators);
-                    }}
-                  />
-
                   {!isMobile && (
                     <HighlightToolbarContainer
                       bookId={bookId}
@@ -1112,6 +1128,7 @@ export function Reader() {
                       }
                       onEditClose={clearActiveHighlight}
                       onCreateNoteSubmit={undefined}
+                      creationAction={selectAcrossPages("toolbar")}
                       onAddSelectionNote={() => {
                         const note = captureSelectionNote();
                         if (!note) return;

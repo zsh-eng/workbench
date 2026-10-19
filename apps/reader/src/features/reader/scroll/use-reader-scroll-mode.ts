@@ -161,12 +161,13 @@ function targetPage(
  *
  * Content anchors carry the place across modes. Scroll → Pages snaps the
  * page that holds the reading line into place; Pages → Scroll opens at that
- * page's offset, from the settings switch, a pull past the threshold, or the
- * selection chip. While scrolling, the location goes to the reader as a
- * mode-neutral `ReaderLocation`: progress, sessions, history and page numbers
- * follow it without moving the paged engine. Jumps (contents, scrubber,
- * links, notes, history) still run through the engine and move the column to
- * the exact anchor. Leaving scroll mode moves the engine once.
+ * page's offset, from the settings switch, a pull past the threshold, or
+ * "Select across pages" in the highlight tools. While scrolling, the
+ * location goes to the reader as a mode-neutral `ReaderLocation`: progress,
+ * sessions, history and page numbers follow it without moving the paged
+ * engine. Jumps (contents, scrubber, links, notes, history) still run
+ * through the engine and move the column to the exact anchor. Leaving
+ * scroll mode moves the engine once.
  */
 export function useReaderScrollMode({
   bookId,
@@ -205,8 +206,8 @@ export function useReaderScrollMode({
   const leadingPage = getLeadingVisiblePage(spread);
   const leadingChapter = leadingPage?.chapterIndex ?? null;
 
-  // Pages mode keeps the current chapter's column ready, so a pull or the
-  // selection chip can start without waiting for the worker.
+  // Pages mode keeps the current chapter's column ready, so a pull or
+  // "Select across pages" can start without waiting for the worker.
   const subscribedChapter =
     !enabled || !ready
       ? null
@@ -517,14 +518,14 @@ export function useReaderScrollMode({
     );
   }, []);
 
-  // The selection chip: select the same text in the column once it shows.
+  // "Select across pages": select the same text in the column once it shows.
   useEffect(() => {
     if (phase.kind !== "on" || !phase.entered || !phase.selection) return;
     handleRef.current?.restoreSelection(phase.selection);
     setPhase({ ...phase, selection: null });
   }, [phase]);
 
-  /** Selection chip: moves a page selection into scroll mode. */
+  /** Select across pages: moves a page selection into scroll mode. */
   const enterWithSelection = useCallback(
     (captured?: SelectionLocators | null) => {
       if (phase.kind !== "off") return false;
@@ -765,7 +766,7 @@ export function useReaderScrollMode({
     progressLabel,
     pull,
     enterWithSelection,
-    /** Selections in pages can offer the chip. */
-    chipAvailable: enabled && phase.kind === "off",
+    /** Selections in pages can offer to move into scroll mode. */
+    selectAcrossPagesAvailable: enabled && phase.kind === "off",
   };
 }

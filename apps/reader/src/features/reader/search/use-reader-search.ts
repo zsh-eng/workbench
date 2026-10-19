@@ -75,6 +75,11 @@ export type ReaderSearchStatus = "idle" | "waiting" | "searching" | "done";
 export interface ReaderSearchState {
   query: string;
   status: ReaderSearchStatus;
+  /**
+   * The query changed and its first results have not arrived, so `results`
+   * are still the last query's. Typing never blanks the list.
+   */
+  pending: boolean;
   results: ReaderSearchResult[];
   groups: ReaderSearchChapterGroup[];
   annotations: ReaderSearchAnnotation[];
@@ -109,8 +114,13 @@ export interface ReaderSearch {
 
 interface UseReaderSearchOptions {
   bookId: string;
-  /** Search starts its worker the first time the panel opens. */
+  /** Search has opened: its worker starts now, with all the text at once. */
   enabled: boolean;
+  /**
+   * The book is showing: the worker starts when the page is idle and folds
+   * the text there, so the first search only has to match.
+   */
+  warm?: boolean;
   chapters: ChapterEntry[];
   toc: TOCItem[];
   chapterAccess: ReaderSessionChapterAccess;
@@ -164,6 +174,16 @@ function toWorkerChapter(
   };
 }
 
+/** Runs `callback` when the page is idle. Returns a cancel. */
+function whenIdle(callback: () => void): () => void {
+  if (typeof window.requestIdleCallback === "function") {
+    const id = window.requestIdleCallback(callback, { timeout: 2000 });
+    return () => window.cancelIdleCallback(id);
+  }
+  const id = window.setTimeout(callback, 100);
+  return () => window.clearTimeout(id);
+}
+
 function includesFolded(text: string | undefined, folded: string): boolean {
   return !!text && foldText(text).text.includes(folded);
 }
@@ -175,6 +195,8 @@ interface RunningSearch {
   firstResultMs: number | null;
   /** Chapters the worker had text for when the search started. */
   chaptersWithText: number;
+  /** Its results have replaced the last query's. */
+  replaced: boolean;
 }
 
 const EMPTY_RESULTS: ReaderSearchResult[] = [];
@@ -189,6 +211,7 @@ const EMPTY_RESULTS: ReaderSearchResult[] = [];
 export function useReaderSearch({
   bookId,
   enabled,
+  warm = false,
   chapters,
   toc,
   chapterAccess,
@@ -204,6 +227,7 @@ export function useReaderSearch({
 }: UseReaderSearchOptions): ReaderSearch {
   const [query, setQueryState] = useState(() => readSavedQuery(bookId));
   const [status, setStatus] = useState<ReaderSearchStatus>("idle");
+  const [pending, setPending] = useState(false);
   const [results, setResults] = useState<ReaderSearchResult[]>(EMPTY_RESULTS);
   const [progress, setProgress] = useState({ searched: 0, total: 0 });
   const [truncated, setTruncated] = useState(false);
@@ -251,8 +275,25 @@ export function useReaderSearch({
   const searchedWithoutText = useRef(false);
 
   const handleMessage = useCallback((response: SearchWorkerResponse) => {
+    if (response.type === "folded") {
+      performance.measure("reader-search:fold", {
+        start: performance.now() - response.ms,
+        duration: response.ms,
+        detail: { chapters: response.chapters, workerMs: response.ms },
+      });
+      return;
+    }
     const search = running.current;
     if (!search || response.searchId !== search.id) return;
+    // The last query's results stay until this one's first message.
+    if (!search.replaced) {
+      search.replaced = true;
+      setPending(false);
+      setResults(EMPTY_RESULTS);
+      setShown(RESULTS_PAGE);
+      setTruncated(false);
+      setTiming({ firstResultMs: null, totalMs: null });
+    }
     if (response.type === "progress") {
       const found = response.chapters.flatMap(({ chapterIndex, matches }) =>
         matches.map((match) => ({
@@ -308,9 +349,16 @@ export function useReaderSearch({
       setTextVersion((version) => version + 1);
   }, []);
 
-  // The worker starts with the first search and lives as long as the book.
+  // The worker starts when the page is first idle, or when search opens,
+  // and lives as long as the book.
+  const [warmed, setWarmed] = useState(false);
   useEffect(() => {
-    if (!enabled || workerRef.current) return;
+    if (!warm || warmed || enabled) return;
+    return whenIdle(() => setWarmed(true));
+  }, [enabled, warm, warmed]);
+  const started = enabled || warmed;
+  useEffect(() => {
+    if (!started || workerRef.current) return;
     const worker = new Worker(new URL("./search.worker.ts", import.meta.url), {
       type: "module",
     });
@@ -329,7 +377,7 @@ export function useReaderSearch({
     workerRef.current = worker;
     sentTexts.current.clear();
     setTextVersion((version) => version + 1);
-  }, [enabled, handleMessage]);
+  }, [handleMessage, started]);
   useEffect(
     () => () => {
       workerRef.current?.terminate();
@@ -342,30 +390,49 @@ export function useReaderSearch({
   useEffect(() => {
     const worker = workerRef.current;
     if (!worker || !textVersion) return;
-    const startedAt = performance.now();
     const post = (request: SearchWorkerRequest) => worker.postMessage(request);
     if (sentBook.current !== bookId) {
       sentBook.current = bookId;
       sentTexts.current.clear();
     }
     post({ type: "setBook", bookKey: bookId, chapterCount: chapters.length });
-    const added: SearchWorkerChapter[] = [];
-    chapters.forEach((_, chapterIndex) => {
+    const unsent = chapters.flatMap((_, chapterIndex) => {
       const text = chapterAccess.getCanonicalText(chapterIndex);
-      if (!text || sentTexts.current.get(chapterIndex) === text) return;
-      sentTexts.current.set(chapterIndex, text);
-      added.push(toWorkerChapter(chapterIndex, text));
+      return text && sentTexts.current.get(chapterIndex) !== text
+        ? [{ chapterIndex, text }]
+        : [];
     });
-    if (!added.length) return;
-    post({ type: "addChapters", bookKey: bookId, chapters: added });
-    performance.measure("reader-search:send-text", {
-      start: startedAt,
-      detail: { chapters: added.length },
+    const send = (batch: typeof unsent) => {
+      const startedAt = performance.now();
+      const added: SearchWorkerChapter[] = batch.map(
+        ({ chapterIndex, text }) => {
+          sentTexts.current.set(chapterIndex, text);
+          return toWorkerChapter(chapterIndex, text);
+        },
+      );
+      post({ type: "addChapters", bookKey: bookId, chapters: added });
+      performance.measure("reader-search:send-text", {
+        start: startedAt,
+        detail: { chapters: added.length },
+      });
+    };
+    if (!unsent.length) return;
+    if (enabled) {
+      send(unsent);
+      // A search that ran before this text arrived runs again.
+      if (!running.current && searchedWithoutText.current)
+        setTextVersion((version) => version + 1);
+      return;
+    }
+    // Before search opens, a chapter at a time while the page is idle:
+    // copying a whole book to the worker would hold up a frame.
+    let sent = 0;
+    let cancel = whenIdle(function sendNext() {
+      send([unsent[sent++]!]);
+      if (sent < unsent.length) cancel = whenIdle(sendNext);
     });
-    // A search that ran before this text arrived runs again.
-    if (!running.current && searchedWithoutText.current)
-      setTextVersion((version) => version + 1);
-  }, [bookId, chapterAccess, chapters, textVersion]);
+    return () => cancel();
+  }, [bookId, chapterAccess, chapters, enabled, textVersion]);
 
   const foldedQuery = foldQuery(query);
   const workerReady = textVersion > 0;
@@ -380,19 +447,17 @@ export function useReaderSearch({
       } satisfies SearchWorkerRequest);
       running.current = null;
     }
-    setResults(EMPTY_RESULTS);
     setActiveId(null);
-    setShown(RESULTS_PAGE);
-    setTruncated(false);
-    setTiming({ firstResultMs: null, totalMs: null });
-    setProgress({ searched: 0, total: chapters.length });
     searchedWithoutText.current = false;
-    if (!foldedQuery) {
-      setStatus("idle");
-      return;
-    }
-    if (!worker || !workerReady) {
-      setStatus("waiting");
+    // A warm worker only folds: searching waits until search opens.
+    if (!foldedQuery || !worker || !workerReady || !enabled) {
+      setPending(false);
+      setResults(EMPTY_RESULTS);
+      setShown(RESULTS_PAGE);
+      setTruncated(false);
+      setTiming({ firstResultMs: null, totalMs: null });
+      setProgress({ searched: 0, total: chapters.length });
+      setStatus(foldedQuery ? "waiting" : "idle");
       return;
     }
     const id = ++searchIds.current;
@@ -402,7 +467,9 @@ export function useReaderSearch({
       startedAt: performance.now(),
       firstResultMs: null,
       chaptersWithText: sentTexts.current.size,
+      replaced: false,
     };
+    setPending(true);
     setStatus("searching");
     // Folding is idempotent, so the worker can take the folded query.
     worker.postMessage({
@@ -413,7 +480,7 @@ export function useReaderSearch({
       from: readerStart.current ?? undefined,
     } satisfies SearchWorkerRequest);
     // `textVersion` runs the search again when more text arrives.
-  }, [chapters.length, foldedQuery, textVersion, workerReady]);
+  }, [chapters.length, enabled, foldedQuery, textVersion, workerReady]);
 
   const setQuery = useCallback(
     (next: string, options?: { remember?: boolean }) => {
@@ -433,6 +500,10 @@ export function useReaderSearch({
       searchId: search.id,
     } satisfies SearchWorkerRequest);
     running.current = null;
+    if (!search.replaced) {
+      setPending(false);
+      setResults(EMPTY_RESULTS);
+    }
     setStatus("done");
   }, []);
 
@@ -478,7 +549,8 @@ export function useReaderSearch({
     return grouped;
   }, [results, sections]);
 
-  // Results are placed on pages again whenever the layout changes.
+  // Results are placed on pages again whenever the layout changes, after a
+  // short pause, so a word being typed is not placed at every letter.
   useEffect(() => {
     if (!results.length) return;
     const timer = window.setTimeout(() => {
@@ -524,7 +596,7 @@ export function useReaderSearch({
         }),
         "search",
       );
-    }, 80);
+    }, 40);
     return () => window.clearTimeout(timer);
   }, [
     chapterAccess,
@@ -744,6 +816,7 @@ export function useReaderSearch({
     () => ({
       query,
       status,
+      pending,
       results,
       groups,
       annotations,
@@ -762,6 +835,7 @@ export function useReaderSearch({
       chapters.length,
       groups,
       pages,
+      pending,
       progress,
       query,
       results,

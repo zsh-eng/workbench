@@ -57,4 +57,12 @@ export type SearchWorkerResponse =
       missingChapters: number;
       firstMatchMs: number | null;
       totalMs: number;
+    }
+  | {
+      /** Every chapter of the book is folded, ready to search. */
+      type: "folded";
+      bookKey: string;
+      /** Chapters folded in the background, and how long that took. */
+      chapters: number;
+      ms: number;
     };

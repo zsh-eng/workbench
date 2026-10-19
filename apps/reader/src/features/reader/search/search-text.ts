@@ -55,11 +55,65 @@ function foldCodePoint(codePoint: string): string {
   return folded;
 }
 
-/** Folded text and, for each folded character, where it came from. */
+/**
+ * Folded text and where each folded character came from. Most text folds
+ * one to one, so the map keeps only where that breaks: run `k` starts at
+ * folded index `runFolded[k]`, which came from source index `runSource[k]`,
+ * and each character after it in the run from the next source index.
+ */
 export interface FoldedText {
   text: string;
-  /** Source index of each folded character's code point, or -1 for a break. */
-  source: Int32Array;
+  runFolded: Int32Array;
+  runSource: Int32Array;
+}
+
+/** Source index of folded character `index`'s code point, or -1 for a break. */
+export function sourceIndex(folded: FoldedText, index: number): number {
+  const { runFolded, runSource } = folded;
+  let low = 0;
+  let high = runFolded.length - 1;
+  while (low < high) {
+    const middle = (low + high + 1) >> 1;
+    if (runFolded[middle]! <= index) low = middle;
+    else high = middle - 1;
+  }
+  const source = runSource[low]!;
+  return source < 0 ? -1 : source + index - runFolded[low]!;
+}
+
+/**
+ * Each BMP code unit's fold, filled in as text meets it: the folded unit, or
+ * one of these markers.
+ */
+const unitFolds = new Uint16Array(0x10000);
+const UNIT_UNKNOWN = 0;
+const UNIT_DROP = 1;
+const UNIT_SPACE = 2;
+/** Folds to more than one unit, or is a surrogate: fold the code point. */
+const UNIT_OTHER = 3;
+/**
+ * Turns folded code units into a string, keeping any BOM as text. Typed
+ * arrays are little-endian on every platform the reader runs on.
+ */
+const UTF16 = new TextDecoder("utf-16le", { ignoreBOM: true });
+
+function unitFold(code: number): number {
+  let fold = unitFolds[code]!;
+  if (fold !== UNIT_UNKNOWN) return fold;
+  if (code >= 0xd800 && code <= 0xdfff) fold = UNIT_OTHER;
+  else {
+    const folded = foldCodePoint(String.fromCharCode(code));
+    fold =
+      folded === ""
+        ? UNIT_DROP
+        : folded === " "
+          ? UNIT_SPACE
+          : folded.length === 1 && folded.charCodeAt(0) > UNIT_OTHER
+            ? folded.charCodeAt(0)
+            : UNIT_OTHER;
+  }
+  unitFolds[code] = fold;
+  return fold;
 }
 
 /**
@@ -73,64 +127,92 @@ export function foldText(
     { start: 0, end: source.length },
   ],
 ): FoldedText {
-  // Typed buffers keep folding a whole book fast; most text folds 1:1.
+  // Typed buffers keep folding a whole book fast.
   let codes = new Uint16Array(source.length + parts.length + 16);
-  let indices = new Int32Array(codes.length);
   let length = 0;
-  const push = (code: number, index: number) => {
-    if (length === codes.length) {
-      const grownCodes = new Uint16Array(codes.length * 2);
-      grownCodes.set(codes);
-      codes = grownCodes;
-      const grownIndices = new Int32Array(indices.length * 2);
-      grownIndices.set(indices);
-      indices = grownIndices;
+  let runFolded = new Int32Array(256);
+  let runSource = new Int32Array(256);
+  let runs = 0;
+  /** The source index that continues the current run. */
+  let next = -2;
+  const startRun = (index: number) => {
+    if (runs === runFolded.length) {
+      const grownFolded = new Int32Array(runs * 2);
+      grownFolded.set(runFolded);
+      runFolded = grownFolded;
+      const grownSource = new Int32Array(runs * 2);
+      grownSource.set(runSource);
+      runSource = grownSource;
     }
-    codes[length] = code;
-    indices[length] = index;
-    length++;
+    runFolded[runs] = length;
+    runSource[runs] = index;
+    runs++;
+  };
+  const push = (code: number, index: number) => {
+    if (index !== next) startRun(index);
+    next = index + 1;
+    if (length === codes.length) {
+      const grown = new Uint16Array(length * 2);
+      grown.set(codes);
+      codes = grown;
+    }
+    codes[length++] = code;
   };
 
-  parts.forEach((part, partIndex) => {
-    if (partIndex > 0) push(0x0a, -1);
+  for (let partIndex = 0; partIndex < parts.length; partIndex++) {
+    const part = parts[partIndex]!;
+    if (partIndex > 0) {
+      push(0x0a, -1);
+      next = -2;
+    }
     let lastWasSpace = true;
     let index = part.start;
     while (index < part.end) {
       const code = source.charCodeAt(index);
-      // ASCII needs no table.
+      // ASCII and most other text fold one unit to one unit.
+      let fold: number;
       if (code < 0x80) {
-        if (code === 0x20 || (code >= 0x09 && code <= 0x0d)) {
-          if (!lastWasSpace) push(0x20, index);
-          lastWasSpace = true;
-        } else {
-          push(code >= 0x41 && code <= 0x5a ? code + 32 : code, index);
-          lastWasSpace = false;
-        }
-        index++;
-        continue;
-      }
-      const width = code >= 0xd800 && code <= 0xdbff ? 2 : 1;
-      const folded = foldCodePoint(source.slice(index, index + width));
-      if (folded === " ") {
+        fold =
+          code === 0x20 || (code >= 0x09 && code <= 0x0d)
+            ? UNIT_SPACE
+            : code >= 0x41 && code <= 0x5a
+              ? code + 32
+              : code;
+      } else fold = unitFold(code);
+      if (fold === UNIT_SPACE) {
         if (!lastWasSpace) push(0x20, index);
         lastWasSpace = true;
-      } else if (folded) {
-        for (let i = 0; i < folded.length; i++)
-          push(folded.charCodeAt(i), index);
+        index++;
+      } else if (fold === UNIT_DROP) {
+        index++;
+      } else if (fold !== UNIT_OTHER) {
+        push(fold, index);
         lastWasSpace = false;
+        index++;
+      } else {
+        const width = code >= 0xd800 && code <= 0xdbff ? 2 : 1;
+        const folded = foldCodePoint(source.slice(index, index + width));
+        if (folded === " ") {
+          if (!lastWasSpace) push(0x20, index);
+          lastWasSpace = true;
+        } else if (folded) {
+          for (let i = 0; i < folded.length; i++) {
+            // Each unit of the fold comes from the same code point.
+            if (i > 0) next = -2;
+            push(folded.charCodeAt(i), index);
+          }
+          lastWasSpace = false;
+        }
+        index += width;
       }
-      index += width;
     }
-  });
+  }
 
-  const chunks: string[] = [];
-  for (let start = 0; start < length; start += 8192)
-    chunks.push(
-      String.fromCharCode(
-        ...codes.subarray(start, Math.min(length, start + 8192)),
-      ),
-    );
-  return { text: chunks.join(""), source: indices.slice(0, length) };
+  return {
+    text: UTF16.decode(codes.subarray(0, length)),
+    runFolded: runFolded.slice(0, runs),
+    runSource: runSource.slice(0, runs),
+  };
 }
 
 /** The query as search compares it, or "" when there is nothing to find. */
@@ -168,8 +250,8 @@ export function findFoldedMatches(
   while (matches.length < limit) {
     const index = folded.text.indexOf(foldedQuery, from);
     if (index < 0) break;
-    const first = folded.source[index]!;
-    const last = folded.source[index + foldedQuery.length - 1]!;
+    const first = sourceIndex(folded, index);
+    const last = sourceIndex(folded, index + foldedQuery.length - 1);
     matches.push({ start: first, end: sourceEnd(source, last) });
     from = index + foldedQuery.length;
   }
@@ -259,6 +341,10 @@ export class ChapterSearchText {
   constructor(chapter: SearchChapterText) {
     this.chapter = chapter;
     this.blocks = chapterBlockRanges(chapter);
+  }
+
+  get isFolded(): boolean {
+    return this.foldedText !== null;
   }
 
   get folded(): FoldedText {

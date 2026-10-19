@@ -112,6 +112,36 @@ describe("search worker", () => {
     );
   });
 
+  it("searches a book opened while the last one is still being prepared", async () => {
+    const { handle, of } = setUp();
+    // The first book's text is still being folded in the background.
+    handle({ type: "setBook", bookKey: "other", chapterCount: 1 });
+    handle({
+      type: "addChapters",
+      bookKey: "other",
+      chapters: [
+        {
+          chapterIndex: 0,
+          fullText: "A pin, then another pin.",
+          blockStarts: [["text-0", 0]],
+        },
+      ],
+    });
+    const total = async (searchId: number, query: string) => {
+      handle({ type: "search", searchId, query, limit: 100 });
+      await waitFor(() =>
+        of(searchId).some((response) => response.type === "done"),
+      );
+      return of(searchId).at(-1);
+    };
+    expect(await total(1, "pin")).toMatchObject({
+      type: "done",
+      totalMatches: 2,
+      missingChapters: 0,
+    });
+    expect(await total(2, "needle")).toMatchObject({ totalMatches: 0 });
+  });
+
   it("stops a search that a newer query replaces", async () => {
     const { handle, of } = setUp();
     handle({ type: "search", searchId: 1, query: "needle", limit: 100_000 });

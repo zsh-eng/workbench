@@ -56,8 +56,13 @@ const END_CARD_HEIGHT_PX = 112;
 const MAX_IMAGE_WAIT_FRAMES = 30;
 /** Ticks fade out this long after scrolling stops, like iOS indicators. */
 const TICKS_HIDE_DELAY_MS = 1000;
-/** Height of the progressive blur above the bottom safe area. */
-export const SCROLL_EDGE_BLUR_PX = 64;
+/**
+ * Height of the soft edge above the bottom safe area: a little more than
+ * half a line, so the lines being read stay sharp.
+ */
+export const SCROLL_EDGE_BLUR_PX = 20;
+/** The edge's blur at the screen edge. Text keeps its shape under it. */
+const SCROLL_EDGE_BLUR_RADIUS_PX = 1.5;
 /** Sideways travel that returns to pages on release. */
 const SWIPE_EXIT_DISTANCE_PX = 64;
 const SWIPE_EXIT_VELOCITY = 0.45; // px per ms
@@ -156,6 +161,11 @@ interface ScrollStageProps {
   onLinkActivate?: (href: string) => boolean;
   /** Other rows mounted; marks drawn over the text repaint. */
   onRowsChange: (rows: RowRange) => void;
+  /**
+   * The reader's header and footer show. Their own frosted bars cover the
+   * edges, so the edges' blur stands down under them.
+   */
+  chromeVisible?: boolean;
 }
 
 type Phase =
@@ -258,17 +268,23 @@ const ScrollRowView = memo(function ScrollRowView({
 });
 
 /**
- * Stacked backdrop blurs, each masked to a band, so the blur grows towards
- * the screen edge. A colour fade on top keeps the home indicator, or the
- * status bar, legible. `?scrollEdge=fade` drops the blur layers, for
- * comparing frame times.
+ * Softens text where it runs under the status bar or the home indicator, as
+ * iOS does at a scroll view's edges: one light backdrop blur that grows
+ * towards the screen edge, under a tint of the page colour that keeps the
+ * status bar and home indicator legible. Text still shows through, softened.
+ * One layer of at most 1.5px keeps it cheap on a phone, and stays light even
+ * where a browser draws a backdrop blur without its mask. `?scrollEdge=fade`
+ * drops the blur, for comparing frame times.
  */
 function ProgressiveEdgeBlur({
   visible,
+  covered,
   edge,
   height,
 }: {
   visible: boolean;
+  /** The chrome's frosted bar is over it, so it stands down. */
+  covered: boolean;
   edge: "top" | "bottom";
   height: string;
 }) {
@@ -278,15 +294,7 @@ function ProgressiveEdgeBlur({
     [],
   );
   const towards = edge === "bottom" ? "to bottom" : "to top";
-  const layers = fadeOnly
-    ? []
-    : [
-        { blur: 0.5, from: 0, to: 40 },
-        { blur: 1.5, from: 15, to: 60 },
-        { blur: 3, from: 35, to: 80 },
-        { blur: 6, from: 55, to: 100 },
-        { blur: 12, from: 75, to: 100 },
-      ];
+  const mask = `linear-gradient(${towards}, transparent, black 60%)`;
   return (
     <div
       aria-hidden="true"
@@ -298,29 +306,26 @@ function ProgressiveEdgeBlur({
       )}
       style={{
         height,
-        opacity: visible ? 1 : 0,
-        transition: "opacity 200ms ease-out",
+        opacity: visible && !covered ? 1 : 0,
+        // Standing down waits for the chrome to slide over the edge first.
+        transition: `opacity 200ms ease-out ${visible && covered ? "200ms" : "0ms"}`,
       }}
     >
-      {layers.map((layer) => {
-        const mask = `linear-gradient(${towards}, transparent ${layer.from}%, black ${Math.min(100, layer.from + 25)}%, black ${layer.to}%)`;
-        return (
-          <div
-            key={layer.blur}
-            className="absolute inset-0"
-            style={{
-              backdropFilter: `blur(${layer.blur}px)`,
-              WebkitBackdropFilter: `blur(${layer.blur}px)`,
-              maskImage: mask,
-              WebkitMaskImage: mask,
-            }}
-          />
-        );
-      })}
+      {!fadeOnly && (
+        <div
+          className="absolute inset-0"
+          style={{
+            backdropFilter: `blur(${SCROLL_EDGE_BLUR_RADIUS_PX}px)`,
+            WebkitBackdropFilter: `blur(${SCROLL_EDGE_BLUR_RADIUS_PX}px)`,
+            maskImage: mask,
+            WebkitMaskImage: mask,
+          }}
+        />
+      )}
       <div
         className="absolute inset-0"
         style={{
-          background: `linear-gradient(${towards}, transparent ${fadeOnly ? 0 : 40}%, color-mix(in oklab, var(--background) ${fadeOnly ? 92 : 70}%, transparent) 100%)`,
+          background: `linear-gradient(${towards}, transparent, color-mix(in oklab, var(--background) ${fadeOnly ? 80 : 65}%, transparent))`,
         }}
       />
     </div>
@@ -342,9 +347,9 @@ function ProgressiveEdgeBlur({
  * the page that holds the reading line, a third of the way down, into its
  * paged position with one translation, without DOM measurement.
  *
- * The stage runs to the bottom edge of the screen. A progressive blur sits
- * under the home indicator, and the column ends with enough space for its
- * last line to clear it.
+ * The stage runs to the bottom edge of the screen, and under the status bar
+ * where the page may draw there. Soft edges sit under both, and the column
+ * ends with enough space for its last line to clear the bottom one.
  */
 export function ScrollStage({
   handleRef,
@@ -373,6 +378,7 @@ export function ScrollStage({
   onSnapStart,
   onLinkActivate,
   onRowsChange,
+  chromeVisible = false,
 }: ScrollStageProps) {
   const rows = useMemo(() => buildScrollRows(column), [column]);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -1232,14 +1238,16 @@ export function ScrollStage({
 
       <ProgressiveEdgeBlur
         edge="bottom"
-        height={`calc(${SCROLL_EDGE_BLUR_PX}px + env(safe-area-inset-bottom))`}
+        height={`calc(${SCROLL_EDGE_BLUR_PX}px + max(env(safe-area-inset-bottom), 0.625rem))`}
         visible={phase.kind === "settled"}
+        covered={chromeVisible}
       />
       {insetTop > 0 && (
         <ProgressiveEdgeBlur
           edge="top"
           height={`${insetTop}px`}
           visible={phase.kind === "settled"}
+          covered={chromeVisible}
         />
       )}
 

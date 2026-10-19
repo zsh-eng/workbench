@@ -43,7 +43,8 @@ export interface ActiveHighlightState {
 }
 
 interface PendingHighlightDraft {
-  position: { x: number; y: number };
+  /** The selection's top centre, and its foot for tools that open below. */
+  position: { x: number; y: number; bottom: number };
   spineItemId: string;
   highlight: NonNullable<
     ReturnType<typeof resolveContentAnchorRangeToHighlight>
@@ -92,7 +93,7 @@ interface UseReaderAnnotationsResult {
   activeHighlight: ActiveHighlightState | null;
   activeHighlightData: Highlight | null;
   isCreatingHighlight: boolean;
-  creationPosition: { x: number; y: number };
+  creationPosition: { x: number; y: number; bottom?: number };
   creationText: string;
   /** The selected highlight's text as the toolbar copies it. */
   activeHighlightCopyText: string;
@@ -210,8 +211,12 @@ function resolvePendingHighlightDraft(options: {
   if (!isSelectionInsideContainer(selection, container)) return null;
 
   const range = selection.getRangeAt(0);
-  const position = getSelectionPosition(selection);
-  if (!position) return null;
+  const selectionPosition = getSelectionPosition(selection);
+  if (!selectionPosition) return null;
+  const position = {
+    ...selectionPosition,
+    bottom: range.getBoundingClientRect().bottom,
+  };
 
   const startAnchor = resolveDomEndpointToContentAnchor({
     node: range.startContainer,

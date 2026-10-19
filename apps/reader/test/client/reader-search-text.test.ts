@@ -51,6 +51,13 @@ describe("chapter search", () => {
     expect(found(search, "👍🏽")).toEqual(["👍🏽"]);
   });
 
+  it("maps matches after ligatures and astral characters back exactly", () => {
+    const text = chapter("<p>The ﬁnal ﬂoor, 𝔄 sign, then the end.</p>");
+    expect(found(text, "final floor")).toEqual(["ﬁnal ﬂoor"]);
+    expect(found(text, "sign, then")).toEqual(["sign, then"]);
+    expect(found(text, "end")).toEqual(["end"]);
+  });
+
   it("does not match from one paragraph into the next", () => {
     expect(found(search, "opened. a second")).toEqual([]);
   });

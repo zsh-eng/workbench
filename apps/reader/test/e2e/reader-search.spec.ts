@@ -139,6 +139,40 @@ test("search leaves the page alone until a result is chosen", async ({
   expect(styles).toEqual(["normal", "italic"]);
 });
 
+test("results follow each keystroke without the list going blank", async ({
+  page,
+  localBook,
+}) => {
+  await openLocalBook(page, localBook.id);
+  await page.keyboard.press(FIND_SHORTCUT);
+  await search(page, "Din");
+  await expect(results(page).first()).toBeVisible();
+
+  // Count each time the list empties while the rest of the word is typed.
+  await page.evaluate(() => {
+    const panel = document.querySelector("[data-reader-search-panel]")!;
+    const counts = { emptied: 0 };
+    Object.assign(window, { searchListCounts: counts });
+    new MutationObserver(() => {
+      if (!panel.querySelector("[data-search-result]")) counts.emptied++;
+    }).observe(panel, { childList: true, subtree: true });
+  });
+  await searchField(page).pressSequentially("ah", { delay: 40 });
+  await expect(page.locator("[data-search-status]")).toHaveAttribute(
+    "data-search-status",
+    "done",
+  );
+  for (const match of await results(page).locator("strong").allTextContents())
+    expect(match.toLowerCase()).toBe("dinah");
+  expect(
+    await page.evaluate(
+      () =>
+        (window as unknown as { searchListCounts: { emptied: number } })
+          .searchListCounts.emptied,
+    ),
+  ).toBe(0);
+});
+
 test("next and previous step across chapters", async ({ page, localBook }) => {
   await openLocalBook(page, localBook.id);
   await page.keyboard.press(FIND_SHORTCUT);
