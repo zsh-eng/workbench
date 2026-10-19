@@ -1,5 +1,3 @@
-import { mkdir } from "node:fs/promises";
-import { resolve } from "node:path";
 import {
   test,
   expect,
@@ -48,15 +46,6 @@ for (const mobile of [false, true]) {
       await expect(
         dialog.getByRole("button", { name: "Cancel", exact: true }),
       ).toBeFocused();
-      const folder = resolve(
-        "diagnostics/interface-review",
-        process.env.INTERFACE_REVIEW_STAGE ?? "after",
-      );
-      await mkdir(folder, { recursive: true });
-      await page.screenshot({
-        path: resolve(folder, `${mobile ? "mobile" : "desktop"}-remove.png`),
-        animations: "disabled",
-      });
       await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
       await expect(dialog).not.toBeVisible();
       const exists = () =>
