@@ -78,7 +78,19 @@ test("Elements scrubs the proposal's detent sheet from the page", async ({
         box.height - parseFloat(getComputedStyle(sheet).paddingBottom);
       return (innerHeight - box.top) / height;
     });
-  await expect.poll(share, { timeout: 30_000 }).toBeCloseTo(0.6, 2);
+  // Lists rest at their medium detent, 55% of the screen.
+  await expect
+    .poll(
+      () =>
+        contents.evaluate(
+          (element) =>
+            (innerHeight -
+              element.closest(".reader-sheet")!.getBoundingClientRect().top) /
+            innerHeight,
+        ),
+      { timeout: 30_000 },
+    )
+    .toBeCloseTo(0.55, 2);
   // Once in, the sheet's dialog takes focus inside its frame.
   await expect
     .poll(() =>

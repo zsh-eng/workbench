@@ -240,13 +240,10 @@ function useDrivenSheet(page: ReaderSheetId | null) {
     const height =
       sheet.getBoundingClientRect().height -
       parseFloat(getComputedStyle(sheet).paddingBottom);
-    const point = READER_SHEET_PAGES[page].snapPoints?.[0];
-    const detent =
-      point === undefined
-        ? height
-        : typeof point === "number"
-          ? point
-          : (parseFloat(point) / 100) * height;
+    // React Aria marks the first detent inside the sheet, as far down from
+    // its top edge as the detent shows.
+    const marker = sheet.querySelector<HTMLElement>("[data-sheet-initial]");
+    const detent = marker ? Math.min(marker.offsetTop, height) : height;
     const progress = Math.min(1, Math.max(0, time / SHEET_TIMELINE.duration));
     const lerp = (from: number, to: number, t: number) =>
       from + (to - from) * t;

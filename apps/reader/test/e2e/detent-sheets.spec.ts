@@ -20,6 +20,14 @@ function visibleShare(dialog: Locator) {
   });
 }
 
+/** The share of the screen a sheet covers. Lists rest at 55% of it. */
+function screenShare(dialog: Locator) {
+  return dialog.evaluate((element) => {
+    const sheet = element.closest(".reader-sheet") as HTMLElement;
+    return (innerHeight - sheet.getBoundingClientRect().top) / innerHeight;
+  });
+}
+
 /** Waits until a sheet has entered and rests; React Aria marks entry. */
 async function settled(dialog: Locator) {
   await expect(dialog).toBeVisible({ timeout: 30_000 });
@@ -61,11 +69,11 @@ test("Reader sheets rest on detents and stack over Reader tools", async ({
   );
   expect(toolsTop).toBeGreaterThan(844 / 2);
 
-  // Contents stacks over the tools at its first detent.
+  // Contents stacks over the tools at the lists' medium detent.
   await tools.getByRole("button", { name: /Contents/ }).click();
   const contents = page.getByRole("dialog", { name: "Contents" });
   await settled(contents);
-  await expect.poll(() => visibleShare(contents)).toBeCloseTo(0.6, 1);
+  await expect.poll(() => screenShare(contents)).toBeCloseTo(0.55, 1);
   await expect(tools).toBeAttached();
 
   // A swipe up takes it to full height; Back returns to the tools.
@@ -145,7 +153,7 @@ test("With the trial on, the Reader opens Contents as a detent sheet", async ({
   await tools.getByRole("button", { name: /Contents/ }).click();
   const contents = page.getByRole("dialog", { name: "Contents" });
   await settled(contents);
-  await expect.poll(() => visibleShare(contents)).toBeCloseTo(0.6, 1);
+  await expect.poll(() => screenShare(contents)).toBeCloseTo(0.55, 1);
 
   // A chapter is a tap away at the detent; the book turns to it behind the
   // sheet, which stays open, as the shipped sheet does.

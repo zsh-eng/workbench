@@ -16,16 +16,23 @@ interface ReaderSheetPage {
 }
 
 /**
- * How each Reader sheet rests. Lists open part way and drag up to full
- * height. Appearance takes the place of Reader tools, fits its tab, and does
- * not dim, so the page stays in view while it changes.
+ * The medium detent every list shares: a little over half the screen, so
+ * lists stacked over Reader tools open with the same top edge and the page
+ * shows above them. A shorter list fits its content instead.
+ */
+export const MEDIUM_DETENT = "min(55dvh, 100%)";
+
+/**
+ * How each Reader sheet rests. Menus fit their content. Lists open at the
+ * medium detent and drag up to full height. Appearance takes the place of
+ * Reader tools, fits its tab, and does not dim, so the page stays in view
+ * while it changes.
  */
 export const READER_SHEET_PAGES: Record<ReaderSheetId, ReaderSheetPage> = {
   tools: { title: "Reader tools", stacks: false, dim: true },
   contents: {
     title: "Contents",
-    snapPoints: ["60%"],
-    height: "tall",
+    snapPoints: [MEDIUM_DETENT],
     stacks: true,
     dim: true,
   },
@@ -34,8 +41,7 @@ export const READER_SHEET_PAGES: Record<ReaderSheetId, ReaderSheetPage> = {
   "book-actions": { title: "Reading status", stacks: true, dim: true },
   notes: {
     title: "Notebook",
-    snapPoints: ["55%"],
-    height: "tall",
+    snapPoints: [MEDIUM_DETENT],
     stacks: true,
     dim: true,
   },
