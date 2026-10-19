@@ -2,7 +2,6 @@ import { ContinueReadingCard } from "@/components/ContinueReadingCard";
 import { AppHeader } from "@/components/AppNavigation";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLibraryCoverUrls } from "@/hooks/use-library-cover-urls";
-import { useReadingSessionsQuery } from "@/hooks/use-reading-sessions-query";
 import {
   buildReadingSessionsOverview,
   DEFAULT_READING_SESSION_RANGE,
@@ -19,6 +18,7 @@ import { format, formatDistanceToNow, subMonths } from "date-fns";
 import { BookOpenText, CalendarDays, Clock3, Timer } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { useSessionsSource } from "./sample-sessions";
 
 export type ReadingSessionScale = "week" | "month" | "year" | "all";
 
@@ -431,7 +431,7 @@ export function ReadingSessions() {
     all: { kind: "all" },
   });
   const [now] = useState(() => new Date());
-  const query = useReadingSessionsQuery();
+  const query = useSessionsSource();
   const range = rangesByScale[scale];
   const rangeOptions = useMemo(() => {
     if (scale === "week") {
@@ -485,7 +485,10 @@ export function ReadingSessions() {
     }
     return [...books, invitationBook];
   }, [invitation, overview.bookSummaries, query.data?.books]);
-  const { coverUrls } = useLibraryCoverUrls(summaryBooks);
+  const library = useLibraryCoverUrls(
+    query.sampleCoverUrls ? [] : summaryBooks,
+  );
+  const coverUrls = query.sampleCoverUrls ?? library.coverUrls;
   const maxBookTime = overview.bookSummaries[0]?.activeMs ?? 0;
   if (query.isLoading) {
     return (

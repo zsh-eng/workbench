@@ -7,7 +7,6 @@ import {
   useCoverRequest,
 } from "@/features/library/LibraryBooks";
 import { useLibraryCoverUrls } from "@/hooks/use-library-cover-urls";
-import { useReadingSessionsQuery } from "@/hooks/use-reading-sessions-query";
 import type { Book } from "@/lib/db";
 import { beginReaderTrace } from "@/lib/reader-performance-trace";
 import {
@@ -30,6 +29,7 @@ import {
   type RangeOption,
   type ReadingSessionScale,
 } from "./ReadingSessions";
+import { useSessionsSource } from "./sample-sessions";
 
 /**
  * An idea for the Sessions page, in the Library's frame and type: the
@@ -84,7 +84,7 @@ function dayLabel(timestamp: number, now: number): string {
 
 export function SessionsIdea() {
   const navigate = useNavigate();
-  const query = useReadingSessionsQuery();
+  const query = useSessionsSource();
   const [now] = useState(() => new Date());
   const [scale, setScale] = useState<ReadingSessionScale>("month");
   const [ranges, setRanges] = useState(INITIAL_RANGES);
@@ -126,7 +126,11 @@ export function SessionsIdea() {
         .filter((book) => book !== undefined),
     [booksById, overview.bookSummaries],
   );
-  const { coverUrls, requestCover } = useLibraryCoverUrls(summaryBooks);
+  const library = useLibraryCoverUrls(
+    query.sampleCoverUrls ? [] : summaryBooks,
+  );
+  const coverUrls = query.sampleCoverUrls ?? library.coverUrls;
+  const requestCover = library.requestCover;
 
   // Visits of five minutes or more, newest first, by day.
   const visits = useMemo(() => {
