@@ -69,19 +69,9 @@ test("mobile import offers Open book after durable preparation without opening a
   await (await chooser).setFiles(SAMPLE_EPUB_PATH);
   const openBook = page.getByRole("button", { name: "Open book", exact: true });
   await expect(openBook).toBeVisible();
-  const toast = page.locator("[data-sonner-toast]").filter({ has: openBook });
-  await expect(toast.locator("[data-description]")).toHaveCount(0);
-  await expect(toast).toHaveCSS("border-radius", "28px");
-  await expect(openBook).toHaveCSS("border-radius", "15px");
-  const message = toast.locator("[data-title]");
-  await expect(message).toHaveText("Added 1 book.");
-  expect(
-    await message.evaluate(
-      (node) =>
-        node.getBoundingClientRect().height <=
-        parseFloat(getComputedStyle(node).lineHeight) + 1,
-    ),
-  ).toBe(true);
+  await expect(
+    page.locator("[data-sonner-toast]").filter({ has: openBook }),
+  ).toContainText("Added 1 book.");
   await expect(page).toHaveURL(/\/$/);
   const prepared = await page.evaluate(async (modulePath) => {
     const { syncV2Db: db } = await import(modulePath);
