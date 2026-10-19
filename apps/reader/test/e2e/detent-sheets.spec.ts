@@ -75,7 +75,7 @@ test("Reader sheets rest on detents and stack over Reader tools", async ({
   await expect(contents).toBeHidden();
   await expect(tools).toBeVisible();
 
-  // Appearance takes the place of the tools, low and without dimming.
+  // Appearance takes the place of the tools, fits its tab, and does not dim.
   await tools.getByRole("button", { name: "Appearance", exact: true }).click();
   const settings = page.getByRole("dialog", {
     name: "Appearance",
@@ -83,8 +83,22 @@ test("Reader sheets rest on detents and stack over Reader tools", async ({
   });
   await settled(settings);
   await expect(tools).toBeHidden();
-  await expect.poll(() => visibleShare(settings)).toBeLessThan(0.6);
+  await expect.poll(() => visibleShare(settings)).toBeCloseTo(1, 1);
   await expect(page.locator(".reader-sheet-backdrop")).toHaveCount(0);
+
+  // A taller tab raises the sheet's top edge, and the page stays in view.
+  const top = () =>
+    settings.evaluate(
+      (element) =>
+        element.closest(".reader-sheet")!.getBoundingClientRect().top,
+    );
+  const typeTop = await top();
+  expect(typeTop).toBeGreaterThan(844 / 4);
+  await settings.getByRole("tab", { name: "Theme" }).click();
+  await expect.poll(top).toBeLessThan(typeTop - 40);
+  await expect.poll(() => visibleShare(settings)).toBeCloseTo(1, 1);
+  await settings.getByRole("tab", { name: "Type" }).click();
+  await expect.poll(top).toBeCloseTo(typeTop, 0);
 
   // Changes apply to the page behind the sheet.
   const page17 = page.getByText("Curiouser and curiouser!", { exact: false });

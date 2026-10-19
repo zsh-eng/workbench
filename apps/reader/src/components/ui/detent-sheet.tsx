@@ -1,7 +1,9 @@
 import { Button } from "@/components/ui/button";
+import { MOTION } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { ChevronLeft } from "lucide-react";
-import type { ReactNode } from "react";
+import { motion, useReducedMotion } from "motion/react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Heading } from "react-aria-components/Dialog";
 import {
   Sheet,
@@ -20,7 +22,8 @@ export interface DetentSheetProps {
   /**
    * Visible heights where the sheet rests, smallest first: pixels, or a
    * percentage of the sheet. The sheet opens at the first and can always be
-   * dragged to its full height. Omit them for a sheet that fits its content.
+   * dragged to its full height. Omit them for a sheet that fits its content;
+   * its height then follows the content, as when a tab changes.
    */
   snapPoints?: DetentSheetSnapPoint[];
   /** "content" fits the content; "tall" takes the screen below the inset. */
@@ -102,9 +105,43 @@ export function DetentSheet({
             </Heading>
             <div />
           </div>
-          <div className="reader-sheet-body">{children}</div>
+          <div className="reader-sheet-body">
+            {snapPoints?.length || height === "tall" ? (
+              children
+            ) : (
+              <FitHeight>{children}</FitHeight>
+            )}
+          </div>
         </SheetContent>
       </Sheet>
     </SheetOverlay>
+  );
+}
+
+/**
+ * Moves a sheet that fits its content to the content's new height, so the
+ * top edge glides instead of jumping. The content keeps its own height; a
+ * sheet taller than the screen scrolls its body.
+ */
+function FitHeight({ children }: { children: ReactNode }) {
+  const content = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number | "auto">("auto");
+  const reduceMotion = useReducedMotion();
+  useLayoutEffect(() => {
+    const element = content.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => setHeight(element.offsetHeight));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  return (
+    <motion.div
+      className="shrink-0 overflow-hidden"
+      initial={false}
+      animate={{ height }}
+      transition={reduceMotion ? { duration: 0 } : MOTION.shape}
+    >
+      <div ref={content}>{children}</div>
+    </motion.div>
   );
 }

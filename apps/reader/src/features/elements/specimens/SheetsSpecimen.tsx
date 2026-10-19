@@ -12,7 +12,6 @@ import {
 } from "@/features/reader/ReaderDetentSheets";
 import { ReaderHeader } from "@/features/reader/ReaderHeader";
 import {
-  ReaderSettingsList,
   ReaderSettingsPanel,
   type ReaderSettingsPanelTab,
 } from "@/features/reader/ReaderSettingsSheet";
@@ -147,19 +146,13 @@ export function SheetsSpecimen({
           />
         );
       case "settings":
-        return variant === "detents" ? (
-          <ReaderSettingsList
-            settings={settings}
-            onUpdateSettings={update}
-            className="min-h-0 flex-1"
-          />
-        ) : (
+        return (
           <ReaderSettingsPanel
             settings={settings}
             onUpdateSettings={update}
             activeTab={settingsTab}
             onActiveTabChange={setSettingsTab}
-            className="mt-0 h-full"
+            className={variant === "detents" ? "mt-0 h-auto" : "mt-0 h-full"}
           />
         );
       case "book-actions":

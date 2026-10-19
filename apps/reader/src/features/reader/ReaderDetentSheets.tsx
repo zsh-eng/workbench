@@ -17,7 +17,7 @@ interface ReaderSheetPage {
 
 /**
  * How each Reader sheet rests. Lists open part way and drag up to full
- * height. Appearance takes the place of Reader tools, opens low, and does
+ * height. Appearance takes the place of Reader tools, fits its tab, and does
  * not dim, so the page stays in view while it changes.
  */
 export const READER_SHEET_PAGES: Record<ReaderSheetId, ReaderSheetPage> = {
@@ -29,12 +29,7 @@ export const READER_SHEET_PAGES: Record<ReaderSheetId, ReaderSheetPage> = {
     stacks: true,
     dim: true,
   },
-  settings: {
-    title: "Appearance",
-    snapPoints: [340],
-    stacks: false,
-    dim: false,
-  },
+  settings: { title: "Appearance", stacks: false, dim: false },
   search: { title: "Search book", height: "tall", stacks: true, dim: true },
   "book-actions": { title: "Reading status", stacks: true, dim: true },
   notes: {

@@ -4,7 +4,6 @@ import type { ReaderSettings } from "@/types/reader.types";
 import { ReaderContentsPanel } from "./ReaderContentsSheet";
 import { ReaderBookActionsSheet } from "./ReaderBookActionsSheet";
 import {
-  ReaderSettingsList,
   ReaderSettingsPanel,
   type ReaderSettingsPanelTab,
 } from "./ReaderSettingsSheet";
@@ -121,24 +120,17 @@ export function ReaderSheetHost({
           className={detents ? "min-h-0 flex-1" : "h-full"}
         />
       )}
-      {page === "settings" &&
-        (detents ? (
-          <ReaderSettingsList
-            settings={settings}
-            onUpdateSettings={onUpdateSettings}
-            layoutControl={layoutControl}
-            className="min-h-0 flex-1"
-          />
-        ) : (
-          <ReaderSettingsPanel
-            settings={settings}
-            onUpdateSettings={onUpdateSettings}
-            activeTab={settingsTab}
-            onActiveTabChange={setSettingsTab}
-            layoutControl={layoutControl}
-            className="mt-0 h-full"
-          />
-        ))}
+      {page === "settings" && (
+        <ReaderSettingsPanel
+          settings={settings}
+          onUpdateSettings={onUpdateSettings}
+          activeTab={settingsTab}
+          onActiveTabChange={setSettingsTab}
+          layoutControl={layoutControl}
+          // A detent sheet fits the tab; the shared sheet has a fixed height.
+          className={detents ? "mt-0 h-auto" : "mt-0 h-full"}
+        />
+      )}
       {page === "notes" && notesPanel}
       {page === "search" && searchPanel}
     </>
