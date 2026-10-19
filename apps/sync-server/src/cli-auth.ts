@@ -169,11 +169,11 @@ export async function cliIdentity(c: Context<AppEnv>) {
 export const cliReadPath = (path: string) =>
   path === "/api/me" ||
   path === "/api/namespaces" ||
-  /^\/api\/apps\/(reader|spaced|arctic)\/(sync\/v3\/(state|pull|pull-stream)|me)$/.test(
+  /^\/api\/apps\/(reader|spaced|arctic|arctic-content)\/(sync\/v3\/(state|pull|pull-stream)|me)$/.test(
     decodeURIComponent(path),
   ) ||
-  // Arctic has no file API.
-  /^\/api\/apps\/(reader|spaced)\/files(?:\/xxh64:[a-f0-9]{16})?\/?$/.test(
+  // Native Arctic has no file API; its article text is in arctic-content.
+  /^\/api\/apps\/(reader|spaced|arctic-content)\/files(?:\/xxh64:[a-f0-9]{16})?\/?$/.test(
     decodeURIComponent(path),
   );
 

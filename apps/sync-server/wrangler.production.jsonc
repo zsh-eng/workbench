@@ -27,6 +27,6 @@
   ],
   "vars": {
     "BASE_URL": "https://api.zsheng.app",
-    "APP_ORIGINS": "https://reader.zsheng.app,https://spaced2.zsheng.app",
+    "APP_ORIGINS": "https://reader.zsheng.app,https://spaced2.zsheng.app,https://arctic.zsheng.app",
   },
 }

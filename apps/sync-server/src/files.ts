@@ -1,9 +1,23 @@
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import xxhash from "xxhash-wasm";
-import type { AppEnv } from "./env";
+import type { AppEnv, Namespace } from "./env";
 
 let hasher: ReturnType<typeof xxhash> | undefined;
+const MiB = 1024 * 1024;
+const MAX_BYTES: Record<Namespace, number> = {
+  reader: 100 * MiB,
+  spaced: 2 * MiB,
+  arctic: 0,
+  "arctic-content": 2 * MiB,
+};
+/** Arctic's article text: a reader copy that the client cleaned. The server
+ * keeps that contract: HTML only, and no scripts. */
+function refuseArcticContent(mediaType: string, bytes: ArrayBuffer) {
+  if (!/^text\/html(;\s*charset=utf-8)?$/i.test(mediaType)) return "Article text must be HTML";
+  if (/<script\b/i.test(new TextDecoder().decode(bytes))) return "Article text cannot contain scripts";
+  return undefined;
+}
 export function createFileRoutes() {
   const app = new Hono<AppEnv>();
   app.get("/", async (c) => {
@@ -23,8 +37,7 @@ export function createFileRoutes() {
     "/:fileId",
     async (c, next) =>
       bodyLimit({
-        maxSize:
-          c.get("namespace") === "spaced" ? 2 * 1024 * 1024 : 100 * 1024 * 1024,
+        maxSize: MAX_BYTES[c.get("namespace")],
         onError: (c) => c.json({ error: "File too large" }, 413),
       })(c, next),
     async (c) => {
@@ -35,14 +48,18 @@ export function createFileRoutes() {
         return c.json({ error: "File ID does not match content" }, 400);
       const user = c.get("user").id,
         namespace = c.get("namespace");
+      const mediaType =
+        c.req.header("Content-Type") || "application/octet-stream";
+      if (namespace === "arctic-content") {
+        const refused = refuseArcticContent(mediaType, bytes);
+        if (refused) return c.json({ error: refused }, 415);
+      }
       const prior = await c.env.DATABASE.prepare(
         "SELECT * FROM file_storage WHERE user_id=? AND namespace=? AND id=?",
       )
         .bind(user, namespace, id)
         .first<FileRow>();
       const key = `users/${encodeURIComponent(user)}/apps/${namespace}/${id}`;
-      const mediaType =
-        c.req.header("Content-Type") || "application/octet-stream";
       await c.env.FILES.put(key, bytes, {
         httpMetadata: { contentType: mediaType },
       });

@@ -9,7 +9,7 @@ import { cliAuth, cliIdentity, cliReadPath, devicePage } from "./cli-auth";
 import { createFileRoutes } from "./files";
 import { loginPage } from "./login";
 import { nativeAuth } from "./native-auth";
-import { trustedOrigins, type AppEnv } from "./env";
+import { isNamespace, NAMESPACES, trustedOrigins, type AppEnv } from "./env";
 
 const app = new Hono<AppEnv>();
 app.use("*", async (c, next) => {
@@ -86,15 +86,10 @@ app.get("/api/me", requireUser, (c) =>
     expiresAt: c.get("session").expiresAt,
   }),
 );
-app.get("/api/namespaces", requireUser, c => c.json({ namespaces: ["reader", "spaced", "arctic"] }));
+app.get("/api/namespaces", requireUser, c => c.json({ namespaces: NAMESPACES }));
 app.use("/api/apps/:namespace/*", requireUser, async (c, next) => {
   const namespace = c.req.param("namespace");
-  if (
-    namespace !== "reader" &&
-    namespace !== "spaced" &&
-    namespace !== "arctic"
-  )
-    return c.json({ error: "Unknown app" }, 404);
+  if (!namespace || !isNamespace(namespace)) return c.json({ error: "Unknown app" }, 404);
   c.set("namespace", namespace);
   const userId = c.get("user").id;
   let stream = await c.env.DATABASE.prepare(
@@ -202,8 +197,8 @@ app.get("/api/apps/:namespace/devices", async (c) => {
     })),
   });
 });
-// Arctic's first sync milestone includes records only. Do not silently inherit
-// Reader's file limits or xxh64 media contract for the native SHA-256 cache.
+// Native Arctic keeps its media to itself: it syncs records only. Article text
+// that the web app reads lives in `arctic-content` (files.ts limits it).
 app.use("/api/apps/arctic/files", async (c) =>
   c.json({ error: "Media sync is not enabled" }, 404),
 );
@@ -212,7 +207,7 @@ app.use("/api/apps/arctic/files/*", async (c) =>
 );
 app.route("/api/apps/:namespace/files", createFileRoutes());
 app.get("/health", (c) =>
-  c.json({ ok: true, apps: ["reader", "spaced", "arctic"] }),
+  c.json({ ok: true, apps: NAMESPACES }),
 );
 function agentInfo(ua?: string | null) {
   const parsed = new UAParser(ua ?? "").getResult();

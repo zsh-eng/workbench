@@ -10,8 +10,9 @@ import {
 } from "@zsh-eng/local-sync";
 
 /** Namespaces this backup reads. Arctic syncs records only; its files stay on devices. */
-export const NAMESPACES = ["reader", "spaced", "arctic"];
-export const FILE_NAMESPACES = ["reader", "spaced"];
+// `arctic-content` holds the article text that Arctic's web app reads.
+export const NAMESPACES = ["reader", "spaced", "arctic", "arctic-content"];
+export const FILE_NAMESPACES = ["reader", "spaced", "arctic-content"];
 
 export class Store {
   db: Database;

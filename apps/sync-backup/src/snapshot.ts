@@ -90,7 +90,8 @@ export function completeness(store: Store) {
       "xxh64 IDs only; external URLs and unsynced device data are not captured",
     complete:
       [...required].every((n) => coverage.includes(n)) &&
-      FILE_NAMESPACES.every((n) => fileCoverage.includes(n)) &&
+      // Like records, a file namespace counts once its scope is bound.
+      FILE_NAMESPACES.filter((n) => required.has(n)).every((n) => fileCoverage.includes(n)) &&
       !missing.length &&
       !unsupportedKeys,
   };

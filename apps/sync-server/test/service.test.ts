@@ -155,6 +155,51 @@ it("isolates files with identical IDs and preserves another app's file after del
   ).rejects.toThrow("404");
 });
 
+it("keeps Arctic's article text in arctic-content: HTML without scripts, at most 2 MiB, apart from native Arctic", async () => {
+  const cookie = await user();
+  const content = client(cookie, "arctic-content"),
+    arctic = client(cookie, "arctic");
+  const hash = await xxhash();
+  const upload = async (text: string | Uint8Array, type = "text/html; charset=utf-8") => {
+    const bytes = typeof text === "string" ? new TextEncoder().encode(text) : text;
+    const id = `xxh64:${hash.h64Raw(bytes).toString(16).padStart(16, "0")}`;
+    return content
+      .request(`/files/${id}`, { method: "PUT", body: bytes, headers: { "Content-Type": type } })
+      .then(
+        (response) => ({ status: response.status, id }),
+        (error: Error) => ({ status: Number(/\d{3}/.exec(error.message)?.[0]), id }),
+      );
+  };
+  const page = "<article><h1>Ice</h1><p>Sea ice keeps its own time.</p></article>";
+  const saved = await upload(page);
+  expect(saved.status).toBe(200);
+  expect(await (await content.request(`/files/${saved.id}`)).text()).toBe(page);
+  // The record that names the copy syncs in the same namespace.
+  await content.remote.push("web", [
+    { ...change(JSON.stringify({ file: saved.id })), key: "content/ice" },
+  ]);
+  expect(
+    (await content.remote.pull("mac", { cursor: 0, excludeOwnDevice: false })).records.map(
+      (record) => record.key,
+    ),
+  ).toEqual(["content/ice"]);
+
+  expect((await upload(page, "application/octet-stream")).status).toBe(415);
+  expect((await upload(`${page}<SCRIPT src="x.js"></SCRIPT>`)).status).toBe(415);
+  expect((await upload(new Uint8Array(2 * 1024 * 1024 + 1).fill(97))).status).toBe(413);
+
+  // Native Arctic sees none of it: no files, and no content records.
+  await expect(arctic.request("/files")).rejects.toThrow("404");
+  expect(
+    (await arctic.remote.pull("mac", { cursor: 0, excludeOwnDevice: false })).records,
+  ).toEqual([]);
+  expect(
+    await (
+      await SELF.fetch(`${origin}/api/namespaces`, { headers: { Cookie: cookie } })
+    ).json(),
+  ).toEqual({ namespaces: ["reader", "spaced", "arctic", "arctic-content"] });
+});
+
 it("rejects stale epochs and a different account without changing local state", async () => {
   const cookie = await user(),
     reader = client(cookie, "reader");
@@ -190,7 +235,7 @@ it("rejects stale epochs and a different account without changing local state", 
 
 it("shares the browser session across allowed origins and revokes access on logout", async () => {
   const cookie = await user();
-  for (const from of ["http://localhost:5175", "http://localhost:5180"]) {
+  for (const from of ["http://localhost:5175", "http://localhost:5180", "http://localhost:5186"]) {
     const response = await SELF.fetch(`${origin}/api/me`, {
       headers: { Cookie: cookie, Origin: from },
     });

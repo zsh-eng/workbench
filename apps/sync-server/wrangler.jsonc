@@ -16,7 +16,7 @@
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "workbench-sync-local" }],
   "vars": {
     "BASE_URL": "http://localhost:8792",
-    "APP_ORIGINS": "http://localhost:5175,http://localhost:5180",
+    "APP_ORIGINS": "http://localhost:5175,http://localhost:5180,http://localhost:5186",
     "BETTER_AUTH_SECRET": "local-only-shared-sync-development-secret-2026",
     "LOCAL_DEVELOPMENT": "true",
   },

@@ -163,6 +163,17 @@ it("authorizes device once, isolates identity, rejects all writes, expires and r
       .status,
   ).toBe(403);
   expect((await call("/api/apps/arctic/files", { headers })).status).toBe(403);
+  // Arctic's article text is backed up like Reader's files, and never written.
+  expect((await call("/api/apps/arctic-content/files", { headers })).status).toBe(200);
+  expect(
+    (
+      await call("/api/apps/arctic-content/files/xxh64:0000000000000000", {
+        method: "PUT",
+        headers,
+        body: "<p>x</p>",
+      })
+    ).status,
+  ).toBe(403);
   const stranger = await user();
   const other = await (
     await call("/api/apps/reader/sync/v3/state", {
