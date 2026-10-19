@@ -115,9 +115,10 @@ available, cleanup does not delete anything.
 
 ## Verification
 
-- `bun run test:client --run`: client, database, protocol, lifecycle, and lab tests.
-- `bun run test:e2e test/e2e/sync-lab.spec.ts --workers=1`: real frames, Reader,
-  offline conflicts, source isolation, binary export/import, and sequence replay.
+- `bun run test:client --run`: protocol parity, isolation, migration, and
+  multi-client scenario tests.
+- `bun run test:e2e test/e2e/sync-lab.spec.ts`: copying the local library leaves
+  it unchanged.
 - `bun run build` and `bun run lint`.
 - `bun run test:e2e --config playwright.pwa.config.ts`: production service worker
   registration and offline reopen after a production build.

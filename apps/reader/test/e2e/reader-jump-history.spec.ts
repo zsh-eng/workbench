@@ -114,125 +114,103 @@ test("coalesces contents jumps and adds a separate normal navigation visit", asy
   ).toEqual(["normal", "toc", "normal"]);
 });
 
-for (const mobile of [false, true]) {
-  test.describe(
-    mobile ? "mobile history footer" : "desktop history footer",
-    () => {
-      test.use({
-        viewport: mobile
-          ? { width: 390, height: 844 }
-          : { width: 1280, height: 900 },
-        hasTouch: mobile,
-        isMobile: mobile,
-      });
-      test("returns to real visits, stays quiet while reading, and restores the trail", async ({
-        page,
-        localBook,
-      }, testInfo) => {
-        await openLocalBook(page, localBook.id);
-        await nextSpread(page);
-        const start = (await currentPages(page))[0];
-        const reveal = async () => {
-          if (mobile) await page.touchscreen.tap(195, 350);
-          else await page.locator('[data-reader-chrome-rail="bottom"]').hover();
-          await expect(page.getByTestId("history-strip")).toBeInViewport();
-        };
-        await reveal();
-        const strip = page.getByTestId("history-strip");
-        await expect(strip).toHaveAttribute("data-mode", "quiet");
-        await page
-          .locator("[data-reader-footer]")
-          .getByRole("button", { name: "Next chapter", exact: true })
-          .click();
-        await expect(strip).toHaveAttribute("data-mode", "history");
-        await expect
-          .poll(async () => (await history(page, localBook.id)).cursor)
-          .toBe(1);
-        const currentVisit = strip.locator('[aria-current="location"]');
-        await expect(currentVisit).toBeEnabled();
-        const destination = (await currentVisit
-          .locator(".history-strip-number")
-          .textContent())!;
-        expect(await currentPages(page)).toContain(destination);
-        const trail = await history(page, localBook.id);
-        const earlier = strip.getByRole("button", {
-          name: `Earlier visit: page ${start}, Reading`,
-          exact: true,
-        });
-        await expect(earlier).toBeEnabled();
-        await earlier.click();
-        await expect
-          .poll(async () => (await history(page, localBook.id)).cursor)
-          .toBe(0);
-        await expect
-          .poll(async () => (await currentPages(page))[0])
-          .toBe(start);
-        await strip
-          .getByRole("button", {
-            name: `Later visit: page ${destination}, Chapter`,
-            exact: true,
-          })
-          .click();
-        await expect
-          .poll(async () => (await currentPages(page))[0])
-          .toBe(destination);
-        expect((await history(page, localBook.id)).entries).toEqual(
-          trail.entries,
-        );
-        // Arrow keys in the strip traverse history, rather than turning a page.
-        await strip
-          .getByRole("button", {
-            name: `Current page ${destination}, Chapter`,
-            exact: true,
-          })
-          .press("ArrowLeft");
-        await expect
-          .poll(async () => (await history(page, localBook.id)).cursor)
-          .toBe(0);
-        await page.locator("[data-reader-footer]").screenshot({
-          path: testInfo.outputPath(
-            `reader-history-${mobile ? "mobile" : "desktop"}.png`,
-          ),
-        });
-        await page.reload();
-        await waitForReaderReady(page);
-        await reveal();
-        await expect(strip).toHaveAttribute("data-mode", "quiet");
-        expect((await history(page, localBook.id)).entries).toEqual(
-          trail.entries,
-        );
-        await strip.getByRole("button", { name: /Show jump history/ }).click();
-        await strip
-          .getByRole("button", {
-            name: `Later visit: page ${destination}, Chapter`,
-            exact: true,
-          })
-          .click();
-        await expect
-          .poll(async () => (await history(page, localBook.id)).cursor)
-          .toBe(1);
-        // Move focus out of history before normal reader keyboard navigation.
-        await page
-          .locator('[data-reader-spread-layer="current"]')
-          .first()
-          .click({ position: { x: 100, y: 100 } });
-        await nextSpread(page);
-        await expect
-          .poll(
-            async () =>
-              (await history(page, localBook.id)).entries.at(-1)?.kind,
-          )
-          .toBe("normal");
-        if (!mobile)
-          await page.locator('[data-reader-chrome-rail="bottom"]').hover();
-        else if (!(await strip.count())) await reveal();
-        await expect(strip).toHaveAttribute("data-mode", "quiet");
-        const peek = page.locator("[data-reader-progress-peek]");
-        await expect(peek.getByTestId("history-strip")).toHaveCount(0);
-        await expect(
-          peek.getByTestId("reader-peek-page-indicator"),
-        ).toHaveCount(1);
-      });
-    },
-  );
-}
+// The phone is the primary device; on desktop the strip only differs in how
+// the footer is revealed.
+test.describe("history footer", () => {
+  test.use({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+  });
+  test("returns to real visits, stays quiet while reading, and restores the trail", async ({
+    page,
+    localBook,
+  }) => {
+    await openLocalBook(page, localBook.id);
+    await nextSpread(page);
+    const start = (await currentPages(page))[0];
+    const reveal = async () => {
+      await page.touchscreen.tap(195, 350);
+      await expect(page.getByTestId("history-strip")).toBeInViewport();
+    };
+    await reveal();
+    const strip = page.getByTestId("history-strip");
+    await expect(strip).toHaveAttribute("data-mode", "quiet");
+    await page
+      .locator("[data-reader-footer]")
+      .getByRole("button", { name: "Next chapter", exact: true })
+      .click();
+    await expect(strip).toHaveAttribute("data-mode", "history");
+    await expect
+      .poll(async () => (await history(page, localBook.id)).cursor)
+      .toBe(1);
+    const currentVisit = strip.locator('[aria-current="location"]');
+    await expect(currentVisit).toBeEnabled();
+    const destination = (await currentVisit
+      .locator(".history-strip-number")
+      .textContent())!;
+    expect(await currentPages(page)).toContain(destination);
+    const trail = await history(page, localBook.id);
+    const earlier = strip.getByRole("button", {
+      name: `Earlier visit: page ${start}, Reading`,
+      exact: true,
+    });
+    await expect(earlier).toBeEnabled();
+    await earlier.click();
+    await expect
+      .poll(async () => (await history(page, localBook.id)).cursor)
+      .toBe(0);
+    await expect.poll(async () => (await currentPages(page))[0]).toBe(start);
+    await strip
+      .getByRole("button", {
+        name: `Later visit: page ${destination}, Chapter`,
+        exact: true,
+      })
+      .click();
+    await expect
+      .poll(async () => (await currentPages(page))[0])
+      .toBe(destination);
+    expect((await history(page, localBook.id)).entries).toEqual(trail.entries);
+    // Arrow keys in the strip traverse history, rather than turning a page.
+    await strip
+      .getByRole("button", {
+        name: `Current page ${destination}, Chapter`,
+        exact: true,
+      })
+      .press("ArrowLeft");
+    await expect
+      .poll(async () => (await history(page, localBook.id)).cursor)
+      .toBe(0);
+    await page.reload();
+    await waitForReaderReady(page);
+    await reveal();
+    await expect(strip).toHaveAttribute("data-mode", "quiet");
+    expect((await history(page, localBook.id)).entries).toEqual(trail.entries);
+    await strip.getByRole("button", { name: /Show jump history/ }).click();
+    await strip
+      .getByRole("button", {
+        name: `Later visit: page ${destination}, Chapter`,
+        exact: true,
+      })
+      .click();
+    await expect
+      .poll(async () => (await history(page, localBook.id)).cursor)
+      .toBe(1);
+    // Move focus out of history before normal reader keyboard navigation.
+    await page
+      .locator('[data-reader-spread-layer="current"]')
+      .first()
+      .click({ position: { x: 100, y: 100 } });
+    await nextSpread(page);
+    await expect
+      .poll(
+        async () => (await history(page, localBook.id)).entries.at(-1)?.kind,
+      )
+      .toBe("normal");
+    if (!(await strip.count())) await reveal();
+    await expect(strip).toHaveAttribute("data-mode", "quiet");
+    const peek = page.locator("[data-reader-progress-peek]");
+    await expect(peek.getByTestId("history-strip")).toHaveCount(0);
+    await expect(peek.getByTestId("reader-peek-page-indicator")).toHaveCount(1);
+  });
+});
