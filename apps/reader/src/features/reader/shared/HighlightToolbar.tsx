@@ -14,13 +14,7 @@ import {
 import { useHotkey } from "@tanstack/react-hotkeys";
 import { Send } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 interface HighlightToolbarProps {
@@ -34,10 +28,6 @@ interface HighlightToolbarProps {
   textToCopy?: string;
   /** Called when user submits a note (creates invisible annotation + note) */
   onNoteSubmit?: (content: string) => void;
-  /** One more icon action at the end of the row. */
-  action?: ReactNode;
-  /** A line attached to the pill, on its side away from the selection. */
-  accessory?: ReactNode;
 }
 
 export function HighlightToolbar({
@@ -49,8 +39,6 @@ export function HighlightToolbar({
   onAddNote,
   textToCopy,
   onNoteSubmit,
-  action,
-  accessory,
 }: HighlightToolbarProps) {
   const isMobile = useIsMobile();
   const prefersReducedMotion = useReducedMotion();
@@ -67,7 +55,7 @@ export function HighlightToolbar({
   // A note composer keeps the wider two-row surface.
   // Mobile: ~260px width, ~120px height
   const toolbarWidth = isBareDesktopPicker
-    ? (hasCopyAction ? 228 : 172) + (onAddNote ? 40 : 0) + (action ? 40 : 0)
+    ? (hasCopyAction ? 228 : 172) + (onAddNote ? 40 : 0)
     : isMobile
       ? 260
       : 220;
@@ -293,19 +281,7 @@ export function HighlightToolbar({
             <MessageSquarePlus size={19} />
           </button>
         )}
-        {action}
       </div>
-
-      {accessory && (
-        <div
-          className={cn(
-            "absolute left-1/2 w-max max-w-[min(420px,calc(100vw-24px))] -translate-x-1/2 rounded-xl border border-border bg-popover/95 p-0.5 shadow-[0_8px_28px_color-mix(in_srgb,var(--foreground)_14%,transparent)] backdrop-blur-sm",
-            opensBelowSelection ? "top-full mt-1.5" : "bottom-full mb-1.5",
-          )}
-        >
-          {accessory}
-        </div>
-      )}
 
       {/* Note input row */}
       {onNoteSubmit && (

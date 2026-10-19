@@ -3,7 +3,6 @@ export const IDEA_TOPICS = [
   { id: "library", label: "Library" },
   { id: "reader", label: "Reader" },
   { id: "search", label: "Reader search" },
-  { id: "select-across", label: "Selecting across pages" },
   { id: "dark", label: "Dark mode" },
 ] as const;
 

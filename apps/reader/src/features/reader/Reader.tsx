@@ -58,12 +58,7 @@ import { useHotkey } from "@tanstack/react-hotkeys";
 import type { ReaderLocation } from "./reader-location";
 import { ReadingLayoutRow } from "./scroll/ReadingLayoutRow";
 import { ScrollStage } from "./scroll/ScrollStage";
-import { parseSelectAcrossVariant } from "./scroll/select-across-variant";
 import { useSelectAcross } from "./scroll/use-select-across";
-import { useSelectAcrossDemo } from "./scroll/use-select-across-demo";
-import { highlightKeys } from "@/hooks/use-highlights-query";
-import type { Highlight } from "@/types/highlight";
-import { useQueryClient } from "@tanstack/react-query";
 import { useReaderScrollMode } from "./scroll/use-reader-scroll-mode";
 
 function DisplayReadyCommitProbe({
@@ -230,29 +225,6 @@ export function Reader() {
     onSelectionHandedOver: () => selectionHandedOver.current(),
   });
 
-  // Design ideas opens a page with a selection already made at its foot
-  // (`?selectDemo=1`). Its highlights stay in this page's memory: trying an
-  // idea never adds to the book.
-  const selectAcrossVariant = parseSelectAcrossVariant(
-    debugEnabled ? searchParams.get("selectAcross") : null,
-  );
-  const selectDemo = debugEnabled && searchParams.get("selectDemo") === "1";
-  const queryClient = useQueryClient();
-  const saveHighlight = sessionActions.createHighlight;
-  const createHighlight = useCallback(
-    (highlight: Highlight) => {
-      if (!selectDemo) {
-        saveHighlight(highlight);
-        return;
-      }
-      queryClient.setQueryData<Highlight[]>(
-        highlightKeys.book(highlight.bookId),
-        (old = []) => [...old, highlight],
-      );
-    },
-    [queryClient, saveHighlight, selectDemo],
-  );
-
   const {
     state: annotationState,
     activeHighlight,
@@ -279,15 +251,12 @@ export function Reader() {
       false,
     chapterAccess: sessionResources.chapterAccess,
     highlights: sessionState.highlights,
-    onCreateHighlight: createHighlight,
+    onCreateHighlight: sessionActions.createHighlight,
   });
 
-  // A page selection that a page break cuts can carry on across it. Design
-  // ideas compares the ways to offer that with `?selectAcross=`.
+  // A page selection that a page break cuts can carry on across it.
   const selectAcross = useSelectAcross({
-    variant: selectAcrossVariant,
     enabled: chromeState.activeReaderSheet === null && displayReady,
-    log: debugEnabled && searchParams.get("selectAcrossLog") === "1",
     isMobile,
     scrollMode,
     stageContentRef,
@@ -305,20 +274,6 @@ export function Reader() {
     notesActive: noteViewportHeight !== null || noteComposerPresent,
   });
   selectionHandedOver.current = selectAcross.onSelectionHandedOver;
-  useSelectAcrossDemo({
-    enabled: selectDemo && scrollMode.selectAcrossPagesAvailable,
-    ready: displayReady,
-    spread: sessionState.pagination.spread,
-    chapterAccess: sessionResources.chapterAccess,
-    fontConfig: sessionState.pagination.paginationConfig.fontConfig,
-    publisherBookStylingEnabled:
-      sessionState.pagination.paginationConfig.publisherBookStylingEnabled ??
-      false,
-    stageContentRef,
-    previewPage: sessionActions.previewPage,
-    refreshSelection,
-    stopShort: selectAcrossVariant === "hold",
-  });
 
   // Search starts its worker once the book has settled, or when it opens.
   const searchOpen = chromeState.activeReaderSheet === "search";
@@ -534,11 +489,11 @@ export function Reader() {
   // cover the rest of its sentence.
   const highlightSelection = (color: AnnotationColor) => {
     selectAcross.keep();
-    return selectColor(color, selectAcross.extension);
+    return selectColor(color);
   };
   const captureSelectionTarget = () => {
     selectAcross.keep();
-    return captureSelectionNote(selectAcross.extension);
+    return captureSelectionNote();
   };
   // The annotation panel owns the mobile bottom edge, including before focus
   // and while its notebook is open. Reading controls must not compete with it.
@@ -985,8 +940,6 @@ export function Reader() {
                         activeHighlightData)
                         ? {
                             identity: annotationState,
-                            action: selectAcross.islandAction,
-                            accessory: selectAcross.islandAccessory,
                             dock: selectAcross.islandDock,
                             highlightId: activeHighlightData?.id,
                             tools: (
@@ -1199,8 +1152,6 @@ export function Reader() {
                       }
                       onEditClose={clearActiveHighlight}
                       onCreateNoteSubmit={undefined}
-                      creationAction={selectAcross.toolbarAction}
-                      creationAccessory={selectAcross.toolbarAccessory}
                       onAddSelectionNote={() => {
                         const note = captureSelectionTarget();
                         if (!note) return;

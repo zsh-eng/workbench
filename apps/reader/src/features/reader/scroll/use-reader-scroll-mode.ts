@@ -96,8 +96,8 @@ type ScrollPhase =
       handoff: Handoff | null;
       excursion: Excursion | null;
       /**
-       * The spread the column opened from. A preview spread (Design ideas
-       * shows a page without moving the book) is not a scrubber preview.
+       * The spread the column opened from. When that is itself a preview (a
+       * page shown without moving the book), the column is not one over it.
        */
       entrySpread: ResolvedSpread | null;
       generation: number;
