@@ -361,8 +361,7 @@ Notetaking flow
 ### Next
 
 - [ ] Ship Reader search end to end.
-      `src/lib/book-search.ts` already extracts and caches chapter text and
-      returns match context. Reader tools still show a placeholder. First
+      Reader tools still show a placeholder. First
       connect literal-text search to a cancellable query and result list, then
       map each result to a canonical content anchor. Keep result state per
       book; invalidate cached text when the source EPUB changes. Include
