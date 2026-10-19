@@ -13,8 +13,11 @@ Read `README.md` and `PERFORMANCE.md` before changing the native app. Read
   device frame rate, signing, or share-extension behavior.
 - Preserve local data. Keep HTML and images separate from metadata. Never
   synchronize Jev keys. The SQLite library copy and account sync of library
-  state, titles and tags are approved and live (10 October 2026). Annotation,
-  reading-time and file sync need the user's approval of a concrete migration.
+  state, titles and tags are approved and live (10 October 2026). Article text
+  copies in the separate `arctic-content` namespace are approved (19 October
+  2026): cleaned HTML only, no scripts, at most 2 MiB each; the web app in
+  `Browser/` writes them. Annotation and reading-time sync need the user's
+  approval of a concrete migration.
 - Shared auth and v3 sync are owned by `../sync-server`; reusable native auth
   support lives in `../../packages/arctic-sync-server`. Legacy Reader-hosted
   Arctic routes remain during transition. Never change or remove `links.json`:

@@ -1,18 +1,16 @@
-import React from "react";
-import { createRoot } from "react-dom/client";
-import { BrowserRouter } from "react-router-dom";
 import { Tooltip } from "@base-ui/react/tooltip";
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
 import { App } from "./App";
-import { initialize } from "./store";
 import "./styles.css";
-import "./typography.css";
+
 createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <BrowserRouter>
-      <Tooltip.Provider delay={300}>
-        <App />
-      </Tooltip.Provider>
-    </BrowserRouter>
-  </React.StrictMode>,
+  <StrictMode>
+    <Tooltip.Provider delay={500}>
+      <App />
+    </Tooltip.Provider>
+  </StrictMode>,
 );
-void initialize();
+
+if ("serviceWorker" in navigator && import.meta.env.PROD)
+  void navigator.serviceWorker.register("/sw.js");

@@ -47,30 +47,38 @@ const children = [
       stderr: "inherit",
     },
   ),
+  // SHARED_APPS=arctic/Browser starts one app; the default starts all three.
   ...[
     ["reader", "5175"],
     ["spaced2", "5180"],
-  ].map(([app, port]) =>
-    Bun.spawn(
-      [
-        "bun",
-        "x",
-        "--no-install",
-        "vite",
-        "--host",
-        "localhost",
-        "--port",
-        port,
-        "--strictPort",
-      ],
-      {
-        cwd: `${root}apps/${app}`,
-        env: { ...process.env, VITE_SHARED_API_URL: "http://localhost:8792" },
-        stdout: "inherit",
-        stderr: "inherit",
-      },
+    ["arctic/Browser", "5186"],
+  ]
+    .filter(
+      ([app]) =>
+        !process.env.SHARED_APPS ||
+        process.env.SHARED_APPS.split(",").includes(app!),
+    )
+    .map(([app, port]) =>
+      Bun.spawn(
+        [
+          "bun",
+          "x",
+          "--no-install",
+          "vite",
+          "--host",
+          "localhost",
+          "--port",
+          port,
+          "--strictPort",
+        ],
+        {
+          cwd: `${root}apps/${app}`,
+          env: { ...process.env, VITE_SHARED_API_URL: "http://localhost:8792" },
+          stdout: "inherit",
+          stderr: "inherit",
+        },
+      ),
     ),
-  ),
 ];
 function stop() {
   for (const child of children) child.kill("SIGTERM");

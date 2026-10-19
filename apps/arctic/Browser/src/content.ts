@@ -46,3 +46,41 @@ export function cleanArticle(html: string, source: string) {
     FORBID_ATTR: ["style", "srcset"],
   });
 }
+
+/** Native bylines run the author into the date: "Ann Lee15 September 2026 · 8 min". */
+export function cleanByline(value: string | undefined) {
+  const text = (value ?? "")
+    .replace(/\s*[·•|]\s*\d+\s*min.*$/i, "")
+    .replace(
+      /\s*(?:\d{1,2}\s+)?(?:January|February|March|April|May|June|July|August|September|October|November|December)(?:\s+\d{1,2},?)?\s+\d{4}.*$/i,
+      "",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+  return text.length > 1 && text.length <= 200 ? text : undefined;
+}
+
+export function countWords(html: string) {
+  const text =
+    new DOMParser().parseFromString(html, "text/html").body.textContent ?? "";
+  return text.split(/\s+/).filter(Boolean).length;
+}
+
+/** Normalized form shared by the copy files and the collect script. */
+export function readCopyFile(text: string) {
+  const doc = new DOMParser().parseFromString(text, "text/html");
+  const root = doc.querySelector("article[data-arctic-url]");
+  if (root)
+    return {
+      url: root.getAttribute("data-arctic-url")!,
+      byline: root.getAttribute("data-arctic-byline") || undefined,
+      body: root.innerHTML,
+      extracted: true,
+    };
+  const link =
+    doc
+      .querySelector<HTMLLinkElement>('link[rel="canonical"]')
+      ?.getAttribute("href") ||
+    doc.querySelector('meta[property="og:url"]')?.getAttribute("content");
+  return link ? { url: link, body: text, extracted: false } : null;
+}

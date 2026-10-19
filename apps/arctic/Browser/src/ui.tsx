@@ -1,292 +1,333 @@
+import { Menu } from "@base-ui/react/menu";
 import { Tooltip } from "@base-ui/react/tooltip";
-import { Select } from "@base-ui/react/select";
-import { Dialog } from "@base-ui/react/dialog";
 import {
-  Check,
-  ChevronDown,
   Archive,
   ArchiveRestore,
-  Bookmark,
-  BookmarkCheck,
-  Star,
+  ArrowUpRight,
+  BookmarkPlus,
+  FileText,
   Link2,
-  ExternalLink,
-  Tags,
+  LogOut,
+  RefreshCw,
+  Star,
   Trash2,
-  X,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
-import type { Article } from "./model";
-import { prepareDownload } from "./downloads";
-import { changeLibrary } from "./store";
-export function Tool({
+import type { ReactElement, ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
+import { signOut } from "./api";
+import { edits, editLibrary, removeArticle, type Article } from "./articles";
+import {
+  dismissToast,
+  reportError,
+  showToast,
+  useSession,
+  useStatus,
+  useToast,
+} from "./state";
+import type { Session, SyncStatus } from "./sync/session";
+
+export function Tip({
   label,
+  keys,
   children,
-  onClick,
-  active = false,
 }: {
   label: string;
-  children: ReactNode;
-  onClick: () => void;
-  active?: boolean;
+  keys?: string;
+  children: ReactElement;
 }) {
   return (
     <Tooltip.Root>
-      <Tooltip.Trigger
-        render={
-          <button
-            type="button"
-            className={`tool ${active ? "active" : ""}`}
-            aria-label={label}
-            aria-pressed={active}
-            onClick={onClick}
-          >
-            {children}
-          </button>
-        }
-      />
+      <Tooltip.Trigger render={children} />
       <Tooltip.Portal>
-        <Tooltip.Positioner
-          side="top"
-          sideOffset={8}
-          className="tooltip-position"
-        >
-          <Tooltip.Popup className="tooltip">{label}</Tooltip.Popup>
+        <Tooltip.Positioner sideOffset={8}>
+          <Tooltip.Popup className="tooltip">
+            {label}
+            {keys && <kbd>{keys}</kbd>}
+          </Tooltip.Popup>
         </Tooltip.Positioner>
       </Tooltip.Portal>
     </Tooltip.Root>
   );
 }
-export function Modal({
-  title,
-  open,
-  onOpenChange,
-  children,
-}: {
-  title: string;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  children: ReactNode;
-}) {
-  return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Backdrop className="backdrop" />
-        <Dialog.Popup className="dialog">
-          <div className="dialog-heading">
-            <Dialog.Title>{title}</Dialog.Title>
-            <Dialog.Close className="tool" aria-label="Close dialog">
-              <X size={19} />
-            </Dialog.Close>
-          </div>
-          {children}
-        </Dialog.Popup>
-      </Dialog.Portal>
-    </Dialog.Root>
-  );
+
+/** Library edits. Each one uploads shortly after; archive and remove can be undone. */
+export function useActions() {
+  const session = useSession();
+  const run = (work: Promise<unknown>) =>
+    work.then(() => session.syncSoon(), reportError);
+  return {
+    favourite: (article: Article) =>
+      run(
+        editLibrary(
+          session.arctic,
+          article,
+          edits.favourite(!article.favourite),
+        ),
+      ),
+    archive: (article: Article) => {
+      const archived = !article.archived;
+      return run(
+        editLibrary(session.arctic, article, edits.archive(archived)).then(() =>
+          showToast(archived ? "Archived" : "Moved to Saved", {
+            label: "Undo",
+            run: () =>
+              void run(
+                editLibrary(session.arctic, article, edits.archive(!archived)),
+              ),
+          }),
+        ),
+      );
+    },
+    save: (article: Article) =>
+      run(
+        editLibrary(session.arctic, article, edits.save()).then(() =>
+          showToast("Saved"),
+        ),
+      ),
+    remove: (article: Article) =>
+      run(
+        removeArticle(session.arctic, session.copies, article).then((undo) =>
+          showToast("Removed from your library", {
+            label: "Undo",
+            run: () => void run(undo()),
+          }),
+        ),
+      ),
+  };
 }
-export function ArticleActions({
+
+export function ArticleMenu({
   article,
-  notify,
-  onDelete,
+  trigger,
+  onRemoved,
 }: {
   article: Article;
-  notify: (message: string) => void;
-  onDelete?: () => void;
+  trigger: ReactElement;
+  onRemoved?: () => void;
 }) {
-  const [tagsOpen, setTagsOpen] = useState(false);
-  const [tags, setTags] = useState("");
-  const update = async (patch: Partial<Article>, message: string) => {
-    try {
-      await changeLibrary((library) => ({
-        ...library,
-        articles: library.articles.map((a) =>
-          a.id === article.id ? { ...a, ...patch } : a,
-        ),
-      }));
-      if (patch.saved) prepareDownload({ ...article, ...patch });
-      notify(message);
-    } catch {
-      notify("Could not save this change. Please try again.");
-    }
-  };
+  const actions = useActions();
   return (
-    <>
-      <div className="actions" aria-label={`Actions for ${article.title}`}>
-        <Tool
-          label={article.saved ? "Unsave article" : "Save article"}
-          active={article.saved}
-          onClick={() =>
-            void update(
-              {
-                saved: !article.saved,
-                ...(article.saved ? { favourite: false } : {}),
-              },
-              article.saved
-                ? "Article unsaved. Find it in All articles."
-                : "Article saved.",
-            )
-          }
-        >
-          {article.saved ? <BookmarkCheck size={17} /> : <Bookmark size={17} />}
-        </Tool>
-        <Tool
-          label={article.favourite ? "Remove favourite" : "Favourite article"}
-          active={article.favourite}
-          onClick={() =>
-            void update(
-              { favourite: !article.favourite, saved: true },
-              article.favourite ? "Favourite removed." : "Added to favourites.",
-            )
-          }
-        >
-          <Star size={17} />
-        </Tool>
-        <Tool
-          label={article.archived ? "Restore article" : "Archive article"}
-          onClick={() =>
-            void update(
-              { archived: !article.archived },
-              article.archived
-                ? "Article restored."
-                : "Article moved to Archive.",
-            )
-          }
-        >
-          {article.archived ? (
-            <ArchiveRestore size={17} />
-          ) : (
-            <Archive size={17} />
-          )}
-        </Tool>
-        <Tool
-          label="Edit tags"
-          onClick={() => {
-            setTags(article.tags.join(", "));
-            setTagsOpen(true);
-          }}
-        >
-          <Tags size={17} />
-        </Tool>
-        <Tool
-          label="Copy source link"
-          onClick={() => {
-            void navigator.clipboard.writeText(article.url).then(
-              () => notify("Source link copied."),
-              () => notify("Could not copy. Use Open original."),
-            );
-          }}
-        >
-          <Link2 size={17} />
-        </Tool>
-        <a
-          className="tool"
-          href={article.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="Open original"
-          title="Open original"
-        >
-          <ExternalLink size={17} />
-        </a>
-        {onDelete && (
-          <Tool label="Delete article" onClick={onDelete}>
-            <Trash2 size={17} />
-          </Tool>
-        )}
-      </div>
-      <Modal
-        title="Edit article tags"
-        open={tagsOpen}
-        onOpenChange={setTagsOpen}
-      >
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            void update(
-              {
-                tags: [
-                  ...new Set(
-                    tags
-                      .split(",")
-                      .map((t) => t.trim())
-                      .filter(Boolean),
-                  ),
-                ],
-              },
-              "Tags updated.",
-            ).then(() => setTagsOpen(false));
-          }}
-        >
-          <label htmlFor={`tags-${article.id}`}>
-            Tags, separated by commas
-          </label>
-          <input
-            id={`tags-${article.id}`}
-            value={tags}
-            onChange={(e) => setTags(e.target.value)}
-            autoFocus
-          />
-          <button className="primary" type="submit">
-            Save tags
-          </button>
-        </form>
-      </Modal>
-    </>
+    <Menu.Root modal={false}>
+      <Menu.Trigger render={trigger} />
+      <Menu.Portal>
+        <Menu.Positioner sideOffset={6} align="end">
+          <Menu.Popup className="menu">
+            {article.saved ? (
+              <>
+                <Item
+                  icon={<Star size={16} />}
+                  keys="F"
+                  onClick={() => actions.favourite(article)}
+                >
+                  {article.favourite ? "Remove from Favourites" : "Favourite"}
+                </Item>
+                <Item
+                  icon={
+                    article.archived ? (
+                      <ArchiveRestore size={16} />
+                    ) : (
+                      <Archive size={16} />
+                    )
+                  }
+                  keys="E"
+                  onClick={() => actions.archive(article)}
+                >
+                  {article.archived ? "Move to Saved" : "Archive"}
+                </Item>
+              </>
+            ) : (
+              <Item
+                icon={<BookmarkPlus size={16} />}
+                onClick={() => actions.save(article)}
+              >
+                Save to library
+              </Item>
+            )}
+            <Item
+              icon={<ArrowUpRight size={16} />}
+              keys="O"
+              onClick={() =>
+                window.open(article.url, "_blank", "noopener,noreferrer")
+              }
+            >
+              Open original
+            </Item>
+            <Item
+              icon={<Link2 size={16} />}
+              onClick={() =>
+                navigator.clipboard
+                  .writeText(article.url)
+                  .then(() => showToast("Link copied"), reportError)
+              }
+            >
+              Copy link
+            </Item>
+            <Menu.Separator className="menu-separator" />
+            <Item
+              icon={<Trash2 size={16} />}
+              danger
+              onClick={() => {
+                void actions.remove(article);
+                onRemoved?.();
+              }}
+            >
+              Remove from library
+            </Item>
+          </Menu.Popup>
+        </Menu.Positioner>
+      </Menu.Portal>
+    </Menu.Root>
   );
 }
 
-const sortOptions = [
-  { value: "reading", label: "Reading order" },
-  { value: "newest", label: "Newest first" },
-  { value: "title", label: "Title A–Z" },
-];
-export function SortSelect({
-  value,
-  onChange,
+function Item({
+  icon,
+  keys,
+  danger,
+  onClick,
+  children,
 }: {
-  value: string;
-  onChange: (value: string) => void;
+  icon: ReactNode;
+  keys?: string;
+  danger?: boolean;
+  onClick: () => void;
+  children: ReactNode;
 }) {
   return (
-    <Select.Root
-      items={sortOptions}
-      value={value}
-      onValueChange={(next) => {
-        if (next !== null) onChange(next);
-      }}
+    <Menu.Item
+      className={danger ? "menu-item danger" : "menu-item"}
+      onClick={onClick}
     >
-      <Select.Trigger className="sort" aria-label="Sort articles">
-        <Select.Value />
-        <Select.Icon>
-          <ChevronDown size={13} />
-        </Select.Icon>
-      </Select.Trigger>
-      <Select.Portal>
-        <Select.Positioner
-          className="select-position"
-          sideOffset={6}
-          align="end"
-          alignItemWithTrigger={false}
+      {icon}
+      {children}
+      {keys && <kbd>{keys}</kbd>}
+    </Menu.Item>
+  );
+}
+
+export function describeStatus(status: SyncStatus, pending: number) {
+  const ago = (time?: number) => {
+    if (!time) return "";
+    const minutes = Math.round((Date.now() - time) / 60000);
+    if (minutes < 1) return "just now";
+    if (minutes < 60) return `${minutes} min ago`;
+    const hours = Math.round(minutes / 60);
+    return hours < 24
+      ? `${hours} h ago`
+      : new Date(time).toLocaleDateString(undefined, {
+          day: "numeric",
+          month: "short",
+        });
+  };
+  switch (status.phase) {
+    case "loading":
+      return "Opening your library…";
+    case "syncing":
+      return "Syncing…";
+    case "synced":
+      return pending
+        ? `${pending} changes to upload`
+        : `Synced ${ago(status.lastSyncedAt)}`;
+    case "offline":
+      return pending
+        ? `Offline. ${pending} changes will upload later.`
+        : "Offline. Showing this browser's copy.";
+    case "error":
+      return status.message;
+  }
+}
+
+export function AccountMenu() {
+  const session = useSession();
+  const status = useStatus();
+  const navigate = useNavigate();
+  const { account } = session;
+  return (
+    <Menu.Root modal={false}>
+      <Menu.Trigger
+        className="avatar"
+        aria-label="Account"
+        render={<button type="button" />}
+      >
+        {account.image ? (
+          <img src={account.image} alt="" referrerPolicy="no-referrer" />
+        ) : (
+          (account.name || account.email).slice(0, 1).toUpperCase()
+        )}
+      </Menu.Trigger>
+      <Menu.Portal>
+        <Menu.Positioner sideOffset={8} align="end">
+          <Menu.Popup className="menu">
+            <div className="menu-account">
+              <strong>{account.name || account.email}</strong>
+              {account.email}
+              <br />
+              {describeStatus(status, session.pendingCount)}
+            </div>
+            <Menu.Separator className="menu-separator" />
+            <Item
+              icon={<RefreshCw size={16} />}
+              onClick={() => void session.sync().catch(() => {})}
+            >
+              Sync now
+            </Item>
+            <Item
+              icon={<FileText size={16} />}
+              onClick={() => navigate("/copies")}
+            >
+              Article text
+            </Item>
+            <Menu.Separator className="menu-separator" />
+            <Item
+              icon={<LogOut size={16} />}
+              onClick={() => void leave(session)}
+            >
+              Sign out
+            </Item>
+          </Menu.Popup>
+        </Menu.Positioner>
+      </Menu.Portal>
+    </Menu.Root>
+  );
+}
+
+/** Signing out removes this browser's copy. Unsent edits upload first when possible. */
+async function leave(session: Session) {
+  if (session.pendingCount) await session.sync().catch(() => {});
+  if (
+    session.pendingCount &&
+    !confirm(
+      `${session.pendingCount} changes have not uploaded. Sign out and discard them?`,
+    )
+  )
+    return;
+  try {
+    await signOut();
+  } catch (error) {
+    reportError(error);
+    return;
+  }
+  await session.forget();
+  location.assign("/");
+}
+
+export function Toaster() {
+  const toast = useToast();
+  if (!toast) return null;
+  return (
+    <div className="toast" role="status" key={toast.id}>
+      {toast.message}
+      {toast.action && (
+        <button
+          type="button"
+          onClick={() => {
+            toast.action!.run();
+            dismissToast();
+          }}
         >
-          <Select.Popup className="select-popup">
-            <Select.List>
-              {sortOptions.map((option) => (
-                <Select.Item
-                  className="select-item"
-                  key={option.value}
-                  value={option.value}
-                >
-                  <Select.ItemText>{option.label}</Select.ItemText>
-                  <Select.ItemIndicator className="select-check">
-                    <Check size={14} />
-                  </Select.ItemIndicator>
-                </Select.Item>
-              ))}
-            </Select.List>
-          </Select.Popup>
-        </Select.Positioner>
-      </Select.Portal>
-    </Select.Root>
+          {toast.action.label}
+        </button>
+      )}
+    </div>
   );
 }

@@ -1,574 +1,459 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import {
-  ArrowLeft,
-  ArrowRight,
-  PanelRight,
-  Pencil,
-  Trash2,
-  X,
+  Archive,
+  ArchiveRestore,
+  ArrowUpRight,
+  ChevronLeft,
+  MoreHorizontal,
+  Star,
 } from "lucide-react";
-import {
-  applyHighlight,
-  createHighlightFromSelection,
-  type TextHighlight,
-} from "@zsh-eng/text-highlighter";
-import type { Article, Annotation, AnnotationColor } from "./model";
-import { sourceName } from "./model";
-import { changeLibrary } from "./store";
-import { loadArticleBody } from "./downloads";
-import { LoadingStatus } from "./LoadingStatus";
-import { ArticleActions, Tool } from "./ui";
-import { HighlightToolbar, type PassageRect } from "./HighlightToolbar";
-type Passage = {
-  quote: TextHighlight;
-  rect: PassageRect;
-  annotationId?: string;
-  color?: AnnotationColor;
-};
-export function Reader({
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { cleanArticle, cleanByline } from "./content";
+import { edits, editLibrary, folders, minutes, type Article } from "./articles";
+import { useArticles, useSession, useStatus } from "./state";
+import { ArticleMenu, Tip, useActions } from "./ui";
+
+type Body = { file: string; html: string } | { file: string; error: string };
+
+export function Reader() {
+  const { id = "" } = useParams();
+  const article = useArticles().find((item) => item.id === id);
+  const status = useStatus();
+  const session = useSession();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const from = (location.state as { from?: string } | null)?.from;
+  const back = () =>
+    from && location.key !== "default" ? navigate(-1) : navigate(from ?? "/");
+
+  // An open counts as a visit, as on the phone: read, and in History.
+  const visited = useRef("");
+  useEffect(() => {
+    if (!article || visited.current === article.id) return;
+    visited.current = article.id;
+    editLibrary(session.arctic, article, edits.visit()).then(
+      () => session.syncSoon(5000),
+      () => {},
+    );
+  }, [article, session]);
+
+  const title = article?.title;
+  useEffect(() => {
+    document.title = title ? `${title} – Arctic` : "Arctic";
+    return () => {
+      document.title = "Arctic";
+    };
+  }, [title]);
+
+  if (!article)
+    return (
+      <>
+        <ReaderBar onBack={back} from={from} />
+        <div className="quiet-page">
+          {status.phase === "loading" || status.phase === "syncing"
+            ? "Opening the article…"
+            : "This article is not in your library."}
+        </div>
+      </>
+    );
+  return <Page key={article.id} article={article} from={from} onBack={back} />;
+}
+
+function Page({
   article,
-  annotations,
-  notify,
+  from,
+  onBack,
 }: {
   article: Article;
-  annotations: Annotation[];
-  notify: (message: string) => void;
+  from?: string;
+  onBack: () => void;
 }) {
-  const content = useRef<HTMLDivElement>(null);
-  const composer = useRef<HTMLTextAreaElement>(null);
-  const [html, setHTML] = useState("");
-  const [loadError, setLoadError] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [selection, setSelection] = useState<Passage | null>(null);
-  const [toolbarSelection, setToolbarSelection] = useState<Passage | null>(
-    null,
-  );
-  useLayoutEffect(() => {
-    if (selection) {
-      setToolbarSelection(selection);
-      return;
-    }
-    const timer = setTimeout(
-      () => setToolbarSelection(null),
-      matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 150,
+  const session = useSession();
+  const actions = useActions();
+  const [body, setBody] = useState<Body>();
+  const file = article.copy?.file;
+
+  useEffect(() => {
+    if (!file) return;
+    let current = true;
+    session.readFile(file).then(
+      (html) =>
+        current &&
+        setBody({
+          file,
+          html: withoutHero(cleanArticle(html, article.url), article.image),
+        }),
+      () =>
+        current &&
+        setBody({
+          file,
+          error: "The text could not load. Check your connection.",
+        }),
     );
-    return () => clearTimeout(timer);
-  }, [selection]);
-  const [quote, setQuote] = useState<TextHighlight | undefined>();
-  const [draftColor, setDraftColor] = useState<AnnotationColor>("yellow");
-  const [draft, setDraft] = useState("");
-  const [editing, setEditing] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [retry, setRetry] = useState(0);
-  const [sidebarOpen, setSidebarOpen] = useState(() => {
-    try {
-      return localStorage.getItem("arctic-notes-visible") === "true";
-    } catch {
-      return false;
-    }
-  });
-  const sidebarToggle = useRef<HTMLButtonElement>(null);
-  const changeSidebar = (open: boolean) => {
-    setSelection(null);
-    window.getSelection()?.removeAllRanges();
-    setSidebarOpen(open);
-    try {
-      localStorage.setItem("arctic-notes-visible", String(open));
-    } catch {
-      /* Still works for this visit. */
-    }
-  };
-  const focusComposer = () => {
-    changeSidebar(true);
-    requestAnimationFrame(() => composer.current?.focus());
-  };
-  useEffect(() => {
-    const key = (event: KeyboardEvent) => {
-      if (event.isComposing || event.repeat || event.altKey) return;
-      if (
-        (event.metaKey || event.ctrlKey) &&
-        event.shiftKey &&
-        event.key.toLowerCase() === "b"
-      ) {
-        event.preventDefault();
-        changeSidebar(!sidebarOpen);
-        if (sidebarOpen) sidebarToggle.current?.focus();
-      }
-    };
-    document.addEventListener("keydown", key);
-    return () => document.removeEventListener("keydown", key);
-  }, [sidebarOpen]);
-  useEffect(() => {
-    window.scrollTo(0, 0);
-    const old = document.title;
-    document.title = `${article.title} — Arctic`;
     return () => {
-      document.title = old;
+      current = false;
     };
-  }, [article.id, article.title]);
+  }, [file, session, article.url, article.image]);
+
+  useReadingPosition(article.id, !!body && "html" in body);
+
   useEffect(() => {
-    const controller = new AbortController();
-    setLoading(true);
-    setLoadError("");
-    void loadArticleBody(
-      { id: article.id, url: article.url, bodyPath: article.bodyPath },
-      controller.signal,
-    )
-      .then((source) => {
-        if (!controller.signal.aborted) setHTML(source);
-      })
-      .catch((error) => {
-        if (!controller.signal.aborted) setLoadError(error.message);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-    return () => controller.abort();
-  }, [article.id, article.bodyPath, article.url, retry]);
-  useEffect(() => {
-    if (!content.current) return;
-    content.current.innerHTML = html;
-    for (const note of annotations)
-      if (note.quote)
-        applyHighlight(content.current, note.quote, {
-          attributes: {
-            "data-note": note.id,
-            "data-color": note.color ?? "yellow",
-            tabindex: "0",
-            role: "button",
-            "aria-label": `Edit highlight: ${note.quote.selectedText}`,
-          },
-          className: "article-highlight",
-        });
-  }, [html, annotations, loading]);
-  useEffect(() => {
-    const update = () => {
-      const selected = window.getSelection();
-      const root = content.current;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (
-        !selected ||
-        !root ||
-        selected.isCollapsed ||
-        !root.contains(selected.anchorNode) ||
-        !root.contains(selected.focusNode)
-      ) {
-        setSelection((current) =>
-          current?.annotationId ||
-          document.activeElement?.closest("[data-highlight-toolbar]")
-            ? current
-            : null,
-        );
+        (event.target as HTMLElement).closest(
+          "input, textarea, [contenteditable], [role=menu]",
+        )
+      )
         return;
-      }
-      const quote = createHighlightFromSelection(selected, root);
-      if (quote)
-        setSelection({
-          quote,
-          rect: selected.getRangeAt(0).getBoundingClientRect(),
-        });
+      const key = event.key.toLowerCase();
+      if (key === "escape") onBack();
+      else if (key === "f" && article.saved) void actions.favourite(article);
+      else if (key === "e" && article.saved) {
+        void actions.archive(article);
+        if (!article.archived) onBack();
+      } else if (key === "o")
+        window.open(article.url, "_blank", "noopener,noreferrer");
+      else return;
+      event.preventDefault();
     };
-    document.addEventListener("selectionchange", update);
-    return () => document.removeEventListener("selectionchange", update);
-  }, []);
-  const dismissSelection = () => {
-    setSelection(null);
-    window.getSelection()?.removeAllRanges();
-  };
-  const save = async () => {
-    if (!draft.trim()) return;
-    setSaving(true);
-    try {
-      const id = editing ?? crypto.randomUUID();
-      await changeLibrary((l) => {
-        const previous = l.annotations.find((n) => n.id === id);
-        const note: Annotation = {
-          id,
-          articleId: article.id,
-          text: draft.trim(),
-          quote,
-          color: draftColor,
-          createdAt: previous?.createdAt ?? Date.now(),
-        };
-        return {
-          ...l,
-          articles: l.articles.map((a) =>
-            a.id === article.id ? { ...a, saved: true } : a,
-          ),
-          annotations: previous
-            ? l.annotations.map((n) => (n.id === id ? note : n))
-            : [...l.annotations, note],
-        };
-      });
-      setDraft("");
-      setQuote(undefined);
-      setEditing(null);
-      dismissSelection();
-      notify("Note saved.");
-    } catch {
-      notify("Your note could not be saved. Your draft is still here.");
-    } finally {
-      setSaving(false);
-    }
-  };
-  const highlight = async (color: AnnotationColor) => {
-    if (!selection) return;
-    setSaving(true);
-    try {
-      await changeLibrary((l) => {
-        const previous = l.annotations.find(
-          (n) => n.id === selection.annotationId,
-        );
-        let annotations: Annotation[];
-        if (previous) {
-          const removing = (previous.color ?? "yellow") === color;
-          annotations = l.annotations.flatMap((n) =>
-            n.id !== previous.id
-              ? [n]
-              : removing
-                ? n.text
-                  ? [{ ...n, quote: undefined }]
-                  : []
-                : [{ ...n, color }],
-          );
-        } else {
-          annotations = [
-            ...l.annotations,
-            {
-              id: crypto.randomUUID(),
-              articleId: article.id,
-              text: "",
-              quote: selection.quote,
-              color,
-              createdAt: Date.now(),
-            },
-          ];
-        }
-        return {
-          ...l,
-          annotations,
-          articles: l.articles.map((a) =>
-            a.id === article.id ? { ...a, saved: true } : a,
-          ),
-        };
-      });
-      if (editing && editing === selection.annotationId) {
-        setDraftColor(color);
-        if (selection.color === color) setQuote(undefined);
-      }
-      dismissSelection();
-    } catch {
-      notify("Could not save the highlight. Please try again.");
-    } finally {
-      setSaving(false);
-    }
-  };
-  const openHighlight = (target: EventTarget | null) => {
-    const mark =
-      target instanceof Element
-        ? target.closest<HTMLElement>(".article-highlight")
-        : null;
-    const note = annotations.find((n) => n.id === mark?.dataset.note);
-    if (!mark || !note?.quote) return;
-    setSelection({
-      quote: note.quote,
-      rect: mark.getBoundingClientRect(),
-      annotationId: note.id,
-      color: note.color ?? "yellow",
-    });
-  };
-  const remove = async (id: string) => {
-    try {
-      await changeLibrary((l) => ({
-        ...l,
-        annotations: l.annotations.filter((n) => n.id !== id),
-      }));
-      if (editing === id) {
-        setEditing(null);
-        setDraft("");
-        setQuote(undefined);
-      }
-      notify("Annotation removed.");
-    } catch {
-      notify("Could not remove this annotation. Please try again.");
-    }
-  };
-  const jump = (id: string) => {
-    const mark = content.current?.querySelector(
-      `[data-note="${CSS.escape(id)}"]`,
-    );
-    mark?.scrollIntoView({
-      behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
-        ? "instant"
-        : "smooth",
-      block: "center",
-    });
-  };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  const meta = [
+    cleanByline(article.copy?.byline),
+    article.copy && `${minutes(article.copy.words)} min read`,
+    article.savedAt &&
+      `Saved ${new Date(article.savedAt).toLocaleDateString(undefined, {
+        day: "numeric",
+        month: "short",
+        year:
+          new Date(article.savedAt).getFullYear() === new Date().getFullYear()
+            ? undefined
+            : "numeric",
+      })}`,
+  ].filter(Boolean);
+
   return (
-    <main id="main" className="reader-layout" data-sidebar-open={sidebarOpen}>
-      <Link
-        to="/"
-        className="reader-back tool"
-        aria-label="Back to reading list"
-        title="Back to reading list"
-      >
-        <ArrowLeft size={20} />
-      </Link>
-      <button
-        ref={sidebarToggle}
-        className="reader-sidebar-toggle tool"
-        aria-label={sidebarOpen ? "Hide notes" : "Show notes"}
-        aria-expanded={sidebarOpen}
-        aria-controls="reader-notes"
-        aria-keyshortcuts="Meta+Shift+B Control+Shift+B"
-        title="Toggle notes (⌘⇧B / Ctrl⇧B)"
-        onClick={() => changeSidebar(!sidebarOpen)}
-      >
-        <PanelRight size={20} />
-      </button>
-      <div
-        className="reader-main"
-        onLoadCapture={() => {
-          // Publisher images can move the selected passage after loading.
-          setSelection((current) => {
-            if (!current) return null;
-            const selected = window.getSelection();
-            const mark = current.annotationId
-              ? content.current?.querySelector(
-                  `[data-note="${CSS.escape(current.annotationId)}"]`,
-                )
-              : null;
-            const rect =
-              mark?.getBoundingClientRect() ??
-              (selected?.rangeCount
-                ? selected.getRangeAt(0).getBoundingClientRect()
-                : null);
-            return rect && rect.bottom > 0 && rect.top < window.innerHeight
-              ? { ...current, rect }
-              : null;
-          });
-        }}
-      >
-        <header className="article-heading">
-          <div className="eyebrow">
-            {article.tags.join(" / ") || sourceName(article.url)}
-          </div>
-          <h1>{article.title}</h1>
-          {article.description && (
-            <p className="standfirst">{article.description}</p>
+    <>
+      <ReaderBar onBack={onBack} from={from} article={article} />
+      <article className="article">
+        <a
+          className="article-source"
+          href={article.url}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {article.favicon && (
+            <img src={article.favicon} alt="" referrerPolicy="no-referrer" />
           )}
-          <div className="reader-byline">
-            <span>
-              {article.author ? (
-                <>
-                  Words by <strong>{article.author}</strong>
-                </>
-              ) : (
-                <>
-                  From <strong>{sourceName(article.url)}</strong>
-                </>
-              )}
-            </span>
-            {article.minutes && <span>{article.minutes} MIN READ</span>}
+          {article.host}
+        </a>
+        <h1 className="article-title" style={{ viewTransitionName: "title" }}>
+          {article.title}
+        </h1>
+        {article.subtitle && <p className="dek">{article.subtitle}</p>}
+        {meta.length > 0 && (
+          <div className="byline">
+            {meta.map((item, index) => (
+              <span key={index}>
+                {index > 0 && <span className="dot">· </span>}
+                {item}
+              </span>
+            ))}
           </div>
-        </header>
-        {article.image && /^https?:\/\//.test(article.image) && (
-          <figure className="hero">
+        )}
+        {article.image && (
+          <figure className="hero" style={{ viewTransitionName: "cover" }}>
             <img
               src={article.image}
               alt=""
               referrerPolicy="no-referrer"
-              onError={(e) => {
-                e.currentTarget.parentElement!.hidden = true;
-              }}
+              decoding="async"
             />
           </figure>
         )}
-        {loading ? (
-          <LoadingStatus className="reader-status">
-            Opening the article…
-          </LoadingStatus>
-        ) : loadError ? (
-          <div className="reader-status" role="alert">
-            <p>{loadError}</p>
-            <button className="primary" onClick={() => setRetry((n) => n + 1)}>
-              Try again
-            </button>
+        {!file ? (
+          <Missing article={article} />
+        ) : !body || body.file !== file ? null : "error" in body ? (
+          <div className="missing">
+            <p>{body.error}</p>
+          </div>
+        ) : (
+          <div
+            className="prose"
+            dangerouslySetInnerHTML={{ __html: body.html }}
+          />
+        )}
+        {(!file || (body && "html" in body)) && (
+          <footer className="end">
+            {article.saved ? (
+              <button
+                type="button"
+                className="button primary"
+                onClick={() => {
+                  void actions.archive(article);
+                  if (!article.archived) onBack();
+                }}
+              >
+                {article.archived ? (
+                  <ArchiveRestore size={17} />
+                ) : (
+                  <Archive size={17} />
+                )}
+                {article.archived ? "Move to Saved" : "Archive"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="button primary"
+                onClick={() => void actions.save(article)}
+              >
+                Save to library
+              </button>
+            )}
+            {article.saved && (
+              <button
+                type="button"
+                className="button"
+                aria-pressed={article.favourite}
+                onClick={() => void actions.favourite(article)}
+              >
+                <Star
+                  size={17}
+                  fill={article.favourite ? "currentColor" : "none"}
+                />
+                Favourite
+              </button>
+            )}
             <a
-              className="text-button"
+              className="button quiet"
               href={article.url}
               target="_blank"
               rel="noopener noreferrer"
             >
-              Open original <ArrowRight size={16} />
+              Original <ArrowUpRight size={16} />
             </a>
-          </div>
-        ) : (
-          <div
-            ref={content}
-            className="article-body"
-            data-testid="article-body"
-            onClick={(event) => {
-              if (window.getSelection()?.isCollapsed)
-                openHighlight(event.target);
-            }}
-            onKeyDown={(event) => {
-              if (
-                (event.key === "Enter" || event.key === " ") &&
-                (event.target as Element).closest(".article-highlight")
-              ) {
-                event.preventDefault();
-                openHighlight(event.target);
-              }
-            }}
-          />
-        )}
-        {!loading && (
-          <footer className="article-end">
-            <a href={article.url} target="_blank" rel="noopener noreferrer">
-              Read at {sourceName(article.url)} <ArrowRight size={14} />
-            </a>
-            <Link to="/">Back to your reading list</Link>
           </footer>
         )}
+      </article>
+    </>
+  );
+}
+
+function Missing({ article }: { article: Article }) {
+  return (
+    <div className="missing">
+      <p>
+        <strong>The text of this article is not in your account yet.</strong>
+        Read it at {article.host}. Arctic can keep a copy of a page you open in
+        this browser, so the text is here next time.
+      </p>
+      <div className="actions">
+        <a
+          className="button"
+          href={article.url}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Read at {article.host} <ArrowUpRight size={16} />
+        </a>
+        <Link className="button quiet" to={`/copies?article=${article.id}`}>
+          Keep a copy
+        </Link>
       </div>
-      <aside
-        id="reader-notes"
-        className="annotation-sidebar"
-        aria-label="Article annotations"
-        hidden={!sidebarOpen}
-      >
-        <div className="notes-sticky">
-          <div className="notes-heading">
-            <span className="eyebrow">NOTES</span>
-            <span>{annotations.length.toString().padStart(2, "0")}</span>
-          </div>
-          <div className="reader-sidebar-actions">
-            <ArticleActions article={article} notify={notify} />
-          </div>
-          <form
-            className="note-composer"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void save();
-            }}
-          >
-            {quote && (
-              <div className="draft-quote">
-                <blockquote>{quote.selectedText}</blockquote>
+    </div>
+  );
+}
+
+function ReaderBar({
+  onBack,
+  from,
+  article,
+}: {
+  onBack: () => void;
+  from?: string;
+  article?: Article;
+}) {
+  const actions = useActions();
+  const bar = useRef<HTMLDivElement>(null);
+  const label = useMemo(() => {
+    const path = (from ?? "/").split("?")[0];
+    return folders.find((folder) => folder.path === path)?.title ?? "Library";
+  }, [from]);
+
+  // The bar steps aside while reading down and returns on any upward scroll.
+  useEffect(() => {
+    let last = window.scrollY;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const element = bar.current;
+      if (!element) return;
+      const y = window.scrollY;
+      const max = document.documentElement.scrollHeight - window.innerHeight;
+      element.style.setProperty(
+        "--progress",
+        String(max > 0 ? Math.min(1, y / max) : 0),
+      );
+      element.toggleAttribute("data-scrolled", y > 4);
+      if (Math.abs(y - last) > 6) {
+        element.toggleAttribute("data-hidden", y > last && y > 160);
+        last = y;
+      }
+    };
+    const onScroll = () => {
+      frame ||= requestAnimationFrame(update);
+    };
+    update();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  return (
+    <div className="bar reader-bar" ref={bar}>
+      <button type="button" className="back" onClick={onBack}>
+        <ChevronLeft size={20} />
+        {label}
+      </button>
+      {article && (
+        <div className="actions">
+          {article.saved && (
+            <>
+              <Tip
+                label={
+                  article.favourite ? "Remove from Favourites" : "Favourite"
+                }
+                keys="F"
+              >
                 <button
                   type="button"
-                  className="tool"
-                  aria-label="Remove selected quote"
-                  onClick={() => setQuote(undefined)}
+                  className="icon-button"
+                  aria-label="Favourite"
+                  aria-pressed={article.favourite}
+                  onClick={() => void actions.favourite(article)}
                 >
-                  <X size={14} />
+                  <Star size={19} />
                 </button>
-              </div>
-            )}
-            <label className="sr-only" htmlFor="note-draft">
-              {editing ? "Edit note" : "Write a note"}
-            </label>
-            <textarea
-              ref={composer}
-              id="note-draft"
-              placeholder="Write a note…"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              rows={4}
-            />
-            <div className="composer-actions">
-              {editing && (
+              </Tip>
+              <Tip
+                label={article.archived ? "Move to Saved" : "Archive"}
+                keys="E"
+              >
                 <button
                   type="button"
+                  className="icon-button"
+                  aria-label={article.archived ? "Move to Saved" : "Archive"}
                   onClick={() => {
-                    setEditing(null);
-                    setDraft("");
-                    setQuote(undefined);
+                    void actions.archive(article);
+                    if (!article.archived) onBack();
                   }}
                 >
-                  Cancel
+                  {article.archived ? (
+                    <ArchiveRestore size={19} />
+                  ) : (
+                    <Archive size={19} />
+                  )}
                 </button>
-              )}
-              <button type="submit" disabled={!draft.trim() || saving}>
-                {editing ? "Save changes" : "Save note"}
-                <ArrowRight size={14} />
-              </button>
-            </div>
-          </form>
-          {!annotations.length && (
-            <p className="notes-help">Select text to highlight or annotate.</p>
+              </Tip>
+            </>
           )}
-          <div className="notes-list">
-            {annotations.map((note) => (
-              <article key={note.id} className="annotation">
-                {note.quote && (
-                  <button
-                    className="quoted-passage"
-                    onClick={() => jump(note.id)}
-                    title="Go to passage"
-                  >
-                    <blockquote>{note.quote.selectedText}</blockquote>
-                  </button>
-                )}
-                {note.text && <p>{note.text}</p>}
-                <div className="annotation-meta">
-                  <time dateTime={new Date(note.createdAt).toISOString()}>
-                    {new Date(note.createdAt).toLocaleDateString(undefined, {
-                      month: "short",
-                      day: "numeric",
-                    })}
-                  </time>
-                  <div>
-                    <Tool
-                      label="Edit annotation"
-                      onClick={() => {
-                        setEditing(note.id);
-                        setDraft(note.text);
-                        setQuote(note.quote);
-                        setDraftColor(note.color ?? "yellow");
-                        focusComposer();
-                      }}
-                    >
-                      <Pencil size={13} />
-                    </Tool>
-                    <Tool
-                      label="Delete annotation"
-                      onClick={() => void remove(note.id)}
-                    >
-                      <Trash2 size={13} />
-                    </Tool>
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
+          <Tip label="Open original" keys="O">
+            <a
+              className="icon-button"
+              aria-label="Open original"
+              href={article.url}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <ArrowUpRight size={19} />
+            </a>
+          </Tip>
+          <ArticleMenu
+            article={article}
+            onRemoved={onBack}
+            trigger={
+              <button type="button" className="icon-button" aria-label="More">
+                <MoreHorizontal size={19} />
+              </button>
+            }
+          />
         </div>
-      </aside>
-      {toolbarSelection && (
-        <HighlightToolbar
-          open={!!selection}
-          rect={toolbarSelection.rect}
-          currentColor={toolbarSelection.color}
-          text={toolbarSelection.quote.selectedText}
-          busy={saving}
-          notify={notify}
-          onClose={dismissSelection}
-          onColor={(color) => void highlight(color)}
-          onNote={() => {
-            if (!selection) return;
-            const existing = annotations.find(
-              (n) => n.id === selection.annotationId,
-            );
-            setQuote(selection.quote);
-            setDraftColor(selection.color ?? "yellow");
-            setEditing(existing?.id ?? null);
-            setDraft(existing?.text ?? "");
-            dismissSelection();
-            focusComposer();
-          }}
-        />
       )}
-    </main>
+      <div className="progress" />
+    </div>
   );
+}
+
+/** The hero shows the article's image once; drop the same image at the start of the text. */
+function withoutHero(html: string, image?: string) {
+  if (!image) return html;
+  const name = (src: string) => {
+    try {
+      return (
+        new URL(src).pathname
+          .split("/")
+          .pop()
+          ?.replace(/\.\w+$/, "") ?? ""
+      );
+    } catch {
+      return "";
+    }
+  };
+  const target = name(image);
+  if (target.length < 4) return html;
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const first = [...doc.body.querySelectorAll("img")]
+    .slice(0, 2)
+    .find((img) => {
+      const source = name(img.getAttribute("src") ?? "");
+      return source && (source.includes(target) || target.includes(source));
+    });
+  if (!first) return html;
+  const node = first.closest("figure") ?? first;
+  const before = doc.createRange();
+  before.setStart(doc.body, 0);
+  before.setEndBefore(node);
+  if (before.toString().trim().length > 400) return html;
+  node.remove();
+  return doc.body.innerHTML;
+}
+
+/** Reopening an article returns to the same place, in this browser. */
+function useReadingPosition(id: string, ready: boolean) {
+  useEffect(() => {
+    if (!ready) return;
+    const key = `arctic:position:${id}`;
+    const saved = Number(localStorage.getItem(key));
+    const height = () =>
+      document.documentElement.scrollHeight - window.innerHeight;
+    if (saved > 0.02 && saved < 0.98)
+      window.scrollTo({ top: saved * height() });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const save = () => {
+      const max = height();
+      if (max <= 0) return;
+      try {
+        localStorage.setItem(
+          key,
+          String(Math.round((window.scrollY / max) * 1000) / 1000),
+        );
+      } catch {
+        /* Storage is full or blocked; position is a convenience. */
+      }
+    };
+    const onScroll = () => {
+      clearTimeout(timer);
+      timer = setTimeout(save, 400);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, [id, ready]);
 }

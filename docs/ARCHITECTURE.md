@@ -21,9 +21,10 @@ and local development files. Shared packages must not import app code.
 - **Reader** owns the web EPUB app and its deployed Hono Worker. Read
   [Reader architecture](../apps/reader/docs/ARCHITECTURE.md) before changing
   its data loading, storage, caches, or Reader lifecycle.
-- **Arctic browser** is a local React app under `apps/arctic/Browser`, with its own
-  IndexedDB library and read-only Chrome/native seed importer. See its
-  [browser guide](../apps/arctic/Browser/README.md). It has no active sync or deployment.
+- **Arctic for the web** is the React app under `apps/arctic/Browser`, a static
+  Worker at `arctic.zsheng.app`. It syncs the phone's `arctic` records and its
+  own `arctic-content` text copies through the shared API into IndexedDB. See
+  its [guide](../apps/arctic/Browser/README.md) before changing what it writes.
 - **Arctic** owns the native iOS and Mac apps, share extension, Swift sync package,
   and WebView extraction bundle. Read its [app guide](../apps/arctic/README.md),
   [performance evidence](../apps/arctic/PERFORMANCE.md), and

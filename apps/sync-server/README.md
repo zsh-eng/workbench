@@ -1,9 +1,10 @@
 # Shared sync service
 
-Reader and Spaced use one production Better Auth server, D1 database, and R2
-bucket at `https://api.zsheng.app`. Arctic native auth and the `arctic` namespace
-are implemented locally; they have not been deployed or connected to its live library. The production
-cutover completed on 4 October 2026; see [migration evidence](MIGRATION.md).
+Reader, Spaced and Arctic use one production Better Auth server, D1 database,
+and R2 bucket at `https://api.zsheng.app`. The production cutover completed on
+4 October 2026; see [migration evidence](MIGRATION.md). Arctic's library syncs
+in `arctic` (records only). Its article text copies, written by Arctic for the
+web, use `arctic-content`: HTML files without scripts, at most 2 MiB each.
 
 ## Local development
 
@@ -36,7 +37,8 @@ EPUB or create cards to try this profile.
 
 ## Data contract
 
-Requests use `/api/apps/reader`, `/api/apps/spaced`, or `/api/apps/arctic`. The server authenticates
+Requests use `/api/apps/<namespace>`: `reader`, `spaced`, `arctic` or
+`arctic-content`. The server authenticates
 the user and validates the namespace. Record uniqueness, pull cursors, winner
 lookups, files, and device records all use the user and namespace. Both apps can
 use the same record key or file ID without changing each other's data.

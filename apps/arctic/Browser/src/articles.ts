@@ -1,0 +1,258 @@
+import type { Fields, RecordStorage } from "./sync/storage";
+
+/**
+ * One saved or visited article, projected from the phone's records:
+ * `article/<id>` (title, images), `library/<id>` (state), `tags/<id>`, and
+ * this app's `content/<id>` (the text copy). `id` is the SHA-256 of the
+ * canonical URL. Only `library` and `content` records are written here.
+ */
+export type Article = {
+  id: string;
+  url: string;
+  host: string;
+  title: string;
+  subtitle: string;
+  image?: string;
+  favicon?: string;
+  saved: boolean;
+  archived: boolean;
+  favourite: boolean;
+  read: boolean;
+  savedAt?: number;
+  lastVisitedAt?: number;
+  favouritedAt?: number;
+  tags: string[];
+  copy?: Copy;
+};
+
+export type Copy = {
+  file: string;
+  words: number;
+  bytes: number;
+  byline?: string;
+  source: string;
+  savedAt: number;
+};
+
+export type Folder = "saved" | "favourites" | "archive" | "history";
+
+export const folders: {
+  id: Folder;
+  title: string;
+  path: string;
+  empty: string;
+}[] = [
+  { id: "saved", title: "Saved", path: "/", empty: "Your next good read." },
+  {
+    id: "favourites",
+    title: "Favourites",
+    path: "/favourites",
+    empty: "Worth keeping close.",
+  },
+  {
+    id: "archive",
+    title: "Archive",
+    path: "/archive",
+    empty: "A place for finished stories.",
+  },
+  {
+    id: "history",
+    title: "History",
+    path: "/history",
+    empty: "Every read leaves a trail.",
+  },
+];
+
+/** Swift dates count seconds from 1 January 2001. */
+const SWIFT_EPOCH_MS = 978_307_200_000;
+const fromSwift = (value: unknown) =>
+  typeof value === "number" && Number.isFinite(value)
+    ? value * 1000 + SWIFT_EPOCH_MS
+    : undefined;
+const swiftNow = () => (Date.now() - SWIFT_EPOCH_MS) / 1000;
+
+const https = (value: unknown) =>
+  typeof value === "string" && /^https?:\/\//i.test(value) ? value : undefined;
+
+function parse(storage: RecordStorage, key: string): Fields | undefined {
+  const view = storage.view(key);
+  if (!view || view.isDeleted) return undefined;
+  try {
+    return JSON.parse(view.value);
+  } catch {
+    return undefined;
+  }
+}
+
+export function project(
+  arctic: RecordStorage,
+  content: RecordStorage,
+): Article[] {
+  const articles: Article[] = [];
+  for (const key of arctic.keys()) {
+    if (!key.startsWith("article/")) continue;
+    const id = key.slice("article/".length);
+    const metadata = parse(arctic, key);
+    const library = parse(arctic, `library/${id}`);
+    if (!metadata || !library || typeof metadata.url !== "string") continue;
+    let host = "";
+    try {
+      host = new URL(metadata.url).hostname.replace(/^www\./, "");
+    } catch {
+      continue;
+    }
+    const tags = parse(arctic, `tags/${id}`);
+    const copy = parse(content, `content/${id}`);
+    articles.push({
+      id,
+      url: metadata.url,
+      host,
+      title: displayTitle(String(metadata.title || host), host),
+      subtitle: typeof metadata.subtitle === "string" ? metadata.subtitle : "",
+      image: https(metadata.imageURL),
+      favicon: https(metadata.faviconURL),
+      saved: library.saved === true,
+      archived: library.archived === true,
+      favourite: library.favourite === true,
+      read: library.read === true,
+      savedAt: fromSwift(library.savedAt),
+      lastVisitedAt: fromSwift(library.lastVisitedAt),
+      favouritedAt: fromSwift(library.favouritedAt),
+      tags: Array.isArray(tags?.names)
+        ? tags.names.filter((name) => typeof name === "string")
+        : [],
+      copy:
+        copy &&
+        typeof copy.file === "string" &&
+        /^xxh64:[0-9a-f]{16}$/.test(copy.file)
+          ? {
+              file: copy.file,
+              words: Number(copy.words) || 0,
+              bytes: Number(copy.bytes) || 0,
+              byline: typeof copy.byline === "string" ? copy.byline : undefined,
+              source: String(copy.source ?? ""),
+              savedAt: Number(copy.savedAt) || 0,
+            }
+          : undefined,
+    });
+  }
+  return articles;
+}
+
+export function inFolder(article: Article, folder: Folder) {
+  switch (folder) {
+    case "saved":
+      return article.saved && !article.archived;
+    case "favourites":
+      return article.saved && article.favourite;
+    case "archive":
+      return article.saved && article.archived;
+    case "history":
+      return article.lastVisitedAt !== undefined;
+  }
+}
+
+export function sortFolder(articles: Article[], folder: Folder) {
+  const time = (article: Article) =>
+    folder === "history"
+      ? (article.lastVisitedAt ?? 0)
+      : folder === "favourites"
+        ? (article.favouritedAt ?? article.savedAt ?? 0)
+        : (article.savedAt ?? article.lastVisitedAt ?? 0);
+  return articles.sort(
+    (a, b) => time(b) - time(a) || a.url.localeCompare(b.url),
+  );
+}
+
+export function matches(article: Article, query: string) {
+  const text =
+    `${article.title} ${article.subtitle} ${article.host} ${article.tags.join(" ")}`.toLowerCase();
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .every((term) => text.includes(term));
+}
+
+export const minutes = (words: number) => Math.max(1, Math.round(words / 230));
+
+/** The phone's library rule: an unsaved article is neither archived nor favourite. */
+export function normalizeLibrary(fields: Fields): Fields {
+  if (fields.saved !== false) return fields;
+  const next: Fields = { ...fields, archived: false };
+  if (next.favourite === true) next.favourite = false;
+  delete next.savedAt;
+  return next;
+}
+
+export const edits = {
+  archive: (archived: boolean) => ({ archived }),
+  favourite: (favourite: boolean) => ({
+    favourite,
+    favouritedAt: favourite ? swiftNow() : null,
+  }),
+  visit: () => ({ read: true, lastVisitedAt: swiftNow() }),
+  save: () => ({ saved: true, savedAt: swiftNow() }),
+};
+
+export function editLibrary(
+  arctic: RecordStorage,
+  article: Article,
+  fields: Fields,
+) {
+  return arctic.edit(`library/${article.id}`, fields);
+}
+
+/** Removal writes tombstones for every family, as the phone's Remove link does. */
+export async function removeArticle(
+  arctic: RecordStorage,
+  content: RecordStorage,
+  article: Article,
+) {
+  const removed = (storage: RecordStorage, keys: string[]) =>
+    keys.flatMap((key) => {
+      const view = storage.view(key);
+      return view && !view.isDeleted ? [{ key, value: view.value }] : [];
+    });
+  const records = removed(
+    arctic,
+    ["article", "library", "tags"].map((family) => `${family}/${article.id}`),
+  );
+  const copies = removed(content, [`content/${article.id}`]);
+  await arctic.write(records.map((record) => ({ ...record, isDeleted: true })));
+  await content.write(copies.map((record) => ({ ...record, isDeleted: true })));
+  return async function undo() {
+    await arctic.write(records);
+    await content.write(copies);
+  };
+}
+
+/**
+ * The source appears beside every title, so a matching publisher suffix is
+ * display noise. Mirrors `ArticleTitle.display` in the phone app.
+ */
+export function displayTitle(title: string, host: string) {
+  const site = siteKey(host);
+  if (site.length < 3) return title;
+  for (const separator of [" | ", " – ", " — ", " · ", " - ", " :: "]) {
+    const index = title.lastIndexOf(separator);
+    if (index < 0) continue;
+    let key = title
+      .slice(index + separator.length)
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]/gu, "");
+    if (key.startsWith("the") && !site.startsWith("the")) key = key.slice(3);
+    const head = title.slice(0, index).trim();
+    if (key.length < 3 || key.length > 40 || head.length < 3) continue;
+    if (site.startsWith(key) || key.startsWith(site)) return head;
+  }
+  return title;
+}
+
+function siteKey(host: string) {
+  const labels = host.toLowerCase().split(".");
+  if (labels.length < 2) return labels[0] ?? "";
+  const second = labels[labels.length - 2]!;
+  if (labels.length >= 3 && second.length <= 3)
+    return labels[labels.length - 3]!;
+  return second;
+}

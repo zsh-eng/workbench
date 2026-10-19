@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // A static app: Cloudflare serves dist/ with no Worker code. Every other
+  // path serves index.html, so /read/<id> opens directly. public/_headers
+  // sets the content security policy.
+  "name": "arctic-web",
+  "compatibility_date": "2026-09-19",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application",
+  },
+  "routes": [
+    {
+      "pattern": "arctic.zsheng.app",
+      "zone_name": "zsheng.app",
+      "custom_domain": true,
+    },
+  ],
+  "workers_dev": false,
+}
