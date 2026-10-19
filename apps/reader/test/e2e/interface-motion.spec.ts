@@ -23,7 +23,7 @@ test.describe("touch reduced motion", () => {
   const drawer = page.getByRole("dialog");
   await expect(drawer).toBeVisible();
   await expect(drawer).toHaveCSS("transition-duration", "0s");
-  await page.getByRole("button", { name:"Themes & settings" }).click();
+  await page.getByRole("button", { name: "Appearance", exact: true }).click();
   await page.getByRole("tab", { name:"Layout", exact:true }).click();
   const toggle = page.getByRole("switch", { name:"Page animations", exact:true });
   await expect(toggle).toBeVisible();

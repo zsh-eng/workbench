@@ -9,7 +9,7 @@ const itemClassName =
   "h-9 flex-1 gap-1.5 rounded-full text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground data-[pressed]:text-foreground";
 
 /**
- * Reading settings row: Pages or Scroll, like Apple Books' Scrolling View.
+ * Appearance row: Pages or Scroll, like Apple Books' Scrolling View.
  * Debug mode only while scroll mode is a prototype.
  */
 export function ReadingLayoutRow({

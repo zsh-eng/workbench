@@ -76,8 +76,11 @@ test("Reader sheets rest on detents and stack over Reader tools", async ({
   await expect(tools).toBeVisible();
 
   // Appearance takes the place of the tools, low and without dimming.
-  await tools.getByRole("button", { name: "Themes & settings" }).click();
-  const settings = page.getByRole("dialog", { name: "Reading settings" });
+  await tools.getByRole("button", { name: "Appearance", exact: true }).click();
+  const settings = page.getByRole("dialog", {
+    name: "Appearance",
+    exact: true,
+  });
   await settled(settings);
   await expect(tools).toBeHidden();
   await expect.poll(() => visibleShare(settings)).toBeLessThan(0.6);

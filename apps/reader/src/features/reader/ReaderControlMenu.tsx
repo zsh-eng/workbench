@@ -143,11 +143,7 @@ export function ReaderControlMenu({
         })}
       </div>
       <div className="mt-3 grid grid-cols-2 overflow-hidden rounded-[1.25rem] border border-border/60 bg-secondary/20">
-        <SheetUtilityButton
-          label="Theme"
-          accessibleLabel="Themes & settings"
-          onClick={onOpenSettings}
-        >
+        <SheetUtilityButton label="Appearance" onClick={onOpenSettings}>
           <Palette className="size-5" aria-hidden="true" />
         </SheetUtilityButton>
         <SheetUtilityButton

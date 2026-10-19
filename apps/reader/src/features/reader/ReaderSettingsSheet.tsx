@@ -61,7 +61,7 @@ export function ReaderSettingsSheet({
 
         onClose();
       }}
-      title="Reading settings"
+      title="Appearance"
       panelClassName="max-w-md"
       bodyClassName="w-full max-w-full overflow-hidden"
       header={

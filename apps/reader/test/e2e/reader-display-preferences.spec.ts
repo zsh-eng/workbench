@@ -42,7 +42,7 @@ for (const mobile of [true, false]) {
             .click();
           if (mobile) {
             await page
-              .getByRole("button", { name: /Themes & settings$/ })
+              .getByRole("button", { name: "Appearance", exact: true })
               .click();
             await page.getByRole("tab", { name: "Layout" }).click();
           } else {

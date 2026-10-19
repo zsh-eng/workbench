@@ -39,7 +39,7 @@ async function showChrome(page: Page) {
 async function openReadingSettings(page: Page) {
   await showChrome(page);
   await page.getByRole("button", { name: "Open reader tools" }).tap();
-  await page.getByRole("button", { name: "Themes & settings" }).tap();
+  await page.getByRole("button", { name: "Appearance", exact: true }).tap();
 }
 
 /** Debug mode's Layout row sits at the top of the reading settings. */

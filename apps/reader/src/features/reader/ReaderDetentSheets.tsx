@@ -30,7 +30,7 @@ export const READER_SHEET_PAGES: Record<ReaderSheetId, ReaderSheetPage> = {
     dim: true,
   },
   settings: {
-    title: "Reading settings",
+    title: "Appearance",
     snapPoints: [340],
     stacks: false,
     dim: false,

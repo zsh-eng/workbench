@@ -110,7 +110,7 @@ test.describe("review mobile", () => {
     await input.fill("A useful thought from this passage.");
     await capture(page, "note-composer");
     await page.getByRole("button", { name: "Back to reader tools" }).click();
-    await page.getByRole("button", { name: "Themes & settings" }).click();
+    await page.getByRole("button", { name: "Appearance", exact: true }).click();
     await page.getByRole("tab", { name: "Type", exact: true }).click();
     await expect(page.getByRole("dialog")).toContainText(
       /Font family|Font family/,

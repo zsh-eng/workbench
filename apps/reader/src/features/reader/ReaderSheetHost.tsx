@@ -159,7 +159,7 @@ export function ReaderSheetHost({
   const titles: Record<string, string> = {
     tools: "Reader tools",
     contents: "Contents",
-    settings: "Reading settings",
+    settings: "Appearance",
     "book-actions": "Reading status",
     notes: "Notebook",
     search: "Search book",
