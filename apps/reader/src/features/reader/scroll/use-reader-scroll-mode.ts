@@ -525,7 +525,7 @@ export function useReaderScrollMode({
     setPhase({ ...phase, selection: null });
   }, [phase]);
 
-  /** Selection chip: moves a page selection into scroll mode. */
+  /** Select across pages: moves a page selection into scroll mode. */
   const enterWithSelection = useCallback(
     (captured?: SelectionLocators | null) => {
       if (phase.kind !== "off") return false;
