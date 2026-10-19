@@ -7,9 +7,6 @@ import type {
   ReaderSearchResult,
 } from "./use-reader-search";
 
-/** Typing settles this long before the book is searched. */
-const QUERY_SETTLE_MS = 140;
-
 const DOT_COLORS: Record<string, string> = {
   yellow: "bg-yellow-secondary",
   green: "bg-green-secondary",
@@ -27,7 +24,13 @@ function formatCount(count: number) {
 function StatusLine({ search }: { search: ReaderSearch }) {
   const { state } = search;
   let text: string;
-  if (state.status === "waiting") text = "Loading the book’s text…";
+  // Until the new query's first results arrive, the last query's stay, and
+  // so does their count.
+  if (state.pending)
+    text = state.results.length
+      ? `${formatCount(state.results.length)} ${state.results.length === 1 ? "match" : "matches"}`
+      : "";
+  else if (state.status === "waiting") text = "Loading the book’s text…";
   else if (state.status === "searching")
     text = state.results.length
       ? `${formatCount(state.results.length)} so far · searching ${state.searchedChapters} of ${state.totalChapters} chapters`
@@ -49,7 +52,7 @@ function StatusLine({ search }: { search: ReaderSearch }) {
       >
         {text}
       </p>
-      {state.status === "searching" && (
+      {state.status === "searching" && !state.pending && (
         <button
           type="button"
           onClick={search.cancel}
@@ -215,17 +218,7 @@ export function ReaderSearchPanel({
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // A settled field searches; clearing it stops at once.
   const setQuery = search.setQuery;
-  useEffect(() => {
-    if (value === state.query) return;
-    if (!value.trim()) {
-      setQuery(value);
-      return;
-    }
-    const timer = window.setTimeout(() => setQuery(value), QUERY_SETTLE_MS);
-    return () => window.clearTimeout(timer);
-  }, [setQuery, state.query, value]);
 
   // Opening search focuses the field. On a phone, the keyboard would cover
   // results already waiting below it.
@@ -268,7 +261,7 @@ export function ReaderSearchPanel({
   };
 
   const settled = value === state.query;
-  const hasQuery = !!state.query.trim() && settled;
+  const hasQuery = !!state.query.trim();
 
   return (
     <div
@@ -294,7 +287,12 @@ export function ReaderSearchPanel({
             role="searchbox"
             inputMode="search"
             value={value}
-            onChange={(event) => setValue(event.target.value)}
+            onChange={(event) => {
+              // Every keystroke searches: a search takes a few
+              // milliseconds, and a newer query stops the one running.
+              setValue(event.target.value);
+              setQuery(event.target.value);
+            }}
             onKeyDown={(event) => {
               if (event.key !== "Enter" || event.nativeEvent.isComposing)
                 return;
