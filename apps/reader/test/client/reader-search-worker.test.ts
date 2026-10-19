@@ -112,28 +112,34 @@ describe("search worker", () => {
     );
   });
 
-  it("folds the book in the background, so a search only matches", async () => {
-    const posted: SearchWorkerResponse[] = [];
-    const handle = createSearchHandler((response) => posted.push(response));
-    handle({ type: "setBook", bookKey: "book", chapterCount: 2 });
+  it("searches a book opened while the last one is still being prepared", async () => {
+    const { handle, of } = setUp();
+    // The first book's text is still being folded in the background.
+    handle({ type: "setBook", bookKey: "other", chapterCount: 1 });
     handle({
       type: "addChapters",
-      bookKey: "book",
-      chapters: book().slice(0, 1),
+      bookKey: "other",
+      chapters: [
+        {
+          chapterIndex: 0,
+          fullText: "A pin, then another pin.",
+          blockStarts: [["text-0", 0]],
+        },
+      ],
     });
-    // Not the whole book yet.
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(posted).toEqual([]);
-
-    handle({
-      type: "addChapters",
-      bookKey: "book",
-      chapters: book().slice(1, 2),
+    const total = async (searchId: number, query: string) => {
+      handle({ type: "search", searchId, query, limit: 100 });
+      await waitFor(() =>
+        of(searchId).some((response) => response.type === "done"),
+      );
+      return of(searchId).at(-1);
+    };
+    expect(await total(1, "pin")).toMatchObject({
+      type: "done",
+      totalMatches: 2,
+      missingChapters: 0,
     });
-    await waitFor(() => posted.some((response) => response.type === "folded"));
-    expect(posted).toEqual([
-      expect.objectContaining({ type: "folded", bookKey: "book", chapters: 2 }),
-    ]);
+    expect(await total(2, "needle")).toMatchObject({ totalMatches: 0 });
   });
 
   it("stops a search that a newer query replaces", async () => {

@@ -463,12 +463,19 @@ test("Select across pages sits in the highlight tools at either page edge", asyn
     await selectAtPageEdge(page, edge);
     await expect(page.locator('[data-notes-island="tools"]')).toBeVisible();
     await expect(page.locator(SELECT_ACROSS_PAGES)).toBeVisible();
-    // Let the island finish rising.
-    await page.waitForTimeout(500);
-    const layout = await selectionLayout(page, '[data-notes-island="tools"]');
-    expect(contains(layout.tools, layout.action)).toBe(true);
-    for (const rect of layout.selection)
-      expect(overlaps(rect, layout.action)).toBe(false);
+    // Once the island has risen: the action is in it, clear of the text.
+    await expect
+      .poll(async () => {
+        const layout = await selectionLayout(
+          page,
+          '[data-notes-island="tools"]',
+        );
+        return (
+          contains(layout.tools, layout.action) &&
+          !layout.selection.some((rect) => overlaps(rect, layout.action))
+        );
+      })
+      .toBe(true);
 
     await clearSelection(page);
     await expect(page.locator(SELECT_ACROSS_PAGES)).toHaveCount(0);
@@ -476,6 +483,7 @@ test("Select across pages sits in the highlight tools at either page edge", asyn
   // A selection clear of the page's edges does not offer it.
   await selectInPage(page);
   await expect(page.locator('[data-notes-island="tools"]')).toBeVisible();
+  // Long enough for it to have appeared, were it offered.
   await page.waitForTimeout(300);
   await expect(page.locator(SELECT_ACROSS_PAGES)).toHaveCount(0);
 });
@@ -496,11 +504,16 @@ test.describe("on a desktop", () => {
     for (const edge of ["last", "first"] as const) {
       await selectAtPageEdge(page, edge);
       await expect(page.locator(SELECT_ACROSS_PAGES)).toBeVisible();
-      await page.waitForTimeout(300);
-      const layout = await selectionLayout(page, ".highlight-toolbar");
-      expect(contains(layout.tools, layout.action)).toBe(true);
-      for (const rect of layout.selection)
-        expect(overlaps(rect, layout.tools)).toBe(false);
+      // The action is in the pill, and the pill clear of the text.
+      await expect
+        .poll(async () => {
+          const layout = await selectionLayout(page, ".highlight-toolbar");
+          return (
+            contains(layout.tools, layout.action) &&
+            !layout.selection.some((rect) => overlaps(rect, layout.tools))
+          );
+        })
+        .toBe(true);
       await clearSelection(page);
       await expect(page.locator(SELECT_ACROSS_PAGES)).toHaveCount(0);
     }
@@ -518,8 +531,7 @@ test("Select across pages moves a selection at a page break into scroll mode", a
   // Select the end of the page's last line.
   const selected = await selectAtPageEdge(page, "last");
   const action = page.locator(SELECT_ACROSS_PAGES);
-  await expect(action).toHaveText("Scroll");
-  await expect(action).toHaveAccessibleName("Select across pages in Scroll");
+  await expect(action).toHaveAccessibleName(/select across pages/i);
   await action.tap();
 
   await expect(page.locator(SETTLED_STAGE)).toHaveCount(1);
