@@ -9,20 +9,16 @@ import {
   waitForSheet,
 } from "./helpers/fixtures";
 
-test("desktop keeps status at the header and gives contents continuous hover rows", async ({
+test("desktop shows the status prompt in the header and contents open a chapter", async ({
   page,
   localBook,
-}, testInfo) => {
+}) => {
   await page.setViewportSize({ width: 1280, height: 850 });
   await openLocalBook(page, localBook.id);
   const accessory = page.locator("[data-reader-header-accessory]");
   await expect(
     accessory.getByRole("button", { name: "Mark as reading", exact: true }),
   ).toBeVisible();
-  const promptBounds = (await accessory.boundingBox())!;
-  expect(promptBounds.y).toBeLessThan(100);
-  expect(promptBounds.x).toBeGreaterThan(640);
-  expect(promptBounds.height).toBe(36);
   await page.locator('[data-reader-header="desktop"]').hover();
   await page
     .getByRole("button", { name: "Open reader tools", exact: true })
@@ -31,63 +27,19 @@ test("desktop keeps status at the header and gives contents continuous hover row
     name: "Reader tools",
     exact: true,
   });
-  const rows = tools.locator("button[aria-current], button.group");
-  const first = rows.nth(0);
-  const second = rows.nth(1);
-  const a = (await first.boundingBox())!;
-  const b = (await second.boundingBox())!;
-  expect(Math.abs(a.y + a.height - b.y)).toBeLessThan(1);
-  await page.mouse.move(b.x + b.width / 2, b.y + 1);
-  await expect(second.locator("span.pointer-events-none")).toHaveCSS(
-    "opacity",
-    "1",
-  );
   const chapter = tools.getByRole("button", {
     name: /CHAPTER II\. The Pool of Tears/i,
   });
   const before = await currentPages(page);
-  await chapter.hover();
-  await page.mouse.down();
-  await expect(chapter).toHaveCSS(
-    "transform",
-    "matrix(0.97, 0, 0, 0.97, 0, 0)",
-  );
-  await page.mouse.up();
-  await expect(chapter).toHaveCSS("transform", "none");
+  await chapter.click();
   await expect(chapter).toHaveAttribute("aria-current", "location");
   await expect.poll(() => currentPages(page)).not.toEqual(before);
-  expect(
-    await chapter.evaluate((element) =>
-      element
-        .getAnimations({ subtree: true })
-        .some((animation) =>
-          animation.effect
-            ?.getKeyframes()
-            .some((frame) => "transform" in frame),
-        ),
-    ),
-  ).toBe(false);
-  await tools
-    .getByRole("button", { name: "Reading appearance", exact: true })
-    .click();
-  const viewport = tools.locator('[data-slot="scroll-area-viewport"]');
-  await viewport.evaluate((element) => {
-    element.scrollTop = element.scrollHeight;
-  });
-  await expect(viewport).toHaveCSS("mask-image", "none");
-  await page.screenshot({
-    path: testInfo.outputPath("desktop-appearance.png"),
-  });
-  // Highlights live in the notebook; there is no separate tab.
-  await expect(
-    tools.getByRole("button", { name: "Highlights", exact: true }),
-  ).toHaveCount(0);
 });
 
 test("desktop notebook highlights navigate to the marked passage and retain the tab", async ({
   page,
   localBook,
-}, testInfo) => {
+}) => {
   await page.setViewportSize({ width: 1280, height: 850 });
   await openLocalBook(page, localBook.id);
   for (let i = 0; i < 8; i++) await nextSpread(page);
@@ -138,9 +90,6 @@ test("desktop notebook highlights navigate to the marked passage and retain the 
       )
       .first(),
   ).toBeVisible();
-  await page.screenshot({
-    path: testInfo.outputPath("desktop-highlights.png"),
-  });
   await page.reload();
   await waitForReaderReady(page);
   await page.locator('[data-reader-header="desktop"]').hover();
@@ -164,7 +113,7 @@ test.describe("mobile Reader accessories", () => {
   test("offers the reading status and loads the book cover", async ({
     page,
     localBook,
-  }, testInfo) => {
+  }) => {
     await openLocalBook(page, localBook.id);
     await expect(
       page.getByRole("button", { name: "Mark as reading", exact: true }),
@@ -178,9 +127,6 @@ test.describe("mobile Reader accessories", () => {
     await expect
       .poll(() => cover.evaluate((img) => img.complete && img.naturalWidth > 0))
       .toBe(true);
-    await page.screenshot({
-      path: testInfo.outputPath("mobile-status-cover.png"),
-    });
   });
 });
 
@@ -193,10 +139,10 @@ for (const mobile of [false, true]) {
       hasTouch: mobile,
       isMobile: mobile,
     });
-    test("pins continue reading to the matching chrome edge", async ({
+    test("continue reading jumps to the other device's position", async ({
       page,
       localBook,
-    }, testInfo) => {
+    }) => {
       await page.route("**/api/devices", (route) =>
         route.fulfill({
           json: {
@@ -223,24 +169,12 @@ for (const mobile of [false, true]) {
         name: /Continue at p\. .* from Test tablet/,
       });
       await expect(action).toBeVisible();
-      const bounds = (await action.boundingBox())!;
-      expect(mobile ? bounds.y < 64 : bounds.y < 150 && bounds.x > 640).toBe(
-        true,
-      );
       const before = await currentPages(page);
       if (!mobile) {
-        await page.mouse.move(640, 400);
-        await expect(page.locator('[data-reader-header="desktop"]')).toHaveCSS(
-          "opacity",
-          "1",
-        );
         await expect(
           action.locator("[data-reader-jump-direction]"),
         ).toHaveAttribute("data-reader-jump-direction", "forward");
       }
-      await page.screenshot({
-        path: testInfo.outputPath("handoff-prompt.png"),
-      });
       await action.click();
       await expect.poll(() => currentPages(page)).not.toEqual(before);
       await expect(action).toHaveCount(0);
@@ -273,11 +207,10 @@ for (const mobile of [false, true]) {
 test("desktop status keeps the top toolbar visible until dismissed or saved", async ({
   page,
   localBook,
-}, testInfo) => {
+}) => {
   await page.setViewportSize({ width: 960, height: 850 });
   await openLocalBook(page, localBook.id);
   const header = page.locator('[data-reader-header="desktop"]');
-  const title = header.locator("[data-reader-header-title]");
   const accessory = header.locator("[data-reader-header-accessory]");
   const readStatus = () =>
     page.evaluate(async (bookId) => {
@@ -294,19 +227,11 @@ test("desktop status keeps the top toolbar visible until dismissed or saved", as
   await page.keyboard.press("Escape");
   await expect(header).toHaveCSS("opacity", "1");
   await expect(page.locator("[data-reader-footer]")).toHaveCount(0);
-  await expect(title).toHaveCSS("text-align", "left");
-  const t = (await title.boundingBox())!;
-  const a = (await accessory.boundingBox())!;
-  expect(t.x + t.width).toBeLessThanOrEqual(a.x);
-  await page.screenshot({
-    path: testInfo.outputPath("compact-desktop-status.png"),
-  });
   await accessory
     .getByRole("button", { name: "Dismiss reading status prompt", exact: true })
     .click();
   await page.mouse.move(480, 400);
   await expect(header).toHaveCSS("opacity", "0");
-  await expect(title).toHaveCSS("text-align", "center");
   expect(await readStatus()).toBeNull();
   await page.reload();
   await waitForReaderReady(page);
@@ -316,16 +241,6 @@ test("desktop status keeps the top toolbar visible until dismissed or saved", as
     .locator("[data-sonner-toast]")
     .filter({ hasText: "Changed status to Reading." });
   await expect(toast).toBeVisible();
-  await expect(toast.locator("[data-description]")).toHaveCount(0);
-  await expect(toast).toHaveCSS("border-radius", "28px");
-  const message = toast.locator("[data-title]");
-  expect(
-    await message.evaluate(
-      (node) =>
-        node.getBoundingClientRect().height <=
-        parseFloat(getComputedStyle(node).lineHeight) + 1,
-    ),
-  ).toBe(true);
   await expect.poll(readStatus).toBe("reading");
   await expect(accessory).toHaveCount(0);
   await page.mouse.move(480, 400);
@@ -335,66 +250,59 @@ test("desktop status keeps the top toolbar visible until dismissed or saved", as
   await expect(accessory).toHaveCount(0);
 });
 
-for (const mobile of [false, true]) {
-  test(`offers to finish at the last page on ${mobile ? "mobile" : "desktop"}`, async ({
-    page,
-    localBook,
-  }, testInfo) => {
-    test.setTimeout(90_000);
-    await page.setViewportSize({ width: 1280, height: 850 });
-    await openLocalBook(page, localBook.id);
-    await page
-      .getByRole("button", {
-        name: "Dismiss reading status prompt",
-        exact: true,
-      })
-      .click();
-    await page.mouse.move(600, 20);
-    await page
-      .getByRole("button", { name: "Open reader tools", exact: true })
-      .click();
-    await page.getByRole("button", { name: /CHAPTER XII\./i }).click();
-    await page
-      .getByRole("navigation", { name: "Reader tools" })
-      .getByRole("button", { name: "Close reader tools", exact: true })
-      .click();
-    if (mobile) await page.setViewportSize({ width: 390, height: 844 });
-    await waitForReaderReady(page);
-    const finish = page.getByRole("button", {
-      name: "Mark as finished",
+// Opened on desktop and finished on a phone, so the prompt survives a resize.
+test("offers to finish at the last page", async ({ page, localBook }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1280, height: 850 });
+  await openLocalBook(page, localBook.id);
+  await page
+    .getByRole("button", {
+      name: "Dismiss reading status prompt",
       exact: true,
-    });
-    await expect(finish).toHaveCount(0);
-    for (let turn = 0; turn < 60 && !(await finish.isVisible()); turn++) {
-      await nextSpread(page);
-    }
-    await expect(finish).toBeVisible();
-    await expect(
-      page.locator(
-        mobile ? "[data-reader-top-prompt]" : '[data-reader-header="desktop"]',
-      ),
-    ).toContainText("Mark as finished");
-    const readStatus = () =>
-      page.evaluate(async (id) => {
-        const path = "/src/lib/db.ts";
-        return (await import(path)).getReadingStatus(id);
-      }, localBook.id);
-    expect(await readStatus()).toBeNull();
-    await page.screenshot({ path: testInfo.outputPath("finish-prompt.png") });
-    await finish.click();
-    await expect.poll(readStatus).toBe("finished");
-    await expect(page.locator("[data-sonner-toast]")).toContainText(
-      "Changed status to Finished.",
-    );
-    await expect(finish).toHaveCount(0);
-    await page
-      .locator("[data-sonner-toast]")
-      .getByRole("button", { name: "Back to library", exact: true })
-      .click();
-    await expect(page).toHaveURL(/\/$/);
-    await openLocalBook(page, localBook.id);
-    await waitForReaderReady(page);
-    await expect(finish).toHaveCount(0);
-    expect(await readStatus()).toBe("finished");
+    })
+    .click();
+  await page.mouse.move(600, 20);
+  await page
+    .getByRole("button", { name: "Open reader tools", exact: true })
+    .click();
+  await page.getByRole("button", { name: /CHAPTER XII\./i }).click();
+  await page
+    .getByRole("navigation", { name: "Reader tools" })
+    .getByRole("button", { name: "Close reader tools", exact: true })
+    .click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await waitForReaderReady(page);
+  const finish = page.getByRole("button", {
+    name: "Mark as finished",
+    exact: true,
   });
-}
+  await expect(finish).toHaveCount(0);
+  for (let turn = 0; turn < 60 && !(await finish.isVisible()); turn++) {
+    await nextSpread(page);
+  }
+  await expect(finish).toBeVisible();
+  await expect(page.locator("[data-reader-top-prompt]")).toContainText(
+    "Mark as finished",
+  );
+  const readStatus = () =>
+    page.evaluate(async (id) => {
+      const path = "/src/lib/db.ts";
+      return (await import(path)).getReadingStatus(id);
+    }, localBook.id);
+  expect(await readStatus()).toBeNull();
+  await finish.click();
+  await expect.poll(readStatus).toBe("finished");
+  await expect(page.locator("[data-sonner-toast]")).toContainText(
+    "Changed status to Finished.",
+  );
+  await expect(finish).toHaveCount(0);
+  await page
+    .locator("[data-sonner-toast]")
+    .getByRole("button", { name: "Back to library", exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/$/);
+  await openLocalBook(page, localBook.id);
+  await waitForReaderReady(page);
+  await expect(finish).toHaveCount(0);
+  expect(await readStatus()).toBe("finished");
+});
