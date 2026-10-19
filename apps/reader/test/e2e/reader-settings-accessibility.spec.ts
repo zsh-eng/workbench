@@ -1,4 +1,10 @@
-import { test, expect, openLocalBook } from "./helpers/fixtures";
+import {
+  test,
+  expect,
+  openLocalBook,
+  openReaderTools,
+  waitForSheet,
+} from "./helpers/fixtures";
 
 test.use({
   viewport: { width: 390, height: 844 },
@@ -26,10 +32,9 @@ test("mobile settings expose choices and apply themes when preference storage is
   });
   await openLocalBook(page, localBook.id);
   await page.touchscreen.tap(195, 422);
-  await page
-    .getByRole("button", { name: "Open reader tools", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  const tools = await openReaderTools(page);
+  await tools.getByRole("button", { name: "Appearance", exact: true }).click();
+  await waitForSheet(page, "Appearance");
   await expect(
     page.getByRole("button", { name: "Lora", pressed: true }),
   ).toBeVisible();

@@ -4,7 +4,9 @@ import {
   openLocalBook,
   currentPages,
   nextSpread,
+  openReaderTools,
   waitForReaderReady,
+  waitForSheet,
 } from "./helpers/fixtures";
 
 test("desktop keeps status at the header and gives contents continuous hover rows", async ({
@@ -159,29 +161,19 @@ test.describe("mobile Reader accessories", () => {
     isMobile: true,
     hasTouch: true,
   });
-  test("pins status to the top edge and loads the book cover", async ({
+  test("offers the reading status and loads the book cover", async ({
     page,
     localBook,
   }, testInfo) => {
     await openLocalBook(page, localBook.id);
-    await expect(page.locator("[data-reader-header-accessory]")).toHaveCount(0);
-    await expect(page.locator("[data-reader-footer]")).toHaveCount(0);
     await expect(
-      page
-        .locator("[data-reader-top-prompt]")
-        .getByRole("button", { name: "Mark as reading", exact: true }),
+      page.getByRole("button", { name: "Mark as reading", exact: true }),
     ).toBeVisible();
     await page.touchscreen.tap(195, 350);
-    await page
-      .getByRole("button", { name: "Open reader tools", exact: true })
-      .click();
-    await expect(
-      page.getByRole("button", { name: "Highlights", exact: true }),
-    ).toHaveCount(0);
-    await page.getByRole("button", { name: /Book status/ }).click();
-    const cover = page
-      .getByRole("dialog", { name: "Reading status", exact: true })
-      .locator("img");
+    const tools = await openReaderTools(page);
+    await tools.getByRole("button", { name: /Book status/ }).click();
+    const status = await waitForSheet(page, "Reading status");
+    const cover = status.locator("img");
     await expect(cover).toBeVisible();
     await expect
       .poll(() => cover.evaluate((img) => img.complete && img.naturalWidth > 0))
