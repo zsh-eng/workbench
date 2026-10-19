@@ -1,7 +1,14 @@
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Page } from "@playwright/test";
-import { test, expect, openLocalBook, nextSpread } from "./helpers/fixtures";
+import {
+  test,
+  expect,
+  openLocalBook,
+  nextSpread,
+  openReaderTools,
+  waitForSheet,
+} from "./helpers/fixtures";
 
 // The same fixture, viewport and sequence generate both sides of the review.
 const stage = process.env.INTERFACE_REVIEW_STAGE ?? "after";
@@ -99,22 +106,24 @@ test.describe("review mobile", () => {
     await capture(page, "mobile-picker");
     await page.getByRole("button", { name: "Highlight with yellow" }).click();
     await page.touchscreen.tap(195, 350);
-    await page
-      .getByRole("button", { name: "Open reader tools", exact: true })
-      .click();
-    await expect(page.getByRole("dialog")).toBeVisible();
+    const tools = await openReaderTools(page);
     await capture(page, "mobile-tools");
-    await page.getByRole("button", { name: "Notebook", exact: true }).click();
-    const input = page.getByRole("textbox", { name: "Write a note" });
+    await tools.getByRole("button", { name: "Notebook", exact: true }).click();
+    const notebook = await waitForSheet(page, "Notebook");
+    const input = notebook.getByRole("textbox", { name: "Write a note" });
     await expect(input).toBeVisible();
     await input.fill("A useful thought from this passage.");
     await capture(page, "note-composer");
-    await page.getByRole("button", { name: "Back to reader tools" }).click();
-    await page.getByRole("button", { name: "Appearance", exact: true }).click();
-    await page.getByRole("tab", { name: "Type", exact: true }).click();
-    await expect(page.getByRole("dialog")).toContainText(
-      /Font family|Font family/,
-    );
+    await notebook
+      .getByRole("button", { name: "Back to reader tools" })
+      .click();
+    await waitForSheet(page, "Reader tools");
+    await tools
+      .getByRole("button", { name: "Appearance", exact: true })
+      .click();
+    const settings = await waitForSheet(page, "Appearance");
+    await settings.getByRole("tab", { name: "Type", exact: true }).click();
+    await expect(settings).toContainText(/Font family|Font family/);
     await capture(page, "mobile-settings");
   });
 });

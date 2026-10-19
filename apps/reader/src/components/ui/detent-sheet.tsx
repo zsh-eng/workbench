@@ -53,6 +53,11 @@ export interface DetentSheetProps {
  * A bottom sheet on React Aria's Sheet. The browser's own scrolling moves
  * it, so a drag follows the finger, rests on detents, and keeps momentum.
  * Sheets opened over it stack, and it steps back.
+ *
+ * The sheet is modal: the rest of the page turns inert, focus stays inside,
+ * and a press outside closes it. Menus, dialogs and toasts render elsewhere
+ * in the document, so they mark themselves as React Aria's top layer
+ * (`data-react-aria-top-layer`), which the sheet leaves usable.
  */
 export function DetentSheet({
   isOpen,
@@ -89,7 +94,7 @@ export function DetentSheet({
       // its top layer, so a stacked sheet joins it.
       data-react-aria-top-layer={stacked || undefined}
     >
-      {({ isExpanded }) => (
+      {({ isExpanded, isExiting }) => (
         <>
           {dim && (
             <SheetBackdrop
@@ -136,6 +141,7 @@ export function DetentSheet({
               <SheetBody
                 hasDetents={hasDetents}
                 isExpanded={isExpanded}
+                isExiting={isExiting}
                 setOpensFull={setOpensFull}
               >
                 {hasDetents || height === "tall" ? (
@@ -169,15 +175,36 @@ function isTextField(element: Element | null): element is HTMLElement {
 function SheetBody({
   hasDetents,
   isExpanded,
+  isExiting,
   setOpensFull,
   children,
 }: {
   hasDetents: boolean;
   isExpanded: boolean;
+  isExiting: boolean;
   setOpensFull: (opensFull: boolean) => void;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+
+  // A closing sheet scrolls out of view, and React Aria unmounts it once it
+  // is gone. Writing the sheet's scroll offset stops that scroll, and React
+  // does write it: when a commit takes focus from a control, as when the
+  // control becomes disabled, React focuses it again and puts back every
+  // ancestor's scroll offset. Appearance's Pages or Scroll does this. The
+  // sheet then stays on screen, closed. Scroll it out again.
+  useEffect(() => {
+    if (!isExiting) return;
+    const scroller = ref.current?.closest<HTMLElement>("[data-sheet-scroll]");
+    if (!scroller) return;
+    // A bottom sheet is out of view at the start of its scroll range.
+    const leave = () => {
+      if (scroller.scrollTop > 0)
+        scroller.scrollTo({ top: 0, behavior: "smooth" });
+    };
+    scroller.addEventListener("scrollend", leave);
+    return () => scroller.removeEventListener("scrollend", leave);
+  }, [isExiting]);
 
   // The body mounts each time the sheet opens, before React Aria scrolls the
   // sheet to its first detent, so this runs once per opening.

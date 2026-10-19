@@ -35,7 +35,12 @@ function ContextMenuPortal({
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.Portal>) {
   return (
-    <ContextMenuPrimitive.Portal data-slot="context-menu-portal" {...props} />
+    <ContextMenuPrimitive.Portal
+      data-slot="context-menu-portal"
+      // Opens over a detent sheet, which leaves React Aria's top layer usable.
+      data-react-aria-top-layer=""
+      {...props}
+    />
   );
 }
 
@@ -103,7 +108,7 @@ function ContextMenuContent({
   ...props
 }: ContextMenuPrimitive.Popup.Props) {
   return (
-    <ContextMenuPrimitive.Portal>
+    <ContextMenuPortal>
       <ContextMenuPrimitive.Positioner className="z-50">
       <ContextMenuPrimitive.Popup
         data-slot="context-menu-content"
@@ -114,7 +119,7 @@ function ContextMenuContent({
         {...props}
       />
       </ContextMenuPrimitive.Positioner>
-    </ContextMenuPrimitive.Portal>
+    </ContextMenuPortal>
   );
 }
 

@@ -75,7 +75,10 @@ function SelectContent({
     position?: "popper" | "item-aligned";
   }) {
   return (
-    <SelectPrimitive.Portal>
+    <SelectPrimitive.Portal
+      // Opens over a detent sheet, which leaves React Aria's top layer usable.
+      data-react-aria-top-layer=""
+    >
       <SelectPrimitive.Positioner align={align} side={side}>
       <SelectPrimitive.Popup
         data-slot="select-content"

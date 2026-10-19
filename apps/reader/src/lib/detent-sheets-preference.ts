@@ -3,12 +3,15 @@ import { useSyncExternalStore } from "react";
 
 export const DETENT_SHEETS_STORAGE_KEY = "reader-detent-sheets-v1";
 
-/** A trial of React Aria's detent sheets in the phone Reader. Off unless chosen. */
+/**
+ * The phone Reader's sheets rest on React Aria's detents. On unless turned
+ * off in Debug mode, which brings back the fixed-height sheets.
+ */
 function readDetentSheets(): boolean {
   try {
-    return getRuntimeStorage().getItem(DETENT_SHEETS_STORAGE_KEY) === "true";
+    return getRuntimeStorage().getItem(DETENT_SHEETS_STORAGE_KEY) !== "false";
   } catch {
-    return false;
+    return true;
   }
 }
 

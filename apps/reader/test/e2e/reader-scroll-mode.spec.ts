@@ -6,6 +6,7 @@ import {
   nextSpread,
   currentPages,
   waitForReaderReady,
+  waitForSheet,
 } from "./helpers/fixtures";
 
 test.use({
@@ -36,17 +37,25 @@ async function showChrome(page: Page) {
   await expect.poll(shown).toBe(true);
 }
 
-async function openReadingSettings(page: Page) {
+/** Opens a page of Reader tools and returns its sheet once it rests. */
+async function openTool(page: Page, button: string | RegExp, sheet: string) {
   await showChrome(page);
   await page.getByRole("button", { name: "Open reader tools" }).tap();
-  await page.getByRole("button", { name: "Appearance", exact: true }).tap();
+  const tools = await waitForSheet(page, "Reader tools");
+  await tools
+    .getByRole("button", { name: button, exact: typeof button === "string" })
+    .tap();
+  return waitForSheet(page, sheet);
 }
+
+const openReadingSettings = (page: Page) =>
+  openTool(page, "Appearance", "Appearance");
 
 /** Debug mode's Pages or Scroll row leads Appearance's Layout tab. */
 async function chooseLayout(page: Page, layout: "Pages" | "Scroll") {
-  await openReadingSettings(page);
-  await page.getByRole("tab", { name: "Layout", exact: true }).tap();
-  await page
+  const settings = await openReadingSettings(page);
+  await settings.getByRole("tab", { name: "Layout", exact: true }).tap();
+  await settings
     .locator("[data-reading-layout-row]")
     .getByRole("button", { name: layout, exact: true })
     .tap();
@@ -748,9 +757,7 @@ test("Search marks its matches in the scroll column as rows mount", async ({
   await nextSpread(page);
   await enterScroll(page);
 
-  await showChrome(page);
-  await page.getByRole("button", { name: "Open reader tools" }).tap();
-  await page.getByRole("button", { name: /Search book/ }).tap();
+  await openTool(page, /Search book/, "Search book");
   const field = page.getByRole("searchbox", { name: "Search this book" });
   await field.fill("Dinah");
   await expect(page.locator("[data-search-status]")).toHaveAttribute(
