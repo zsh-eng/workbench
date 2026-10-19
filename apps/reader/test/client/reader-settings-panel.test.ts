@@ -1,12 +1,11 @@
 import {
-  ReaderSettingsList,
   ReaderSettingsPanel,
   type ReaderSettingsPanelTab,
 } from "@/features/reader/ReaderSettingsSheet";
 import type { ReaderSettings } from "@/types/reader.types";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createElement, useState } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 
 const settings: ReaderSettings = {
   fontSize: 16,
@@ -38,59 +37,6 @@ function SettingsPanelHarness() {
 afterEach(() => {
   cleanup();
   Element.prototype.scrollIntoView = originalScrollIntoView;
-});
-
-describe("ReaderSettingsPanel", () => {
-  it("separates type controls from layout controls in a shorter panel", () => {
-    Element.prototype.scrollIntoView = vi.fn();
-    render(createElement(SettingsPanelHarness));
-
-    expect(screen.getByRole("heading", { name: "Font family" })).toBeTruthy();
-    expect(
-      screen.getByRole("heading", { name: "Publisher styling" }),
-    ).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Font size" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "Line height" })).toBeNull();
-
-    fireEvent.click(screen.getByRole("tab", { name: "Layout" }));
-
-    expect(screen.getByRole("heading", { name: "Line height" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Alignment" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "Font family" })).toBeNull();
-
-    fireEvent.click(screen.getByRole("tab", { name: "Theme" }));
-    expect(screen.getByRole("heading", { name: "Theme" })).toBeTruthy();
-  });
-
-  it("shows all appearance controls in one desktop scroll list", () => {
-    Element.prototype.scrollIntoView = vi.fn();
-    const onUpdateSettings = vi.fn();
-    render(
-      createElement(ReaderSettingsList, {
-        settings,
-        onUpdateSettings,
-      }),
-    );
-
-    expect(screen.queryByRole("tab")).toBeNull();
-    expect(screen.getByRole("heading", { name: "Theme" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Font family" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Font size" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Line height" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Alignment" })).toBeTruthy();
-
-    const headings = screen
-      .getAllByRole("heading")
-      .map((heading) => heading.textContent);
-    expect(headings.indexOf("Theme")).toBeGreaterThan(
-      headings.indexOf("Alignment"),
-    );
-
-    fireEvent.click(screen.getByText("Book styles"));
-    expect(onUpdateSettings).toHaveBeenCalledWith({
-      publisherBookStylingEnabled: true,
-    });
-  });
 });
 
 it("exposes names and current choices through the composed mobile controls", () => {

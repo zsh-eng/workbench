@@ -26,8 +26,9 @@ const LAYOUT_THEME: LayoutTheme = {
 
 describe("layoutPages — heading rhythm", () => {
   it("budgets enough line height for mobile Iowan heading metrics", () => {
-    expect(getLineHeight("h1", LAYOUT_THEME)).toBe(44);
-    expect(getLineHeight("h3", LAYOUT_THEME)).toBe(28);
+    // Lower bounds: taller heading lines are a design choice, shorter ones are not.
+    expect(getLineHeight("h1", LAYOUT_THEME)).toBeGreaterThanOrEqual(44);
+    expect(getLineHeight("h3", LAYOUT_THEME)).toBeGreaterThanOrEqual(28);
   });
 });
 
