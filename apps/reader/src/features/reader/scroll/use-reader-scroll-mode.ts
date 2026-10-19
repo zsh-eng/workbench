@@ -184,8 +184,9 @@ function targetPage(
  *
  * Content anchors carry the place across modes. Scroll → Pages snaps the
  * page that holds the reading line into place; Pages → Scroll opens at that
- * page's offset, from the settings switch, a pull past the threshold, or
- * "Select across pages" in the highlight tools. While scrolling, the
+ * page's offset, from the settings switch or a pull past the threshold. A
+ * selection cut by a page break can also visit the column (`excursion`)
+ * to take in the next page's words, then return to pages. While scrolling, the
  * location goes to the reader as a mode-neutral `ReaderLocation`: progress,
  * sessions, history and page numbers follow it without moving the paged
  * engine. Jumps (contents, scrubber, links, notes, history) still run
@@ -230,8 +231,8 @@ export function useReaderScrollMode({
   const leadingPage = getLeadingVisiblePage(spread);
   const leadingChapter = leadingPage?.chapterIndex ?? null;
 
-  // Pages mode keeps the current chapter's column ready, so a pull or
-  // "Select across pages" can start without waiting for the worker.
+  // Pages mode keeps the current chapter's column ready, so a pull or a
+  // selection's visit can start without waiting for the worker.
   const subscribedChapter =
     !enabled || !ready
       ? null
