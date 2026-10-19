@@ -726,6 +726,11 @@ export function Reader() {
                       }}
                       onSnapStart={hideChrome}
                       onLinkActivate={sessionActions.openInternalHref}
+                      // A phone's header and footer cover the stage's
+                      // soft edges while they show.
+                      chromeVisible={
+                        isMobile && noteViewportHeight === null && chromeVisible
+                      }
                     />
                   )}
                 </DeferredEpubImageProvider>
