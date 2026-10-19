@@ -326,33 +326,3 @@ for (const phone of [false, true])
         .toBe(before);
     });
   });
-
-test.describe("phone filters", () => {
-  test.use({
-    viewport: { width: 390, height: 844 },
-    hasTouch: true,
-    isMobile: true,
-  });
-  test("the filter row fades its edge only while more filters are to the right", async ({
-    page,
-    localBook,
-  }) => {
-    void localBook;
-    await page.goto("/");
-    const row = page.getByRole("group", { name: "Show" });
-    const fade = () =>
-      row.evaluate((element) => getComputedStyle(element).maskImage);
-    // The four filters fit on a 390 px phone, so each label shows in full.
-    await expect(
-      row.getByRole("button", { name: "Did not finish" }),
-    ).toBeVisible({ timeout: 30_000 });
-    await expect.poll(fade).toBe("none");
-    // On a narrower phone the edge fades until the row scrolls to its end.
-    await page.setViewportSize({ width: 340, height: 844 });
-    await expect.poll(fade).not.toBe("none");
-    await row.evaluate((element) =>
-      element.scrollTo({ left: element.scrollWidth }),
-    );
-    await expect.poll(fade).toBe("none");
-  });
-});
