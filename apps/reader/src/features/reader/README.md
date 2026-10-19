@@ -87,8 +87,20 @@ notes use, so a result stays correct when the type changes and pages move.
   the book, so when it stops at 1,000 matches it keeps those nearest the
   reader. It sends the first match at once, then progress. A newer query or a
   cancel stops the old search.
+- The worker starts once the book has settled and the page is idle. The text
+  goes over a chapter at a time in idle moments, and the worker folds the
+  whole book in the background (about 25ms for 2.6 million characters on a
+  laptop), so the first search only has to match. Nothing is searched until
+  search opens.
+- Every keystroke searches. Matching is `String#indexOf` over the folded
+  text, which covers a 2.6-million-character book in 0.1–5ms, so there is no
+  index: a trigram index answers three or more letters in microseconds but
+  takes 60–200ms and about 10MB to build and does nothing for the first two
+  letters, and a suffix array takes seconds. The list keeps the last query's
+  results until the new query's first arrive, so typing never blanks it.
 - `search/search-text.ts` folds case, accents, curly quotes and invisible
-  characters, and maps folded matches back to canonical offsets.
+  characters, and maps folded matches back to canonical offsets. Most text
+  folds one to one, so the map keeps only the places where it does not.
 - `goToTextOffset` and `locateTextOffsets` in `pagination-v2` turn an offset
   into a page. Locating covers only the results shown and the first few from
   the reader's page, so a long result list does not hold up page turns. A

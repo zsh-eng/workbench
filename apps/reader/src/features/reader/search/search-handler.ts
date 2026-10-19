@@ -27,6 +27,10 @@ export function createSearchHandler(
   let bookKey = "";
   let chapters: (ChapterSearchText | null)[] = [];
   let activeSearchId = 0;
+  let folding = false;
+  /** Chapters folded in the background for the book, and the time taken. */
+  let foldedChapters = 0;
+  let foldMs = 0;
 
   const channel = new MessageChannel();
   const pendingYields: (() => void)[] = [];
@@ -57,6 +61,30 @@ export function createSearchHandler(
         range: { to: from.offset },
       });
     return order;
+  }
+
+  /**
+   * Folds every chapter a chapter at a time while nothing else is asked, so
+   * the first search only matches. A search waits at most one chapter.
+   */
+  async function foldInBackground() {
+    if (folding) return;
+    folding = true;
+    const key = bookKey;
+    for (;;) {
+      await yieldToMessages();
+      if (bookKey !== key) break;
+      const chapter = chapters.find((text) => text && !text.isFolded);
+      if (!chapter) break;
+      const startedAt = performance.now();
+      void chapter.folded;
+      foldMs += performance.now() - startedAt;
+      foldedChapters++;
+    }
+    folding = false;
+    if (bookKey !== key) void foldInBackground();
+    else if (chapters.every((text) => text?.isFolded))
+      post({ type: "folded", bookKey, chapters: foldedChapters, ms: foldMs });
   }
 
   async function runSearch(
@@ -134,6 +162,8 @@ export function createSearchHandler(
           bookKey = request.bookKey;
           activeSearchId = 0;
           chapters = [];
+          foldedChapters = 0;
+          foldMs = 0;
         }
         chapters = Array.from(
           { length: request.chapterCount },
@@ -144,6 +174,7 @@ export function createSearchHandler(
         if (request.bookKey !== bookKey) return;
         for (const chapter of request.chapters)
           chapters[chapter.chapterIndex] = new ChapterSearchText(chapter);
+        void foldInBackground();
         return;
       case "search":
         activeSearchId = request.searchId;

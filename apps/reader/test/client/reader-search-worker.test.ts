@@ -112,6 +112,30 @@ describe("search worker", () => {
     );
   });
 
+  it("folds the book in the background, so a search only matches", async () => {
+    const posted: SearchWorkerResponse[] = [];
+    const handle = createSearchHandler((response) => posted.push(response));
+    handle({ type: "setBook", bookKey: "book", chapterCount: 2 });
+    handle({
+      type: "addChapters",
+      bookKey: "book",
+      chapters: book().slice(0, 1),
+    });
+    // Not the whole book yet.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(posted).toEqual([]);
+
+    handle({
+      type: "addChapters",
+      bookKey: "book",
+      chapters: book().slice(1, 2),
+    });
+    await waitFor(() => posted.some((response) => response.type === "folded"));
+    expect(posted).toEqual([
+      expect.objectContaining({ type: "folded", bookKey: "book", chapters: 2 }),
+    ]);
+  });
+
   it("stops a search that a newer query replaces", async () => {
     const { handle, of } = setUp();
     handle({ type: "search", searchId: 1, query: "needle", limit: 100_000 });

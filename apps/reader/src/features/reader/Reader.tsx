@@ -249,7 +249,7 @@ export function Reader() {
     onCreateHighlight: sessionActions.createHighlight,
   });
 
-  // Search starts its worker the first time it opens.
+  // Search starts its worker once the book has settled, or when it opens.
   const searchOpen = chromeState.activeReaderSheet === "search";
   // Search ideas for Design ideas, Debug mode only: `?search=` steps to the
   // nearest match and `?searchMarks=` picks how matches are marked.
@@ -261,6 +261,7 @@ export function Reader() {
   const search = useReaderSearch({
     bookId: bookId ?? "",
     enabled: searchStarted,
+    warm: settledPaintReady,
     chapters: sessionState.chapters.entries,
     toc: sessionState.book?.toc ?? EMPTY_TOC,
     chapterAccess: sessionResources.chapterAccess,

@@ -343,6 +343,10 @@ export class ChapterSearchText {
     this.blocks = chapterBlockRanges(chapter);
   }
 
+  get isFolded(): boolean {
+    return this.foldedText !== null;
+  }
+
   get folded(): FoldedText {
     this.foldedText ??= foldText(
       this.chapter.fullText,
