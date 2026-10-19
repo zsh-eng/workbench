@@ -1,15 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { execFileSync } from "node:child_process";
-import {
-  mkdir,
-  mkdtemp,
-  readdir,
-  readFile,
-  realpath,
-  rm,
-  utimes,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +10,7 @@ import type { Thread, ThreadList } from "../../src/shared/threads";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { claudeProjectFolder } from "../../src/host/found-sessions";
 import { readServerEvents } from "../../src/web/data/sse";
+import { removeFolder } from "./remove-folder";
 
 const directories: string[] = [];
 const hosts: RunningHost[] = [];
@@ -26,9 +18,7 @@ const streams: AbortController[] = [];
 afterEach(async () => {
   for (const stream of streams.splice(0)) stream.abort();
   await Promise.all(hosts.splice(0).map((host) => host.close()));
-  await Promise.all(
-    directories.splice(0).map((path) => rm(path, { recursive: true, force: true })),
-  );
+  await Promise.all(directories.splice(0).map((path) => removeFolder(path)));
   vi.unstubAllEnvs();
 });
 

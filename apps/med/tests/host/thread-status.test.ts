@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +10,7 @@ import { startHost, type RunningHost } from "../../src/host/server";
 import { claudeProjectFolder } from "../../src/host/found-sessions";
 import { readServerEvents } from "../../src/web/data/sse";
 import { openSession } from "../fixtures/terminal-claude";
+import { removeFolder } from "./remove-folder";
 
 // The thread list reads each thread's last turn from its transcript's tail: what
 // the agent does now, what it said last, and whether it asked the user; and
@@ -23,9 +24,7 @@ afterEach(async () => {
   for (const stream of streams.splice(0)) stream.abort();
   await Promise.all(ends.splice(0).map((end) => end()));
   await Promise.all(hosts.splice(0).map((host) => host.close()));
-  await Promise.all(
-    directories.splice(0).map((path) => rm(path, { recursive: true, force: true })),
-  );
+  await Promise.all(directories.splice(0).map((path) => removeFolder(path)));
   vi.unstubAllEnvs();
 });
 

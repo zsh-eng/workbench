@@ -1,7 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { appendFile, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,14 +11,13 @@ import type { SavedReview } from "../../src/shared/saved-review";
 import type { ThreadList } from "../../src/shared/threads";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { runReviewCommand } from "../../src/cli/review";
+import { removeFolder } from "./remove-folder";
 
 const directories: string[] = [];
 const hosts: RunningHost[] = [];
 afterEach(async () => {
   await Promise.all(hosts.splice(0).map((host) => host.close()));
-  await Promise.all(
-    directories.splice(0).map((path) => rm(path, { recursive: true, force: true })),
-  );
+  await Promise.all(directories.splice(0).map((path) => removeFolder(path)));
   vi.unstubAllEnvs();
 });
 

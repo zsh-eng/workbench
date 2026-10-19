@@ -74,21 +74,28 @@ function append(kind: LogKind, text: string) {
  * host that attaches later reads from there. Entries keep their numbers.
  */
 function checkpoint(data: unknown) {
-  const offset = size;
-  append("m", JSON.stringify({ checkpoint: data }));
-  if (size <= COMPACT_BYTES) return;
+  const text = JSON.stringify({ checkpoint: data });
+  if (size <= COMPACT_BYTES) return append("m", text);
+  const line = formatEntry({ n: ++next, kind: "m", at: Date.now(), text });
   try {
-    const text = readFileSync(files.log);
-    const header = text.subarray(0, text.indexOf(10) + 1);
+    // The new log replaces the old one whole, so a reader sees one or the other.
+    const old = readFileSync(files.log);
+    const header = old.subarray(0, old.indexOf(10) + 1);
     const temporary = `${files.log}.${generation}.tmp`;
-    writeFileSync(temporary, Buffer.concat([header, text.subarray(offset)]), { mode: 0o600 });
+    writeFileSync(temporary, Buffer.concat([header, Buffer.from(line)]), { mode: 0o600 });
     renameSync(temporary, files.log);
     closeSync(log);
     log = openSync(files.log, "a", 0o600);
-    size = header.length + text.length - offset;
+    size = header.length + Buffer.byteLength(line);
   } catch {
-    /* The log stays long. */
+    // The log stays long.
+    try {
+      size += writeSync(log, line);
+    } catch {
+      // The folder is gone; the check below stops the agent.
+    }
   }
+  for (const client of clients) client.write(line);
 }
 append("h", JSON.stringify({ version: HOLDER_VERSION, sessionId: spec.sessionId, generation }));
 

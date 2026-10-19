@@ -17,6 +17,7 @@ import {
   processStart,
   writeProcessRecord,
 } from "../fixtures/terminal-claude";
+import { removeFolder } from "./remove-folder";
 
 // A message to an adopted Claude Code session, through the production host:
 // Med resumes a session that no process runs, holds a message for one that
@@ -30,12 +31,7 @@ const ends: (() => Promise<void>)[] = [];
 afterEach(async () => {
   await Promise.all(ends.splice(0).map((end) => end().catch(() => {})));
   await Promise.all(hosts.splice(0).map((host) => host.close()));
-  // A fake agent that the host stopped can still write as it exits.
-  await Promise.all(
-    directories
-      .splice(0)
-      .map((path) => rm(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })),
-  );
+  await Promise.all(directories.splice(0).map((path) => removeFolder(path)));
   vi.unstubAllEnvs();
 });
 

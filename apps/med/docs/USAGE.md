@@ -10,8 +10,9 @@ Mac. This guide covers the app. To hand off reviews from coding agents, see
 server keeps running when you close the terminal or the browser. `med status`
 shows it, `med stop` stops it, and `med serve` runs it in the foreground.
 The agents that Med starts keep working while the server stops or restarts,
-and the next server takes them up. `med agents` lists them, and `med agents
-stop --all` stops them.
+and the next server takes them up. An agent stops a minute after its
+thread's tab closes, once its turn ends. `med agents` lists the agents, and
+`med agents stop --all` stops them.
 
 Med serves port **6330** and keeps its state in `~/.local/state/med`. For a
 second profile, give every command the same `--port` and `--state-dir`. Med

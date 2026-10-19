@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +9,7 @@ import type { SavedReview } from "../../src/shared/saved-review";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { runReviewCommand } from "../../src/cli/review";
 import { openSession } from "../fixtures/terminal-claude";
+import { removeFolder } from "./remove-folder";
 
 const directories: string[] = [];
 const hosts: RunningHost[] = [];
@@ -16,9 +17,7 @@ const ends: (() => Promise<void>)[] = [];
 afterEach(async () => {
   await Promise.all(ends.splice(0).map((end) => end()));
   await Promise.all(hosts.splice(0).map((host) => host.close()));
-  await Promise.all(
-    directories.splice(0).map((path) => rm(path, { recursive: true, force: true })),
-  );
+  await Promise.all(directories.splice(0).map((path) => removeFolder(path)));
   vi.unstubAllEnvs();
 });
 

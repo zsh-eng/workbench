@@ -116,9 +116,13 @@ stdio --session-id <id>`, with `--model`, `--effort`, and `--permission-mode`
   fails because the host closes gets no answer, not an error. The page then
   waits for Med: a live load keeps what it shows, and a message keeps
   trying (see [Sessions](SESSIONS.md)).
-- **Stopping agents**: `med stop`, an update, a restart, and a closed tab
-  leave the agents working. `med agents` lists the holders, and `med agents
-stop <session> | --all` stops them, also while the server is down. A holder closes the agent's input, then sends
+- **Stopping agents**: an agent lives as long as its thread's tab. An
+  update, a restart, and `med stop` leave the agents working. A closed tab's
+  agent stops when it is idle and the tab has stayed closed for a minute; a
+  turn ends first, and a question waits for its answer. A Claude Code session
+  then resumes with its next message, and an ACP session stops. `med agents`
+  lists the holders, and `med agents stop <session> | --all` stops them, also
+  while the server is down. A holder closes the agent's input, then sends
   `SIGTERM` after 2 s and `SIGKILL` after 5 s. The login service sets
   `AbandonProcessGroup`, so launchd does not stop the holders with the server.
 - **Adopted sessions**: a Claude Code session that Med did not start, such

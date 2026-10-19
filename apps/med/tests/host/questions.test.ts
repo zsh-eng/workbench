@@ -7,7 +7,6 @@ import {
   readFile,
   readdir,
   realpath,
-  rm,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -21,6 +20,7 @@ import type { QuestionState } from "../../src/shared/questions";
 import type { SavedReview } from "../../src/shared/saved-review";
 import type { Thread } from "../../src/shared/threads";
 import { readServerEvents } from "../../src/web/data/sse";
+import { removeFolder } from "./remove-folder";
 
 // The scratch repositories' Git must not reach the checkout's repository.
 removeGitEnvironment();
@@ -31,9 +31,7 @@ const streams: AbortController[] = [];
 afterEach(async () => {
   for (const stream of streams.splice(0)) stream.abort();
   await Promise.all(hosts.splice(0).map((host) => host.close()));
-  await Promise.all(
-    directories.splice(0).map((path) => rm(path, { recursive: true, force: true })),
-  );
+  await Promise.all(directories.splice(0).map((path) => removeFolder(path)));
   vi.unstubAllEnvs();
 });
 

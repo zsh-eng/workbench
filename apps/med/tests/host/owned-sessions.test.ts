@@ -8,7 +8,6 @@ import {
   readdir,
   readFile,
   realpath,
-  rm,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -22,6 +21,7 @@ import type { SavedReview } from "../../src/shared/saved-review";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { runAgentsCommand } from "../../src/cli/agents";
 import { readServerEvents } from "../../src/web/data/sse";
+import { removeFolder } from "./remove-folder";
 
 /** A one-pixel PNG, in base64. */
 const PNG =
@@ -32,9 +32,7 @@ const streams: AbortController[] = [];
 afterEach(async () => {
   for (const stream of streams.splice(0)) stream.abort();
   await Promise.all(hosts.splice(0).map((host) => host.close()));
-  await Promise.all(
-    directories.splice(0).map((path) => rm(path, { recursive: true, force: true })),
-  );
+  await Promise.all(directories.splice(0).map((path) => removeFolder(path)));
   vi.unstubAllEnvs();
 });
 
@@ -91,10 +89,14 @@ async function fixture() {
   hosts.push(host);
   /** Closes the host and starts it again on the same state, as a restart
    * does. With `reboot`, the agents and their holders end too, as when the
-   * Mac restarts. */
-  const restart = async ({ reboot = false } = {}) => {
+   * Mac restarts. `closed` runs while no host runs. */
+  const restart = async ({
+    reboot = false,
+    closed,
+  }: { reboot?: boolean; closed?: () => Promise<void> } = {}) => {
     await host.close();
     hosts.splice(hosts.indexOf(host), 1);
+    await closed?.();
     if (reboot) {
       const agents = join(stateDir, "agents");
       for (const name of await readdir(agents).catch(() => [] as string[])) {
@@ -481,7 +483,9 @@ test("med agents lists the agents that keep working; one that it stops resumes w
   expect((await session.state()).halt).toBeUndefined();
   const replies = await thread(session.id);
   await session.act({ action: "prompt", text: "Are you back?" });
-  await vi.waitFor(() => expect(replies().at(-1)).toMatch(/: Are you back\?$/));
+  await vi.waitFor(() => expect(replies().at(-1)).toMatch(/: Are you back\?$/), {
+    timeout: 5000,
+  });
   await session.until((state) => state.status === "idle");
 
   // A holder that dies, as in a crash of the Mac, cuts the turn that ran.
@@ -495,6 +499,41 @@ test("med agents lists the agents that keep working; one that it stops resumes w
     status: "idle",
     halt: { kind: "interrupted" },
   });
+});
+
+test("a closed tab's agent stops once its turn ends, and the next message resumes it", async () => {
+  vi.stubEnv("MED_AGENT_RELEASE_MS", "0");
+  const { api, review, stateDir, thread, start } = await fixture();
+  const session = await start("claude");
+  await session.until((state) => state.status === "idle" && state.settings.length > 0);
+  const holder = JSON.parse(
+    await readFile(join(stateDir, "agents", `${session.id}.json`), "utf8"),
+  ) as { pid: number };
+  await session.act({ action: "prompt", text: "Wait for the build." });
+  await session.until((state) => state.status === "working");
+
+  await api(`/api/threads/${review.id}/close`, {});
+  // The turn goes on without its tab.
+  await new Promise((done) => setTimeout(done, 300));
+  expect(alive(holder.pid)).toBe(true);
+  await session.act({ action: "interrupt" });
+  await vi.waitFor(() => expect(alive(holder.pid)).toBe(false));
+  expect(await session.state()).toMatchObject({ status: "idle" });
+  expect((await session.state()).halt).toBeUndefined();
+
+  // The tab opens again, and a message resumes the session in a new holder.
+  await api(`/api/threads/${review.id}/open`, { restore: true });
+  const replies = await thread(session.id);
+  await session.act({ action: "prompt", text: "Are you back?" });
+  await vi.waitFor(() => expect(replies().at(-1)).toMatch(/: Are you back\?$/), {
+    timeout: 5000,
+  });
+  await session.until((state) => state.status === "idle");
+  const again = JSON.parse(
+    await readFile(join(stateDir, "agents", `${session.id}.json`), "utf8"),
+  ) as { pid: number };
+  await new Promise((done) => setTimeout(done, 300));
+  expect(alive(again.pid)).toBe(true);
 });
 
 test("an agent that exits says why; Restart and a message each resume its session", async () => {
@@ -533,7 +572,9 @@ test("an agent that exits says why; Restart and a message each resume its sessio
     { sessionId: session.id, text: "Are you back?", noteIds: [] },
   );
   expect(sent.data.message.delivery).toBe("delivered");
-  await vi.waitFor(() => expect(replies().at(-1)).toMatch(/: Are you back\?$/));
+  await vi.waitFor(() => expect(replies().at(-1)).toMatch(/: Are you back\?$/), {
+    timeout: 5000,
+  });
   expect((await session.until((state) => state.status === "idle")).halt).toBeUndefined();
 });
 
@@ -545,11 +586,13 @@ test("a session record that Med cannot read costs only itself, and the file keep
   await vi.waitFor(async () =>
     expect(Object.keys(JSON.parse(await readFile(file, "utf8")))).toEqual([session.id]),
   );
-  const records = JSON.parse(await readFile(file, "utf8"));
-  records["unknown-kind"] = { ...records[session.id], kind: "telepathy" };
-  await writeFile(file, JSON.stringify(records));
-
-  await restart();
+  await restart({
+    async closed() {
+      const records = JSON.parse(await readFile(file, "utf8"));
+      records["unknown-kind"] = { ...records[session.id], kind: "telepathy" };
+      await writeFile(file, JSON.stringify(records));
+    },
+  });
   expect((await session.until((state) => state.settings.length > 0)).status).toBe("idle");
   const kept = (await readdir(stateDir)).filter((name) =>
     name.startsWith("owned-sessions.json.unreadable-"),

@@ -65,6 +65,9 @@ export interface OwnedRunner {
   /** Clears what stopped the work (`OwnedState.halt`). */
   dismiss(): void;
   stop(): void;
+  /** Stops the agent's process and keeps the session, as when its tab
+   * closed: a Claude Code session resumes with its next prompt. */
+  release(): void;
   /** Leaves the agent running for the next host, as when the host closes. */
   detach(): void;
   subscribe(listener: () => void): () => void;
@@ -897,6 +900,9 @@ export function startClaude(
       held?.stop();
       store.set({ status: "exited", permission: undefined, streaming: undefined, halt: undefined });
     },
+    release() {
+      held?.stop();
+    },
     detach() {
       active = undefined;
       held?.detach();
@@ -933,6 +939,7 @@ function stoppedRunner(session: AgentSession, preset: string, name: string): Own
     restart: async () => stopped(),
     dismiss() {},
     stop() {},
+    release() {},
     detach() {},
   };
 }
@@ -1251,7 +1258,12 @@ export function startAcp(
           })),
         });
       }
-      store.set({ settings, ...(store.get().status === "starting" ? { status: "idle" } : {}) });
+      // A live start waits for Med's choices before it is idle; a log read
+      // again is idle from here.
+      store.set({
+        settings,
+        ...(replaying && store.get().status === "starting" ? { status: "idle" } : {}),
+      });
     } else if (method === "session/set_config_option") {
       if (Array.isArray(result?.configOptions))
         store.set({ settings: withConfig(result.configOptions) });
@@ -1381,7 +1393,7 @@ export function startAcp(
         permission: undefined,
         ...(exit.error
           ? { error: exit.error }
-          : exit.code || exit.signal
+          : (exit.code || exit.signal) && !exit.requested
             ? {
                 error:
                   lastLines(exit.errors || errors) ||
@@ -1500,6 +1512,9 @@ export function startAcp(
       answer?.(null);
       held?.stop();
       store.set({ status: "exited", permission: undefined });
+    },
+    release() {
+      held?.stop();
     },
     detach() {
       active = undefined;
@@ -1649,6 +1664,9 @@ type SessionRecord = z.infer<typeof recordSchema>;
 const MAX_RECORDS = 200;
 /** How long a host that starts waits for the sessions' holders' logs. */
 const ATTACH_MS = 3000;
+/** How long an agent outlives its closed tab, so a tab that closed by
+ * mistake comes back with it. Tests set `MED_AGENT_RELEASE_MS`. */
+const releaseMs = () => Number(process.env.MED_AGENT_RELEASE_MS ?? 60_000);
 
 /** The model, effort, and mode that a session's settings show now. */
 function chosenSettings(state: OwnedState): SessionRecord["choices"] {
@@ -1675,6 +1693,9 @@ export class OwnedSessions {
   private writing: Promise<void> = Promise.resolve();
   /** The host closes: the turns that it cuts stay recorded. */
   private closing = false;
+  /** The sessions whose threads' tabs are closed, with when they closed. */
+  private closedTabs = new Map<string, number>();
+  private releaseTimer: ReturnType<typeof setTimeout> | undefined;
   /** The Claude Code processes that Med does not run (session-processes.ts). */
   private processes: SessionProcesses;
   constructor(
@@ -1992,6 +2013,7 @@ export class OwnedSessions {
     if (save) this.save();
     runner.subscribe(() => {
       this.updated.set(id, Date.now());
+      if (this.closedTabs.has(id)) this.releaseIdle();
       const current = this.records[id];
       if (!current || this.closing) return;
       const state = runner.state();
@@ -2093,10 +2115,36 @@ export class OwnedSessions {
       return runner.state().status !== "exited" && !inside.startsWith("..") && !isAbsolute(inside);
     });
   }
+  /**
+   * An agent lives as long as its thread's tab. `closed` names the sessions
+   * whose tabs are closed, with when each closed; an agent among them stops
+   * once it is idle and its tab has stayed closed for a minute. A turn ends
+   * first, and a question waits for its answer.
+   */
+  release(closed: Map<string, number>) {
+    this.closedTabs = closed;
+    this.releaseIdle();
+  }
+  private releaseIdle() {
+    clearTimeout(this.releaseTimer);
+    if (this.closing) return;
+    const now = Date.now();
+    let next = Infinity;
+    for (const [id, at] of this.closedTabs) {
+      const runner = this.runners.get(id);
+      if (!runner || runner.pid() === undefined || runner.state().status !== "idle") continue;
+      const due = at + releaseMs();
+      if (due <= now) runner.release();
+      else next = Math.min(next, due);
+    }
+    if (next < Infinity)
+      this.releaseTimer = setTimeout(() => this.releaseIdle(), next - now).unref();
+  }
   /** The host closes: the agents keep working in their holders, and the
    * next host attaches to them. */
   async detachAll() {
     this.closing = true;
+    clearTimeout(this.releaseTimer);
     for (const runner of this.runners.values()) runner.detach();
     await this.writing;
   }

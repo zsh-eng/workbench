@@ -10,14 +10,13 @@ import type { PullJob } from "../../src/shared/pull-workspace";
 import type { SavedReview } from "../../src/shared/saved-review";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { readServerEvents } from "../../src/web/data/sse";
+import { removeFolder } from "./remove-folder";
 
 const directories: string[] = [];
 const hosts: RunningHost[] = [];
 afterEach(async () => {
   await Promise.all(hosts.splice(0).map((host) => host.close()));
-  await Promise.all(
-    directories.splice(0).map((path) => rm(path, { recursive: true, force: true })),
-  );
+  await Promise.all(directories.splice(0).map((path) => removeFolder(path)));
   vi.unstubAllEnvs();
 });
 

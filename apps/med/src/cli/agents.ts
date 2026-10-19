@@ -8,7 +8,8 @@ export const agentsHelp = `Usage: med agents                      List the agent
 Options: --state-dir <directory>, --json
 
 Each agent that Med starts runs in a holder of its own, so it goes on while
-Med restarts, updates, or stops, and after its tab closes.`;
+Med restarts, updates, or stops. An agent stops a minute after its thread's
+tab closes, once its turn ends.`;
 
 const age = (since: number) => {
   const minutes = Math.round((Date.now() - since) / 60_000);

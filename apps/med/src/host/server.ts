@@ -574,6 +574,38 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   // One thread list for all windows; a change to the tabs sends it at once.
   const threadFeed = createThreadFeed({ list: () => threads.list(), intervalMs: STATUS_MS });
   tabs.subscribe(() => threadFeed.changed());
+  // An agent lives as long as its thread's tab: the sessions of closed tabs
+  // go to OwnedSessions.release, which stops their agents when idle.
+  let releasing: Promise<void> | undefined;
+  let releaseAgain = false;
+  const releaseClosedTabs = () => {
+    if (releasing) {
+      releaseAgain = true;
+      return;
+    }
+    releasing = (async () => {
+      const closedAt = new Map(tabs.closed().map((entry) => [entry.id, entry.closedAt]));
+      const open = new Set<string>();
+      const closed = new Map<string, number>();
+      for (const review of await savedReviews.list()) {
+        const at = closedAt.get(review.id);
+        for (const session of review.sessions ?? [])
+          if (at === undefined) open.add(session.id);
+          else closed.set(session.id, Math.max(closed.get(session.id) ?? 0, at));
+      }
+      // A session in an open tab too stays.
+      for (const id of open) closed.delete(id);
+      ownedSessions.release(closed);
+    })()
+      .catch(() => {})
+      .finally(() => {
+        releasing = undefined;
+        if (!releaseAgain) return;
+        releaseAgain = false;
+        releaseClosedTabs();
+      });
+  };
+  tabs.subscribe(releaseClosedTabs);
   listChanged = () => threadFeed.changed();
   const activeRequests = new Map<AbortController, Set<string>>();
   // Each checkout's revision: watcher events change it at once.
@@ -736,6 +768,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   await options.service?.attach(registry);
   // Tabs come from the saved reviews on the first start; history prunes now and daily.
   await threads.start();
+  releaseClosedTabs();
   const publish = (event: ChangeEvent) => {
     const frame = `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
     for (const [stream, path] of streams) {
@@ -1415,8 +1448,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               "x-accel-buffering": "no",
             });
             ownedStreams.add(response);
-            // The agents stop as the host closes. The page keeps their last
-            // state, so its message box stays open while Med restarts.
+            // The agents keep working as the host closes. The page keeps their
+            // last state, so its message box stays open while Med restarts.
             const push = () => {
               if (!closing)
                 response.write(`event: state\ndata: ${JSON.stringify(runner.state())}\n\n`);
